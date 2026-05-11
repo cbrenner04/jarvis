@@ -58,9 +58,9 @@ jarvis run spec/<name>/index.md
 ```
 
 Normal runs expect the supplied spec path to be an `index.md` file. Passing a
-direct spec file such as `spec/<name>/01-task.md` asks for confirmation first;
-when confirmed, jarvis runs that direct spec for one successful agent iteration
-instead of entering the normal loop.
+non-index spec file such as `spec/<name>/01-task.md` prompts for one action:
+`s` to switch to a sibling `index.md`, `m` to migrate the supplied spec into
+index-routed form in one agent iteration, or `e` to exit.
 
 ### Worktree directory
 
@@ -242,10 +242,10 @@ until the spec has no unchecked boxes. Normal runs use an `index.md` spec so
 agents select one indexed task per invocation.
 
 When `<spec-path>` is not named `index.md`, jarvis prompts before invoking any
-agent. Confirming the prompt runs the supplied spec for one successful work
-iteration, with quota fallback still allowed before that work iteration. If
-unchecked tasks remain afterward, jarvis exits 0 and reports that the
-one-iteration run finished with unchecked tasks remaining.
+agent: `s` (switch), `m` (migrate), or `e` (exit). `s` resolves to the sibling
+`index.md` and continues with the normal loop. `m` runs one migration iteration
+against the supplied path and then exits, with quota fallback still allowed
+before that migration iteration.
 
 Each iteration prints a banner before agent invocation with:
 project key, spec display name (`basename(specPath)`), iteration number, current

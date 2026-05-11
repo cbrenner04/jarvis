@@ -67,6 +67,7 @@ const DEFAULT_PATCH_MODELS = {
   claude: "haiku",
   codex: "gpt-5.3-codex",
   cursor: "Composer 2",
+  opencode: "<configure-in-opencode-providers-spec>",
 };
 
 async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
@@ -472,6 +473,7 @@ exit 0
           claude: "haiku",
           codex: "gpt-5.3-codex",
           cursor: "Composer 2",
+          opencode: "<configure-in-opencode-providers-spec>",
         },
         projects: { project: { root: projectRoot } },
       },

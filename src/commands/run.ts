@@ -10,6 +10,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { ClaudeAgent } from "../agents/claude.ts";
 import { CodexAgent } from "../agents/codex.ts";
 import { CursorAgent } from "../agents/cursor.ts";
+import { OpencodeAgent } from "../agents/opencode.ts";
 import type { Agent } from "../agents/types.ts";
 import { countUnchecked, getFirstUncheckedTask } from "../completion.ts";
 import {
@@ -670,5 +671,6 @@ function defaultAgents(cfg: Config): Record<AgentName, Agent> {
     claude: new ClaudeAgent({ model: cfg.patchModels.claude }),
     codex: new CodexAgent({ model: cfg.patchModels.codex }),
     cursor: new CursorAgent({ model: cfg.patchModels.cursor }),
+    opencode: new OpencodeAgent({ model: cfg.patchModels.opencode }),
   };
 }

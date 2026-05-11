@@ -23,6 +23,15 @@ const cursorQuotaPatterns = [
   /\bresource_exhausted\b/i,
 ];
 
+const opencodeQuotaPatterns = [
+  /\brate limit\b/i,
+  /\bquota exceeded\b/i,
+  /\binsufficient_quota\b/i,
+  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b429\b/i,
+  /(?:^|\n)[^\n]*\b429\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
+  /\byou have exceeded your\b/i,
+];
+
 const modelConfigurationPatterns = [
   /\bunknown model\b/i,
   /\bunsupported model\b/i,
@@ -33,8 +42,26 @@ const modelConfigurationPatterns = [
   /\bunrecognized model\b/i,
 ];
 
-export function isModelConfigurationSignal(stderr: string): boolean {
-  return modelConfigurationPatterns.some((pattern) => pattern.test(stderr));
+const opencodeModelConfigurationPatterns = [/\bno provider configured for\b/i];
+
+export function isModelConfigurationSignal(stderr: string): boolean;
+export function isModelConfigurationSignal(
+  name: AgentName,
+  stderr: string,
+): boolean;
+export function isModelConfigurationSignal(
+  nameOrStderr: AgentName | string,
+  maybeStderr?: string,
+): boolean {
+  const name =
+    maybeStderr === undefined ? undefined : (nameOrStderr as AgentName);
+  const stderr = maybeStderr === undefined ? nameOrStderr : maybeStderr;
+  const patterns =
+    name === "opencode"
+      ? [...modelConfigurationPatterns, ...opencodeModelConfigurationPatterns]
+      : modelConfigurationPatterns;
+
+  return patterns.some((pattern) => pattern.test(stderr));
 }
 
 export function isQuotaSignal(
@@ -45,13 +72,15 @@ export function isQuotaSignal(
   if (exitCode === 0) return false;
 
   const patterns = (() => {
-    switch (name) {
+    switch (name as AgentName | "opencode") {
       case "claude":
         return claudeQuotaPatterns;
       case "codex":
         return codexQuotaPatterns;
       case "cursor":
         return cursorQuotaPatterns;
+      case "opencode":
+        return opencodeQuotaPatterns;
     }
   })();
 

@@ -49,6 +49,7 @@ describe("config show", () => {
         claude: "haiku",
         codex: "gpt-5.3-codex",
         cursor: "Composer 2",
+        opencode: "<configure-in-opencode-providers-spec>",
       },
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
@@ -94,6 +95,20 @@ describe("config set-order", () => {
     expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual(["codex", "claude"]);
   });
 
+  test("opencode is allowed", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-order", "claude,opencode"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual([
+      "claude",
+      "opencode",
+    ]);
+  });
+
   test("rejects unknown agent without changing file", () => {
     // seed config
     configCommand({
@@ -116,10 +131,42 @@ describe("config set-order", () => {
     expect(after).toBe(before);
   });
 
+  test("rejects nonsense agent without changing file", () => {
+    configCommand({
+      args: ["show"],
+      io: captureIo().io,
+      config: { dir: cfgDir },
+    });
+    const before = readFileSync(join(cfgDir, "config.json"), "utf8");
+
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-order", "claude,nonsense"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("unknown agent");
+
+    const after = readFileSync(join(cfgDir, "config.json"), "utf8");
+    expect(after).toBe(before);
+  });
+
   test("rejects duplicates", () => {
     const cap = captureIo();
     const code = configCommand({
       args: ["set-order", "claude,claude"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("duplicate");
+  });
+
+  test("rejects duplicate opencode", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-order", "claude,opencode,opencode"],
       io: cap.io,
       config: { dir: cfgDir },
     });

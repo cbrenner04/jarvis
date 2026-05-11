@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { isQuotaSignal } from "../../src/agents/quota.ts";
+import {
+  isModelConfigurationSignal,
+  isQuotaSignal,
+} from "../../src/agents/quota.ts";
 
 describe("isQuotaSignal", () => {
   test("matches Claude Code subscription limits", () => {
@@ -79,5 +82,31 @@ describe("isQuotaSignal", () => {
     expect(
       isQuotaSignal("cursor", 1, "No Cursor IDE installation found."),
     ).toBe(false);
+  });
+
+  test.each([
+    "rate limit reached",
+    "quota exceeded",
+    "insufficient_quota",
+    "error: HTTP 429 from provider",
+    "you have exceeded your current quota",
+  ])("matches Opencode quota output: %s", (stderr) => {
+    expect(isQuotaSignal("opencode", 1, stderr)).toBe(true);
+  });
+
+  test("does not treat successful Opencode output as quota", () => {
+    expect(isQuotaSignal("opencode", 0, "rate limit reached")).toBe(false);
+  });
+});
+
+describe("isModelConfigurationSignal", () => {
+  test.each([
+    "model not found",
+    "unknown model",
+    "unsupported model",
+    "invalid model",
+    "no provider configured for airproxy",
+  ])("matches Opencode model configuration output: %s", (stderr) => {
+    expect(isModelConfigurationSignal("opencode", stderr)).toBe(true);
   });
 });

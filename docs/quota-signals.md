@@ -64,3 +64,20 @@ Chosen matcher: non-zero exit plus `You've reached your usage limit`,
 
 Chosen matcher: non-zero exit plus direct usage/free-request/monthly/spend-limit
 phrases, or `resource_exhausted`.
+
+## Opencode
+
+- Observed/documented exit code: non-zero; exact value depends on the provider
+  surfaced through opencode.
+- Stderr/stdout text: opencode can wrap multiple providers, so initial matching
+  is conservative and based on common provider error text: `rate limit`, `quota
+  exceeded`, `insufficient_quota`, `429` on an error line, and `you have
+  exceeded your`.
+- Model configuration text: `model not found`, `unknown model`, `unsupported
+  model`, `invalid model`, and opencode's `no provider configured for` phrasing.
+- Distinguishable: partly. Direct quota and model-configuration messages are
+  distinguishable, but provider-specific quota surfaces vary. This list is
+  expected to grow as real-world opencode failures are observed.
+
+Chosen matcher: non-zero exit plus one of the direct quota phrases above, or
+`429` when it appears on an error-like line.

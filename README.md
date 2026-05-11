@@ -8,8 +8,8 @@ Prerequisites:
 - [Bun](https://bun.sh/) installed.
 - [GitHub CLI](https://cli.github.com/) (`gh`) installed and authenticated
   (run `gh auth login` if needed).
-- At least one supported agent CLI available on `PATH`: `claude`, `codex`, or
-  `cursor`.
+- At least one supported agent CLI available on `PATH`: `claude`, `codex`,
+  `cursor`, or `opencode`.
 
 Install jarvis from a local clone:
 
@@ -70,6 +70,9 @@ jarvis log-server
 # in a second terminal:
 jarvis run spec/<name>/index.md
 ```
+
+Opencode users should first run `bun run install-opencode-permissions` from the
+jarvis checkout, then opt in through `~/.jarvis/config.json`.
 
 Normal runs expect the supplied spec path to be an `index.md` file. Passing a
 non-index spec file such as `spec/<name>/01-task.md` prompts for one action:
@@ -213,9 +216,41 @@ and the binary each one invokes:
 | `claude` | `claude -p --permission-mode acceptEdits` | Prompt is piped on stdin (non-interactive print mode); `--permission-mode acceptEdits` auto-allows file edits and safe filesystem commands without prompting (`claude --help`). |
 | `codex`  | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). |
 | `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; `--force` enables file writes in print mode; `--output-format text` matches transcript shape of other agents; prompt is the trailing positional argument (`cursor agent --help`). |
+| `opencode` | `opencode run --model <provider/model> --format default <prompt>` | `--model` is required; prompt is passed as the trailing positional argument; permissions are handled via global opencode config (see [spec/opencode-as-agent/04-opencode-permission-stanza.md](spec/opencode-as-agent/04-opencode-permission-stanza.md)). |
 
 Quota detection is per-agent and based on documented or observed stderr
 signals; see [docs/quota-signals.md](docs/quota-signals.md).
+
+### Opencode setup
+
+Opencode is supported but opt-in: it is not included in the default
+`agentOrder`. Before selecting it, run the one-time permission installer from
+the jarvis checkout:
+
+```sh
+bun run install-opencode-permissions
+```
+
+That command writes the safe-edits permission posture to
+`~/.config/opencode/opencode.json` without changing unrelated opencode settings.
+Then edit `~/.jarvis/config.json` to include opencode in `agentOrder` and set
+`patchModels.opencode` to a configured provider/model:
+
+```json
+{
+  "agentOrder": ["opencode", "claude", "codex", "cursor"],
+  "patchModels": {
+    "claude": "haiku",
+    "codex": "gpt-5.3-codex",
+    "cursor": "Composer 2",
+    "opencode": "provider/model"
+  }
+}
+```
+
+Provider-specific opencode setup, including AirProxy and github-copilot, is
+covered by the follow-up `airproxy-and-copilot-via-opencode` spec and will be
+documented separately when that spec lands.
 
 ### Agent CLI verbosity
 
@@ -228,6 +263,8 @@ each upstream CLI. Current defaults:
   agents’ plain stdout.
 - **Cursor**: `--output-format text` with `-p` — same intent as Claude’s default
   print transcript (JSON/stream modes would flood logs).
+- **Opencode**: `--format default` — keeps output in the plain-text transcript
+  shape used by the other agents.
 
 ### Permission posture
 
@@ -400,7 +437,7 @@ canonical source for reconstructing a complete run transcript.
 `config.json` schema (v1):
 
 ```ts
-type AgentName = "claude" | "codex" | "cursor";
+type AgentName = "claude" | "codex" | "cursor" | "opencode";
 
 type Project = {
   root: string; // absolute path to a target-repo root
@@ -444,7 +481,8 @@ Default contents on first bootstrap:
   "patchModels": {
     "claude": "haiku",
     "codex": "gpt-5.3-codex",
-    "cursor": "Composer 2"
+    "cursor": "Composer 2",
+    "opencode": "<configure-in-opencode-providers-spec>"
   },
   "logServerUrl": "http://127.0.0.1:4310/logs",
   "logServerBind": "127.0.0.1:4310",
@@ -452,6 +490,9 @@ Default contents on first bootstrap:
   "projects": {}
 }
 ```
+
+`opencode` is present in `patchModels` so config validation has a complete
+agent map, but adding it to `agentOrder` is opt-in.
 
 All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid configs
 are rejected with an error that names the offending file.

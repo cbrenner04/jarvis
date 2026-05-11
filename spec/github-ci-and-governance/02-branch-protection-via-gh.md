@@ -18,53 +18,46 @@ example an urgent hotfix).
   rules on admins / allowing admin bypass—wording depends on GitHub edition.)
 - **Code owners**: `require_code_owner_reviews`: `true` with at least one
   required approval so `CODEOWNERS` is meaningful once protection is enabled.
-- **Status checks**: After the first successful **`CI / checks`** run on
-  `main`, add that context to `required_status_checks.contexts`. GitHub rejects
-  unknown check names when creating protection.
+- **Status checks**: Use the **check run `name`** GitHub attaches to the commit
+  (often the workflow job id, e.g. `checks` in this repo). Discover it after one
+  green CI run on `main`:
 
-## Plan restriction (free private repository)
+  ```bash
+  gh api repos/OWNER/REPO/commits/main/check-runs -q '.check_runs[].name'
+  ```
 
-Branch protection (and reading protection via the API) is **not available** for
-**private** repositories on the **free** GitHub plan. The API returns HTTP 403
-with a message to upgrade to GitHub Pro or make the repository **public**.
+  GitHub rejects unknown context names when creating protection.
 
-## Blocker
+## Plan note (private repositories)
 
-`GET /repos/cbrenner04/jarvis/branches/main/protection` returned **403** on the
-current private/free plan. Complete the tasks below after the repository is
-**public** or on a **paid** plan (or apply equivalent rules in the UI if API
-access remains blocked).
-
-**Options**:
-
-1. Make the repository **public** (then re-run the `gh api` commands below), or
-2. Upgrade the account/org to **GitHub Pro** (or use a paid org), or
-3. Enforce process manually (required reviews and green CI as social contract)
-   until the plan supports protection.
+Branch protection is **not available** for **private** repositories on the
+**free** GitHub plan (API **403** until the repo is **public** or on a **paid**
+plan).
 
 ## Tasks
 
-- [ ] When the repo qualifies (public or Pro), ensure **`CI / checks`** has
-      succeeded on `main` at least once so the check name exists.
-- [ ] Apply protection with `gh` (JSON body—see below). Adjust
+- [x] When the repo qualifies (public or Pro), ensure the CI job has succeeded
+      on `main` at least once so the check name exists.
+- [x] Apply protection with `gh` (JSON body—see below). Adjust
       `required_approving_review_count` if you want stricter review.
-- [ ] Re-run `gh api repos/{owner}/{repo}/branches/main/protection` and confirm
-      `enforce_admins` is disabled so admins retain bypass.
+- [x] Re-run `gh api repos/{owner}/{repo}/branches/main/protection` and confirm
+      `enforce_admins.enabled` is **false** in the response so admins retain bypass.
 
 ## Example `gh api` invocation
 
 Replace `OWNER/REPO` if needed. Run from an authenticated `gh` session with
-`repo` scope.
+`repo` scope. Set `contexts` to the check name(s) from `check-runs` (this repo
+uses **`checks`**).
 
 ```bash
 OWNER_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-# After CI has run on main and "CI / checks" appears under branch checks:
+# After CI has run on main:
 gh api --method PUT "repos/${OWNER_REPO}/branches/main/protection" \
   --input - <<'EOF'
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["CI / checks"]
+    "contexts": ["checks"]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": {
@@ -90,8 +83,8 @@ returns a validation error.
 
 ## Acceptance criteria
 
-- `main` requires the `CI / checks` status and at least one approval including
-  code owners (where GitHub applies that rule).
+- `main` requires the **`checks`** status and at least one approval including code
+  owners (where GitHub applies that rule).
 - Repository admins can still merge or override when required (admin bypass).
 
 ## Documentation updates

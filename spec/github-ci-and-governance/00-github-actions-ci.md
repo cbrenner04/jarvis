@@ -19,8 +19,9 @@ machine.
 ## Tasks
 
 - [x] Add `.github/workflows/ci.yml` with a single job (recommended job id:
-      `checks`) so required-status-check names are stable (`CI / checks` when
-      the workflow `name` is `CI`).
+      `checks`) so required-status-check names stay predictable; confirm the
+      branch-protection context with `commits/main/check-runs` (this repo uses
+      **`checks`**).
 - [x] Confirm the workflow passes on a clean checkout.
 
 ## Acceptance criteria

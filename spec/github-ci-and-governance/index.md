@@ -9,4 +9,4 @@ branch protection that requires green CI and code-owner review while keeping
 
 - [x] [00 - GitHub Actions CI](./00-github-actions-ci.md)
 - [x] [01 - CODEOWNERS](./01-codeowners.md)
-- [ ] [02 - Branch protection via `gh`](./02-branch-protection-via-gh.md)
+- [x] [02 - Branch protection via `gh`](./02-branch-protection-via-gh.md)

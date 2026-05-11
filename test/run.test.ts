@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -12,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult } from "../src/agents/types.ts";
 import {
+  prepareActiveSpecPath,
   type RunCommandOptions,
   type RunIo,
   runCommand,
@@ -891,6 +893,41 @@ exit 0
     expect(
       harnessMessages.some((m) => m.text.includes("error: unsupported model")),
     ).toBe(true);
+  });
+
+  test("prepares a missing spec directory inside the agent worktree", () => {
+    const sourceSpecDir = join(projectRoot, "spec", "feature");
+    mkdirSync(sourceSpecDir, { recursive: true });
+    const sourceIndex = join(sourceSpecDir, "index.md");
+    const sourceTask = join(sourceSpecDir, "00-task.md");
+    const sourceExisting = join(sourceSpecDir, "01-existing.md");
+    writeFileSync(sourceIndex, "- [ ] [00 - Task](./00-task.md)\n");
+    writeFileSync(sourceTask, "# 00 - Task\n");
+    writeFileSync(sourceExisting, "main checkout content\n");
+
+    const worktreeRoot = join(projectRoot, ".worktree", "feature");
+    const targetSpecDir = join(worktreeRoot, "spec", "feature");
+    mkdirSync(targetSpecDir, { recursive: true });
+    const targetExisting = join(targetSpecDir, "01-existing.md");
+    writeFileSync(targetExisting, "worktree content\n");
+
+    const activeSpecPath = prepareActiveSpecPath({
+      projectRoot,
+      agentWorkingDir: worktreeRoot,
+      specPath: sourceIndex,
+    });
+
+    expect(activeSpecPath).toBe(
+      join(worktreeRoot, "spec", "feature", "index.md"),
+    );
+    expect(existsSync(activeSpecPath)).toBe(true);
+    expect(readFileSync(activeSpecPath, "utf8")).toBe(
+      "- [ ] [00 - Task](./00-task.md)\n",
+    );
+    expect(readFileSync(join(targetSpecDir, "00-task.md"), "utf8")).toBe(
+      "# 00 - Task\n",
+    );
+    expect(readFileSync(targetExisting, "utf8")).toBe("worktree content\n");
   });
 });
 

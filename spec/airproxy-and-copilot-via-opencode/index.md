@@ -53,7 +53,7 @@ should `## Blocker`-stop rather than re-implement the opencode foundation.
 
 ## Subspecs
 
-- [ ] [00 — Decide default models](./00-default-models.md)
+- [x] [00 — Decide default models](./00-default-models.md)
 - [ ] [01 — AirProxy and Copilot agent modules](./01-agent-modules.md)
 - [ ] [02 — Config and AgentName expansion](./02-config-and-agentname.md)
 - [ ] [03 — Quota signals refinement](./03-quota-signals-refinement.md)

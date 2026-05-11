@@ -13,6 +13,7 @@ import {
   loadConfig,
   openSessionLog,
 } from "../config.ts";
+import { assertGhReady } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { buildPrompt } from "../prompt.ts";
 
@@ -31,6 +32,7 @@ export type RunCommandOptions = {
   logClient?: LogClient;
   confirmRun?: ConfirmRun;
   handleSignals?: boolean;
+  skipGhCheck?: boolean;
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
@@ -47,6 +49,15 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       "spec path is not inside any project registered with `jarvis init`.\n",
     );
     return 1;
+  }
+
+  if (!opts.skipGhCheck) {
+    try {
+      await assertGhReady();
+    } catch (err) {
+      opts.io.stderr(`${(err as Error).message}\n`);
+      return 1;
+    }
   }
 
   const isIndexSpec = basename(specPath) === "index.md";
@@ -109,25 +120,47 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     }
     return lines;
   };
+  const writeLog = async (
+    tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
+    text: string,
+    annotations?: Record<string, string | number | boolean | null>,
+  ): Promise<void> => {
+    for (const line of splitLines(text)) {
+      writeSessionLine(tag, line);
+      await sendLog(tag, line, annotations);
+    }
+  };
+  const writeTerminal = (stream: "stdout" | "stderr", text: string): void => {
+    if (stream === "stdout") {
+      opts.io.stdout(text);
+    } else if (stream === "stderr") {
+      opts.io.stderr(text);
+    }
+  };
   const fanout = async (
     tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
     text: string,
     stream: "stdout" | "stderr" | null,
     annotations?: Record<string, string | number | boolean | null>,
   ): Promise<void> => {
-    if (stream === "stdout") {
-      opts.io.stdout(text);
-    } else if (stream === "stderr") {
-      opts.io.stderr(text);
+    if (stream !== null) {
+      writeTerminal(stream, text);
     }
-    for (const line of splitLines(text)) {
-      writeSessionLine(tag, line);
-      await sendLog(tag, line, annotations);
-    }
+    await writeLog(tag, text, annotations);
   };
   let iteration = 1;
+  let latestIterationStdout: string[] = [];
+  let latestIterationStderr: string[] = [];
+
+  const printBoundedTail = (lines: string[]): void => {
+    const tail = lines.slice(-40);
+    for (const line of tail) {
+      opts.io.stdout(`${line}\n`);
+    }
+  };
 
   const onSigint = () => {
+    writeSessionLine("harness", "interrupted");
     opts.io.stderr("interrupted\n");
     process.exit(130);
   };
@@ -138,12 +171,17 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   try {
     while (true) {
       if (isIndexSpec && iteration > cfg.maxIterations) {
-        opts.io.stderr(
+        printBoundedTail([...latestIterationStdout, ...latestIterationStderr]);
+        await fanout(
+          "harness",
           `max iterations (${cfg.maxIterations}) reached; stopping\n`,
+          "stderr",
         );
         return 5;
       }
 
+      latestIterationStdout = [];
+      latestIterationStderr = [];
       const before = countUnchecked(specPath);
       if (before === 0) {
         await fanout("harness", "spec complete\n", "stdout");
@@ -152,7 +190,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
       const agent = activeAgents[0];
       if (agent === undefined) {
-        opts.io.stderr("all agents quota-exhausted\n");
+        await fanout("harness", "all agents quota-exhausted\n", "stderr");
         return 2;
       }
 
@@ -178,13 +216,15 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       });
       if (result.kind === "ok") {
         if (result.stdout.length > 0) {
-          await fanout("inbound_stdout", result.stdout, "stdout", {
+          latestIterationStdout.push(...splitLines(result.stdout));
+          await fanout("inbound_stdout", result.stdout, null, {
             iteration,
             agent: agent.name,
           });
         }
         if (result.stderr.length > 0) {
-          await fanout("inbound_stderr", result.stderr, "stderr", {
+          latestIterationStderr.push(...splitLines(result.stderr));
+          await fanout("inbound_stderr", result.stderr, null, {
             iteration,
             agent: agent.name,
           });
@@ -203,6 +243,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           return 0;
         }
         if (after === before) {
+          printBoundedTail([
+            ...latestIterationStdout,
+            ...latestIterationStderr,
+          ]);
           await fanout(
             "harness",
             `iteration ${iteration} made no progress; stopping\n`,
@@ -228,21 +272,22 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         continue;
       }
       if (result.kind === "model_config") {
-        opts.io.stderr(
-          `${agent.name}: configured patch model ${JSON.stringify(cfg.patchModels[agent.name])} is not supported by this CLI/account\n`,
-        );
+        const configErr = `${agent.name}: configured patch model ${JSON.stringify(cfg.patchModels[agent.name])} is not supported by this CLI/account\n`;
+        await fanout("harness", configErr, "stderr");
         if (result.stderr.length > 0) {
-          opts.io.stderr(
-            result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`,
-          );
+          const stderr = result.stderr.endsWith("\n")
+            ? result.stderr
+            : `${result.stderr}\n`;
+          await fanout("harness", stderr, "stderr");
         }
         return 3;
       }
 
       if (result.stderr.length > 0) {
-        opts.io.stderr(
-          result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`,
-        );
+        const stderr = result.stderr.endsWith("\n")
+          ? result.stderr
+          : `${result.stderr}\n`;
+        await fanout("harness", stderr, "stderr");
       }
       return 3;
     }

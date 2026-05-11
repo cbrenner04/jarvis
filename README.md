@@ -6,6 +6,8 @@ Coding agent harness
 Prerequisites:
 
 - [Bun](https://bun.sh/) installed.
+- [GitHub CLI](https://cli.github.com/) (`gh`) installed and authenticated
+  (run `gh auth login` if needed).
 - At least one supported agent CLI available on `PATH`: `claude`, `codex`, or
   `cursor`.
 

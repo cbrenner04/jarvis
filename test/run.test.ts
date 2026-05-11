@@ -69,6 +69,7 @@ const DEFAULT_PATCH_MODELS = {
 async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
   return runCommand({
     ...opts,
+    skipGhCheck: true,
     logClient: {
       assertReachable: async () => {},
       send: async () => {},
@@ -109,6 +110,7 @@ describe("runCommand", () => {
       io: cap.io,
       config: { dir: cfgDir },
       agents: { claude },
+      skipGhCheck: true,
       logClient: {
         assertReachable: async () => {
           throw new Error("connect ECONNREFUSED 127.0.0.1:4310");
@@ -183,7 +185,7 @@ describe("runCommand", () => {
     expect(claude.calls[0]?.prompt).not.toContain("Read README.md.");
   });
 
-  test("prints agent stdout and stderr on a successful iteration", async () => {
+  test("does not print successful agent stdout/stderr to terminal", async () => {
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => {
@@ -200,8 +202,8 @@ describe("runCommand", () => {
     });
 
     expect(code).toBe(0);
-    expect(cap.out()).toContain("agent out\n");
-    expect(cap.err()).toContain("agent err\n");
+    expect(cap.out()).not.toContain("agent out\n");
+    expect(cap.err()).not.toContain("agent err\n");
   });
 
   test("writes banner, outbound, and inbound to server and session log in order", async () => {
@@ -224,6 +226,7 @@ describe("runCommand", () => {
       io: cap.io,
       config: { dir: cfgDir },
       agents: { claude },
+      skipGhCheck: true,
       logClient,
       handleSignals: false,
     });
@@ -421,7 +424,7 @@ exit 0
 
     expect(code).toBe(4);
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "-p\0--model\0haiku\0",
+      "-p\0--permission-mode\0acceptEdits\0--model\0haiku\0",
     );
   });
 
@@ -748,6 +751,140 @@ exit 0
       "one-iteration run finished with unchecked tasks remaining",
     );
     expect(cap.err()).not.toContain("made no progress");
+  });
+
+  test("no-progress exit prints bounded tail of latest iteration output", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "line 1\nline 2\nline 3\nline 4\nline 5\n",
+      stderr: "err 1\nerr 2\nerr 3\n",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(4);
+    expect(cap.out()).toContain("line 3");
+    expect(cap.out()).toContain("line 4");
+    expect(cap.out()).toContain("line 5");
+    expect(cap.out()).toContain("err 1");
+    expect(cap.out()).toContain("err 2");
+    expect(cap.out()).toContain("err 3");
+    expect(cap.err()).toContain("made no progress");
+  });
+
+  test("max-iterations exit prints bounded tail of latest iteration output", async () => {
+    const spec = writeSpec("- [ ] one\n- [ ] two\n- [ ] three\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", (callCount) => {
+      const checked = Array.from(
+        { length: callCount },
+        (_, index) => `- [x] ${index + 1}`,
+      );
+      const unchecked = Array.from(
+        { length: 3 - callCount },
+        (_, index) => `- [ ] ${callCount + index + 1}`,
+      );
+      writeFileSync(spec, [...checked, ...unchecked].join("\n"));
+      return {
+        kind: "ok",
+        stdout: `iteration ${callCount} output\n`,
+        stderr: `iteration ${callCount} error\n`,
+      };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir, maxIterations: 2 },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(5);
+    expect(cap.out()).toContain("iteration 2 output");
+    expect(cap.out()).toContain("iteration 2 error");
+    expect(cap.err()).toContain("max iterations (2) reached");
+    expect(claude.calls).toHaveLength(2);
+  });
+
+  test("agent error is logged and printed to terminal", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "error",
+      exitCode: 7,
+      stderr: "test error message",
+    }));
+    const messages: { tag: string; text: string }[] = [];
+    const logClient: LogClient = {
+      assertReachable: async () => {},
+      send: async (message) => {
+        messages.push({ tag: message.tag, text: message.text });
+      },
+    };
+
+    const code = await runCommand({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      skipGhCheck: true,
+      logClient,
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(cap.err()).toContain("test error message");
+    expect(
+      messages.some(
+        (m) => m.tag === "harness" && m.text.includes("test error message"),
+      ),
+    ).toBe(true);
+  });
+
+  test("model config failure is logged and printed to terminal", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "model_config",
+      stderr: "error: unsupported model",
+    }));
+    const messages: { tag: string; text: string }[] = [];
+    const logClient: LogClient = {
+      assertReachable: async () => {},
+      send: async (message) => {
+        messages.push({ tag: message.tag, text: message.text });
+      },
+    };
+
+    const code = await runCommand({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      skipGhCheck: true,
+      logClient,
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(cap.err()).toContain("configured patch model");
+    expect(cap.err()).toContain("error: unsupported model");
+    const harnessMessages = messages.filter((m) => m.tag === "harness");
+    expect(
+      harnessMessages.some((m) => m.text.includes("configured patch model")),
+    ).toBe(true);
+    expect(
+      harnessMessages.some((m) => m.text.includes("error: unsupported model")),
+    ).toBe(true);
   });
 });
 

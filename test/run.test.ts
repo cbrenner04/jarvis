@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -148,6 +149,61 @@ describe("runCommand", () => {
     expect(code).toBe(0);
     expect(cap.out()).toContain("spec complete");
     expect(claude.calls).toHaveLength(0);
+  });
+
+  test("exits 6 when checklists are complete but the git worktree is dirty", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const spec = writeSpec("- [ ] todo\n");
+    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      writeFileSync(join(projectRoot, "extra.txt"), "x");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(6);
+    expect(cap.err()).toContain("not clean");
+    expect(cap.out()).not.toContain("spec complete");
+  });
+
+  test("exits 0 when the worktree is git-clean after a completing iteration", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const spec = writeSpec("- [ ] todo\n");
+    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("spec complete");
   });
 
   test("completes after an agent flips an unchecked box", async () => {

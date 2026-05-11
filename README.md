@@ -85,7 +85,13 @@ After the worktree is ready, the worktree is the run source of truth. Jarvis
 maps the requested spec path into that worktree and uses the worktree-local spec
 for prompts, task banners, completion checks, and no-progress checks. If the
 spec directory exists only in the main checkout, Jarvis seeds missing spec files
-into the worktree without overwriting files already present there.
+into the worktree without overwriting files already present there. Those seeded
+copies are normal files in the worktree working tree: if they are not yet on the
+feature branch, they start out **untracked** until you `git add` and commit them.
+Agents must leave the worktree **clean** (no uncommitted or untracked changes)
+once every checkbox is checked, or `jarvis run` exits `6` instead of treating
+the spec as complete—otherwise the harness can report "done" while the draft PR
+never receives the work.
 
 #### Commit shape
 
@@ -237,6 +243,10 @@ Jarvis treats a spec as complete when the spec file has zero unchecked
 GitHub-style task list items. An unchecked item is a line matching
 `^\s*- \[ \]\s`; checked items use `- [x]` or `- [X]`.
 
+When the agent `cwd` is a git checkout (normal runs that use a worktree), Jarvis
+also requires a clean `git status` before printing **spec complete**. That way
+checkbox completion cannot succeed while changes are still only on disk.
+
 A spec with no task list checkboxes is malformed. Jarvis fails fast instead of
 treating it as complete.
 
@@ -319,6 +329,8 @@ Exit codes:
 - `3` — the active agent failed for a non-quota reason.
 - `4` — a successful agent iteration made no progress.
 - `5` — the configured maximum iteration count was reached.
+- `6` — every checklist item is checked, but the worktree is not clean; commit
+  and push so the PR matches the run.
 - `130` — interrupted with Ctrl-C.
 
 ## Development

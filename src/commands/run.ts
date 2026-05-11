@@ -23,7 +23,11 @@ import {
 import { assertGhReady } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { buildPrompt } from "../prompt.ts";
-import { createWorktreeSymlinks, ensureWorktree } from "../worktree.ts";
+import {
+  createWorktreeSymlinks,
+  ensureWorktree,
+  worktreeCompletionBlocker,
+} from "../worktree.ts";
 
 export type RunIo = {
   stdout: (s: string) => void;
@@ -201,6 +205,23 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   }
 
   try {
+    const tryFinishSpecIfDone = async (): Promise<number | null> => {
+      if (countUnchecked(specPath) !== 0) {
+        return null;
+      }
+      const blocker = worktreeCompletionBlocker(agentWorkingDir);
+      if (blocker !== undefined) {
+        await fanout(
+          "harness",
+          `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n`,
+          "stderr",
+        );
+        return 6;
+      }
+      await fanout("harness", "spec complete\n", "stdout");
+      return 0;
+    };
+
     while (true) {
       if (isIndexSpec && iteration > cfg.maxIterations) {
         printBoundedTail([...latestIterationStdout, ...latestIterationStderr]);
@@ -216,7 +237,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       latestIterationStderr = [];
       const before = countUnchecked(specPath);
       if (before === 0) {
-        await fanout("harness", "spec complete\n", "stdout");
+        const done = await tryFinishSpecIfDone();
+        if (done !== null) {
+          return done;
+        }
         return 0;
       }
 
@@ -263,7 +287,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         }
         const after = countUnchecked(specPath);
         if (after === 0) {
-          await fanout("harness", "spec complete\n", "stdout");
+          const done = await tryFinishSpecIfDone();
+          if (done !== null) {
+            return done;
+          }
           return 0;
         }
         if (!isIndexSpec) {

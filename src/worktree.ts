@@ -87,6 +87,35 @@ function branchExistsOnOrigin(
   }
 }
 
+/**
+ * When the agent cwd is a git checkout, spec completion requires a clean
+ * working tree so checkbox checks cannot succeed while work (including seeded
+ * spec files) remains untracked or uncommitted — otherwise the draft PR never
+ * updates.
+ *
+ * Returns `undefined` if there is nothing to verify (no `.git`) or the tree is
+ * clean. Otherwise returns a short, human-readable reason.
+ */
+export function worktreeCompletionBlocker(cwd: string): string | undefined {
+  if (!existsSync(join(cwd, ".git"))) {
+    return undefined;
+  }
+  try {
+    const porcelain = execSync("git status --porcelain", {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    }).trim();
+    if (porcelain !== "") {
+      return `the worktree is not clean (${porcelain.split("\n").length} path(s)); uncommitted or untracked changes:\n${porcelain}`;
+    }
+    return undefined;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `could not run git status in worktree: ${message}`;
+  }
+}
+
 export function pushCurrent(projectRoot: string, isFirstPush: boolean): void {
   const args = isFirstPush ? "push -u origin HEAD" : "push";
   try {

@@ -60,6 +60,12 @@ direct spec file such as `spec/<name>/01-task.md` asks for confirmation first;
 when confirmed, jarvis runs that direct spec for one successful agent iteration
 instead of entering the normal loop.
 
+### Worktree directory
+
+Spec runs create dedicated git worktrees under `.worktree/<spec-name>/`. The
+`.worktree/` directory is tracked (via `.worktree/.keep`) so clones receive it,
+but its contents are ignored in git — only `.keep` is committed.
+
 Agents that need to create or migrate specs should follow
 [docs/spec-guidance.md](docs/spec-guidance.md).
 
@@ -100,9 +106,9 @@ and the binary each one invokes:
 
 | Agent    | CLI invoked | Notes                                                |
 | -------- | ----------- | ---------------------------------------------------- |
-| `claude` | `claude -p` | Prompt is piped on stdin (non-interactive print mode); default output with `-p` is plain text — no extra flags (`claude --help`). |
-| `codex`  | `codex exec --color never` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text (`codex exec --help`). |
-| `cursor` | `cursor agent -p --output-format text --workspace <cwd> "<prompt>"` | Headless print mode; explicit text transcript shape; prompt is the trailing positional argument (`cursor agent --help`). |
+| `claude` | `claude -p --permission-mode acceptEdits` | Prompt is piped on stdin (non-interactive print mode); `--permission-mode acceptEdits` auto-allows file edits and safe filesystem commands without prompting (`claude --help`). |
+| `codex`  | `codex exec --color never --sandbox workspace-write --ask-for-approval on-request` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `--ask-for-approval on-request` surfaces approval requests instead of silently refusing (`codex exec --help`). |
+| `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; `--force` enables file writes in print mode; `--output-format text` matches transcript shape of other agents; prompt is the trailing positional argument (`cursor agent --help`). |
 
 Quota detection is per-agent and based on documented or observed stderr
 signals; see [docs/quota-signals.md](docs/quota-signals.md).
@@ -118,6 +124,28 @@ each upstream CLI. Current defaults:
   agents’ plain stdout.
 - **Cursor**: `--output-format text` with `-p` — same intent as Claude’s default
   print transcript (JSON/stream modes would flood logs).
+
+### Permission posture
+
+Jarvis invokes agents with a `safe-edits` permission posture that allows:
+
+- File reads and edits under the agent’s working directory (the target repo
+  root).
+- Common read-only and safe filesystem operations: `mkdir`, `mv`, `cp`, read-only
+  `git` (`status`, `log`, `diff`, `show`), etc.
+- Prompt submission to the model within the agent’s normal permission rules.
+
+The posture **does not** allow without user confirmation:
+
+- Network egress (`curl`, `wget`, package installs).
+- Destructive commands targeting the filesystem root or home directory.
+- Writes outside the target repository.
+
+Jarvis **never** passes a provider’s "bypass everything" or "dangerously skip
+permissions" flags (e.g., `--dangerously-skip-permissions`, `--force-allow-all`).
+Users who need to run an agent with fewer restrictions should invoke the CLI
+directly. The rationale and per-provider implementation are documented in
+[spec/permissions/](spec/permissions/).
 
 ### How jarvis decides the spec is done
 
@@ -167,13 +195,33 @@ reports that the configured model is unsupported, jarvis exits with a
 model-configuration message and does not fall back to another agent. Fallback is
 reserved for quota exhaustion: if an agent reports quota exhaustion, jarvis
 removes it from the active list for that run and falls back to the next
-configured agent. Successful agent stdout and stderr are printed verbatim after
-each iteration.
+configured agent.
+
+### Terminal output, session logs, and log-server
+
+The `jarvis run` terminal, session files, and log server serve different purposes:
+
+- **Run terminal**: Operator-focused output showing harness status and progress.
+  Prints the iteration banner, agent fallback messages, completion status, and
+  stop reasons. Does not print successful agent stdout/stderr to keep the
+  terminal concise. On no-progress or max-iteration stops, prints a bounded tail
+  (last 40 lines) of the latest iteration's inbound output before the stop line
+  to help diagnose the failure.
+- **Session log file**: The canonical complete transcript. Located at
+  `~/.jarvis/sessions/<project-key>-<timestamp>.log`, it contains every log
+  record including harness status, iteration banners, outbound prompts, full
+  inbound stdout/stderr, quota messages, and model-configuration failures. Use
+  this file to reconstruct the complete run if you need details not shown in
+  the terminal.
+- **Log server**: Live full-transcript viewer for monitoring across sessions.
+  Receives the same complete tagged stream as the session log. Accessible via
+  `jarvis log-server`.
 
 If a successful iteration leaves the unchecked-task count unchanged and the spec
 is still incomplete, jarvis stops with exit 4. Runs also stop at
 `maxIterations`, which defaults to 10 and can be overridden with
-`--max-iterations <n>`.
+`--max-iterations <n>`. On these stops, the bounded tail of recent agent output
+is printed to the terminal to help diagnose why progress stalled.
 
 Exit codes:
 
@@ -229,8 +277,11 @@ created automatically the first time jarvis runs — no manual setup is required
 
 Session logs are keyed by the registered project name (the `projects` key in
 `config.json`), not by absolute filesystem path. Each `jarvis run` creates one
-session file and appends tagged lines for harness status, outbound prompt text,
-and inbound stdout/stderr for the lifetime of that process.
+session file and writes every log record for the lifetime of that process,
+including harness status (banners, stop reasons, completion), outbound prompts,
+inbound stdout/stderr, quota messages, model-configuration failures, and
+interruption signals. The session log is the canonical source for reconstructing
+a complete run transcript.
 
 `config.json` schema (v1):
 

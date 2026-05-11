@@ -185,7 +185,7 @@ and the binary each one invokes:
 | Agent    | CLI invoked | Notes                                                |
 | -------- | ----------- | ---------------------------------------------------- |
 | `claude` | `claude -p --permission-mode acceptEdits` | Prompt is piped on stdin (non-interactive print mode); `--permission-mode acceptEdits` auto-allows file edits and safe filesystem commands without prompting (`claude --help`). |
-| `codex`  | `codex exec --color never --sandbox workspace-write --ask-for-approval on-request` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `--ask-for-approval on-request` surfaces approval requests instead of silently refusing (`codex exec --help`). |
+| `codex`  | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). |
 | `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; `--force` enables file writes in print mode; `--output-format text` matches transcript shape of other agents; prompt is the trailing positional argument (`cursor agent --help`). |
 
 Quota detection is per-agent and based on documented or observed stderr

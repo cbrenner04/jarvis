@@ -1,12 +1,6 @@
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  lstatSync,
-  readlinkSync,
-  symlinkSync,
-  rmSync,
-} from "node:fs";
-import { dirname, join, resolve, relative } from "node:path";
+import { existsSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { getBaseBranch } from "./gh.ts";
 
 export function getSpecName(specPath: string): string {
@@ -126,10 +120,7 @@ export function createWorktreeSymlinks(
     if (existsSync(targetPath)) {
       try {
         const currentLink = readlinkSync(targetPath);
-        const expectedTarget = relative(
-          dirname(targetPath),
-          sourcePath,
-        );
+        const expectedTarget = relative(dirname(targetPath), sourcePath);
         if (currentLink === expectedTarget) {
           continue;
         }

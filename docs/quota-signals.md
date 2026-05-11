@@ -81,36 +81,3 @@ phrases, or `resource_exhausted`.
 
 Chosen matcher: non-zero exit plus one of the direct quota phrases above, or
 `429` when it appears on an error-like line.
-
-## AirProxy
-
-- Observed/documented exit code: non-zero; exact value depends on opencode and
-  the AirProxy sidecar response.
-- Stderr/stdout text: AirProxy uses the generic opencode matcher plus provider
-  lines containing `airproxy` with `limit` or `denied`, and lines containing
-  both `403` and `forbidden`.
-- Model configuration text: the generic opencode model-configuration matcher
-  plus `unknown provider: airproxy`.
-- Distinguishable: partly. Direct AirProxy limit and denial messages are useful
-  fallback signals, but upstream auth failures can be surfaced through generic
-  HTTP text.
-
-Chosen matcher: non-zero exit plus the generic opencode quota matcher, an
-AirProxy line containing `limit` or `denied`, or a line containing both `403`
-and `forbidden`.
-
-## Copilot
-
-- Observed/documented exit code: non-zero; exact value depends on opencode and
-  GitHub Copilot's provider response.
-- Stderr/stdout text: Copilot uses the generic opencode matcher plus provider
-  lines containing `copilot` with `limit` or `quota`, and the observed phrase
-  `you have exceeded your monthly`.
-- Model configuration text: the generic opencode model-configuration matcher
-  plus `unknown provider: github-copilot`.
-- Distinguishable: partly. Direct Copilot limit and quota messages are useful
-  fallback signals, but opencode may still surface provider failures in a
-  generic format.
-
-Chosen matcher: non-zero exit plus the generic opencode quota matcher, a
-Copilot line containing `limit` or `quota`, or `you have exceeded your monthly`.

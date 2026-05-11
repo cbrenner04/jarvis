@@ -59,7 +59,7 @@ describe("CursorAgent", () => {
     expect(result).toEqual({ kind: "ok", stdout: "hi-out", stderr: "hi-err" });
     const argv = readFileSync(join(dir, "argv"), "utf8");
     expect(argv).toBe(
-      `agent\0-p\0--output-format\0text\0--workspace\0${cwd}\0the prompt\0`,
+      `agent\0-p\0--output-format\0text\0--force\0--workspace\0${cwd}\0the prompt\0`,
     );
     expect(readFileSync(join(dir, "cwd"), "utf8").trim()).toBe(
       realpathSync(cwd),
@@ -74,7 +74,7 @@ describe("CursorAgent", () => {
 
     const argv = readFileSync(join(dir, "argv"), "utf8");
     expect(argv).toBe(
-      `agent\0-p\0--output-format\0text\0--model\0Composer 2\0--workspace\0${cwd}\0the prompt\0`,
+      `agent\0-p\0--output-format\0text\0--model\0Composer 2\0--force\0--workspace\0${cwd}\0the prompt\0`,
     );
   });
 
@@ -134,5 +134,15 @@ describe("CursorAgent", () => {
     const agent = new CursorAgent({ binary: join(dir, "does-not-exist") });
     const result = await agent.run("p", { cwd });
     expect(result.kind).toBe("error");
+  });
+
+  test("includes --force flag", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new CursorAgent({ binary: bin });
+
+    await agent.run("p", { cwd });
+
+    const argv = readFileSync(join(dir, "argv"), "utf8");
+    expect(argv).toContain("--force");
   });
 });

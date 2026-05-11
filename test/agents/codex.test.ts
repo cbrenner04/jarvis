@@ -60,7 +60,7 @@ describe("CodexAgent", () => {
 
     expect(result).toEqual({ kind: "ok", stdout: "hi-out", stderr: "hi-err" });
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "exec\0--color\0never\0",
+      "exec\0--color\0never\0--sandbox\0workspace-write\0--ask-for-approval\0on-request\0",
     );
     expect(readFileSync(join(dir, "stdin"), "utf8")).toBe("the prompt");
     expect(readFileSync(join(dir, "cwd"), "utf8").trim()).toBe(
@@ -75,7 +75,7 @@ describe("CodexAgent", () => {
     await agent.run("the prompt", { cwd });
 
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "exec\0--color\0never\0--model\0gpt-5.3-codex\0",
+      "exec\0--color\0never\0--sandbox\0workspace-write\0--ask-for-approval\0on-request\0--model\0gpt-5.3-codex\0",
     );
   });
 
@@ -135,5 +135,18 @@ describe("CodexAgent", () => {
     const agent = new CodexAgent({ binary: join(dir, "does-not-exist") });
     const result = await agent.run("p", { cwd });
     expect(result.kind).toBe("error");
+  });
+
+  test("includes --sandbox workspace-write and --ask-for-approval on-request flags", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new CodexAgent({ binary: bin });
+
+    await agent.run("p", { cwd });
+
+    const argv = readFileSync(join(dir, "argv"), "utf8");
+    expect(argv).toContain("--sandbox");
+    expect(argv).toContain("workspace-write");
+    expect(argv).toContain("--ask-for-approval");
+    expect(argv).toContain("on-request");
   });
 });

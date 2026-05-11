@@ -1,3 +1,5 @@
+// Permission posture: safe-edits (see spec/permissions/00-default-posture.md).
+// Permission flags: --force (see spec/permissions/03-cursor-flags.md).
 // Invokes the `cursor` CLI in non-interactive print mode:
 // `cursor agent -p --output-format text --workspace <cwd> "<prompt>"`.
 // `-p`/`--print` is headless mode with full tool access; `--output-format text`
@@ -28,7 +30,7 @@ export class CursorAgent implements Agent {
       if (this.#model !== undefined) {
         argv.push("--model", this.#model);
       }
-      argv.push("--workspace", opts.cwd, prompt);
+      argv.push("--force", "--workspace", opts.cwd, prompt);
       const child = spawn(this.#binary, argv, {
         cwd: opts.cwd,
         stdio: ["ignore", "pipe", "pipe"],

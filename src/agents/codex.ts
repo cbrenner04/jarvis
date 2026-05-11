@@ -1,3 +1,5 @@
+// Permission posture: safe-edits (see spec/permissions/00-default-posture.md).
+// Sandbox flags: --sandbox workspace-write --ask-for-approval on-request (see spec/permissions/02-codex-flags.md).
 // Invokes the `codex` CLI in non-interactive exec mode: `codex exec` with the
 // prompt piped on stdin. Stdin is used (instead of an argv positional) so the
 // prompt size is not bounded by the OS argv limit; `codex exec` reads the
@@ -27,7 +29,15 @@ export class CodexAgent implements Agent {
 
   run(prompt: string, opts: { cwd: string }): Promise<AgentResult> {
     return new Promise((resolvePromise) => {
-      const argv = ["exec", "--color", "never"];
+      const argv = [
+        "exec",
+        "--color",
+        "never",
+        "--sandbox",
+        "workspace-write",
+        "--ask-for-approval",
+        "on-request",
+      ];
       if (this.#model !== undefined) {
         argv.push("--model", this.#model);
       }

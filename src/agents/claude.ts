@@ -1,3 +1,5 @@
+// Permission posture: safe-edits (see spec/permissions/00-default-posture.md).
+// Permission flags: --permission-mode acceptEdits (see spec/permissions/01-claude-flags.md).
 // Invokes the `claude` CLI in non-interactive print mode: `claude -p` with the
 // prompt piped on stdin. Stdin is used (instead of an argv positional) so the
 // prompt size is not bounded by the OS argv limit. Default `--output-format` with
@@ -23,7 +25,7 @@ export class ClaudeAgent implements Agent {
 
   run(prompt: string, opts: { cwd: string }): Promise<AgentResult> {
     return new Promise((resolvePromise) => {
-      const argv = ["-p"];
+      const argv = ["-p", "--permission-mode", "acceptEdits"];
       if (this.#model !== undefined) {
         argv.push("--model", this.#model);
       }

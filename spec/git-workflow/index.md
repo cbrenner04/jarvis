@@ -25,7 +25,7 @@ runs inside a dedicated worktree under `.worktree/<spec-name>/`.
 
 - [x] [00 - Worktree directory scaffold](./00-worktree-directory-scaffold.md)
 - [x] [01 - gh preflight and base branch detection](./01-gh-preflight-and-base-branch.md)
-- [ ] [02 - Worktree create and resume](./02-worktree-create-and-resume.md)
+- [x] [02 - Worktree create and resume](./02-worktree-create-and-resume.md)
 - [ ] [03 - Dotfile symlinks into worktree](./03-dotfile-symlinks.md)
 - [ ] [04 - Subspec commit format](./04-subspec-commit-format.md)
 - [ ] [05 - First commit opens draft PR](./05-first-commit-opens-draft-pr.md)

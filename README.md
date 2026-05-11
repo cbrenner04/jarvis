@@ -68,6 +68,19 @@ Spec runs create dedicated git worktrees under `.worktree/<spec-name>/`. The
 `.worktree/` directory is tracked (via `.worktree/.keep`) so clones receive it,
 but its contents are ignored in git — only `.keep` is committed.
 
+#### Resume guarantees
+
+When re-running a spec:
+
+- **Worktree and branch both exist**: reuse both
+- **Worktree missing, branch exists locally or remotely**: recreate worktree on
+  the existing branch
+- **Neither exist**: create new branch off the detected base branch and new
+  worktree
+
+The agent runs in the worktree, not the main checkout, so concurrent spec runs
+(with different specs) do not interfere with each other.
+
 Agents that need to create or migrate specs should follow
 [docs/spec-guidance.md](docs/spec-guidance.md).
 

@@ -16,6 +16,7 @@ import {
 import { assertGhReady } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { buildPrompt } from "../prompt.ts";
+import { ensureWorktree } from "../worktree.ts";
 
 export type RunIo = {
   stdout: (s: string) => void;
@@ -56,6 +57,18 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       await assertGhReady();
     } catch (err) {
       opts.io.stderr(`${(err as Error).message}\n`);
+      return 1;
+    }
+  }
+
+  let agentWorkingDir = project.root;
+  if (!opts.skipGhCheck) {
+    try {
+      agentWorkingDir = await ensureWorktree(project.root, specPath);
+    } catch (err) {
+      opts.io.stderr(
+        `failed to create or resume worktree: ${(err as Error).message}\n`,
+      );
       return 1;
     }
   }
@@ -212,7 +225,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         agent: agent.name,
       });
       const result = await agent.run(prompt, {
-        cwd: project.root,
+        cwd: agentWorkingDir,
       });
       if (result.kind === "ok") {
         if (result.stdout.length > 0) {

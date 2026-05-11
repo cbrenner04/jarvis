@@ -75,7 +75,7 @@ That command writes the `safe-edits` permission posture to
 settings.
 
 Then edit `~/.jarvis/config.json` to include opencode in `agentOrder` and set
-`patchModels.opencode` to a configured provider/model:
+`patchModels.opencode` to a configured `provider/model` string:
 
 ```json
 {
@@ -84,11 +84,14 @@ Then edit `~/.jarvis/config.json` to include opencode in `agentOrder` and set
     "claude": "haiku",
     "codex": "gpt-5-codex",
     "cursor": "Composer 2",
-    "opencode": "provider/model"
+    "opencode": "github-copilot/claude-opus-4.7"
   }
 }
 ```
 
-Provider-specific opencode setup (for example AirProxy or github-copilot
-routing) is covered by the follow-up `airproxy-and-copilot-via-opencode`
-spec and will be documented separately when that spec lands.
+The provider prefix is the opencode provider name, and the suffix is the
+model name configured for that provider. For example,
+`github-copilot/claude-opus-4.7` routes through the `github-copilot`
+provider, while `AirProxy/<model>` routes through the internal AirProxy
+provider. Providers are not separate jarvis agents; they are selected only
+through `patchModels.opencode`.

@@ -25,7 +25,7 @@ const DEFAULT_PATCH_MODELS = {
   claude: "haiku",
   codex: "gpt-5-codex",
   cursor: "Composer 2",
-  opencode: "<configure-in-opencode-providers-spec>",
+  opencode: "github-copilot/claude-opus-4.7",
 };
 
 beforeEach(() => {
@@ -188,7 +188,7 @@ describe("loadConfig", () => {
           claude: 1,
           codex: "gpt-5-codex",
           cursor: "Composer 2",
-          opencode: "<configure-in-opencode-providers-spec>",
+          opencode: "github-copilot/claude-opus-4.7",
         },
         projects: {},
       }),
@@ -207,7 +207,7 @@ describe("loadConfig", () => {
           claude: " ",
           codex: "gpt-5-codex",
           cursor: "Composer 2",
-          opencode: "<configure-in-opencode-providers-spec>",
+          opencode: "github-copilot/claude-opus-4.7",
         },
         projects: {},
       }),
@@ -226,7 +226,7 @@ describe("loadConfig", () => {
           claude: "haiku",
           codex: "gpt-5-codex",
           cursor: "Composer 2",
-          opencode: "<configure-in-opencode-providers-spec>",
+          opencode: "github-copilot/claude-opus-4.7",
           gpt: "model",
         },
         projects: {},

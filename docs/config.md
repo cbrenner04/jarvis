@@ -54,7 +54,7 @@ Default contents on first bootstrap:
     "claude": "haiku",
     "codex": "gpt-5-codex",
     "cursor": "Composer 2",
-    "opencode": "<configure-in-opencode-providers-spec>"
+    "opencode": "github-copilot/claude-opus-4.7"
   },
   "logServerUrl": "http://127.0.0.1:4310/logs",
   "logServerBind": "127.0.0.1:4310",
@@ -66,7 +66,8 @@ Default contents on first bootstrap:
 `opencode` is present in `patchModels` so config validation has a complete
 agent map, but `agentOrder` defaults to `["claude", "codex", "cursor"]` —
 opencode is opt-in. See [agents.md](./agents.md#opencode-setup) for the
-one-time permission installer and the `patchModels.opencode` value to use.
+one-time permission installer and the `patchModels.opencode` `provider/model`
+format.
 
 ## `worktreeSymlinks`
 

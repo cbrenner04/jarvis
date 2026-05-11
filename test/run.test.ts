@@ -75,7 +75,7 @@ const DEFAULT_PATCH_MODELS = {
   claude: "haiku",
   codex: "gpt-5-codex",
   cursor: "Composer 2",
-  opencode: "<configure-in-opencode-providers-spec>",
+  opencode: "github-copilot/claude-opus-4.7",
 };
 
 async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
@@ -745,7 +745,7 @@ exit 0
           claude: "haiku",
           codex: "gpt-5-codex",
           cursor: "Composer 2",
-          opencode: "<configure-in-opencode-providers-spec>",
+          opencode: "github-copilot/claude-opus-4.7",
         },
         projects: { project: { root: projectRoot } },
       },

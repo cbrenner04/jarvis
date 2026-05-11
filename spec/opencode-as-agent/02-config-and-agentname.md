@@ -15,9 +15,8 @@ opt-in agent.
   **not** in the default order. Users opt in.
 - Default `patchModels` gains an `opencode` entry. Its value is set in the
   follow-up spec; for now use a placeholder string that the validator
-  accepts but that the user is expected to overwrite. Use
-  `"<configure-in-opencode-providers-spec>"` so it is obviously a stub and
-  fails loudly if anyone actually runs it.
+  accepts but that the user is expected to overwrite. Use an obvious stub so
+  it fails loudly if anyone actually runs it.
 - `jarvis config set-order` accepts `opencode` in its comma-separated list
   with the same duplicate/unknown rejection rules as today.
 - Validation rejects:
@@ -60,7 +59,7 @@ Default serialized config gains the `opencode` placeholder:
     "claude": "haiku",
     "codex": "gpt-5.3-codex",
     "cursor": "Composer 2",
-    "opencode": "<configure-in-opencode-providers-spec>"
+    "opencode": "<old-opencode-provider-placeholder>"
   }
 }
 ```

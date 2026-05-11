@@ -12,6 +12,7 @@
     "format:check": "bun node_modules/@biomejs/biome/bin/biome format .",
     "lint": "bun node_modules/@biomejs/biome/bin/biome lint .",
     "typecheck": "tsc --noEmit",
+    "install-opencode-permissions": "bun run scripts/install-opencode-permissions.ts",
     "test": "bun test",
     "test:full": "bun run format && bun run check && bun run format:check && bun run lint && bun run typecheck && bun run test",
     "start": "bun run src/index.ts"

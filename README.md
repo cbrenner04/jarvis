@@ -115,6 +115,14 @@ Push failures are errors that halt work; there is no automatic retry. This keeps
 the draft PR synchronized with the latest commit, allowing reviewers and CI to
 see incremental progress.
 
+#### Blocker handling
+
+When a subspec cannot be completed (due to hook failure, ambiguity, or other
+issues), the active agent appends a `## Blocker` section to the subspec
+describing the problem, then commits and pushes as WIP. See
+[AGENTS.md](./AGENTS.md#working-rules-for-agents-in-this-repo) for the blocker
+convention and resolution process.
+
 Agents that need to create or migrate specs should follow
 [docs/spec-guidance.md](docs/spec-guidance.md).
 

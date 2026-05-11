@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 
-async function runGhCommand(args: string[], cwd?: string): Promise<{
+async function runGhCommand(
+  args: string[],
+  cwd?: string,
+): Promise<{
   stdout: string;
   stderr: string;
   exitCode: number;

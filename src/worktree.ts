@@ -116,10 +116,7 @@ export function worktreeCompletionBlocker(cwd: string): string | undefined {
   }
 }
 
-export function pushCurrent(opts: {
-  cwd: string;
-  firstPush: boolean;
-}): void {
+export function pushCurrent(opts: { cwd: string; firstPush: boolean }): void {
   const args = opts.firstPush
     ? ["push", "-u", "origin", getCurrentBranch(opts.cwd)]
     : ["push"];

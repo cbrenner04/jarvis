@@ -629,12 +629,8 @@ exit 1
       "push -u origin feature",
       "push",
     ]);
-    expect(readFileSync(prLog, "utf8").trim().split("\n")).toEqual([
-      "create",
-    ]);
-    expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(
-      3,
-    );
+    expect(readFileSync(prLog, "utf8").trim().split("\n")).toEqual(["create"]);
+    expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(3);
     expect(readFileSync(readyLog, "utf8").trim().split("\n")).toEqual([
       "ready",
     ]);

@@ -70,12 +70,12 @@ describe("CodexAgent", () => {
 
   test("includes model flag when model is configured", async () => {
     const bin = fakeBinary({ exit: 0 });
-    const agent = new CodexAgent({ binary: bin, model: "gpt-5.3-codex" });
+    const agent = new CodexAgent({ binary: bin, model: "gpt-5-codex" });
 
     await agent.run("the prompt", { cwd });
 
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      'exec\0--color\0never\0--sandbox\0workspace-write\0-c\0approval_policy="on-request"\0--model\0gpt-5.3-codex\0',
+      'exec\0--color\0never\0--sandbox\0workspace-write\0-c\0approval_policy="on-request"\0--model\0gpt-5-codex\0',
     );
   });
 
@@ -114,7 +114,7 @@ describe("CodexAgent", () => {
   test("unsupported model signal maps to model_config", async () => {
     const stderr = "error: model is not available";
     const bin = fakeBinary({ exit: 1, stderr });
-    const agent = new CodexAgent({ binary: bin, model: "gpt-5.3-codex" });
+    const agent = new CodexAgent({ binary: bin, model: "gpt-5-codex" });
 
     const result = await agent.run("p", { cwd });
 

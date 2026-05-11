@@ -32,6 +32,18 @@ const opencodeQuotaPatterns = [
   /\byou have exceeded your\b/i,
 ];
 
+const airproxyQuotaPatterns = [
+  ...opencodeQuotaPatterns,
+  /(?:^|\n)(?=[^\n]*\bairproxy\b)(?=[^\n]*\b(?:limit|denied)\b)[^\n]*/i,
+  /(?:^|\n)(?=[^\n]*\b403\b)(?=[^\n]*\bforbidden\b)[^\n]*/i,
+];
+
+const copilotQuotaPatterns = [
+  ...opencodeQuotaPatterns,
+  /(?:^|\n)(?=[^\n]*\bcopilot\b)(?=[^\n]*\b(?:limit|quota)\b)[^\n]*/i,
+  /\byou have exceeded your monthly\b/i,
+];
+
 const modelConfigurationPatterns = [
   /\bunknown model\b/i,
   /\bunsupported model\b/i,
@@ -43,6 +55,16 @@ const modelConfigurationPatterns = [
 ];
 
 const opencodeModelConfigurationPatterns = [/\bno provider configured for\b/i];
+
+const airproxyModelConfigurationPatterns = [
+  ...opencodeModelConfigurationPatterns,
+  /\bunknown provider: airproxy\b/i,
+];
+
+const copilotModelConfigurationPatterns = [
+  ...opencodeModelConfigurationPatterns,
+  /\bunknown provider: github-copilot\b/i,
+];
 
 export function isModelConfigurationSignal(stderr: string): boolean;
 export function isModelConfigurationSignal(
@@ -56,10 +78,19 @@ export function isModelConfigurationSignal(
   const name =
     maybeStderr === undefined ? undefined : (nameOrStderr as AgentName);
   const stderr = maybeStderr === undefined ? nameOrStderr : maybeStderr;
-  const patterns =
-    name === "opencode" || name === "airproxy" || name === "copilot"
-      ? [...modelConfigurationPatterns, ...opencodeModelConfigurationPatterns]
-      : modelConfigurationPatterns;
+  const providerPatterns = (() => {
+    switch (name) {
+      case "opencode":
+        return opencodeModelConfigurationPatterns;
+      case "airproxy":
+        return airproxyModelConfigurationPatterns;
+      case "copilot":
+        return copilotModelConfigurationPatterns;
+      default:
+        return [];
+    }
+  })();
+  const patterns = [...modelConfigurationPatterns, ...providerPatterns];
 
   return patterns.some((pattern) => pattern.test(stderr));
 }
@@ -80,9 +111,11 @@ export function isQuotaSignal(
       case "cursor":
         return cursorQuotaPatterns;
       case "opencode":
-      case "airproxy":
-      case "copilot":
         return opencodeQuotaPatterns;
+      case "airproxy":
+        return airproxyQuotaPatterns;
+      case "copilot":
+        return copilotQuotaPatterns;
     }
   })();
 

@@ -97,6 +97,29 @@ describe("isQuotaSignal", () => {
   test("does not treat successful Opencode output as quota", () => {
     expect(isQuotaSignal("opencode", 0, "rate limit reached")).toBe(false);
   });
+
+  test.each([
+    "AirProxy: rate limit exceeded",
+    "AirProxy policy denied the request",
+    "upstream returned 403 Forbidden",
+  ])("matches AirProxy quota output: %s", (stderr) => {
+    expect(isQuotaSignal("airproxy", 1, stderr)).toBe(true);
+  });
+
+  test.each([
+    "Copilot plan limit reached",
+    "Copilot quota unavailable",
+    "You have exceeded your monthly Copilot quota",
+  ])("matches Copilot quota output: %s", (stderr) => {
+    expect(isQuotaSignal("copilot", 1, stderr)).toBe(true);
+  });
+
+  test("does not add provider-specific quota output to generic Opencode", () => {
+    expect(isQuotaSignal("opencode", 1, "AirProxy policy denied")).toBe(false);
+    expect(isQuotaSignal("opencode", 1, "Copilot plan limit reached")).toBe(
+      false,
+    );
+  });
 });
 
 describe("isModelConfigurationSignal", () => {
@@ -108,5 +131,24 @@ describe("isModelConfigurationSignal", () => {
     "no provider configured for airproxy",
   ])("matches Opencode model configuration output: %s", (stderr) => {
     expect(isModelConfigurationSignal("opencode", stderr)).toBe(true);
+  });
+
+  test.each([
+    ["airproxy", "unknown provider: airproxy"],
+    ["copilot", "unknown provider: github-copilot"],
+  ] as const)("matches %s model configuration output: %s", (name, stderr) => {
+    expect(isModelConfigurationSignal(name, stderr)).toBe(true);
+  });
+
+  test("does not add provider-specific model configuration output to generic Opencode", () => {
+    expect(
+      isModelConfigurationSignal("opencode", "unknown provider: airproxy"),
+    ).toBe(false);
+    expect(
+      isModelConfigurationSignal(
+        "opencode",
+        "unknown provider: github-copilot",
+      ),
+    ).toBe(false);
   });
 });

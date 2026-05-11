@@ -48,7 +48,7 @@ const DEFAULT_CONFIG: Config = {
   maxIterations: 10,
   patchModels: {
     claude: "haiku",
-    codex: "gpt-5.3-codex",
+    codex: "gpt-5-codex",
     cursor: "Composer 2",
   },
   logServerUrl: "http://127.0.0.1:4310/logs",

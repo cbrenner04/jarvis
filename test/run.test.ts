@@ -65,7 +65,7 @@ let originalPath: string | undefined;
 
 const DEFAULT_PATCH_MODELS = {
   claude: "haiku",
-  codex: "gpt-5.3-codex",
+  codex: "gpt-5-codex",
   cursor: "Composer 2",
 };
 
@@ -470,7 +470,7 @@ exit 0
         maxIterations: 10,
         patchModels: {
           claude: "haiku",
-          codex: "gpt-5.3-codex",
+          codex: "gpt-5-codex",
           cursor: "Composer 2",
         },
         projects: { project: { root: projectRoot } },

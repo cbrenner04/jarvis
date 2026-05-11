@@ -1,4 +1,5 @@
 # jarvis
+
 Coding agent harness
 
 ## Installation
@@ -110,7 +111,7 @@ never receives the work.
 #### Commit shape
 
 Each completed subspec produces exactly one commit. The commit subject is the
-subspec's H1 heading (the first `# ` line), verbatim. The commit body includes:
+subspec's H1 heading (the first `#` line), verbatim. The commit body includes:
 
 1. First line: `Spec: <relative path to subspec from repo root>`
 2. A blank line
@@ -160,7 +161,7 @@ Agents that need to create or migrate specs should follow
 
 ## Usage
 
-```
+```txt
 jarvis run [--max-iterations <n>] <spec-path>
                            Run the loop against a spec file in a registered project.
 jarvis init                Register the current target repo.
@@ -208,10 +209,10 @@ The `.worktree/.keep` directory is never removed.
 Jarvis shells out to one underlying agent CLI per iteration. Supported agents
 and the binary each one invokes:
 
-| Agent    | CLI invoked | Notes                                                |
-| -------- | ----------- | ---------------------------------------------------- |
+| Agent | CLI invoked | Notes |
+| --- | --- | --- |
 | `claude` | `claude -p --permission-mode acceptEdits` | Prompt is piped on stdin (non-interactive print mode); `--permission-mode acceptEdits` auto-allows file edits and safe filesystem commands without prompting (`claude --help`). |
-| `codex`  | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). |
+| `codex` | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). |
 | `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; `--force` enables file writes in print mode; `--output-format text` matches transcript shape of other agents; prompt is the trailing positional argument (`cursor agent --help`). |
 
 Quota detection is per-agent and based on documented or observed stderr
@@ -382,7 +383,7 @@ Exit codes:
 Jarvis keeps its state in `~/.jarvis/`. The directory and its config file are
 created automatically the first time jarvis runs — no manual setup is required.
 
-```
+```txt
 ~/.jarvis/
   config.json
   sessions/
@@ -418,7 +419,7 @@ type Config = {
 };
 ```
 
-#### worktreeSymlinks
+### worktreeSymlinks
 
 The optional `worktreeSymlinks` field allows sharing build artifacts or
 node_modules across worktrees without duplication. Each entry is a relative path
@@ -443,7 +444,7 @@ Default contents on first bootstrap:
   "agentOrder": ["claude", "codex", "cursor"],
   "patchModels": {
     "claude": "haiku",
-    "codex": "gpt-5.3-codex",
+    "codex": "gpt-5-codex",
     "cursor": "Composer 2"
   },
   "logServerUrl": "http://127.0.0.1:4310/logs",

@@ -149,7 +149,7 @@ describe("runCommand", () => {
   });
 
   test("completes after an agent flips an unchecked box", async () => {
-    const spec = writeSpec("- [ ] todo\n");
+    const spec = writeNamedSpec("feature", "- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => {
       writeFileSync(spec, "- [x] todo\n");
@@ -166,7 +166,7 @@ describe("runCommand", () => {
 
     expect(code).toBe(0);
     expect(cap.out()).toContain("project: project");
-    expect(cap.out()).toContain("spec: index.md");
+    expect(cap.out()).toContain("spec: feature");
     expect(cap.out()).toContain("iteration: 1");
     expect(cap.out()).toContain("current-task: 1/1 todo");
     expect(cap.out()).toContain("agent: claude");
@@ -207,17 +207,21 @@ describe("runCommand", () => {
   });
 
   test("writes banner, outbound, and inbound to server and session log in order", async () => {
-    const spec = writeSpec("- [ ] todo\n");
+    const spec = writeNamedSpec("feature", "- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => {
       writeFileSync(spec, "- [x] todo\n");
       return { kind: "ok", stdout: "out line\n", stderr: "err line\n" };
     });
-    const messages: { tag: string; text: string }[] = [];
+    const messages: { namespace: string; tag: string; text: string }[] = [];
     const logClient: LogClient = {
       assertReachable: async () => {},
       send: async (message) => {
-        messages.push({ tag: message.tag, text: message.text });
+        messages.push({
+          namespace: message.namespace,
+          tag: message.tag,
+          text: message.text,
+        });
       },
     };
 
@@ -243,10 +247,12 @@ describe("runCommand", () => {
     expect(firstInboundOut).toBeGreaterThan(firstOutbound);
     expect(firstInboundErr).toBeGreaterThan(firstOutbound);
     expect(messages[0]?.tag).toBe("harness");
+    expect(messages[0]?.namespace).toBe("project:feature");
     expect(messages[0]?.text).toContain("current-task: 1/1 todo");
 
     const sessionFiles = readdirSync(join(cfgDir, "sessions"));
     expect(sessionFiles).toHaveLength(1);
+    expect(sessionFiles[0]).toContain("project:feature-");
     const sessionBody = readFileSync(
       join(cfgDir, "sessions", sessionFiles[0] as string),
       "utf8",
@@ -890,6 +896,14 @@ exit 0
 
 function writeSpec(contents: string): string {
   const spec = join(projectRoot, "index.md");
+  writeFileSync(spec, contents);
+  return spec;
+}
+
+function writeNamedSpec(name: string, contents: string): string {
+  const specDir = join(projectRoot, name);
+  mkdirSync(specDir);
+  const spec = join(specDir, "index.md");
   writeFileSync(spec, contents);
   return spec;
 }

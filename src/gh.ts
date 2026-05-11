@@ -72,9 +72,7 @@ export async function getBaseBranch(): Promise<string> {
   ]);
   if (result.exitCode !== 0) {
     const errorMessage = result.stderr || result.stdout;
-    throw new Error(
-      `failed to detect base branch: ${errorMessage.trim()}`,
-    );
+    throw new Error(`failed to detect base branch: ${errorMessage.trim()}`);
   }
   return result.stdout.trim();
 }

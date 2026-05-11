@@ -1,4 +1,7 @@
-import { cleanupCommand, type CleanupCommandOptions } from "./commands/cleanup.ts";
+import {
+  type CleanupCommandOptions,
+  cleanupCommand,
+} from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
 import { logServerCommand } from "./commands/log-server.ts";
@@ -6,7 +9,6 @@ import { type RunCommandOptions, runCommand } from "./commands/run.ts";
 import {
   type ConfigOptions,
   findProjectMatchForPath,
-  loadConfig,
   validatePositiveInteger,
 } from "./config.ts";
 
@@ -176,7 +178,12 @@ export function run(
         const buffer = Buffer.alloc(256);
         let input = "";
         try {
-          const nread = require("fs").readSync(process.stdin.fd, buffer, 0, 256);
+          const nread = require("node:fs").readSync(
+            process.stdin.fd,
+            buffer,
+            0,
+            256,
+          );
           input = buffer.toString("utf8", 0, nread).trim();
         } catch {
           return "";

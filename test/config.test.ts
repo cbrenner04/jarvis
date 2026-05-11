@@ -25,6 +25,7 @@ const DEFAULT_PATCH_MODELS = {
   claude: "haiku",
   codex: "gpt-5-codex",
   cursor: "Composer 2",
+  opencode: "<configure-in-opencode-providers-spec>",
 };
 
 beforeEach(() => {
@@ -77,6 +78,7 @@ describe("loadConfig", () => {
           claude: "sonnet",
           codex: "gpt-5-codex",
           cursor: "Composer 2",
+          opencode: "opencode-model",
         },
         projects: { jarvis: { root: "/Users/me/jarvis" } },
       }),
@@ -86,6 +88,7 @@ describe("loadConfig", () => {
     expect(cfg.agentOrder).toEqual(["codex", "claude"]);
     expect(cfg.maxIterations).toBe(7);
     expect(cfg.patchModels.claude).toBe("sonnet");
+    expect(cfg.patchModels.opencode).toBe("opencode-model");
     expect(cfg.logServerUrl).toBe("http://127.0.0.1:4310/logs");
     expect(cfg.logServerBind).toBe("127.0.0.1:4310");
     expect(cfg.projects.jarvis).toEqual({ root: "/Users/me/jarvis" });
@@ -121,6 +124,30 @@ describe("loadConfig", () => {
     expect(JSON.parse(readFileSync(file, "utf8"))).not.toHaveProperty(
       "patchModels",
     );
+  });
+
+  test("populates missing opencode patch model for legacy configs", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 7,
+        patchModels: {
+          claude: "haiku",
+          codex: "gpt-5-codex",
+          cursor: "Composer 2",
+        },
+        projects: {},
+      }),
+    );
+
+    const cfg = loadConfig({ dir });
+    expect(cfg.patchModels).toEqual(DEFAULT_PATCH_MODELS);
+    expect(
+      JSON.parse(readFileSync(file, "utf8")).patchModels,
+    ).not.toHaveProperty("opencode");
   });
 
   test("rejects invalid maxIterations", () => {
@@ -161,6 +188,7 @@ describe("loadConfig", () => {
           claude: 1,
           codex: "gpt-5-codex",
           cursor: "Composer 2",
+          opencode: "<configure-in-opencode-providers-spec>",
         },
         projects: {},
       }),
@@ -179,6 +207,7 @@ describe("loadConfig", () => {
           claude: " ",
           codex: "gpt-5-codex",
           cursor: "Composer 2",
+          opencode: "<configure-in-opencode-providers-spec>",
         },
         projects: {},
       }),
@@ -197,6 +226,7 @@ describe("loadConfig", () => {
           claude: "haiku",
           codex: "gpt-5-codex",
           cursor: "Composer 2",
+          opencode: "<configure-in-opencode-providers-spec>",
           gpt: "model",
         },
         projects: {},

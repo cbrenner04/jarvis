@@ -21,7 +21,7 @@ server.
 ## Schema (v1)
 
 ```ts
-type AgentName = "claude" | "codex" | "cursor";
+type AgentName = "claude" | "codex" | "cursor" | "opencode";
 
 type Project = {
   root: string; // absolute path to a target-repo root
@@ -53,7 +53,8 @@ Default contents on first bootstrap:
   "patchModels": {
     "claude": "haiku",
     "codex": "gpt-5-codex",
-    "cursor": "Composer 2"
+    "cursor": "Composer 2",
+    "opencode": "<configure-in-opencode-providers-spec>"
   },
   "logServerUrl": "http://127.0.0.1:4310/logs",
   "logServerBind": "127.0.0.1:4310",
@@ -61,6 +62,11 @@ Default contents on first bootstrap:
   "projects": {}
 }
 ```
+
+`opencode` is present in `patchModels` so config validation has a complete
+agent map, but `agentOrder` defaults to `["claude", "codex", "cursor"]` —
+opencode is opt-in. See [agents.md](./agents.md#opencode-setup) for the
+one-time permission installer and the `patchModels.opencode` value to use.
 
 ## `worktreeSymlinks`
 

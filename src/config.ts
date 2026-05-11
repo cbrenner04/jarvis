@@ -12,7 +12,9 @@ export const CONFIG_DIR = join(homedir(), ".jarvis");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const SESSIONS_DIR = join(CONFIG_DIR, "sessions");
 
-const AGENT_NAMES = ["claude", "codex", "cursor"] as const;
+const AGENT_NAMES = ["claude", "codex", "cursor", "opencode"] as const;
+const OPENCODE_PATCH_MODEL_PLACEHOLDER =
+  "<configure-in-opencode-providers-spec>";
 export type AgentName = (typeof AGENT_NAMES)[number];
 
 export type Project = {
@@ -50,6 +52,7 @@ const DEFAULT_CONFIG: Config = {
     claude: "haiku",
     codex: "gpt-5-codex",
     cursor: "Composer 2",
+    opencode: OPENCODE_PATCH_MODEL_PLACEHOLDER,
   },
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",
@@ -201,6 +204,10 @@ function validatePatchModels(input: unknown, file: string): PatchModels {
 
   for (const name of AGENT_NAMES) {
     if (patchModels[name] === undefined) {
+      if (name === "opencode") {
+        patchModels.opencode = DEFAULT_CONFIG.patchModels.opencode;
+        continue;
+      }
       fail(file, `patchModels.${name} is required`);
     }
   }

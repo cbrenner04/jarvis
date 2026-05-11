@@ -1,8 +1,8 @@
 # jarvis
 
 Coding agent harness — a minimal "ralph loop" that drives an underlying agent
-CLI (`claude`, `codex`, `cursor`) against a Markdown spec until every task
-checkbox is checked.
+CLI (`claude`, `codex`, `cursor`, or `opencode`) against a Markdown spec
+until every task checkbox is checked.
 
 ## Installation
 
@@ -11,8 +11,11 @@ Prerequisites:
 - [Bun](https://bun.sh/) installed.
 - [GitHub CLI](https://cli.github.com/) (`gh`) installed and authenticated
   (run `gh auth login` if needed).
-- At least one supported agent CLI available on `PATH`: `claude`, `codex`, or
-  `cursor`. See [docs/agents.md](docs/agents.md).
+- At least one supported agent CLI available on `PATH`: `claude`, `codex`,
+  `cursor`, or `opencode`. See [docs/agents.md](docs/agents.md). `opencode`
+  is supported but opt-in; see
+  [docs/agents.md#opencode-setup](docs/agents.md#opencode-setup) for the
+  one-time permission installer.
 
 Install jarvis from a local clone:
 
@@ -137,8 +140,8 @@ for the schema, defaults, and the full list of `jarvis config` subcommands.
 - [docs/worktrees-and-commits.md](docs/worktrees-and-commits.md) — worktree
   layout, resume guarantees, commit shape, push cadence, draft PR lifecycle,
   cleanup.
-- [docs/agents.md](docs/agents.md) — supported agents, CLI flags jarvis
-  passes, permission posture.
+- [docs/agents.md](docs/agents.md) — supported agents (including opencode
+  setup), CLI flags jarvis passes, permission posture.
 - [docs/config.md](docs/config.md) — `~/.jarvis/config.json` schema,
   defaults, `worktreeSymlinks`, `jarvis config` subcommands.
 - [docs/quota-signals.md](docs/quota-signals.md) — per-agent quota detection

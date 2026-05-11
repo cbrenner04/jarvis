@@ -25,6 +25,20 @@ Clone the repo to a stable path because the `jarvis` executable is a symlink
 back into that checkout. If `/usr/local/bin` is not writable or is not on your
 `PATH`, create the symlink in another directory that is on `PATH`.
 
+## CI and pull requests
+
+GitHub Actions runs **`bun run typecheck`**, **`bun run test`**, and **`bun run
+check`** on pushes to `main` and on pull requests (see
+`.github/workflows/ci.yml`).
+
+`CODEOWNERS` lists default reviewers for new PRs. Stricter rules (required
+status checks, required reviews, code-owner review) need **branch protection**
+on `main`. GitHub only allows that for **public** repositories or **paid**
+plans on private repos; until then, use the steps in
+`spec/github-ci-and-governance/02-branch-protection-via-gh.md` once the repo
+qualifies. That guide configures protection so repository **admins can bypass**
+rules when you need to merge without waiting on checks.
+
 ## Quickstart
 
 From the repository you want jarvis to work on:

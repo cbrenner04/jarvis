@@ -10,13 +10,16 @@ every machine.
 
 ## Decisions
 
-- Pass `--sandbox workspace-write` and `--ask-for-approval on-request` on
+- Pass `--sandbox workspace-write` and `-c approval_policy="on-request"` on
   every `codex exec` invocation.
   - `workspace-write` allows edits inside cwd and blocks writes outside it
     and network egress by default — matches `safe-edits`.
-  - `on-request` lets the model surface a request when it needs to leave the
-    sandbox; in non-interactive runs the request becomes a refusal in the
-    transcript, which is the behavior we want (no silent escalation).
+  - `approval_policy="on-request"` lets the model surface a request when it
+    needs to leave the sandbox; in non-interactive runs the request becomes a
+    refusal in the transcript, which is the behavior we want (no silent
+    escalation).
+  - Codex CLI 0.130.0 does not accept the older `--ask-for-approval` flag;
+    approval policy must be pinned through `-c`.
 - Do not pass `--sandbox danger-full-access` or
   `--dangerously-bypass-approvals-and-sandbox`. Ever, from jarvis.
 - Do not write a `.codex/config.toml` into the target repo. Codex only loads
@@ -25,12 +28,12 @@ every machine.
 
 ## Tasks
 
-- [ ] In `src/agents/codex.ts`, append `--sandbox workspace-write` and
-      `--ask-for-approval on-request` to `argv` after the existing
+- [x] In `src/agents/codex.ts`, append `--sandbox workspace-write` and
+      `-c approval_policy="on-request"` to `argv` after the existing
       `--color never`.
-- [ ] Update the top-of-file comment to mention the permission and sandbox
+- [x] Update the top-of-file comment to mention the permission and sandbox
       flags and link to this subspec.
-- [ ] Add a test that asserts both flags are present in the spawned argv.
+- [x] Add a test that asserts both flags are present in the spawned argv.
 
 ## Acceptance criteria
 

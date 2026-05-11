@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 
 export function commitSubspec(subspecPath: string): void {
@@ -23,14 +23,34 @@ export function commitSubspec(subspecPath: string): void {
   const updatedIndexContent = updateIndexCheckbox(indexContent, subspecName);
   writeFileSync(indexPath, updatedIndexContent);
 
-  execSync("git add -A", { stdio: "pipe" });
+  const gitRoot = getGitRoot(subspecPath);
+  execSync("git add -A", { cwd: gitRoot, stdio: "pipe" });
 
-  const relativeSpecPath = relative(process.cwd(), subspecPath);
+  const relativeSpecPath = relative(
+    realpathSync(gitRoot),
+    realpathSync(subspecPath),
+  );
   const bodyFirstLine = `Spec: ${relativeSpecPath}`;
   const commitBody = `${bodyFirstLine}\n\n${acceptanceCriteria}`;
+  const commitMessage = `${h1}\n\n${commitBody}`;
 
-  const command = `git commit -m "$(cat <<'EOF'\n${h1}\n\n${commitBody}\nEOF\n)"`;
-  execSync(command, { shell: "/bin/bash", stdio: "pipe" });
+  execSync(
+    `git commit -F - <<'JARVIS_COMMIT_MESSAGE'\n${commitMessage}\nJARVIS_COMMIT_MESSAGE\n`,
+    { cwd: gitRoot, shell: "/bin/bash", stdio: "pipe" },
+  );
+}
+
+function getGitRoot(subspecPath: string): string {
+  try {
+    return execSync("git rev-parse --show-toplevel", {
+      cwd: dirname(subspecPath),
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`could not find git root for ${subspecPath}: ${message}`);
+  }
 }
 
 function getIndexPath(subspecPath: string): string {
@@ -52,21 +72,33 @@ function extractH1(content: string): string | null {
 
 function extractAcceptanceCriteria(content: string): string | null {
   const match = content.match(
-    /^## Acceptance criteria\n\n([\s\S]+?)(?=\n## |Z)/m,
+    /(?:^|\n)## Acceptance criteria\b[\s\S]*?(?=\n## |$)/,
   );
-  if (!match?.[1]) {
+  if (!match?.[0]) {
     return null;
   }
-  return match[1].trim();
+  return match[0].trim();
 }
 
 function updateIndexCheckbox(content: string, subspecName: string): string {
   const escapedName = subspecName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(
+  const uncheckedPattern = new RegExp(
     `^- \\[ \\] \\[(.+?)\\]\\(\\./${escapedName}\\)$`,
     "m",
   );
-  return content.replace(pattern, (_match, linkText: string) => {
-    return `- [x] [${linkText}](./${subspecName})`;
-  });
+  if (uncheckedPattern.test(content)) {
+    return content.replace(uncheckedPattern, (_match, linkText: string) => {
+      return `- [x] [${linkText}](./${subspecName})`;
+    });
+  }
+
+  const checkedPattern = new RegExp(
+    `^- \\[[xX]\\] \\[(.+?)\\]\\(\\./${escapedName}\\)$`,
+    "m",
+  );
+  if (checkedPattern.test(content)) {
+    return content;
+  }
+
+  throw new Error(`index.md does not link to ${subspecName}`);
 }

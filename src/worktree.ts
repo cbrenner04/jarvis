@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { getBaseBranch } from "./gh.ts";
@@ -46,7 +46,7 @@ export async function ensureWorktree(
       stdio: "pipe",
     });
   } else {
-    const baseBranch = await getBaseBranch();
+    const baseBranch = await getBaseBranch(projectRoot);
     execSync(`git branch ${specName} ${baseBranch}`, {
       cwd: projectRoot,
       stdio: "pipe",
@@ -116,17 +116,44 @@ export function worktreeCompletionBlocker(cwd: string): string | undefined {
   }
 }
 
-export function pushCurrent(projectRoot: string, isFirstPush: boolean): void {
-  const args = isFirstPush ? "push -u origin HEAD" : "push";
+export function pushCurrent(opts: {
+  cwd: string;
+  firstPush: boolean;
+}): void {
+  const args = opts.firstPush
+    ? ["push", "-u", "origin", getCurrentBranch(opts.cwd)]
+    : ["push"];
   try {
-    execSync(`git ${args}`, {
-      cwd: projectRoot,
+    execFileSync("git", args, {
+      cwd: opts.cwd,
+      env: process.env,
       stdio: "pipe",
     });
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    throw new Error(`git push failed: ${errorMessage}`);
+    const stderr = getProcessStderr(err);
+    throw new Error(stderr.length > 0 ? stderr : String(err));
   }
+}
+
+function getCurrentBranch(cwd: string): string {
+  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+    env: process.env,
+    stdio: "pipe",
+  }).trim();
+}
+
+function getProcessStderr(err: unknown): string {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "stderr" in err &&
+    Buffer.isBuffer((err as { stderr: unknown }).stderr)
+  ) {
+    return (err as { stderr: Buffer }).stderr.toString("utf8");
+  }
+  return "";
 }
 
 export function createWorktreeSymlinks(

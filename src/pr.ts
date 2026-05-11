@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -7,26 +7,54 @@ export type EnsureDraftPrOpts = {
   base: string;
   title: string;
   bodyGenerator: () => Promise<string>;
+  cwd?: string;
 };
 
 export async function ensureDraftPr(
   opts: EnsureDraftPrOpts,
 ): Promise<{ number: number; created: boolean }> {
-  const existingPr = checkPrExists(opts.branch);
+  const existingPr = checkPrExists(opts.branch, opts.cwd);
   if (existingPr) {
     return { number: existingPr, created: false };
   }
 
   const body = await opts.bodyGenerator();
-  const prNumber = createDraftPr(opts.branch, opts.base, opts.title, body);
+  const prNumber = createDraftPr(
+    opts.branch,
+    opts.base,
+    opts.title,
+    body,
+    opts.cwd,
+  );
   return { number: prNumber, created: true };
 }
 
-function checkPrExists(branch: string): number | null {
+export function maybeMarkReady(opts: { indexPath: string; cwd: string }): void {
+  if (!linkedSubspecsAreComplete(readFileSync(opts.indexPath, "utf8"))) {
+    return;
+  }
+
+  const branch = getCurrentBranch(opts.cwd);
+  const prExists = checkPrExists(branch, opts.cwd);
+  if (!prExists) {
+    throw new Error(
+      `cannot mark PR ready: no PR found for branch ${branch}. This should not happen after opening a draft PR.`,
+    );
+  }
+
+  execFileSync("gh", ["pr", "ready", branch], {
+    cwd: opts.cwd,
+    env: process.env,
+    stdio: "pipe",
+  });
+}
+
+function checkPrExists(branch: string, cwd?: string): number | null {
   try {
-    const output = execSync(
-      `gh pr view ${branch} --json number,state -q .number`,
-      { stdio: "pipe", encoding: "utf8" },
+    const output = execFileSync(
+      "gh",
+      ["pr", "view", branch, "--json", "number,state", "-q", ".number"],
+      { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
     );
     const number = parseInt(output.trim(), 10);
     return Number.isNaN(number) ? null : number;
@@ -40,20 +68,35 @@ function createDraftPr(
   base: string,
   title: string,
   body: string,
+  cwd?: string,
 ): number {
-  const prOutput = execSync(
-    `gh pr create --draft --base ${base} --head ${branch} --title "${escapeShellArg(title)}" --body "${escapeShellArg(body)}" --json number -q .number`,
-    { stdio: "pipe", encoding: "utf8" },
+  execFileSync(
+    "gh",
+    [
+      "pr",
+      "create",
+      "--draft",
+      "--base",
+      base,
+      "--head",
+      branch,
+      "--title",
+      title,
+      "--body",
+      body,
+    ],
+    { cwd, env: process.env, stdio: "pipe" },
+  );
+  const prOutput = execFileSync(
+    "gh",
+    ["pr", "view", branch, "--json", "number,state", "-q", ".number"],
+    { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
   );
   const number = parseInt(prOutput.trim(), 10);
   if (Number.isNaN(number)) {
     throw new Error("failed to parse PR number from gh output");
   }
   return number;
-}
-
-function escapeShellArg(str: string): string {
-  return str.replace(/"/g, '\\"').replace(/\$/g, "\\$");
 }
 
 export function generatePrBodyFromSpec(specIndexPath: string): string {
@@ -104,33 +147,25 @@ function extractFirstHeadingFromSpec(specPath: string): string | null {
   }
 }
 
-export function maybeMarkReady(indexPath: string): void {
-  const content = readFileSync(indexPath, "utf8");
-
-  const isComplete = isSpecComplete(content);
-  if (!isComplete) {
-    return;
+function linkedSubspecsAreComplete(indexContent: string): boolean {
+  let sawLinkedSubspec = false;
+  for (const line of indexContent.split(/\r?\n/)) {
+    const match = line.match(/^\s*- \[([ xX])\] \[[^\]]+\]\(([^)]+)\)/);
+    if (!match?.[1] || !match[2]) {
+      continue;
+    }
+    sawLinkedSubspec = true;
+    if (match[1] !== "x" && match[1] !== "X") {
+      return false;
+    }
   }
-
-  const branch = getCurrentBranch();
-
-  const prExists = checkPrExists(branch);
-  if (!prExists) {
-    throw new Error(
-      `Cannot mark PR ready: no PR found for branch ${branch}. This should not happen.`,
-    );
-  }
-
-  execSync(`gh pr ready ${branch}`, { stdio: "pipe" });
+  return sawLinkedSubspec;
 }
 
-function isSpecComplete(indexContent: string): boolean {
-  const uncheckedPattern = /^\s*- \[ \]/m;
-  return !uncheckedPattern.test(indexContent);
-}
-
-function getCurrentBranch(): string {
-  const output = execSync("git rev-parse --abbrev-ref HEAD", {
+function getCurrentBranch(cwd: string): string {
+  const output = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd,
+    env: process.env,
     stdio: "pipe",
     encoding: "utf8",
   });

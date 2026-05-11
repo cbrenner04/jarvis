@@ -59,8 +59,6 @@ describe("init", () => {
     expect(code).toBe(0);
 
     expect(existsSync(join(cwd, "README.md"))).toBe(false);
-    expect(existsSync(join(cwd, "STYLE.md"))).toBe(false);
-    expect(existsSync(join(cwd, "SAFETY.md"))).toBe(false);
     expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
     expect(existsSync(join(cwd, "spec"))).toBe(false);
     expect(existsSync(join(cwd, ".jarvis"))).toBe(false);
@@ -73,7 +71,6 @@ describe("init", () => {
 
   test("leaves existing target files untouched", () => {
     writeFileSync(join(cwd, "README.md"), "# custom\n");
-    writeFileSync(join(cwd, "STYLE.md"), "# custom style\n");
     mkdirSync(join(cwd, "spec"), { recursive: true });
 
     const cap = captureIo();
@@ -86,10 +83,6 @@ describe("init", () => {
     expect(code).toBe(0);
 
     expect(readFileSync(join(cwd, "README.md"), "utf8")).toBe("# custom\n");
-    expect(readFileSync(join(cwd, "STYLE.md"), "utf8")).toBe(
-      "# custom style\n",
-    );
-    expect(existsSync(join(cwd, "SAFETY.md"))).toBe(false);
 
     expect(cap.out()).not.toContain("exists: ");
     expect(cap.out()).not.toContain("created: ");

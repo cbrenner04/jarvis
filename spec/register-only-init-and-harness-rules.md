@@ -40,8 +40,6 @@ Do not create, modify, or delete any target-repo files or directories,
 including:
 
 - `README.md`
-- `STYLE.md`
-- `SAFETY.md`
 - `AGENTS.md`
 - `spec/`
 - `.jarvis/`
@@ -50,13 +48,9 @@ including:
 
 Add compact default rules to this harness repo under `rules/`:
 
-- `rules/style.md`
-- `rules/safety.md`
+- `rules/patch-mode.md`
 
-Start by migrating the meaning of the old scaffolded `STYLE.md` and
-`SAFETY.md`, but make the wording terse to limit prompt tokens.
-
-These files are jarvis implementation inputs, not target-repo templates.
+This file is a jarvis implementation input, not a target-repo template.
 
 ### Prompt
 
@@ -107,8 +101,8 @@ Pick the single most important unchecked task and complete it.
 
 - Running `jarvis init` in an unregistered repo under `~/Work` only updates
   `~/.jarvis/config.json`.
-- Running `jarvis init` does not create `README.md`, `STYLE.md`, `SAFETY.md`,
-  `AGENTS.md`, `spec/`, or `.jarvis/`.
+- Running `jarvis init` does not create `README.md`, `AGENTS.md`, `spec/`, or
+  `.jarvis/`.
 - Registered project keys are relative paths from `~/Work`.
 - `jarvis run` prompt does not hardcode `README.md` as the required guidance
   source.

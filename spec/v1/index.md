@@ -9,7 +9,7 @@ When every box is checked, v1 is done.
 - [x] [01 — Project setup](./01-project-setup.md)
 - [x] [02 — Config bootstrap](./02-config.md)
 - [x] [03 — CLI entrypoint](./03-cli.md)
-- [x] [04 — `jarvis init` (target-repo scaffolding)](./04-init-command.md)
+- [x] [04 — `jarvis init`](./04-init-command.md)
 - [x] [05 — `jarvis config` command](./05-config-command.md)
 - [x] [06 — Prompt builder](./06-prompt.md)
 - [x] [07 — Agent adapter interface + `claude`](./07-agent-claude.md)

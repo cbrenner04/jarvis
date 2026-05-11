@@ -2,21 +2,17 @@
 
 ## Problem
 
-Jarvis injects rules into every loop prompt by concatenating `rules/style.md`
-and `rules/safety.md`. The split is category-based and the content is thinner
-than what the agent actually needs. In practice Jarvis only operates in one
-mode today (patch mode: execute the active spec, nothing more), and the rules
-should reflect that mode directly. Future plan mode will get its own file when
-it lands; the current split should not be preserved out of habit.
+Jarvis injects rules into every loop prompt from `rules/patch-mode.md`. In
+practice Jarvis only operates in one mode today (patch mode: execute the active
+spec, nothing more), and the rules should reflect that mode directly. Future
+plan mode will get its own file when it lands.
 
 ## Decisions
 
-- Collapse `rules/style.md` and `rules/safety.md` into a single
-  `rules/patch-mode.md`.
+- Keep `rules/patch-mode.md` as the single rules file consumed by the loop
+  prompt for now.
 - Do not create a shared `common.md` yet. Defer that factoring until plan mode
   is designed and the real shared set is known.
-- `rules/patch-mode.md` is the only rules file consumed by the loop prompt for
-  now.
 - Keep rules terse and imperative. They are injected inline into every agent
   invocation.
 - Convert "stop and ask" guidance from the source prompts into
@@ -62,30 +58,21 @@ nothing more.
 
 ### Prompt builder update
 
-`src/prompt.ts` currently reads `style.md` and `safety.md` and joins them.
-Update it to read `patch-mode.md` only. The surrounding loop prompt text
+`src/prompt.ts` reads `patch-mode.md` only. The surrounding loop prompt text
 (`Inspect the target repo...`, `Read the spec at ...`, `Follow these Jarvis
 rules:`, `Pick the single most important unchecked task and complete it.`)
 does not change.
-
-### File removals
-
-- Delete `rules/style.md`.
-- Delete `rules/safety.md`.
 
 ## Tasks
 
 - [x] Add `rules/patch-mode.md` with the contents above.
 - [x] Update `src/prompt.ts` so `jarvisRules()` reads `patch-mode.md` only.
-- [x] Delete `rules/style.md` and `rules/safety.md`.
 - [x] Update any prompt-builder tests that assert on the injected rules text.
-- [x] Update `AGENTS.md` if it references `rules/style.md` or
-  `rules/safety.md` by name.
+- [x] Update `AGENTS.md` if it references obsolete rule file names.
 
 ## Acceptance criteria
 
 - `rules/patch-mode.md` exists with the contents above.
-- `rules/style.md` and `rules/safety.md` no longer exist.
 - `buildPrompt` produces a prompt whose rules section equals the trimmed
   contents of `rules/patch-mode.md`.
 - `bun run typecheck` passes.
@@ -93,6 +80,5 @@ does not change.
 
 ## Documentation updates
 
-- `AGENTS.md`: replace the "compact rules from rules/style.md and
-  rules/safety.md" phrasing in the loop-prompt sketch with a single reference
-  to `rules/patch-mode.md`.
+- `AGENTS.md`: use a single reference to `rules/patch-mode.md` in the
+  loop-prompt sketch.

@@ -1,4 +1,10 @@
-export type AgentName = "claude" | "codex" | "cursor" | "opencode";
+export type AgentName =
+  | "claude"
+  | "codex"
+  | "cursor"
+  | "opencode"
+  | "airproxy"
+  | "copilot";
 
 export type AgentResult =
   | { kind: "ok"; stdout: string; stderr: string }

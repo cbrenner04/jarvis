@@ -76,6 +76,8 @@ const DEFAULT_PATCH_MODELS = {
   codex: "gpt-5-codex",
   cursor: "Composer 2",
   opencode: "<configure-in-opencode-providers-spec>",
+  airproxy: "AirProxy/claude-haiku-4.5",
+  copilot: "github-copilot/claude-opus-4.7",
 };
 
 async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
@@ -746,6 +748,8 @@ exit 0
           codex: "gpt-5-codex",
           cursor: "Composer 2",
           opencode: "<configure-in-opencode-providers-spec>",
+          airproxy: "AirProxy/claude-haiku-4.5",
+          copilot: "github-copilot/claude-opus-4.7",
         },
         projects: { project: { root: projectRoot } },
       },
@@ -764,6 +768,62 @@ exit 0
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
       "-p\0--permission-mode\0acceptEdits\0--model\0haiku\0",
     );
+  });
+
+  test("normal run constructs airproxy and copilot adapters with configured patch models", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const binDir = join(dir, "bin");
+    mkdirSync(binDir);
+    const opencode = join(binDir, "opencode");
+    writeFileSync(
+      opencode,
+      `#!/usr/bin/env bash
+model=""
+prev=""
+for a in "$@"; do
+  if [[ "$prev" == "--model" ]]; then model="$a"; fi
+  prev="$a"
+done
+printf '%s\\n' "$model" >> "${dir}/models"
+if [[ "$model" == AirProxy/* ]]; then
+  echo "rate limit" >&2
+  exit 1
+fi
+printf -- '- [x] todo\\n' > "${spec}"
+exit 0
+`,
+    );
+    chmodSync(opencode, 0o755);
+    process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+    writeConfig(
+      {
+        version: 1,
+        agentOrder: ["airproxy", "copilot"],
+        maxIterations: 10,
+        patchModels: {
+          ...DEFAULT_PATCH_MODELS,
+          airproxy: "AirProxy/custom",
+          copilot: "github-copilot/custom",
+        },
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+    const cap = captureIo();
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.err()).toContain("airproxy: quota exhausted");
+    expect(readFileSync(join(dir, "models"), "utf8")).toBe(
+      "AirProxy/custom\ngithub-copilot/custom\n",
+    );
+    expect(readFileSync(spec, "utf8")).toBe("- [x] todo\n");
   });
 
   test("CLI maxIterations overrides config maxIterations", async () => {

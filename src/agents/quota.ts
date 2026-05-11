@@ -57,7 +57,7 @@ export function isModelConfigurationSignal(
     maybeStderr === undefined ? undefined : (nameOrStderr as AgentName);
   const stderr = maybeStderr === undefined ? nameOrStderr : maybeStderr;
   const patterns =
-    name === "opencode"
+    name === "opencode" || name === "airproxy" || name === "copilot"
       ? [...modelConfigurationPatterns, ...opencodeModelConfigurationPatterns]
       : modelConfigurationPatterns;
 
@@ -80,6 +80,8 @@ export function isQuotaSignal(
       case "cursor":
         return cursorQuotaPatterns;
       case "opencode":
+      case "airproxy":
+      case "copilot":
         return opencodeQuotaPatterns;
     }
   })();

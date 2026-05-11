@@ -50,6 +50,8 @@ describe("config show", () => {
         codex: "gpt-5-codex",
         cursor: "Composer 2",
         opencode: "<configure-in-opencode-providers-spec>",
+        airproxy: "AirProxy/claude-haiku-4.5",
+        copilot: "github-copilot/claude-opus-4.7",
       },
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
@@ -109,6 +111,21 @@ describe("config set-order", () => {
     ]);
   });
 
+  test("airproxy and copilot are allowed", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-order", "claude,airproxy,copilot"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual([
+      "claude",
+      "airproxy",
+      "copilot",
+    ]);
+  });
+
   test("rejects unknown agent without changing file", () => {
     // seed config
     configCommand({
@@ -152,6 +169,27 @@ describe("config set-order", () => {
     expect(after).toBe(before);
   });
 
+  test("rejects nonsense after airproxy without changing file", () => {
+    configCommand({
+      args: ["show"],
+      io: captureIo().io,
+      config: { dir: cfgDir },
+    });
+    const before = readFileSync(join(cfgDir, "config.json"), "utf8");
+
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-order", "claude,airproxy,nonsense"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("unknown agent");
+
+    const after = readFileSync(join(cfgDir, "config.json"), "utf8");
+    expect(after).toBe(before);
+  });
+
   test("rejects duplicates", () => {
     const cap = captureIo();
     const code = configCommand({
@@ -167,6 +205,17 @@ describe("config set-order", () => {
     const cap = captureIo();
     const code = configCommand({
       args: ["set-order", "claude,opencode,opencode"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("duplicate");
+  });
+
+  test("rejects duplicate airproxy", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-order", "claude,airproxy,airproxy"],
       io: cap.io,
       config: { dir: cfgDir },
     });

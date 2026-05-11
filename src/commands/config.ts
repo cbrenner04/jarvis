@@ -9,7 +9,14 @@ import {
   writeConfig,
 } from "../config.ts";
 
-const AGENT_NAMES = ["claude", "codex", "cursor", "opencode"] as const;
+const AGENT_NAMES = [
+  "claude",
+  "codex",
+  "cursor",
+  "opencode",
+  "airproxy",
+  "copilot",
+] as const;
 
 const USAGE = `Usage: jarvis config <subcommand> [args]
 

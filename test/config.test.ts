@@ -26,6 +26,8 @@ const DEFAULT_PATCH_MODELS = {
   codex: "gpt-5-codex",
   cursor: "Composer 2",
   opencode: "<configure-in-opencode-providers-spec>",
+  airproxy: "AirProxy/claude-haiku-4.5",
+  copilot: "github-copilot/claude-opus-4.7",
 };
 
 beforeEach(() => {
@@ -89,6 +91,8 @@ describe("loadConfig", () => {
     expect(cfg.maxIterations).toBe(7);
     expect(cfg.patchModels.claude).toBe("sonnet");
     expect(cfg.patchModels.opencode).toBe("opencode-model");
+    expect(cfg.patchModels.airproxy).toBe("AirProxy/claude-haiku-4.5");
+    expect(cfg.patchModels.copilot).toBe("github-copilot/claude-opus-4.7");
     expect(cfg.logServerUrl).toBe("http://127.0.0.1:4310/logs");
     expect(cfg.logServerBind).toBe("127.0.0.1:4310");
     expect(cfg.projects.jarvis).toEqual({ root: "/Users/me/jarvis" });
@@ -126,7 +130,7 @@ describe("loadConfig", () => {
     );
   });
 
-  test("populates missing opencode patch model for legacy configs", () => {
+  test("populates missing opencode and provider patch models for legacy configs", () => {
     const file = join(dir, "config.json");
     writeFileSync(
       file,
@@ -148,6 +152,43 @@ describe("loadConfig", () => {
     expect(
       JSON.parse(readFileSync(file, "utf8")).patchModels,
     ).not.toHaveProperty("opencode");
+    expect(
+      JSON.parse(readFileSync(file, "utf8")).patchModels,
+    ).not.toHaveProperty("airproxy");
+    expect(
+      JSON.parse(readFileSync(file, "utf8")).patchModels,
+    ).not.toHaveProperty("copilot");
+  });
+
+  test("populates missing provider patch models for legacy configs", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 7,
+        patchModels: {
+          claude: "haiku",
+          codex: "gpt-5-codex",
+          cursor: "Composer 2",
+          opencode: "AirProxy/custom",
+        },
+        projects: {},
+      }),
+    );
+
+    const cfg = loadConfig({ dir });
+    expect(cfg.patchModels).toEqual({
+      ...DEFAULT_PATCH_MODELS,
+      opencode: "AirProxy/custom",
+    });
+    expect(
+      JSON.parse(readFileSync(file, "utf8")).patchModels,
+    ).not.toHaveProperty("airproxy");
+    expect(
+      JSON.parse(readFileSync(file, "utf8")).patchModels,
+    ).not.toHaveProperty("copilot");
   });
 
   test("rejects invalid maxIterations", () => {
@@ -189,6 +230,8 @@ describe("loadConfig", () => {
           codex: "gpt-5-codex",
           cursor: "Composer 2",
           opencode: "<configure-in-opencode-providers-spec>",
+          airproxy: "AirProxy/claude-haiku-4.5",
+          copilot: "github-copilot/claude-opus-4.7",
         },
         projects: {},
       }),
@@ -208,6 +251,8 @@ describe("loadConfig", () => {
           codex: "gpt-5-codex",
           cursor: "Composer 2",
           opencode: "<configure-in-opencode-providers-spec>",
+          airproxy: "AirProxy/claude-haiku-4.5",
+          copilot: "github-copilot/claude-opus-4.7",
         },
         projects: {},
       }),
@@ -227,6 +272,8 @@ describe("loadConfig", () => {
           codex: "gpt-5-codex",
           cursor: "Composer 2",
           opencode: "<configure-in-opencode-providers-spec>",
+          airproxy: "AirProxy/claude-haiku-4.5",
+          copilot: "github-copilot/claude-opus-4.7",
           gpt: "model",
         },
         projects: {},

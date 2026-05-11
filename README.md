@@ -248,10 +248,12 @@ unchecked tasks remain afterward, jarvis exits 0 and reports that the
 one-iteration run finished with unchecked tasks remaining.
 
 Each iteration prints a banner before agent invocation with:
-project key, spec display name (`basename(specPath)`), iteration number, current
-task excerpt (`first unchecked checkbox` in document order), and selected agent.
-The `current-task` field also includes unchecked ordinal/total (`1/N`) so it is
-distinct from loop iteration count. Task excerpts are truncated to 140 chars.
+project key, spec display name, iteration number, current task excerpt (`first
+unchecked checkbox` in document order), and selected agent. For normal
+`index.md` runs, the spec display name is the containing directory name; direct
+non-index runs use the file basename. The `current-task` field also includes
+unchecked ordinal/total (`1/N`) so it is distinct from loop iteration count.
+Task excerpts are truncated to 140 chars.
 
 Jarvis then builds the standard prompt and invokes the agent with `cwd` set to
 the target repo root. The prompt asks the agent to discover target-repo guidance
@@ -286,14 +288,15 @@ The `jarvis run` terminal, session files, and log server serve different purpose
   (last 40 lines) of the latest iteration's inbound output before the stop line
   to help diagnose the failure.
 - **Session log file**: The canonical complete transcript. Located at
-  `~/.jarvis/sessions/<project-key>-<timestamp>.log`, it contains every log
+  `~/.jarvis/sessions/<project-key>:<spec-name>-<timestamp>.log`, it contains every log
   record including harness status, iteration banners, outbound prompts, full
   inbound stdout/stderr, quota messages, and model-configuration failures. Use
   this file to reconstruct the complete run if you need details not shown in
   the terminal.
 - **Log server**: Live full-transcript viewer for monitoring across sessions.
-  Receives the same complete tagged stream as the session log. Accessible via
-  `jarvis log-server`.
+  Receives the same complete tagged stream as the session log, namespaced as
+  `<project-key>:<spec-name>` so concurrent specs in the same project remain
+  distinguishable. Accessible via `jarvis log-server`.
 
 If a successful iteration leaves the unchecked-task count unchanged and the spec
 is still incomplete, jarvis stops with exit 4. Runs also stop at
@@ -350,16 +353,16 @@ created automatically the first time jarvis runs — no manual setup is required
 ~/.jarvis/
   config.json
   sessions/
-    <project-key>-<timestamp>.log
+    <project-key>:<spec-name>-<timestamp>.log
 ```
 
 Session logs are keyed by the registered project name (the `projects` key in
-`config.json`), not by absolute filesystem path. Each `jarvis run` creates one
-session file and writes every log record for the lifetime of that process,
-including harness status (banners, stop reasons, completion), outbound prompts,
-inbound stdout/stderr, quota messages, model-configuration failures, and
-interruption signals. The session log is the canonical source for reconstructing
-a complete run transcript.
+`config.json`) plus the spec display name, not by absolute filesystem path. Each
+`jarvis run` creates one session file and writes every log record for the
+lifetime of that process, including harness status (banners, stop reasons,
+completion), outbound prompts, inbound stdout/stderr, quota messages,
+model-configuration failures, and interruption signals. The session log is the
+canonical source for reconstructing a complete run transcript.
 
 `config.json` schema (v1):
 

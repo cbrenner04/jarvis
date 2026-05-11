@@ -1,5 +1,5 @@
 import { closeSync, existsSync, writeSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { ClaudeAgent } from "../agents/claude.ts";
 import { CodexAgent } from "../agents/codex.ts";
 import { CursorAgent } from "../agents/cursor.ts";
@@ -16,7 +16,7 @@ import {
 import { assertGhReady } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { buildPrompt } from "../prompt.ts";
-import { ensureWorktree, createWorktreeSymlinks } from "../worktree.ts";
+import { createWorktreeSymlinks, ensureWorktree } from "../worktree.ts";
 
 export type RunIo = {
   stdout: (s: string) => void;
@@ -104,6 +104,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return 1;
   }
 
+  const specDisplayName = getSpecDisplayName(specPath);
+  const runNamespace = `${project.key}:${specDisplayName}`;
   const sendLog = async (
     tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
     text: string,
@@ -111,7 +113,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   ): Promise<void> => {
     try {
       const message = {
-        namespace: project.key,
+        namespace: runNamespace,
         text,
         tag,
         ...(annotations === undefined ? {} : { annotations }),
@@ -122,7 +124,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     }
   };
   const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  const sessionFd = openSessionLog(project.key, timestamp, opts.config);
+  const sessionFd = openSessionLog(runNamespace, timestamp, opts.config);
   const writeSessionLine = (
     tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
     line: string,
@@ -214,10 +216,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
       const task = getFirstUncheckedTask(specPath);
       const taskExcerpt = task.line.slice(0, 140);
-      const banner = `project: ${project.key} | spec: ${basename(specPath)} | iteration: ${iteration} | current-task: ${task.ordinal}/${task.total} ${taskExcerpt} | agent: ${agent.name}\n`;
+      const banner = `project: ${project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task.ordinal}/${task.total} ${taskExcerpt} | agent: ${agent.name}\n`;
       await fanout("harness", banner, "stdout", {
         project: project.key,
-        spec: basename(specPath),
+        spec: specDisplayName,
         iteration,
         currentTask: taskExcerpt,
         currentTaskOrdinal: task.ordinal,
@@ -329,6 +331,13 @@ async function confirmFromStdin(_prompt: string): Promise<string> {
     chunks.push(buffer);
   }
   return Buffer.concat(chunks).toString("utf8");
+}
+
+function getSpecDisplayName(specPath: string): string {
+  if (basename(specPath) === "index.md") {
+    return basename(dirname(specPath));
+  }
+  return basename(specPath);
 }
 
 function defaultAgents(cfg: Config): Record<AgentName, Agent> {

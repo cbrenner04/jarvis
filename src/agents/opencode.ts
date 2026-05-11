@@ -7,16 +7,18 @@ import { isModelConfigurationSignal, isQuotaSignal } from "./quota.ts";
 import type { Agent, AgentName, AgentResult } from "./types.ts";
 
 export type OpencodeAgentOptions = {
+  agentName?: AgentName;
   binary?: string;
   model: string;
 };
 
 export class OpencodeAgent implements Agent {
-  readonly name = "opencode" as AgentName;
+  readonly name: AgentName;
   readonly #binary: string;
   readonly #model: string;
 
   constructor(opts: OpencodeAgentOptions) {
+    this.name = opts.agentName ?? "opencode";
     this.#binary = opts.binary ?? "opencode";
     this.#model = opts.model;
   }

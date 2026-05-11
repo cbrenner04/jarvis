@@ -93,6 +93,17 @@ subspec's H1 heading (the first `# ` line), verbatim. The commit body includes:
 The same commit also flips the index.md checkbox for the subspec from `[ ]` to
 `[x]`, staging both the work and the index update together.
 
+#### Draft PR creation
+
+After the first successful subspec commit lands, `jarvis run` opens a draft PR:
+
+- **Title**: the H1 from the spec's `index.md` (e.g., "Git Workflow")
+- **Body**: a summary of the spec index and subspec H1 headings
+- **Base branch**: the branch detected by subspec 01
+
+The PR remains in draft until the spec is complete. If a PR already exists (on
+resume), it is reused without modification to the body.
+
 Agents that need to create or migrate specs should follow
 [docs/spec-guidance.md](docs/spec-guidance.md).
 

@@ -104,6 +104,17 @@ After the first successful subspec commit lands, `jarvis run` opens a draft PR:
 The PR remains in draft until the spec is complete. If a PR already exists (on
 resume), it is reused without modification to the body.
 
+#### Push cadence
+
+Each subspec commit is pushed immediately:
+
+- **First commit**: `git push -u origin <branch>` (sets up tracking)
+- **Subsequent commits**: `git push` (uses tracking from first push)
+
+Push failures are errors that halt work; there is no automatic retry. This keeps
+the draft PR synchronized with the latest commit, allowing reviewers and CI to
+see incremental progress.
+
 Agents that need to create or migrate specs should follow
 [docs/spec-guidance.md](docs/spec-guidance.md).
 

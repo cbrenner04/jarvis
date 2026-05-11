@@ -93,6 +93,19 @@ function branchExistsOnOrigin(
   }
 }
 
+export function pushCurrent(projectRoot: string, isFirstPush: boolean): void {
+  const args = isFirstPush ? "push -u origin HEAD" : "push";
+  try {
+    execSync(`git ${args}`, {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    throw new Error(`git push failed: ${errorMessage}`);
+  }
+}
+
 export function createWorktreeSymlinks(
   projectRoot: string,
   worktreePath: string,

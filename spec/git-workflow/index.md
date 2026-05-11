@@ -29,7 +29,7 @@ runs inside a dedicated worktree under `.worktree/<spec-name>/`.
 - [x] [03 - Dotfile symlinks into worktree](./03-dotfile-symlinks.md)
 - [x] [04 - Subspec commit format](./04-subspec-commit-format.md)
 - [x] [05 - First commit opens draft PR](./05-first-commit-opens-draft-pr.md)
-- [ ] [06 - Push per commit](./06-push-per-commit.md)
+- [x] [06 - Push per commit](./06-push-per-commit.md)
 - [ ] [07 - Pre-commit hook and blocker handling](./07-hook-and-blocker-handling.md)
 - [ ] [08 - Flip to ready for review](./08-ready-for-review.md)
 - [ ] [09 - jarvis cleanup command](./09-jarvis-cleanup-command.md)

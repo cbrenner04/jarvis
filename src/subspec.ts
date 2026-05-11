@@ -52,7 +52,7 @@ function extractH1(content: string): string | null {
 
 function extractAcceptanceCriteria(content: string): string | null {
   const match = content.match(
-    /^## Acceptance criteria\n\n([\s\S]+?)(?=\n## |\Z)/m,
+    /^## Acceptance criteria\n\n([\s\S]+?)(?=\n## |Z)/m,
   );
   if (!match?.[1]) {
     return null;

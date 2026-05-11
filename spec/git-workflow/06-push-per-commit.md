@@ -16,10 +16,16 @@ the latest commit shortly after each subspec lands.
 
 ## Tasks
 
-- [ ] After every `commitSubspec` call (subspec 04), invoke a `pushCurrent()`
-  helper that runs `git push` and surfaces stderr verbatim on failure.
-- [ ] Ensure the first-commit path uses `-u` and that subsequent calls do
-  not.
+- [ ] Implement a `pushCurrent({ firstPush }: { firstPush: boolean })`
+  helper. When `firstPush` is true, run
+  `git push -u origin <current-branch>`. Otherwise run plain `git push`.
+  Surface stderr verbatim on failure.
+- [ ] Wire `pushCurrent` into the run loop in `src/commands/run.ts` so it is
+  called immediately after every successful `commitSubspec` (added in
+  subspec 04). The first commit of the run uses `firstPush: true`; all
+  others use `firstPush: false`.
+- [ ] On push failure, do not retry, do not `--force`, do not
+  `--force-with-lease`. Treat as a blocker per subspec 07 and exit.
 
 ## Acceptance criteria
 
@@ -27,6 +33,9 @@ the latest commit shortly after each subspec lands.
   PR.
 - A network failure during push results in a blocker, not a silent
   continuation.
+- A regression test drives a two-subspec run and asserts two pushes were
+  invoked, the first with `-u`, the second without. Mock `git push` if the
+  test cannot reach a real remote.
 
 ## Docs
 

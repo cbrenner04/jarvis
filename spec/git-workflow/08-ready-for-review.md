@@ -17,7 +17,10 @@ for review without human intervention. Jarvis never merges — humans do.
 
 ## Tasks
 
-- [ ] Add `maybeMarkReady()` invoked at the tail of the commit/push pipeline.
+- [ ] Add `maybeMarkReady()` invoked at the tail of the commit/push pipeline
+  in `src/commands/run.ts`: after each successful `commitSubspec` +
+  `pushCurrent`, re-read `index.md`; if every canonical subspec checkbox is
+  `[x]`, call `gh pr ready` on the current branch.
 - [ ] Parse `index.md` checkboxes to determine completeness; ignore lines
   that are not part of the canonical subspec list.
 
@@ -26,6 +29,9 @@ for review without human intervention. Jarvis never merges — humans do.
 - Completing the final subspec results in the PR's `isDraft` field becoming
   `false` (verified via `gh pr view --json isDraft`).
 - Partial completion never flips the PR.
+- An end-to-end regression test runs a two-subspec spec to completion and
+  asserts the PR transitions from draft to ready exactly once, after the
+  second commit lands.
 
 ## Docs
 

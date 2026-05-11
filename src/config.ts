@@ -33,6 +33,7 @@ export type Config = {
   patchModels: PatchModels;
   logServerUrl?: string;
   logServerBind?: string;
+  worktreeSymlinks?: string[];
   projects: Record<string, Project>;
 };
 

@@ -1,6 +1,12 @@
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import {
+  existsSync,
+  lstatSync,
+  readlinkSync,
+  symlinkSync,
+  rmSync,
+} from "node:fs";
+import { dirname, join, resolve, relative } from "node:path";
 import { getBaseBranch } from "./gh.ts";
 
 export function getSpecName(specPath: string): string {
@@ -84,5 +90,45 @@ function branchExistsOnOrigin(
     return true;
   } catch {
     return false;
+  }
+}
+
+export function createWorktreeSymlinks(
+  projectRoot: string,
+  worktreePath: string,
+  symlinks: string[] | undefined,
+): void {
+  if (!symlinks || symlinks.length === 0) {
+    return;
+  }
+
+  for (const linkTarget of symlinks) {
+    const sourcePath = join(projectRoot, linkTarget);
+    const targetPath = join(worktreePath, linkTarget);
+
+    if (!existsSync(sourcePath)) {
+      continue;
+    }
+
+    if (existsSync(targetPath)) {
+      try {
+        const currentLink = readlinkSync(targetPath);
+        const expectedTarget = relative(
+          dirname(targetPath),
+          sourcePath,
+        );
+        if (currentLink === expectedTarget) {
+          continue;
+        }
+        rmSync(targetPath, { recursive: true });
+      } catch {
+        throw new Error(
+          `Cannot create symlink at ${targetPath}: non-symlink file or directory already exists`,
+        );
+      }
+    }
+
+    const relativeSource = relative(dirname(targetPath), sourcePath);
+    symlinkSync(relativeSource, targetPath, "dir");
   }
 }

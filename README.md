@@ -314,9 +314,27 @@ type Config = {
   maxIterations: number; // positive integer, default 10
   logServerUrl: string; // POST endpoint used by jarvis run
   logServerBind: string; // host:port used by jarvis log-server
+  worktreeSymlinks?: string[]; // relative paths from repo root to symlink into worktrees
   projects: Record<string, Project>; // key = path relative to ~/Work
 };
 ```
+
+#### worktreeSymlinks
+
+The optional `worktreeSymlinks` field allows sharing build artifacts or
+node_modules across worktrees without duplication. Each entry is a relative path
+from the repo root. On each run, symlinks are created inside the worktree
+pointing to the same paths in the main checkout.
+
+Example:
+
+```json
+{
+  "worktreeSymlinks": ["node_modules", "dist"]
+}
+```
+
+This prevents redundant `bun install` or rebuild operations when re-running specs.
 
 Default contents on first bootstrap:
 

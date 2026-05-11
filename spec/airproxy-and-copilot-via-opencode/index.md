@@ -61,7 +61,7 @@ should `## Blocker`-stop rather than re-implement the opencode foundation.
 
 ## Conventions
 
-- Run this spec with `jarvis run spec/airproxy-and-copilot-via-opencode/index.md`
+- Run this spec with `jarvis run <this spec's index.md path>`
   once the prerequisite spec is fully landed.
 - Complete one subspec per iteration. Do not bundle.
 - If a subspec is blocked, append a `## Blocker` section and stop.

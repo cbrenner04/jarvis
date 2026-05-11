@@ -3,7 +3,7 @@
 Add `opencode` as a supported agent CLI in jarvis. This is foundational work
 that introduces a new agent module wired into the existing agent abstraction,
 without yet exposing the upstream providers that opencode itself can reach
-(those are handled in the follow-up spec `airproxy-and-copilot-via-opencode`).
+(those were planned for a follow-up provider-routing spec).
 
 ## Problem
 
@@ -21,9 +21,8 @@ locally, regardless of which underlying provider they use.
 
 This spec only adds the agent. It does not change the default `agentOrder`,
 add default `patchModels` entries for opencode, or document specific provider
-configurations. The next spec
-(`spec/airproxy-and-copilot-via-opencode/`) covers concrete provider wiring
-on top of this foundation.
+configurations. A follow-up provider-routing spec covers concrete provider
+wiring on top of this foundation.
 
 ## Approach
 

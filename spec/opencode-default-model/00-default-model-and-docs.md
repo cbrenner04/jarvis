@@ -2,19 +2,15 @@
 
 ## Problem
 
-Two concrete artifacts remain from the abandoned
-`airproxy-and-copilot-via-opencode` follow-up:
+Two concrete artifacts remain from the abandoned provider-routing follow-up:
 
-1. `src/config.ts` still ships `patchModels.opencode` as the placeholder
-   string `"<configure-in-opencode-providers-spec>"`, set via the
-   `OPENCODE_PATCH_MODEL_PLACEHOLDER` constant. The same placeholder is
-   re-populated in legacy-config handling (`if (name === "opencode")` branch
-   in `parsePatchModels`).
-2. `docs/agents.md` ends with a paragraph promising that "Provider-specific
-   opencode setup (for example AirProxy or github-copilot routing) is
-   covered by the follow-up `airproxy-and-copilot-via-opencode` spec." That
-   spec is gone; the docs need to explain the `provider/model` string
-   directly.
+1. `src/config.ts` still ships `patchModels.opencode` as the old placeholder
+   string, set via the `OPENCODE_PATCH_MODEL_PLACEHOLDER` constant. The same
+   placeholder is re-populated in legacy-config handling (`if (name ===
+   "opencode")` branch in `parsePatchModels`).
+2. `docs/agents.md` ends with a paragraph promising that provider-specific
+   opencode setup would be covered by the abandoned follow-up spec. That spec
+   is gone; the docs need to explain the `provider/model` string directly.
 
 ## Decisions
 
@@ -45,7 +41,7 @@ Two concrete artifacts remain from the abandoned
     other reference to the placeholder remains).
 - [ ] In `docs/agents.md`:
   - Replace the trailing paragraph that references the abandoned
-    `airproxy-and-copilot-via-opencode` spec with prose that explains
+    abandoned follow-up spec with prose that explains
     `patchModels.opencode` is a `provider/model` string and lists the two
     providers the user actually uses (`github-copilot/...` and
     `AirProxy/...`) as examples.
@@ -54,8 +50,7 @@ Two concrete artifacts remain from the abandoned
 - [ ] In `docs/config.md` (if it references the opencode placeholder or
   promises a separate provider spec), align with the new wording. Otherwise
   skip.
-- [ ] Update any test that asserts the placeholder value (search for
-  `<configure-in-opencode-providers-spec>` in `test/`). Replace with the
+- [ ] Update any test that asserts the old placeholder value. Replace with the
   new default.
 - [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
@@ -63,10 +58,8 @@ Two concrete artifacts remain from the abandoned
 
 - A freshly bootstrapped `~/.jarvis/config.json` has
   `"opencode": "github-copilot/claude-opus-4.7"` in `patchModels`.
-- The string `<configure-in-opencode-providers-spec>` does not appear
-  anywhere in the repo.
-- The string `airproxy-and-copilot-via-opencode` does not appear anywhere
-  in the repo.
+- The old placeholder string does not appear anywhere in the repo.
+- The abandoned follow-up spec name does not appear anywhere in the repo.
 - `docs/agents.md` explains the `provider/model` string and lists
   `github-copilot` and `AirProxy` as examples without introducing them as
   separate agents.

@@ -6,9 +6,9 @@ document opencode's `provider/model` selector in `docs/agents.md`.
 ## Problem
 
 `spec/opencode-as-agent/` shipped `patchModels.opencode` with a placeholder
-string (`"<configure-in-opencode-providers-spec>"`) on the assumption that a
-follow-up spec would introduce per-provider agents (AirProxy, github-copilot)
-as siblings of `opencode` in `AgentName`. That follow-up was a mistake:
+string on the assumption that a follow-up spec would introduce per-provider
+agents (AirProxy, github-copilot) as siblings of `opencode` in `AgentName`.
+That follow-up was a mistake:
 **AirProxy** and **github-copilot** are not agents. They are providers in
 opencode's `provider/model` selector. The `opencode` agent already reaches
 them through `patchModels.opencode` — for example
@@ -29,7 +29,7 @@ No new `AgentName` values. No wrapper agent classes. No factory branches. The
 
 ## Subspecs
 
-- [ ] [00 — Default model and docs](./00-default-model-and-docs.md)
+- [x] [00 — Default model and docs](./00-default-model-and-docs.md)
 
 ## Conventions
 

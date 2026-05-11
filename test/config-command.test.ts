@@ -49,7 +49,7 @@ describe("config show", () => {
         claude: "haiku",
         codex: "gpt-5-codex",
         cursor: "Composer 2",
-        opencode: "<configure-in-opencode-providers-spec>",
+        opencode: "github-copilot/claude-opus-4.7",
       },
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",

@@ -48,7 +48,7 @@ Default `patchModels` in a freshly bootstrapped config:
     "claude": "haiku",
     "codex": "gpt-5.3-codex",
     "cursor": "Composer 2",
-    "opencode": "<configure-in-opencode-providers-spec>",
+    "opencode": "<old-opencode-provider-placeholder>",
     "airproxy": "AirProxy/claude-haiku-4.5",
     "copilot": "github-copilot/claude-opus-4.7"
   }
@@ -57,7 +57,7 @@ Default `patchModels` in a freshly bootstrapped config:
 
 Note: this is also the moment to revisit the `opencode` placeholder from
 the prerequisite spec. If reviewers prefer, replace
-`"<configure-in-opencode-providers-spec>"` with a concrete default
+the old provider placeholder with a concrete default
 (e.g. `"AirProxy/claude-haiku-4.5"`) since opencode now has real
 provider-named siblings. Decide during this subspec; if you change it,
 note the change in `## Decisions` above.

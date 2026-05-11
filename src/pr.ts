@@ -18,12 +18,7 @@ export async function ensureDraftPr(
   }
 
   const body = await opts.bodyGenerator();
-  const prNumber = createDraftPr(
-    opts.branch,
-    opts.base,
-    opts.title,
-    body,
-  );
+  const prNumber = createDraftPr(opts.branch, opts.base, opts.title, body);
   return { number: prNumber, created: true };
 }
 
@@ -34,7 +29,7 @@ function checkPrExists(branch: string): number | null {
       { stdio: "pipe", encoding: "utf8" },
     );
     const number = parseInt(output.trim(), 10);
-    return isNaN(number) ? null : number;
+    return Number.isNaN(number) ? null : number;
   } catch {
     return null;
   }
@@ -51,7 +46,7 @@ function createDraftPr(
     { stdio: "pipe", encoding: "utf8" },
   );
   const number = parseInt(prOutput.trim(), 10);
-  if (isNaN(number)) {
+  if (Number.isNaN(number)) {
     throw new Error("failed to parse PR number from gh output");
   }
   return number;
@@ -85,7 +80,7 @@ export function generatePrBodyFromSpec(specIndexPath: string): string {
 
 function extractFirstHeading(content: string): string | null {
   const match = content.match(/^# (.+)$/m);
-  if (!match || !match[1]) {
+  if (!match?.[1]) {
     return null;
   }
   return match[1].trim();
@@ -95,7 +90,9 @@ function extractSpecNames(indexContent: string): string[] {
   const matches = Array.from(indexContent.matchAll(/\]\(\.\/([^)]+)\)/g));
   return matches
     .map((m) => m[1])
-    .filter((name): name is string => name !== undefined && !name.endsWith(".md"));
+    .filter(
+      (name): name is string => name !== undefined && !name.endsWith(".md"),
+    );
 }
 
 function extractFirstHeadingFromSpec(specPath: string): string | null {

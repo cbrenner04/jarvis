@@ -6,3 +6,4 @@ Unified logging for `jarvis run`: named sessions under `~/.jarvis/sessions/`, ou
 - [x] [01 — Log server & mandatory connectivity](./01-log-server.md)
 - [x] [02 — run loop sinks & tagging](./02-run-logging.md)
 - [x] [03 — Agent CLI verbosity](./03-agent-verbosity.md)
+- [x] [04 — Spec-scoped run names](./04-spec-scoped-run-names.md)

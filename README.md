@@ -81,6 +81,18 @@ When re-running a spec:
 The agent runs in the worktree, not the main checkout, so concurrent spec runs
 (with different specs) do not interfere with each other.
 
+After the worktree is ready, the worktree is the run source of truth. Jarvis
+maps the requested spec path into that worktree and uses the worktree-local spec
+for prompts, task banners, completion checks, and no-progress checks. If the
+spec directory exists only in the main checkout, Jarvis seeds missing spec files
+into the worktree without overwriting files already present there. Those seeded
+copies are normal files in the worktree working tree: if they are not yet on the
+feature branch, they start out **untracked** until you `git add` and commit them.
+Agents must leave the worktree **clean** (no uncommitted or untracked changes)
+once every checkbox is checked, or `jarvis run` exits `6` instead of treating
+the spec as complete—otherwise the harness can report "done" while the draft PR
+never receives the work.
+
 #### Commit shape
 
 Each completed subspec produces exactly one commit. The commit subject is the
@@ -231,15 +243,20 @@ Jarvis treats a spec as complete when the spec file has zero unchecked
 GitHub-style task list items. An unchecked item is a line matching
 `^\s*- \[ \]\s`; checked items use `- [x]` or `- [X]`.
 
+When the agent `cwd` is a git checkout (normal runs that use a worktree), Jarvis
+also requires a clean `git status` before printing **spec complete**. That way
+checkbox completion cannot succeed while changes are still only on disk.
+
 A spec with no task list checkboxes is malformed. Jarvis fails fast instead of
 treating it as complete.
 
 ### How the loop works
 
-`jarvis run <spec-path>` resolves the spec to an absolute path, finds the
-registered project root that contains it, and runs agents from `agentOrder`
-until the spec has no unchecked boxes. Normal runs use an `index.md` spec so
-agents select one indexed task per invocation.
+`jarvis run <spec-path>` resolves the requested spec to an absolute path, finds
+the registered project root that contains it, prepares the per-spec worktree,
+then maps the spec path into that worktree. From that point, Jarvis runs agents
+from `agentOrder` until the worktree-local spec has no unchecked boxes. Normal
+runs use an `index.md` spec so agents select one indexed task per invocation.
 
 When `<spec-path>` is not named `index.md`, jarvis prompts before invoking any
 agent: `s` (switch), `m` (migrate), or `e` (exit). `s` resolves to the sibling
@@ -248,13 +265,15 @@ against the supplied path and then exits, with quota fallback still allowed
 before that migration iteration.
 
 Each iteration prints a banner before agent invocation with:
-project key, spec display name (`basename(specPath)`), iteration number, current
-task excerpt (`first unchecked checkbox` in document order), and selected agent.
-The `current-task` field also includes unchecked ordinal/total (`1/N`) so it is
-distinct from loop iteration count. Task excerpts are truncated to 140 chars.
+project key, spec display name, iteration number, current task excerpt (`first
+unchecked checkbox` in document order), and selected agent. For normal
+`index.md` runs, the spec display name is the containing directory name; direct
+non-index runs use the file basename. The `current-task` field also includes
+unchecked ordinal/total (`1/N`) so it is distinct from loop iteration count.
+Task excerpts are truncated to 140 chars.
 
 Jarvis then builds the standard prompt and invokes the agent with `cwd` set to
-the target repo root. The prompt asks the agent to discover target-repo guidance
+the active worktree. The prompt asks the agent to discover target-repo guidance
 and injects jarvis-owned rules from `rules/patch-mode.md` inline.
 
 `jarvis run` requires the local log server to be reachable before the loop starts.
@@ -286,14 +305,15 @@ The `jarvis run` terminal, session files, and log server serve different purpose
   (last 40 lines) of the latest iteration's inbound output before the stop line
   to help diagnose the failure.
 - **Session log file**: The canonical complete transcript. Located at
-  `~/.jarvis/sessions/<project-key>-<timestamp>.log`, it contains every log
+  `~/.jarvis/sessions/<project-key>:<spec-name>-<timestamp>.log`, it contains every log
   record including harness status, iteration banners, outbound prompts, full
   inbound stdout/stderr, quota messages, and model-configuration failures. Use
   this file to reconstruct the complete run if you need details not shown in
   the terminal.
 - **Log server**: Live full-transcript viewer for monitoring across sessions.
-  Receives the same complete tagged stream as the session log. Accessible via
-  `jarvis log-server`.
+  Receives the same complete tagged stream as the session log, namespaced as
+  `<project-key>:<spec-name>` so concurrent specs in the same project remain
+  distinguishable. Accessible via `jarvis log-server`.
 
 If a successful iteration leaves the unchecked-task count unchanged and the spec
 is still incomplete, jarvis stops with exit 4. Runs also stop at
@@ -309,6 +329,8 @@ Exit codes:
 - `3` — the active agent failed for a non-quota reason.
 - `4` — a successful agent iteration made no progress.
 - `5` — the configured maximum iteration count was reached.
+- `6` — every checklist item is checked, but the worktree is not clean; commit
+  and push so the PR matches the run.
 - `130` — interrupted with Ctrl-C.
 
 ## Development
@@ -350,16 +372,16 @@ created automatically the first time jarvis runs — no manual setup is required
 ~/.jarvis/
   config.json
   sessions/
-    <project-key>-<timestamp>.log
+    <project-key>:<spec-name>-<timestamp>.log
 ```
 
 Session logs are keyed by the registered project name (the `projects` key in
-`config.json`), not by absolute filesystem path. Each `jarvis run` creates one
-session file and writes every log record for the lifetime of that process,
-including harness status (banners, stop reasons, completion), outbound prompts,
-inbound stdout/stderr, quota messages, model-configuration failures, and
-interruption signals. The session log is the canonical source for reconstructing
-a complete run transcript.
+`config.json`) plus the spec display name, not by absolute filesystem path. Each
+`jarvis run` creates one session file and writes every log record for the
+lifetime of that process, including harness status (banners, stop reasons,
+completion), outbound prompts, inbound stdout/stderr, quota messages,
+model-configuration failures, and interruption signals. The session log is the
+canonical source for reconstructing a complete run transcript.
 
 `config.json` schema (v1):
 

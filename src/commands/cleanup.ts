@@ -1,11 +1,7 @@
 import { execSync } from "node:child_process";
-import { readdirSync, rmSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import {
-  type ConfigOptions,
-  findProjectMatchForPath,
-  loadConfig,
-} from "../config.ts";
+import type { ConfigOptions } from "../config.ts";
 
 export type CleanupIo = {
   stdout: (s: string) => void;
@@ -22,9 +18,7 @@ export type CleanupCommandOptions = {
 
 export function cleanupCommand(opts: CleanupCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
-  const worktrees = readdirSync(worktreeDir).filter(
-    (name) => name !== ".keep",
-  );
+  const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
 
   const toRemove: Array<{ path: string; branch: string }> = [];
 
@@ -89,20 +83,17 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
 
 function isMergedPr(branch: string): boolean {
   try {
-    const output = execSync(
-      `gh pr view "${branch}" --json state -q .state`,
-      { stdio: "pipe", encoding: "utf8" },
-    );
+    const output = execSync(`gh pr view "${branch}" --json state -q .state`, {
+      stdio: "pipe",
+      encoding: "utf8",
+    });
     return output.trim() === "MERGED";
   } catch {
     return false;
   }
 }
 
-function hasDirtyStatus(
-  worktreePath: string,
-  projectRoot: string,
-): boolean {
+function hasDirtyStatus(worktreePath: string, _projectRoot: string): boolean {
   try {
     const porcelain = execSync("git status --porcelain", {
       cwd: worktreePath,

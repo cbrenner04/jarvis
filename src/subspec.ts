@@ -44,15 +44,17 @@ function basename(path: string): string {
 
 function extractH1(content: string): string | null {
   const match = content.match(/^# (.+)$/m);
-  if (!match || !match[1]) {
+  if (!match?.[1]) {
     return null;
   }
   return match[1].trim();
 }
 
 function extractAcceptanceCriteria(content: string): string | null {
-  const match = content.match(/^## Acceptance criteria\n\n([\s\S]+?)(?=\n## |\Z)/m);
-  if (!match || !match[1]) {
+  const match = content.match(
+    /^## Acceptance criteria\n\n([\s\S]+?)(?=\n## |Z)/m,
+  );
+  if (!match?.[1]) {
     return null;
   }
   return match[1].trim();
@@ -60,9 +62,11 @@ function extractAcceptanceCriteria(content: string): string | null {
 
 function updateIndexCheckbox(content: string, subspecName: string): string {
   const escapedName = subspecName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^- \\[ \\] \\[(.+?)\\]\\(\\.\/${escapedName}\\)$`, "m");
+  const pattern = new RegExp(
+    `^- \\[ \\] \\[(.+?)\\]\\(\\./${escapedName}\\)$`,
+    "m",
+  );
   return content.replace(pattern, (_match, linkText: string) => {
     return `- [x] [${linkText}](./${subspecName})`;
   });
 }
-

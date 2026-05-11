@@ -17,14 +17,10 @@ export function commitBlocker(subspecPath: string, reason: string): void {
   const { execSync } = require("node:child_process");
 
   const h1 = extractH1(subspecPath);
-  const subspecName = subspecPath.split("/").pop() || "";
 
   execSync("git add -A", { stdio: "pipe" });
 
-  const relativeSpecPath = subspecPath
-    .split("/")
-    .slice(-2)
-    .join("/");
+  const relativeSpecPath = subspecPath.split("/").slice(-2).join("/");
   const commitMessage = `WIP: ${h1}\n\nSpec: ${relativeSpecPath}\n\n## Blocker\n\n${reason}`;
 
   const command = `git commit -m "$(cat <<'EOF'\n${commitMessage}\nEOF\n)"`;
@@ -34,7 +30,7 @@ export function commitBlocker(subspecPath: string, reason: string): void {
 function extractH1(subspecPath: string): string {
   const content = readFileSync(subspecPath, "utf8");
   const match = content.match(/^# (.+)$/m);
-  if (!match || !match[1]) {
+  if (!match?.[1]) {
     return "Unknown";
   }
   return match[1].trim();

@@ -1,6 +1,6 @@
 import {
-  cpSync,
   closeSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -24,7 +24,11 @@ import {
 import { assertGhReady } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { buildPrompt } from "../prompt.ts";
-import { ensureWorktree, createWorktreeSymlinks } from "../worktree.ts";
+import {
+  createWorktreeSymlinks,
+  ensureWorktree,
+  worktreeCompletionBlocker,
+} from "../worktree.ts";
 
 export type RunIo = {
   stdout: (s: string) => void;
@@ -92,7 +96,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       return 1;
     }
   }
-  specPath = prepareAgentSpecPath({
+  specPath = prepareActiveSpecPath({
     projectRoot: project.root,
     agentWorkingDir,
     specPath,
@@ -106,7 +110,9 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
     const promptLines = [
       `${specPath} is not an index spec.`,
-      ...(hasSiblingIndex ? ["  [s] switch to ./index.md and run normally"] : []),
+      ...(hasSiblingIndex
+        ? ["  [s] switch to ./index.md and run normally"]
+        : []),
       "  [m] migrate this spec to the index-routed shape",
       "  [e] exit",
       "Choice [e]: ",
@@ -182,7 +188,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           await sendLog(tag, line, annotations);
         }
       };
-      const writeTerminal = (stream: "stdout" | "stderr", text: string): void => {
+      const writeTerminal = (
+        stream: "stdout" | "stderr",
+        text: string,
+      ): void => {
         if (stream === "stdout") {
           opts.io.stdout(text);
         } else if (stream === "stderr") {
@@ -249,6 +258,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return 1;
   }
 
+  const specDisplayName = getSpecDisplayName(specPath);
+  const runNamespace = `${project.key}:${specDisplayName}`;
   const sendLog = async (
     tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
     text: string,
@@ -256,7 +267,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   ): Promise<void> => {
     try {
       const message = {
-        namespace: project.key,
+        namespace: runNamespace,
         text,
         tag,
         ...(annotations === undefined ? {} : { annotations }),
@@ -267,7 +278,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     }
   };
   const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  const sessionFd = openSessionLog(project.key, timestamp, opts.config);
+  const sessionFd = openSessionLog(runNamespace, timestamp, opts.config);
   const writeSessionLine = (
     tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
     line: string,
@@ -332,6 +343,23 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   }
 
   try {
+    const tryFinishSpecIfDone = async (): Promise<number | null> => {
+      if (countUnchecked(specPath) !== 0) {
+        return null;
+      }
+      const blocker = worktreeCompletionBlocker(agentWorkingDir);
+      if (blocker !== undefined) {
+        await fanout(
+          "harness",
+          `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n`,
+          "stderr",
+        );
+        return 6;
+      }
+      await fanout("harness", "spec complete\n", "stdout");
+      return 0;
+    };
+
     while (true) {
       if (isIndexSpec && iteration > cfg.maxIterations) {
         printBoundedTail([...latestIterationStdout, ...latestIterationStderr]);
@@ -347,7 +375,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       latestIterationStderr = [];
       const before = countUnchecked(specPath);
       if (before === 0) {
-        await fanout("harness", "spec complete\n", "stdout");
+        const done = await tryFinishSpecIfDone();
+        if (done !== null) {
+          return done;
+        }
         return 0;
       }
 
@@ -359,10 +390,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
       const task = getFirstUncheckedTask(specPath);
       const taskExcerpt = task.line.slice(0, 140);
-      const banner = `project: ${project.key} | spec: ${basename(specPath)} | iteration: ${iteration} | current-task: ${task.ordinal}/${task.total} ${taskExcerpt} | agent: ${agent.name}\n`;
+      const banner = `project: ${project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task.ordinal}/${task.total} ${taskExcerpt} | agent: ${agent.name}\n`;
       await fanout("harness", banner, "stdout", {
         project: project.key,
-        spec: basename(specPath),
+        spec: specDisplayName,
         iteration,
         currentTask: taskExcerpt,
         currentTaskOrdinal: task.ordinal,
@@ -394,7 +425,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         }
         const after = countUnchecked(specPath);
         if (after === 0) {
-          await fanout("harness", "spec complete\n", "stdout");
+          const done = await tryFinishSpecIfDone();
+          if (done !== null) {
+            return done;
+          }
           return 0;
         }
         if (!isIndexSpec) {
@@ -488,7 +522,8 @@ async function runMigration(opts: {
   fanout: Fanout;
   logServerUrl: string;
 }): Promise<number> {
-  const { specPath, project, cfg, agentWorkingDir, activeAgents, fanout } = opts;
+  const { specPath, project, cfg, agentWorkingDir, activeAgents, fanout } =
+    opts;
 
   while (true) {
     const agent = activeAgents[0];
@@ -565,7 +600,28 @@ async function runMigration(opts: {
   }
 }
 
-export function prepareAgentSpecPath(opts: {
+async function confirmFromStdin(_prompt: string): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const newline = buffer.indexOf(10);
+    if (newline !== -1) {
+      chunks.push(buffer.subarray(0, newline));
+      break;
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function getSpecDisplayName(specPath: string): string {
+  if (basename(specPath) === "index.md") {
+    return basename(dirname(specPath));
+  }
+  return basename(specPath);
+}
+
+export function prepareActiveSpecPath(opts: {
   projectRoot: string;
   agentWorkingDir: string;
   specPath: string;
@@ -582,11 +638,11 @@ export function prepareAgentSpecPath(opts: {
     return specPath;
   }
 
-  const agentSpecPath = resolve(agentWorkingDir, relativeSpecPath);
-  if (!existsSync(agentSpecPath)) {
-    copyMissingRecursive(dirname(specPath), dirname(agentSpecPath));
+  const activeSpecPath = resolve(agentWorkingDir, relativeSpecPath);
+  if (!existsSync(activeSpecPath)) {
+    copyMissingRecursive(dirname(specPath), dirname(activeSpecPath));
   }
-  return agentSpecPath;
+  return activeSpecPath;
 }
 
 function copyMissingRecursive(sourceDir: string, targetDir: string): void {
@@ -607,20 +663,6 @@ function copyMissingRecursive(sourceDir: string, targetDir: string): void {
       errorOnExist: false,
     });
   }
-}
-
-async function confirmFromStdin(_prompt: string): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    const newline = buffer.indexOf(10);
-    if (newline !== -1) {
-      chunks.push(buffer.subarray(0, newline));
-      break;
-    }
-    chunks.push(buffer);
-  }
-  return Buffer.concat(chunks).toString("utf8");
 }
 
 function defaultAgents(cfg: Config): Record<AgentName, Agent> {

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -13,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult } from "../src/agents/types.ts";
 import {
-  prepareAgentSpecPath,
+  prepareActiveSpecPath,
   type RunCommandOptions,
   type RunIo,
   runCommand,
@@ -150,8 +151,63 @@ describe("runCommand", () => {
     expect(claude.calls).toHaveLength(0);
   });
 
-  test("completes after an agent flips an unchecked box", async () => {
+  test("exits 6 when checklists are complete but the git worktree is dirty", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
     const spec = writeSpec("- [ ] todo\n");
+    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      writeFileSync(join(projectRoot, "extra.txt"), "x");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(6);
+    expect(cap.err()).toContain("not clean");
+    expect(cap.out()).not.toContain("spec complete");
+  });
+
+  test("exits 0 when the worktree is git-clean after a completing iteration", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const spec = writeSpec("- [ ] todo\n");
+    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("spec complete");
+  });
+
+  test("completes after an agent flips an unchecked box", async () => {
+    const spec = writeNamedSpec("feature", "- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => {
       writeFileSync(spec, "- [x] todo\n");
@@ -168,7 +224,7 @@ describe("runCommand", () => {
 
     expect(code).toBe(0);
     expect(cap.out()).toContain("project: project");
-    expect(cap.out()).toContain("spec: index.md");
+    expect(cap.out()).toContain("spec: feature");
     expect(cap.out()).toContain("iteration: 1");
     expect(cap.out()).toContain("current-task: 1/1 todo");
     expect(cap.out()).toContain("agent: claude");
@@ -209,17 +265,21 @@ describe("runCommand", () => {
   });
 
   test("writes banner, outbound, and inbound to server and session log in order", async () => {
-    const spec = writeSpec("- [ ] todo\n");
+    const spec = writeNamedSpec("feature", "- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => {
       writeFileSync(spec, "- [x] todo\n");
       return { kind: "ok", stdout: "out line\n", stderr: "err line\n" };
     });
-    const messages: { tag: string; text: string }[] = [];
+    const messages: { namespace: string; tag: string; text: string }[] = [];
     const logClient: LogClient = {
       assertReachable: async () => {},
       send: async (message) => {
-        messages.push({ tag: message.tag, text: message.text });
+        messages.push({
+          namespace: message.namespace,
+          tag: message.tag,
+          text: message.text,
+        });
       },
     };
 
@@ -245,10 +305,12 @@ describe("runCommand", () => {
     expect(firstInboundOut).toBeGreaterThan(firstOutbound);
     expect(firstInboundErr).toBeGreaterThan(firstOutbound);
     expect(messages[0]?.tag).toBe("harness");
+    expect(messages[0]?.namespace).toBe("project:feature");
     expect(messages[0]?.text).toContain("current-task: 1/1 todo");
 
     const sessionFiles = readdirSync(join(cfgDir, "sessions"));
     expect(sessionFiles).toHaveLength(1);
+    expect(sessionFiles[0]).toContain("project:feature-");
     const sessionBody = readFileSync(
       join(cfgDir, "sessions", sessionFiles[0] as string),
       "utf8",
@@ -687,7 +749,9 @@ exit 0
     expect(claude.calls).toHaveLength(1);
     expect(cap.out()).toContain("mode: migrate");
     expect(cap.out()).toContain("migration finished");
-    expect(claude.calls[0]?.prompt).toContain("migrating a non-compliant Jarvis spec");
+    expect(claude.calls[0]?.prompt).toContain(
+      "migrating a non-compliant Jarvis spec",
+    );
     expect(claude.calls[0]?.prompt).toContain(spec);
   });
 
@@ -909,15 +973,17 @@ exit 0
     const targetExisting = join(targetSpecDir, "01-existing.md");
     writeFileSync(targetExisting, "worktree content\n");
 
-    const agentSpecPath = prepareAgentSpecPath({
+    const activeSpecPath = prepareActiveSpecPath({
       projectRoot,
       agentWorkingDir: worktreeRoot,
       specPath: sourceIndex,
     });
 
-    expect(agentSpecPath).toBe(join(worktreeRoot, "spec", "feature", "index.md"));
-    expect(existsSync(agentSpecPath)).toBe(true);
-    expect(readFileSync(agentSpecPath, "utf8")).toBe(
+    expect(activeSpecPath).toBe(
+      join(worktreeRoot, "spec", "feature", "index.md"),
+    );
+    expect(existsSync(activeSpecPath)).toBe(true);
+    expect(readFileSync(activeSpecPath, "utf8")).toBe(
       "- [ ] [00 - Task](./00-task.md)\n",
     );
     expect(readFileSync(join(targetSpecDir, "00-task.md"), "utf8")).toBe(
@@ -929,6 +995,14 @@ exit 0
 
 function writeSpec(contents: string): string {
   const spec = join(projectRoot, "index.md");
+  writeFileSync(spec, contents);
+  return spec;
+}
+
+function writeNamedSpec(name: string, contents: string): string {
+  const specDir = join(projectRoot, name);
+  mkdirSync(specDir);
+  const spec = join(specDir, "index.md");
   writeFileSync(spec, contents);
   return spec;
 }

@@ -81,6 +81,12 @@ When re-running a spec:
 The agent runs in the worktree, not the main checkout, so concurrent spec runs
 (with different specs) do not interfere with each other.
 
+After the worktree is ready, the worktree is the run source of truth. Jarvis
+maps the requested spec path into that worktree and uses the worktree-local spec
+for prompts, task banners, completion checks, and no-progress checks. If the
+spec directory exists only in the main checkout, Jarvis seeds missing spec files
+into the worktree without overwriting files already present there.
+
 #### Commit shape
 
 Each completed subspec produces exactly one commit. The commit subject is the
@@ -236,10 +242,11 @@ treating it as complete.
 
 ### How the loop works
 
-`jarvis run <spec-path>` resolves the spec to an absolute path, finds the
-registered project root that contains it, and runs agents from `agentOrder`
-until the spec has no unchecked boxes. Normal runs use an `index.md` spec so
-agents select one indexed task per invocation.
+`jarvis run <spec-path>` resolves the requested spec to an absolute path, finds
+the registered project root that contains it, prepares the per-spec worktree,
+then maps the spec path into that worktree. From that point, Jarvis runs agents
+from `agentOrder` until the worktree-local spec has no unchecked boxes. Normal
+runs use an `index.md` spec so agents select one indexed task per invocation.
 
 When `<spec-path>` is not named `index.md`, jarvis prompts before invoking any
 agent. Confirming the prompt runs the supplied spec for one successful work
@@ -256,7 +263,7 @@ unchecked ordinal/total (`1/N`) so it is distinct from loop iteration count.
 Task excerpts are truncated to 140 chars.
 
 Jarvis then builds the standard prompt and invokes the agent with `cwd` set to
-the target repo root. The prompt asks the agent to discover target-repo guidance
+the active worktree. The prompt asks the agent to discover target-repo guidance
 and injects jarvis-owned rules from `rules/patch-mode.md` inline.
 
 `jarvis run` requires the local log server to be reachable before the loop starts.

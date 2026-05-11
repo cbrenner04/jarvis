@@ -1,5 +1,12 @@
-import { closeSync, existsSync, writeSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import {
+  closeSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  writeSync,
+} from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { ClaudeAgent } from "../agents/claude.ts";
 import { CodexAgent } from "../agents/codex.ts";
 import { CursorAgent } from "../agents/cursor.ts";
@@ -37,7 +44,7 @@ export type RunCommandOptions = {
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
-  const specPath = resolve(opts.specPath);
+  let specPath = resolve(opts.specPath);
   if (!existsSync(specPath)) {
     opts.io.stderr(`spec path does not exist: ${specPath}\n`);
     return 1;
@@ -77,6 +84,11 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       return 1;
     }
   }
+  specPath = prepareActiveSpecPath({
+    projectRoot: project.root,
+    agentWorkingDir,
+    specPath,
+  });
 
   const isIndexSpec = basename(specPath) === "index.md";
   if (!isIndexSpec) {
@@ -338,6 +350,50 @@ function getSpecDisplayName(specPath: string): string {
     return basename(dirname(specPath));
   }
   return basename(specPath);
+}
+
+export function prepareActiveSpecPath(opts: {
+  projectRoot: string;
+  agentWorkingDir: string;
+  specPath: string;
+}): string {
+  const projectRoot = resolve(opts.projectRoot);
+  const agentWorkingDir = resolve(opts.agentWorkingDir);
+  const specPath = resolve(opts.specPath);
+  if (projectRoot === agentWorkingDir) {
+    return specPath;
+  }
+
+  const relativeSpecPath = relative(projectRoot, specPath);
+  if (relativeSpecPath.startsWith("..") || relativeSpecPath.startsWith("/")) {
+    return specPath;
+  }
+
+  const activeSpecPath = resolve(agentWorkingDir, relativeSpecPath);
+  if (!existsSync(activeSpecPath)) {
+    copyMissingRecursive(dirname(specPath), dirname(activeSpecPath));
+  }
+  return activeSpecPath;
+}
+
+function copyMissingRecursive(sourceDir: string, targetDir: string): void {
+  mkdirSync(targetDir, { recursive: true });
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    const sourcePath = join(sourceDir, entry.name);
+    const targetPath = join(targetDir, entry.name);
+    if (existsSync(targetPath)) {
+      if (entry.isDirectory()) {
+        copyMissingRecursive(sourcePath, targetPath);
+      }
+      continue;
+    }
+
+    cpSync(sourcePath, targetPath, {
+      recursive: entry.isDirectory(),
+      force: false,
+      errorOnExist: false,
+    });
+  }
 }
 
 function defaultAgents(cfg: Config): Record<AgentName, Agent> {

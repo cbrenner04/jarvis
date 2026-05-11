@@ -81,6 +81,18 @@ When re-running a spec:
 The agent runs in the worktree, not the main checkout, so concurrent spec runs
 (with different specs) do not interfere with each other.
 
+#### Commit shape
+
+Each completed subspec produces exactly one commit. The commit subject is the
+subspec's H1 heading (the first `# ` line), verbatim. The commit body includes:
+
+1. First line: `Spec: <relative path to subspec from repo root>`
+2. A blank line
+3. The verbatim `## Acceptance criteria` section from the subspec
+
+The same commit also flips the index.md checkbox for the subspec from `[ ]` to
+`[x]`, staging both the work and the index update together.
+
 Agents that need to create or migrate specs should follow
 [docs/spec-guidance.md](docs/spec-guidance.md).
 

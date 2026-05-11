@@ -9,10 +9,8 @@ import {
   writeSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
-import { AirProxyAgent } from "../agents/airproxy.ts";
 import { ClaudeAgent } from "../agents/claude.ts";
 import { CodexAgent } from "../agents/codex.ts";
-import { CopilotAgent } from "../agents/copilot.ts";
 import { CursorAgent } from "../agents/cursor.ts";
 import { OpencodeAgent } from "../agents/opencode.ts";
 import type { Agent } from "../agents/types.ts";
@@ -887,7 +885,5 @@ function defaultAgents(cfg: Config): Record<AgentName, Agent> {
     codex: new CodexAgent({ model: cfg.patchModels.codex }),
     cursor: new CursorAgent({ model: cfg.patchModels.cursor }),
     opencode: new OpencodeAgent({ model: cfg.patchModels.opencode }),
-    airproxy: new AirProxyAgent({ model: cfg.patchModels.airproxy }),
-    copilot: new CopilotAgent({ model: cfg.patchModels.copilot }),
   };
 }

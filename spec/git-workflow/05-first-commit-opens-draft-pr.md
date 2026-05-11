@@ -23,7 +23,10 @@ draft PRs against empty branches are noisy.
   `gh pr create --draft` if none exists.
 - [ ] Generate the body by asking the active agent to summarize the spec
   (index + subspec H1s) in a single short call.
-- [ ] Run this immediately after the first commit lands and is pushed.
+- [ ] Wire `ensureDraftPr` into the run loop in `src/commands/run.ts` so it
+  fires immediately after the first successful `commitSubspec` + push of a
+  run. Subsequent iterations must not invoke it (resume case: the existence
+  check guards correctness, but the call should be skipped on the hot path).
 
 ## Acceptance criteria
 
@@ -32,6 +35,9 @@ draft PRs against empty branches are noisy.
 - Re-running after deleting the local worktree and PR-side state continues to
   the existing PR rather than opening a duplicate.
 - The PR body is not modified on subsequent commits.
+- A regression test drives a fresh two-subspec run end-to-end and asserts
+  exactly one draft PR is created, with `gh pr view --json isDraft` returning
+  `true` after the first commit.
 
 ## Docs
 

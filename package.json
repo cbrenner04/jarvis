@@ -1,0 +1,24 @@
+{
+  "name": "jarvis",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "jarvis": "bin/jarvis"
+  },
+  "scripts": {
+    "check": "bun node_modules/@biomejs/biome/bin/biome check .",
+    "format": "bun node_modules/@biomejs/biome/bin/biome format --write .",
+    "format:check": "bun node_modules/@biomejs/biome/bin/biome format .",
+    "lint": "bun node_modules/@biomejs/biome/bin/biome lint .",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "test:full": "bun run format && bun run check && bun run format:check && bun run lint && bun run typecheck && bun run test",
+    "start": "bun run src/index.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.15",
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}

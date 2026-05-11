@@ -1,0 +1,159 @@
+import { configCommand } from "./commands/config.ts";
+import { init as runInit } from "./commands/init.ts";
+import { logServerCommand } from "./commands/log-server.ts";
+import { type RunCommandOptions, runCommand } from "./commands/run.ts";
+import { type ConfigOptions, validatePositiveInteger } from "./config.ts";
+
+export type Subcommand = "run" | "init" | "config" | "log-server" | "help";
+
+export type ParsedArgs =
+  | { kind: "help" }
+  | { kind: "run"; specPath: string; maxIterations?: string }
+  | { kind: "init" }
+  | { kind: "config"; rest: string[] }
+  | { kind: "log-server" }
+  | { kind: "unknown"; name: string }
+  | { kind: "error"; message: string };
+
+export type Io = {
+  stdout: (s: string) => void;
+  stderr: (s: string) => void;
+};
+
+const USAGE = `Usage: jarvis <command> [args]
+
+Commands:
+  run [--max-iterations <n>] <spec-path>
+                    Run the loop against a spec file in a registered project.
+  init              Register the current target repo.
+  config            View or edit the jarvis config.
+  log-server        Run the local log aggregation server.
+  help              Show this message.
+`;
+
+export function parseArgs(argv: readonly string[]): ParsedArgs {
+  const [first, ...rest] = argv;
+  if (
+    first === undefined ||
+    first === "help" ||
+    first === "-h" ||
+    first === "--help"
+  ) {
+    return { kind: "help" };
+  }
+  switch (first) {
+    case "run": {
+      let maxIterations: string | undefined;
+      const args = [...rest];
+      for (let i = 0; i < args.length; i += 1) {
+        if (args[i] !== "--max-iterations") {
+          continue;
+        }
+        const value = args[i + 1];
+        if (value === undefined) {
+          return {
+            kind: "error",
+            message: "run: missing value for --max-iterations",
+          };
+        }
+        maxIterations = value;
+        args.splice(i, 2);
+        i -= 1;
+      }
+      const specPath = args[0];
+      if (specPath === undefined) {
+        return { kind: "error", message: "run: missing <spec-path>" };
+      }
+      return maxIterations === undefined
+        ? { kind: "run", specPath }
+        : { kind: "run", specPath, maxIterations };
+    }
+    case "init":
+      return { kind: "init" };
+    case "config":
+      return { kind: "config", rest };
+    case "log-server":
+      return { kind: "log-server" };
+    default:
+      return { kind: "unknown", name: first };
+  }
+}
+
+export type RunOptions = {
+  io?: Io;
+  config?: ConfigOptions;
+  cwd?: string;
+  init?: { workRoot?: string };
+  run?: Partial<Pick<RunCommandOptions, "agents" | "handleSignals">>;
+};
+
+export function run(
+  argv: readonly string[],
+  opts: RunOptions = {},
+): number | Promise<number> {
+  const io: Io = opts.io ?? {
+    stdout: (s) => process.stdout.write(s),
+    stderr: (s) => process.stderr.write(s),
+  };
+  const parsed = parseArgs(argv);
+  switch (parsed.kind) {
+    case "help":
+      io.stdout(USAGE);
+      return 0;
+    case "run": {
+      let maxIterations: number | undefined;
+      if (parsed.maxIterations !== undefined) {
+        const parsedMax = Number(parsed.maxIterations);
+        try {
+          maxIterations = validatePositiveInteger(
+            parsedMax,
+            "--max-iterations",
+          );
+        } catch (err) {
+          io.stderr(`jarvis: ${(err as Error).message}\n`);
+          return 1;
+        }
+      }
+      const runOpts: RunCommandOptions = {
+        specPath: parsed.specPath,
+        io,
+      };
+      if (opts.config !== undefined) {
+        runOpts.config = { ...opts.config };
+      }
+      if (maxIterations !== undefined) {
+        runOpts.config = { ...runOpts.config, maxIterations };
+      }
+      if (opts.run?.agents !== undefined) {
+        runOpts.agents = opts.run.agents;
+      }
+      if (opts.run?.handleSignals !== undefined) {
+        runOpts.handleSignals = opts.run.handleSignals;
+      }
+      return runCommand(runOpts);
+    }
+    case "init":
+      return runInit({
+        cwd: opts.cwd ?? process.cwd(),
+        io,
+        config: opts.config,
+        workRoot: opts.init?.workRoot,
+      });
+    case "config":
+      return configCommand({ args: parsed.rest, io, config: opts.config });
+    case "log-server":
+      return logServerCommand({ io, config: opts.config });
+    case "unknown":
+      io.stderr(`jarvis: unknown command ${JSON.stringify(parsed.name)}\n`);
+      io.stderr(USAGE);
+      return 1;
+    case "error":
+      io.stderr(`jarvis: ${parsed.message}\n`);
+      io.stderr(USAGE);
+      return 1;
+  }
+}
+
+if (import.meta.main) {
+  process.exit(await Promise.resolve(run(process.argv.slice(2))));
+}

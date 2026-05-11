@@ -123,6 +123,12 @@ describing the problem, then commits and pushes as WIP. See
 [AGENTS.md](./AGENTS.md#working-rules-for-agents-in-this-repo) for the blocker
 convention and resolution process.
 
+#### Ready for review
+
+When the final subspec is completed and pushed, the draft PR automatically
+transitions to ready for review (via `gh pr ready`). Jarvis never merges; human
+reviewers are responsible for approval and merge decisions.
+
 Agents that need to create or migrate specs should follow
 [docs/spec-guidance.md](docs/spec-guidance.md).
 

@@ -106,3 +106,36 @@ function extractFirstHeadingFromSpec(specPath: string): string | null {
     return null;
   }
 }
+
+export function maybeMarkReady(indexPath: string): void {
+  const content = readFileSync(indexPath, "utf8");
+
+  const isComplete = isSpecComplete(content);
+  if (!isComplete) {
+    return;
+  }
+
+  const branch = getCurrentBranch();
+
+  const prExists = checkPrExists(branch);
+  if (!prExists) {
+    throw new Error(
+      `Cannot mark PR ready: no PR found for branch ${branch}. This should not happen.`,
+    );
+  }
+
+  execSync(`gh pr ready ${branch}`, { stdio: "pipe" });
+}
+
+function isSpecComplete(indexContent: string): boolean {
+  const uncheckedPattern = /^\s*- \[ \]/m;
+  return !uncheckedPattern.test(indexContent);
+}
+
+function getCurrentBranch(): string {
+  const output = execSync("git rev-parse --abbrev-ref HEAD", {
+    stdio: "pipe",
+    encoding: "utf8",
+  });
+  return output.trim();
+}

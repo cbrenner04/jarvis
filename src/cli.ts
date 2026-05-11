@@ -1,10 +1,22 @@
+import { cleanupCommand, type CleanupCommandOptions } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
 import { logServerCommand } from "./commands/log-server.ts";
 import { type RunCommandOptions, runCommand } from "./commands/run.ts";
-import { type ConfigOptions, validatePositiveInteger } from "./config.ts";
+import {
+  type ConfigOptions,
+  findProjectMatchForPath,
+  loadConfig,
+  validatePositiveInteger,
+} from "./config.ts";
 
-export type Subcommand = "run" | "init" | "config" | "log-server" | "help";
+export type Subcommand =
+  | "run"
+  | "init"
+  | "config"
+  | "log-server"
+  | "cleanup"
+  | "help";
 
 export type ParsedArgs =
   | { kind: "help" }
@@ -12,6 +24,7 @@ export type ParsedArgs =
   | { kind: "init" }
   | { kind: "config"; rest: string[] }
   | { kind: "log-server" }
+  | { kind: "cleanup"; dryRun?: boolean }
   | { kind: "unknown"; name: string }
   | { kind: "error"; message: string };
 
@@ -28,6 +41,8 @@ Commands:
   init              Register the current target repo.
   config            View or edit the jarvis config.
   log-server        Run the local log aggregation server.
+  cleanup [--dry-run]
+                    Remove merged worktrees.
   help              Show this message.
 `;
 
@@ -74,6 +89,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       return { kind: "config", rest };
     case "log-server":
       return { kind: "log-server" };
+    case "cleanup": {
+      const dryRun = rest.includes("--dry-run");
+      return { kind: "cleanup", dryRun };
+    }
     default:
       return { kind: "unknown", name: first };
   }
@@ -143,6 +162,43 @@ export function run(
       return configCommand({ args: parsed.rest, io, config: opts.config });
     case "log-server":
       return logServerCommand({ io, config: opts.config });
+    case "cleanup": {
+      const cwd = opts.cwd ?? process.cwd();
+      const project = findProjectMatchForPath(cwd, opts.config);
+      if (project === undefined) {
+        io.stderr(
+          "jarvis cleanup: not inside any project registered with `jarvis init`\n",
+        );
+        return 1;
+      }
+      const readlineSync = (prompt: string): string => {
+        io.stdout(prompt);
+        const buffer = Buffer.alloc(256);
+        let input = "";
+        try {
+          const nread = require("fs").readSync(process.stdin.fd, buffer, 0, 256);
+          input = buffer.toString("utf8", 0, nread).trim();
+        } catch {
+          return "";
+        }
+        return input;
+      };
+      const cleanupOpts: CleanupCommandOptions = {
+        projectRoot: project.root,
+        io: {
+          stdout: io.stdout,
+          stderr: io.stderr,
+          readlineSync,
+        },
+      };
+      if (opts.config !== undefined) {
+        cleanupOpts.config = opts.config;
+      }
+      if (parsed.dryRun !== undefined) {
+        cleanupOpts.dryRun = parsed.dryRun;
+      }
+      return cleanupCommand(cleanupOpts);
+    }
     case "unknown":
       io.stderr(`jarvis: unknown command ${JSON.stringify(parsed.name)}\n`);
       io.stderr(USAGE);

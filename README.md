@@ -140,6 +140,7 @@ jarvis run [--max-iterations <n>] <spec-path>
 jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.
 jarvis log-server          Run the local log aggregation server.
+jarvis cleanup [--dry-run] Remove merged worktrees.
 jarvis help                Show usage.
 ```
 
@@ -161,6 +162,20 @@ Re-running on an already-registered repo is a no-op (exit 0). If the project
 name is already registered to a *different* root, init exits 1 and asks you to
 resolve it with `jarvis config`. If the current directory is outside `~/Work`,
 init exits 1.
+
+### `jarvis cleanup [--dry-run]`
+
+Removes merged worktrees and branches from the local repo. Useful after PRs have
+been merged on GitHub to keep `.worktree/` tidy.
+
+Behavior:
+
+- Lists all worktrees whose corresponding PR has `state: MERGED`.
+- Skips worktrees with uncommitted changes or unpushed commits.
+- Prompts for confirmation before removal (use `--dry-run` to preview).
+- Removes the worktree directory and deletes the local branch.
+
+The `.worktree/.keep` directory is never removed.
 
 ## Agents
 

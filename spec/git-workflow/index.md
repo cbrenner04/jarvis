@@ -32,4 +32,4 @@ runs inside a dedicated worktree under `.worktree/<spec-name>/`.
 - [x] [06 - Push per commit](./06-push-per-commit.md)
 - [x] [07 - Pre-commit hook and blocker handling](./07-hook-and-blocker-handling.md)
 - [x] [08 - Flip to ready for review](./08-ready-for-review.md)
-- [ ] [09 - jarvis cleanup command](./09-jarvis-cleanup-command.md)
+- [x] [09 - jarvis cleanup command](./09-jarvis-cleanup-command.md)

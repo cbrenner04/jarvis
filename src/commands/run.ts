@@ -1,9 +1,11 @@
+import { execSync } from "node:child_process";
 import {
   closeSync,
   cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   writeSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -22,12 +24,15 @@ import {
   openSessionLog,
   type ProjectMatch,
 } from "../config.ts";
-import { assertGhReady } from "../gh.ts";
+import { assertGhReady, getBaseBranch } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
+import { ensureDraftPr, maybeMarkReady } from "../pr.ts";
 import { buildPrompt } from "../prompt.ts";
+import { commitSubspec } from "../subspec.ts";
 import {
   createWorktreeSymlinks,
   ensureWorktree,
+  pushCurrent,
   worktreeCompletionBlocker,
 } from "../worktree.ts";
 
@@ -326,6 +331,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   let iteration = 1;
   let latestIterationStdout: string[] = [];
   let latestIterationStderr: string[] = [];
+  let draftPrEnsured = false;
 
   const printBoundedTail = (lines: string[]): void => {
     const tail = lines.slice(-40);
@@ -375,6 +381,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       latestIterationStdout = [];
       latestIterationStderr = [];
       const before = countUnchecked(specPath);
+      const beforeSubspecs = snapshotLinkedSubspecs(specPath);
       if (before === 0) {
         const done = await tryFinishSpecIfDone();
         if (done !== null) {
@@ -424,6 +431,103 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             agent: agent.name,
           });
         }
+        const newlyCheckedSubspecs = getNewlyCheckedSubspecs(
+          beforeSubspecs,
+          snapshotLinkedSubspecs(specPath),
+          specPath,
+        );
+        if (newlyCheckedSubspecs.length > 1) {
+          await fanout(
+            "harness",
+            `iteration ${iteration} checked more than one subspec; stopping\n`,
+            "stderr",
+          );
+          return 1;
+        }
+        if (newlyCheckedSubspecs.length === 1) {
+          try {
+            commitSubspec(newlyCheckedSubspecs[0] as string);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            await fanout(
+              "harness",
+              `failed to commit completed subspec ${newlyCheckedSubspecs[0]}: ${message}\n`,
+              "stderr",
+            );
+            return 1;
+          }
+
+          if (!opts.skipGhCheck) {
+            try {
+              const firstPush = !hasUpstream(agentWorkingDir);
+              pushCurrent({ cwd: agentWorkingDir, firstPush });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              await fanout(
+                "harness",
+                `failed to push completed subspec ${newlyCheckedSubspecs[0]}: ${message}\n`,
+                "stderr",
+              );
+              return 1;
+            }
+
+            try {
+              if (!draftPrEnsured) {
+                const prBody = async (): Promise<string> => {
+                  const prompt = buildPrBodyPrompt(specPath);
+                  await fanout("outbound", prompt, null, {
+                    iteration,
+                    agent: agent.name,
+                    purpose: "draft_pr_body",
+                  });
+                  const summary = await agent.run(prompt, {
+                    cwd: agentWorkingDir,
+                  });
+                  if (summary.kind !== "ok") {
+                    throw new Error(
+                      `failed to generate draft PR body with ${agent.name}`,
+                    );
+                  }
+                  if (summary.stdout.length > 0) {
+                    await fanout("inbound_stdout", summary.stdout, null, {
+                      iteration,
+                      agent: agent.name,
+                      purpose: "draft_pr_body",
+                    });
+                  }
+                  if (summary.stderr.length > 0) {
+                    await fanout("inbound_stderr", summary.stderr, null, {
+                      iteration,
+                      agent: agent.name,
+                      purpose: "draft_pr_body",
+                    });
+                  }
+                  return summary.stdout.trim();
+                };
+                await ensureDraftPr({
+                  branch: getCurrentBranch(agentWorkingDir),
+                  base: await getBaseBranch(agentWorkingDir),
+                  title: getIndexTitle(specPath),
+                  bodyGenerator: prBody,
+                  cwd: agentWorkingDir,
+                });
+                draftPrEnsured = true;
+              }
+              maybeMarkReady({
+                indexPath: specPath,
+                cwd: agentWorkingDir,
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              await fanout(
+                "harness",
+                `failed to update PR for completed subspec ${newlyCheckedSubspecs[0]}: ${message}\n`,
+                "stderr",
+              );
+              return 1;
+            }
+          }
+        }
         const after = countUnchecked(specPath);
         if (after === 0) {
           const done = await tryFinishSpecIfDone();
@@ -439,6 +543,17 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             "stdout",
           );
           return 0;
+        }
+        if (newlyCheckedSubspecs.length === 0) {
+          const blocker = worktreeCompletionBlocker(agentWorkingDir);
+          if (blocker !== undefined) {
+            await fanout(
+              "harness",
+              `iteration ${iteration} produced no subspec checklist transition, but ${blocker}\n`,
+              "stderr",
+            );
+            return 6;
+          }
         }
         if (after === before) {
           printBoundedTail([
@@ -620,6 +735,104 @@ function getSpecDisplayName(specPath: string): string {
     return basename(dirname(specPath));
   }
   return basename(specPath);
+}
+
+function getIndexTitle(indexPath: string): string {
+  const content = readFileSync(indexPath, "utf8");
+  const match = content.match(/^#\s+(.+)$/m);
+  if (!match?.[1]) {
+    return getSpecDisplayName(indexPath);
+  }
+  return match[1].trim();
+}
+
+function buildPrBodyPrompt(indexPath: string): string {
+  const indexContent = readFileSync(indexPath, "utf8");
+  const subspecHeadings = getLinkedSubspecHeadings(indexPath);
+  return [
+    "Summarize this Jarvis spec for a draft GitHub pull request body.",
+    "",
+    "Requirements:",
+    "- Write a concise PR body in Markdown.",
+    "- Summarize the intent and the subspec list.",
+    "- Do not edit files or run commands.",
+    "",
+    "Spec index.md:",
+    "```md",
+    indexContent.trim(),
+    "```",
+    "",
+    "Subspec H1 headings:",
+    ...subspecHeadings.map((heading) => `- ${heading}`),
+  ].join("\n");
+}
+
+function getLinkedSubspecHeadings(indexPath: string): string[] {
+  const headings: string[] = [];
+  const content = readFileSync(indexPath, "utf8");
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^\s*- \[[ xX]\] \[[^\]]+\]\(([^)]+)\)/);
+    if (!match?.[1]) {
+      continue;
+    }
+    const subspecPath = resolve(dirname(indexPath), match[1]);
+    try {
+      headings.push(getIndexTitle(subspecPath));
+    } catch {
+      // If a linked subspec is missing, the index content still gives the
+      // body generator useful context.
+    }
+  }
+  return headings;
+}
+
+type LinkedSubspecState = Map<string, boolean>;
+
+function snapshotLinkedSubspecs(indexPath: string): LinkedSubspecState {
+  const state: LinkedSubspecState = new Map();
+  const content = readFileSync(indexPath, "utf8");
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(/^\s*- \[([ xX])\] \[[^\]]+\]\(([^)]+)\)/);
+    if (!match?.[1] || !match[2]) {
+      continue;
+    }
+    state.set(match[2], match[1].toLowerCase() === "x");
+  }
+  return state;
+}
+
+function getNewlyCheckedSubspecs(
+  before: LinkedSubspecState,
+  after: LinkedSubspecState,
+  indexPath: string,
+): string[] {
+  const changed: string[] = [];
+  for (const [href, isChecked] of after) {
+    if (isChecked && before.get(href) === false) {
+      changed.push(resolve(dirname(indexPath), href));
+    }
+  }
+  return changed;
+}
+
+function hasUpstream(cwd: string): boolean {
+  try {
+    execSync("git rev-parse --abbrev-ref --symbolic-full-name @{u}", {
+      cwd,
+      stdio: "pipe",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getCurrentBranch(cwd: string): string {
+  return execSync("git rev-parse --abbrev-ref HEAD", {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
 }
 
 export function prepareActiveSpecPath(opts: {

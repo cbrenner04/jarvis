@@ -1,12 +1,17 @@
 import { spawn } from "node:child_process";
 
-async function runGhCommand(args: string[]): Promise<{
+async function runGhCommand(
+  args: string[],
+  cwd?: string,
+): Promise<{
   stdout: string;
   stderr: string;
   exitCode: number;
 }> {
   return new Promise((resolve) => {
     const child = spawn("gh", args, {
+      cwd,
+      env: process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdout = child.stdout;
@@ -61,15 +66,18 @@ export async function assertGhReady(): Promise<void> {
   }
 }
 
-export async function getBaseBranch(): Promise<string> {
-  const result = await runGhCommand([
-    "repo",
-    "view",
-    "--json",
-    "defaultBranchRef",
-    "-q",
-    ".defaultBranchRef.name",
-  ]);
+export async function getBaseBranch(cwd?: string): Promise<string> {
+  const result = await runGhCommand(
+    [
+      "repo",
+      "view",
+      "--json",
+      "defaultBranchRef",
+      "-q",
+      ".defaultBranchRef.name",
+    ],
+    cwd,
+  );
   if (result.exitCode !== 0) {
     const errorMessage = result.stderr || result.stdout;
     throw new Error(`failed to detect base branch: ${errorMessage.trim()}`);

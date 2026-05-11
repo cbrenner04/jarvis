@@ -69,15 +69,21 @@ checklist. Migrate it to the index-routed shape before normal Jarvis runs:
 5. Keep each subspec independently implementable and testable.
 6. Preserve useful context from the original flat spec in the new index or
    subspec files.
+7. Rewrite the original flat file into the new `index.md` in place unless a
+   surrounding spec directory already exists and is clearly the intended home.
 
 If the flat spec contains many unrelated tasks, split by independently
 verifiable behavior rather than by file name or implementation layer.
 
-## Direct Spec Escape Hatch
+## Non-index spec handling
 
-Passing a non-index spec to `jarvis run`, such as
-`spec/<feature>/01-task.md`, is an escape hatch. Jarvis asks for confirmation
-and, if confirmed, runs that direct spec for one successful agent iteration.
+Passing a non-index spec to `jarvis run`, such as `spec/<feature>/01-task.md`,
+prompts for one of three actions:
 
-Use this only for deliberate one-off work on a specific subspec. It is not the
-normal workflow for creating or completing a feature spec.
+- `s`: switch to a sibling `index.md` and run the normal loop from there
+- `m`: migrate the supplied spec to index-routed form using this guide, then
+  stop after one successful migration iteration
+- `e`: exit without running an agent
+
+Use `m` only when the supplied path is a flat spec that still needs migration.
+Normal implementation work should run from `index.md`.

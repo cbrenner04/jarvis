@@ -703,7 +703,7 @@ exit 0
     );
   });
 
-  test("non-index specs decline confirmation without invoking an agent", async () => {
+  test("non-index specs with empty response exit without invoking an agent", async () => {
     const spec = writeDirectSpec("- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({
@@ -721,18 +721,18 @@ exit 0
       handleSignals: false,
     });
 
-    expect(code).toBe(1);
-    expect(cap.out()).toContain("jarvis run expects an index spec.");
-    expect(cap.out()).toContain(`Run ${spec} for one agent iteration anyway?`);
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("is not an index spec");
+    expect(cap.out()).toContain("[m] migrate");
+    expect(cap.out()).toContain("[e] exit");
     expect(claude.calls).toHaveLength(0);
     expect(readFileSync(spec, "utf8")).toBe("- [ ] todo\n");
   });
 
-  test("non-index specs accept confirmation and run one successful work iteration", async () => {
+  test("non-index specs with 'm' response trigger migration and run one iteration", async () => {
     const spec = writeDirectSpec("- [ ] one\n- [ ] two\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => {
-      writeFileSync(spec, "- [x] one\n- [ ] two\n");
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
@@ -741,19 +741,21 @@ exit 0
       io: cap.io,
       config: { dir: cfgDir },
       agents: { claude },
-      confirmRun: () => "y",
+      confirmRun: () => "m",
       handleSignals: false,
     });
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(1);
-    expect(cap.out()).toContain("iteration: 1");
-    expect(cap.out()).toContain(
-      "one-iteration run finished with unchecked tasks remaining",
+    expect(cap.out()).toContain("mode: migrate");
+    expect(cap.out()).toContain("migration finished");
+    expect(claude.calls[0]?.prompt).toContain(
+      "migrating a non-compliant Jarvis spec",
     );
+    expect(claude.calls[0]?.prompt).toContain(spec);
   });
 
-  test("non-index specs allow quota fallback before one successful work iteration", async () => {
+  test("migration with quota fallback tries next agent for migration prompt", async () => {
     const spec = writeDirectSpec("- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({
@@ -761,7 +763,6 @@ exit 0
       stderr: "limit",
     }));
     const codex = new FakeAgent("codex", () => {
-      writeFileSync(spec, "- [x] todo\n");
       return { kind: "ok", stdout: "", stderr: "" };
     });
     writeConfig(
@@ -780,7 +781,7 @@ exit 0
       io: cap.io,
       config: { dir: cfgDir },
       agents: { claude, codex },
-      confirmRun: () => "yes",
+      confirmRun: () => "m",
       handleSignals: false,
     });
 
@@ -788,11 +789,17 @@ exit 0
     expect(claude.calls).toHaveLength(1);
     expect(codex.calls).toHaveLength(1);
     expect(cap.err()).toContain("claude: quota exhausted; falling back");
-    expect(cap.out()).toContain("spec complete");
+    expect(cap.out()).toContain("migration finished");
   });
 
-  test("incomplete non-index specs exit after one successful work iteration", async () => {
-    const spec = writeDirectSpec("- [ ] todo\n");
+  test("migration prompt displays sibling index option when it exists", async () => {
+    const specDir = join(projectRoot, "specs");
+    mkdirSync(specDir);
+    const indexSpec = join(specDir, "index.md");
+    const flatSpec = join(specDir, "spec.md");
+    writeFileSync(indexSpec, "- [ ] linked task\n");
+    writeFileSync(flatSpec, "- [ ] todo\n");
+
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({
       kind: "ok",
@@ -801,20 +808,19 @@ exit 0
     }));
 
     const code = await runWithDefaults({
-      specPath: spec,
+      specPath: flatSpec,
       io: cap.io,
       config: { dir: cfgDir },
       agents: { claude },
-      confirmRun: () => "Y",
+      confirmRun: () => "e",
       handleSignals: false,
     });
 
     expect(code).toBe(0);
-    expect(claude.calls).toHaveLength(1);
-    expect(cap.out()).toContain(
-      "one-iteration run finished with unchecked tasks remaining",
-    );
-    expect(cap.err()).not.toContain("made no progress");
+    expect(cap.out()).toContain("[s] switch to ./index.md");
+    expect(cap.out()).toContain("[m] migrate");
+    expect(cap.out()).toContain("[e] exit");
+    expect(claude.calls).toHaveLength(0);
   });
 
   test("no-progress exit prints bounded tail of latest iteration output", async () => {

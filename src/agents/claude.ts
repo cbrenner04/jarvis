@@ -28,7 +28,7 @@ export class ClaudeAgent implements Agent {
         name: this.name,
         binary: this.#binary,
         cwd: opts.cwd,
-        buildArgv: (prompt, opts) => {
+        buildArgv: (_prompt, opts) => {
           const argv = ["-p", "--permission-mode", "acceptEdits"];
           for (const dir of opts.additionalReadDirs ?? []) {
             argv.push("--add-dir", dir);

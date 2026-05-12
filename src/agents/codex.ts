@@ -33,7 +33,7 @@ export class CodexAgent implements Agent {
         name: this.name,
         binary: this.#binary,
         cwd: opts.cwd,
-        buildArgv: (prompt, opts) => {
+        buildArgv: (_prompt, _opts) => {
           const argv = [
             "exec",
             "--color",

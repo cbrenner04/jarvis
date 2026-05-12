@@ -1,7 +1,8 @@
 // Shared spawn loop for CLI agents: handles process lifecycle (spawn, stream buffering,
 // settling, error classification) with agent-specific argv building and stdio control.
-import { spawn } from "node:child_process";
+
 import type { StdioOptions } from "node:child_process";
+import { spawn } from "node:child_process";
 import { isModelConfigurationSignal, isQuotaSignal } from "./quota.ts";
 import type { AgentName, AgentResult, AgentRunOptions } from "./types.ts";
 
@@ -28,12 +29,15 @@ export function runAgent(
     });
 
     // Handle null streams
-    const stdin =
-      config.stdio[0] === "pipe" ? child.stdin : null;
+    const stdin = config.stdio[0] === "pipe" ? child.stdin : null;
     const stdout = child.stdout;
     const stderr = child.stderr;
 
-    if (stdout === null || stderr === null || (config.stdio[0] === "pipe" && stdin === null)) {
+    if (
+      stdout === null ||
+      stderr === null ||
+      (config.stdio[0] === "pipe" && stdin === null)
+    ) {
       resolvePromise({
         kind: "error",
         exitCode: -1,

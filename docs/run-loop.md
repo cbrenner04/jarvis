@@ -28,6 +28,27 @@ the agent. The operator’s shell working directory may be outside any repositor
 such as a parent directory of several clones. From that point, Jarvis runs
 agents from `agentOrder` until the active spec has no unchecked boxes.
 
+### Disambiguation prompt
+
+When resolution is ambiguous or empty, jarvis falls back to an interactive
+picker. Trigger conditions:
+
+- The spec has no `repo:` line and is not inside any registered project or
+  git checkout (step 5 above).
+- The spec's `repo:` URL/slug loose-matches more than one registered project.
+- `--repo <value>` was given and matches more than one registered project.
+
+On a TTY (`process.stdin.isTTY === true`) jarvis prints a numbered list of
+the candidate projects (name, root, origin or `(no origin)`) and reads one
+line from stdin. Valid input is the index number, the project name, or
+`q`/empty input/EOF to cancel. Cancelling exits 1 without invoking any
+agent. A selection is used for the current run only and is never persisted
+to config.
+
+When stdin is not a TTY, jarvis does not prompt. It writes the candidate
+list to stderr along with the suggestion to rerun with `--repo <name>` and
+exits 1.
+
 Normal runs use an `index.md` spec so agents select one indexed task per
 invocation. When `<spec-path>` is not named `index.md`, jarvis prompts before
 invoking any agent:

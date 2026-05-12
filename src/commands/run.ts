@@ -36,6 +36,10 @@ import {
   type ProjectMatch,
   setProjectOrigin,
 } from "../config.ts";
+import {
+  type DisambiguationResult,
+  promptForProject,
+} from "../disambiguation-prompt.ts";
 import { assertGhReady, getBaseBranch } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { ensureDraftPr, maybeMarkReady } from "../pr.ts";
@@ -62,6 +66,12 @@ export type RunIo = {
 
 export type ConfirmRun = (prompt: string) => string | Promise<string>;
 
+export type DisambiguateFn = (opts: {
+  candidates: ProjectMatch[];
+  reason: string;
+  io: RunIo;
+}) => Promise<DisambiguationResult> | DisambiguationResult;
+
 export type RunCommandOptions = {
   specPath: string;
   io: RunIo;
@@ -73,6 +83,8 @@ export type RunCommandOptions = {
   skipGhCheck?: boolean;
   /** Value of the `--repo` CLI flag, if given. */
   repoFlag?: string;
+  /** Override the disambiguation prompt (for tests). */
+  disambiguate?: DisambiguateFn;
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
@@ -82,10 +94,12 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return 1;
   }
 
-  const projectResolution = resolveProjectFromSpec({
+  const projectResolution = await resolveProjectFromSpec({
     specPath,
     repoFlag: opts.repoFlag,
     config: opts.config,
+    io: opts.io,
+    disambiguate: opts.disambiguate,
   });
   if (projectResolution.error !== undefined) {
     opts.io.stderr(`${projectResolution.error}\n`);
@@ -685,15 +699,17 @@ function getCurrentBranch(cwd: string): string {
   }).trim();
 }
 
-function resolveProjectFromSpec(opts: {
+async function resolveProjectFromSpec(opts: {
   specPath: string;
   repoFlag?: string | undefined;
   config?: ConfigOptions | undefined;
-}): {
+  io: RunIo;
+  disambiguate?: DisambiguateFn | undefined;
+}): Promise<{
   project: ProjectMatch;
   mode: "registered" | "ad-hoc";
   error?: string;
-} {
+}> {
   const specRepoRaw = readRepoPath(opts.specPath);
   const specRepo =
     specRepoRaw === undefined || specRepoRaw.trim() === ""
@@ -738,21 +754,113 @@ function resolveProjectFromSpec(opts: {
       error: result.message,
     };
   }
+
+  // Ambiguous: prompt user to pick from the matching candidates.
   if (result.kind === "ambiguous") {
-    const list = result.candidates.map((c) => `  - ${c.key}`).join("\n");
+    return await runDisambiguationPrompt({
+      candidates: result.candidates,
+      reason: result.reason,
+      io: opts.io,
+      disambiguate: opts.disambiguate,
+    });
+  }
+
+  // needs-prompt: prompt user to pick from all registered projects.
+  const allProjects = listConfiguredProjects(opts.config);
+  if (allProjects.length === 0) {
     return {
       project: { key: "", root: "" },
       mode: "registered",
-      error: `${result.reason}; rerun with --repo <name>. Matching projects:\n${list}`,
+      error:
+        "could not determine a target project for this spec and no projects are registered. Run `jarvis init` in a target repo, or pass --repo <name|url>, or add a `repo:` line.",
     };
   }
-  // needs-prompt: subspec 02 will replace this with an interactive prompt.
+  return await runDisambiguationPrompt({
+    candidates: allProjects,
+    reason: result.reason,
+    io: opts.io,
+    disambiguate: opts.disambiguate,
+  });
+}
+
+async function runDisambiguationPrompt(opts: {
+  candidates: ProjectMatch[];
+  reason: string;
+  io: RunIo;
+  disambiguate?: DisambiguateFn | undefined;
+}): Promise<{
+  project: ProjectMatch;
+  mode: "registered" | "ad-hoc";
+  error?: string;
+}> {
+  const prompt = opts.disambiguate ?? defaultDisambiguate;
+  const result = await prompt({
+    candidates: opts.candidates,
+    reason: opts.reason,
+    io: opts.io,
+  });
+  if (result.kind === "selected") {
+    return { project: result.project, mode: "registered" };
+  }
+  if (result.kind === "non-tty") {
+    const list = opts.candidates.map((c) => `  - ${c.key}`).join("\n");
+    return {
+      project: { key: "", root: "" },
+      mode: "registered",
+      error: `${opts.reason}; rerun with --repo <name>. Candidates:\n${list}`,
+    };
+  }
+  // cancelled
   return {
     project: { key: "", root: "" },
     mode: "registered",
-    error:
-      "could not determine a target project for this spec. Pass --repo <name|url> or add a `repo:` line.",
+    error: "project selection cancelled",
   };
+}
+
+function listConfiguredProjects(opts?: ConfigOptions): ProjectMatch[] {
+  const cfg = loadConfig(opts);
+  const out: ProjectMatch[] = [];
+  for (const [key, project] of Object.entries(cfg.projects)) {
+    const match: ProjectMatch = { key, root: project.root };
+    if (project.origin !== undefined) {
+      match.origin = project.origin;
+    }
+    out.push(match);
+  }
+  return out;
+}
+
+async function defaultDisambiguate(opts: {
+  candidates: ProjectMatch[];
+  reason: string;
+  io: RunIo;
+}): Promise<DisambiguationResult> {
+  const isTty = Boolean(process.stdin.isTTY);
+  return promptForProject({
+    candidates: opts.candidates,
+    reason: opts.reason,
+    io: opts.io,
+    readLine: readLineFromStdin,
+    isTty,
+  });
+}
+
+async function readLineFromStdin(): Promise<string | undefined> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const newline = buffer.indexOf(10);
+    if (newline !== -1) {
+      chunks.push(buffer.subarray(0, newline));
+      return Buffer.concat(chunks).toString("utf8");
+    }
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) {
+    return undefined;
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 function looksLikeUrlOrSlug(value: string): boolean {

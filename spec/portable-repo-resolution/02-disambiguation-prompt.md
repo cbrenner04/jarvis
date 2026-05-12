@@ -31,14 +31,14 @@ a hard error, but only when a human is actually present.
 
 ## Acceptance criteria
 
-- [ ] When stdin is a TTY and resolution is ambiguous or empty, jarvis prints
+- [x] When stdin is a TTY and resolution is ambiguous or empty, jarvis prints
   a numbered list of registered projects and reads one line from stdin.
-- [ ] Selecting a valid index or project name proceeds with that project for
+- [x] Selecting a valid index or project name proceeds with that project for
   the run; nothing is persisted to config.
-- [ ] `q`, EOF, or empty input exits 1 without invoking any agent.
-- [ ] When stdin is not a TTY, jarvis does not prompt; it exits 1 with a
+- [x] `q`, EOF, or empty input exits 1 without invoking any agent.
+- [x] When stdin is not a TTY, jarvis does not prompt; it exits 1 with a
   message naming the candidates and suggesting `--repo <name>`.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
 
 ## Documentation updates
 

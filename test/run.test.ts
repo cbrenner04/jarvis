@@ -381,12 +381,11 @@ describe("runCommand", () => {
       config: { dir: cfgDir },
       agents: { claude },
       handleSignals: false,
+      disambiguate: () => ({ kind: "non-tty" }),
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain(
-      "could not determine a target project for this spec",
-    );
+    expect(cap.err()).toContain("rerun with --repo <name>");
     expect(claude.calls).toHaveLength(0);
   });
 
@@ -1267,12 +1266,11 @@ exit 0
       config: { dir: cfgDir },
       agents: {},
       handleSignals: false,
+      disambiguate: () => ({ kind: "non-tty" }),
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain(
-      "could not determine a target project for this spec",
-    );
+    expect(cap.err()).toContain("rerun with --repo <name>");
   });
 
   test("non-index specs with empty response exit without invoking an agent", async () => {
@@ -1497,6 +1495,177 @@ exit 0
       "# 00 - Task\n",
     );
     expect(readFileSync(targetExisting, "utf8")).toBe("worktree content\n");
+  });
+
+  test("prompts when no repo resolves; selection drives the run", async () => {
+    const spec = writeSpecWithoutRepo("# Feature\n\n- [x] done\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    let promptCalled = 0;
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      disambiguate: ({ candidates }) => {
+        promptCalled += 1;
+        const picked = candidates.find((c) => c.key === "project");
+        if (picked === undefined) {
+          throw new Error("expected `project` in candidates");
+        }
+        return { kind: "selected", project: picked };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(promptCalled).toBe(1);
+  });
+
+  test("prompts when --repo matches multiple registered projects", async () => {
+    const projectAlt = join(dir, "project-alt");
+    mkdirSync(projectAlt);
+    registerProject("project-alt", projectAlt, {
+      dir: cfgDir,
+      origin: "https://github.com/example/dup.git",
+    });
+    // Update the original project's origin to collide.
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.projects.project = {
+      ...(cfg.projects.project as { root: string }),
+      origin: "https://github.com/example/dup.git",
+    };
+    writeConfig(cfg, { dir: cfgDir });
+
+    const altSpec = join(projectAlt, "index.md");
+    writeFileSync(altSpec, "# F\n\n- [x] done\n");
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    let receivedKeys: string[] = [];
+    const code = await runWithDefaults({
+      specPath: altSpec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      repoFlag: "https://github.com/example/dup",
+      disambiguate: ({ candidates }) => {
+        receivedKeys = candidates.map((c) => c.key);
+        const picked = candidates.find((c) => c.key === "project-alt");
+        if (picked === undefined) {
+          throw new Error("expected `project-alt`");
+        }
+        return { kind: "selected", project: picked };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(receivedKeys.sort()).toEqual(["project", "project-alt"]);
+  });
+
+  test("prompts when spec repo URL matches multiple registered projects", async () => {
+    const projectAlt = join(dir, "project-alt");
+    mkdirSync(projectAlt);
+    registerProject("project-alt", projectAlt, {
+      dir: cfgDir,
+      origin: "https://github.com/example/dup.git",
+    });
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.projects.project = {
+      ...(cfg.projects.project as { root: string }),
+      origin: "https://github.com/example/dup.git",
+    };
+    writeConfig(cfg, { dir: cfgDir });
+
+    const externalDir = join(dir, "ext-specs");
+    mkdirSync(externalDir);
+    const spec = join(externalDir, "index.md");
+    writeFileSync(
+      spec,
+      "# F\n\nrepo: https://github.com/example/dup\n\n- [x] done\n",
+    );
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      disambiguate: ({ candidates }) => {
+        const picked = candidates.find((c) => c.key === "project");
+        if (picked === undefined) {
+          throw new Error("expected `project`");
+        }
+        return { kind: "selected", project: picked };
+      },
+    });
+
+    expect(code).toBe(0);
+  });
+
+  test("non-TTY disambiguation exits 1 listing candidates", async () => {
+    const spec = writeSpecWithoutRepo("# F\n\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      disambiguate: () => ({ kind: "non-tty" }),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("--repo <name>");
+    expect(cap.err()).toContain("project");
+    expect(claude.calls).toHaveLength(0);
+  });
+
+  test("cancelled disambiguation exits 1 without invoking the agent", async () => {
+    const spec = writeSpecWithoutRepo("# F\n\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      disambiguate: () => ({ kind: "cancelled" }),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("project selection cancelled");
+    expect(claude.calls).toHaveLength(0);
   });
 });
 

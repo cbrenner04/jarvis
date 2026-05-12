@@ -44,29 +44,29 @@ process streams” message.
 
 ## Tasks
 
-- [ ] Introduce the shared spawn helper module and migrate all four agent
+- [x] Introduce the shared spawn helper module and migrate all four agent
       modules to use it.
-- [ ] Remove the duplicated settle/buffer/`close` logic from the agent files.
-- [ ] Add or adjust tests so behavior remains covered: existing
+- [x] Remove the duplicated settle/buffer/`close` logic from the agent files.
+- [x] Add or adjust tests so behavior remains covered: existing
       `test/agents/*.test.ts` must still pass; add focused tests for the helper
       if there is meaningful branching that is awkward to cover only through
       full agent tests.
 
 ## Acceptance criteria
 
-- [ ] Observable CLI invocation shape is unchanged for each agent: same default
+- [x] Observable CLI invocation shape is unchanged for each agent: same default
       binary names, same argv patterns, same `cwd` and `stdio`, same stdin prompt
       delivery where applicable.
-- [ ] Quota and model-configuration classification for each agent matches pre-refactor
+- [x] Quota and model-configuration classification for each agent matches pre-refactor
       behavior (including `opencode`’s two-argument `isModelConfigurationSignal`
       usage).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 
-- [ ] Add a brief file-level comment on the new helper describing its role (shared
+- [x] Add a brief file-level comment on the new helper describing its role (shared
       spawn loop for CLI agents).
-- [ ] No README or `AGENTS.md` change unless an existing section still claims each
+- [x] No README or `AGENTS.md` change unless an existing section still claims each
       agent file fully implements the spawn loop in isolation; if so, adjust that
       sentence to mention the helper.

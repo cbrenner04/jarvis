@@ -105,6 +105,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     agentWorkingDir,
     specPath,
   });
+  const additionalReadDirs = specOutsideWorktreeReadDirs({
+    specPath,
+    agentWorkingDir,
+  });
 
   const isIndexSpec = basename(specPath) === "index.md";
   if (!isIndexSpec) {
@@ -302,6 +306,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       });
       const result = await agent.run(prompt, {
         cwd: agentWorkingDir,
+        ...(additionalReadDirs === undefined ? {} : { additionalReadDirs }),
       });
       if (result.kind === "ok") {
         if (result.stdout.length > 0) {
@@ -371,6 +376,9 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
                   });
                   const summary = await agent.run(prompt, {
                     cwd: agentWorkingDir,
+                    ...(additionalReadDirs === undefined
+                      ? {}
+                      : { additionalReadDirs }),
                   });
                   if (summary.kind !== "ok") {
                     throw new Error(
@@ -438,7 +446,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           if (blocker !== undefined) {
             await fanout(
               "harness",
-              `iteration ${iteration} produced no subspec checklist transition, but ${blocker}\n`,
+              `iteration ${iteration} edited files but did not check the active index item (${task.ordinal}/${task.total} ${taskExcerpt}); ${blocker}\n\nInspect the dirty worktree, then either finish and check the active subspec or revert/fix the changes before rerunning. Worktree: ${agentWorkingDir}\n`,
               "stderr",
             );
             return 6;
@@ -657,6 +665,19 @@ function readRepoPath(specPath: string): string | undefined {
     }
   }
   return undefined;
+}
+
+export function specOutsideWorktreeReadDirs(opts: {
+  specPath: string;
+  agentWorkingDir: string;
+}): string[] | undefined {
+  const agentWorkingDir = resolve(opts.agentWorkingDir);
+  const specPath = resolve(opts.specPath);
+  const rel = relative(agentWorkingDir, specPath);
+  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
+    return undefined;
+  }
+  return [dirname(specPath)];
 }
 
 export function prepareActiveSpecPath(opts: {

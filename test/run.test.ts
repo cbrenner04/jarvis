@@ -11,8 +11,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { Agent, AgentName, AgentResult } from "../src/agents/types.ts";
+import { dirname, join } from "node:path";
+import type {
+  Agent,
+  AgentName,
+  AgentResult,
+  AgentRunOptions,
+} from "../src/agents/types.ts";
 import {
   prepareActiveSpecPath,
   type RunCommandOptions,
@@ -42,10 +47,11 @@ function captureIo(): { io: RunIo; out: () => string; err: () => string } {
 class FakeAgent implements Agent {
   readonly name: AgentName;
   readonly calls: { prompt: string; cwd: string }[] = [];
+  readonly callOpts: AgentRunOptions[] = [];
   readonly #run: (
     callCount: number,
     prompt: string,
-    opts: { cwd: string },
+    opts: AgentRunOptions,
   ) => AgentResult | Promise<AgentResult>;
 
   constructor(
@@ -53,15 +59,16 @@ class FakeAgent implements Agent {
     run: (
       callCount: number,
       prompt: string,
-      opts: { cwd: string },
+      opts: AgentRunOptions,
     ) => AgentResult | Promise<AgentResult>,
   ) {
     this.name = name;
     this.#run = run;
   }
 
-  async run(prompt: string, opts: { cwd: string }): Promise<AgentResult> {
+  async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     this.calls.push({ prompt, cwd: opts.cwd });
+    this.callOpts.push(opts);
     return this.#run(this.calls.length, prompt, opts);
   }
 }
@@ -276,6 +283,27 @@ describe("runCommand", () => {
         cwd: projectRoot,
       },
     ]);
+    expect(claude.callOpts[0]?.additionalReadDirs).toEqual([dirname(spec)]);
+  });
+
+  test("omits additionalReadDirs for an in-worktree spec", async () => {
+    const spec = writeNamedSpec("feature", "- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(claude.callOpts[0]?.additionalReadDirs).toBeUndefined();
   });
 
   test("specs without a repo fail clearly before agents run", async () => {
@@ -538,6 +566,47 @@ describe("runCommand", () => {
     expect(latestMessage).toContain("Spec: spec/feature/01-two.md");
     expect(latestMessage).toContain(
       "## Acceptance criteria\n\n- Two accepted.",
+    );
+  });
+
+  test("exits 6 with guidance when linked subspec work is dirty but unchecked", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    writeFileSync(
+      join(specDir, "00-one.md"),
+      "# 00 - One\n\n## Acceptance criteria\n\n- One accepted.\n",
+    );
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(join(projectRoot, "one.txt"), "one\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(6);
+    expect(cap.err()).toContain(
+      "edited files but did not check the active index item",
+    );
+    expect(cap.err()).toContain("1/1 [00 - One](./00-one.md)");
+    expect(cap.err()).toContain("Inspect the dirty worktree");
+    expect(readFileSync(spec, "utf8")).toContain(
+      "- [ ] [00 - One](./00-one.md)",
     );
   });
 

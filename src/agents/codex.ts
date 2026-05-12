@@ -11,7 +11,7 @@
 // logs match Claude/Cursor-style plain text more closely.
 import { spawn } from "node:child_process";
 import { isModelConfigurationSignal, isQuotaSignal } from "./quota.ts";
-import type { Agent, AgentResult } from "./types.ts";
+import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 
 export type CodexAgentOptions = {
   binary?: string;
@@ -28,7 +28,7 @@ export class CodexAgent implements Agent {
     this.#model = opts.model;
   }
 
-  run(prompt: string, opts: { cwd: string }): Promise<AgentResult> {
+  run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     return new Promise((resolvePromise) => {
       const argv = [
         "exec",

@@ -6,7 +6,7 @@
 // `-p` is already plain text (`claude --help`); no extra verbosity flags.
 import { spawn } from "node:child_process";
 import { isModelConfigurationSignal, isQuotaSignal } from "./quota.ts";
-import type { Agent, AgentResult } from "./types.ts";
+import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 
 export type ClaudeAgentOptions = {
   binary?: string;
@@ -23,9 +23,12 @@ export class ClaudeAgent implements Agent {
     this.#model = opts.model;
   }
 
-  run(prompt: string, opts: { cwd: string }): Promise<AgentResult> {
+  run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     return new Promise((resolvePromise) => {
       const argv = ["-p", "--permission-mode", "acceptEdits"];
+      for (const dir of opts.additionalReadDirs ?? []) {
+        argv.push("--add-dir", dir);
+      }
       if (this.#model !== undefined) {
         argv.push("--model", this.#model);
       }

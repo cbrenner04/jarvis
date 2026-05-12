@@ -4,7 +4,12 @@
 // pass --dangerously-skip-permissions.
 import { spawn } from "node:child_process";
 import { isModelConfigurationSignal, isQuotaSignal } from "./quota.ts";
-import type { Agent, AgentName, AgentResult } from "./types.ts";
+import type {
+  Agent,
+  AgentName,
+  AgentResult,
+  AgentRunOptions,
+} from "./types.ts";
 
 export type OpencodeAgentOptions = {
   binary?: string;
@@ -21,7 +26,7 @@ export class OpencodeAgent implements Agent {
     this.#model = opts.model;
   }
 
-  run(prompt: string, opts: { cwd: string }): Promise<AgentResult> {
+  run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     return new Promise((resolvePromise) => {
       const child = spawn(
         this.#binary,

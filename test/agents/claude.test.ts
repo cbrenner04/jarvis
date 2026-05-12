@@ -137,6 +137,29 @@ describe("ClaudeAgent", () => {
     expect(result.kind).toBe("error");
   });
 
+  test("appends --add-dir for each additionalReadDirs entry", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new ClaudeAgent({ binary: bin });
+
+    await agent.run("p", {
+      cwd,
+      additionalReadDirs: ["/abs/specs/foo", "/abs/specs/bar"],
+    });
+
+    expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
+      "-p\0--permission-mode\0acceptEdits\0--add-dir\0/abs/specs/foo\0--add-dir\0/abs/specs/bar\0",
+    );
+  });
+
+  test("omits --add-dir when additionalReadDirs is unset", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new ClaudeAgent({ binary: bin });
+
+    await agent.run("p", { cwd });
+
+    expect(readFileSync(join(dir, "argv"), "utf8")).not.toContain("--add-dir");
+  });
+
   test("includes --permission-mode acceptEdits flag", async () => {
     const bin = fakeBinary({ exit: 0 });
     const agent = new ClaudeAgent({ binary: bin });

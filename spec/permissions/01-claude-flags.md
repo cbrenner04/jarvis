@@ -16,8 +16,13 @@ permission. This is the symptom that motivated the spec.
     circuit breaker even in `acceptEdits`, so we do not need an extra deny
     layer.
 - Do not pass `--dangerously-skip-permissions`. Ever, from jarvis.
-- Do not pass `--add-dir`. The agent's cwd is already the worktree root, so
-  edits there are in scope by default.
+- Do not pass `--add-dir` for in-worktree specs. The agent's cwd is already
+  the worktree root, so edits there are in scope by default.
+  - Exception: when the spec lives outside the worktree (umbrella-repo
+    layouts where shared `specs/` sits above the target repo named by the
+    spec's `repo:` line), Jarvis passes `--add-dir <spec-dir>` so the agent
+    can read the spec it was told to follow. See
+    `spec/spec-outside-worktree-access/`.
 - No `.claude/settings.json` is written to the target repo. Flags are the
   only mechanism.
 

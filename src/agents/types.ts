@@ -6,7 +6,12 @@ export type AgentResult =
   | { kind: "model_config"; stderr: string }
   | { kind: "error"; exitCode: number; stderr: string };
 
+export type AgentRunOptions = {
+  cwd: string;
+  additionalReadDirs?: string[];
+};
+
 export interface Agent {
   name: AgentName;
-  run(prompt: string, opts: { cwd: string }): Promise<AgentResult>;
+  run(prompt: string, opts: AgentRunOptions): Promise<AgentResult>;
 }

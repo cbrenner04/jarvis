@@ -87,6 +87,22 @@ describe("parseArgs", () => {
     }
   });
 
+  test("run with --cwd flag", () => {
+    expect(parseArgs(["run", "--cwd", "/some/dir", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      cwd: "/some/dir",
+    });
+  });
+
+  test("run without --cwd value → error", () => {
+    const parsed = parseArgs(["run", "--cwd"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("--cwd");
+    }
+  });
+
   test("run without spec → error", () => {
     const parsed = parseArgs(["run"]);
     expect(parsed.kind).toBe("error");
@@ -119,7 +135,7 @@ describe("run", () => {
     expect(code).toBe(0);
     const out = cap.out();
     expect(out).toContain(
-      "run [--max-iterations <n>] [--repo <name|path|url>] <spec-path>",
+      "run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>",
     );
     expect(out).toContain("init");
     expect(out).toContain("config");

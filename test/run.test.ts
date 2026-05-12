@@ -1673,6 +1673,177 @@ exit 0
     expect(cap.err()).toContain("project selection cancelled");
     expect(claude.calls).toHaveLength(0);
   });
+
+  describe("loop-only mode (git: false)", () => {
+    test("completes spec with zero unchecked boxes without clean-tree check", async () => {
+      const spec = writeSpec("- [x] done\n");
+      // Make project root dirty (would normally trigger clean-tree blocker)
+      writeFileSync(join(projectRoot, "dirty.txt"), "stuff");
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("does not create a worktree directory when git: false", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, withRepo("- [x] todo\n"));
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runCommand({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        logClient: {
+          assertReachable: async () => {},
+          send: async () => {},
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(existsSync(join(projectRoot, ".worktree"))).toBe(false);
+      // Agent ran in project root, not a worktree
+      expect(claude.calls[0]?.cwd).toBe(projectRoot);
+    });
+
+    test("--cwd honored when git: false and reflected in agent cwd", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const altCwd = join(dir, "alt-cwd");
+      mkdirSync(altCwd);
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", (_count, _prompt, runOpts) => {
+        // Tick the (possibly copied) spec at the agent's working directory.
+        const activeSpec = join(runOpts.cwd, "index.md");
+        if (existsSync(activeSpec)) {
+          writeFileSync(activeSpec, withRepo("- [x] todo\n"));
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        cwdFlag: altCwd,
+      });
+
+      expect(claude.calls[0]?.cwd).toBe(altCwd);
+      expect(code).toBe(0);
+    });
+
+    test("--cwd with git: true exits 1", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const altCwd = join(dir, "alt-cwd-2");
+      mkdirSync(altCwd);
+      const cap = captureIo();
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        handleSignals: false,
+        cwdFlag: altCwd,
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(
+        "--cwd is only valid when effective `git` is false",
+      );
+    });
+
+    test("--cwd with nonexistent directory exits 1", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        handleSignals: false,
+        cwdFlag: join(dir, "does-not-exist"),
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("--cwd directory does not exist");
+    });
+
+    test("git: true with non-git project root exits 1 before invoking any agent", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const code = await runCommand({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        // Intentionally NOT skipGhCheck so the .git enforcement fires.
+        skipGhCheck: false,
+        logClient: {
+          assertReachable: async () => {},
+          send: async () => {},
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("target is not a git checkout");
+      expect(claude.calls).toHaveLength(0);
+    });
+
+    test("per-project git override flips behavior independently of global", async () => {
+      const spec = writeSpec("- [x] done\n");
+      writeFileSync(join(projectRoot, "dirty.txt"), "stuff");
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = true;
+      const existing = cfg.projects.project;
+      if (existing !== undefined) {
+        cfg.projects.project = { ...existing, git: false };
+      }
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+  });
 });
 
 function writeSpec(contents: string): string {

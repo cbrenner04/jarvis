@@ -87,13 +87,41 @@ Jarvis treats a spec as complete when the spec file has zero unchecked
 GitHub-style task list items. An unchecked item is a line matching
 `^\s*- \[ \]\s`; checked items use `- [x]` or `- [X]`.
 
-When the agent `cwd` is a git checkout (normal runs that use a worktree),
-Jarvis also requires a clean `git status` before printing **spec complete**.
-That way checkbox completion cannot succeed while changes are still only on
-disk.
+When effective `git` is `true` and the agent `cwd` is a git checkout (normal
+runs that use a worktree), Jarvis also requires a clean `git status` before
+printing **spec complete**. That way checkbox completion cannot succeed while
+changes are still only on disk. When effective `git` is `false`, the
+clean-tree check is skipped: completion is purely "zero unchecked boxes",
+regardless of dirty or untracked files in the agent's working directory.
 
 A spec with no task list checkboxes is malformed. Jarvis fails fast instead of
 treating it as complete.
+
+## Loop-only mode (`git: false`)
+
+The top-level `git` config flag (and per-project override
+`projects[<name>].git`; see [config.md](./config.md)) controls whether jarvis
+participates in git and gh during a run. When effective `git` is `false`:
+
+- No worktree is created. The agent's `cwd` is the resolved project's
+  `root`, or the value of `--cwd <dir>` if supplied.
+- No per-subspec commit, push, draft PR open, or ready-on-complete happens.
+- The completion check is the unchecked-boxes count only; the clean-tree
+  requirement and exit code `6` do not apply.
+- Worktree-related config (`worktreeSymlinks`) is ignored.
+
+When effective `git` is `true` and the resolved project root is not a git
+checkout, `jarvis run` exits 1 with `error: target is not a git checkout;
+set "git": false in config or pass --repo to a git checkout` before invoking
+any agent.
+
+### `--cwd <dir>`
+
+`--cwd <dir>` overrides the agent's working directory and is only valid when
+effective `git` is `false`. It must point at an existing directory.
+Combining `--cwd` with `git: true` exits 1 with a message explaining the
+constraint. Spec resolution still proceeds normally; only the agent `cwd`
+changes.
 
 ## Patch mode model selection
 

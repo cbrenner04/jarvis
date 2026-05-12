@@ -86,7 +86,7 @@ For multi-file specs and the recommended `index.md` shape, see
 ## Commands
 
 ```txt
-jarvis run [--max-iterations <n>] [--repo <name|path|url>] <spec-path>
+jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                            Run the loop against a spec file in a registered project.
 jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.

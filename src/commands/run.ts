@@ -30,6 +30,7 @@ import {
   type AgentName,
   type Config,
   type ConfigOptions,
+  effectiveGit,
   findProjectMatchForPath,
   loadConfig,
   openSessionLog,
@@ -83,6 +84,8 @@ export type RunCommandOptions = {
   skipGhCheck?: boolean;
   /** Value of the `--repo` CLI flag, if given. */
   repoFlag?: string;
+  /** Value of the `--cwd` CLI flag, if given. Only valid when effective `git` is false. */
+  cwdFlag?: string;
   /** Override the disambiguation prompt (for tests). */
   disambiguate?: DisambiguateFn;
 };
@@ -108,6 +111,35 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   const project = projectResolution.project;
   const projectMode = projectResolution.mode;
   const cfg = loadConfig(opts.config);
+  const gitEnabled = effectiveGit(
+    cfg,
+    projectMode === "registered" ? project.key : undefined,
+  );
+
+  if (opts.cwdFlag !== undefined && gitEnabled) {
+    opts.io.stderr(
+      'error: --cwd is only valid when effective `git` is false; set "git": false in config to use --cwd\n',
+    );
+    return 1;
+  }
+  let cwdOverride: string | undefined;
+  if (opts.cwdFlag !== undefined) {
+    cwdOverride = resolve(opts.cwdFlag);
+    if (!existsSync(cwdOverride)) {
+      opts.io.stderr(`error: --cwd directory does not exist: ${cwdOverride}\n`);
+      return 1;
+    }
+  }
+  if (
+    gitEnabled &&
+    !opts.skipGhCheck &&
+    !existsSync(join(project.root, ".git"))
+  ) {
+    opts.io.stderr(
+      'error: target is not a git checkout; set "git": false in config or pass --repo to a git checkout\n',
+    );
+    return 1;
+  }
 
   // Lazily populate `origin` for a registered project whose record is missing
   // it. Failures here do not block the run. Skipped in ad-hoc mode.
@@ -125,7 +157,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     }
   }
 
-  if (!opts.skipGhCheck) {
+  if (!opts.skipGhCheck && gitEnabled) {
     try {
       await assertGhReady();
     } catch (err) {
@@ -134,8 +166,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     }
   }
 
-  let agentWorkingDir = project.root;
-  if (!opts.skipGhCheck) {
+  let agentWorkingDir = cwdOverride ?? project.root;
+  if (!opts.skipGhCheck && gitEnabled) {
     try {
       agentWorkingDir = await ensureWorktree(project.root, specPath);
       createWorktreeSymlinks(
@@ -295,14 +327,16 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       if (countUnchecked(specPath) !== 0) {
         return null;
       }
-      const blocker = worktreeCompletionBlocker(agentWorkingDir);
-      if (blocker !== undefined) {
-        await fanout(
-          "harness",
-          `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n`,
-          "stderr",
-        );
-        return 6;
+      if (gitEnabled) {
+        const blocker = worktreeCompletionBlocker(agentWorkingDir);
+        if (blocker !== undefined) {
+          await fanout(
+            "harness",
+            `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n`,
+            "stderr",
+          );
+          return 6;
+        }
       }
       await fanout("harness", "spec complete\n", "stdout");
       return 0;
@@ -400,125 +434,133 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
           if (allChecked) {
-            try {
-              commitSubspec(activeSubspecPath, { cwd: agentWorkingDir });
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              await fanout(
-                "harness",
-                `failed to commit completed subspec ${activeSubspecPath}: ${message}\n`,
-                "stderr",
-              );
-              return 1;
-            }
-
-            if (!opts.skipGhCheck) {
+            if (gitEnabled) {
               try {
-                const firstPush = !hasUpstream(agentWorkingDir);
-                pushCurrent({ cwd: agentWorkingDir, firstPush });
+                commitSubspec(activeSubspecPath, { cwd: agentWorkingDir });
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
                 await fanout(
                   "harness",
-                  `failed to push completed subspec ${activeSubspecPath}: ${message}\n`,
+                  `failed to commit completed subspec ${activeSubspecPath}: ${message}\n`,
                   "stderr",
                 );
                 return 1;
               }
 
-              try {
-                if (!draftPrEnsured) {
-                  const prBody = async (): Promise<string> => {
-                    const prompt = buildPrBodyPrompt(specPath);
-                    await fanout("outbound", prompt, null, {
-                      iteration,
-                      agent: agent.name,
-                      purpose: "draft_pr_body",
-                    });
-                    const summary = await agent.run(prompt, {
+              if (!opts.skipGhCheck) {
+                try {
+                  const firstPush = !hasUpstream(agentWorkingDir);
+                  pushCurrent({ cwd: agentWorkingDir, firstPush });
+                } catch (err) {
+                  const message =
+                    err instanceof Error ? err.message : String(err);
+                  await fanout(
+                    "harness",
+                    `failed to push completed subspec ${activeSubspecPath}: ${message}\n`,
+                    "stderr",
+                  );
+                  return 1;
+                }
+
+                try {
+                  if (!draftPrEnsured) {
+                    const prBody = async (): Promise<string> => {
+                      const prompt = buildPrBodyPrompt(specPath);
+                      await fanout("outbound", prompt, null, {
+                        iteration,
+                        agent: agent.name,
+                        purpose: "draft_pr_body",
+                      });
+                      const summary = await agent.run(prompt, {
+                        cwd: agentWorkingDir,
+                        ...(additionalReadDirs === undefined
+                          ? {}
+                          : { additionalReadDirs }),
+                      });
+                      if (summary.kind !== "ok") {
+                        throw new Error(
+                          `failed to generate draft PR body with ${agent.name}`,
+                        );
+                      }
+                      if (summary.stdout.length > 0) {
+                        await fanout("inbound_stdout", summary.stdout, null, {
+                          iteration,
+                          agent: agent.name,
+                          purpose: "draft_pr_body",
+                        });
+                      }
+                      if (summary.stderr.length > 0) {
+                        await fanout("inbound_stderr", summary.stderr, null, {
+                          iteration,
+                          agent: agent.name,
+                          purpose: "draft_pr_body",
+                        });
+                      }
+                      return summary.stdout.trim();
+                    };
+                    await ensureDraftPr({
+                      branch: getCurrentBranch(agentWorkingDir),
+                      base: await getBaseBranch(agentWorkingDir),
+                      title: getIndexTitle(specPath),
+                      bodyGenerator: prBody,
                       cwd: agentWorkingDir,
-                      ...(additionalReadDirs === undefined
-                        ? {}
-                        : { additionalReadDirs }),
                     });
-                    if (summary.kind !== "ok") {
-                      throw new Error(
-                        `failed to generate draft PR body with ${agent.name}`,
-                      );
-                    }
-                    if (summary.stdout.length > 0) {
-                      await fanout("inbound_stdout", summary.stdout, null, {
-                        iteration,
-                        agent: agent.name,
-                        purpose: "draft_pr_body",
-                      });
-                    }
-                    if (summary.stderr.length > 0) {
-                      await fanout("inbound_stderr", summary.stderr, null, {
-                        iteration,
-                        agent: agent.name,
-                        purpose: "draft_pr_body",
-                      });
-                    }
-                    return summary.stdout.trim();
-                  };
-                  await ensureDraftPr({
-                    branch: getCurrentBranch(agentWorkingDir),
-                    base: await getBaseBranch(agentWorkingDir),
-                    title: getIndexTitle(specPath),
-                    bodyGenerator: prBody,
+                    draftPrEnsured = true;
+                  }
+                  maybeMarkReady({
+                    indexPath: specPath,
                     cwd: agentWorkingDir,
                   });
-                  draftPrEnsured = true;
+                } catch (err) {
+                  const message =
+                    err instanceof Error ? err.message : String(err);
+                  await fanout(
+                    "harness",
+                    `failed to update PR for completed subspec ${activeSubspecPath}: ${message}\n`,
+                    "stderr",
+                  );
+                  return 1;
                 }
-                maybeMarkReady({
-                  indexPath: specPath,
+              }
+            }
+            subspecCompleted = true;
+          } else if (newlyChecked.length > 0) {
+            subspecProgressed = true;
+            if (gitEnabled) {
+              try {
+                commitWipProgress(activeSubspecPath, {
                   cwd: agentWorkingDir,
+                  newlyChecked,
+                  checkedTotal,
+                  total: afterCriteria.length,
                 });
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
                 await fanout(
                   "harness",
-                  `failed to update PR for completed subspec ${activeSubspecPath}: ${message}\n`,
+                  `failed to commit WIP progress for ${activeSubspecPath}: ${message}\n`,
                   "stderr",
                 );
                 return 1;
               }
             }
-            subspecCompleted = true;
-          } else if (newlyChecked.length > 0) {
-            subspecProgressed = true;
-            try {
-              commitWipProgress(activeSubspecPath, {
-                cwd: agentWorkingDir,
-                newlyChecked,
-                checkedTotal,
-                total: afterCriteria.length,
-              });
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              await fanout(
-                "harness",
-                `failed to commit WIP progress for ${activeSubspecPath}: ${message}\n`,
-                "stderr",
-              );
-              return 1;
-            }
           } else {
-            const blocker = worktreeCompletionBlocker(agentWorkingDir);
-            if (blocker !== undefined) {
-              const unchecked = afterCriteria.filter((c) => !c.checked);
-              const unmetList = unchecked
-                .map((c) => `  - ${c.text}`)
-                .join("\n");
-              await fanout(
-                "harness",
-                `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n`,
-                "stderr",
-              );
-              return 6;
+            if (gitEnabled) {
+              const blocker = worktreeCompletionBlocker(agentWorkingDir);
+              if (blocker !== undefined) {
+                const unchecked = afterCriteria.filter((c) => !c.checked);
+                const unmetList = unchecked
+                  .map((c) => `  - ${c.text}`)
+                  .join("\n");
+                await fanout(
+                  "harness",
+                  `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n`,
+                  "stderr",
+                );
+                return 6;
+              }
             }
           }
         }

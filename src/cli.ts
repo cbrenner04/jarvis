@@ -27,6 +27,7 @@ export type ParsedArgs =
       specPath: string;
       maxIterations?: string;
       repo?: string;
+      cwd?: string;
     }
   | { kind: "init" }
   | { kind: "config"; rest: string[] }
@@ -43,7 +44,7 @@ export type Io = {
 const USAGE = `Usage: jarvis <command> [args]
 
 Commands:
-  run [--max-iterations <n>] [--repo <name|path|url>] <spec-path>
+  run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                     Run the loop against a spec file in a registered project.
   init              Register the current target repo.
   config            View or edit the jarvis config.
@@ -67,6 +68,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "run": {
       let maxIterations: string | undefined;
       let repo: string | undefined;
+      let cwd: string | undefined;
       const args = [...rest];
       for (let i = 0; i < args.length; i += 1) {
         if (args[i] === "--max-iterations") {
@@ -93,6 +95,19 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           repo = value;
           args.splice(i, 2);
           i -= 1;
+          continue;
+        }
+        if (args[i] === "--cwd") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "run: missing value for --cwd",
+            };
+          }
+          cwd = value;
+          args.splice(i, 2);
+          i -= 1;
         }
       }
       const specPath = args[0];
@@ -105,6 +120,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       if (repo !== undefined) {
         parsed.repo = repo;
+      }
+      if (cwd !== undefined) {
+        parsed.cwd = cwd;
       }
       return parsed;
     }
@@ -170,6 +188,9 @@ export function run(
       }
       if (parsed.repo !== undefined) {
         runOpts.repoFlag = parsed.repo;
+      }
+      if (parsed.cwd !== undefined) {
+        runOpts.cwdFlag = parsed.cwd;
       }
       if (opts.run?.agents !== undefined) {
         runOpts.agents = opts.run.agents;

@@ -60,7 +60,7 @@ describe("completion detection", () => {
     );
   });
 
-  test("returns first unchecked task with unchecked ordinal and total", () => {
+  test("returns first unchecked task with overall ordinal and total task count", () => {
     const spec = writeSpec(
       [
         "# Spec",
@@ -72,8 +72,8 @@ describe("completion detection", () => {
 
     expect(getFirstUncheckedTask(spec)).toEqual({
       line: "first nested todo",
-      ordinal: 1,
-      total: 2,
+      ordinal: 2,
+      total: 3,
     });
   });
 

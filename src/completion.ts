@@ -50,7 +50,6 @@ export type UncheckedTaskSummary = {
 export function getFirstUncheckedTask(specPath: string): UncheckedTaskSummary {
   const lines = readSpec(specPath).split(/\r?\n/);
   let taskCount = 0;
-  let uncheckedCount = 0;
   let first: UncheckedTaskSummary | undefined;
 
   for (const line of lines) {
@@ -58,15 +57,12 @@ export function getFirstUncheckedTask(specPath: string): UncheckedTaskSummary {
       taskCount += 1;
     }
     const match = line.match(uncheckedTaskCapturePattern);
-    if (match !== null) {
-      uncheckedCount += 1;
-      if (first === undefined) {
-        first = {
-          line: match[1] ?? "",
-          ordinal: uncheckedCount,
-          total: 0,
-        };
-      }
+    if (match !== null && first === undefined) {
+      first = {
+        line: match[1] ?? "",
+        ordinal: taskCount,
+        total: 0,
+      };
     }
   }
 
@@ -76,7 +72,7 @@ export function getFirstUncheckedTask(specPath: string): UncheckedTaskSummary {
   if (first === undefined) {
     throw new Error(`Spec is complete at ${specPath}: no unchecked tasks`);
   }
-  first.total = uncheckedCount;
+  first.total = taskCount;
   return first;
 }
 

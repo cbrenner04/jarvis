@@ -36,5 +36,5 @@ Key decisions, captured so subspecs stay focused:
   `src/commands/run.ts:128-131`. No change needed there.
 - Future preflight for the `git` binary itself is out of scope.
 
-- [ ] [00 - Translate ENOENT in gh spawn](./00-translate-enoent-in-gh-spawn.md)
-- [ ] [01 - Validate resolved project root exists](./01-validate-project-root.md)
+- [x] [00 - Translate ENOENT in gh spawn](./00-translate-enoent-in-gh-spawn.md)
+- [x] [01 - Validate resolved project root exists](./01-validate-project-root.md)

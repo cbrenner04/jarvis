@@ -1,59 +1,63 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import * as childProcess from "node:child_process";
+import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { Readable } from "node:stream";
-import { getBaseBranch } from "../src/gh.ts";
+import { runGhCommand } from "../src/gh.ts";
 
-function fakeChildProcess(
-  stdout: string,
-  exitCode: number,
-): childProcess.ChildProcess {
-  const stdoutStream = Readable.from([stdout]);
-  const stderrStream = Readable.from([]);
-  const child = new EventEmitter() as childProcess.ChildProcess;
-  Object.assign(child, { stdout: stdoutStream, stderr: stderrStream });
-  queueMicrotask(() => {
-    child.emit("close", exitCode);
-  });
-  return child;
+function fakeSpawnEmittingError(err: NodeJS.ErrnoException): unknown {
+  return () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+    };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    queueMicrotask(() => {
+      child.emit("error", err);
+    });
+    return child;
+  };
 }
 
-describe("getBaseBranch", () => {
-  let spawnSpy: ReturnType<typeof spyOn<typeof childProcess, "spawn">>;
+describe("runGhCommand error handling", () => {
+  test("ENOENT spawn error produces dedicated 'binary not found on PATH' stderr", async () => {
+    const err = new Error("spawn gh ENOENT") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
+    const fakeSpawn = fakeSpawnEmittingError(err) as any;
 
-  beforeEach(() => {
-    spawnSpy = spyOn(childProcess, "spawn");
+    const result = await runGhCommand(["auth", "status"], undefined, fakeSpawn);
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("gh: binary not found on PATH");
+    expect(result.stderr).toContain("brew install gh");
   });
 
-  afterEach(() => {
-    spawnSpy.mockRestore();
+  test("non-ENOENT spawn error continues to surface String(err) in stderr", async () => {
+    const err = new Error("permission denied") as NodeJS.ErrnoException;
+    err.code = "EACCES";
+    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
+    const fakeSpawn = fakeSpawnEmittingError(err) as any;
+
+    const result = await runGhCommand(["auth", "status"], undefined, fakeSpawn);
+
+    expect(result.exitCode).toBe(-1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("permission denied");
+    expect(result.stderr).not.toContain("gh: binary not found on PATH");
   });
 
-  test("runs gh repo view with cwd set to the registered project root", async () => {
-    const repo = "/tmp/example-target-repo";
-    spawnSpy.mockImplementation(((
-      command: string,
-      args: readonly string[],
-      options: object,
-    ) => {
-      expect(command).toBe("gh");
-      expect([...args]).toEqual([
-        "repo",
-        "view",
-        "--json",
-        "defaultBranchRef",
-        "-q",
-        ".defaultBranchRef.name",
-      ]);
-      expect(options).toEqual(
-        expect.objectContaining({
-          cwd: repo,
-          stdio: ["ignore", "pipe", "pipe"],
-        }),
-      );
-      return fakeChildProcess("main\n", 0);
-    }) as typeof childProcess.spawn);
+  test("return shape (stdout, stderr, exitCode) is unchanged on error", async () => {
+    const err = new Error("spawn gh ENOENT") as NodeJS.ErrnoException;
+    err.code = "ENOENT";
+    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
+    const fakeSpawn = fakeSpawnEmittingError(err) as any;
 
-    await expect(getBaseBranch(repo)).resolves.toBe("main");
+    const result = await runGhCommand(["auth", "status"], undefined, fakeSpawn);
+
+    expect(Object.keys(result).sort()).toEqual([
+      "exitCode",
+      "stderr",
+      "stdout",
+    ]);
   });
 });

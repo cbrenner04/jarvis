@@ -47,16 +47,16 @@ either order but close together.
 
 ## Acceptance criteria
 
-- [ ] `runGhCommand`'s `ENOENT` branch produces a `stderr` string
+- [x] `runGhCommand`'s `ENOENT` branch produces a `stderr` string
   containing `gh: binary not found on PATH`.
-- [ ] Non-`ENOENT` spawn errors continue to surface `String(err)` in
+- [x] Non-`ENOENT` spawn errors continue to surface `String(err)` in
   `stderr`.
-- [ ] `runGhCommand`'s return shape (`stdout`, `stderr`, `exitCode`)
+- [x] `runGhCommand`'s return shape (`stdout`, `stderr`, `exitCode`)
   is unchanged.
-- [ ] `assertGhReady` continues to throw on failure; when the underlying
+- [x] `assertGhReady` continues to throw on failure; when the underlying
   cause is `ENOENT`, the thrown message reflects the new wording (since
   `assertGhReady` consumes `stderr`).
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 

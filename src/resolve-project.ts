@@ -12,6 +12,19 @@ import { normalizeRepoUrl } from "./repo-url.ts";
 export type ResolvedProject = {
   project: ProjectMatch;
   mode: "registered" | "ad-hoc";
+  /**
+   * Which resolution step produced this match. Used by callers to attribute
+   * downstream errors (e.g. missing project root) to the right input.
+   *
+   * - `repo-flag`: matched via the `--repo` CLI flag.
+   * - `spec-repo`: matched via the spec body's `repo:` line (absolute-path
+   *   exact match against a registered root, or URL/slug loose match against
+   *   a registered origin).
+   * - `registered`: spec path lives inside a registered project's root.
+   * - `ad-hoc`: walked parents from the spec location until a `.git` was
+   *   found; not registered in config.
+   */
+  source: "repo-flag" | "spec-repo" | "registered" | "ad-hoc";
 };
 
 export type ResolveResult =
@@ -56,7 +69,14 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
     if (isAbsolute(repoValue)) {
       const exact = projects.find((p) => p.root === resolve(repoValue));
       if (exact !== undefined) {
-        return { kind: "ok", resolved: { project: exact, mode: "registered" } };
+        return {
+          kind: "ok",
+          resolved: {
+            project: exact,
+            mode: "registered",
+            source: "spec-repo",
+          },
+        };
       }
       // Otherwise ignored per portable-repo-resolution decisions; fall
       // through to location-based resolution.
@@ -74,7 +94,10 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
       );
       if (matches.length === 1) {
         const project = matches[0] as ProjectMatch;
-        return { kind: "ok", resolved: { project, mode: "registered" } };
+        return {
+          kind: "ok",
+          resolved: { project, mode: "registered", source: "spec-repo" },
+        };
       }
       if (matches.length > 1) {
         return {
@@ -92,7 +115,10 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
   // Step 3: spec lives inside a registered project's root.
   const byPath = findProjectMatchForPath(specPath, opts.config);
   if (byPath !== undefined) {
-    return { kind: "ok", resolved: { project: byPath, mode: "registered" } };
+    return {
+      kind: "ok",
+      resolved: { project: byPath, mode: "registered", source: "registered" },
+    };
   }
 
   // Step 4: spec lives inside any git checkout (walk parents until `.git`).
@@ -103,6 +129,7 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
       resolved: {
         project: { key: basenameOf(gitRoot), root: gitRoot },
         mode: "ad-hoc",
+        source: "ad-hoc",
       },
     };
   }
@@ -138,7 +165,10 @@ function resolveFromFlag(
   // Try matching as a registered project name first (exact match).
   const byName = projects.find((p) => p.key === trimmed);
   if (byName !== undefined) {
-    return { kind: "ok", resolved: { project: byName, mode: "registered" } };
+    return {
+      kind: "ok",
+      resolved: { project: byName, mode: "registered", source: "repo-flag" },
+    };
   }
 
   // Absolute path: must equal a registered project's root.
@@ -146,7 +176,10 @@ function resolveFromFlag(
     const root = resolve(trimmed);
     const byRoot = projects.find((p) => p.root === root);
     if (byRoot !== undefined) {
-      return { kind: "ok", resolved: { project: byRoot, mode: "registered" } };
+      return {
+        kind: "ok",
+        resolved: { project: byRoot, mode: "registered", source: "repo-flag" },
+      };
     }
     return {
       kind: "error",
@@ -163,7 +196,10 @@ function resolveFromFlag(
     );
     if (matches.length === 1) {
       const project = matches[0] as ProjectMatch;
-      return { kind: "ok", resolved: { project, mode: "registered" } };
+      return {
+        kind: "ok",
+        resolved: { project, mode: "registered", source: "repo-flag" },
+      };
     }
     if (matches.length > 1) {
       return {

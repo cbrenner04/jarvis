@@ -86,22 +86,22 @@ project directory. This subspec must therefore land alongside or after
 
 ## Acceptance criteria
 
-- [ ] A registered project whose `root` no longer exists on disk causes
+- [x] A registered project whose `root` no longer exists on disk causes
   `jarvis run` to exit non-zero with a message naming the path and
   identifying the registered project as the source.
-- [ ] An ad-hoc resolution that lands on a non-existent path (e.g. the
+- [x] An ad-hoc resolution that lands on a non-existent path (e.g. the
   walk found a `.git` that has since been removed) causes `jarvis run`
   to exit non-zero with a message naming the path and the ad-hoc
   resolution as the source.
-- [ ] `--repo` matching a registered project whose root no longer
+- [x] `--repo` matching a registered project whose root no longer
   exists causes the same failure attributed to the `--repo` flag value.
-- [ ] A spec `repo:` line whose absolute path exact-matches a
+- [x] A spec `repo:` line whose absolute path exact-matches a
   registered root that no longer exists causes the same failure
   attributed to the spec `repo:` line.
-- [ ] In all cases: no `.worktree/` directory created, no `git` or `gh`
+- [x] In all cases: no `.worktree/` directory created, no `git` or `gh`
   subprocess invoked, no agent spawned, no session log file opened.
-- [ ] The check fires regardless of effective `git` value.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] The check fires regardless of effective `git` value.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 

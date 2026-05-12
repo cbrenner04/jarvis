@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { relative, resolve, sep } from "node:path";
 import type { Io } from "../cli.ts";
@@ -8,6 +9,7 @@ export type InitOptions = {
   io: Io;
   config?: ConfigOptions | undefined;
   workRoot?: string | undefined;
+  readOriginUrl?: (cwd: string) => string | undefined;
 };
 
 function projectNameFor(cwd: string, workRoot: string): string | undefined {
@@ -17,6 +19,20 @@ function projectNameFor(cwd: string, workRoot: string): string | undefined {
     return undefined;
   }
   return rel;
+}
+
+export function readGitOriginUrl(cwd: string): string | undefined {
+  try {
+    const out = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const trimmed = out.trim();
+    return trimmed === "" ? undefined : trimmed;
+  } catch {
+    return undefined;
+  }
 }
 
 export function init(opts: InitOptions): number {
@@ -44,12 +60,28 @@ export function init(opts: InitOptions): number {
     return 1;
   }
 
+  const readOrigin = opts.readOriginUrl ?? readGitOriginUrl;
+  const rawOrigin = readOrigin(cwd);
+  const origin =
+    rawOrigin === undefined || rawOrigin.trim() === ""
+      ? undefined
+      : rawOrigin.trim();
+
   try {
-    registerProject(name, cwd, opts.config);
+    registerProject(
+      name,
+      cwd,
+      origin === undefined ? opts.config : { ...(opts.config ?? {}), origin },
+    );
   } catch (err) {
     io.stderr(`jarvis: ${(err as Error).message}\n`);
     return 1;
   }
   io.stdout(`registered project ${JSON.stringify(name)} → ${cwd}\n`);
+  if (origin === undefined) {
+    io.stdout(
+      `note: no \`origin\` remote found in ${cwd}; skipped recording origin URL\n`,
+    );
+  }
   return 0;
 }

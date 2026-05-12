@@ -46,16 +46,26 @@ $EDITOR spec/<name>/index.md
 `jarvis init` only registers the current repo. It does not create or modify
 files in the target repo.
 
-Write the spec as Markdown with a `repo:` line and GitHub-style task list items:
+Write the spec as Markdown with an optional `repo:` line and GitHub-style task
+list items:
 
 ```md
 # <Feature or fix>
 
-repo: /absolute/path/to/target-repo
+repo: https://github.com/owner/target-repo
 
 - [ ] First task for the agent to complete.
 - [ ] Second task for the agent to complete.
 ```
+
+The `repo:` line is optional. When present, it must be a git URL (HTTPS or
+SSH) or an `owner/repo` slug. When omitted, jarvis resolves the target repo
+from the spec's location: if the spec lives inside a registered project, that
+project wins; if it lives inside any other git checkout, jarvis runs in
+ad-hoc mode against that checkout. See
+[docs/spec-guidance.md](docs/spec-guidance.md) and
+[docs/run-loop.md](docs/run-loop.md) for the full resolution order and the
+`--repo` flag.
 
 Then start the loop. The log server must be running before `jarvis run`:
 
@@ -76,7 +86,7 @@ For multi-file specs and the recommended `index.md` shape, see
 ## Commands
 
 ```txt
-jarvis run [--max-iterations <n>] <spec-path>
+jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                            Run the loop against a spec file in a registered project.
 jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.
@@ -92,7 +102,9 @@ bootstraps `~/.jarvis/config.json` if it doesn't exist.
 
 Run from the root of a target repo under `~/Work`. Registers the repo as a
 project in `~/.jarvis/config.json` and writes no files or directories to the
-target repo.
+target repo. When the repo has an `origin` remote, init records the URL
+under `projects[<name>].origin`; repos without an `origin` remote still
+register successfully with a one-line note.
 
 Project names are paths relative to `~/Work`:
 
@@ -112,7 +124,8 @@ zero unchecked boxes, and opens a draft PR after the first commit lands. The
 PR transitions to ready for review when the spec is complete; jarvis never
 merges. You may start the command from a directory that is not a git checkout
 (for example a parent folder that holds multiple repos). Jarvis reads the
-supplied spec first, requires `repo: <absolute-path>`, and only then prepares
+supplied spec first, resolves the target repository (see
+[docs/run-loop.md](docs/run-loop.md) for the order), and only then prepares
 the worktree and runs `gh` / git from that repository.
 
 For full details — iteration banner, completion semantics, output
@@ -152,6 +165,12 @@ behavior.
 
 View or edit `~/.jarvis/config.json`. See [docs/config.md](docs/config.md)
 for the schema, defaults, and the full list of `jarvis config` subcommands.
+
+Recently added subcommands:
+
+- `jarvis config set-git <true|false>` — write the top-level `git` toggle.
+- `jarvis config set-project-git <name> <true|false|unset>` — write or clear
+  a per-project `git` override.
 
 ## Documentation
 

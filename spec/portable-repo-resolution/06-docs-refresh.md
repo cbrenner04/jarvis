@@ -36,19 +36,19 @@ absolute-path examples, and ensures cross-references are correct.
 
 ## Acceptance criteria
 
-- [ ] No file under `docs/`, the repo root README, or `AGENTS.md` shows
+- [x] No file under `docs/`, the repo root README, or `AGENTS.md` shows
   `repo: /` (absolute-path) examples.
-- [ ] `README.md` quickstart shows a URL-form `repo:` example and notes the
+- [x] `README.md` quickstart shows a URL-form `repo:` example and notes the
   field is optional.
-- [ ] `docs/spec-guidance.md` describes the resolution order at a high level
+- [x] `docs/spec-guidance.md` describes the resolution order at a high level
   and links to `docs/run-loop.md`.
-- [ ] `docs/run-loop.md` is the authoritative description of resolution,
+- [x] `docs/run-loop.md` is the authoritative description of resolution,
   prompt behavior, completion semantics, and the `--cwd` flag.
-- [ ] `docs/worktrees-and-commits.md` makes its `git: true` precondition
+- [x] `docs/worktrees-and-commits.md` makes its `git: true` precondition
   explicit at the top.
-- [ ] `docs/config.md` shows the `git` field, per-project override, and
+- [x] `docs/config.md` shows the `git` field, per-project override, and
   `Project.origin?` field in the schema block.
-- [ ] `bun run check` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

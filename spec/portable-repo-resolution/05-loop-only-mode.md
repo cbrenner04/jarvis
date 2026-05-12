@@ -49,22 +49,22 @@ the clean-tree check no longer applies.
 
 ## Acceptance criteria
 
-- [ ] With effective `git: false`, `jarvis run` does not create a worktree
+- [x] With effective `git: false`, `jarvis run` does not create a worktree
   under `.worktree/`.
-- [ ] With effective `git: false`, `jarvis run` does not invoke `git commit`,
+- [x] With effective `git: false`, `jarvis run` does not invoke `git commit`,
   `git push`, `gh pr create`, or `gh pr ready` for any subspec.
-- [ ] With effective `git: false`, a spec with zero unchecked boxes exits 0
+- [x] With effective `git: false`, a spec with zero unchecked boxes exits 0
   even when files in the working directory are dirty or untracked.
-- [ ] `--cwd <dir>` is accepted only when effective `git` is `false`; using
+- [x] `--cwd <dir>` is accepted only when effective `git` is `false`; using
   it with `git: true` exits 1 with the documented message.
-- [ ] When `--cwd <dir>` is supplied and valid, the agent runs with that
+- [x] When `--cwd <dir>` is supplied and valid, the agent runs with that
   directory as `cwd` and the iteration banner reflects it.
-- [ ] With effective `git: true` and a resolved `cwd` that is not a git
+- [x] With effective `git: true` and a resolved `cwd` that is not a git
   checkout, `jarvis run` exits 1 with the documented message before invoking
   any agent.
-- [ ] Per-project override flips behavior for that project without affecting
+- [x] Per-project override flips behavior for that project without affecting
   other projects.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
 
 ## Documentation updates
 

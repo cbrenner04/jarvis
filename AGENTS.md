@@ -45,6 +45,7 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 ## Working rules for agents in this repo
 
 - Before updating `jarvis`, make sure there is a spec for the intended change. If no spec exists, create one first using the conventions in [docs/spec-guidance.md](docs/spec-guidance.md).
+- New specs must be committed to `main` (via a normal PR) **before** any implementation work on them begins. Jarvis runs against the spec on disk; partially drafted specs in feature branches lead to drift between the spec and the implementation. Open the spec PR, get it merged, then start a separate run/branch for the implementation.
 - If a spec already exists for the intended change, run it through `jarvis` instead of implementing it directly.
 - Read the index to choose the next unchecked subspec, then read that subspec before editing.
 - Run `bun run typecheck` and `bun test` before ticking the acceptance criteria they cover.

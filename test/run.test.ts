@@ -24,7 +24,7 @@ import {
   type RunIo,
   runCommand,
 } from "../src/commands/run.ts";
-import { registerProject, writeConfig } from "../src/config.ts";
+import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
@@ -165,6 +165,66 @@ describe("runCommand", () => {
     expect(code).toBe(0);
     expect(cap.out()).toContain("spec complete");
     expect(claude.calls).toHaveLength(0);
+  });
+
+  test("lazily populates a registered project's origin from the repo on run", async () => {
+    // Set up project as a real git repo with an origin remote so the lazy
+    // populate path can read it via `git remote get-url origin`.
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    execSync(
+      "git remote add origin https://github.com/example/lazy-project.git",
+      { cwd: projectRoot },
+    );
+    const spec = writeSpec("- [x] done\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.projects.project).toEqual({
+      root: projectRoot,
+      origin: "https://github.com/example/lazy-project.git",
+    });
+  });
+
+  test("run continues when origin cannot be read for a registered project", async () => {
+    // No git init in projectRoot — `git remote get-url origin` will fail.
+    const spec = writeSpec("- [x] done\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.projects.project).toEqual({ root: projectRoot });
   });
 
   test("exits 6 when checklists are complete but the git worktree is dirty", async () => {

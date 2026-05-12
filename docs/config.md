@@ -25,6 +25,7 @@ type AgentName = "claude" | "codex" | "cursor" | "opencode";
 
 type Project = {
   root: string; // absolute path to a target-repo root
+  origin?: string; // optional git remote URL recorded by `jarvis init`
 };
 
 type Config = {
@@ -41,6 +42,19 @@ type Config = {
 
 All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid
 configs are rejected with an error that names the offending file.
+
+## `Project.origin`
+
+`jarvis init` records each project's `origin` remote URL by running `git
+remote get-url origin` in the registered repo and storing the trimmed
+output in `projects[<name>].origin`. The string is stored verbatim — no URL
+normalization is performed at write time. If the repo has no `origin`
+remote, init still succeeds and the field is omitted with a one-line note.
+
+Legacy configs without `origin` continue to load. On `jarvis run`, if the
+resolved project's record is missing `origin`, jarvis attempts to populate
+it from the project's `root` and persists the update. Failures here do not
+block the run.
 
 ## Default contents
 

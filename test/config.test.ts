@@ -16,6 +16,7 @@ import {
   loadConfig,
   openSessionLog,
   registerProject,
+  setProjectOrigin,
   writeConfig,
 } from "../src/config.ts";
 
@@ -300,6 +301,58 @@ describe("loadConfig", () => {
     writeFileSync(file, "{ not json");
     expect(() => loadConfig({ dir })).toThrow(file);
   });
+
+  test("accepts an optional origin on a project", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        projects: {
+          "app-a": {
+            root: "/tmp/jarvis-with-origin",
+            origin: "git@github.com:you/app-a.git",
+          },
+        },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects["app-a"]).toEqual({
+      root: "/tmp/jarvis-with-origin",
+      origin: "git@github.com:you/app-a.git",
+    });
+  });
+
+  test("loads legacy configs without origin", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        projects: { "app-a": { root: "/tmp/jarvis-legacy" } },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects["app-a"]).toEqual({ root: "/tmp/jarvis-legacy" });
+  });
+
+  test("rejects non-string project origin", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        projects: { "app-a": { root: "/tmp/jarvis-bad", origin: 42 } },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/origin/);
+  });
 });
 
 describe("registerProject / findProjectForPath", () => {
@@ -354,6 +407,30 @@ describe("registerProject / findProjectForPath", () => {
     ).toEqual({
       key: "inner",
       root: "/tmp/jarvis-keyed/nested",
+    });
+  });
+
+  test("registerProject stores origin when provided", () => {
+    registerProject("with-origin", "/tmp/jarvis-with-origin", {
+      dir,
+      origin: "git@github.com:you/app.git",
+    });
+    expect(findProjectMatchForPath("/tmp/jarvis-with-origin", { dir })).toEqual(
+      {
+        key: "with-origin",
+        root: "/tmp/jarvis-with-origin",
+        origin: "git@github.com:you/app.git",
+      },
+    );
+  });
+
+  test("setProjectOrigin updates an existing project's origin", () => {
+    registerProject("lazy", "/tmp/jarvis-lazy", { dir });
+    setProjectOrigin("lazy", "https://github.com/you/lazy.git", { dir });
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects.lazy).toEqual({
+      root: "/tmp/jarvis-lazy",
+      origin: "https://github.com/you/lazy.git",
     });
   });
 });

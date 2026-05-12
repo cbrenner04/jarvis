@@ -92,7 +92,9 @@ bootstraps `~/.jarvis/config.json` if it doesn't exist.
 
 Run from the root of a target repo under `~/Work`. Registers the repo as a
 project in `~/.jarvis/config.json` and writes no files or directories to the
-target repo.
+target repo. When the repo has an `origin` remote, init records the URL
+under `projects[<name>].origin`; repos without an `origin` remote still
+register successfully with a one-line note.
 
 Project names are paths relative to `~/Work`:
 

@@ -30,9 +30,11 @@ import {
   type AgentName,
   type Config,
   type ConfigOptions,
+  findProjectMatchForPath,
   loadConfig,
   openSessionLog,
   type ProjectMatch,
+  setProjectOrigin,
 } from "../config.ts";
 import { assertGhReady, getBaseBranch } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
@@ -50,6 +52,7 @@ import {
   pushCurrent,
   worktreeCompletionBlocker,
 } from "../worktree.ts";
+import { readGitOriginUrl } from "./init.ts";
 
 export type RunIo = {
   stdout: (s: string) => void;
@@ -83,6 +86,20 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   }
   const project = projectResolution.project;
   const cfg = loadConfig(opts.config);
+
+  // Lazily populate `origin` for a registered project whose record is missing
+  // it. Failures here do not block the run.
+  try {
+    const match = findProjectMatchForPath(project.root, opts.config);
+    if (match !== undefined && match.origin === undefined) {
+      const origin = readGitOriginUrl(match.root);
+      if (origin !== undefined) {
+        setProjectOrigin(match.key, origin, opts.config);
+      }
+    }
+  } catch {
+    // best-effort
+  }
 
   if (!opts.skipGhCheck) {
     try {

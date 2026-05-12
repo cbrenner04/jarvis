@@ -17,11 +17,13 @@ export type AgentName = (typeof AGENT_NAMES)[number];
 
 export type Project = {
   root: string;
+  origin?: string;
 };
 
 export type ProjectMatch = {
   key: string;
   root: string;
+  origin?: string;
 };
 
 export type PatchModels = Record<AgentName, string>;
@@ -158,7 +160,21 @@ function validateConfig(input: unknown, file: string): Config {
       );
     }
     seenRoots.set(root, name);
-    projects[name] = { root };
+    const project: Project = { root };
+    const originRaw = (value as Record<string, unknown>).origin;
+    if (originRaw !== undefined) {
+      if (typeof originRaw !== "string") {
+        fail(file, `project ${JSON.stringify(name)} origin must be a string`);
+      }
+      if (originRaw.trim() === "") {
+        fail(
+          file,
+          `project ${JSON.stringify(name)} origin must be a non-empty string`,
+        );
+      }
+      project.origin = originRaw;
+    }
+    projects[name] = project;
   }
 
   return {
@@ -279,7 +295,7 @@ export function writeConfig(cfg: Config, opts?: ConfigOptions): void {
 export function registerProject(
   name: string,
   root: string,
-  opts?: ConfigOptions,
+  opts?: ConfigOptions & { origin?: string },
 ): void {
   if (!isAbsolute(root)) {
     throw new Error(`Project root must be absolute: ${root}`);
@@ -292,7 +308,25 @@ export function registerProject(
       );
     }
   }
-  cfg.projects[name] = { root };
+  const project: Project = { root };
+  if (opts?.origin !== undefined && opts.origin.trim() !== "") {
+    project.origin = opts.origin;
+  }
+  cfg.projects[name] = project;
+  writeConfig(cfg, opts);
+}
+
+export function setProjectOrigin(
+  name: string,
+  origin: string,
+  opts?: ConfigOptions,
+): void {
+  const cfg = loadConfig(opts);
+  const project = cfg.projects[name];
+  if (project === undefined) {
+    throw new Error(`Project ${JSON.stringify(name)} is not registered`);
+  }
+  cfg.projects[name] = { ...project, origin };
   writeConfig(cfg, opts);
 }
 
@@ -304,7 +338,11 @@ export function findProjectForPath(
   if (match === undefined) {
     return undefined;
   }
-  return { root: match.root };
+  const project: Project = { root: match.root };
+  if (match.origin !== undefined) {
+    project.origin = match.origin;
+  }
+  return project;
 }
 
 export function findProjectMatchForPath(
@@ -320,7 +358,11 @@ export function findProjectMatchForPath(
     const prefix = root.endsWith(sep) ? root : root + sep;
     if (target === root || target.startsWith(prefix)) {
       if (root.length > bestLen) {
-        best = { key, root };
+        const match: ProjectMatch = { key, root };
+        if (project.origin !== undefined) {
+          match.origin = project.origin;
+        }
+        best = match;
         bestLen = root.length;
       }
     }

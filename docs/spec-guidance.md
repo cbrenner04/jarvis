@@ -46,6 +46,10 @@ Jarvis resolves the target repo at run time in this order:
    not persist anything to config).
 5. Otherwise jarvis prompts (or exits with a usage error in non-TTY runs).
 
+See [run-loop.md](./run-loop.md#iteration) for the authoritative description
+of resolution, the disambiguation prompt, completion semantics, and the
+`--cwd` flag.
+
 Legacy `repo: <absolute-local-path>` is still honored only when the path
 exactly equals a registered project's root; otherwise it is ignored. New
 specs should use the URL or slug form so they remain portable across

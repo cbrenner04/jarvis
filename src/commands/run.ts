@@ -30,14 +30,22 @@ import {
   type AgentName,
   type Config,
   type ConfigOptions,
+  effectiveGit,
+  findProjectMatchForPath,
   loadConfig,
   openSessionLog,
   type ProjectMatch,
+  setProjectOrigin,
 } from "../config.ts";
+import {
+  type DisambiguationResult,
+  promptForProject,
+} from "../disambiguation-prompt.ts";
 import { assertGhReady, getBaseBranch } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { ensureDraftPr, maybeMarkReady } from "../pr.ts";
 import { buildPrompt } from "../prompt.ts";
+import { resolveProject } from "../resolve-project.ts";
 import {
   type AcceptanceCriterion,
   commitSubspec,
@@ -50,6 +58,7 @@ import {
   pushCurrent,
   worktreeCompletionBlocker,
 } from "../worktree.ts";
+import { readGitOriginUrl } from "./init.ts";
 
 export type RunIo = {
   stdout: (s: string) => void;
@@ -57,6 +66,12 @@ export type RunIo = {
 };
 
 export type ConfirmRun = (prompt: string) => string | Promise<string>;
+
+export type DisambiguateFn = (opts: {
+  candidates: ProjectMatch[];
+  reason: string;
+  io: RunIo;
+}) => Promise<DisambiguationResult> | DisambiguationResult;
 
 export type RunCommandOptions = {
   specPath: string;
@@ -67,6 +82,12 @@ export type RunCommandOptions = {
   confirmRun?: ConfirmRun;
   handleSignals?: boolean;
   skipGhCheck?: boolean;
+  /** Value of the `--repo` CLI flag, if given. */
+  repoFlag?: string;
+  /** Value of the `--cwd` CLI flag, if given. Only valid when effective `git` is false. */
+  cwdFlag?: string;
+  /** Override the disambiguation prompt (for tests). */
+  disambiguate?: DisambiguateFn;
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
@@ -76,15 +97,67 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return 1;
   }
 
-  const projectResolution = resolveProjectFromSpec(specPath);
+  const projectResolution = await resolveProjectFromSpec({
+    specPath,
+    repoFlag: opts.repoFlag,
+    config: opts.config,
+    io: opts.io,
+    disambiguate: opts.disambiguate,
+  });
   if (projectResolution.error !== undefined) {
     opts.io.stderr(`${projectResolution.error}\n`);
     return 1;
   }
   const project = projectResolution.project;
+  const projectMode = projectResolution.mode;
   const cfg = loadConfig(opts.config);
+  const gitEnabled = effectiveGit(
+    cfg,
+    projectMode === "registered" ? project.key : undefined,
+  );
 
-  if (!opts.skipGhCheck) {
+  if (opts.cwdFlag !== undefined && gitEnabled) {
+    opts.io.stderr(
+      'error: --cwd is only valid when effective `git` is false; set "git": false in config to use --cwd\n',
+    );
+    return 1;
+  }
+  let cwdOverride: string | undefined;
+  if (opts.cwdFlag !== undefined) {
+    cwdOverride = resolve(opts.cwdFlag);
+    if (!existsSync(cwdOverride)) {
+      opts.io.stderr(`error: --cwd directory does not exist: ${cwdOverride}\n`);
+      return 1;
+    }
+  }
+  if (
+    gitEnabled &&
+    !opts.skipGhCheck &&
+    !existsSync(join(project.root, ".git"))
+  ) {
+    opts.io.stderr(
+      'error: target is not a git checkout; set "git": false in config or pass --repo to a git checkout\n',
+    );
+    return 1;
+  }
+
+  // Lazily populate `origin` for a registered project whose record is missing
+  // it. Failures here do not block the run. Skipped in ad-hoc mode.
+  if (projectMode === "registered") {
+    try {
+      const match = findProjectMatchForPath(project.root, opts.config);
+      if (match !== undefined && match.origin === undefined) {
+        const origin = readGitOriginUrl(match.root);
+        if (origin !== undefined) {
+          setProjectOrigin(match.key, origin, opts.config);
+        }
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  if (!opts.skipGhCheck && gitEnabled) {
     try {
       await assertGhReady();
     } catch (err) {
@@ -93,8 +166,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     }
   }
 
-  let agentWorkingDir = project.root;
-  if (!opts.skipGhCheck) {
+  let agentWorkingDir = cwdOverride ?? project.root;
+  if (!opts.skipGhCheck && gitEnabled) {
     try {
       agentWorkingDir = await ensureWorktree(project.root, specPath);
       createWorktreeSymlinks(
@@ -254,14 +327,16 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       if (countUnchecked(specPath) !== 0) {
         return null;
       }
-      const blocker = worktreeCompletionBlocker(agentWorkingDir);
-      if (blocker !== undefined) {
-        await fanout(
-          "harness",
-          `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n`,
-          "stderr",
-        );
-        return 6;
+      if (gitEnabled) {
+        const blocker = worktreeCompletionBlocker(agentWorkingDir);
+        if (blocker !== undefined) {
+          await fanout(
+            "harness",
+            `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n`,
+            "stderr",
+          );
+          return 6;
+        }
       }
       await fanout("harness", "spec complete\n", "stdout");
       return 0;
@@ -359,125 +434,133 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
           if (allChecked) {
-            try {
-              commitSubspec(activeSubspecPath, { cwd: agentWorkingDir });
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              await fanout(
-                "harness",
-                `failed to commit completed subspec ${activeSubspecPath}: ${message}\n`,
-                "stderr",
-              );
-              return 1;
-            }
-
-            if (!opts.skipGhCheck) {
+            if (gitEnabled) {
               try {
-                const firstPush = !hasUpstream(agentWorkingDir);
-                pushCurrent({ cwd: agentWorkingDir, firstPush });
+                commitSubspec(activeSubspecPath, { cwd: agentWorkingDir });
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
                 await fanout(
                   "harness",
-                  `failed to push completed subspec ${activeSubspecPath}: ${message}\n`,
+                  `failed to commit completed subspec ${activeSubspecPath}: ${message}\n`,
                   "stderr",
                 );
                 return 1;
               }
 
-              try {
-                if (!draftPrEnsured) {
-                  const prBody = async (): Promise<string> => {
-                    const prompt = buildPrBodyPrompt(specPath);
-                    await fanout("outbound", prompt, null, {
-                      iteration,
-                      agent: agent.name,
-                      purpose: "draft_pr_body",
-                    });
-                    const summary = await agent.run(prompt, {
+              if (!opts.skipGhCheck) {
+                try {
+                  const firstPush = !hasUpstream(agentWorkingDir);
+                  pushCurrent({ cwd: agentWorkingDir, firstPush });
+                } catch (err) {
+                  const message =
+                    err instanceof Error ? err.message : String(err);
+                  await fanout(
+                    "harness",
+                    `failed to push completed subspec ${activeSubspecPath}: ${message}\n`,
+                    "stderr",
+                  );
+                  return 1;
+                }
+
+                try {
+                  if (!draftPrEnsured) {
+                    const prBody = async (): Promise<string> => {
+                      const prompt = buildPrBodyPrompt(specPath);
+                      await fanout("outbound", prompt, null, {
+                        iteration,
+                        agent: agent.name,
+                        purpose: "draft_pr_body",
+                      });
+                      const summary = await agent.run(prompt, {
+                        cwd: agentWorkingDir,
+                        ...(additionalReadDirs === undefined
+                          ? {}
+                          : { additionalReadDirs }),
+                      });
+                      if (summary.kind !== "ok") {
+                        throw new Error(
+                          `failed to generate draft PR body with ${agent.name}`,
+                        );
+                      }
+                      if (summary.stdout.length > 0) {
+                        await fanout("inbound_stdout", summary.stdout, null, {
+                          iteration,
+                          agent: agent.name,
+                          purpose: "draft_pr_body",
+                        });
+                      }
+                      if (summary.stderr.length > 0) {
+                        await fanout("inbound_stderr", summary.stderr, null, {
+                          iteration,
+                          agent: agent.name,
+                          purpose: "draft_pr_body",
+                        });
+                      }
+                      return summary.stdout.trim();
+                    };
+                    await ensureDraftPr({
+                      branch: getCurrentBranch(agentWorkingDir),
+                      base: await getBaseBranch(agentWorkingDir),
+                      title: getIndexTitle(specPath),
+                      bodyGenerator: prBody,
                       cwd: agentWorkingDir,
-                      ...(additionalReadDirs === undefined
-                        ? {}
-                        : { additionalReadDirs }),
                     });
-                    if (summary.kind !== "ok") {
-                      throw new Error(
-                        `failed to generate draft PR body with ${agent.name}`,
-                      );
-                    }
-                    if (summary.stdout.length > 0) {
-                      await fanout("inbound_stdout", summary.stdout, null, {
-                        iteration,
-                        agent: agent.name,
-                        purpose: "draft_pr_body",
-                      });
-                    }
-                    if (summary.stderr.length > 0) {
-                      await fanout("inbound_stderr", summary.stderr, null, {
-                        iteration,
-                        agent: agent.name,
-                        purpose: "draft_pr_body",
-                      });
-                    }
-                    return summary.stdout.trim();
-                  };
-                  await ensureDraftPr({
-                    branch: getCurrentBranch(agentWorkingDir),
-                    base: await getBaseBranch(agentWorkingDir),
-                    title: getIndexTitle(specPath),
-                    bodyGenerator: prBody,
+                    draftPrEnsured = true;
+                  }
+                  maybeMarkReady({
+                    indexPath: specPath,
                     cwd: agentWorkingDir,
                   });
-                  draftPrEnsured = true;
+                } catch (err) {
+                  const message =
+                    err instanceof Error ? err.message : String(err);
+                  await fanout(
+                    "harness",
+                    `failed to update PR for completed subspec ${activeSubspecPath}: ${message}\n`,
+                    "stderr",
+                  );
+                  return 1;
                 }
-                maybeMarkReady({
-                  indexPath: specPath,
+              }
+            }
+            subspecCompleted = true;
+          } else if (newlyChecked.length > 0) {
+            subspecProgressed = true;
+            if (gitEnabled) {
+              try {
+                commitWipProgress(activeSubspecPath, {
                   cwd: agentWorkingDir,
+                  newlyChecked,
+                  checkedTotal,
+                  total: afterCriteria.length,
                 });
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
                 await fanout(
                   "harness",
-                  `failed to update PR for completed subspec ${activeSubspecPath}: ${message}\n`,
+                  `failed to commit WIP progress for ${activeSubspecPath}: ${message}\n`,
                   "stderr",
                 );
                 return 1;
               }
             }
-            subspecCompleted = true;
-          } else if (newlyChecked.length > 0) {
-            subspecProgressed = true;
-            try {
-              commitWipProgress(activeSubspecPath, {
-                cwd: agentWorkingDir,
-                newlyChecked,
-                checkedTotal,
-                total: afterCriteria.length,
-              });
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              await fanout(
-                "harness",
-                `failed to commit WIP progress for ${activeSubspecPath}: ${message}\n`,
-                "stderr",
-              );
-              return 1;
-            }
           } else {
-            const blocker = worktreeCompletionBlocker(agentWorkingDir);
-            if (blocker !== undefined) {
-              const unchecked = afterCriteria.filter((c) => !c.checked);
-              const unmetList = unchecked
-                .map((c) => `  - ${c.text}`)
-                .join("\n");
-              await fanout(
-                "harness",
-                `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n`,
-                "stderr",
-              );
-              return 6;
+            if (gitEnabled) {
+              const blocker = worktreeCompletionBlocker(agentWorkingDir);
+              if (blocker !== undefined) {
+                const unchecked = afterCriteria.filter((c) => !c.checked);
+                const unmetList = unchecked
+                  .map((c) => `  - ${c.text}`)
+                  .join("\n");
+                await fanout(
+                  "harness",
+                  `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n`,
+                  "stderr",
+                );
+                return 6;
+              }
             }
           }
         }
@@ -658,25 +741,182 @@ function getCurrentBranch(cwd: string): string {
   }).trim();
 }
 
-function resolveProjectFromSpec(specPath: string): {
+async function resolveProjectFromSpec(opts: {
+  specPath: string;
+  repoFlag?: string | undefined;
+  config?: ConfigOptions | undefined;
+  io: RunIo;
+  disambiguate?: DisambiguateFn | undefined;
+}): Promise<{
   project: ProjectMatch;
+  mode: "registered" | "ad-hoc";
   error?: string;
-} {
-  const repo = readRepoPath(specPath);
-  if (repo === undefined) {
+}> {
+  const specRepoRaw = readRepoPath(opts.specPath);
+  const specRepo =
+    specRepoRaw === undefined || specRepoRaw.trim() === ""
+      ? undefined
+      : specRepoRaw.trim();
+
+  // Reject relative `repo:` values up front (kept from prior behavior).
+  if (
+    specRepo !== undefined &&
+    /[\\/]/.test(specRepo) &&
+    !isAbsolute(specRepo) &&
+    !looksLikeUrlOrSlug(specRepo)
+  ) {
     return {
       project: { key: "", root: "" },
-      error: "spec is missing required `repo: <absolute-path>` line",
+      mode: "registered",
+      error: `spec repo must be an absolute path: ${specRepo}`,
     };
   }
-  if (!isAbsolute(repo)) {
+
+  const resolveOpts: Parameters<typeof resolveProject>[0] = {
+    specPath: opts.specPath,
+  };
+  if (specRepo !== undefined) {
+    resolveOpts.specRepo = specRepo;
+  }
+  if (opts.repoFlag !== undefined) {
+    resolveOpts.repoFlag = opts.repoFlag;
+  }
+  if (opts.config !== undefined) {
+    resolveOpts.config = opts.config;
+  }
+  const result = resolveProject(resolveOpts);
+
+  if (result.kind === "ok") {
+    return { project: result.resolved.project, mode: result.resolved.mode };
+  }
+  if (result.kind === "error") {
     return {
       project: { key: "", root: "" },
-      error: `spec repo must be an absolute path: ${repo}`,
+      mode: "registered",
+      error: result.message,
     };
   }
-  const root = resolve(repo);
-  return { project: { key: basename(root), root } };
+
+  // Ambiguous: prompt user to pick from the matching candidates.
+  if (result.kind === "ambiguous") {
+    return await runDisambiguationPrompt({
+      candidates: result.candidates,
+      reason: result.reason,
+      io: opts.io,
+      disambiguate: opts.disambiguate,
+    });
+  }
+
+  // needs-prompt: prompt user to pick from all registered projects.
+  const allProjects = listConfiguredProjects(opts.config);
+  if (allProjects.length === 0) {
+    return {
+      project: { key: "", root: "" },
+      mode: "registered",
+      error:
+        "could not determine a target project for this spec and no projects are registered. Run `jarvis init` in a target repo, or pass --repo <name|url>, or add a `repo:` line.",
+    };
+  }
+  return await runDisambiguationPrompt({
+    candidates: allProjects,
+    reason: result.reason,
+    io: opts.io,
+    disambiguate: opts.disambiguate,
+  });
+}
+
+async function runDisambiguationPrompt(opts: {
+  candidates: ProjectMatch[];
+  reason: string;
+  io: RunIo;
+  disambiguate?: DisambiguateFn | undefined;
+}): Promise<{
+  project: ProjectMatch;
+  mode: "registered" | "ad-hoc";
+  error?: string;
+}> {
+  const prompt = opts.disambiguate ?? defaultDisambiguate;
+  const result = await prompt({
+    candidates: opts.candidates,
+    reason: opts.reason,
+    io: opts.io,
+  });
+  if (result.kind === "selected") {
+    return { project: result.project, mode: "registered" };
+  }
+  if (result.kind === "non-tty") {
+    const list = opts.candidates.map((c) => `  - ${c.key}`).join("\n");
+    return {
+      project: { key: "", root: "" },
+      mode: "registered",
+      error: `${opts.reason}; rerun with --repo <name>. Candidates:\n${list}`,
+    };
+  }
+  // cancelled
+  return {
+    project: { key: "", root: "" },
+    mode: "registered",
+    error: "project selection cancelled",
+  };
+}
+
+function listConfiguredProjects(opts?: ConfigOptions): ProjectMatch[] {
+  const cfg = loadConfig(opts);
+  const out: ProjectMatch[] = [];
+  for (const [key, project] of Object.entries(cfg.projects)) {
+    const match: ProjectMatch = { key, root: project.root };
+    if (project.origin !== undefined) {
+      match.origin = project.origin;
+    }
+    out.push(match);
+  }
+  return out;
+}
+
+async function defaultDisambiguate(opts: {
+  candidates: ProjectMatch[];
+  reason: string;
+  io: RunIo;
+}): Promise<DisambiguationResult> {
+  const isTty = Boolean(process.stdin.isTTY);
+  return promptForProject({
+    candidates: opts.candidates,
+    reason: opts.reason,
+    io: opts.io,
+    readLine: readLineFromStdin,
+    isTty,
+  });
+}
+
+async function readLineFromStdin(): Promise<string | undefined> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const newline = buffer.indexOf(10);
+    if (newline !== -1) {
+      chunks.push(buffer.subarray(0, newline));
+      return Buffer.concat(chunks).toString("utf8");
+    }
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) {
+    return undefined;
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function looksLikeUrlOrSlug(value: string): boolean {
+  if (/^(https?:\/\/|ssh:\/\/|git:\/\/|git@)/i.test(value)) {
+    return true;
+  }
+  // `owner/repo` slug. Disallow leading `.` to keep `./relative` paths
+  // from being misread as a slug.
+  if (
+    /^[A-Za-z0-9_-][A-Za-z0-9._-]*\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(value)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function readRepoPath(specPath: string): string | undefined {

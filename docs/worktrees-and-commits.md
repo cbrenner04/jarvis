@@ -3,6 +3,11 @@
 How `jarvis run` manages git state: worktree layout, resume guarantees, commit
 shape, push cadence, and draft PR lifecycle.
 
+> **Scope**: this document applies only when effective `git` is `true` (the
+> default). When `git` is `false`, jarvis runs in
+> [loop-only mode](./run-loop.md#loop-only-mode-git-false): no worktree is
+> created, no commits or pushes happen, and no PR is opened or transitioned.
+
 ## Worktree layout
 
 Spec runs create dedicated git worktrees under `.worktree/<spec-name>/`. The

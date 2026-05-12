@@ -32,18 +32,18 @@ registered projects, which requires each project to know its own remote URL.
 
 ## Acceptance criteria
 
-- [ ] `Project` type and validator accept an optional `origin` string.
-- [ ] `jarvis init` in a repo with an `origin` remote stores
+- [x] `Project` type and validator accept an optional `origin` string.
+- [x] `jarvis init` in a repo with an `origin` remote stores
   `projects[<name>].origin` equal to the trimmed `git remote get-url origin`
   output.
-- [ ] `jarvis init` in a repo without an `origin` remote succeeds, prints a
+- [x] `jarvis init` in a repo without an `origin` remote succeeds, prints a
   one-line note, and does not write `origin`.
-- [ ] On `jarvis run` for a project missing `origin`, jarvis populates it
+- [x] On `jarvis run` for a project missing `origin`, jarvis populates it
   from the project's `root` when possible, persists the update, and
   continues; failure to populate does not abort the run.
-- [ ] Existing `~/.jarvis/config.json` files without `origin` continue to
+- [x] Existing `~/.jarvis/config.json` files without `origin` continue to
   load without error.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
 
 ## Documentation updates
 

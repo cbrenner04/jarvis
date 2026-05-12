@@ -75,10 +75,10 @@ is not a git checkout — and that is fine.
 If the spec omits `repo:`, resolution falls through to the interactive
 prompt (subspec 02) listing the registered projects to pick from.
 
-- [ ] [00 - Record `origin` URL on init](./00-record-origin-on-init.md)
-- [ ] [01 - Spec `repo:` URL parsing and resolution flow](./01-repo-url-resolution.md)
-- [ ] [02 - Interactive disambiguation prompt](./02-disambiguation-prompt.md)
-- [ ] [03 - Legacy absolute-path back-compat](./03-legacy-abs-path-compat.md)
-- [ ] [04 - `git: true|false` config + per-project override](./04-git-toggle-config.md)
-- [ ] [05 - Loop-only mode (no worktree, no commits, no PR)](./05-loop-only-mode.md)
-- [ ] [06 - Documentation refresh](./06-docs-refresh.md)
+- [x] [00 - Record `origin` URL on init](./00-record-origin-on-init.md)
+- [x] [01 - Spec `repo:` URL parsing and resolution flow](./01-repo-url-resolution.md)
+- [x] [02 - Interactive disambiguation prompt](./02-disambiguation-prompt.md)
+- [x] [03 - Legacy absolute-path back-compat](./03-legacy-abs-path-compat.md)
+- [x] [04 - `git: true|false` config + per-project override](./04-git-toggle-config.md)
+- [x] [05 - Loop-only mode (no worktree, no commits, no PR)](./05-loop-only-mode.md)
+- [x] [06 - Documentation refresh](./06-docs-refresh.md)

@@ -6,12 +6,54 @@ completion is detected, where output goes, and how runs stop.
 ## Iteration
 
 `jarvis run <spec-path>` resolves the requested spec to an absolute path and
-reads it first. Every runnable spec must include `repo: <absolute-path>`.
-Jarvis uses that path to prepare the per-spec
+reads it first. Jarvis then resolves which target repository to run against
+using the following order:
+
+1. `--repo <name|path|url>` flag — overrides everything below. The value
+   may be a registered project name, an absolute path equal to a registered
+   project's root, or a URL/slug that loose-matches a registered project's
+   `origin`.
+2. Spec `repo:` URL/slug — loose-matched against the `origin` URLs recorded
+   for each registered project.
+3. Spec path is inside a registered project's `root` — that project wins.
+4. Spec path is inside any git checkout (walking parents until `.git`) — the
+   run proceeds in ad-hoc mode against that checkout. Nothing is persisted
+   to config.
+5. Otherwise jarvis prompts to pick a registered project; in non-TTY runs it
+   exits with a usage error.
+
+Legacy short-circuit: when the spec `repo:` value is an absolute path that
+equals a registered project's `root`, that project is used and steps 1-5 are
+skipped. An absolute-path `repo:` that does not match any registered root is
+silently ignored and the resolution flow above runs as if the line were
+absent. No deprecation warning is printed in either case.
+
+Jarvis uses the resolved path to prepare the per-spec
 [worktree](./worktrees-and-commits.md) and as the base `cwd` for `gh`, git, and
 the agent. The operator’s shell working directory may be outside any repository,
 such as a parent directory of several clones. From that point, Jarvis runs
 agents from `agentOrder` until the active spec has no unchecked boxes.
+
+### Disambiguation prompt
+
+When resolution is ambiguous or empty, jarvis falls back to an interactive
+picker. Trigger conditions:
+
+- The spec has no `repo:` line and is not inside any registered project or
+  git checkout (step 5 above).
+- The spec's `repo:` URL/slug loose-matches more than one registered project.
+- `--repo <value>` was given and matches more than one registered project.
+
+On a TTY (`process.stdin.isTTY === true`) jarvis prints a numbered list of
+the candidate projects (name, root, origin or `(no origin)`) and reads one
+line from stdin. Valid input is the index number, the project name, or
+`q`/empty input/EOF to cancel. Cancelling exits 1 without invoking any
+agent. A selection is used for the current run only and is never persisted
+to config.
+
+When stdin is not a TTY, jarvis does not prompt. It writes the candidate
+list to stderr along with the suggestion to rerun with `--repo <name>` and
+exits 1.
 
 Normal runs use an `index.md` spec so agents select one indexed task per
 invocation. When `<spec-path>` is not named `index.md`, jarvis prompts before
@@ -45,13 +87,41 @@ Jarvis treats a spec as complete when the spec file has zero unchecked
 GitHub-style task list items. An unchecked item is a line matching
 `^\s*- \[ \]\s`; checked items use `- [x]` or `- [X]`.
 
-When the agent `cwd` is a git checkout (normal runs that use a worktree),
-Jarvis also requires a clean `git status` before printing **spec complete**.
-That way checkbox completion cannot succeed while changes are still only on
-disk.
+When effective `git` is `true` and the agent `cwd` is a git checkout (normal
+runs that use a worktree), Jarvis also requires a clean `git status` before
+printing **spec complete**. That way checkbox completion cannot succeed while
+changes are still only on disk. When effective `git` is `false`, the
+clean-tree check is skipped: completion is purely "zero unchecked boxes",
+regardless of dirty or untracked files in the agent's working directory.
 
 A spec with no task list checkboxes is malformed. Jarvis fails fast instead of
 treating it as complete.
+
+## Loop-only mode (`git: false`)
+
+The top-level `git` config flag (and per-project override
+`projects[<name>].git`; see [config.md](./config.md)) controls whether jarvis
+participates in git and gh during a run. When effective `git` is `false`:
+
+- No worktree is created. The agent's `cwd` is the resolved project's
+  `root`, or the value of `--cwd <dir>` if supplied.
+- No per-subspec commit, push, draft PR open, or ready-on-complete happens.
+- The completion check is the unchecked-boxes count only; the clean-tree
+  requirement and exit code `6` do not apply.
+- Worktree-related config (`worktreeSymlinks`) is ignored.
+
+When effective `git` is `true` and the resolved project root is not a git
+checkout, `jarvis run` exits 1 with `error: target is not a git checkout;
+set "git": false in config or pass --repo to a git checkout` before invoking
+any agent.
+
+### `--cwd <dir>`
+
+`--cwd <dir>` overrides the agent's working directory and is only valid when
+effective `git` is `false`. It must point at an existing directory.
+Combining `--cwd` with `git: true` exits 1 with a message explaining the
+constraint. Spec resolution still proceeds normally; only the agent `cwd`
+changes.
 
 ## Patch mode model selection
 

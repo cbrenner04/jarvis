@@ -11,11 +11,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type Config,
+  effectiveGit,
   findProjectForPath,
   findProjectMatchForPath,
   loadConfig,
   openSessionLog,
   registerProject,
+  setGit,
+  setProjectGit,
+  setProjectOrigin,
   writeConfig,
 } from "../src/config.ts";
 
@@ -50,6 +54,7 @@ describe("loadConfig", () => {
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
+      git: true,
       projects: {},
     });
     expect(existsSync(file)).toBe(true);
@@ -300,6 +305,58 @@ describe("loadConfig", () => {
     writeFileSync(file, "{ not json");
     expect(() => loadConfig({ dir })).toThrow(file);
   });
+
+  test("accepts an optional origin on a project", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        projects: {
+          "app-a": {
+            root: "/tmp/jarvis-with-origin",
+            origin: "git@github.com:you/app-a.git",
+          },
+        },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects["app-a"]).toEqual({
+      root: "/tmp/jarvis-with-origin",
+      origin: "git@github.com:you/app-a.git",
+    });
+  });
+
+  test("loads legacy configs without origin", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        projects: { "app-a": { root: "/tmp/jarvis-legacy" } },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects["app-a"]).toEqual({ root: "/tmp/jarvis-legacy" });
+  });
+
+  test("rejects non-string project origin", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        projects: { "app-a": { root: "/tmp/jarvis-bad", origin: 42 } },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/origin/);
+  });
 });
 
 describe("registerProject / findProjectForPath", () => {
@@ -355,6 +412,184 @@ describe("registerProject / findProjectForPath", () => {
       key: "inner",
       root: "/tmp/jarvis-keyed/nested",
     });
+  });
+
+  test("registerProject stores origin when provided", () => {
+    registerProject("with-origin", "/tmp/jarvis-with-origin", {
+      dir,
+      origin: "git@github.com:you/app.git",
+    });
+    expect(findProjectMatchForPath("/tmp/jarvis-with-origin", { dir })).toEqual(
+      {
+        key: "with-origin",
+        root: "/tmp/jarvis-with-origin",
+        origin: "git@github.com:you/app.git",
+      },
+    );
+  });
+
+  test("setProjectOrigin updates an existing project's origin", () => {
+    registerProject("lazy", "/tmp/jarvis-lazy", { dir });
+    setProjectOrigin("lazy", "https://github.com/you/lazy.git", { dir });
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects.lazy).toEqual({
+      root: "/tmp/jarvis-lazy",
+      origin: "https://github.com/you/lazy.git",
+    });
+  });
+});
+
+describe("git toggle", () => {
+  test("defaults to true on bootstrap", () => {
+    const cfg = loadConfig({ dir });
+    expect(cfg.git).toBe(true);
+  });
+
+  test("loads legacy configs without git as true", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.git).toBe(true);
+  });
+
+  test("loads explicit git: false", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: false,
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.git).toBe(false);
+  });
+
+  test("rejects non-boolean top-level git with file path in error", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: "yes",
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/git must be a boolean/);
+  });
+
+  test("accepts optional project git override", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        projects: { app: { root: "/tmp/jarvis-git-app", git: false } },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects.app).toEqual({
+      root: "/tmp/jarvis-git-app",
+      git: false,
+    });
+  });
+
+  test("rejects non-boolean project git with file path in error", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        projects: { app: { root: "/tmp/jarvis-git-bad", git: "no" } },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/git must be a boolean/);
+  });
+
+  test("effectiveGit returns project override when set", () => {
+    const cfg: Config = {
+      version: 1,
+      agentOrder: ["claude"],
+      maxIterations: 10,
+      patchModels: DEFAULT_PATCH_MODELS,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: { app: { root: "/tmp/a", git: false } },
+    };
+    expect(effectiveGit(cfg, "app")).toBe(false);
+  });
+
+  test("effectiveGit falls back to top-level value when no override", () => {
+    const cfg: Config = {
+      version: 1,
+      agentOrder: ["claude"],
+      maxIterations: 10,
+      patchModels: DEFAULT_PATCH_MODELS,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: false,
+      projects: { app: { root: "/tmp/a" } },
+    };
+    expect(effectiveGit(cfg, "app")).toBe(false);
+  });
+
+  test("effectiveGit returns top-level value when project not provided", () => {
+    const cfg: Config = {
+      version: 1,
+      agentOrder: ["claude"],
+      maxIterations: 10,
+      patchModels: DEFAULT_PATCH_MODELS,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: false,
+      projects: {},
+    };
+    expect(effectiveGit(cfg)).toBe(false);
+  });
+
+  test("setGit round-trips through disk", () => {
+    setGit(false, { dir });
+    expect(loadConfig({ dir }).git).toBe(false);
+    setGit(true, { dir });
+    expect(loadConfig({ dir }).git).toBe(true);
+  });
+
+  test("setProjectGit writes, clears, and rejects unknown", () => {
+    registerProject("app", "/tmp/jarvis-git-set", { dir });
+    setProjectGit("app", false, { dir });
+    expect(loadConfig({ dir }).projects.app).toEqual({
+      root: "/tmp/jarvis-git-set",
+      git: false,
+    });
+    setProjectGit("app", undefined, { dir });
+    expect(loadConfig({ dir }).projects.app).toEqual({
+      root: "/tmp/jarvis-git-set",
+    });
+    expect(() => setProjectGit("ghost", true, { dir })).toThrow(
+      /not registered/,
+    );
   });
 });
 

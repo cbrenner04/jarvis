@@ -24,7 +24,7 @@ import {
   type RunIo,
   runCommand,
 } from "../src/commands/run.ts";
-import { registerProject, writeConfig } from "../src/config.ts";
+import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
@@ -165,6 +165,66 @@ describe("runCommand", () => {
     expect(code).toBe(0);
     expect(cap.out()).toContain("spec complete");
     expect(claude.calls).toHaveLength(0);
+  });
+
+  test("lazily populates a registered project's origin from the repo on run", async () => {
+    // Set up project as a real git repo with an origin remote so the lazy
+    // populate path can read it via `git remote get-url origin`.
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    execSync(
+      "git remote add origin https://github.com/example/lazy-project.git",
+      { cwd: projectRoot },
+    );
+    const spec = writeSpec("- [x] done\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.projects.project).toEqual({
+      root: projectRoot,
+      origin: "https://github.com/example/lazy-project.git",
+    });
+  });
+
+  test("run continues when origin cannot be read for a registered project", async () => {
+    // No git init in projectRoot — `git remote get-url origin` will fail.
+    const spec = writeSpec("- [x] done\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.projects.project).toEqual({ root: projectRoot });
   });
 
   test("exits 6 when checklists are complete but the git worktree is dirty", async () => {
@@ -321,10 +381,11 @@ describe("runCommand", () => {
       config: { dir: cfgDir },
       agents: { claude },
       handleSignals: false,
+      disambiguate: () => ({ kind: "non-tty" }),
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain("missing required `repo: <absolute-path>`");
+    expect(cap.err()).toContain("rerun with --repo <name>");
     expect(claude.calls).toHaveLength(0);
   });
 
@@ -940,6 +1001,7 @@ exit 1
         agentOrder: ["claude"],
         maxIterations: 1,
         patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
         projects: { project: { root: projectRoot } },
       },
       { dir: cfgDir },
@@ -983,6 +1045,7 @@ exit 0
           cursor: "Composer 2",
           opencode: "github-copilot/claude-opus-4.7",
         },
+        git: true,
         projects: { project: { root: projectRoot } },
       },
       { dir: cfgDir },
@@ -1018,6 +1081,7 @@ exit 0
         agentOrder: ["claude"],
         maxIterations: 1,
         patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
         projects: { project: { root: projectRoot } },
       },
       { dir: cfgDir },
@@ -1080,6 +1144,7 @@ exit 0
         agentOrder: ["claude", "codex"],
         maxIterations: 10,
         patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
         projects: { project: { root: projectRoot } },
       },
       { dir: cfgDir },
@@ -1114,6 +1179,7 @@ exit 0
         agentOrder: ["claude", "codex"],
         maxIterations: 10,
         patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
         projects: { project: { root: projectRoot } },
       },
       { dir: cfgDir },
@@ -1171,6 +1237,7 @@ exit 0
         agentOrder: ["claude", "codex"],
         maxIterations: 10,
         patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
         projects: { project: { root: projectRoot } },
       },
       { dir: cfgDir },
@@ -1205,10 +1272,11 @@ exit 0
       config: { dir: cfgDir },
       agents: {},
       handleSignals: false,
+      disambiguate: () => ({ kind: "non-tty" }),
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain("missing required `repo: <absolute-path>`");
+    expect(cap.err()).toContain("rerun with --repo <name>");
   });
 
   test("non-index specs with empty response exit without invoking an agent", async () => {
@@ -1433,6 +1501,348 @@ exit 0
       "# 00 - Task\n",
     );
     expect(readFileSync(targetExisting, "utf8")).toBe("worktree content\n");
+  });
+
+  test("prompts when no repo resolves; selection drives the run", async () => {
+    const spec = writeSpecWithoutRepo("# Feature\n\n- [x] done\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    let promptCalled = 0;
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      disambiguate: ({ candidates }) => {
+        promptCalled += 1;
+        const picked = candidates.find((c) => c.key === "project");
+        if (picked === undefined) {
+          throw new Error("expected `project` in candidates");
+        }
+        return { kind: "selected", project: picked };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(promptCalled).toBe(1);
+  });
+
+  test("prompts when --repo matches multiple registered projects", async () => {
+    const projectAlt = join(dir, "project-alt");
+    mkdirSync(projectAlt);
+    registerProject("project-alt", projectAlt, {
+      dir: cfgDir,
+      origin: "https://github.com/example/dup.git",
+    });
+    // Update the original project's origin to collide.
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.projects.project = {
+      ...(cfg.projects.project as { root: string }),
+      origin: "https://github.com/example/dup.git",
+    };
+    writeConfig(cfg, { dir: cfgDir });
+
+    const altSpec = join(projectAlt, "index.md");
+    writeFileSync(altSpec, "# F\n\n- [x] done\n");
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    let receivedKeys: string[] = [];
+    const code = await runWithDefaults({
+      specPath: altSpec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      repoFlag: "https://github.com/example/dup",
+      disambiguate: ({ candidates }) => {
+        receivedKeys = candidates.map((c) => c.key);
+        const picked = candidates.find((c) => c.key === "project-alt");
+        if (picked === undefined) {
+          throw new Error("expected `project-alt`");
+        }
+        return { kind: "selected", project: picked };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(receivedKeys.sort()).toEqual(["project", "project-alt"]);
+  });
+
+  test("prompts when spec repo URL matches multiple registered projects", async () => {
+    const projectAlt = join(dir, "project-alt");
+    mkdirSync(projectAlt);
+    registerProject("project-alt", projectAlt, {
+      dir: cfgDir,
+      origin: "https://github.com/example/dup.git",
+    });
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.projects.project = {
+      ...(cfg.projects.project as { root: string }),
+      origin: "https://github.com/example/dup.git",
+    };
+    writeConfig(cfg, { dir: cfgDir });
+
+    const externalDir = join(dir, "ext-specs");
+    mkdirSync(externalDir);
+    const spec = join(externalDir, "index.md");
+    writeFileSync(
+      spec,
+      "# F\n\nrepo: https://github.com/example/dup\n\n- [x] done\n",
+    );
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      disambiguate: ({ candidates }) => {
+        const picked = candidates.find((c) => c.key === "project");
+        if (picked === undefined) {
+          throw new Error("expected `project`");
+        }
+        return { kind: "selected", project: picked };
+      },
+    });
+
+    expect(code).toBe(0);
+  });
+
+  test("non-TTY disambiguation exits 1 listing candidates", async () => {
+    const spec = writeSpecWithoutRepo("# F\n\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      disambiguate: () => ({ kind: "non-tty" }),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("--repo <name>");
+    expect(cap.err()).toContain("project");
+    expect(claude.calls).toHaveLength(0);
+  });
+
+  test("cancelled disambiguation exits 1 without invoking the agent", async () => {
+    const spec = writeSpecWithoutRepo("# F\n\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      disambiguate: () => ({ kind: "cancelled" }),
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("project selection cancelled");
+    expect(claude.calls).toHaveLength(0);
+  });
+
+  describe("loop-only mode (git: false)", () => {
+    test("completes spec with zero unchecked boxes without clean-tree check", async () => {
+      const spec = writeSpec("- [x] done\n");
+      // Make project root dirty (would normally trigger clean-tree blocker)
+      writeFileSync(join(projectRoot, "dirty.txt"), "stuff");
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("does not create a worktree directory when git: false", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, withRepo("- [x] todo\n"));
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runCommand({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        logClient: {
+          assertReachable: async () => {},
+          send: async () => {},
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(existsSync(join(projectRoot, ".worktree"))).toBe(false);
+      // Agent ran in project root, not a worktree
+      expect(claude.calls[0]?.cwd).toBe(projectRoot);
+    });
+
+    test("--cwd honored when git: false and reflected in agent cwd", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const altCwd = join(dir, "alt-cwd");
+      mkdirSync(altCwd);
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", (_count, _prompt, runOpts) => {
+        // Tick the (possibly copied) spec at the agent's working directory.
+        const activeSpec = join(runOpts.cwd, "index.md");
+        if (existsSync(activeSpec)) {
+          writeFileSync(activeSpec, withRepo("- [x] todo\n"));
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        cwdFlag: altCwd,
+      });
+
+      expect(claude.calls[0]?.cwd).toBe(altCwd);
+      expect(code).toBe(0);
+    });
+
+    test("--cwd with git: true exits 1", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const altCwd = join(dir, "alt-cwd-2");
+      mkdirSync(altCwd);
+      const cap = captureIo();
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        handleSignals: false,
+        cwdFlag: altCwd,
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(
+        "--cwd is only valid when effective `git` is false",
+      );
+    });
+
+    test("--cwd with nonexistent directory exits 1", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        handleSignals: false,
+        cwdFlag: join(dir, "does-not-exist"),
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("--cwd directory does not exist");
+    });
+
+    test("git: true with non-git project root exits 1 before invoking any agent", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const code = await runCommand({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        // Intentionally NOT skipGhCheck so the .git enforcement fires.
+        skipGhCheck: false,
+        logClient: {
+          assertReachable: async () => {},
+          send: async () => {},
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("target is not a git checkout");
+      expect(claude.calls).toHaveLength(0);
+    });
+
+    test("per-project git override flips behavior independently of global", async () => {
+      const spec = writeSpec("- [x] done\n");
+      writeFileSync(join(projectRoot, "dirty.txt"), "stuff");
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = true;
+      const existing = cfg.projects.project;
+      if (existing !== undefined) {
+        cfg.projects.project = { ...existing, git: false };
+      }
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
   });
 });
 

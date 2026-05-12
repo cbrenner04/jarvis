@@ -17,11 +17,14 @@ export type AgentName = (typeof AGENT_NAMES)[number];
 
 export type Project = {
   root: string;
+  origin?: string;
+  git?: boolean;
 };
 
 export type ProjectMatch = {
   key: string;
   root: string;
+  origin?: string;
 };
 
 export type PatchModels = Record<AgentName, string>;
@@ -34,6 +37,7 @@ export type Config = {
   logServerUrl?: string;
   logServerBind?: string;
   worktreeSymlinks?: string[];
+  git: boolean;
   projects: Record<string, Project>;
 };
 
@@ -54,6 +58,7 @@ const DEFAULT_CONFIG: Config = {
   },
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",
+  git: true,
   projects: {},
 };
 
@@ -123,6 +128,13 @@ function validateConfig(input: unknown, file: string): Config {
     (message) => fail(file, message),
   );
 
+  const git = validateOptionalBoolean(
+    obj.git,
+    "git",
+    DEFAULT_CONFIG.git,
+    (message) => fail(file, message),
+  );
+
   const rawProjects = obj.projects;
   if (
     rawProjects === null ||
@@ -158,7 +170,28 @@ function validateConfig(input: unknown, file: string): Config {
       );
     }
     seenRoots.set(root, name);
-    projects[name] = { root };
+    const project: Project = { root };
+    const originRaw = (value as Record<string, unknown>).origin;
+    if (originRaw !== undefined) {
+      if (typeof originRaw !== "string") {
+        fail(file, `project ${JSON.stringify(name)} origin must be a string`);
+      }
+      if (originRaw.trim() === "") {
+        fail(
+          file,
+          `project ${JSON.stringify(name)} origin must be a non-empty string`,
+        );
+      }
+      project.origin = originRaw;
+    }
+    const gitRaw = (value as Record<string, unknown>).git;
+    if (gitRaw !== undefined) {
+      if (typeof gitRaw !== "boolean") {
+        fail(file, `project ${JSON.stringify(name)} git must be a boolean`);
+      }
+      project.git = gitRaw;
+    }
+    projects[name] = project;
   }
 
   return {
@@ -168,6 +201,7 @@ function validateConfig(input: unknown, file: string): Config {
     patchModels,
     logServerUrl,
     logServerBind,
+    git,
     projects,
   };
 }
@@ -237,6 +271,21 @@ function validateConfigString(
   return value;
 }
 
+function validateOptionalBoolean(
+  value: unknown,
+  name: string,
+  fallback: boolean,
+  failWith: (message: string) => never,
+): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (typeof value !== "boolean") {
+    failWith(`${name} must be a boolean`);
+  }
+  return value;
+}
+
 function serialize(cfg: Config): string {
   return `${JSON.stringify(cfg, null, 2)}\n`;
 }
@@ -279,7 +328,7 @@ export function writeConfig(cfg: Config, opts?: ConfigOptions): void {
 export function registerProject(
   name: string,
   root: string,
-  opts?: ConfigOptions,
+  opts?: ConfigOptions & { origin?: string },
 ): void {
   if (!isAbsolute(root)) {
     throw new Error(`Project root must be absolute: ${root}`);
@@ -292,8 +341,63 @@ export function registerProject(
       );
     }
   }
-  cfg.projects[name] = { root };
+  const project: Project = { root };
+  if (opts?.origin !== undefined && opts.origin.trim() !== "") {
+    project.origin = opts.origin;
+  }
+  cfg.projects[name] = project;
   writeConfig(cfg, opts);
+}
+
+export function setProjectOrigin(
+  name: string,
+  origin: string,
+  opts?: ConfigOptions,
+): void {
+  const cfg = loadConfig(opts);
+  const project = cfg.projects[name];
+  if (project === undefined) {
+    throw new Error(`Project ${JSON.stringify(name)} is not registered`);
+  }
+  cfg.projects[name] = { ...project, origin };
+  writeConfig(cfg, opts);
+}
+
+export function setGit(value: boolean, opts?: ConfigOptions): void {
+  const cfg = loadConfig(opts);
+  cfg.git = value;
+  writeConfig(cfg, opts);
+}
+
+export function setProjectGit(
+  name: string,
+  value: boolean | undefined,
+  opts?: ConfigOptions,
+): void {
+  const cfg = loadConfig(opts);
+  const project = cfg.projects[name];
+  if (project === undefined) {
+    throw new Error(`Project ${JSON.stringify(name)} is not registered`);
+  }
+  const next: Project = { root: project.root };
+  if (project.origin !== undefined) {
+    next.origin = project.origin;
+  }
+  if (value !== undefined) {
+    next.git = value;
+  }
+  cfg.projects[name] = next;
+  writeConfig(cfg, opts);
+}
+
+export function effectiveGit(cfg: Config, projectName?: string): boolean {
+  if (projectName !== undefined) {
+    const project = cfg.projects[projectName];
+    if (project !== undefined && project.git !== undefined) {
+      return project.git;
+    }
+  }
+  return cfg.git;
 }
 
 export function findProjectForPath(
@@ -304,7 +408,11 @@ export function findProjectForPath(
   if (match === undefined) {
     return undefined;
   }
-  return { root: match.root };
+  const project: Project = { root: match.root };
+  if (match.origin !== undefined) {
+    project.origin = match.origin;
+  }
+  return project;
 }
 
 export function findProjectMatchForPath(
@@ -320,7 +428,11 @@ export function findProjectMatchForPath(
     const prefix = root.endsWith(sep) ? root : root + sep;
     if (target === root || target.startsWith(prefix)) {
       if (root.length > bestLen) {
-        best = { key, root };
+        const match: ProjectMatch = { key, root };
+        if (project.origin !== undefined) {
+          match.origin = project.origin;
+        }
+        best = match;
         bestLen = root.length;
       }
     }

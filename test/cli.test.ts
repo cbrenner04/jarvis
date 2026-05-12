@@ -53,6 +53,56 @@ describe("parseArgs", () => {
     });
   });
 
+  test("run with --repo flag", () => {
+    expect(parseArgs(["run", "--repo", "project-a", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      repo: "project-a",
+    });
+  });
+
+  test("run with --repo and --max-iterations", () => {
+    expect(
+      parseArgs([
+        "run",
+        "--repo",
+        "owner/repo",
+        "--max-iterations",
+        "2",
+        "./spec.md",
+      ]),
+    ).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      maxIterations: "2",
+      repo: "owner/repo",
+    });
+  });
+
+  test("run without --repo value → error", () => {
+    const parsed = parseArgs(["run", "--repo"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("--repo");
+    }
+  });
+
+  test("run with --cwd flag", () => {
+    expect(parseArgs(["run", "--cwd", "/some/dir", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      cwd: "/some/dir",
+    });
+  });
+
+  test("run without --cwd value → error", () => {
+    const parsed = parseArgs(["run", "--cwd"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("--cwd");
+    }
+  });
+
   test("run without spec → error", () => {
     const parsed = parseArgs(["run"]);
     expect(parsed.kind).toBe("error");
@@ -84,7 +134,9 @@ describe("run", () => {
     const code = run(["help"], { io: cap.io, config: { dir: cfgDir } });
     expect(code).toBe(0);
     const out = cap.out();
-    expect(out).toContain("run [--max-iterations <n>] <spec-path>");
+    expect(out).toContain(
+      "run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>",
+    );
     expect(out).toContain("init");
     expect(out).toContain("config");
     expect(out).toContain("log-server");

@@ -55,6 +55,7 @@ describe("init", () => {
       io: cap.io,
       config: { dir: cfgDir },
       workRoot,
+      readOriginUrl: () => undefined,
     });
     expect(code).toBe(0);
 
@@ -69,6 +70,41 @@ describe("init", () => {
     expect(cap.out()).toContain("registered project");
   });
 
+  test("records origin URL when the repo has an `origin` remote", () => {
+    const cap = captureIo();
+    const code = init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => "git@github.com:you/app-a.git\n",
+    });
+    expect(code).toBe(0);
+
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.projects["app-a"]).toEqual({
+      root: cwd,
+      origin: "git@github.com:you/app-a.git",
+    });
+    expect(cap.out()).not.toContain("no `origin` remote");
+  });
+
+  test("succeeds with a one-line note when no `origin` remote exists", () => {
+    const cap = captureIo();
+    const code = init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
+    expect(code).toBe(0);
+
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.projects["app-a"]).toEqual({ root: cwd });
+    expect(cap.out()).toContain("no `origin` remote");
+  });
+
   test("leaves existing target files untouched", () => {
     writeFileSync(join(cwd, "README.md"), "# custom\n");
     mkdirSync(join(cwd, "spec"), { recursive: true });
@@ -79,6 +115,7 @@ describe("init", () => {
       io: cap.io,
       config: { dir: cfgDir },
       workRoot,
+      readOriginUrl: () => undefined,
     });
     expect(code).toBe(0);
 
@@ -97,6 +134,7 @@ describe("init", () => {
       io: cap.io,
       config: { dir: cfgDir },
       workRoot,
+      readOriginUrl: () => undefined,
     });
     expect(code).toBe(0);
 
@@ -113,6 +151,7 @@ describe("init", () => {
       io: cap.io,
       config: { dir: cfgDir },
       workRoot,
+      readOriginUrl: () => undefined,
     });
     expect(code).toBe(1);
     expect(cap.err()).toContain("init must be run inside");
@@ -123,13 +162,20 @@ describe("init", () => {
   });
 
   test("idempotent: re-running on the same registered repo is a no-op", () => {
-    init({ cwd, io: captureIo().io, config: { dir: cfgDir }, workRoot });
+    init({
+      cwd,
+      io: captureIo().io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
     const cap = captureIo();
     const code = init({
       cwd,
       io: cap.io,
       config: { dir: cfgDir },
       workRoot,
+      readOriginUrl: () => undefined,
     });
     expect(code).toBe(0);
     expect(cap.out()).not.toContain("created: ");
@@ -147,6 +193,7 @@ describe("init", () => {
       io: cap.io,
       config: { dir: cfgDir },
       workRoot,
+      readOriginUrl: () => undefined,
     });
     expect(code).toBe(1);
     expect(cap.err()).toContain("already registered");
@@ -165,6 +212,7 @@ describe("init", () => {
       io: cap.io,
       config: { dir: cfgDir },
       workRoot,
+      readOriginUrl: () => undefined,
     });
     expect(code).toBe(1);
     expect(cap.err()).toContain("already registered as");

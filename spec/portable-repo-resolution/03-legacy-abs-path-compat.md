@@ -28,13 +28,13 @@ Operators must be able to keep running them indefinitely without edits.
 
 ## Acceptance criteria
 
-- [ ] A spec with `repo: <abs-path>` matching a registered project's `root`
+- [x] A spec with `repo: <abs-path>` matching a registered project's `root`
   resolves to that project without consulting any other resolution step.
-- [ ] A spec with `repo: <abs-path>` that does not match any registered
+- [x] A spec with `repo: <abs-path>` that does not match any registered
   project's `root` is treated as if `repo:` were absent and falls through to
   URL/slug, location, and prompt resolution.
-- [ ] No deprecation warning is printed for either case.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] No deprecation warning is printed for either case.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
 
 ## Documentation updates
 

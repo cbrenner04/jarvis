@@ -1,6 +1,6 @@
 # Portable repo resolution and git/gh decoupling
 
-repo: https://github.com/cbrenner04/jarvis
+repo: /Users/chris.brenner/Work/jarvis
 
 Today every runnable spec must include `repo: <absolute-local-path>`. That is
 non-portable (paths differ across machines), leaks personal information when

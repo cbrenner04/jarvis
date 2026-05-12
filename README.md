@@ -30,7 +30,8 @@ jarvis help
 Clone the repo to a stable path: the `jarvis` executable in `bin/` is a small
 shim that runs `bun src/cli.ts` from this checkout, so moving or deleting the
 checkout breaks the symlink. If `/usr/local/bin` is not writable or is not on
-your `PATH`, create the symlink in another directory that is on `PATH`.
+your `PATH`, create the symlink in another directory that is on `PATH`, such
+as `~/.local/bin`.
 
 ## Quickstart
 

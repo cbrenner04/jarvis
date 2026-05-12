@@ -47,9 +47,9 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 - Before updating `jarvis`, make sure there is a spec for the intended change. If no spec exists, create one first using the conventions in [docs/spec-guidance.md](docs/spec-guidance.md).
 - If a spec already exists for the intended change, run it through `jarvis` instead of implementing it directly.
 - Read the index to choose the next unchecked subspec, then read that subspec before editing.
-- Run `bun run typecheck` and `bun test` before declaring a subspec complete.
-- Do not run `git commit` during a subspec. Jarvis creates the commit itself when it flips the index checkbox — manual commits during a subspec will be staged into that commit by `git add -A` in unexpected ways.
-- When the subspec is complete, leave the worktree clean. Jarvis will flip the index checkbox and create the commit. Do not delete completed entries.
+- Run `bun run typecheck` and `bun test` before ticking the acceptance criteria they cover.
+- Tick `- [ ]` items inside the subspec's `## Acceptance criteria` section as you actually satisfy them. Do not tick speculatively. The other checklist sections (`## Task Checklist`, etc.) are informational; Jarvis does not consult them.
+- Do not edit `index.md`. Do not run `git commit`. Jarvis flips the index checkbox and creates the commit itself when all acceptance criteria in the active subspec are checked; partial iterations get a `WIP:` commit. Manual edits or commits will be staged into Jarvis's commit by `git add -A` in unexpected ways.
 - If blocked or ambiguous, append a `## Blocker` section to the subspec and stop rather than guessing.
 - Do not modify the harness behavior in ways the active subspec doesn't authorize.
 - Keep changes minimal; no speculative refactors or abstractions.

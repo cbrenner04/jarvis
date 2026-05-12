@@ -6,4 +6,4 @@ The harness flips the index box itself and commits.
 
 repo: /Users/christopherbrenner/Work/jarvis
 
-- [ ] [00 - Acceptance-criteria completion contract](./00-acceptance-criteria-completion-contract.md)
+- [x] [00 - Acceptance-criteria completion contract](./00-acceptance-criteria-completion-contract.md)

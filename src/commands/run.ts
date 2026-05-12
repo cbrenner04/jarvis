@@ -21,7 +21,11 @@ import { CodexAgent } from "../agents/codex.ts";
 import { CursorAgent } from "../agents/cursor.ts";
 import { OpencodeAgent } from "../agents/opencode.ts";
 import type { Agent } from "../agents/types.ts";
-import { countUnchecked, getFirstUncheckedTask } from "../completion.ts";
+import {
+  countUnchecked,
+  getActiveLinkedSubspecPath,
+  getFirstUncheckedTask,
+} from "../completion.ts";
 import {
   type AgentName,
   type Config,
@@ -34,7 +38,12 @@ import { assertGhReady, getBaseBranch } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { ensureDraftPr, maybeMarkReady } from "../pr.ts";
 import { buildPrompt } from "../prompt.ts";
-import { commitSubspec } from "../subspec.ts";
+import {
+  type AcceptanceCriterion,
+  commitSubspec,
+  commitWipProgress,
+  snapshotAcceptanceCriteria,
+} from "../subspec.ts";
 import {
   createWorktreeSymlinks,
   ensureWorktree,
@@ -272,7 +281,6 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       latestIterationStdout = [];
       latestIterationStderr = [];
       const before = countUnchecked(specPath);
-      const beforeSubspecs = snapshotLinkedSubspecs(specPath);
       if (before === 0) {
         const done = await tryFinishSpecIfDone();
         if (done !== null) {
@@ -289,6 +297,21 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
       const task = getFirstUncheckedTask(specPath);
       const taskExcerpt = task.line.slice(0, 140);
+      const activeSubspecPath = isIndexSpec
+        ? getActiveLinkedSubspecPath(specPath)
+        : undefined;
+      let beforeCriteria: AcceptanceCriterion[] = [];
+      if (activeSubspecPath !== undefined) {
+        beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+        if (beforeCriteria.length === 0) {
+          await fanout(
+            "harness",
+            `active subspec ${activeSubspecPath} has no \`## Acceptance criteria\` checkboxes; jarvis cannot detect completion. Add an acceptance-criteria checklist to the subspec and rerun.\n`,
+            "stderr",
+          );
+          return 1;
+        }
+      }
       const banner = `project: ${project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task.ordinal}/${task.total} ${taskExcerpt} | agent: ${agent.name}\n`;
       await fanout("harness", banner, "stdout", {
         project: project.key,
@@ -323,105 +346,138 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             agent: agent.name,
           });
         }
-        const newlyCheckedSubspecs = getNewlyCheckedSubspecs(
-          beforeSubspecs,
-          snapshotLinkedSubspecs(specPath),
-          specPath,
-        );
-        if (newlyCheckedSubspecs.length > 1) {
-          await fanout(
-            "harness",
-            `iteration ${iteration} checked more than one subspec; stopping\n`,
-            "stderr",
+        let subspecCompleted = false;
+        let subspecProgressed = false;
+        if (activeSubspecPath !== undefined) {
+          const afterCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+          const newlyChecked = diffAcceptanceCriteria(
+            beforeCriteria,
+            afterCriteria,
           );
-          return 1;
-        }
-        if (newlyCheckedSubspecs.length === 1) {
-          try {
-            commitSubspec(newlyCheckedSubspecs[0] as string, {
-              cwd: agentWorkingDir,
-            });
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            await fanout(
-              "harness",
-              `failed to commit completed subspec ${newlyCheckedSubspecs[0]}: ${message}\n`,
-              "stderr",
-            );
-            return 1;
-          }
+          const allChecked =
+            afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
+          const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
-          if (!opts.skipGhCheck) {
+          if (allChecked) {
             try {
-              const firstPush = !hasUpstream(agentWorkingDir);
-              pushCurrent({ cwd: agentWorkingDir, firstPush });
+              commitSubspec(activeSubspecPath, { cwd: agentWorkingDir });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
               await fanout(
                 "harness",
-                `failed to push completed subspec ${newlyCheckedSubspecs[0]}: ${message}\n`,
+                `failed to commit completed subspec ${activeSubspecPath}: ${message}\n`,
                 "stderr",
               );
               return 1;
             }
 
-            try {
-              if (!draftPrEnsured) {
-                const prBody = async (): Promise<string> => {
-                  const prompt = buildPrBodyPrompt(specPath);
-                  await fanout("outbound", prompt, null, {
-                    iteration,
-                    agent: agent.name,
-                    purpose: "draft_pr_body",
-                  });
-                  const summary = await agent.run(prompt, {
+            if (!opts.skipGhCheck) {
+              try {
+                const firstPush = !hasUpstream(agentWorkingDir);
+                pushCurrent({ cwd: agentWorkingDir, firstPush });
+              } catch (err) {
+                const message =
+                  err instanceof Error ? err.message : String(err);
+                await fanout(
+                  "harness",
+                  `failed to push completed subspec ${activeSubspecPath}: ${message}\n`,
+                  "stderr",
+                );
+                return 1;
+              }
+
+              try {
+                if (!draftPrEnsured) {
+                  const prBody = async (): Promise<string> => {
+                    const prompt = buildPrBodyPrompt(specPath);
+                    await fanout("outbound", prompt, null, {
+                      iteration,
+                      agent: agent.name,
+                      purpose: "draft_pr_body",
+                    });
+                    const summary = await agent.run(prompt, {
+                      cwd: agentWorkingDir,
+                      ...(additionalReadDirs === undefined
+                        ? {}
+                        : { additionalReadDirs }),
+                    });
+                    if (summary.kind !== "ok") {
+                      throw new Error(
+                        `failed to generate draft PR body with ${agent.name}`,
+                      );
+                    }
+                    if (summary.stdout.length > 0) {
+                      await fanout("inbound_stdout", summary.stdout, null, {
+                        iteration,
+                        agent: agent.name,
+                        purpose: "draft_pr_body",
+                      });
+                    }
+                    if (summary.stderr.length > 0) {
+                      await fanout("inbound_stderr", summary.stderr, null, {
+                        iteration,
+                        agent: agent.name,
+                        purpose: "draft_pr_body",
+                      });
+                    }
+                    return summary.stdout.trim();
+                  };
+                  await ensureDraftPr({
+                    branch: getCurrentBranch(agentWorkingDir),
+                    base: await getBaseBranch(agentWorkingDir),
+                    title: getIndexTitle(specPath),
+                    bodyGenerator: prBody,
                     cwd: agentWorkingDir,
-                    ...(additionalReadDirs === undefined
-                      ? {}
-                      : { additionalReadDirs }),
                   });
-                  if (summary.kind !== "ok") {
-                    throw new Error(
-                      `failed to generate draft PR body with ${agent.name}`,
-                    );
-                  }
-                  if (summary.stdout.length > 0) {
-                    await fanout("inbound_stdout", summary.stdout, null, {
-                      iteration,
-                      agent: agent.name,
-                      purpose: "draft_pr_body",
-                    });
-                  }
-                  if (summary.stderr.length > 0) {
-                    await fanout("inbound_stderr", summary.stderr, null, {
-                      iteration,
-                      agent: agent.name,
-                      purpose: "draft_pr_body",
-                    });
-                  }
-                  return summary.stdout.trim();
-                };
-                await ensureDraftPr({
-                  branch: getCurrentBranch(agentWorkingDir),
-                  base: await getBaseBranch(agentWorkingDir),
-                  title: getIndexTitle(specPath),
-                  bodyGenerator: prBody,
+                  draftPrEnsured = true;
+                }
+                maybeMarkReady({
+                  indexPath: specPath,
                   cwd: agentWorkingDir,
                 });
-                draftPrEnsured = true;
+              } catch (err) {
+                const message =
+                  err instanceof Error ? err.message : String(err);
+                await fanout(
+                  "harness",
+                  `failed to update PR for completed subspec ${activeSubspecPath}: ${message}\n`,
+                  "stderr",
+                );
+                return 1;
               }
-              maybeMarkReady({
-                indexPath: specPath,
+            }
+            subspecCompleted = true;
+          } else if (newlyChecked.length > 0) {
+            subspecProgressed = true;
+            try {
+              commitWipProgress(activeSubspecPath, {
                 cwd: agentWorkingDir,
+                newlyChecked,
+                checkedTotal,
+                total: afterCriteria.length,
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
               await fanout(
                 "harness",
-                `failed to update PR for completed subspec ${newlyCheckedSubspecs[0]}: ${message}\n`,
+                `failed to commit WIP progress for ${activeSubspecPath}: ${message}\n`,
                 "stderr",
               );
               return 1;
+            }
+          } else {
+            const blocker = worktreeCompletionBlocker(agentWorkingDir);
+            if (blocker !== undefined) {
+              const unchecked = afterCriteria.filter((c) => !c.checked);
+              const unmetList = unchecked
+                .map((c) => `  - ${c.text}`)
+                .join("\n");
+              await fanout(
+                "harness",
+                `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n`,
+                "stderr",
+              );
+              return 6;
             }
           }
         }
@@ -441,18 +497,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           );
           return 0;
         }
-        if (newlyCheckedSubspecs.length === 0) {
-          const blocker = worktreeCompletionBlocker(agentWorkingDir);
-          if (blocker !== undefined) {
-            await fanout(
-              "harness",
-              `iteration ${iteration} edited files but did not check the active index item (${task.ordinal}/${task.total} ${taskExcerpt}); ${blocker}\n\nInspect the dirty worktree, then either finish and check the active subspec or revert/fix the changes before rerunning. Worktree: ${agentWorkingDir}\n`,
-              "stderr",
-            );
-            return 6;
-          }
-        }
-        if (after === before) {
+        if (after === before && !subspecCompleted && !subspecProgressed) {
           printBoundedTail([
             ...latestIterationStdout,
             ...latestIterationStderr,
@@ -579,33 +624,18 @@ function getLinkedSubspecHeadings(indexPath: string): string[] {
   return headings;
 }
 
-type LinkedSubspecState = Map<string, boolean>;
-
-function snapshotLinkedSubspecs(indexPath: string): LinkedSubspecState {
-  const state: LinkedSubspecState = new Map();
-  const content = readFileSync(indexPath, "utf8");
-  for (const line of content.split(/\r?\n/)) {
-    const match = line.match(/^\s*- \[([ xX])\] \[[^\]]+\]\(([^)]+)\)/);
-    if (!match?.[1] || !match[2]) {
-      continue;
-    }
-    state.set(match[2], match[1].toLowerCase() === "x");
-  }
-  return state;
-}
-
-function getNewlyCheckedSubspecs(
-  before: LinkedSubspecState,
-  after: LinkedSubspecState,
-  indexPath: string,
-): string[] {
-  const changed: string[] = [];
-  for (const [href, isChecked] of after) {
-    if (isChecked && before.get(href) === false) {
-      changed.push(resolve(dirname(indexPath), href));
+function diffAcceptanceCriteria(
+  before: AcceptanceCriterion[],
+  after: AcceptanceCriterion[],
+): AcceptanceCriterion[] {
+  const beforeByText = new Map(before.map((c) => [c.text, c.checked]));
+  const newlyChecked: AcceptanceCriterion[] = [];
+  for (const c of after) {
+    if (c.checked && beforeByText.get(c.text) === false) {
+      newlyChecked.push(c);
     }
   }
-  return changed;
+  return newlyChecked;
 }
 
 function hasUpstream(cwd: string): boolean {

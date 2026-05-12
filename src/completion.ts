@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 const uncheckedTaskPattern = /^\s*-\s\[ \]\s/i;
 const taskPattern = /^\s*-\s\[(?: |x)\]\s/i;
 const uncheckedTaskCapturePattern = /^\s*-\s\[ \]\s(.*)$/i;
+const uncheckedLinkPattern = /^\s*-\s\[ \]\s\[[^\]]+\]\(([^)]+)\)/;
 
 export class MalformedSpecError extends Error {
   constructor(specPath: string) {
@@ -76,6 +78,19 @@ export function getFirstUncheckedTask(specPath: string): UncheckedTaskSummary {
   }
   first.total = uncheckedCount;
   return first;
+}
+
+export function getActiveLinkedSubspecPath(
+  indexPath: string,
+): string | undefined {
+  const lines = readSpec(indexPath).split(/\r?\n/);
+  for (const line of lines) {
+    const match = line.match(uncheckedLinkPattern);
+    if (match?.[1]) {
+      return resolve(dirname(indexPath), match[1]);
+    }
+  }
+  return undefined;
 }
 
 function readSpec(specPath: string): string {

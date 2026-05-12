@@ -3,7 +3,7 @@
 ## Problem
 
 Today, `jarvis run` decides a subspec is complete only when the agent flips
-the matching `- [ ]` link in the parent `index.md`. The agent must remember
+the matching `- [x]` link in the parent `index.md`. The agent must remember
 to touch a file in a *different* directory from the one it has been editing.
 In practice, agents reliably do the work but forget the index flip, leaving a
 dirty worktree and triggering the exit-6 "edits but no transition" halt
@@ -101,62 +101,62 @@ section to exist; this just moves the check earlier.
 
 ## Task Checklist
 
-- [ ] Add `snapshotAcceptanceCriteria(subspecPath)` and a diff helper to
+- [x] Add `snapshotAcceptanceCriteria(subspecPath)` and a diff helper to
       `src/subspec.ts`. Each entry is `{ text, checked }`.
-- [ ] Add a helper that flips the index checkbox for a given subspec path
+- [x] Add a helper that flips the index checkbox for a given subspec path
       without making the commit (extract from `commitSubspec` or expose a
       small new function). `commitSubspec` continues to work as today for
       the final commit.
-- [ ] Add a `commitWipProgress` helper that commits the current worktree
+- [x] Add a `commitWipProgress` helper that commits the current worktree
       with the WIP message format.
-- [ ] In `src/commands/run.ts`, replace the post-iteration block to use the
+- [x] In `src/commands/run.ts`, replace the post-iteration block to use the
       new contract: snapshot before, snapshot after, decide
       complete/partial/no-progress, act accordingly. Remove the
       `newlyCheckedSubspecs` / `snapshotLinkedSubspecs` / index-checkbox
       detection plumbing if nothing else uses it.
-- [ ] Halt early with a clear message if the active subspec is missing
+- [x] Halt early with a clear message if the active subspec is missing
       `## Acceptance criteria` or has zero checkboxes in it.
-- [ ] Update the `worktreeCompletionBlocker` no-transition message to
+- [x] Update the `worktreeCompletionBlocker` no-transition message to
       reference acceptance-criteria progress instead of "the active index
       item". The exit code stays 6.
-- [ ] Update `rules/patch-mode.md` to remove "Flip exactly one box" and
+- [x] Update `rules/patch-mode.md` to remove "Flip exactly one box" and
       add acceptance-criteria-tick guidance. Keep the rule file terse.
-- [ ] Update `AGENTS.md` "Working rules for agents in this repo" bullets
+- [x] Update `AGENTS.md` "Working rules for agents in this repo" bullets
       that mention the index-checkbox flip.
-- [ ] Update `docs/run-loop.md` exit-6 description.
-- [ ] Add tests covering: full completion (criteria all flipped → index
+- [x] Update `docs/run-loop.md` exit-6 description.
+- [x] Add tests covering: full completion (criteria all flipped → index
       flipped + commit), partial progress (WIP commit + re-iterate), zero
       progress dirty (exit 6), zero progress clean (exit 4), malformed
       subspec (exit 1 with clear message), agent unchecks a criterion
       (no-op).
-- [ ] Run `bun run typecheck` and `bun test`.
+- [x] Run `bun run typecheck` and `bun test`.
 
 ## Acceptance criteria
 
-- [ ] An iteration that leaves all acceptance-criteria boxes `[x]` causes
+- [x] An iteration that leaves all acceptance-criteria boxes `[x]` causes
       the harness to flip the index checkbox, create the final commit via
       `commitSubspec`, push, and proceed to the next subspec — with no
       agent intervention on the index file.
-- [ ] An iteration that flips some but not all acceptance-criteria boxes
+- [x] An iteration that flips some but not all acceptance-criteria boxes
       produces a WIP commit whose summary matches
       `WIP: <subspec H1> (M/N criteria)` and whose body lists the newly
       checked criteria; the loop continues on the same subspec.
-- [ ] An iteration that edits files but flips zero acceptance-criteria
+- [x] An iteration that edits files but flips zero acceptance-criteria
       boxes exits 6 with a message naming the subspec and listing the
       still-unchecked acceptance criteria.
-- [ ] An iteration that produces no edits and no flipped boxes exits 4
+- [x] An iteration that produces no edits and no flipped boxes exits 4
       with the existing "no progress" message.
-- [ ] Running against a subspec with no `## Acceptance criteria` section,
+- [x] Running against a subspec with no `## Acceptance criteria` section,
       or zero checkboxes inside it, halts before invoking the agent with a
       message identifying the subspec and the missing section.
-- [ ] The agent prompt (`rules/patch-mode.md` + `src/prompt.ts`) no longer
+- [x] The agent prompt (`rules/patch-mode.md` + `src/prompt.ts`) no longer
       instructs the agent to flip the index checkbox.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 
-- [ ] `docs/run-loop.md` — exit-6 description reflects the new contract.
-- [ ] `AGENTS.md` — "Working rules for agents in this repo" reflects the
+- [x] `docs/run-loop.md` — exit-6 description reflects the new contract.
+- [x] `AGENTS.md` — "Working rules for agents in this repo" reflects the
       new contract (no manual index flip; tick acceptance criteria as you
       satisfy them; expect WIP commits between iterations).

@@ -2,6 +2,12 @@ import { execSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 
+export type AcceptanceCriterion = { text: string; checked: boolean };
+
+const acceptanceSectionPattern =
+  /(?:^|\n)## Acceptance criteria\b[\s\S]*?(?=\n## |$)/i;
+const criterionLinePattern = /^\s*-\s\[([ xX])\]\s+(.*)$/;
+
 export function commitSubspec(
   subspecPath: string,
   opts: { cwd?: string } = {},
@@ -43,6 +49,63 @@ export function commitSubspec(
   );
 }
 
+export function snapshotAcceptanceCriteria(
+  subspecPath: string,
+): AcceptanceCriterion[] {
+  const section = extractAcceptanceCriteria(readFileSync(subspecPath, "utf8"));
+  if (section === null) {
+    return [];
+  }
+  const items: AcceptanceCriterion[] = [];
+  for (const line of section.split(/\r?\n/)) {
+    const match = line.match(criterionLinePattern);
+    if (match === null) {
+      continue;
+    }
+    items.push({
+      text: (match[2] ?? "").trim(),
+      checked: (match[1] ?? " ").toLowerCase() === "x",
+    });
+  }
+  return items;
+}
+
+export function commitWipProgress(
+  subspecPath: string,
+  opts: {
+    cwd: string;
+    newlyChecked: AcceptanceCriterion[];
+    checkedTotal: number;
+    total: number;
+  },
+): void {
+  const subspecContent = readFileSync(subspecPath, "utf8");
+  const h1 = extractH1(subspecContent);
+  if (!h1) {
+    throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
+  }
+
+  execSync("git add -A", { cwd: opts.cwd, stdio: "pipe" });
+
+  const relativeSpecPath = relative(
+    realpathSync(opts.cwd),
+    realpathSync(subspecPath),
+  );
+  const summary = `WIP: ${h1} (${opts.checkedTotal}/${opts.total} criteria)`;
+  const body =
+    opts.newlyChecked.length === 0
+      ? `Spec: ${relativeSpecPath}`
+      : `Spec: ${relativeSpecPath}\n\nNewly checked:\n${opts.newlyChecked
+          .map((c) => `- ${c.text}`)
+          .join("\n")}`;
+  const commitMessage = `${summary}\n\n${body}`;
+
+  execSync(
+    `git commit -F - <<'JARVIS_COMMIT_MESSAGE'\n${commitMessage}\nJARVIS_COMMIT_MESSAGE\n`,
+    { cwd: opts.cwd, shell: "/bin/bash", stdio: "pipe" },
+  );
+}
+
 function getGitRoot(subspecPath: string): string {
   try {
     return execSync("git rev-parse --show-toplevel", {
@@ -74,9 +137,7 @@ function extractH1(content: string): string | null {
 }
 
 function extractAcceptanceCriteria(content: string): string | null {
-  const match = content.match(
-    /(?:^|\n)## Acceptance criteria\b[\s\S]*?(?=\n## |$)/,
-  );
+  const match = content.match(acceptanceSectionPattern);
   if (!match?.[0]) {
     return null;
   }

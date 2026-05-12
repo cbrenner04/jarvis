@@ -11,12 +11,13 @@ Execute active spec only.
 - Match style. No unrelated formatting.
 
 ## Iteration
-- Do exactly one unchecked `- [ ]` task.
-- Flip exactly one box to `[x]`, then stop.
-- Index task linking subspec = one task. Do that subspec only.
-- Jarvis re-invokes for next task.
+- Active task = first unchecked subspec link in `index.md`. Work that subspec only.
+- Inside the active subspec, tick `- [ ]` acceptance-criteria items as you actually satisfy them. Do not tick speculatively. Do not tick anything else.
+- Do not edit `index.md`. Jarvis flips the index checkbox itself when all acceptance criteria are checked.
+- Stop when you have made meaningful progress (one or more acceptance criteria ticked) or when the work is blocked.
+- Jarvis re-invokes for the next iteration; iterate the same subspec until all its acceptance criteria are checked.
 - Use commands from target repo `AGENTS.md`; no equivalents.
-- Run required typecheck/tests before checking box.
+- Run required typecheck/tests before ticking the criteria they cover.
 - Leave tree compiling.
 
 ## Stop

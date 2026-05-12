@@ -511,11 +511,11 @@ describe("runCommand", () => {
     );
     writeFileSync(
       firstSubspec,
-      "# 00 - One\n\n## Acceptance criteria\n\n- One accepted.\n",
+      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n",
     );
     writeFileSync(
       secondSubspec,
-      "# 01 - Two\n\n## Acceptance criteria\n\n- Two accepted.\n",
+      "# 01 - Two\n\n## Acceptance criteria\n\n- [ ] Two accepted.\n",
     );
     execSync("git add -A && git commit -m init", { cwd: projectRoot });
 
@@ -524,14 +524,14 @@ describe("runCommand", () => {
       if (callCount === 1) {
         writeFileSync(join(projectRoot, "one.txt"), "one\n");
         writeFileSync(
-          spec,
-          "- [x] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n",
+          firstSubspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n",
         );
       } else {
         writeFileSync(join(projectRoot, "two.txt"), "two\n");
         writeFileSync(
-          spec,
-          "- [x] [00 - One](./00-one.md)\n- [x] [01 - Two](./01-two.md)\n",
+          secondSubspec,
+          "# 01 - Two\n\n## Acceptance criteria\n\n- [x] Two accepted.\n",
         );
       }
       return { kind: "ok", stdout: "", stderr: "" };
@@ -565,7 +565,7 @@ describe("runCommand", () => {
     });
     expect(latestMessage).toContain("Spec: spec/feature/01-two.md");
     expect(latestMessage).toContain(
-      "## Acceptance criteria\n\n- Two accepted.",
+      "## Acceptance criteria\n\n- [x] Two accepted.",
     );
   });
 
@@ -581,7 +581,7 @@ describe("runCommand", () => {
     writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
     writeFileSync(
       join(specDir, "00-one.md"),
-      "# 00 - One\n\n## Acceptance criteria\n\n- One accepted.\n",
+      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n",
     );
     execSync("git add -A && git commit -m init", { cwd: projectRoot });
 
@@ -600,14 +600,112 @@ describe("runCommand", () => {
     });
 
     expect(code).toBe(6);
-    expect(cap.err()).toContain(
-      "edited files but did not check the active index item",
-    );
-    expect(cap.err()).toContain("1/1 [00 - One](./00-one.md)");
+    expect(cap.err()).toContain("checked no new acceptance criteria");
+    expect(cap.err()).toContain("00-one.md");
+    expect(cap.err()).toContain("- One accepted.");
     expect(cap.err()).toContain("Inspect the dirty worktree");
     expect(readFileSync(spec, "utf8")).toContain(
       "- [ ] [00 - One](./00-one.md)",
     );
+  });
+
+  test("WIP-commits partial acceptance-criteria progress and re-iterates on the same subspec", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    const subspec = join(specDir, "00-one.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    writeFileSync(
+      subspec,
+      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A satisfied.\n- [ ] Step B satisfied.\n",
+    );
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", (callCount) => {
+      if (callCount === 1) {
+        writeFileSync(join(projectRoot, "a.txt"), "a\n");
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A satisfied.\n- [ ] Step B satisfied.\n",
+        );
+      } else {
+        writeFileSync(join(projectRoot, "b.txt"), "b\n");
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A satisfied.\n- [x] Step B satisfied.\n",
+        );
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(claude.calls).toHaveLength(2);
+    expect(
+      execSync("git status --porcelain", { cwd: projectRoot }).toString(),
+    ).toBe("");
+    const subjects = execSync("git log --format=%s", {
+      cwd: projectRoot,
+      encoding: "utf8",
+    })
+      .trim()
+      .split("\n")
+      .reverse()
+      .slice(1);
+    expect(subjects).toEqual(["WIP: 00 - One (1/2 criteria)", "00 - One"]);
+    const wipMessage = execSync("git log --format=%B HEAD~1 -1", {
+      cwd: projectRoot,
+      encoding: "utf8",
+    });
+    expect(wipMessage).toContain("Spec: spec/feature/00-one.md");
+    expect(wipMessage).toContain("Newly checked:\n- Step A satisfied.");
+  });
+
+  test("exits 1 when the active subspec has no acceptance-criteria checkboxes", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    writeFileSync(
+      join(specDir, "00-one.md"),
+      "# 00 - One\n\nNo acceptance criteria section here.\n",
+    );
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("agent should not have run");
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("no `## Acceptance criteria` checkboxes");
+    expect(claude.calls).toHaveLength(0);
   });
 
   test("pushes each subspec commit and opens one draft PR after the first push", async () => {
@@ -631,11 +729,11 @@ describe("runCommand", () => {
     );
     writeFileSync(
       join(specDir, "00-one.md"),
-      "# 00 - One\n\n## Acceptance criteria\n\n- One accepted.\n",
+      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n",
     );
     writeFileSync(
       join(specDir, "01-two.md"),
-      "# 01 - Two\n\n## Acceptance criteria\n\n- Two accepted.\n",
+      "# 01 - Two\n\n## Acceptance criteria\n\n- [ ] Two accepted.\n",
     );
     execSync("git add -A && git commit -m init && git push -u origin main", {
       cwd: projectRoot,
@@ -734,18 +832,17 @@ exit 1
           stderr: "",
         };
       }
-      const activeSpec = join(opts.cwd, "spec", "feature", "index.md");
       if (!existsSync(join(opts.cwd, "one.txt"))) {
         writeFileSync(join(opts.cwd, "one.txt"), "one\n");
         writeFileSync(
-          activeSpec,
-          "# Feature\n\n- [x] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n",
+          join(opts.cwd, "spec", "feature", "00-one.md"),
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n",
         );
       } else {
         writeFileSync(join(opts.cwd, "two.txt"), "two\n");
         writeFileSync(
-          activeSpec,
-          "# Feature\n\n- [x] [00 - One](./00-one.md)\n- [x] [01 - Two](./01-two.md)\n",
+          join(opts.cwd, "spec", "feature", "01-two.md"),
+          "# 01 - Two\n\n## Acceptance criteria\n\n- [x] Two accepted.\n",
         );
       }
       return { kind: "ok", stdout: "", stderr: "" };

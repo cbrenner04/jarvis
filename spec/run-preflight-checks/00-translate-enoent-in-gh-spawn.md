@@ -10,10 +10,13 @@ stringification preserves "ENOENT" but the resulting message is not
 actionable, and callers like `getBaseBranch()` wrap it further into
 phrases like `failed to detect base branch: Error: ENOENT ...`.
 
-Ordering note: this subspec lands first so that the new wording is
-available for subspec 01 to surface through `assertGhReady()`. The two
-subspecs touch disjoint files and can be reviewed independently, but
-implementation order matters for the integration tests in 01.
+Ordering note: this subspec is independent of subspec 01 (project-root
+validation) at the file level — they touch disjoint files — but the two
+together close the diagnostic gap. If 00 lands without 01, a missing
+project root will incorrectly read as "gh: binary not found on PATH"
+because the spawn ENOENT (caused by the missing `cwd`) will be
+translated by the new wording. Land 01 in the same PR, or land them in
+either order but close together.
 
 ## Decisions
 

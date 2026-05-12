@@ -22,6 +22,12 @@ using the following order:
 5. Otherwise jarvis prompts to pick a registered project; in non-TTY runs it
    exits with a usage error.
 
+Legacy short-circuit: when the spec `repo:` value is an absolute path that
+equals a registered project's `root`, that project is used and steps 1-5 are
+skipped. An absolute-path `repo:` that does not match any registered root is
+silently ignored and the resolution flow above runs as if the line were
+absent. No deprecation warning is printed in either case.
+
 Jarvis uses the resolved path to prepare the per-spec
 [worktree](./worktrees-and-commits.md) and as the base `cwd` for `gh`, git, and
 the agent. The operator’s shell working directory may be outside any repository,

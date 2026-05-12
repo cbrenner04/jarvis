@@ -176,6 +176,77 @@ describe("resolveProject", () => {
     }
   });
 
+  test("legacy absolute-path `repo:` matching a registered root resolves", () => {
+    registerProject("project-a", projectA, {
+      dir: cfgDir,
+      origin: "https://github.com/example/project-a.git",
+    });
+    registerProject("project-b", projectB, {
+      dir: cfgDir,
+      origin: "https://github.com/example/project-b.git",
+    });
+    const specPath = join(dir, "specs", "index.md");
+    mkdirSync(join(dir, "specs"));
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: projectA,
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.project.key).toBe("project-a");
+      expect(result.resolved.mode).toBe("registered");
+    }
+  });
+
+  test("legacy absolute-path `repo:` with no matching root falls through to location", () => {
+    // projectA is registered, but the spec's abs-path points elsewhere.
+    registerProject("project-a", projectA, {
+      dir: cfgDir,
+      origin: "https://github.com/example/project-a.git",
+    });
+    // Spec lives inside projectA so the location step (3) should win.
+    const specDir = join(projectA, "specs");
+    mkdirSync(specDir);
+    const specPath = join(specDir, "index.md");
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const unmatchedAbs = join(dir, "not-registered");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: unmatchedAbs,
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.project.key).toBe("project-a");
+      expect(result.resolved.mode).toBe("registered");
+    }
+  });
+
+  test("legacy absolute-path `repo:` with no matching root and no location falls through to prompt", () => {
+    registerProject("project-a", projectA, {
+      dir: cfgDir,
+      origin: "https://github.com/example/project-a.git",
+    });
+    const specPath = join(dir, "specs", "index.md");
+    mkdirSync(join(dir, "specs"));
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: join(dir, "not-registered"),
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("needs-prompt");
+  });
+
   test("needs-prompt when nothing resolves", () => {
     const specPath = join(dir, "spec.md");
     writeFileSync(specPath, "- [ ] todo\n");

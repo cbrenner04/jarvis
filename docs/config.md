@@ -52,7 +52,7 @@ Default contents on first bootstrap:
   "agentOrder": ["claude", "codex", "cursor"],
   "patchModels": {
     "claude": "haiku",
-    "codex": "gpt-5-codex",
+    "codex": "gpt-5.3-codex",
     "cursor": "Composer 2",
     "opencode": "github-copilot/claude-opus-4.7"
   },

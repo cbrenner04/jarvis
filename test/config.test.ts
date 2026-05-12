@@ -23,7 +23,7 @@ let dir: string;
 
 const DEFAULT_PATCH_MODELS = {
   claude: "haiku",
-  codex: "gpt-5-codex",
+  codex: "gpt-5.3-codex",
   cursor: "Composer 2",
   opencode: "github-copilot/claude-opus-4.7",
 };
@@ -76,7 +76,7 @@ describe("loadConfig", () => {
         maxIterations: 7,
         patchModels: {
           claude: "sonnet",
-          codex: "gpt-5-codex",
+          codex: "gpt-5.3-codex",
           cursor: "Composer 2",
           opencode: "opencode-model",
         },
@@ -136,7 +136,7 @@ describe("loadConfig", () => {
         maxIterations: 7,
         patchModels: {
           claude: "haiku",
-          codex: "gpt-5-codex",
+          codex: "gpt-5.3-codex",
           cursor: "Composer 2",
         },
         projects: {},
@@ -186,7 +186,7 @@ describe("loadConfig", () => {
         maxIterations: 10,
         patchModels: {
           claude: 1,
-          codex: "gpt-5-codex",
+          codex: "gpt-5.3-codex",
           cursor: "Composer 2",
           opencode: "github-copilot/claude-opus-4.7",
         },
@@ -205,7 +205,7 @@ describe("loadConfig", () => {
         maxIterations: 10,
         patchModels: {
           claude: " ",
-          codex: "gpt-5-codex",
+          codex: "gpt-5.3-codex",
           cursor: "Composer 2",
           opencode: "github-copilot/claude-opus-4.7",
         },
@@ -224,7 +224,7 @@ describe("loadConfig", () => {
         maxIterations: 10,
         patchModels: {
           claude: "haiku",
-          codex: "gpt-5-codex",
+          codex: "gpt-5.3-codex",
           cursor: "Composer 2",
           opencode: "github-copilot/claude-opus-4.7",
           gpt: "model",
@@ -244,7 +244,7 @@ describe("loadConfig", () => {
         maxIterations: 10,
         patchModels: {
           claude: "haiku",
-          codex: "gpt-5-codex",
+          codex: "gpt-5.3-codex",
         },
         projects: {},
       }),

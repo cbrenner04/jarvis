@@ -55,6 +55,13 @@ exactly equals a registered project's root; otherwise it is ignored. New
 specs should use the URL or slug form so they remain portable across
 machines and operators.
 
+If the resolved target — whether selected via `repo:`, `--repo`, a registered
+project, or the ad-hoc git-checkout walk — points at a directory that no
+longer exists on disk, `jarvis run` exits 1 with a named preflight error
+identifying the missing path and the resolution source rather than the
+historical worktree-flavored "posix_spawn 'gh'" failure. See
+[run-loop.md](./run-loop.md#preflight-checks).
+
 ## Land the spec before implementing it
 
 New specs must be merged to `main` before any implementation work on them

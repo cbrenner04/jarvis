@@ -115,6 +115,26 @@ checkout, `jarvis run` exits 1 with `error: target is not a git checkout;
 set "git": false in config or pass --repo to a git checkout` before invoking
 any agent.
 
+## Preflight checks
+
+Before any side-effecting work (worktree creation, `gh` invocation, agent
+spawn, session log open), `jarvis run` runs these checks in order:
+
+1. **Project root exists.** The path resolved by the steps under
+   [Iteration](#iteration) must be an existing directory. If it is missing
+   (registered project moved or deleted, ad-hoc walk landed on a vanished
+   root, `--repo` matched a stale registration, or a spec `repo:` line
+   pointed at a missing path), jarvis exits 1 with a message naming the path
+   and the resolution source. This check fires regardless of effective
+   `git`, since loop-only mode also needs a valid `cwd` for the agent.
+2. **`git: true` only.** When effective `git` is `true`, jarvis verifies the
+   resolved root contains a `.git` entry (the "target is not a git checkout"
+   guard above) and then runs `assertGhReady()` to confirm `gh` is on
+   `PATH` and authenticated.
+
+Only after these pass does jarvis create the per-spec worktree and start the
+loop.
+
 ### `--cwd <dir>`
 
 `--cwd <dir>` overrides the agent's working directory and is only valid when

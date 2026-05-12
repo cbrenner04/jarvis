@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  statSync,
   writeSync,
 } from "node:fs";
 import {
@@ -110,6 +111,28 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   }
   const project = projectResolution.project;
   const projectMode = projectResolution.mode;
+  const projectSource = projectResolution.source;
+
+  // Preflight: the resolved project root must exist on disk before any
+  // side-effecting work (worktree, gh, agent spawn, session log open).
+  // A registered or spec-`repo:`-named root may have been moved or
+  // deleted; an ad-hoc walk may land on a `.git` whose parent has been
+  // removed. Without this check, the failure surfaces several call sites
+  // later as a misleading `posix_spawn 'gh' ENOENT`, since `posix_spawn`
+  // returns ENOENT when the child's `cwd` does not exist.
+  const projectRootCheck = checkProjectRootExists(project.root);
+  if (!projectRootCheck.ok) {
+    opts.io.stderr(
+      `${formatMissingProjectRootError({
+        path: project.root,
+        projectKey: project.key,
+        source: projectSource,
+        repoFlag: opts.repoFlag,
+        reason: projectRootCheck.reason,
+      })}\n`,
+    );
+    return 1;
+  }
   const cfg = loadConfig(opts.config);
   const gitEnabled = effectiveGit(
     cfg,
@@ -750,6 +773,7 @@ async function resolveProjectFromSpec(opts: {
 }): Promise<{
   project: ProjectMatch;
   mode: "registered" | "ad-hoc";
+  source?: "repo-flag" | "spec-repo" | "registered" | "ad-hoc";
   error?: string;
 }> {
   const specRepoRaw = readRepoPath(opts.specPath);
@@ -787,7 +811,11 @@ async function resolveProjectFromSpec(opts: {
   const result = resolveProject(resolveOpts);
 
   if (result.kind === "ok") {
-    return { project: result.resolved.project, mode: result.resolved.mode };
+    return {
+      project: result.resolved.project,
+      mode: result.resolved.mode,
+      source: result.resolved.source,
+    };
   }
   if (result.kind === "error") {
     return {
@@ -833,6 +861,7 @@ async function runDisambiguationPrompt(opts: {
 }): Promise<{
   project: ProjectMatch;
   mode: "registered" | "ad-hoc";
+  source?: "repo-flag" | "spec-repo" | "registered" | "ad-hoc";
   error?: string;
 }> {
   const prompt = opts.disambiguate ?? defaultDisambiguate;
@@ -842,7 +871,11 @@ async function runDisambiguationPrompt(opts: {
     io: opts.io,
   });
   if (result.kind === "selected") {
-    return { project: result.project, mode: "registered" };
+    return {
+      project: result.project,
+      mode: "registered",
+      source: "registered",
+    };
   }
   if (result.kind === "non-tty") {
     const list = opts.candidates.map((c) => `  - ${c.key}`).join("\n");
@@ -1001,4 +1034,60 @@ function defaultAgents(cfg: Config): Record<AgentName, Agent> {
     cursor: new CursorAgent({ model: cfg.patchModels.cursor }),
     opencode: new OpencodeAgent({ model: cfg.patchModels.opencode }),
   };
+}
+
+function checkProjectRootExists(
+  path: string,
+): { ok: true } | { ok: false; reason: "missing" | "not-directory" } {
+  if (!existsSync(path)) {
+    return { ok: false, reason: "missing" };
+  }
+  try {
+    if (!statSync(path).isDirectory()) {
+      return { ok: false, reason: "not-directory" };
+    }
+  } catch {
+    return { ok: false, reason: "missing" };
+  }
+  return { ok: true };
+}
+
+function formatMissingProjectRootError(opts: {
+  path: string;
+  projectKey: string;
+  source: "repo-flag" | "spec-repo" | "registered" | "ad-hoc" | undefined;
+  repoFlag: string | undefined;
+  reason: "missing" | "not-directory";
+}): string {
+  const sourceText = describeProjectSource(
+    opts.source,
+    opts.repoFlag,
+    opts.projectKey,
+  );
+  const what =
+    opts.reason === "not-directory"
+      ? "is not a directory"
+      : "does not exist on disk";
+  return `error: project root ${opts.path} ${what} (resolved from ${sourceText})`;
+}
+
+function describeProjectSource(
+  source: "repo-flag" | "spec-repo" | "registered" | "ad-hoc" | undefined,
+  repoFlag: string | undefined,
+  projectKey: string,
+): string {
+  switch (source) {
+    case "repo-flag":
+      return repoFlag === undefined
+        ? "--repo flag value"
+        : `--repo flag value ${JSON.stringify(repoFlag)}`;
+    case "spec-repo":
+      return "spec `repo:` line";
+    case "ad-hoc":
+      return "ad-hoc git checkout discovered from spec location";
+    default:
+      return projectKey === ""
+        ? "registered project"
+        : `registered project \`${projectKey}\``;
+  }
 }

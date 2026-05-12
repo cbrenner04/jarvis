@@ -37,4 +37,4 @@ Key decisions, captured so subspecs stay focused:
 - Future preflight for the `git` binary itself is out of scope.
 
 - [x] [00 - Translate ENOENT in gh spawn](./00-translate-enoent-in-gh-spawn.md)
-- [ ] [01 - Validate resolved project root exists](./01-validate-project-root.md)
+- [x] [01 - Validate resolved project root exists](./01-validate-project-root.md)

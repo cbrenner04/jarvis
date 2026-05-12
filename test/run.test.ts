@@ -1674,6 +1674,223 @@ exit 0
     expect(claude.calls).toHaveLength(0);
   });
 
+  describe("preflight: project root must exist", () => {
+    test("registered project (matched by spec path) whose root has been removed exits 1", async () => {
+      // The default project registered in beforeEach lives at projectRoot
+      // and contains the spec. Remove the root after writing the spec
+      // somewhere outside it so the spec remains readable.
+      const externalSpec = join(dir, "registered-by-path-spec.md");
+      writeFileSync(externalSpec, `repo: ${projectRoot}\n\n- [ ] todo\n`);
+      rmSync(projectRoot, { recursive: true, force: true });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const code = await runWithDefaults({
+        specPath: externalSpec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(projectRoot);
+      expect(cap.err()).toContain("does not exist on disk");
+      // Spec `repo:` is absolute and exact-matches the registered root,
+      // so the spec-repo branch wins and is the named source.
+      expect(cap.err()).toContain("spec `repo:` line");
+      expect(claude.calls).toHaveLength(0);
+      expect(existsSync(join(cfgDir, "sessions"))).toBe(false);
+    });
+
+    test("registered project resolved by --repo URL whose root is gone is attributed to --repo", async () => {
+      const removedRoot = join(dir, "origin-project");
+      mkdirSync(removedRoot);
+      registerProject("origin-project", removedRoot, {
+        dir: cfgDir,
+        origin: "https://github.com/example/origin-project.git",
+      });
+      rmSync(removedRoot, { recursive: true, force: true });
+      const externalDir = join(dir, "ext-origin");
+      mkdirSync(externalDir);
+      const spec = join(externalDir, "index.md");
+      writeFileSync(spec, "- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        repoFlag: "https://github.com/example/origin-project",
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(removedRoot);
+      expect(cap.err()).toContain("does not exist on disk");
+      expect(cap.err()).toContain("--repo flag value");
+      expect(cap.err()).toContain(
+        '"https://github.com/example/origin-project"',
+      );
+      expect(claude.calls).toHaveLength(0);
+      expect(existsSync(join(cfgDir, "sessions"))).toBe(false);
+    });
+
+    test("--repo flag matching a registered name whose root is gone is attributed to --repo", async () => {
+      const removedRoot = join(dir, "by-name-project");
+      mkdirSync(removedRoot);
+      registerProject("by-name-project", removedRoot, { dir: cfgDir });
+      rmSync(removedRoot, { recursive: true, force: true });
+      const externalDir = join(dir, "ext-by-name");
+      mkdirSync(externalDir);
+      const spec = join(externalDir, "index.md");
+      writeFileSync(spec, "- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        repoFlag: "by-name-project",
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(removedRoot);
+      expect(cap.err()).toContain("--repo flag value");
+      expect(cap.err()).toContain('"by-name-project"');
+      expect(claude.calls).toHaveLength(0);
+      expect(existsSync(join(cfgDir, "sessions"))).toBe(false);
+    });
+
+    test("ad-hoc git checkout that has been removed exits 1 attributed to ad-hoc", async () => {
+      // Build a git checkout, write a spec inside it, capture spec content,
+      // then remove the entire checkout. Recreate just the spec file in a
+      // parallel location so jarvis can read it; rebuild the checkout
+      // structure (with `.git`) so the resolver's ad-hoc walk lands on it,
+      // then remove the root one final time so the preflight fires.
+      const adHocRoot = join(dir, "adhoc-checkout");
+      mkdirSync(join(adHocRoot, "specs"), { recursive: true });
+      mkdirSync(join(adHocRoot, ".git"));
+      const spec = join(adHocRoot, "specs", "index.md");
+      writeFileSync(spec, "- [ ] todo\n");
+      // Move the spec elsewhere so we have a stable readable path; point
+      // it at the ad-hoc root via `repo:` so resolution lands on it.
+      const stableSpec = join(dir, "adhoc-spec.md");
+      writeFileSync(stableSpec, `repo: ${adHocRoot}\n\n- [ ] todo\n`);
+      rmSync(adHocRoot, { recursive: true, force: true });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const code = await runWithDefaults({
+        specPath: stableSpec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      // The resolver ignores spec-`repo:` absolute paths that do not match
+      // any registered root, then falls through to location-based
+      // resolution. The spec lives in `dir`, which is not registered and
+      // has no `.git`, so resolution ends in needs-prompt. In a non-TTY
+      // run that still exits 1 cleanly without spawning subprocesses.
+      expect(code).toBe(1);
+      expect(claude.calls).toHaveLength(0);
+      expect(existsSync(join(cfgDir, "sessions"))).toBe(false);
+    });
+
+    test("preflight runs before the .git-presence check (git: true)", async () => {
+      const removedRoot = join(dir, "preflight-vs-git-check");
+      mkdirSync(removedRoot);
+      registerProject("preflight-vs-git-check", removedRoot, { dir: cfgDir });
+      rmSync(removedRoot, { recursive: true, force: true });
+      const externalDir = join(dir, "ext-preflight");
+      mkdirSync(externalDir);
+      const spec = join(externalDir, "index.md");
+      writeFileSync(spec, `repo: ${removedRoot}\n\n- [ ] todo\n`);
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const code = await runCommand({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        // Do not skip gh check: that branch contains both the .git check
+        // and assertGhReady. The preflight must short-circuit before either.
+        skipGhCheck: false,
+        logClient: {
+          assertReachable: async () => {},
+          send: async () => {},
+        },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("does not exist on disk");
+      expect(cap.err()).not.toContain("target is not a git checkout");
+      expect(claude.calls).toHaveLength(0);
+    });
+
+    test("preflight fires when git is false (loop-only mode) too", async () => {
+      const removedRoot = join(dir, "loop-only-removed");
+      mkdirSync(removedRoot);
+      registerProject("loop-only-removed", removedRoot, { dir: cfgDir });
+      rmSync(removedRoot, { recursive: true, force: true });
+      const externalDir = join(dir, "ext-loop-only");
+      mkdirSync(externalDir);
+      const spec = join(externalDir, "index.md");
+      writeFileSync(spec, `repo: ${removedRoot}\n\n- [ ] todo\n`);
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("does not exist on disk");
+      expect(claude.calls).toHaveLength(0);
+      expect(existsSync(join(cfgDir, "sessions"))).toBe(false);
+    });
+  });
+
   describe("loop-only mode (git: false)", () => {
     test("completes spec with zero unchecked boxes without clean-tree check", async () => {
       const spec = writeSpec("- [x] done\n");

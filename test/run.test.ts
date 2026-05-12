@@ -384,7 +384,9 @@ describe("runCommand", () => {
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain("missing required `repo: <absolute-path>`");
+    expect(cap.err()).toContain(
+      "could not determine a target project for this spec",
+    );
     expect(claude.calls).toHaveLength(0);
   });
 
@@ -1268,7 +1270,9 @@ exit 0
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain("missing required `repo: <absolute-path>`");
+    expect(cap.err()).toContain(
+      "could not determine a target project for this spec",
+    );
   });
 
   test("non-index specs with empty response exit without invoking an agent", async () => {

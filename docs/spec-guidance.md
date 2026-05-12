@@ -17,7 +17,7 @@ whose items link to atomic subspec files:
 ```md
 # <Feature>
 
-repo: /absolute/path/to/target-repo
+repo: https://github.com/owner/target-repo
 
 - [ ] [00 - First task](./00-first-task.md)
 - [ ] [01 - Second task](./01-second-task.md)
@@ -29,9 +29,27 @@ Run Jarvis against the index:
 jarvis run spec/<feature>/index.md
 ```
 
-Specs may live anywhere, but every runnable spec must include `repo:` with an
-absolute path to the target repository. Jarvis reads that field first and uses
-it as the working repository path.
+Specs may live anywhere. The `repo:` line is **optional**; when present, it
+identifies the target repository in a portable way. Accepted forms:
+
+- HTTPS URL: `https://github.com/owner/repo[.git]`
+- SSH URL: `git@github.com:owner/repo[.git]`
+- Slug: `owner/repo` (interpreted as `github.com/owner/repo`)
+
+Jarvis resolves the target repo at run time in this order:
+
+1. `--repo <name|path|url>` flag passed on the command line.
+2. Spec `repo:` URL/slug, loose-matched against the `origin` URLs of
+   registered projects.
+3. Spec path lives inside a registered project's root.
+4. Spec path lives inside any git checkout (used in ad-hoc mode; jarvis does
+   not persist anything to config).
+5. Otherwise jarvis prompts (or exits with a usage error in non-TTY runs).
+
+Legacy `repo: <absolute-local-path>` is still honored only when the path
+exactly equals a registered project's root; otherwise it is ignored. New
+specs should use the URL or slug form so they remain portable across
+machines and operators.
 
 ## Land the spec before implementing it
 

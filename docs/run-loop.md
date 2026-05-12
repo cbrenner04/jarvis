@@ -6,8 +6,23 @@ completion is detected, where output goes, and how runs stop.
 ## Iteration
 
 `jarvis run <spec-path>` resolves the requested spec to an absolute path and
-reads it first. Every runnable spec must include `repo: <absolute-path>`.
-Jarvis uses that path to prepare the per-spec
+reads it first. Jarvis then resolves which target repository to run against
+using the following order:
+
+1. `--repo <name|path|url>` flag — overrides everything below. The value
+   may be a registered project name, an absolute path equal to a registered
+   project's root, or a URL/slug that loose-matches a registered project's
+   `origin`.
+2. Spec `repo:` URL/slug — loose-matched against the `origin` URLs recorded
+   for each registered project.
+3. Spec path is inside a registered project's `root` — that project wins.
+4. Spec path is inside any git checkout (walking parents until `.git`) — the
+   run proceeds in ad-hoc mode against that checkout. Nothing is persisted
+   to config.
+5. Otherwise jarvis prompts to pick a registered project; in non-TTY runs it
+   exits with a usage error.
+
+Jarvis uses the resolved path to prepare the per-spec
 [worktree](./worktrees-and-commits.md) and as the base `cwd` for `gh`, git, and
 the agent. The operator’s shell working directory may be outside any repository,
 such as a parent directory of several clones. From that point, Jarvis runs

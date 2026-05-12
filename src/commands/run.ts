@@ -40,6 +40,7 @@ import { assertGhReady, getBaseBranch } from "../gh.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { ensureDraftPr, maybeMarkReady } from "../pr.ts";
 import { buildPrompt } from "../prompt.ts";
+import { resolveProject } from "../resolve-project.ts";
 import {
   type AcceptanceCriterion,
   commitSubspec,
@@ -70,6 +71,8 @@ export type RunCommandOptions = {
   confirmRun?: ConfirmRun;
   handleSignals?: boolean;
   skipGhCheck?: boolean;
+  /** Value of the `--repo` CLI flag, if given. */
+  repoFlag?: string;
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
@@ -79,26 +82,33 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return 1;
   }
 
-  const projectResolution = resolveProjectFromSpec(specPath);
+  const projectResolution = resolveProjectFromSpec({
+    specPath,
+    repoFlag: opts.repoFlag,
+    config: opts.config,
+  });
   if (projectResolution.error !== undefined) {
     opts.io.stderr(`${projectResolution.error}\n`);
     return 1;
   }
   const project = projectResolution.project;
+  const projectMode = projectResolution.mode;
   const cfg = loadConfig(opts.config);
 
   // Lazily populate `origin` for a registered project whose record is missing
-  // it. Failures here do not block the run.
-  try {
-    const match = findProjectMatchForPath(project.root, opts.config);
-    if (match !== undefined && match.origin === undefined) {
-      const origin = readGitOriginUrl(match.root);
-      if (origin !== undefined) {
-        setProjectOrigin(match.key, origin, opts.config);
+  // it. Failures here do not block the run. Skipped in ad-hoc mode.
+  if (projectMode === "registered") {
+    try {
+      const match = findProjectMatchForPath(project.root, opts.config);
+      if (match !== undefined && match.origin === undefined) {
+        const origin = readGitOriginUrl(match.root);
+        if (origin !== undefined) {
+          setProjectOrigin(match.key, origin, opts.config);
+        }
       }
+    } catch {
+      // best-effort
     }
-  } catch {
-    // best-effort
   }
 
   if (!opts.skipGhCheck) {
@@ -675,25 +685,88 @@ function getCurrentBranch(cwd: string): string {
   }).trim();
 }
 
-function resolveProjectFromSpec(specPath: string): {
+function resolveProjectFromSpec(opts: {
+  specPath: string;
+  repoFlag?: string | undefined;
+  config?: ConfigOptions | undefined;
+}): {
   project: ProjectMatch;
+  mode: "registered" | "ad-hoc";
   error?: string;
 } {
-  const repo = readRepoPath(specPath);
-  if (repo === undefined) {
+  const specRepoRaw = readRepoPath(opts.specPath);
+  const specRepo =
+    specRepoRaw === undefined || specRepoRaw.trim() === ""
+      ? undefined
+      : specRepoRaw.trim();
+
+  // Reject relative `repo:` values up front (kept from prior behavior).
+  if (
+    specRepo !== undefined &&
+    /[\\/]/.test(specRepo) &&
+    !isAbsolute(specRepo) &&
+    !looksLikeUrlOrSlug(specRepo)
+  ) {
     return {
       project: { key: "", root: "" },
-      error: "spec is missing required `repo: <absolute-path>` line",
+      mode: "registered",
+      error: `spec repo must be an absolute path: ${specRepo}`,
     };
   }
-  if (!isAbsolute(repo)) {
+
+  const resolveOpts: Parameters<typeof resolveProject>[0] = {
+    specPath: opts.specPath,
+  };
+  if (specRepo !== undefined) {
+    resolveOpts.specRepo = specRepo;
+  }
+  if (opts.repoFlag !== undefined) {
+    resolveOpts.repoFlag = opts.repoFlag;
+  }
+  if (opts.config !== undefined) {
+    resolveOpts.config = opts.config;
+  }
+  const result = resolveProject(resolveOpts);
+
+  if (result.kind === "ok") {
+    return { project: result.resolved.project, mode: result.resolved.mode };
+  }
+  if (result.kind === "error") {
     return {
       project: { key: "", root: "" },
-      error: `spec repo must be an absolute path: ${repo}`,
+      mode: "registered",
+      error: result.message,
     };
   }
-  const root = resolve(repo);
-  return { project: { key: basename(root), root } };
+  if (result.kind === "ambiguous") {
+    const list = result.candidates.map((c) => `  - ${c.key}`).join("\n");
+    return {
+      project: { key: "", root: "" },
+      mode: "registered",
+      error: `${result.reason}; rerun with --repo <name>. Matching projects:\n${list}`,
+    };
+  }
+  // needs-prompt: subspec 02 will replace this with an interactive prompt.
+  return {
+    project: { key: "", root: "" },
+    mode: "registered",
+    error:
+      "could not determine a target project for this spec. Pass --repo <name|url> or add a `repo:` line.",
+  };
+}
+
+function looksLikeUrlOrSlug(value: string): boolean {
+  if (/^(https?:\/\/|ssh:\/\/|git:\/\/|git@)/i.test(value)) {
+    return true;
+  }
+  // `owner/repo` slug. Disallow leading `.` to keep `./relative` paths
+  // from being misread as a slug.
+  if (
+    /^[A-Za-z0-9_-][A-Za-z0-9._-]*\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(value)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function readRepoPath(specPath: string): string | undefined {

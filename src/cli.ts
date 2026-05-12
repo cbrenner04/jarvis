@@ -22,7 +22,12 @@ export type Subcommand =
 
 export type ParsedArgs =
   | { kind: "help" }
-  | { kind: "run"; specPath: string; maxIterations?: string }
+  | {
+      kind: "run";
+      specPath: string;
+      maxIterations?: string;
+      repo?: string;
+    }
   | { kind: "init" }
   | { kind: "config"; rest: string[] }
   | { kind: "log-server" }
@@ -38,7 +43,7 @@ export type Io = {
 const USAGE = `Usage: jarvis <command> [args]
 
 Commands:
-  run [--max-iterations <n>] <spec-path>
+  run [--max-iterations <n>] [--repo <name|path|url>] <spec-path>
                     Run the loop against a spec file in a registered project.
   init              Register the current target repo.
   config            View or edit the jarvis config.
@@ -61,29 +66,47 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   switch (first) {
     case "run": {
       let maxIterations: string | undefined;
+      let repo: string | undefined;
       const args = [...rest];
       for (let i = 0; i < args.length; i += 1) {
-        if (args[i] !== "--max-iterations") {
+        if (args[i] === "--max-iterations") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "run: missing value for --max-iterations",
+            };
+          }
+          maxIterations = value;
+          args.splice(i, 2);
+          i -= 1;
           continue;
         }
-        const value = args[i + 1];
-        if (value === undefined) {
-          return {
-            kind: "error",
-            message: "run: missing value for --max-iterations",
-          };
+        if (args[i] === "--repo") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "run: missing value for --repo",
+            };
+          }
+          repo = value;
+          args.splice(i, 2);
+          i -= 1;
         }
-        maxIterations = value;
-        args.splice(i, 2);
-        i -= 1;
       }
       const specPath = args[0];
       if (specPath === undefined) {
         return { kind: "error", message: "run: missing <spec-path>" };
       }
-      return maxIterations === undefined
-        ? { kind: "run", specPath }
-        : { kind: "run", specPath, maxIterations };
+      const parsed: ParsedArgs = { kind: "run", specPath };
+      if (maxIterations !== undefined) {
+        parsed.maxIterations = maxIterations;
+      }
+      if (repo !== undefined) {
+        parsed.repo = repo;
+      }
+      return parsed;
     }
     case "init":
       return { kind: "init" };
@@ -144,6 +167,9 @@ export function run(
       }
       if (maxIterations !== undefined) {
         runOpts.config = { ...runOpts.config, maxIterations };
+      }
+      if (parsed.repo !== undefined) {
+        runOpts.repoFlag = parsed.repo;
       }
       if (opts.run?.agents !== undefined) {
         runOpts.agents = opts.run.agents;

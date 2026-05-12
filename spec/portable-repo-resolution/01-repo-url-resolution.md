@@ -53,23 +53,23 @@ absolute-path branch, which is subspec 03).
 
 ## Acceptance criteria
 
-- [ ] URL normalization treats these as equal:
+- [x] URL normalization treats these as equal:
   `git@github.com:Org/Repo.git`, `https://github.com/org/repo`,
   `https://github.com/org/repo.git`, `ssh://git@github.com/org/repo.git`.
-- [ ] A spec with `repo: org/repo` and a single registered project whose
+- [x] A spec with `repo: org/repo` and a single registered project whose
   `origin` normalizes to `github.com/org/repo` resolves to that project
   without prompting.
-- [ ] A spec with no `repo:` line, located inside a registered project's
+- [x] A spec with no `repo:` line, located inside a registered project's
   `root`, resolves to that project.
-- [ ] A spec with no `repo:` line, located inside a non-registered git
+- [x] A spec with no `repo:` line, located inside a non-registered git
   checkout, resolves to that checkout in ad-hoc mode without writing config.
-- [ ] `jarvis run --repo <name>` overrides the spec and the location-based
+- [x] `jarvis run --repo <name>` overrides the spec and the location-based
   rules.
-- [ ] `jarvis run --repo <url>` resolves via loose URL match against
+- [x] `jarvis run --repo <url>` resolves via loose URL match against
   registered `origin` values.
-- [ ] An unknown `--repo` value exits 1 with a message listing registered
+- [x] An unknown `--repo` value exits 1 with a message listing registered
   projects.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
 
 ## Documentation updates
 

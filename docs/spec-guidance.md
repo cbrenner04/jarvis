@@ -33,6 +33,20 @@ Specs may live anywhere, but every runnable spec must include `repo:` with an
 absolute path to the target repository. Jarvis reads that field first and uses
 it as the working repository path.
 
+## Land the spec before implementing it
+
+New specs must be merged to `main` before any implementation work on them
+begins. Jarvis runs against the spec file on disk, so a spec that only exists
+on a feature branch will drift from whatever the implementation branch
+eventually does. The workflow is:
+
+1. Create the spec on a branch and open a PR with **only** the spec files.
+2. Get the spec PR merged.
+3. Start a separate run/branch (typically via `jarvis run`) for the
+   implementation work.
+
+Do not bundle spec authoring and implementation in the same PR.
+
 ## Subspecs
 
 Each subspec should be independently implementable and testable. A good subspec

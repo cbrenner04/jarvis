@@ -1808,6 +1808,7 @@ exit 0
         config: { dir: cfgDir },
         agents: { claude },
         handleSignals: false,
+        disambiguate: () => ({ kind: "non-tty" }),
       });
 
       // The resolver ignores spec-`repo:` absolute paths that do not match

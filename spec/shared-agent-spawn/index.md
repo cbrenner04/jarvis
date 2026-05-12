@@ -6,7 +6,7 @@ The `src/agents/*.ts` modules duplicate the same `spawn` → buffer streams →
 single-settle → map exit/`stderr` to `AgentResult` pipeline. Extract that into
 a small shared helper so future changes to the run loop happen in one place.
 
-- [ ] [00 — Shared spawn helper and agent migration](./00-shared-spawn-helper.md)
+- [x] [00 — Shared spawn helper and agent migration](./00-shared-spawn-helper.md)
 
 ## Conventions
 

@@ -17,12 +17,10 @@ Normal runs use an `index.md` spec so agents select one indexed task per
 invocation. When `<spec-path>` is not named `index.md`, jarvis prompts before
 invoking any agent:
 
-- `s` — switch to a sibling `index.md` and run the normal loop from there
-- `m` — migrate the supplied spec to index-routed form (one iteration, then
-  stop)
+- `s` — switch to a sibling `index.md` and run the normal loop from there (only
+  offered when a sibling `index.md` exists)
 - `e` — exit without running an agent
 
-Use `m` only when the supplied path is a flat spec that still needs migration.
 Normal implementation work should run from `index.md`.
 
 ## Iteration banner

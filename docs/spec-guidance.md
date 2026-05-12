@@ -1,7 +1,7 @@
 # Spec Guidance for Agents
 
-This file is stable guidance for agents that need to create, migrate, or work
-from Jarvis specs.
+This file is stable guidance for agents that need to create or work from
+Jarvis specs.
 
 Jarvis specs should use an index-routed shape for normal work:
 
@@ -63,33 +63,13 @@ When an agent is asked to work from a Jarvis spec:
 Do not check unrelated index items. Do not keep working through the rest of the
 index after one subspec is complete.
 
-## Migrating Flat Specs
-
-A flat spec is a single Markdown file with implementation tasks directly in one
-checklist. Migrate it to the index-routed shape before normal Jarvis runs:
-
-1. Create a directory for the spec, such as `spec/<feature>/`.
-2. Create `spec/<feature>/index.md`.
-3. Move or split the flat checklist into numbered subspec files.
-4. Add index checklist links to those subspec files.
-5. Keep each subspec independently implementable and testable.
-6. Preserve useful context from the original flat spec in the new index or
-   subspec files.
-7. Rewrite the original flat file into the new `index.md` in place unless a
-   surrounding spec directory already exists and is clearly the intended home.
-
-If the flat spec contains many unrelated tasks, split by independently
-verifiable behavior rather than by file name or implementation layer.
-
 ## Non-index spec handling
 
 Passing a non-index spec to `jarvis run`, such as `spec/<feature>/01-task.md`,
-prompts for one of three actions:
+prompts for one of these actions:
 
-- `s`: switch to a sibling `index.md` and run the normal loop from there
-- `m`: migrate the supplied spec to index-routed form using this guide, then
-  stop after one successful migration iteration
+- `s`: switch to a sibling `index.md` and run the normal loop from there (only
+  offered when a sibling `index.md` exists)
 - `e`: exit without running an agent
 
-Use `m` only when the supplied path is a flat spec that still needs migration.
 Normal implementation work should run from `index.md`.

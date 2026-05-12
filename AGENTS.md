@@ -40,7 +40,7 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 - The index is the routing file an agent reads to select work. It contains a checklist of subspec pointers; a subspec is complete when its checkbox is checked.
 - Each subspec is **atomic and testable**: it can be implemented and verified independently of the others.
 - Each subspec includes a **Documentation updates** section. Doc changes are part of the work, not a follow-up.
-- External agents that need to create or migrate specs should follow [docs/spec-guidance.md](docs/spec-guidance.md).
+- External agents that need to create specs should follow [docs/spec-guidance.md](docs/spec-guidance.md).
 
 ## Working rules for agents in this repo
 

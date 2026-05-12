@@ -1065,76 +1065,12 @@ exit 0
 
     expect(code).toBe(0);
     expect(cap.out()).toContain("is not an index spec");
-    expect(cap.out()).toContain("[m] migrate");
     expect(cap.out()).toContain("[e] exit");
     expect(claude.calls).toHaveLength(0);
     expect(readFileSync(spec, "utf8")).toBe(withRepo("- [ ] todo\n"));
   });
 
-  test("non-index specs with 'm' response trigger migration and run one iteration", async () => {
-    const spec = writeDirectSpec("- [ ] one\n- [ ] two\n");
-    const cap = captureIo();
-    const claude = new FakeAgent("claude", () => {
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
-
-    const code = await runWithDefaults({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      confirmRun: () => "m",
-      handleSignals: false,
-    });
-
-    expect(code).toBe(0);
-    expect(claude.calls).toHaveLength(1);
-    expect(cap.out()).toContain("mode: migrate");
-    expect(cap.out()).toContain("migration finished");
-    expect(claude.calls[0]?.prompt).toContain(
-      "migrating a non-compliant Jarvis spec",
-    );
-    expect(claude.calls[0]?.prompt).toContain(spec);
-  });
-
-  test("migration with quota fallback tries next agent for migration prompt", async () => {
-    const spec = writeDirectSpec("- [ ] todo\n");
-    const cap = captureIo();
-    const claude = new FakeAgent("claude", () => ({
-      kind: "quota",
-      stderr: "limit",
-    }));
-    const codex = new FakeAgent("codex", () => {
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
-    writeConfig(
-      {
-        version: 1,
-        agentOrder: ["claude", "codex"],
-        maxIterations: 1,
-        patchModels: DEFAULT_PATCH_MODELS,
-        projects: { project: { root: projectRoot } },
-      },
-      { dir: cfgDir },
-    );
-
-    const code = await runWithDefaults({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude, codex },
-      confirmRun: () => "m",
-      handleSignals: false,
-    });
-
-    expect(code).toBe(0);
-    expect(claude.calls).toHaveLength(1);
-    expect(codex.calls).toHaveLength(1);
-    expect(cap.err()).toContain("claude: quota exhausted; falling back");
-    expect(cap.out()).toContain("migration finished");
-  });
-
-  test("migration prompt displays sibling index option when it exists", async () => {
+  test("non-index spec prompt displays sibling index option when it exists", async () => {
     const specDir = join(projectRoot, "specs");
     mkdirSync(specDir);
     const indexSpec = join(specDir, "index.md");
@@ -1160,7 +1096,6 @@ exit 0
 
     expect(code).toBe(0);
     expect(cap.out()).toContain("[s] switch to ./index.md");
-    expect(cap.out()).toContain("[m] migrate");
     expect(cap.out()).toContain("[e] exit");
     expect(claude.calls).toHaveLength(0);
   });

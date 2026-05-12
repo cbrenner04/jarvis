@@ -138,9 +138,8 @@ linked subspec checkbox in `index.md` checked, jarvis marks the PR ready for
 review with `gh pr ready`.
 
 Normal runs expect the supplied spec path to be an `index.md` file. Passing
-a non-index spec file such as `spec/<name>/01-task.md` prompts for one
-action: `s` to switch to a sibling `index.md`, `m` to migrate the supplied
-spec into index-routed form in one agent iteration, or `e` to exit.
+a non-index spec file such as `spec/<name>/01-task.md` prompts to either
+switch to a sibling `index.md` (when one exists) or exit.
 
 ### `jarvis cleanup`
 
@@ -167,8 +166,8 @@ for the schema, defaults, and the full list of `jarvis config` subcommands.
   defaults, `worktreeSymlinks`, `jarvis config` subcommands.
 - [docs/quota-signals.md](docs/quota-signals.md) — per-agent quota detection
   rules.
-- [docs/spec-guidance.md](docs/spec-guidance.md) — spec authoring and
-  migration guidance for agents and humans.
+- [docs/spec-guidance.md](docs/spec-guidance.md) — spec authoring guidance
+  for agents and humans.
 
 Agents working *in this repo* should also read
 [AGENTS.md](AGENTS.md).
@@ -201,5 +200,5 @@ bypass** rules when you need to merge without waiting on checks.
   test in one go.
 - `bun run start` — run `src/index.ts`.
 
-Spec authoring and migration guidance for agents lives in
+Spec authoring guidance for agents lives in
 [docs/spec-guidance.md](docs/spec-guidance.md).

@@ -38,6 +38,43 @@ Key decisions, captured here so subspecs can stay focused:
   matching that resolves to more than one project triggers the same
   interactive prompt.
 
+## Example: specs co-located in a non-git parent directory
+
+A common layout is a parent directory that holds several related repos plus
+the specs that target them:
+
+```text
+~/Work/groceries/                 # plain directory, not a git repo
+  specs/
+    checkout-flow/
+      index.md
+      00-...md
+  groceries-api/                  # git repo
+  groceries-client/               # git repo
+  groceries-worker/               # git repo
+```
+
+Setup:
+
+1. Run `jarvis init` inside each of `groceries-api/`, `groceries-client/`,
+   and `groceries-worker/`. Each registers as a project (e.g.
+   `groceries/groceries-client`) and records its `origin` URL.
+2. Do **not** run `jarvis init` in `~/Work/groceries/` itself; it is not a
+   git checkout and has no `origin` to record.
+3. Author specs in `~/Work/groceries/specs/<feature>/index.md` with the
+   `repo:` line set to the target repo's URL or slug, e.g.
+   `repo: https://github.com/you/groceries-client` or `repo: you/groceries-client`.
+4. Run from the parent: `jarvis run specs/<feature>/index.md` (cwd can be
+   `~/Work/groceries/`).
+
+Resolution: step 2 of the flow above loose-matches the spec's URL against
+the registered `origin` and selects the right subdir. Steps 3 and 4 do not
+fire because the spec lives outside any registered project and the parent
+is not a git checkout — and that is fine.
+
+If the spec omits `repo:`, resolution falls through to the interactive
+prompt (subspec 02) listing the registered projects to pick from.
+
 - [ ] [00 - Record `origin` URL on init](./00-record-origin-on-init.md)
 - [ ] [01 - Spec `repo:` URL parsing and resolution flow](./01-repo-url-resolution.md)
 - [ ] [02 - Interactive disambiguation prompt](./02-disambiguation-prompt.md)

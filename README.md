@@ -166,6 +166,12 @@ behavior.
 View or edit `~/.jarvis/config.json`. See [docs/config.md](docs/config.md)
 for the schema, defaults, and the full list of `jarvis config` subcommands.
 
+Recently added subcommands:
+
+- `jarvis config set-git <true|false>` — write the top-level `git` toggle.
+- `jarvis config set-project-git <name> <true|false|unset>` — write or clear
+  a per-project `git` override.
+
 ## Documentation
 
 - [docs/run-loop.md](docs/run-loop.md) — iteration, completion, output

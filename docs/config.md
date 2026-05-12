@@ -26,6 +26,7 @@ type AgentName = "claude" | "codex" | "cursor" | "opencode";
 type Project = {
   root: string; // absolute path to a target-repo root
   origin?: string; // optional git remote URL recorded by `jarvis init`
+  git?: boolean; // optional per-project override of the top-level `git` toggle
 };
 
 type Config = {
@@ -36,6 +37,7 @@ type Config = {
   logServerUrl: string; // POST endpoint used by jarvis run
   logServerBind: string; // host:port used by jarvis log-server
   worktreeSymlinks?: string[]; // relative paths from repo root to symlink into worktrees
+  git: boolean; // whether jarvis manages git/gh (worktree, commits, PR); default true
   projects: Record<string, Project>; // key = path relative to ~/Work
 };
 ```
@@ -73,6 +75,7 @@ Default contents on first bootstrap:
   "logServerUrl": "http://127.0.0.1:4310/logs",
   "logServerBind": "127.0.0.1:4310",
   "maxIterations": 10,
+  "git": true,
   "projects": {}
 }
 ```
@@ -101,12 +104,30 @@ Example:
 This prevents redundant `bun install` or rebuild operations when re-running
 specs.
 
+## `git` toggle
+
+The top-level `git` boolean controls whether jarvis manages git and GitHub
+on behalf of a run — creating a worktree, committing per subspec, pushing,
+and opening a draft PR. It defaults to `true` to preserve historic behavior.
+
+Each project may override the top-level value with an optional
+`projects[<name>].git` boolean. The effective value is the project override
+when defined, otherwise the top-level value, otherwise `true` for configs
+written before this field existed.
+
+The behavior that flips when `git` is `false` (no worktree, no commits, no
+PR, alternative completion semantics, `--cwd`) is implemented separately and
+documented alongside `jarvis run`.
+
 ## `jarvis config` subcommands
 
 - `jarvis config show` — print the current config as JSON.
 - `jarvis config path` — print the absolute path of `config.json`.
 - `jarvis config set-order <a,b,c>` — replace `agentOrder` with a
   comma-separated list of agents. Rejects unknown agents and duplicates.
+- `jarvis config set-git <true|false>` — write the top-level `git` toggle.
+- `jarvis config set-project-git <name> <true|false|unset>` — write or
+  clear the per-project `git` override. Unknown project names exit 1.
 - `jarvis config projects` — list registered projects.
 - `jarvis config remove-project <name>` — remove a registered project.
 - `jarvis config edit` — open `config.json` in `$EDITOR` (fallback `vi`); the

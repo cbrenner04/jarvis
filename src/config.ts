@@ -18,6 +18,7 @@ export type AgentName = (typeof AGENT_NAMES)[number];
 export type Project = {
   root: string;
   origin?: string;
+  git?: boolean;
 };
 
 export type ProjectMatch = {
@@ -36,6 +37,7 @@ export type Config = {
   logServerUrl?: string;
   logServerBind?: string;
   worktreeSymlinks?: string[];
+  git: boolean;
   projects: Record<string, Project>;
 };
 
@@ -56,6 +58,7 @@ const DEFAULT_CONFIG: Config = {
   },
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",
+  git: true,
   projects: {},
 };
 
@@ -125,6 +128,13 @@ function validateConfig(input: unknown, file: string): Config {
     (message) => fail(file, message),
   );
 
+  const git = validateOptionalBoolean(
+    obj.git,
+    "git",
+    DEFAULT_CONFIG.git,
+    (message) => fail(file, message),
+  );
+
   const rawProjects = obj.projects;
   if (
     rawProjects === null ||
@@ -174,6 +184,13 @@ function validateConfig(input: unknown, file: string): Config {
       }
       project.origin = originRaw;
     }
+    const gitRaw = (value as Record<string, unknown>).git;
+    if (gitRaw !== undefined) {
+      if (typeof gitRaw !== "boolean") {
+        fail(file, `project ${JSON.stringify(name)} git must be a boolean`);
+      }
+      project.git = gitRaw;
+    }
     projects[name] = project;
   }
 
@@ -184,6 +201,7 @@ function validateConfig(input: unknown, file: string): Config {
     patchModels,
     logServerUrl,
     logServerBind,
+    git,
     projects,
   };
 }
@@ -249,6 +267,21 @@ function validateConfigString(
 ): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     failWith(`${name} must be a non-empty string`);
+  }
+  return value;
+}
+
+function validateOptionalBoolean(
+  value: unknown,
+  name: string,
+  fallback: boolean,
+  failWith: (message: string) => never,
+): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (typeof value !== "boolean") {
+    failWith(`${name} must be a boolean`);
   }
   return value;
 }
@@ -328,6 +361,43 @@ export function setProjectOrigin(
   }
   cfg.projects[name] = { ...project, origin };
   writeConfig(cfg, opts);
+}
+
+export function setGit(value: boolean, opts?: ConfigOptions): void {
+  const cfg = loadConfig(opts);
+  cfg.git = value;
+  writeConfig(cfg, opts);
+}
+
+export function setProjectGit(
+  name: string,
+  value: boolean | undefined,
+  opts?: ConfigOptions,
+): void {
+  const cfg = loadConfig(opts);
+  const project = cfg.projects[name];
+  if (project === undefined) {
+    throw new Error(`Project ${JSON.stringify(name)} is not registered`);
+  }
+  const next: Project = { root: project.root };
+  if (project.origin !== undefined) {
+    next.origin = project.origin;
+  }
+  if (value !== undefined) {
+    next.git = value;
+  }
+  cfg.projects[name] = next;
+  writeConfig(cfg, opts);
+}
+
+export function effectiveGit(cfg: Config, projectName?: string): boolean {
+  if (projectName !== undefined) {
+    const project = cfg.projects[projectName];
+    if (project !== undefined && project.git !== undefined) {
+      return project.git;
+    }
+  }
+  return cfg.git;
 }
 
 export function findProjectForPath(

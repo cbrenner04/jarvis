@@ -6,6 +6,8 @@ import {
   CONFIG_PATH,
   type ConfigOptions,
   loadConfig,
+  setGit,
+  setProjectGit,
   writeConfig,
 } from "../config.ts";
 
@@ -17,6 +19,9 @@ Subcommands:
   show                       Print the current config as JSON.
   path                       Print the absolute path of config.json.
   set-order <a,b,c>          Replace agentOrder with a comma-separated list.
+  set-git <true|false>       Set the top-level git toggle.
+  set-project-git <name> <true|false|unset>
+                             Set or clear the per-project git override.
   projects                   List registered projects.
   remove-project <name>      Remove a registered project.
   edit                       Open config.json in $EDITOR (fallback: vi).
@@ -126,6 +131,59 @@ export function configCommand(opts: ConfigCommandOptions): number {
       delete cfg.projects[name];
       writeConfig(cfg, opts.config);
       io.stdout(`removed project ${JSON.stringify(name)}\n`);
+      return 0;
+    }
+    case "set-git": {
+      const arg = rest[0];
+      if (arg === undefined) {
+        io.stderr("jarvis: set-git: missing <true|false>\n");
+        return 1;
+      }
+      if (arg !== "true" && arg !== "false") {
+        io.stderr(
+          `jarvis: set-git: expected true or false (got ${JSON.stringify(arg)})\n`,
+        );
+        return 1;
+      }
+      const value = arg === "true";
+      setGit(value, opts.config);
+      io.stdout(`git: ${value}\n`);
+      return 0;
+    }
+    case "set-project-git": {
+      const name = rest[0];
+      const valueArg = rest[1];
+      if (name === undefined || valueArg === undefined) {
+        io.stderr(
+          "jarvis: set-project-git: missing <name> <true|false|unset>\n",
+        );
+        return 1;
+      }
+      if (valueArg !== "true" && valueArg !== "false" && valueArg !== "unset") {
+        io.stderr(
+          `jarvis: set-project-git: expected true, false, or unset (got ${JSON.stringify(valueArg)})\n`,
+        );
+        return 1;
+      }
+      const cfg = loadConfig(opts.config);
+      if (cfg.projects[name] === undefined) {
+        io.stderr(
+          `jarvis: set-project-git: unknown project ${JSON.stringify(name)}\n`,
+        );
+        return 1;
+      }
+      const next = valueArg === "unset" ? undefined : valueArg === "true";
+      try {
+        setProjectGit(name, next, opts.config);
+      } catch (err) {
+        io.stderr(`jarvis: ${(err as Error).message}\n`);
+        return 1;
+      }
+      io.stdout(
+        next === undefined
+          ? `project ${JSON.stringify(name)}: git override cleared\n`
+          : `project ${JSON.stringify(name)}: git=${next}\n`,
+      );
       return 0;
     }
     case "edit": {

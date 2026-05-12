@@ -39,20 +39,20 @@ optional per-project override.
 
 ## Acceptance criteria
 
-- [ ] `Config` type validates a top-level `git: boolean` defaulting to
+- [x] `Config` type validates a top-level `git: boolean` defaulting to
   `true`; non-boolean values fail validation with the file path in the
   error.
-- [ ] `Project` type validates an optional `git?: boolean`; non-boolean
+- [x] `Project` type validates an optional `git?: boolean`; non-boolean
   values fail validation with the file path in the error.
-- [ ] Effective `git` resolution returns the project override when set,
+- [x] Effective `git` resolution returns the project override when set,
   else the top-level value, else `true`.
-- [ ] `jarvis config set-git <true|false>` writes the value; invalid input
+- [x] `jarvis config set-git <true|false>` writes the value; invalid input
   exits 1.
-- [ ] `jarvis config set-project-git <name> <true|false|unset>` writes,
+- [x] `jarvis config set-project-git <name> <true|false|unset>` writes,
   clears the override, or exits 1 for unknown names.
-- [ ] Existing `~/.jarvis/config.json` files without a `git` field continue
+- [x] Existing `~/.jarvis/config.json` files without a `git` field continue
   to load and resolve to `true`.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
 
 ## Documentation updates
 

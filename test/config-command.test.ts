@@ -53,6 +53,7 @@ describe("config show", () => {
       },
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
+      git: true,
       projects: {},
     });
   });
@@ -317,6 +318,122 @@ describe("config edit", () => {
     });
     expect(code).toBe(1);
     expect(cap.err()).toContain("status 2");
+  });
+});
+
+describe("config set-git", () => {
+  test("writes true", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-git", "true"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(loadConfig({ dir: cfgDir }).git).toBe(true);
+  });
+
+  test("writes false", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-git", "false"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(loadConfig({ dir: cfgDir }).git).toBe(false);
+  });
+
+  test("rejects invalid value", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-git", "yes"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("set-git");
+  });
+
+  test("rejects missing value", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-git"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("missing");
+  });
+});
+
+describe("config set-project-git", () => {
+  test("sets per-project override", () => {
+    registerProject("alpha", "/tmp/alpha-git", { dir: cfgDir });
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-project-git", "alpha", "false"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(loadConfig({ dir: cfgDir }).projects.alpha).toEqual({
+      root: "/tmp/alpha-git",
+      git: false,
+    });
+  });
+
+  test("clears per-project override with unset", () => {
+    registerProject("alpha", "/tmp/alpha-git-unset", { dir: cfgDir });
+    configCommand({
+      args: ["set-project-git", "alpha", "true"],
+      io: captureIo().io,
+      config: { dir: cfgDir },
+    });
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-project-git", "alpha", "unset"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(loadConfig({ dir: cfgDir }).projects.alpha).toEqual({
+      root: "/tmp/alpha-git-unset",
+    });
+  });
+
+  test("unknown project exits 1", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-project-git", "ghost", "true"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("unknown project");
+  });
+
+  test("invalid value exits 1", () => {
+    registerProject("alpha", "/tmp/alpha-git-bad", { dir: cfgDir });
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-project-git", "alpha", "maybe"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("set-project-git");
+  });
+
+  test("missing args exits 1", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-project-git", "alpha"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("missing");
   });
 });
 

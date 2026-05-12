@@ -50,10 +50,22 @@ export function maybeMarkReady(opts: { indexPath: string; cwd: string }): void {
 }
 
 function checkPrExists(branch: string, cwd?: string): number | null {
+  // Filter to OPEN PRs only. `gh pr view <branch>` returns the most recent PR
+  // regardless of state, so a previously merged/closed PR on the same branch
+  // would otherwise be treated as the current PR (e.g. when a worktree branch
+  // is reused after its prior PR has been merged).
   try {
     const output = execFileSync(
       "gh",
-      ["pr", "view", branch, "--json", "number,state", "-q", ".number"],
+      [
+        "pr",
+        "view",
+        branch,
+        "--json",
+        "number,state",
+        "-q",
+        'select(.state=="OPEN") | .number',
+      ],
       { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
     );
     const number = parseInt(output.trim(), 10);

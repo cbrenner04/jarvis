@@ -5,14 +5,13 @@ completion is detected, where output goes, and how runs stop.
 
 ## Iteration
 
-`jarvis run <spec-path>` resolves the requested spec to an absolute path, finds
-the registered project root that contains it, prepares the per-spec
-[worktree](./worktrees-and-commits.md), then maps the spec path into that
-worktree. Default-branch lookups use that project root (or the prepared
-worktree) as `cwd` for `gh` / git, so the operator’s shell working directory may
-even be outside any repository (for example a parent directory of several clones).
-From that point, Jarvis runs agents from `agentOrder` until the
-worktree-local spec has no unchecked boxes.
+`jarvis run <spec-path>` resolves the requested spec to an absolute path and
+reads it first. Every runnable spec must include `repo: <absolute-path>`.
+Jarvis uses that path to prepare the per-spec
+[worktree](./worktrees-and-commits.md) and as the base `cwd` for `gh`, git, and
+the agent. The operator’s shell working directory may be outside any repository,
+such as a parent directory of several clones. From that point, Jarvis runs
+agents from `agentOrder` until the active spec has no unchecked boxes.
 
 Normal runs use an `index.md` spec so agents select one indexed task per
 invocation. When `<spec-path>` is not named `index.md`, jarvis prompts before

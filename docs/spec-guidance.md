@@ -17,6 +17,8 @@ whose items link to atomic subspec files:
 ```md
 # <Feature>
 
+repo: /absolute/path/to/target-repo
+
 - [ ] [00 - First task](./00-first-task.md)
 - [ ] [01 - Second task](./01-second-task.md)
 ```
@@ -26,6 +28,10 @@ Run Jarvis against the index:
 ```sh
 jarvis run spec/<feature>/index.md
 ```
+
+Specs may live anywhere, but every runnable spec must include `repo:` with an
+absolute path to the target repository. Jarvis reads that field first and uses
+it as the working repository path.
 
 ## Subspecs
 

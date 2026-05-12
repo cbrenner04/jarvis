@@ -46,10 +46,12 @@ $EDITOR spec/<name>/index.md
 `jarvis init` only registers the current repo. It does not create or modify
 files in the target repo.
 
-Write the spec as Markdown with GitHub-style task list items:
+Write the spec as Markdown with a `repo:` line and GitHub-style task list items:
 
 ```md
 # <Feature or fix>
+
+repo: /absolute/path/to/target-repo
 
 - [ ] First task for the agent to complete.
 - [ ] Second task for the agent to complete.
@@ -109,9 +111,9 @@ to resolve it with `jarvis config`. If the current directory is outside
 zero unchecked boxes, and opens a draft PR after the first commit lands. The
 PR transitions to ready for review when the spec is complete; jarvis never
 merges. You may start the command from a directory that is not a git checkout
-(for example a parent folder that holds multiple repos); resolution uses the
-spec path against registered project roots so `gh` and git see the correct
-repository.
+(for example a parent folder that holds multiple repos). Jarvis reads the
+supplied spec first, requires `repo: <absolute-path>`, and only then prepares
+the worktree and runs `gh` / git from that repository.
 
 For full details — iteration banner, completion semantics, output
 destinations, stop conditions, and exit codes — see

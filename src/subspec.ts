@@ -2,7 +2,10 @@ import { execSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 
-export function commitSubspec(subspecPath: string): void {
+export function commitSubspec(
+  subspecPath: string,
+  opts: { cwd?: string } = {},
+): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
   const indexPath = getIndexPath(subspecPath);
   const indexContent = readFileSync(indexPath, "utf8");
@@ -23,7 +26,7 @@ export function commitSubspec(subspecPath: string): void {
   const updatedIndexContent = updateIndexCheckbox(indexContent, subspecName);
   writeFileSync(indexPath, updatedIndexContent);
 
-  const gitRoot = getGitRoot(subspecPath);
+  const gitRoot = opts.cwd ?? getGitRoot(subspecPath);
   execSync("git add -A", { cwd: gitRoot, stdio: "pipe" });
 
   const relativeSpecPath = relative(

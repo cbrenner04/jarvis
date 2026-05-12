@@ -252,6 +252,72 @@ describe("runCommand", () => {
     expect(claude.calls[0]?.prompt).not.toContain("Read README.md.");
   });
 
+  test("routes an external spec to its declared repo", async () => {
+    const spec = writeExternalSpec("# Feature\n\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] todo\n`);
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("project: project");
+    expect(claude.calls).toEqual([
+      {
+        prompt: expect.stringContaining(`Read the spec at ${spec}.`),
+        cwd: projectRoot,
+      },
+    ]);
+  });
+
+  test("specs without a repo fail clearly before agents run", async () => {
+    const spec = writeSpecWithoutRepo("# Feature\n\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("missing required `repo: <absolute-path>`");
+    expect(claude.calls).toHaveLength(0);
+  });
+
+  test("specs with relative repos fail clearly", async () => {
+    const spec = writeSpecWithoutRepo(
+      "# Feature\n\nrepo: ./project\n\n- [ ] todo\n",
+    );
+    const cap = captureIo();
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: {},
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("spec repo must be an absolute path");
+  });
+
   test("does not print successful agent stdout/stderr to terminal", async () => {
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
@@ -411,7 +477,9 @@ describe("runCommand", () => {
     const secondSubspec = join(specDir, "01-two.md");
     writeFileSync(
       spec,
-      "- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n",
+      withRepo(
+        "- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n",
+      ),
     );
     writeFileSync(
       firstSubspec,
@@ -488,7 +556,9 @@ describe("runCommand", () => {
     const spec = join(specDir, "index.md");
     writeFileSync(
       spec,
-      "# Feature\n\n- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n",
+      withRepo(
+        "# Feature\n\n- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n",
+      ),
     );
     writeFileSync(
       join(specDir, "00-one.md"),
@@ -955,10 +1025,10 @@ exit 0
     expect(cap.err()).toContain("error: unsupported model haiku");
     expect(claude.calls).toHaveLength(1);
     expect(codex.calls).toHaveLength(0);
-    expect(readFileSync(spec, "utf8")).toBe("- [ ] todo\n");
+    expect(readFileSync(spec, "utf8")).toBe(withRepo("- [ ] todo\n"));
   });
 
-  test("exits 1 when the spec is outside registered projects", async () => {
+  test("exits 1 when the spec has no repo", async () => {
     const spec = join(dir, "outside.md");
     writeFileSync(spec, "- [ ] todo\n");
     const cap = captureIo();
@@ -972,9 +1042,7 @@ exit 0
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain(
-      "spec path is not inside any project registered with `jarvis init`.",
-    );
+    expect(cap.err()).toContain("missing required `repo: <absolute-path>`");
   });
 
   test("non-index specs with empty response exit without invoking an agent", async () => {
@@ -1000,7 +1068,7 @@ exit 0
     expect(cap.out()).toContain("[m] migrate");
     expect(cap.out()).toContain("[e] exit");
     expect(claude.calls).toHaveLength(0);
-    expect(readFileSync(spec, "utf8")).toBe("- [ ] todo\n");
+    expect(readFileSync(spec, "utf8")).toBe(withRepo("- [ ] todo\n"));
   });
 
   test("non-index specs with 'm' response trigger migration and run one iteration", async () => {
@@ -1071,8 +1139,8 @@ exit 0
     mkdirSync(specDir);
     const indexSpec = join(specDir, "index.md");
     const flatSpec = join(specDir, "spec.md");
-    writeFileSync(indexSpec, "- [ ] linked task\n");
-    writeFileSync(flatSpec, "- [ ] todo\n");
+    writeFileSync(indexSpec, withRepo("- [ ] linked task\n"));
+    writeFileSync(flatSpec, withRepo("- [ ] todo\n"));
 
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({
@@ -1269,7 +1337,7 @@ exit 0
 
 function writeSpec(contents: string): string {
   const spec = join(projectRoot, "index.md");
-  writeFileSync(spec, contents);
+  writeFileSync(spec, withRepo(contents));
   return spec;
 }
 
@@ -1277,12 +1345,32 @@ function writeNamedSpec(name: string, contents: string): string {
   const specDir = join(projectRoot, name);
   mkdirSync(specDir);
   const spec = join(specDir, "index.md");
-  writeFileSync(spec, contents);
+  writeFileSync(spec, withRepo(contents));
   return spec;
 }
 
 function writeDirectSpec(contents: string): string {
   const spec = join(projectRoot, "spec.md");
+  writeFileSync(spec, withRepo(contents));
+  return spec;
+}
+
+function writeExternalSpec(contents: string): string {
+  const specDir = join(dir, "external-specs");
+  mkdirSync(specDir, { recursive: true });
+  const spec = join(specDir, "index.md");
+  writeFileSync(spec, withRepo(contents));
+  return spec;
+}
+
+function writeSpecWithoutRepo(contents: string): string {
+  const specDir = join(dir, "missing-repo");
+  mkdirSync(specDir, { recursive: true });
+  const spec = join(specDir, "index.md");
   writeFileSync(spec, contents);
   return spec;
+}
+
+function withRepo(contents: string): string {
+  return `repo: ${projectRoot}\n\n${contents}`;
 }

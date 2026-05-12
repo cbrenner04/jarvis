@@ -8,7 +8,14 @@ import {
   readFileSync,
   writeSync,
 } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import { ClaudeAgent } from "../agents/claude.ts";
 import { CodexAgent } from "../agents/codex.ts";
 import { CursorAgent } from "../agents/cursor.ts";
@@ -19,7 +26,6 @@ import {
   type AgentName,
   type Config,
   type ConfigOptions,
-  findProjectMatchForPath,
   loadConfig,
   openSessionLog,
   type ProjectMatch,
@@ -68,14 +74,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return 1;
   }
 
-  const cfg = loadConfig(opts.config);
-  const project = findProjectMatchForPath(specPath, opts.config);
-  if (project === undefined) {
-    opts.io.stderr(
-      "spec path is not inside any project registered with `jarvis init`.\n",
-    );
+  const projectResolution = resolveProjectFromSpec(specPath);
+  if (projectResolution.error !== undefined) {
+    opts.io.stderr(`${projectResolution.error}\n`);
     return 1;
   }
+  const project = projectResolution.project;
+  const cfg = loadConfig(opts.config);
 
   if (!opts.skipGhCheck) {
     try {
@@ -446,7 +451,9 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         }
         if (newlyCheckedSubspecs.length === 1) {
           try {
-            commitSubspec(newlyCheckedSubspecs[0] as string);
+            commitSubspec(newlyCheckedSubspecs[0] as string, {
+              cwd: agentWorkingDir,
+            });
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             await fanout(
@@ -833,6 +840,45 @@ function getCurrentBranch(cwd: string): string {
     encoding: "utf8",
     stdio: "pipe",
   }).trim();
+}
+
+function resolveProjectFromSpec(specPath: string): {
+  project: ProjectMatch;
+  error?: string;
+} {
+  const repo = readRepoPath(specPath);
+  if (repo === undefined) {
+    return {
+      project: { key: "", root: "" },
+      error: "spec is missing required `repo: <absolute-path>` line",
+    };
+  }
+  if (!isAbsolute(repo)) {
+    return {
+      project: { key: "", root: "" },
+      error: `spec repo must be an absolute path: ${repo}`,
+    };
+  }
+  const root = resolve(repo);
+  return { project: { key: basename(root), root } };
+}
+
+function readRepoPath(specPath: string): string | undefined {
+  let inFence = false;
+  for (const line of readFileSync(specPath, "utf8").split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) {
+      continue;
+    }
+    const match = line.match(/^repo:\s*(.+?)\s*$/);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+  return undefined;
 }
 
 export function prepareActiveSpecPath(opts: {

@@ -1,9 +1,4 @@
-import {
-  existsSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
@@ -28,7 +23,10 @@ export function isProcessAlive(pid: number): boolean {
 
 export function acquireWorktreeLock(
   worktreeDir: string,
-): { kind: "acquired" } | { kind: "busy"; existingLock: WorktreeLock } | { kind: "recovered"; stalepid: number } {
+):
+  | { kind: "acquired" }
+  | { kind: "busy"; existingLock: WorktreeLock }
+  | { kind: "recovered"; stalepid: number } {
   const lockPath = getWorktreeLockPath(worktreeDir);
 
   if (existsSync(lockPath)) {
@@ -53,7 +51,7 @@ export function acquireWorktreeLock(
         started_at: new Date().toISOString(),
         host: hostname(),
       };
-      writeFileSync(lockPath, JSON.stringify(lock, null, 2) + "\n", "utf8");
+      writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
       return { kind: "recovered", stalepid };
     }
   }
@@ -63,7 +61,7 @@ export function acquireWorktreeLock(
     started_at: new Date().toISOString(),
     host: hostname(),
   };
-  writeFileSync(lockPath, JSON.stringify(lock, null, 2) + "\n", "utf8");
+  writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
   return { kind: "acquired" };
 }
 

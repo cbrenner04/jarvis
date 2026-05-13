@@ -105,7 +105,9 @@ export function runAgent(
             child.kill("SIGKILL");
           }
         }, 2000);
-        const reason = opts.signal?.reason ? String(opts.signal.reason) : "aborted";
+        const reason = opts.signal?.reason
+          ? String(opts.signal.reason)
+          : "aborted";
         settle({
           kind: "error",
           exitCode: -1,

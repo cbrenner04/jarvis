@@ -114,9 +114,9 @@ describe("isModelConfigurationSignal", () => {
 
 describe("isWeakQuotaSignal", () => {
   test("matches weak quota-like transport text", () => {
-    expect(
-      isWeakQuotaSignal("claude", 1, "HTTP 429: too many requests"),
-    ).toBe(true);
+    expect(isWeakQuotaSignal("claude", 1, "HTTP 429: too many requests")).toBe(
+      true,
+    );
     expect(isWeakQuotaSignal("codex", 1, "service unavailable (503)")).toBe(
       true,
     );

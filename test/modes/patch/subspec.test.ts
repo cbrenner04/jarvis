@@ -1,8 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  execFileSync,
-  execSync,
-} from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -12,7 +9,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { commitSubspec, commitWipProgress } from "../../../src/modes/patch/subspec.ts";
+import {
+  commitSubspec,
+  commitWipProgress,
+} from "../../../src/modes/patch/subspec.ts";
 
 let tempDir: string;
 let gitDir: string;
@@ -23,7 +23,10 @@ beforeEach(() => {
 
   // Initialize git repo
   execSync("git init", { cwd: gitDir, stdio: "pipe" });
-  execSync("git config user.email 'test@example.com'", { cwd: gitDir, stdio: "pipe" });
+  execSync("git config user.email 'test@example.com'", {
+    cwd: gitDir,
+    stdio: "pipe",
+  });
   execSync("git config user.name 'Test User'", { cwd: gitDir, stdio: "pipe" });
   execSync("git checkout -b test-branch", { cwd: gitDir, stdio: "pipe" });
 });
@@ -71,13 +74,16 @@ function getLastCommitMessage(): string {
 describe("commitSubspec", () => {
   test("commits successfully with normal content", () => {
     createIndexFile();
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [x] First criterion
 - [ ] Second criterion
-`);
+`,
+    );
 
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
@@ -92,13 +98,16 @@ describe("commitSubspec", () => {
 
   test("commits successfully with JARVIS_COMMIT_MESSAGE on its own line", () => {
     createIndexFile();
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [x] JARVIS_COMMIT_MESSAGE
 - [ ] Second criterion
-`);
+`,
+    );
 
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
@@ -112,13 +121,16 @@ describe("commitSubspec", () => {
 
   test("commits successfully with EOF on its own line", () => {
     createIndexFile();
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [x] First criterion
 - [ ] EOF
-`);
+`,
+    );
 
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
@@ -133,12 +145,15 @@ describe("commitSubspec", () => {
   test("updates index checkbox after commit", () => {
     createIndexFile();
     const indexPath = join(gitDir, "spec", "index.md");
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [x] First criterion
-`);
+`,
+    );
 
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
@@ -152,25 +167,31 @@ describe("commitSubspec", () => {
 
 describe("commitWipProgress", () => {
   test("commits successfully with normal content", () => {
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [ ] First criterion
 - [ ] Second criterion
-`);
+`,
+    );
 
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
 
     // Make a change to commit
-    writeFileSync(specPath, `# Test Spec
+    writeFileSync(
+      specPath,
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [x] First criterion
 - [ ] Second criterion
-`);
+`,
+    );
 
     commitWipProgress(specPath, {
       cwd: gitDir,
@@ -185,25 +206,31 @@ describe("commitWipProgress", () => {
   });
 
   test("commits successfully with JARVIS_COMMIT_MESSAGE in spec body", () => {
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [ ] First criterion containing JARVIS_COMMIT_MESSAGE
 - [ ] Second criterion
-`);
+`,
+    );
 
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
 
     // Make a change to commit
-    writeFileSync(specPath, `# Test Spec
+    writeFileSync(
+      specPath,
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [x] First criterion containing JARVIS_COMMIT_MESSAGE
 - [ ] Second criterion
-`);
+`,
+    );
 
     commitWipProgress(specPath, {
       cwd: gitDir,
@@ -218,25 +245,31 @@ describe("commitWipProgress", () => {
   });
 
   test("includes newly checked criteria in commit message", () => {
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [x] First criterion
 - [ ] Second criterion
-`);
+`,
+    );
 
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
 
     // Make a change to commit
-    writeFileSync(specPath, `# Test Spec
+    writeFileSync(
+      specPath,
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [x] First criterion
 - [x] Second criterion
-`);
+`,
+    );
 
     commitWipProgress(specPath, {
       cwd: gitDir,

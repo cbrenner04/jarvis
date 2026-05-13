@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -30,7 +36,9 @@ function createSpecFile(name: string, content: string): string {
 
 describe("hasBlocker", () => {
   test("returns true when spec has blocker section", () => {
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
@@ -39,18 +47,22 @@ describe("hasBlocker", () => {
 ## Blocker
 
 Waiting for something
-`);
+`,
+    );
 
     expect(hasBlocker(specPath)).toBe(true);
   });
 
   test("returns false when spec has no blocker section", () => {
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [ ] First criterion
-`);
+`,
+    );
 
     expect(hasBlocker(specPath)).toBe(false);
   });
@@ -63,7 +75,9 @@ Waiting for something
 
 describe("extractBlockerBody", () => {
   test("extracts blocker body correctly", () => {
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
@@ -72,14 +86,17 @@ describe("extractBlockerBody", () => {
 ## Blocker
 
 Waiting for external API
-`);
+`,
+    );
 
     const body = extractBlockerBody(specPath);
     expect(body).toBe("Waiting for external API");
   });
 
   test("extracts blocker body with multiple lines", () => {
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
@@ -90,7 +107,8 @@ Waiting for external API
 This is a blocker because:
 - Need external input
 - Dependency not ready
-`);
+`,
+    );
 
     const body = extractBlockerBody(specPath);
     expect(body).toContain("This is a blocker because:");
@@ -99,18 +117,23 @@ This is a blocker because:
   });
 
   test("returns null when no blocker section", () => {
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
 - [ ] First criterion
-`);
+`,
+    );
 
     expect(extractBlockerBody(specPath)).toBe(null);
   });
 
   test("extracts blocker when it's followed by another section", () => {
-    const specPath = createSpecFile("01-test-one.md", `# Test Spec
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
 
 ## Acceptance criteria
 
@@ -123,7 +146,8 @@ Blocked reason
 ## Notes
 
 Some notes
-`);
+`,
+    );
 
     const body = extractBlockerBody(specPath);
     expect(body).toBe("Blocked reason");

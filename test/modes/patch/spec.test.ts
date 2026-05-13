@@ -3,7 +3,9 @@ import { parsePatchSpec } from "../../../src/modes/patch/spec.ts";
 
 describe("parsePatchSpec", () => {
   test("parses h1, tasks, linked subspecs, acceptance criteria, and blocker", () => {
-    const parsed = parsePatchSpec(`# Title\n\n- [x] done\n- [ ] [01 - One](./01-one.md)\n\n## Acceptance criteria\n\n- [x] A\n- [ ] B\n\n## Blocker\n\nWaiting on API\n`);
+    const parsed = parsePatchSpec(
+      `# Title\n\n- [x] done\n- [ ] [01 - One](./01-one.md)\n\n## Acceptance criteria\n\n- [x] A\n- [ ] B\n\n## Blocker\n\nWaiting on API\n`,
+    );
 
     expect(parsed.h1).toBe("Title");
     expect(parsed.tasks).toEqual([
@@ -29,7 +31,9 @@ describe("parsePatchSpec", () => {
   });
 
   test("warns when acceptance criteria heading is malformed", () => {
-    const parsed = parsePatchSpec(`# Title\n\n### Acceptance criteria\n\n- [ ] Item\n`);
+    const parsed = parsePatchSpec(
+      `# Title\n\n### Acceptance criteria\n\n- [ ] Item\n`,
+    );
 
     expect(parsed.acceptanceCriteria).toEqual([]);
     expect(parsed.warnings).toContain(

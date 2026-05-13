@@ -1,12 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, readFileSync, rmSync, mkdirSync, writeFileSync, mkdtempSync } from "node:fs";
-import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   acquireWorktreeLock,
-  releaseWorktreeLock,
   getWorktreeLockPath,
   isProcessAlive,
+  releaseWorktreeLock,
   type WorktreeLock,
 } from "../src/worktree-lock.ts";
 
@@ -43,7 +49,7 @@ describe("acquireWorktreeLock", () => {
       started_at: new Date().toISOString(),
       host: "localhost",
     };
-    writeFileSync(lockPath, JSON.stringify(existingLock, null, 2) + "\n");
+    writeFileSync(lockPath, `${JSON.stringify(existingLock, null, 2)}\n`);
 
     const result = acquireWorktreeLock(tmpDir);
     expect(result.kind).toBe("busy");
@@ -54,13 +60,13 @@ describe("acquireWorktreeLock", () => {
 
   it("recovers stale lock", () => {
     const lockPath = getWorktreeLockPath(tmpDir);
-    const stalePid = 1; // PID 1 is init, guaranteed to exist, but we're claiming it's stale
+    const _stalePid = 1; // PID 1 is init, guaranteed to exist, but we're claiming it's stale
     const staleLock: WorktreeLock = {
       pid: 99999, // Very likely to not exist
       started_at: new Date().toISOString(),
       host: "localhost",
     };
-    writeFileSync(lockPath, JSON.stringify(staleLock, null, 2) + "\n");
+    writeFileSync(lockPath, `${JSON.stringify(staleLock, null, 2)}\n`);
 
     const result = acquireWorktreeLock(tmpDir);
     expect(result.kind).toBe("recovered");

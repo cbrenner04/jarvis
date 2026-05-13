@@ -55,7 +55,9 @@ export function getActiveLinkedSubspecPath(
   indexPath: string,
 ): string | undefined {
   const parsed = parsePatchSpec(readSpec(indexPath));
-  const firstUncheckedLinked = parsed.linkedSubspecs.find((item) => !item.checked);
+  const firstUncheckedLinked = parsed.linkedSubspecs.find(
+    (item) => !item.checked,
+  );
   if (firstUncheckedLinked === undefined) {
     return undefined;
   }

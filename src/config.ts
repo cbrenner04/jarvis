@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -8,16 +9,12 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
 
 let configWriteLocked = false;
 
-function atomicWriteSync(
-  file: string,
-  content: string,
-): void {
+function atomicWriteSync(file: string, content: string): void {
   if (configWriteLocked) {
     throw new Error("Config write in progress");
   }

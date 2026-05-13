@@ -709,7 +709,7 @@ describe("openSessionLog", () => {
 
 describe("atomic writes", () => {
   test("survives concurrent writes - first write is preserved", () => {
-    const cfg1 = loadConfig({ dir });
+    const _cfg1 = loadConfig({ dir });
     registerProject("app1", "/app1", { dir });
     expect(loadConfig({ dir }).projects.app1).toBeDefined();
 
@@ -723,7 +723,7 @@ describe("atomic writes", () => {
 
   test("config file is not corrupted by write", () => {
     const cfg = loadConfig({ dir });
-    cfg.projects["test"] = { root: "/test/root" };
+    cfg.projects.test = { root: "/test/root" };
     writeConfig(cfg, { dir });
 
     // Read file and verify it's valid JSON

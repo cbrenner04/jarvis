@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 import { type AcceptanceCriterion, parsePatchSpec } from "./spec.ts";
@@ -18,7 +18,8 @@ export function commitSubspec(
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
-  const acceptanceCriteriaSection = extractAcceptanceCriteriaSection(subspecContent);
+  const acceptanceCriteriaSection =
+    extractAcceptanceCriteriaSection(subspecContent);
   if (acceptanceCriteriaSection === null) {
     throw new Error(
       `Subspec ${subspecPath} is missing ## Acceptance criteria section`,
@@ -162,7 +163,7 @@ function basename(path: string): string {
 
 function extractAcceptanceCriteriaSection(content: string): string | null {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
-  const headerIndex = lines.findIndex((line) => line === "## Acceptance criteria");
+  const headerIndex = lines.indexOf("## Acceptance criteria");
   if (headerIndex === -1) {
     return null;
   }

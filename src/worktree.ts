@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { getBaseBranch } from "./gh.ts";
@@ -22,7 +22,10 @@ export async function ensureWorktree(
   const worktreePath = join(projectRoot, ".worktree", specName);
 
   try {
-    execFileSync("git", ["fetch", "origin"], { cwd: projectRoot, stdio: "pipe" });
+    execFileSync("git", ["fetch", "origin"], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
   } catch {
     // fetch might fail if no origin or no network, but we continue anyway
   }
@@ -41,10 +44,14 @@ export async function ensureWorktree(
         stdio: "pipe",
       });
     }
-    execFileSync("git", ["worktree", "add", "--checkout", worktreePath, specName], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    execFileSync(
+      "git",
+      ["worktree", "add", "--checkout", worktreePath, specName],
+      {
+        cwd: projectRoot,
+        stdio: "pipe",
+      },
+    );
   } else {
     const baseBranch = await getBaseBranch(projectRoot);
     execFileSync("git", ["branch", specName, baseBranch], {

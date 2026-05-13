@@ -232,6 +232,69 @@ describe("runCommand", () => {
     expect(claude.calls).toHaveLength(0);
   });
 
+  test("log-server send latency does not delay the iteration", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "out\n", stderr: "err\n" };
+    });
+    let sendCalls = 0;
+    const slowLogClient: LogClient = {
+      assertReachable: async () => {},
+      send: async () => {
+        sendCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      },
+    };
+
+    const startedAt = Date.now();
+    const code = await runCommand({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      skipGhCheck: true,
+      logClient: slowLogClient,
+      handleSignals: false,
+    });
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(code).toBe(0);
+    // sendCalls confirms the slow client was actually invoked, but the
+    // iteration must not have awaited any of the 500ms delays. Allow a
+    // generous ceiling for CI scheduling.
+    expect(sendCalls).toBeGreaterThan(0);
+    expect(elapsedMs).toBeLessThan(500);
+  });
+
+  test("log-server send errors do not change run exit code", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "out\n", stderr: "err\n" };
+    });
+    const throwingLogClient: LogClient = {
+      assertReachable: async () => {},
+      send: async () => {
+        throw new Error("log server exploded");
+      },
+    };
+
+    const code = await runCommand({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      skipGhCheck: true,
+      logClient: throwingLogClient,
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+  });
+
   test("exits 0 immediately when the spec is already complete", async () => {
     const spec = writeSpec("- [x] done\n");
     const cap = captureIo();

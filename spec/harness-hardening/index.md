@@ -21,7 +21,7 @@ rebases over the behavior changes, not under them.
 - [x] [07 — Quota in-loop fallback](./07-quota-fallback.md)
 - [x] [08 — Quota pattern audit (opportunistic)](./08-quota-pattern-audit.md)
 - [x] [09 — Local run telemetry](./09-local-telemetry.md)
-- [ ] [10 — Fire-and-forget log shipping](./10-fire-and-forget-logs.md)
+- [x] [10 — Fire-and-forget log shipping](./10-fire-and-forget-logs.md)
 - [ ] [11 — Decompose runCommand](./11-decompose-run-command.md)
 
 ## Conventions

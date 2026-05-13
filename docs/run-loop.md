@@ -188,7 +188,10 @@ purposes:
 - **Log server**: live full-transcript viewer for monitoring across sessions.
   Receives the same complete tagged stream as the session log, namespaced as
   `<project-key>:<spec-name>` so concurrent specs in the same project remain
-  distinguishable. Accessible via `jarvis log-server`.
+  distinguishable. Accessible via `jarvis log-server`. Shipping to the log
+  server is best-effort after the startup connectivity check: lines may
+  arrive out of order or be silently dropped under load. The on-disk
+  session log is the authoritative record.
 - **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or
   `telemetryPath` from config). Jarvis appends one line at each iteration end
   and one terminal-state line when the run exits (complete, max-iter,

@@ -309,22 +309,24 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       // best-effort
     }
   };
-  const sendLog = async (
+  const sendLog = (
     tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
     text: string,
     annotations?: Record<string, string | number | boolean | null>,
-  ): Promise<void> => {
-    try {
-      const message = {
-        namespace: runNamespace,
-        text,
-        tag,
-        ...(annotations === undefined ? {} : { annotations }),
-      };
-      await logClient.send(message);
-    } catch {
-      // v1 best-effort after initial mandatory connectivity check
-    }
+  ): void => {
+    const message = {
+      namespace: runNamespace,
+      text,
+      tag,
+      ...(annotations === undefined ? {} : { annotations }),
+    };
+    // Fire-and-forget after initial mandatory connectivity check. Log
+    // server is observability only; the on-disk session log is the
+    // authoritative record. Awaiting here would let a slow log server
+    // backpressure the iteration.
+    void Promise.resolve()
+      .then(() => logClient.send(message))
+      .catch(() => {});
   };
   const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const sessionFd = openSessionLog(runNamespace, timestamp, opts.config);
@@ -343,14 +345,14 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     }
     return lines;
   };
-  const writeLog = async (
+  const writeLog = (
     tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
     text: string,
     annotations?: Record<string, string | number | boolean | null>,
-  ): Promise<void> => {
+  ): void => {
     for (const line of splitLines(text)) {
       writeSessionLine(tag, line);
-      await sendLog(tag, line, annotations);
+      sendLog(tag, line, annotations);
     }
   };
   const writeTerminal = (stream: "stdout" | "stderr", text: string): void => {
@@ -360,16 +362,16 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       opts.io.stderr(text);
     }
   };
-  const fanout = async (
+  const fanout = (
     tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
     text: string,
     stream: "stdout" | "stderr" | null,
     annotations?: Record<string, string | number | boolean | null>,
-  ): Promise<void> => {
+  ): void => {
     if (stream !== null) {
       writeTerminal(stream, text);
     }
-    await writeLog(tag, text, annotations);
+    writeLog(tag, text, annotations);
   };
   let iteration = 1;
   let latestIterationStdout: string[] = [];
@@ -416,7 +418,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         const blocker = worktreeCompletionBlocker(agentWorkingDir);
         if (blocker !== undefined) {
           const worktreeName = basename(agentWorkingDir);
-          await fanout(
+          fanout(
             "harness",
             `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
             "stderr",
@@ -424,7 +426,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           return 6;
         }
       }
-      await fanout("harness", "spec complete\n", "stdout");
+      fanout("harness", "spec complete\n", "stdout");
       return 0;
     };
 
@@ -433,7 +435,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
       if (isIndexSpec && iteration > cfg.maxIterations) {
         printBoundedTail([...latestIterationStdout, ...latestIterationStderr]);
-        await fanout(
+        fanout(
           "harness",
           `max iterations (${cfg.maxIterations}) reached; stopping\n`,
           "stderr",
@@ -475,7 +477,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
       const agent = activeAgents[0];
       if (agent === undefined) {
-        await fanout("harness", "all agents quota-exhausted\n", "stderr");
+        fanout("harness", "all agents quota-exhausted\n", "stderr");
         writeTelemetry({
           agent: "harness",
           iteration,
@@ -502,8 +504,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           const blockerText = blockerBody
             ? `${activeSubspecPath}\n\n${blockerBody}`
             : activeSubspecPath;
-          await fanout("harness", `${blockerText}\n`, "stderr");
-          await sendLog("harness", blockerText);
+          fanout("harness", `${blockerText}\n`, "stderr");
+          sendLog("harness", blockerText);
           writeTelemetry({
             agent: agent.name,
             iteration,
@@ -526,7 +528,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             beforeParse.warnings.length === 0
               ? ""
               : ` Parser warnings:\n- ${beforeParse.warnings.join("\n- ")}`;
-          await fanout(
+          fanout(
             "harness",
             `active subspec ${activeSubspecPath} has no \`## Acceptance criteria\` checkboxes; jarvis cannot detect completion. Add an acceptance-criteria checklist to the subspec and rerun.${warningsSuffix}\n`,
             "stderr",
@@ -535,7 +537,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         }
       }
       const banner = `project: ${project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task.ordinal}/${task.total} ${taskExcerpt} | agent: ${agent.name}\n`;
-      await fanout("harness", banner, "stdout", {
+      fanout("harness", banner, "stdout", {
         project: project.key,
         spec: specDisplayName,
         iteration,
@@ -545,7 +547,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         agent: agent.name,
       });
       const prompt = buildPrompt(specPath);
-      await fanout("outbound", prompt, null, {
+      fanout("outbound", prompt, null, {
         iteration,
         agent: agent.name,
       });
@@ -568,7 +570,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           result.kind === "error" &&
           result.stderr.includes("aborted: iteration-timeout")
         ) {
-          await fanout(
+          fanout(
             "harness",
             `iteration ${iteration} exceeded timeout of ${cfg.iterationTimeoutMs}ms\n`,
             "stderr",
@@ -588,7 +590,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           result.kind === "error" &&
           result.stderr.includes("aborted: run-timeout")
         ) {
-          await fanout(
+          fanout(
             "harness",
             cfg.runTimeoutMs
               ? `run exceeded timeout of ${cfg.runTimeoutMs}ms\n`
@@ -616,14 +618,14 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         if (result.kind === "ok") {
         if (result.stdout.length > 0) {
           latestIterationStdout.push(...splitLines(result.stdout));
-          await fanout("inbound_stdout", result.stdout, null, {
+          fanout("inbound_stdout", result.stdout, null, {
             iteration,
             agent: agent.name,
           });
         }
         if (result.stderr.length > 0) {
           latestIterationStderr.push(...splitLines(result.stderr));
-          await fanout("inbound_stderr", result.stderr, null, {
+          fanout("inbound_stderr", result.stderr, null, {
             iteration,
             agent: agent.name,
           });
@@ -663,7 +665,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
-                await fanout(
+                fanout(
                   "harness",
                   `failed to commit blocker for ${activeSubspecPath}: ${message}\n`,
                   "stderr",
@@ -678,7 +680,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
                 } catch (err) {
                   const message =
                     err instanceof Error ? err.message : String(err);
-                  await fanout(
+                  fanout(
                     "harness",
                     `failed to push blocker commit for ${activeSubspecPath}: ${message}\n`,
                     "stderr",
@@ -689,8 +691,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             }
 
             const blockerText = `${activeSubspecPath}\n\n${blockerBody}`;
-            await fanout("harness", `${blockerText}\n`, "stderr");
-            await sendLog("harness", blockerText);
+            fanout("harness", `${blockerText}\n`, "stderr");
+            sendLog("harness", blockerText);
             writeTelemetry({
               agent: agent.name,
               iteration,
@@ -708,7 +710,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
-                await fanout(
+                fanout(
                   "harness",
                   `failed to commit completed subspec ${activeSubspecPath}: ${message}\n`,
                   "stderr",
@@ -723,7 +725,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
                 } catch (err) {
                   const message =
                     err instanceof Error ? err.message : String(err);
-                  await fanout(
+                  fanout(
                     "harness",
                     `failed to push completed subspec ${activeSubspecPath}: ${message}\n`,
                     "stderr",
@@ -753,7 +755,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
                 } catch (err) {
                   const message =
                     err instanceof Error ? err.message : String(err);
-                  await fanout(
+                  fanout(
                     "harness",
                     `failed to update PR for completed subspec ${activeSubspecPath}: ${message}\n`,
                     "stderr",
@@ -776,7 +778,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
-                await fanout(
+                fanout(
                   "harness",
                   `failed to commit WIP progress for ${activeSubspecPath}: ${message}\n`,
                   "stderr",
@@ -793,7 +795,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
                   .map((c) => `  - ${c.text}`)
                   .join("\n");
                 const worktreeName = basename(agentWorkingDir);
-                await fanout(
+                fanout(
                   "harness",
                   `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
                   "stderr",
@@ -833,7 +835,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           return 0;
         }
         if (!isIndexSpec) {
-          await fanout(
+          fanout(
             "harness",
             "one-iteration run finished with unchecked tasks remaining\n",
             "stdout",
@@ -852,7 +854,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             ...latestIterationStdout,
             ...latestIterationStderr,
           ]);
-          await fanout(
+          fanout(
             "harness",
             `iteration ${iteration} made no progress; stopping\n`,
             "stderr",
@@ -878,13 +880,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       }
       if (result.kind === "quota") {
         activeAgents.shift();
-        await fanout(
+        fanout(
           "harness",
           `${agent.name}: quota exhausted; falling back\n`,
           "stderr",
         );
         if (activeAgents.length === 0) {
-          await fanout("harness", "all agents quota-exhausted\n", "stderr");
+          fanout("harness", "all agents quota-exhausted\n", "stderr");
           writeTelemetry({
             agent: agent.name,
             iteration,
@@ -906,12 +908,12 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       }
       if (result.kind === "model_config") {
         const configErr = `${agent.name}: configured patch model ${JSON.stringify(cfg.patchModels[agent.name])} is not supported by this CLI/account\n`;
-        await fanout("harness", configErr, "stderr");
+        fanout("harness", configErr, "stderr");
         if (result.stderr.length > 0) {
           const stderr = result.stderr.endsWith("\n")
             ? result.stderr
             : `${result.stderr}\n`;
-          await fanout("harness", stderr, "stderr");
+          fanout("harness", stderr, "stderr");
         }
         writeTelemetry({
           agent: agent.name,
@@ -939,7 +941,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         : false;
       if (weakQuota && !checkedAnyCriteria && !editedFiles) {
         activeAgents.shift();
-        await fanout(
+        fanout(
           "harness",
           `${agent.name}: probable quota-like error (exit ${result.exitCode}); falling back\n`,
           "stderr",
@@ -948,10 +950,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           const stderr = result.stderr.endsWith("\n")
             ? result.stderr
             : `${result.stderr}\n`;
-          await fanout("harness", stderr, "stderr");
+          fanout("harness", stderr, "stderr");
         }
         if (activeAgents.length === 0) {
-          await fanout("harness", "all agents quota-exhausted\n", "stderr");
+          fanout("harness", "all agents quota-exhausted\n", "stderr");
           writeTelemetry({
             agent: agent.name,
             iteration,
@@ -976,7 +978,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         const stderr = result.stderr.endsWith("\n")
           ? result.stderr
           : `${result.stderr}\n`;
-        await fanout("harness", stderr, "stderr");
+        fanout("harness", stderr, "stderr");
       }
       writeTelemetry({
         agent: agent.name,
@@ -998,7 +1000,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       releaseWorktreeLock(agentWorkingDir);
     }
     if (stalepidRecovered !== undefined) {
-      await sendLog(
+      sendLog(
         "harness",
         `recovered stale worktree lock (pid ${stalepidRecovered} no longer running)`,
       );

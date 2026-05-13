@@ -39,14 +39,14 @@ per iteration.
 
 ## Acceptance criteria
 
-- [ ] An iteration's wall-clock time is unaffected by log-server latency
+- [x] An iteration's wall-clock time is unaffected by log-server latency
       after startup (verified by a test using a delayed mock client).
-- [ ] A log-server that throws on every send does not change run exit
+- [x] A log-server that throws on every send does not change run exit
       codes.
-- [ ] The startup `assertReachable` failure path still exits the run
+- [x] The startup `assertReachable` failure path still exits the run
       with a clear error.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

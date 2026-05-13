@@ -149,4 +149,17 @@ describe("CodexAgent", () => {
     expect(argv).toContain("-c");
     expect(argv).toContain('approval_policy="on-request"');
   });
+
+  test("attributionLabel returns raw string for model ID", () => {
+    const agent = new CodexAgent({
+      binary: "fake",
+      model: "gpt-4-codex",
+    });
+    expect(agent.attributionLabel()).toBe("gpt-4-codex");
+  });
+
+  test("attributionLabel returns default fallback when model is undefined", () => {
+    const agent = new CodexAgent({ binary: "fake" });
+    expect(agent.attributionLabel()).toBe("codex (default model)");
+  });
 });

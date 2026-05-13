@@ -61,4 +61,4 @@ by Jarvis itself rather than asked of the agent.
 
 ## Subspecs
 
-- [ ] [00 - Agent model labels and PR body footer](./00-agent-attribution-footer.md)
+- [x] [00 - Agent model labels and PR body footer](./00-agent-attribution-footer.md)

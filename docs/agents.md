@@ -21,6 +21,25 @@ order with `jarvis config set-order <a,b,c>` (see [config.md](./config.md)).
 Quota detection is per-agent and based on documented or observed stderr
 signals; see [quota-signals.md](./quota-signals.md).
 
+## Agent attribution labels
+
+Each agent exposes an `attributionLabel()` method that returns a human-readable
+identifier for its configured model. This label appears in the draft PR body
+footer to record which agent and model produced the work.
+
+The label format varies per agent:
+
+- **Known model IDs**: Mapped to family+version labels (e.g.
+  `claude-opus-4-7` → `Claude Opus 4.7`).
+- **Unknown model IDs**: The raw model string is returned.
+- **No model configured** (agent using its default): Returns
+  `<cli-name> (default model)` (e.g. `claude (default model)`).
+
+Each agent maintains its own internal map of known model IDs, allowing the
+mapping to grow independently as new models land. The map is not shared or
+centralized because each agent already owns the relationship between its CLI
+and the model strings that CLI accepts.
+
 ## CLI verbosity defaults
 
 Jarvis does not strip or rewrite agent transcripts; it delegates presentation

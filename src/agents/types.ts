@@ -14,4 +14,5 @@ export type AgentRunOptions = {
 export interface Agent {
   name: AgentName;
   run(prompt: string, opts: AgentRunOptions): Promise<AgentResult>;
+  attributionLabel(): string;
 }

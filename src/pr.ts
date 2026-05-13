@@ -5,6 +5,7 @@ export type EnsureDraftPrOpts = {
   base: string;
   title: string;
   bodyGenerator: () => Promise<string>;
+  attribution: string;
   cwd?: string;
 };
 
@@ -16,7 +17,10 @@ export async function ensureDraftPr(
     return { number: existingPr, created: false };
   }
 
-  const body = await opts.bodyGenerator();
+  let body = await opts.bodyGenerator();
+  if (opts.attribution !== "") {
+    body = `${body}\n\n---\n\n${opts.attribution}`;
+  }
   const prNumber = createDraftPr(
     opts.branch,
     opts.base,

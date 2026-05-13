@@ -12,6 +12,12 @@ export type ClaudeAgentOptions = {
   model?: string;
 };
 
+const CLAUDE_MODEL_LABELS: Record<string, string> = {
+  "claude-opus-4-7": "Claude Opus 4.7",
+  "claude-sonnet-4-6": "Claude Sonnet 4.6",
+  "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+};
+
 export class ClaudeAgent implements Agent {
   readonly name = "claude" as const;
   readonly #binary: string;
@@ -48,5 +54,12 @@ export class ClaudeAgent implements Agent {
       prompt,
       opts,
     );
+  }
+
+  attributionLabel(): string {
+    if (this.#model === undefined) {
+      return "claude (default model)";
+    }
+    return CLAUDE_MODEL_LABELS[this.#model] ?? this.#model;
   }
 }

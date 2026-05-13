@@ -15,6 +15,8 @@ export type OpencodeAgentOptions = {
   model: string;
 };
 
+const OPENCODE_MODEL_LABELS: Record<string, string> = {};
+
 export class OpencodeAgent implements Agent {
   readonly name = "opencode" as AgentName;
   readonly #binary: string;
@@ -40,5 +42,9 @@ export class OpencodeAgent implements Agent {
       prompt,
       opts,
     );
+  }
+
+  attributionLabel(): string {
+    return OPENCODE_MODEL_LABELS[this.#model] ?? this.#model;
   }
 }

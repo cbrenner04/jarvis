@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 
@@ -33,7 +33,7 @@ export function commitSubspec(
   writeFileSync(indexPath, updatedIndexContent);
 
   const gitRoot = opts.cwd ?? getGitRoot(subspecPath);
-  execSync("git add -A", { cwd: gitRoot, stdio: "pipe" });
+  execFileSync("git", ["add", "-A"], { cwd: gitRoot, stdio: "pipe" });
 
   const relativeSpecPath = relative(
     realpathSync(gitRoot),
@@ -43,10 +43,12 @@ export function commitSubspec(
   const commitBody = `${bodyFirstLine}\n\n${acceptanceCriteria}`;
   const commitMessage = `${h1}\n\n${commitBody}`;
 
-  execSync(
-    `git commit -F - <<'JARVIS_COMMIT_MESSAGE'\n${commitMessage}\nJARVIS_COMMIT_MESSAGE\n`,
-    { cwd: gitRoot, shell: "/bin/bash", stdio: "pipe" },
-  );
+  execFileSync("git", ["commit", "-F", "-"], {
+    cwd: gitRoot,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: commitMessage,
+  });
 }
 
 export function snapshotAcceptanceCriteria(
@@ -85,7 +87,7 @@ export function commitWipProgress(
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
-  execSync("git add -A", { cwd: opts.cwd, stdio: "pipe" });
+  execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
 
   const relativeSpecPath = relative(
     realpathSync(opts.cwd),
@@ -100,15 +102,17 @@ export function commitWipProgress(
           .join("\n")}`;
   const commitMessage = `${summary}\n\n${body}`;
 
-  execSync(
-    `git commit -F - <<'JARVIS_COMMIT_MESSAGE'\n${commitMessage}\nJARVIS_COMMIT_MESSAGE\n`,
-    { cwd: opts.cwd, shell: "/bin/bash", stdio: "pipe" },
-  );
+  execFileSync("git", ["commit", "-F", "-"], {
+    cwd: opts.cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: commitMessage,
+  });
 }
 
 function getGitRoot(subspecPath: string): string {
   try {
-    return execSync("git rev-parse --show-toplevel", {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
       cwd: dirname(subspecPath),
       encoding: "utf8",
       stdio: "pipe",

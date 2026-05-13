@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 export function recordBlocker(subspecPath: string, reason: string): void {
@@ -11,20 +12,30 @@ export function recordBlocker(subspecPath: string, reason: string): void {
   writeFileSync(subspecPath, updatedContent);
 }
 
-export function commitBlocker(subspecPath: string, reason: string): void {
+export function commitBlocker(
+  subspecPath: string,
+  reason: string,
+  cwd: string,
+): void {
   recordBlocker(subspecPath, reason);
-
-  const { execSync } = require("node:child_process");
 
   const h1 = extractH1(subspecPath);
 
-  execSync("git add -A", { stdio: "pipe" });
+  execFileSync("git", ["add", "-A"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+  });
 
   const relativeSpecPath = subspecPath.split("/").slice(-2).join("/");
   const commitMessage = `WIP: ${h1}\n\nSpec: ${relativeSpecPath}\n\n## Blocker\n\n${reason}`;
 
-  const command = `git commit -m "$(cat <<'EOF'\n${commitMessage}\nEOF\n)"`;
-  execSync(command, { shell: "/bin/bash", stdio: "pipe" });
+  execFileSync("git", ["commit", "-F", "-"], {
+    cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: commitMessage,
+  });
 }
 
 function extractH1(subspecPath: string): string {

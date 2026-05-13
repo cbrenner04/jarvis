@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import {
   closeSync,
   cpSync,
@@ -847,7 +847,7 @@ function diffAcceptanceCriteria(
 
 function hasUpstream(cwd: string): boolean {
   try {
-    execSync("git rev-parse --abbrev-ref --symbolic-full-name @{u}", {
+    execFileSync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], {
       cwd,
       stdio: "pipe",
     });
@@ -858,7 +858,7 @@ function hasUpstream(cwd: string): boolean {
 }
 
 function getCurrentBranch(cwd: string): string {
-  return execSync("git rev-parse --abbrev-ref HEAD", {
+  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
     cwd,
     encoding: "utf8",
     stdio: "pipe",

@@ -14,7 +14,7 @@ rebases over the behavior changes, not under them.
 
 - [x] [01 — Iteration safety (SIGINT, timeouts)](./01-iteration-safety.md)
 - [x] [02 — Atomic config writes and worktree lock](./02-config-and-lock.md)
-- [ ] [03 — Heredoc-free commits](./03-heredoc-commits.md)
+- [x] [03 — Heredoc-free commits](./03-heredoc-commits.md)
 - [ ] [04 — Blocker handling](./04-blocker-handling.md)
 - [ ] [05 — Deterministic PR body](./05-deterministic-pr-body.md)
 - [ ] [06 — Unified spec parser](./06-spec-parser.md)

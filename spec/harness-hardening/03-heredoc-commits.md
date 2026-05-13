@@ -53,15 +53,15 @@ The same pattern applies to any future commit constructor.
 
 ## Acceptance criteria
 
-- [ ] No call site uses `shell: "/bin/bash"` or a heredoc to invoke git.
-- [ ] `commitSubspec`, `commitWipProgress`, `commitBlocker` all use
+- [x] No call site uses `shell: "/bin/bash"` or a heredoc to invoke git.
+- [x] `commitSubspec`, `commitWipProgress`, `commitBlocker` all use
       `execFileSync("git", [...], { input })`.
-- [ ] `commitBlocker` requires `cwd` and uses it for every child-process
+- [x] `commitBlocker` requires `cwd` and uses it for every child-process
       invocation it makes.
-- [ ] Regression test: a subspec containing the literal text
+- [x] Regression test: a subspec containing the literal text
       `JARVIS_COMMIT_MESSAGE` on its own line is committed correctly.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

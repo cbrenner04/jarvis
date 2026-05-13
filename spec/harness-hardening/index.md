@@ -16,7 +16,7 @@ rebases over the behavior changes, not under them.
 - [x] [02 — Atomic config writes and worktree lock](./02-config-and-lock.md)
 - [x] [03 — Heredoc-free commits](./03-heredoc-commits.md)
 - [x] [04 — Blocker handling](./04-blocker-handling.md)
-- [ ] [05 — Deterministic PR body](./05-deterministic-pr-body.md)
+- [x] [05 — Deterministic PR body](./05-deterministic-pr-body.md)
 - [ ] [06 — Unified spec parser](./06-spec-parser.md)
 - [ ] [07 — Quota in-loop fallback](./07-quota-fallback.md)
 - [ ] [08 — Quota pattern audit (opportunistic)](./08-quota-pattern-audit.md)

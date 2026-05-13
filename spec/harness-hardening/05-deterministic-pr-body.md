@@ -34,25 +34,25 @@ iteration agent.
 
 ## Tasks
 
-- [ ] Wire `runCommand` to call `generatePrBodyFromSpec(specPath)` and
+- [x] Wire `runCommand` to call `generatePrBodyFromSpec(specPath)` and
       pass the resulting string to `ensureDraftPr` directly.
-- [ ] Delete `buildPrBodyPrompt` and `getLinkedSubspecHeadings` from
+- [x] Delete `buildPrBodyPrompt` and `getLinkedSubspecHeadings` from
       `src/modes/patch/run.ts`.
-- [ ] Handle the empty-body fallback.
-- [ ] Tests: a completed subspec opens a PR whose body equals
+- [x] Handle the empty-body fallback.
+- [x] Tests: a completed subspec opens a PR whose body equals
       `generatePrBodyFromSpec(specPath)`; no extra agent invocations are
       recorded in the test agent's call log during PR creation.
 
 ## Acceptance criteria
 
-- [ ] PR body is produced deterministically from the spec, with no agent
+- [x] PR body is produced deterministically from the spec, with no agent
       call.
-- [ ] `buildPrBodyPrompt` is removed.
-- [ ] An iteration that completes a subspec invokes the iteration agent
+- [x] `buildPrBodyPrompt` is removed.
+- [x] An iteration that completes a subspec invokes the iteration agent
       exactly once.
-- [ ] A degenerate spec produces a non-empty fallback body.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] A degenerate spec produces a non-empty fallback body.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

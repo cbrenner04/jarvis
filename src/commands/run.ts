@@ -353,9 +353,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       if (gitEnabled) {
         const blocker = worktreeCompletionBlocker(agentWorkingDir);
         if (blocker !== undefined) {
+          const worktreeName = basename(agentWorkingDir);
           await fanout(
             "harness",
-            `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n`,
+            `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
             "stderr",
           );
           return 6;
@@ -577,9 +578,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
                 const unmetList = unchecked
                   .map((c) => `  - ${c.text}`)
                   .join("\n");
+                const worktreeName = basename(agentWorkingDir);
                 await fanout(
                   "harness",
-                  `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n`,
+                  `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
                   "stderr",
                 );
                 return 6;

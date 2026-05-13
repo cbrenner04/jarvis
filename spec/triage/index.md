@@ -76,4 +76,4 @@ acceptance-criteria snapshots, and the per-namespace session log under
 - [x] [00 - `jarvis triage` command + CLI wiring](./00-triage-command.md)
 - [x] [01 - Drill-down sections (git, spec, PR, session log)](./01-drill-down-sections.md)
 - [x] [02 - Rule-based suggested-next-moves table](./02-suggested-moves.md)
-- [ ] [03 - Point bail messages at `jarvis triage`](./03-bail-message-loop-closer.md)
+- [x] [03 - Point bail messages at `jarvis triage`](./03-bail-message-loop-closer.md)

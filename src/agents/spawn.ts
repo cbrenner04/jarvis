@@ -100,11 +100,13 @@ export function runAgent(
     if (opts.signal) {
       const handleAbort = () => {
         child.kill("SIGTERM");
+        // unref so a settled-but-not-yet-dead child does not keep the
+        // event loop alive for the full grace period.
         setTimeout(() => {
           if (!child.killed) {
             child.kill("SIGKILL");
           }
-        }, 2000);
+        }, 2000).unref();
         const reason = opts.signal?.reason
           ? String(opts.signal.reason)
           : "aborted";

@@ -570,7 +570,7 @@ function finalize(
 async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const { preflight, logging, opts, activeAgents, state } = ctx;
   const { specPath, isIndexSpec, gitEnabled, agentWorkingDir, cfg } = preflight;
-  const { fanout, sendLog, writeTelemetry, specDisplayName } = logging;
+  const { fanout, writeTelemetry, specDisplayName } = logging;
   const iteration = state.iteration;
   const iterationStartedAt = Date.now();
   const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
@@ -650,7 +650,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         ? `${activeSubspecPath}\n\n${blockerBody}`
         : activeSubspecPath;
       fanout("harness", `${blockerText}\n`, "stderr");
-      sendLog("harness", blockerText);
       writeTelemetry({
         agent: agent.name,
         iteration,
@@ -837,7 +836,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
 
           const blockerText = `${activeSubspecPath}\n\n${blockerBody}`;
           fanout("harness", `${blockerText}\n`, "stderr");
-          sendLog("harness", blockerText);
           writeTelemetry({
             agent: agent.name,
             iteration,

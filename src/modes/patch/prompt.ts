@@ -1,15 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-function readRule(name: string): string {
-  return readFileSync(
-    join(import.meta.dir, "..", "rules", name),
-    "utf8",
-  ).trim();
-}
-
 function jarvisRules(): string {
-  return readRule("patch-mode.md");
+  return readFileSync(join(import.meta.dir, "rules.md"), "utf8").trim();
 }
 
 export function buildPrompt(specPath: string): string {

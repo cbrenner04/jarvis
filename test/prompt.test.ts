@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildPrompt } from "../src/prompt.ts";
+import { buildPrompt } from "../src/modes/patch/prompt.ts";
 
 describe("buildPrompt", () => {
   test("asks the agent to discover repo guidance and includes Jarvis rules", () => {
     const prompt = buildPrompt("spec/v1/index.md");
     const rules = readFileSync(
-      join(import.meta.dir, "..", "rules", "patch-mode.md"),
+      join(import.meta.dir, "..", "src", "modes", "patch", "rules.md"),
       "utf8",
     ).trim();
 

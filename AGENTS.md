@@ -27,11 +27,11 @@ Minimal. Roughly:
 Inspect the target repo for guidance, conventions, and relevant docs.
 Read the spec at <SPEC_PATH>.
 Follow these Jarvis rules:
-<rules/patch-mode.md>
+<src/modes/patch/rules.md>
 Pick the single most important unchecked task and complete it.
 ```
 
-Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owned rules live in this harness repo under `rules/` and are injected inline.
+Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owned rules for patch mode live in `src/modes/patch/rules.md` and are injected inline.
 
 ## Conventions for spec files in *this* repo
 

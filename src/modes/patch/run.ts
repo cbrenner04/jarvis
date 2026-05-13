@@ -43,6 +43,7 @@ import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import { createLogClient, type LogClient } from "../../logging.ts";
 import { ensureDraftPr } from "../../pr.ts";
 import { resolveProject } from "../../resolve-project.ts";
+import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import {
   createWorktreeSymlinks,
   ensureWorktree,
@@ -286,6 +287,28 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
   const specDisplayName = getSpecDisplayName(specPath);
   const runNamespace = `${project.key}:${specDisplayName}`;
+  const telemetryPath = cfg.telemetryPath ?? null;
+  const writeTelemetry = (record: {
+    agent: string;
+    iteration: number;
+    durationMs: number;
+    kind: TelemetryKind;
+    exitReason: string;
+  }): void => {
+    try {
+      appendTelemetryLine(telemetryPath, {
+        ts: new Date().toISOString(),
+        namespace: runNamespace,
+        agent: record.agent,
+        iteration: record.iteration,
+        duration_ms: record.durationMs,
+        kind: record.kind,
+        exit_reason: record.exitReason,
+      });
+    } catch {
+      // best-effort
+    }
+  };
   const sendLog = async (
     tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
     text: string,
@@ -406,6 +429,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     };
 
     while (true) {
+      const iterationStartedAt = Date.now();
+      const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
       if (isIndexSpec && iteration > cfg.maxIterations) {
         printBoundedTail([...latestIterationStdout, ...latestIterationStderr]);
         await fanout(
@@ -413,6 +438,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           `max iterations (${cfg.maxIterations}) reached; stopping\n`,
           "stderr",
         );
+        writeTelemetry({
+          agent: "harness",
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "ok",
+          exitReason: "max-iterations",
+        });
         return 5;
       }
 
@@ -422,14 +454,35 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       if (before === 0) {
         const done = await tryFinishSpecIfDone();
         if (done !== null) {
+          writeTelemetry({
+            agent: "harness",
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "ok",
+            exitReason: "criteria-complete",
+          });
           return done;
         }
+        writeTelemetry({
+          agent: "harness",
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "ok",
+          exitReason: "criteria-complete",
+        });
         return 0;
       }
 
       const agent = activeAgents[0];
       if (agent === undefined) {
         await fanout("harness", "all agents quota-exhausted\n", "stderr");
+        writeTelemetry({
+          agent: "harness",
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "quota",
+          exitReason: "quota-exhausted",
+        });
         return 2;
       }
 
@@ -451,6 +504,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             : activeSubspecPath;
           await fanout("harness", `${blockerText}\n`, "stderr");
           await sendLog("harness", blockerText);
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "blocked",
+            exitReason: "blocker-detected",
+          });
           return 7;
         }
       }
@@ -513,6 +573,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             `iteration ${iteration} exceeded timeout of ${cfg.iterationTimeoutMs}ms\n`,
             "stderr",
           );
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "timeout",
+            exitReason: "iteration-timeout",
+          });
           return 8;
         }
 
@@ -528,6 +595,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
               : "run timeout\n",
             "stderr",
           );
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "timeout",
+            exitReason: "run-timeout",
+          });
           return 8;
         }
 
@@ -617,6 +691,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             const blockerText = `${activeSubspecPath}\n\n${blockerBody}`;
             await fanout("harness", `${blockerText}\n`, "stderr");
             await sendLog("harness", blockerText);
+            writeTelemetry({
+              agent: agent.name,
+              iteration,
+              durationMs: iterationDurationMs(),
+              kind: "blocked",
+              exitReason: "blocker-detected",
+            });
             return 7;
           }
 
@@ -724,10 +805,31 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         }
         const after = countUnchecked(specPath);
         if (after === 0) {
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "ok",
+            exitReason: "criteria-complete",
+          });
           const done = await tryFinishSpecIfDone();
           if (done !== null) {
+            writeTelemetry({
+              agent: agent.name,
+              iteration,
+              durationMs: iterationDurationMs(),
+              kind: "ok",
+              exitReason: "completed-spec",
+            });
             return done;
           }
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "ok",
+            exitReason: "completed-spec",
+          });
           return 0;
         }
         if (!isIndexSpec) {
@@ -736,6 +838,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             "one-iteration run finished with unchecked tasks remaining\n",
             "stdout",
           );
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "ok",
+            exitReason: "criteria-progress",
+          });
           return 0;
         }
         if (after === before && !subspecCompleted && !subspecProgressed) {
@@ -748,8 +857,22 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             `iteration ${iteration} made no progress; stopping\n`,
             "stderr",
           );
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "ok",
+            exitReason: "no-progress",
+          });
           return 4;
         }
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "ok",
+          exitReason: "criteria-progress",
+        });
         iteration += 1;
         continue;
       }
@@ -762,8 +885,22 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         );
         if (activeAgents.length === 0) {
           await fanout("harness", "all agents quota-exhausted\n", "stderr");
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "quota",
+            exitReason: "quota-exhausted",
+          });
           return 2;
         }
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "quota",
+          exitReason: "quota-fallback",
+        });
         iteration += 1;
         continue;
       }
@@ -776,6 +913,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
             : `${result.stderr}\n`;
           await fanout("harness", stderr, "stderr");
         }
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "model_config",
+          exitReason: "model-config",
+        });
         return 3;
       }
 
@@ -808,8 +952,22 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         }
         if (activeAgents.length === 0) {
           await fanout("harness", "all agents quota-exhausted\n", "stderr");
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "quota",
+            exitReason: "quota-exhausted",
+          });
           return 2;
         }
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "quota",
+          exitReason: "probable-quota-fallback",
+        });
         iteration += 1;
         continue;
       }
@@ -820,6 +978,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           : `${result.stderr}\n`;
         await fanout("harness", stderr, "stderr");
       }
+      writeTelemetry({
+        agent: agent.name,
+        iteration,
+        durationMs: iterationDurationMs(),
+        kind: "error",
+        exitReason: "agent-error",
+      });
       return 3;
       } finally {
         clearTimeout(iterationTimeoutHandle);

@@ -56,6 +56,7 @@ describe("loadConfig", () => {
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
+      telemetryPath: join(dir, "runs.jsonl"),
       git: true,
       projects: {},
     });
@@ -100,6 +101,7 @@ describe("loadConfig", () => {
     expect(cfg.patchModels.opencode).toBe("opencode-model");
     expect(cfg.logServerUrl).toBe("http://127.0.0.1:4310/logs");
     expect(cfg.logServerBind).toBe("127.0.0.1:4310");
+    expect(cfg.telemetryPath).toBe(join(dir, "runs.jsonl"));
     expect(cfg.projects.jarvis).toEqual({ root: "/Users/me/jarvis" });
   });
 
@@ -225,6 +227,21 @@ describe("loadConfig", () => {
       }),
     );
     expect(() => loadConfig({ dir })).toThrow(/runTimeoutMs/);
+  });
+
+  test("accepts telemetryPath as null", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        telemetryPath: null,
+        projects: {},
+      }),
+    );
+    expect(loadConfig({ dir }).telemetryPath).toBeNull();
   });
 
   test("accepts optional runTimeoutMs", () => {

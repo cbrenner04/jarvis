@@ -55,6 +55,7 @@ describe("config show", () => {
       },
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
+      telemetryPath: join(cfgDir, "runs.jsonl"),
       git: true,
       projects: {},
     });

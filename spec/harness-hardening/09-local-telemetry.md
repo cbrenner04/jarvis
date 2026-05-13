@@ -62,14 +62,14 @@ No reader subcommand in this subspec. The file is the artifact.
 
 ## Acceptance criteria
 
-- [ ] After a multi-iteration run, `~/.jarvis/runs.jsonl` contains one
+- [x] After a multi-iteration run, `~/.jarvis/runs.jsonl` contains one
       JSON line per iteration plus a final terminal-state line.
-- [ ] Each line parses as valid JSON with the documented schema.
-- [ ] A test that forces the writer to throw still allows the run to
+- [x] Each line parses as valid JSON with the documented schema.
+- [x] A test that forces the writer to throw still allows the run to
       complete with the original exit code.
-- [ ] Setting `telemetryPath: null` disables writes.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] Setting `telemetryPath: null` disables writes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

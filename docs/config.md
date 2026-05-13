@@ -39,6 +39,7 @@ type Config = {
   runTimeoutMs?: number; // optional global run timeout in milliseconds; unset by default
   logServerUrl: string; // POST endpoint used by jarvis run
   logServerBind: string; // host:port used by jarvis log-server
+  telemetryPath: string | null; // JSONL path for per-iteration/terminal run telemetry; null disables
   worktreeSymlinks?: string[]; // relative paths from repo root to symlink into worktrees
   git: boolean; // whether jarvis manages git/gh (worktree, commits, PR); default true
   projects: Record<string, Project>; // key = path relative to ~/Work
@@ -78,6 +79,7 @@ Default contents on first bootstrap:
   },
   "logServerUrl": "http://127.0.0.1:4310/logs",
   "logServerBind": "127.0.0.1:4310",
+  "telemetryPath": "~/.jarvis/runs.jsonl",
   "maxIterations": 10,
   "iterationTimeoutMs": 1800000,
   "git": true,

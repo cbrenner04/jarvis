@@ -189,6 +189,11 @@ purposes:
   Receives the same complete tagged stream as the session log, namespaced as
   `<project-key>:<spec-name>` so concurrent specs in the same project remain
   distinguishable. Accessible via `jarvis log-server`.
+- **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or
+  `telemetryPath` from config). Jarvis appends one line at each iteration end
+  and one terminal-state line when the run exits (complete, max-iter,
+  quota-exhausted, blocked, timeout, or error). Set `telemetryPath` to `null`
+  to disable.
 
 `jarvis run` requires the local log server to be reachable before the loop
 starts. If the server is down or misconfigured, run exits non-zero and prints

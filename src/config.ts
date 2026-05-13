@@ -50,6 +50,7 @@ function atomicWriteSync(
 export const CONFIG_DIR = join(homedir(), ".jarvis");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const SESSIONS_DIR = join(CONFIG_DIR, "sessions");
+export const TELEMETRY_PATH = join(CONFIG_DIR, "runs.jsonl");
 
 const AGENT_NAMES = ["claude", "codex", "cursor", "opencode"] as const;
 export type AgentName = (typeof AGENT_NAMES)[number];
@@ -78,6 +79,7 @@ export type Config = {
   patchModels: PatchModels;
   logServerUrl?: string;
   logServerBind?: string;
+  telemetryPath?: string | null;
   worktreeSymlinks?: string[];
   git: boolean;
   projects: Record<string, Project>;
@@ -102,6 +104,7 @@ const DEFAULT_CONFIG: Config = {
   },
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",
+  telemetryPath: TELEMETRY_PATH,
   git: true,
   projects: {},
 };
@@ -190,6 +193,13 @@ function validateConfig(input: unknown, file: string): Config {
     "logServerBind",
     (message) => fail(file, message),
   );
+  const defaultTelemetryPath = join(resolve(file, ".."), "runs.jsonl");
+  const telemetryPath = validateOptionalStringOrNull(
+    obj.telemetryPath,
+    "telemetryPath",
+    defaultTelemetryPath,
+    (message) => fail(file, message),
+  );
 
   const git = validateOptionalBoolean(
     obj.git,
@@ -267,6 +277,7 @@ function validateConfig(input: unknown, file: string): Config {
     patchModels,
     logServerUrl,
     logServerBind,
+    ...(telemetryPath === undefined ? {} : { telemetryPath }),
     git,
     projects,
   };
@@ -337,6 +348,24 @@ function validateConfigString(
   return value;
 }
 
+function validateOptionalStringOrNull(
+  value: unknown,
+  name: string,
+  fallback: string | null | undefined,
+  failWith: (message: string) => never,
+): string | null | undefined {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    failWith(`${name} must be a non-empty string or null`);
+  }
+  return value;
+}
+
 function validateOptionalBoolean(
   value: unknown,
   name: string,
@@ -370,8 +399,14 @@ export function loadConfig(opts?: ConfigOptions): Config {
   const { dir, file } = resolvePaths(opts);
   if (!existsSync(file)) {
     mkdirSync(dir, { recursive: true });
-    const cfg = withOptionOverrides(structuredClone(DEFAULT_CONFIG), opts);
-    atomicWriteSync(file, serialize(DEFAULT_CONFIG));
+    const cfg = withOptionOverrides(
+      {
+        ...structuredClone(DEFAULT_CONFIG),
+        telemetryPath: join(dir, "runs.jsonl"),
+      },
+      opts,
+    );
+    atomicWriteSync(file, serialize(cfg));
     return cfg;
   }
   const raw = readFileSync(file, "utf8");

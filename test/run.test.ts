@@ -120,6 +120,88 @@ afterEach(() => {
 });
 
 describe("runCommand", () => {
+  describe("telemetry", () => {
+    test("writes one JSONL line per iteration plus a terminal line", async () => {
+      const spec = writeSpec("- [ ] one\n- [ ] two\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", (callCount) => {
+        writeFileSync(
+          spec,
+          callCount === 1 ? "- [x] one\n- [ ] two\n" : "- [x] one\n- [x] two\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const lines = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n");
+      expect(lines).toHaveLength(3);
+      for (const line of lines) {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        expect(typeof parsed.ts).toBe("string");
+        expect(parsed.namespace).toBe("project:project");
+        expect(parsed.agent).toBe("claude");
+        expect(typeof parsed.iteration).toBe("number");
+        expect(typeof parsed.duration_ms).toBe("number");
+        expect(typeof parsed.kind).toBe("string");
+        expect(typeof parsed.exit_reason).toBe("string");
+      }
+    });
+
+    test("telemetryPath null disables writes", async () => {
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.telemetryPath = null;
+      writeConfig(cfg, { dir: cfgDir });
+      const spec = writeSpec("- [ ] todo\n");
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: captureIo().io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(existsSync(join(cfgDir, "runs.jsonl"))).toBe(false);
+    });
+
+    test("telemetry append errors do not change run exit code", async () => {
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.telemetryPath = "/dev/null/runs.jsonl";
+      writeConfig(cfg, { dir: cfgDir });
+      const spec = writeSpec("- [ ] todo\n");
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: captureIo().io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+    });
+  });
+
   test("refuses to run when log server is unreachable", async () => {
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();

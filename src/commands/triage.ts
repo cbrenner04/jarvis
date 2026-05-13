@@ -21,6 +21,33 @@ export type TriageCommandOptions = {
   worktreeName?: string;
 };
 
+export type DirtyKind = "clean" | "untracked-only" | "modified" | "mixed";
+export type PrState =
+  | "none"
+  | "DRAFT"
+  | "OPEN"
+  | "MERGED"
+  | "CLOSED"
+  | "unknown";
+
+export type SuggestedMovesInput = {
+  dirtyKind: DirtyKind;
+  unpushed: number;
+  prState: PrState;
+  specComplete: boolean;
+  worktreePath: string;
+  specPath?: string | undefined;
+};
+
+export function getSuggestedMoves(input: SuggestedMovesInput): string[] {
+  for (const rule of suggestedMovesRules) {
+    if (rule.match(input)) {
+      return rule.format(input);
+    }
+  }
+  return defaultSuggestedMove(input);
+}
+
 export function triageCommand(opts: TriageCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
 
@@ -76,7 +103,7 @@ function triageDrillDown(
     return 1;
   }
 
-  let exitCode = 0;
+  const exitCode = 0;
 
   // Identity section
   io.stdout("Identity\n");
@@ -320,39 +347,25 @@ function renderSpec(worktreePath: string): string {
 
 function renderPr(branchName: string): string {
   try {
-    const output = execSync(
-      `gh pr view "${branchName}" --json state,url,isDraft,updatedAt,title -q '.state + " - " + .title'`,
+    const fullOutput = execSync(
+      `gh pr view "${branchName}" --json state,url,isDraft,updatedAt,title`,
       {
         stdio: "pipe",
         encoding: "utf8",
       },
-    ).trim();
-    const [state, ...titleParts] = output.split(" - ");
-    const title = titleParts.join(" - ");
-
-    try {
-      const fullOutput = execSync(
-        `gh pr view "${branchName}" --json state,url,isDraft,updatedAt,title`,
-        {
-          stdio: "pipe",
-          encoding: "utf8",
-        },
-      );
-      const prData = JSON.parse(fullOutput);
-      const lines: string[] = [];
-      lines.push(`  State: ${prData.state}`);
-      lines.push(`  URL: ${prData.url}`);
-      lines.push(`  Title: ${prData.title}`);
-      if (prData.updatedAt) {
-        lines.push(`  Last updated: ${prData.updatedAt}`);
-      }
-      if (prData.isDraft) {
-        lines.push(`  Draft: true`);
-      }
-      return `${lines.join("\n")}\n`;
-    } catch {
-      return `  ${output}\n`;
+    );
+    const prData = JSON.parse(fullOutput);
+    const lines: string[] = [];
+    lines.push(`  State: ${prData.state}`);
+    lines.push(`  URL: ${prData.url}`);
+    lines.push(`  Title: ${prData.title}`);
+    if (prData.updatedAt) {
+      lines.push(`  Last updated: ${prData.updatedAt}`);
     }
+    if (prData.isDraft) {
+      lines.push(`  Draft: true`);
+    }
+    return `${lines.join("\n")}\n`;
   } catch {
     return "  (no PR)\n";
   }
@@ -429,8 +442,251 @@ function renderSessionLog(worktreePath: string): string {
 }
 
 function renderSuggestedMoves(worktreePath: string): string {
-  // Stub for now - will be filled in by subspec 02
-  return "  (pending)\n";
+  try {
+    const input = buildSuggestedMovesInput(worktreePath);
+    const lines = getSuggestedMoves(input);
+    if (lines.length === 0) {
+      return "  (no suggestions available)\n";
+    }
+    return `${lines.map((line) => `  ${line}`).join("\n")}\n`;
+  } catch (err) {
+    return `  (error: ${err instanceof Error ? err.message : String(err)})\n`;
+  }
+}
+
+function buildSuggestedMovesInput(worktreePath: string): SuggestedMovesInput {
+  const specMarkerPath = join(worktreePath, ".active-spec-path");
+  const specPath = existsSync(specMarkerPath)
+    ? readFileSync(specMarkerPath, "utf8").trim()
+    : undefined;
+
+  const dirtyKind = computeDirtyKind(worktreePath);
+  const unpushed = computeUnpushed(worktreePath);
+  const prState = computePrState(worktreePath);
+  const specComplete = computeSpecComplete(specPath);
+
+  return {
+    dirtyKind,
+    unpushed,
+    prState,
+    specComplete,
+    worktreePath,
+    specPath,
+  };
+}
+
+function computeDirtyKind(worktreePath: string): DirtyKind {
+  try {
+    const porcelain = execSync("git status --porcelain", {
+      cwd: worktreePath,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+
+    if (porcelain.trim().length === 0) {
+      return "clean";
+    }
+
+    const lines = porcelain.split("\n").filter((l) => l.length > 0);
+    const hasUntracked = lines.some((l) => l.startsWith("??"));
+    const hasModified = lines.some((l) => !l.startsWith("??"));
+
+    if (hasModified && hasUntracked) {
+      return "mixed";
+    }
+    if (hasModified) {
+      return "modified";
+    }
+    if (hasUntracked) {
+      return "untracked-only";
+    }
+    return "clean";
+  } catch {
+    return "clean";
+  }
+}
+
+function computeUnpushed(worktreePath: string): number {
+  try {
+    const output = execSync("git log @{u}.. --oneline", {
+      cwd: worktreePath,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    const lines = output
+      .trim()
+      .split("\n")
+      .filter((l) => l.length > 0);
+    return lines.length;
+  } catch {
+    return 0;
+  }
+}
+
+function computePrState(worktreePath: string): PrState {
+  try {
+    const branch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd: worktreePath,
+      stdio: "pipe",
+      encoding: "utf8",
+    }).trim();
+
+    const output = execSync(`gh pr view "${branch}" --json state -q .state`, {
+      stdio: "pipe",
+      encoding: "utf8",
+    }).trim();
+
+    const state = output.toUpperCase() as
+      | "DRAFT"
+      | "OPEN"
+      | "MERGED"
+      | "CLOSED";
+    if (["DRAFT", "OPEN", "MERGED", "CLOSED"].includes(state)) {
+      return state;
+    }
+    return "unknown";
+  } catch {
+    return "none";
+  }
+}
+
+function computeSpecComplete(specPath: string | undefined): boolean {
+  if (!specPath || !existsSync(specPath)) {
+    return false;
+  }
+
+  try {
+    const unchecked = countUnchecked(specPath);
+    if (unchecked > 0) {
+      return false;
+    }
+
+    if (basename(specPath) === "index.md") {
+      const activeSubspecPath = getActiveLinkedSubspecPath(specPath);
+      if (activeSubspecPath && existsSync(activeSubspecPath)) {
+        const criteria = snapshotAcceptanceCriteria(activeSubspecPath);
+        const unmet = criteria.filter((c) => !c.checked);
+        if (unmet.length > 0) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const suggestedMovesRules: Array<{
+  match: (input: SuggestedMovesInput) => boolean;
+  format: (input: SuggestedMovesInput) => string[];
+}> = [
+  // Rule 1: clean + unpushed > 0 + prState in {none, DRAFT, OPEN}
+  {
+    match: (input) =>
+      input.dirtyKind === "clean" &&
+      input.unpushed > 0 &&
+      ["none", "DRAFT", "OPEN"].includes(input.prState),
+    format: (input) => [`1. git -C ${input.worktreePath} push`],
+  },
+
+  // Rule 2: clean + prState = MERGED
+  {
+    match: (input) => input.dirtyKind === "clean" && input.prState === "MERGED",
+    format: (_input) => [
+      `1. PR is merged. Safe to remove with: jarvis cleanup`,
+    ],
+  },
+
+  // Rule 3: untracked-only (in spec dir) + suggested push
+  {
+    match: (input) => {
+      if (input.dirtyKind !== "untracked-only" || !input.specPath) {
+        return false;
+      }
+
+      try {
+        const porcelain = execSync("git status --porcelain", {
+          cwd: input.worktreePath,
+          stdio: "pipe",
+          encoding: "utf8",
+        });
+        const lines = porcelain.split("\n").filter((l) => l.length > 0);
+
+        // Check if all untracked files are under the spec directory
+        const specDir = dirname(input.specPath);
+        return lines.every((l) => {
+          const filePath = l.substring(3).trim();
+          return filePath.startsWith(specDir);
+        });
+      } catch {
+        return false;
+      }
+    },
+    format: (input) => {
+      try {
+        const porcelain = execSync("git status --porcelain", {
+          cwd: input.worktreePath,
+          stdio: "pipe",
+          encoding: "utf8",
+        });
+        const lines = porcelain
+          .split("\n")
+          .filter((l) => l.length > 0)
+          .map((l) => l.substring(3).trim());
+
+        const files = lines.join(" ");
+        return [
+          `1. git -C ${input.worktreePath} add ${files} && git -C ${input.worktreePath} commit -m "seed spec"`,
+          `2. git -C ${input.worktreePath} push`,
+        ];
+      } catch {
+        return [];
+      }
+    },
+  },
+
+  // Rule 4: modified or mixed + prState = MERGED
+  {
+    match: (input) =>
+      ["modified", "mixed"].includes(input.dirtyKind) &&
+      input.prState === "MERGED",
+    format: (input) => [
+      `1. PR is merged but this tree has uncommitted work — probably orphaned.`,
+      `2. Inspect: git -C ${input.worktreePath} diff`,
+      `3. Discard: git -C ${input.worktreePath} stash && jarvis cleanup`,
+    ],
+  },
+
+  // Rule 5: modified or mixed + specComplete = true
+  {
+    match: (input) =>
+      ["modified", "mixed"].includes(input.dirtyKind) &&
+      input.specComplete === true,
+    format: (input) => [
+      `1. Spec checklists are complete. Commit and push so the PR reflects:`,
+      `   git -C ${input.worktreePath} add -A && git -C ${input.worktreePath} commit && git -C ${input.worktreePath} push`,
+    ],
+  },
+
+  // Rule 6: modified or mixed + specComplete = false
+  {
+    match: (input) =>
+      ["modified", "mixed"].includes(input.dirtyKind) &&
+      input.specComplete === false,
+    format: (input) => [
+      `1. Inspect: git -C ${input.worktreePath} diff`,
+      `2. Resume: jarvis run ${input.specPath || "(spec path unknown)"}`,
+      `3. Discard: git -C ${input.worktreePath} reset --hard && git -C ${input.worktreePath} clean -fd`,
+    ],
+  },
+];
+
+function defaultSuggestedMove(input: SuggestedMovesInput): string[] {
+  return [
+    `1. Inspect: git -C ${input.worktreePath} diff and the session log above`,
+  ];
 }
 
 function buildNamespace(specPath: string): string {
@@ -501,7 +757,7 @@ function getPrState(branch: string): string {
   }
 }
 
-function getSpecProgress(worktreePath: string): string {
+function getSpecProgress(_worktreePath: string): string {
   // Stub for now - will be filled in by subspec 01
   return "-";
 }

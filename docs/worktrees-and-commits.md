@@ -140,5 +140,17 @@ worktree's namespace, plus the last 40 lines of that log (or all lines if
 shorter). Session logs are under `~/.jarvis/sessions/`. Prints
 `(no session logs found)` if none match the namespace.
 
-**Suggested next moves**: Advisory text based on dirty status and PR state.
-(This section is a stub in the current release.)
+**Suggested next moves**: Advisory shell commands keyed on the combination of
+dirty status, unpushed commits, PR state, and spec completion. Rules cover:
+
+1. Clean working tree + unpushed commits + PR state in {none, DRAFT, OPEN} → `git push`
+2. Clean working tree + merged PR → "Safe to remove with `jarvis cleanup`"
+3. Untracked files (only in spec dir) → `git add <files> && git commit -m "seed spec"` then push
+4. Modified/mixed changes + merged PR → "Probably orphaned; inspect with `git diff` or discard with stash + cleanup"
+5. Modified/mixed changes + spec complete → "Commit and push the completed work"
+6. Modified/mixed changes + spec incomplete → "Inspect, resume, or discard"
+7. All other states → "Inspect with `git diff` and the session log above"
+
+All suggestions are informational text only; nothing is executed by triage. Destructive
+commands like `--force` or `--no-verify` are never suggested (user types them explicitly
+if needed).

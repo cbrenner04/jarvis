@@ -1,16 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { TriageIo } from "../src/commands/triage.ts";
-import { triageCommand } from "../src/commands/triage.ts";
+import type { SuggestedMovesInput, TriageIo } from "../src/commands/triage.ts";
+import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
 
 function captureIo(): { io: TriageIo; out: () => string; err: () => string } {
   let out = "";
@@ -116,7 +110,7 @@ describe("triage command", () => {
     expect(output).toContain("PR");
     expect(output).toContain("Session log");
     expect(output).toContain("Suggested next moves");
-    expect(output).toContain("(pending)");
+    expect(output).toContain("Inspect");
   });
 
   test("with .keep directory is filtered", () => {
@@ -232,5 +226,246 @@ describe("triage command", () => {
     expect(code).toBe(0);
     const output = out();
     expect(output).toContain("Last commit");
+  });
+});
+
+describe("suggested moves rules", () => {
+  test("rule 1: clean + unpushed > 0 + prState OPEN", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "clean",
+      unpushed: 1,
+      prState: "OPEN",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toContain("git -C /tmp/test push");
+  });
+
+  test("rule 1: clean + unpushed > 0 + prState DRAFT", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "clean",
+      unpushed: 2,
+      prState: "DRAFT",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toContain("git -C /tmp/test push");
+  });
+
+  test("rule 1: clean + unpushed > 0 + prState none", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "clean",
+      unpushed: 1,
+      prState: "none",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toContain("git -C /tmp/test push");
+  });
+
+  test("rule 2: clean + prState MERGED", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "clean",
+      unpushed: 0,
+      prState: "MERGED",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toContain("PR is merged");
+    expect(lines[0]).toContain("jarvis cleanup");
+  });
+
+  test("rule 4: modified + prState MERGED", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "modified",
+      unpushed: 0,
+      prState: "MERGED",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((l) => l.includes("PR is merged"))).toBe(true);
+    expect(lines.some((l) => l.includes("orphaned"))).toBe(true);
+  });
+
+  test("rule 4: mixed + prState MERGED", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "mixed",
+      unpushed: 0,
+      prState: "MERGED",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((l) => l.includes("orphaned"))).toBe(true);
+  });
+
+  test("rule 5: modified + specComplete true", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "modified",
+      unpushed: 0,
+      prState: "OPEN",
+      specComplete: true,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((l) => l.includes("Spec checklists are complete"))).toBe(
+      true,
+    );
+    expect(lines.some((l) => l.includes("add -A"))).toBe(true);
+  });
+
+  test("rule 5: mixed + specComplete true", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "mixed",
+      unpushed: 0,
+      prState: "OPEN",
+      specComplete: true,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((l) => l.includes("Spec checklists are complete"))).toBe(
+      true,
+    );
+  });
+
+  test("rule 6: modified + specComplete false", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "modified",
+      unpushed: 0,
+      prState: "OPEN",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+      specPath: "/path/to/spec.md",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((l) => l.includes("Inspect"))).toBe(true);
+    expect(lines.some((l) => l.includes("Resume"))).toBe(true);
+  });
+
+  test("rule 6: mixed + specComplete false", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "mixed",
+      unpushed: 0,
+      prState: "OPEN",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+      specPath: "/path/to/spec.md",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.some((l) => l.includes("reset --hard"))).toBe(true);
+  });
+
+  test("prState unknown falls through to fallback", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "modified",
+      unpushed: 0,
+      prState: "unknown",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    // Should not suggest destructive commands
+    expect(lines.some((l) => l.includes("--force"))).toBe(false);
+    expect(lines.some((l) => l.includes("-D"))).toBe(false);
+    expect(lines.some((l) => l.includes("--no-verify"))).toBe(false);
+  });
+
+  test("fallback suggestion includes diff and session log", () => {
+    const input: SuggestedMovesInput = {
+      dirtyKind: "clean",
+      unpushed: 0,
+      prState: "CLOSED",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+    };
+
+    const lines = getSuggestedMoves(input);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines[0]).toContain("Inspect");
+  });
+
+  test("no rule matches a destructive suggestion for unknown prState", () => {
+    const scenarios: Array<[SuggestedMovesInput]> = [
+      [
+        {
+          dirtyKind: "clean",
+          unpushed: 5,
+          prState: "unknown",
+          specComplete: false,
+          worktreePath: "/tmp/test",
+        },
+      ],
+      [
+        {
+          dirtyKind: "modified",
+          unpushed: 0,
+          prState: "unknown",
+          specComplete: false,
+          worktreePath: "/tmp/test",
+        },
+      ],
+      [
+        {
+          dirtyKind: "mixed",
+          unpushed: 0,
+          prState: "unknown",
+          specComplete: true,
+          worktreePath: "/tmp/test",
+        },
+      ],
+    ];
+
+    for (const [input] of scenarios) {
+      const lines = getSuggestedMoves(input);
+      for (const line of lines) {
+        expect(line).not.toContain("--force");
+        expect(line).not.toContain(" -D ");
+        expect(line).not.toContain("--no-verify");
+      }
+    }
+  });
+
+  test("untracked-only with MERGED (no spec path) falls through to fallback", () => {
+    // untracked-only + MERGED doesn't match rule 4 (which requires modified/mixed)
+    // and rule 3 requires a spec path. So it falls through to fallback.
+    const input: SuggestedMovesInput = {
+      dirtyKind: "untracked-only",
+      unpushed: 0,
+      prState: "MERGED",
+      specComplete: false,
+      worktreePath: "/tmp/test",
+      specPath: undefined,
+    };
+
+    const lines = getSuggestedMoves(input);
+    // Should fall through to the fallback suggestion
+    expect(lines.some((l) => l.includes("Inspect"))).toBe(true);
   });
 });

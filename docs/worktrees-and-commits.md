@@ -104,3 +104,12 @@ Behavior:
 - Removes the worktree directory and deletes the local branch.
 
 The `.worktree/.keep` directory is never removed.
+
+## Triage
+
+`jarvis triage [worktree-name]` is a read-only inspector for dirty or orphaned
+worktrees. Without an argument, it lists all worktrees with a one-line summary
+of each (dirty status, commits ahead/behind, PR state, spec progress). Given a
+worktree name, it prints a full drill-down including git state, spec progress,
+PR details, and suggested next moves. Useful when `jarvis run` bails due to a
+dirty worktree and you need to understand what work is in progress.

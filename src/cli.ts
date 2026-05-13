@@ -7,6 +7,10 @@ import { init as runInit } from "./commands/init.ts";
 import { logServerCommand } from "./commands/log-server.ts";
 import { type RunCommandOptions, runCommand } from "./commands/run.ts";
 import {
+  type TriageCommandOptions,
+  triageCommand,
+} from "./commands/triage.ts";
+import {
   type ConfigOptions,
   findProjectMatchForPath,
   validatePositiveInteger,
@@ -18,6 +22,7 @@ export type Subcommand =
   | "config"
   | "log-server"
   | "cleanup"
+  | "triage"
   | "help";
 
 export type ParsedArgs =
@@ -33,6 +38,7 @@ export type ParsedArgs =
   | { kind: "config"; rest: string[] }
   | { kind: "log-server" }
   | { kind: "cleanup"; dryRun?: boolean }
+  | { kind: "triage"; worktreeName?: string }
   | { kind: "unknown"; name: string }
   | { kind: "error"; message: string };
 
@@ -51,6 +57,8 @@ Commands:
   log-server        Run the local log aggregation server.
   cleanup [--dry-run]
                     Remove merged worktrees.
+  triage [worktree-name]
+                    Inspect a dirty or orphaned worktree.
   help              Show this message.
 `;
 
@@ -135,6 +143,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     case "cleanup": {
       const dryRun = rest.includes("--dry-run");
       return { kind: "cleanup", dryRun };
+    }
+    case "triage": {
+      const worktreeName = rest[0];
+      const result: { kind: "triage"; worktreeName?: string } = {
+        kind: "triage",
+      };
+      if (worktreeName !== undefined) {
+        result.worktreeName = worktreeName;
+      }
+      return result;
     }
     default:
       return { kind: "unknown", name: first };
@@ -252,6 +270,30 @@ export function run(
         cleanupOpts.dryRun = parsed.dryRun;
       }
       return cleanupCommand(cleanupOpts);
+    }
+    case "triage": {
+      const cwd = opts.cwd ?? process.cwd();
+      const project = findProjectMatchForPath(cwd, opts.config);
+      if (project === undefined) {
+        io.stderr(
+          "jarvis triage: not inside any project registered with `jarvis init`\n",
+        );
+        return 1;
+      }
+      const triageOpts: TriageCommandOptions = {
+        projectRoot: project.root,
+        io: {
+          stdout: io.stdout,
+          stderr: io.stderr,
+        },
+      };
+      if (opts.config !== undefined) {
+        triageOpts.config = opts.config;
+      }
+      if (parsed.worktreeName !== undefined) {
+        triageOpts.worktreeName = parsed.worktreeName;
+      }
+      return triageCommand(triageOpts);
     }
     case "unknown":
       io.stderr(`jarvis: unknown command ${JSON.stringify(parsed.name)}\n`);

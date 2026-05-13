@@ -49,6 +49,11 @@ import {
   worktreeCompletionBlocker,
 } from "../../worktree.ts";
 import {
+  acquireWorktreeLock,
+  releaseWorktreeLock,
+  type WorktreeLock,
+} from "../../worktree-lock.ts";
+import {
   countUnchecked,
   getActiveLinkedSubspecPath,
   getFirstUncheckedTask,
@@ -191,6 +196,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   }
 
   let agentWorkingDir = cwdOverride ?? project.root;
+  let worktreeLocked = false;
+  let stalepidRecovered: number | undefined;
   if (!opts.skipGhCheck && gitEnabled) {
     try {
       agentWorkingDir = await ensureWorktree(project.root, specPath);
@@ -199,6 +206,19 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         agentWorkingDir,
         cfg.worktreeSymlinks,
       );
+
+      const lockResult = acquireWorktreeLock(agentWorkingDir);
+      if (lockResult.kind === "busy") {
+        const lockInfo = lockResult.existingLock;
+        opts.io.stderr(
+          `worktree is in use by process ${lockInfo.pid} (started at ${lockInfo.started_at})\n`,
+        );
+        return 9;
+      }
+      if (lockResult.kind === "recovered") {
+        stalepidRecovered = lockResult.stalepid;
+      }
+      worktreeLocked = true;
     } catch (err) {
       opts.io.stderr(
         `failed to create or resume worktree: ${(err as Error).message}\n`,
@@ -724,6 +744,15 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   } finally {
     if (globalTimeoutHandle) {
       clearTimeout(globalTimeoutHandle);
+    }
+    if (worktreeLocked) {
+      releaseWorktreeLock(agentWorkingDir);
+    }
+    if (stalepidRecovered !== undefined) {
+      await sendLog(
+        "harness",
+        `recovered stale worktree lock (pid ${stalepidRecovered} no longer running)`,
+      );
     }
     closeSync(sessionFd);
     if (opts.handleSignals !== false) {

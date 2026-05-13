@@ -1,12 +1,51 @@
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
+
+let configWriteLocked = false;
+
+function atomicWriteSync(
+  file: string,
+  content: string,
+): void {
+  if (configWriteLocked) {
+    throw new Error("Config write in progress");
+  }
+
+  configWriteLocked = true;
+  try {
+    const dir = resolve(file, "..");
+    mkdirSync(dir, { recursive: true });
+
+    const pid = process.pid;
+    const rand = randomBytes(4).toString("hex");
+    const tmpFile = `${file}.tmp.${pid}.${rand}`;
+
+    let fd = -1;
+    try {
+      writeFileSync(tmpFile, content, "utf8");
+      fd = openSync(tmpFile, "r");
+      fsyncSync(fd);
+    } finally {
+      if (fd !== -1) {
+        closeSync(fd);
+      }
+    }
+    renameSync(tmpFile, file);
+  } finally {
+    configWriteLocked = false;
+  }
+}
 
 export const CONFIG_DIR = join(homedir(), ".jarvis");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
@@ -315,7 +354,7 @@ export function loadConfig(opts?: ConfigOptions): Config {
   if (!existsSync(file)) {
     mkdirSync(dir, { recursive: true });
     const cfg = withOptionOverrides(structuredClone(DEFAULT_CONFIG), opts);
-    writeFileSync(file, serialize(DEFAULT_CONFIG));
+    atomicWriteSync(file, serialize(DEFAULT_CONFIG));
     return cfg;
   }
   const raw = readFileSync(file, "utf8");
@@ -342,7 +381,7 @@ export function writeConfig(cfg: Config, opts?: ConfigOptions): void {
   const { dir, file } = resolvePaths(opts);
   const validated = validateConfig(cfg, file);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(file, serialize(validated));
+  atomicWriteSync(file, serialize(validated));
 }
 
 export function registerProject(

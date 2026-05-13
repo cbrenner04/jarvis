@@ -113,3 +113,32 @@ of each (dirty status, commits ahead/behind, PR state, spec progress). Given a
 worktree name, it prints a full drill-down including git state, spec progress,
 PR details, and suggested next moves. Useful when `jarvis run` bails due to a
 dirty worktree and you need to understand what work is in progress.
+
+### Drill-down sections
+
+The full report (`jarvis triage <worktree-name>`) includes six sections:
+
+**Identity**: Worktree path, branch name, spec path (from a marker file in the
+worktree), active subspec (if the spec is an index), and run namespace.
+Degrades gracefully if the spec marker is missing (older worktrees).
+
+**Git**: Porcelain output (`git status --porcelain`), ahead/behind vs upstream
+(`git rev-list --left-right --count @{u}...HEAD`), unpushed commits
+(`git log @{u}.. --pretty`), and last commit with timestamp. Clean working
+trees print `(clean working tree)`. Missing upstream branch prints
+`(no upstream)`.
+
+**Spec**: Task count (checked/total), first unchecked task (if incomplete),
+and unmet acceptance criteria for the active subspec (if it's an index spec).
+Degrades to `(spec unavailable)` if the spec marker is missing.
+
+**PR**: PR state (`OPEN`, `DRAFT`, `MERGED`, `CLOSED`), URL, title, and last
+updated time. Falls back to `(no PR)` if no PR exists for the branch.
+
+**Session log**: Absolute path to the most recent session log file for the
+worktree's namespace, plus the last 40 lines of that log (or all lines if
+shorter). Session logs are under `~/.jarvis/sessions/`. Prints
+`(no session logs found)` if none match the namespace.
+
+**Suggested next moves**: Advisory text based on dirty status and PR state.
+(This section is a stub in the current release.)

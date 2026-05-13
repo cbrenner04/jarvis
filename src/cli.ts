@@ -6,10 +6,7 @@ import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
 import { logServerCommand } from "./commands/log-server.ts";
 import { type RunCommandOptions, runCommand } from "./commands/run.ts";
-import {
-  type TriageCommandOptions,
-  triageCommand,
-} from "./commands/triage.ts";
+import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
   type ConfigOptions,
   findProjectMatchForPath,

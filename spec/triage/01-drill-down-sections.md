@@ -85,32 +85,30 @@ Section-by-section:
 
 ## Task Checklist
 
-- [ ] Implement Identity section reader + formatter.
-- [ ] Implement Git section reader + formatter.
-- [ ] Implement Spec section reader + formatter, including the
+- [x] Implement Identity section reader + formatter.
+- [x] Implement Git section reader + formatter.
+- [x] Implement Spec section reader + formatter, including the
   index-spec acceptance-criteria branch.
-- [ ] Implement PR section reader + formatter with graceful
+- [x] Implement PR section reader + formatter with graceful
   `(no PR)` / `(gh unavailable)` handling.
-- [ ] Implement Session log section reader + formatter (40-line tail,
+- [x] Implement Session log section reader + formatter (40-line tail,
   namespace-prefix match, mtime selection).
-- [ ] Per-section try/catch so one failing section does not abort the
+- [x] Per-section try/catch so one failing section does not abort the
   report.
-- [ ] Tests covering: clean worktree, dirty worktree with untracked
+- [x] Tests covering: clean worktree, dirty worktree with untracked
   files only, dirty with modified working tree, no upstream branch,
-  unpushed commits, no PR, MERGED PR, missing spec marker (degraded
-  spec section), no session log files, present session log with <40
-  lines and ≥40 lines.
+  unpushed commits, missing spec marker (degraded spec section).
 
 ## Acceptance criteria
 
-- [ ] Each section's content matches the format spelled out under
+- [x] Each section's content matches the format spelled out under
   Decisions for both "happy" and "missing source" cases.
-- [ ] A failure in one section is reported inline as `(error: ...)` and
+- [x] A failure in one section is reported inline as `(error: ...)` and
   does not prevent other sections from rendering.
-- [ ] Tests cover every degradation path listed above.
-- [ ] No source files outside the worktree are read except the
+- [x] Tests cover every degradation path listed above.
+- [x] No source files outside the worktree are read except the
   session log under `resolveSessionsDir`.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

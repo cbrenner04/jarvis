@@ -69,30 +69,30 @@ nothing is executed.
 
 ## Task Checklist
 
-- [ ] Define the `SuggestedMovesInput` type and the
+- [x] Define the `SuggestedMovesInput` type and the
   `dirtyKind`/`unpushed`/`prState`/`specComplete` computations,
   reusing data from subspec 01's gatherers.
-- [ ] Implement the rule table with the seven cases above plus the
+- [x] Implement the rule table with the seven cases above plus the
   fallback.
-- [ ] Wire it into the report between Session log and the end of
+- [x] Wire it into the report between Session log and the end of
   output.
-- [ ] Tests construct each rule's input shape and assert the rendered
+- [x] Tests construct each rule's input shape and assert the rendered
   lines. Include a test for the fallback case.
-- [ ] Test that `prState = unknown` never produces a destructive
+- [x] Test that `prState = unknown` never produces a destructive
   suggestion.
-- [ ] Test that the untracked-only-in-spec-dir branch does not fire
+- [x] Test that the untracked-only-in-spec-dir branch does not fire
   when untracked files exist outside the spec dir.
 
 ## Acceptance criteria
 
-- [ ] For each rule, the rendered suggestion matches the format above
+- [x] For each rule, the rendered suggestion matches the format above
   and substitutes the absolute worktree path.
-- [ ] No suggestion contains `--force`, `-D`, or `--no-verify`.
-- [ ] `prState = unknown` falls through to the safe fallback regardless
+- [x] No suggestion contains `--force`, `-D`, or `--no-verify`.
+- [x] `prState = unknown` falls through to the safe fallback regardless
   of dirty kind.
-- [ ] Suggestions are printed as informational text; nothing is
+- [x] Suggestions are printed as informational text; nothing is
   executed by triage.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

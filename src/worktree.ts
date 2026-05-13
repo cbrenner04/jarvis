@@ -95,6 +95,10 @@ function branchExistsOnOrigin(
  *
  * Returns `undefined` if there is nothing to verify (no `.git`) or the tree is
  * clean. Otherwise returns a short, human-readable reason.
+ *
+ * Callers are expected to append a triage suggestion line such as:
+ * `Run \`jarvis triage <worktree-name>\` to inspect state and see suggested next moves.\n`
+ * The worktree name is typically `basename(agentWorkingDir)`.
  */
 export function worktreeCompletionBlocker(cwd: string): string | undefined {
   if (!existsSync(join(cwd, ".git"))) {

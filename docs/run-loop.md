@@ -200,7 +200,7 @@ jarvis log-server
 | `3` | The active agent failed for a non-quota reason. |
 | `4` | A successful agent iteration made no progress (unchecked count unchanged and spec still incomplete). |
 | `5` | The configured `maxIterations` was reached. Default is 10; override with `--max-iterations <n>`. |
-| `6` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes, or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. Inspect the worktree, then tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
+| `6` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes, or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. The bail message ends with a pointer to `jarvis triage <worktree-name>` to inspect the state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
 | `130` | Interrupted with Ctrl-C. |
 
 On exit `4` and `5`, the bounded tail of recent agent output is printed to the

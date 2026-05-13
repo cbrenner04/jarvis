@@ -104,3 +104,53 @@ Behavior:
 - Removes the worktree directory and deletes the local branch.
 
 The `.worktree/.keep` directory is never removed.
+
+## Triage
+
+`jarvis triage [worktree-name]` is a read-only inspector for dirty or orphaned
+worktrees. Without an argument, it lists all worktrees with a one-line summary
+of each (dirty status, commits ahead/behind, PR state, spec progress). Given a
+worktree name, it prints a full drill-down including git state, spec progress,
+PR details, and suggested next moves. Useful when `jarvis run` bails due to a
+dirty worktree and you need to understand what work is in progress.
+
+### Drill-down sections
+
+The full report (`jarvis triage <worktree-name>`) includes six sections:
+
+**Identity**: Worktree path, branch name, spec path (from a marker file in the
+worktree), active subspec (if the spec is an index), and run namespace.
+Degrades gracefully if the spec marker is missing (older worktrees).
+
+**Git**: Porcelain output (`git status --porcelain`), ahead/behind vs upstream
+(`git rev-list --left-right --count @{u}...HEAD`), unpushed commits
+(`git log @{u}.. --pretty`), and last commit with timestamp. Clean working
+trees print `(clean working tree)`. Missing upstream branch prints
+`(no upstream)`.
+
+**Spec**: Task count (checked/total), first unchecked task (if incomplete),
+and unmet acceptance criteria for the active subspec (if it's an index spec).
+Degrades to `(spec unavailable)` if the spec marker is missing.
+
+**PR**: PR state (`OPEN`, `DRAFT`, `MERGED`, `CLOSED`), URL, title, and last
+updated time. Falls back to `(no PR)` if no PR exists for the branch.
+
+**Session log**: Absolute path to the most recent session log file for the
+worktree's namespace, plus the last 40 lines of that log (or all lines if
+shorter). Session logs are under `~/.jarvis/sessions/`. Prints
+`(no session logs found)` if none match the namespace.
+
+**Suggested next moves**: Advisory shell commands keyed on the combination of
+dirty status, unpushed commits, PR state, and spec completion. Rules cover:
+
+1. Clean working tree + unpushed commits + PR state in {none, DRAFT, OPEN} → `git push`
+2. Clean working tree + merged PR → "Safe to remove with `jarvis cleanup`"
+3. Untracked files (only in spec dir) → `git add <files> && git commit -m "seed spec"` then push
+4. Modified/mixed changes + merged PR → "Probably orphaned; inspect with `git diff` or discard with stash + cleanup"
+5. Modified/mixed changes + spec complete → "Commit and push the completed work"
+6. Modified/mixed changes + spec incomplete → "Inspect, resume, or discard"
+7. All other states → "Inspect with `git diff` and the session log above"
+
+All suggestions are informational text only; nothing is executed by triage. Destructive
+commands like `--force` or `--no-verify` are never suggested (user types them explicitly
+if needed).

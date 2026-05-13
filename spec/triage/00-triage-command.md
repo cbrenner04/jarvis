@@ -69,16 +69,16 @@ empty section scaffolding. Section content is filled in by subspec 01.
 
 ## Acceptance criteria
 
-- [ ] `jarvis triage` with no arg prints a header and one summary line
+- [x] `jarvis triage` with no arg prints a header and one summary line
   per worktree under `.worktree/`, exits 0.
-- [ ] `jarvis triage <name>` for an existing worktree prints the six
+- [x] `jarvis triage <name>` for an existing worktree prints the six
   section headers and exits 0.
-- [ ] `jarvis triage <unknown>` exits 1 with `unknown worktree: <unknown>`.
-- [ ] Project resolution failures surface with the same messages as
+- [x] `jarvis triage <unknown>` exits 1 with `unknown worktree: <unknown>`.
+- [x] Project resolution failures surface with the same messages as
   `jarvis run` / `jarvis cleanup`.
-- [ ] No worktree, file, branch, or remote state is modified by any
+- [x] No worktree, file, branch, or remote state is modified by any
   invocation.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

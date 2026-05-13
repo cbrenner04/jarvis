@@ -55,13 +55,13 @@ with one extra line.
 
 ## Acceptance criteria
 
-- [ ] Both bail paths emit the triage suggestion as the last line
+- [x] Both bail paths emit the triage suggestion as the last line
   before exit.
-- [ ] The suggestion uses the basename of the worktree path.
-- [ ] `worktreeCompletionBlocker`'s return value is unchanged.
-- [ ] All existing tests for the two bail paths pass with the updated
+- [x] The suggestion uses the basename of the worktree path.
+- [x] `worktreeCompletionBlocker`'s return value is unchanged.
+- [x] All existing tests for the two bail paths pass with the updated
   expected text.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

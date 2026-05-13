@@ -93,6 +93,8 @@ jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.
 jarvis log-server          Run the local log aggregation server.
 jarvis cleanup [--dry-run] Remove merged worktrees.
+jarvis triage [worktree-name]
+                           Inspect a dirty or orphaned worktree.
 jarvis help                Show usage.
 ```
 

@@ -17,6 +17,8 @@ export type CodexAgentOptions = {
   model?: string;
 };
 
+const CODEX_MODEL_LABELS: Record<string, string> = {};
+
 export class CodexAgent implements Agent {
   readonly name = "codex" as const;
   readonly #binary: string;
@@ -58,5 +60,12 @@ export class CodexAgent implements Agent {
       prompt,
       opts,
     );
+  }
+
+  attributionLabel(): string {
+    if (this.#model === undefined) {
+      return "codex (default model)";
+    }
+    return CODEX_MODEL_LABELS[this.#model] ?? this.#model;
   }
 }

@@ -170,4 +170,25 @@ describe("ClaudeAgent", () => {
     expect(argv).toContain("--permission-mode");
     expect(argv).toContain("acceptEdits");
   });
+
+  test("attributionLabel returns mapped label for known model ID", () => {
+    const agent = new ClaudeAgent({
+      binary: "fake",
+      model: "claude-opus-4-7",
+    });
+    expect(agent.attributionLabel()).toBe("Claude Opus 4.7");
+  });
+
+  test("attributionLabel returns raw string for unknown model ID", () => {
+    const agent = new ClaudeAgent({
+      binary: "fake",
+      model: "claude-unknown-999",
+    });
+    expect(agent.attributionLabel()).toBe("claude-unknown-999");
+  });
+
+  test("attributionLabel returns default fallback when model is undefined", () => {
+    const agent = new ClaudeAgent({ binary: "fake" });
+    expect(agent.attributionLabel()).toBe("claude (default model)");
+  });
 });

@@ -145,4 +145,17 @@ describe("CursorAgent", () => {
     const argv = readFileSync(join(dir, "argv"), "utf8");
     expect(argv).toContain("--force");
   });
+
+  test("attributionLabel returns raw string for model ID", () => {
+    const agent = new CursorAgent({
+      binary: "fake",
+      model: "claude-opus-4-7",
+    });
+    expect(agent.attributionLabel()).toBe("claude-opus-4-7");
+  });
+
+  test("attributionLabel returns default fallback when model is undefined", () => {
+    const agent = new CursorAgent({ binary: "fake" });
+    expect(agent.attributionLabel()).toBe("cursor (default model)");
+  });
 });

@@ -144,4 +144,12 @@ describe("OpencodeAgent", () => {
     const result = await agent.run("p", { cwd });
     expect(result.kind).toBe("error");
   });
+
+  test("attributionLabel returns raw string for model ID", () => {
+    const agent = new OpencodeAgent({
+      binary: "fake",
+      model: "AirProxy/test",
+    });
+    expect(agent.attributionLabel()).toBe("AirProxy/test");
+  });
 });

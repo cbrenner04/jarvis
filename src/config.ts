@@ -7,7 +7,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
-  writeFileSync,
+  writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
@@ -28,17 +28,33 @@ function atomicWriteSync(file: string, content: string): void {
     const rand = randomBytes(4).toString("hex");
     const tmpFile = `${file}.tmp.${pid}.${rand}`;
 
-    let fd = -1;
+    // Open with O_WRONLY|O_CREAT|O_EXCL so a colliding tmp path is a hard
+    // error rather than silently truncated. fsync the data fd before close
+    // so the kernel commits the page cache to disk; without that, a power
+    // loss after rename can still lose the most-recent write.
+    const fd = openSync(tmpFile, "wx");
     try {
-      writeFileSync(tmpFile, content, "utf8");
-      fd = openSync(tmpFile, "r");
+      writeSync(fd, content, 0, "utf8");
       fsyncSync(fd);
     } finally {
-      if (fd !== -1) {
-        closeSync(fd);
-      }
+      closeSync(fd);
     }
     renameSync(tmpFile, file);
+
+    // fsync the parent directory so the rename itself is durable. Failures
+    // here are non-fatal: some filesystems (notably some networked or
+    // non-POSIX filesystems) reject directory fsync with EINVAL/EISDIR.
+    let dirFd = -1;
+    try {
+      dirFd = openSync(dir, "r");
+      fsyncSync(dirFd);
+    } catch {
+      // best-effort
+    } finally {
+      if (dirFd !== -1) {
+        closeSync(dirFd);
+      }
+    }
   } finally {
     configWriteLocked = false;
   }

@@ -1006,6 +1006,7 @@ exit 1
         version: 1,
         agentOrder: ["claude"],
         maxIterations: 1,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -1045,6 +1046,7 @@ exit 0
         version: 1,
         agentOrder: ["claude"],
         maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: {
           claude: "haiku",
           codex: "gpt-5.3-codex",
@@ -1086,6 +1088,7 @@ exit 0
         version: 1,
         agentOrder: ["claude"],
         maxIterations: 1,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -1149,6 +1152,7 @@ exit 0
         version: 1,
         agentOrder: ["claude", "codex"],
         maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -1184,6 +1188,7 @@ exit 0
         version: 1,
         agentOrder: ["claude", "codex"],
         maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -1242,6 +1247,7 @@ exit 0
         version: 1,
         agentOrder: ["claude", "codex"],
         maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -2066,6 +2072,110 @@ exit 0
 
       expect(code).toBe(0);
       expect(cap.out()).toContain("spec complete");
+    });
+  });
+
+  describe("timeout behavior", () => {
+    test("passes AbortSignal to agent via opts.signal", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      let receivedSignal: AbortSignal | undefined;
+      const claude = new FakeAgent("claude", (_callCount, _prompt, opts) => {
+        receivedSignal = opts.signal;
+        writeFileSync(spec, "repo: " + projectRoot + "\n\n- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+      writeConfig(
+        {
+          version: 1,
+          agentOrder: ["claude"],
+          maxIterations: 1,
+          iterationTimeoutMs: 30 * 60_000,
+          patchModels: DEFAULT_PATCH_MODELS,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(receivedSignal).toBeDefined();
+      expect(receivedSignal).toBeInstanceOf(AbortSignal);
+    });
+
+    test("iteration timeout causes exit code 8", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "aborted: iteration-timeout",
+      }));
+      writeConfig(
+        {
+          version: 1,
+          agentOrder: ["claude"],
+          maxIterations: 1,
+          iterationTimeoutMs: 1,
+          patchModels: DEFAULT_PATCH_MODELS,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("exceeded timeout");
+    });
+
+    test("global run timeout causes exit code 8", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "aborted: run-timeout",
+      }));
+      writeConfig(
+        {
+          version: 1,
+          agentOrder: ["claude"],
+          maxIterations: 1,
+          iterationTimeoutMs: 30 * 60_000,
+          runTimeoutMs: 1,
+          patchModels: DEFAULT_PATCH_MODELS,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("exceeded timeout");
     });
   });
 });

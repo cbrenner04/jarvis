@@ -33,6 +33,8 @@ export type Config = {
   version: 1;
   agentOrder: AgentName[];
   maxIterations: number;
+  iterationTimeoutMs: number;
+  runTimeoutMs?: number;
   patchModels: PatchModels;
   logServerUrl?: string;
   logServerBind?: string;
@@ -50,6 +52,7 @@ const DEFAULT_CONFIG: Config = {
   version: 1,
   agentOrder: ["claude", "codex", "cursor"],
   maxIterations: 10,
+  iterationTimeoutMs: 30 * 60_000,
   patchModels: {
     claude: "haiku",
     codex: "gpt-5.3-codex",
@@ -115,6 +118,21 @@ function validateConfig(input: unknown, file: string): Config {
     "maxIterations",
     (message) => fail(file, message),
   );
+
+  const iterationTimeoutMs = validatePositiveInteger(
+    obj.iterationTimeoutMs ?? DEFAULT_CONFIG.iterationTimeoutMs,
+    "iterationTimeoutMs",
+    (message) => fail(file, message),
+  );
+
+  let runTimeoutMs: number | undefined;
+  if (obj.runTimeoutMs !== undefined) {
+    runTimeoutMs = validatePositiveInteger(
+      obj.runTimeoutMs,
+      "runTimeoutMs",
+      (message) => fail(file, message),
+    );
+  }
 
   const patchModels = validatePatchModels(obj.patchModels, file);
   const logServerUrl = validateConfigString(
@@ -198,6 +216,8 @@ function validateConfig(input: unknown, file: string): Config {
     version: 1,
     agentOrder,
     maxIterations,
+    iterationTimeoutMs,
+    ...(runTimeoutMs !== undefined ? { runTimeoutMs } : {}),
     patchModels,
     logServerUrl,
     logServerBind,

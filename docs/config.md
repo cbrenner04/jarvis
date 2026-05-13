@@ -34,6 +34,8 @@ type Config = {
   agentOrder: AgentName[];
   patchModels: Record<AgentName, string>;
   maxIterations: number; // positive integer, default 10
+  iterationTimeoutMs: number; // per-iteration timeout in milliseconds, default 30 minutes (1_800_000)
+  runTimeoutMs?: number; // optional global run timeout in milliseconds; unset by default
   logServerUrl: string; // POST endpoint used by jarvis run
   logServerBind: string; // host:port used by jarvis log-server
   worktreeSymlinks?: string[]; // relative paths from repo root to symlink into worktrees
@@ -75,6 +77,7 @@ Default contents on first bootstrap:
   "logServerUrl": "http://127.0.0.1:4310/logs",
   "logServerBind": "127.0.0.1:4310",
   "maxIterations": 10,
+  "iterationTimeoutMs": 1800000,
   "git": true,
   "projects": {}
 }

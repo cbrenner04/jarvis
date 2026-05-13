@@ -45,6 +45,7 @@ describe("config show", () => {
       version: 1,
       agentOrder: ["claude", "codex", "cursor"],
       maxIterations: 10,
+      iterationTimeoutMs: 1800000,
       patchModels: {
         claude: "haiku",
         codex: "gpt-5.3-codex",

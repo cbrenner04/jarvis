@@ -12,7 +12,7 @@ rebases over the behavior changes, not under them.
 
 ## Subspecs
 
-- [ ] [01 — Iteration safety (SIGINT, timeouts)](./01-iteration-safety.md)
+- [x] [01 — Iteration safety (SIGINT, timeouts)](./01-iteration-safety.md)
 - [ ] [02 — Atomic config writes and worktree lock](./02-config-and-lock.md)
 - [ ] [03 — Heredoc-free commits](./03-heredoc-commits.md)
 - [ ] [04 — Blocker handling](./04-blocker-handling.md)

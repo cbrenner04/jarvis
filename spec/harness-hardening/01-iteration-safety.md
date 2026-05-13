@@ -50,15 +50,15 @@ Two failure modes can leak agent processes or hang the loop:
 
 ## Acceptance criteria
 
-- [ ] A simulated long-running agent receives SIGTERM (then SIGKILL after
+- [x] A simulated long-running agent receives SIGTERM (then SIGKILL after
       the grace period) when SIGINT is delivered to `jarvis run`.
-- [ ] A simulated agent that runs longer than `iterationTimeoutMs` causes
+- [x] A simulated agent that runs longer than `iterationTimeoutMs` causes
       `runCommand` to return exit code `8` and the child process exits.
-- [ ] Config rejects non-positive-integer values for `iterationTimeoutMs`
+- [x] Config rejects non-positive-integer values for `iterationTimeoutMs`
       and `runTimeoutMs`.
-- [ ] `docs/run-loop.md` documents exit code `8`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `docs/run-loop.md` documents exit code `8`.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

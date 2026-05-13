@@ -337,13 +337,28 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     }
   };
 
+  let currentController: AbortController | null = null;
   const onSigint = () => {
     writeSessionLine("harness", "interrupted");
     opts.io.stderr("interrupted\n");
-    process.exit(130);
+    if (currentController) {
+      currentController.abort("sigint");
+    } else {
+      process.exit(130);
+    }
   };
   if (opts.handleSignals !== false) {
     process.once("SIGINT", onSigint);
+  }
+
+  // Set up global run timeout if configured
+  let globalTimeoutHandle: NodeJS.Timeout | null = null;
+  if (cfg.runTimeoutMs !== undefined) {
+    globalTimeoutHandle = setTimeout(() => {
+      if (currentController) {
+        currentController.abort("run-timeout");
+      }
+    }, cfg.runTimeoutMs);
   }
 
   try {
@@ -427,11 +442,57 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         iteration,
         agent: agent.name,
       });
-      const result = await agent.run(prompt, {
-        cwd: agentWorkingDir,
-        ...(additionalReadDirs === undefined ? {} : { additionalReadDirs }),
-      });
-      if (result.kind === "ok") {
+
+      // Create per-iteration abort controller
+      currentController = new AbortController();
+      const iterationTimeoutHandle = setTimeout(() => {
+        currentController?.abort("iteration-timeout");
+      }, cfg.iterationTimeoutMs);
+
+      try {
+        const result = await agent.run(prompt, {
+          cwd: agentWorkingDir,
+          ...(additionalReadDirs === undefined ? {} : { additionalReadDirs }),
+          signal: currentController.signal,
+        });
+
+        // Check for iteration timeout
+        if (
+          result.kind === "error" &&
+          result.stderr.includes("aborted: iteration-timeout")
+        ) {
+          await fanout(
+            "harness",
+            `iteration ${iteration} exceeded timeout of ${cfg.iterationTimeoutMs}ms\n`,
+            "stderr",
+          );
+          return 8;
+        }
+
+        // Check for global run timeout
+        if (
+          result.kind === "error" &&
+          result.stderr.includes("aborted: run-timeout")
+        ) {
+          await fanout(
+            "harness",
+            cfg.runTimeoutMs
+              ? `run exceeded timeout of ${cfg.runTimeoutMs}ms\n`
+              : "run timeout\n",
+            "stderr",
+          );
+          return 8;
+        }
+
+        // Check for SIGINT
+        if (
+          result.kind === "error" &&
+          result.stderr.includes("aborted: sigint")
+        ) {
+          process.exit(130);
+        }
+
+        if (result.kind === "ok") {
         if (result.stdout.length > 0) {
           latestIterationStdout.push(...splitLines(result.stdout));
           await fanout("inbound_stdout", result.stdout, null, {
@@ -656,8 +717,14 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         await fanout("harness", stderr, "stderr");
       }
       return 3;
+      } finally {
+        clearTimeout(iterationTimeoutHandle);
+      }
     }
   } finally {
+    if (globalTimeoutHandle) {
+      clearTimeout(globalTimeoutHandle);
+    }
     closeSync(sessionFd);
     if (opts.handleSignals !== false) {
       process.removeListener("SIGINT", onSigint);

@@ -96,6 +96,29 @@ export function runAgent(
       settle({ kind: "error", exitCode, stderr: diagnostics });
     });
 
+    // Handle abort signal: send SIGTERM, wait grace period, then SIGKILL
+    if (opts.signal) {
+      const handleAbort = () => {
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          if (!child.killed) {
+            child.kill("SIGKILL");
+          }
+        }, 2000);
+        const reason = opts.signal?.reason ? String(opts.signal.reason) : "aborted";
+        settle({
+          kind: "error",
+          exitCode: -1,
+          stderr: `aborted: ${reason}`,
+        });
+      };
+      if (opts.signal.aborted) {
+        handleAbort();
+      } else {
+        opts.signal.addEventListener("abort", handleAbort);
+      }
+    }
+
     if (config.writeStdin && stdin) {
       config.writeStdin(stdin, prompt);
     }

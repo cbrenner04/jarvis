@@ -51,6 +51,7 @@ describe("loadConfig", () => {
       version: 1,
       agentOrder: ["claude", "codex", "cursor"],
       maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
@@ -166,6 +167,53 @@ describe("loadConfig", () => {
       }),
     );
     expect(() => loadConfig({ dir })).toThrow(/maxIterations/);
+  });
+
+  test("rejects invalid iterationTimeoutMs", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        iterationTimeoutMs: -1,
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/iterationTimeoutMs/);
+  });
+
+  test("rejects invalid runTimeoutMs", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        runTimeoutMs: 0,
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/runTimeoutMs/);
+  });
+
+  test("accepts optional runTimeoutMs", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        runTimeoutMs: 60 * 60_000,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.runTimeoutMs).toBe(60 * 60_000);
   });
 
   test("rejects non-object patchModels", () => {
@@ -532,6 +580,7 @@ describe("git toggle", () => {
       version: 1,
       agentOrder: ["claude"],
       maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://x/",
       logServerBind: "x",
@@ -546,6 +595,7 @@ describe("git toggle", () => {
       version: 1,
       agentOrder: ["claude"],
       maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://x/",
       logServerBind: "x",
@@ -560,6 +610,7 @@ describe("git toggle", () => {
       version: 1,
       agentOrder: ["claude"],
       maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://x/",
       logServerBind: "x",

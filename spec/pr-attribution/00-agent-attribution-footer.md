@@ -88,21 +88,21 @@ from the agent and its configured model.
 
 ## Acceptance criteria
 
-- [ ] Each agent class exposes `attributionLabel()` returning the
+- [x] Each agent class exposes `attributionLabel()` returning the
   documented string for known model IDs, raw string for unknown
   IDs, and `<cli-name> (default model)` when no model is configured.
-- [ ] `EnsureDraftPrOpts` has a required `attribution: string` field.
-- [ ] When `ensureDraftPr` creates a new draft PR with a non-empty
+- [x] `EnsureDraftPrOpts` has a required `attribution: string` field.
+- [x] When `ensureDraftPr` creates a new draft PR with a non-empty
   `attribution`, the body submitted to `gh pr create` ends with a
   blank line, `---`, a blank line, and the attribution string.
-- [ ] When `attribution` is `""`, the body is unchanged (no
+- [x] When `attribution` is `""`, the body is unchanged (no
   separator, no footer).
-- [ ] When `ensureDraftPr` finds an existing PR, no body update is
+- [x] When `ensureDraftPr` finds an existing PR, no body update is
   attempted regardless of `attribution`.
-- [ ] Patch-mode draft PRs created end-to-end include a footer in the
+- [x] Patch-mode draft PRs created end-to-end include a footer in the
   form `Written by <label> through Jarvis.` reflecting the agent
   and configured model.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

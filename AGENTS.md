@@ -54,3 +54,12 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 - If blocked or ambiguous, append a `## Blocker` section to the subspec and stop rather than guessing.
 - Do not modify the harness behavior in ways the active subspec doesn't authorize.
 - Keep changes minimal; no speculative refactors or abstractions.
+
+## PR attribution
+
+When Jarvis creates a draft PR, it appends a one-line footer to the PR body recording which agent and configured model produced the work. The footer is stamped by the harness itself, not requested of the agent.
+
+- **Format**: `Written by <agent label> through Jarvis.` (e.g. `Written by Claude Opus 4.7 through Jarvis.`)
+- **Agent labels**: Each agent's `attributionLabel()` method returns a human-readable identifier for its configured model. If the model is unknown, the raw model string is used. If no model is configured, the default fallback is `<cli-name> (default model)`.
+- **Injection point**: The footer is appended by `ensureDraftPr` in `src/pr.ts` with a markdown `---` separator. It appears only when Jarvis *creates* the draft PR; existing PRs are not retroactively updated.
+- **Empty attribution**: If the attribution string is empty, no footer or separator is appended.

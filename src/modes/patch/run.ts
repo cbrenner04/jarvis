@@ -524,11 +524,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
                       }
                       return summary.stdout.trim();
                     };
+                    const attribution = `Written by ${agent.attributionLabel()} through Jarvis.`;
                     await ensureDraftPr({
                       branch: getCurrentBranch(agentWorkingDir),
                       base: await getBaseBranch(agentWorkingDir),
                       title: getIndexTitle(specPath),
                       bodyGenerator: prBody,
+                      attribution,
                       cwd: agentWorkingDir,
                     });
                     draftPrEnsured = true;

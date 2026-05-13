@@ -13,6 +13,8 @@ export type CursorAgentOptions = {
   model?: string;
 };
 
+const CURSOR_MODEL_LABELS: Record<string, string> = {};
+
 export class CursorAgent implements Agent {
   readonly name = "cursor" as const;
   readonly #binary: string;
@@ -43,5 +45,12 @@ export class CursorAgent implements Agent {
       prompt,
       opts,
     );
+  }
+
+  attributionLabel(): string {
+    if (this.#model === undefined) {
+      return "cursor (default model)";
+    }
+    return CURSOR_MODEL_LABELS[this.#model] ?? this.#model;
   }
 }

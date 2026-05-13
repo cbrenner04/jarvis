@@ -71,6 +71,10 @@ class FakeAgent implements Agent {
     this.callOpts.push(opts);
     return this.#run(this.calls.length, prompt, opts);
   }
+
+  attributionLabel(): string {
+    return `fake-${this.name}`;
+  }
 }
 
 let dir: string;
@@ -937,7 +941,7 @@ exit 1
     expect(readFileSync(readyCommitCount, "utf8").trim()).toBe("2");
     expect(readFileSync(prTitle, "utf8")).toBe("Feature");
     expect(readFileSync(prBody, "utf8")).toBe(
-      "Implements the feature in two subspec commits.",
+      "Implements the feature in two subspec commits.\n\n---\n\nWritten by fake-claude through Jarvis.",
     );
     expect(
       execSync("gh pr view feature --json isDraft -q .isDraft", {

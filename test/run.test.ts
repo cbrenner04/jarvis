@@ -776,6 +776,41 @@ describe("runCommand", () => {
     expect(claude.calls).toHaveLength(0);
   });
 
+  test("prints parser warning when acceptance heading is malformed", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    writeFileSync(
+      join(specDir, "00-one.md"),
+      "# 00 - One\n\n### Acceptance criteria\n\n- [ ] One accepted.\n",
+    );
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("agent should not have run");
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("no `## Acceptance criteria` checkboxes");
+    expect(cap.err()).toContain("Rejected heading `### Acceptance criteria`");
+    expect(claude.calls).toHaveLength(0);
+  });
+
   test("pushes each subspec commit and opens one draft PR after the first push", async () => {
     const origin = join(dir, "origin.git");
     execSync(`git init --bare ${origin}`);

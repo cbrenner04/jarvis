@@ -78,14 +78,14 @@ Location: mode-local for now. If general mode reuses it, lift to
 
 ## Acceptance criteria
 
-- [ ] No consumer in `src/modes/patch/` defines its own task / criterion /
+- [x] No consumer in `src/modes/patch/` defines its own task / criterion /
       acceptance-section regex; all read from `parsePatchSpec`.
-- [ ] A subspec using `### Acceptance criteria` produces a parser warning
+- [x] A subspec using `### Acceptance criteria` produces a parser warning
       that names the rejected heading; `jarvis run` prints that warning in
       the error message.
-- [ ] All existing tests pass after migration.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] All existing tests pass after migration.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

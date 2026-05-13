@@ -1,12 +1,9 @@
 import { execFileSync, execSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
+import { type AcceptanceCriterion, parsePatchSpec } from "./spec.ts";
 
-export type AcceptanceCriterion = { text: string; checked: boolean };
-
-const acceptanceSectionPattern =
-  /(?:^|\n)## Acceptance criteria\b[\s\S]*?(?=\n## |$)/i;
-const criterionLinePattern = /^\s*-\s\[([ xX])\]\s+(.*)$/;
+export type { AcceptanceCriterion };
 
 export function commitSubspec(
   subspecPath: string,
@@ -16,13 +13,13 @@ export function commitSubspec(
   const indexPath = getIndexPath(subspecPath);
   const indexContent = readFileSync(indexPath, "utf8");
 
-  const h1 = extractH1(subspecContent);
-  if (!h1) {
+  const parsed = parsePatchSpec(subspecContent);
+  if (!parsed.h1) {
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
-  const acceptanceCriteria = extractAcceptanceCriteria(subspecContent);
-  if (!acceptanceCriteria) {
+  const acceptanceCriteriaSection = extractAcceptanceCriteriaSection(subspecContent);
+  if (acceptanceCriteriaSection === null) {
     throw new Error(
       `Subspec ${subspecPath} is missing ## Acceptance criteria section`,
     );
@@ -40,8 +37,8 @@ export function commitSubspec(
     realpathSync(subspecPath),
   );
   const bodyFirstLine = `Spec: ${relativeSpecPath}`;
-  const commitBody = `${bodyFirstLine}\n\n${acceptanceCriteria}`;
-  const commitMessage = `${h1}\n\n${commitBody}`;
+  const commitBody = `${bodyFirstLine}\n\n${acceptanceCriteriaSection}`;
+  const commitMessage = `${parsed.h1}\n\n${commitBody}`;
 
   execFileSync("git", ["commit", "-F", "-"], {
     cwd: gitRoot,
@@ -54,22 +51,8 @@ export function commitSubspec(
 export function snapshotAcceptanceCriteria(
   subspecPath: string,
 ): AcceptanceCriterion[] {
-  const section = extractAcceptanceCriteria(readFileSync(subspecPath, "utf8"));
-  if (section === null) {
-    return [];
-  }
-  const items: AcceptanceCriterion[] = [];
-  for (const line of section.split(/\r?\n/)) {
-    const match = line.match(criterionLinePattern);
-    if (match === null) {
-      continue;
-    }
-    items.push({
-      text: (match[2] ?? "").trim(),
-      checked: (match[1] ?? " ").toLowerCase() === "x",
-    });
-  }
-  return items;
+  const parsed = parsePatchSpec(readFileSync(subspecPath, "utf8"));
+  return parsed.acceptanceCriteria;
 }
 
 export function commitWipProgress(
@@ -82,8 +65,8 @@ export function commitWipProgress(
   },
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
-  const h1 = extractH1(subspecContent);
-  if (!h1) {
+  const parsed = parsePatchSpec(subspecContent);
+  if (!parsed.h1) {
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
@@ -93,7 +76,7 @@ export function commitWipProgress(
     realpathSync(opts.cwd),
     realpathSync(subspecPath),
   );
-  const summary = `WIP: ${h1} (${opts.checkedTotal}/${opts.total} criteria)`;
+  const summary = `WIP: ${parsed.h1} (${opts.checkedTotal}/${opts.total} criteria)`;
   const body =
     opts.newlyChecked.length === 0
       ? `Spec: ${relativeSpecPath}`
@@ -121,8 +104,8 @@ export function commitWipProgressWithBlocker(
   },
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
-  const h1 = extractH1(subspecContent);
-  if (!h1) {
+  const parsed = parsePatchSpec(subspecContent);
+  if (!parsed.h1) {
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
@@ -137,10 +120,10 @@ export function commitWipProgressWithBlocker(
   let body: string;
 
   if (opts.newlyChecked.length === 0) {
-    summary = `WIP: ${h1} (blocked)`;
+    summary = `WIP: ${parsed.h1} (blocked)`;
     body = `Spec: ${relativeSpecPath}\n\n## Blocker\n\n${opts.blockerBody}`;
   } else {
-    summary = `WIP: ${h1} (blocked, ${opts.checkedTotal}/${opts.total} criteria)`;
+    summary = `WIP: ${parsed.h1} (blocked, ${opts.checkedTotal}/${opts.total} criteria)`;
     const checkedList = opts.newlyChecked.map((c) => `- ${c.text}`).join("\n");
     body = `Spec: ${relativeSpecPath}\n\nNewly checked:\n${checkedList}\n\n## Blocker\n\n${opts.blockerBody}`;
   }
@@ -177,20 +160,23 @@ function basename(path: string): string {
   return path.split("/").pop() || "";
 }
 
-function extractH1(content: string): string | null {
-  const match = content.match(/^# (.+)$/m);
-  if (!match?.[1]) {
+function extractAcceptanceCriteriaSection(content: string): string | null {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const headerIndex = lines.findIndex((line) => line === "## Acceptance criteria");
+  if (headerIndex === -1) {
     return null;
   }
-  return match[1].trim();
-}
 
-function extractAcceptanceCriteria(content: string): string | null {
-  const match = content.match(acceptanceSectionPattern);
-  if (!match?.[0]) {
-    return null;
+  const sectionLines = ["## Acceptance criteria"];
+  for (let i = headerIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (/^##\s+/.test(line)) {
+      break;
+    }
+    sectionLines.push(line);
   }
-  return match[0].trim();
+
+  return sectionLines.join("\n").trim();
 }
 
 function updateIndexCheckbox(content: string, subspecName: string): string {

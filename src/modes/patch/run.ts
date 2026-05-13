@@ -67,7 +67,7 @@ import {
   commitWipProgressWithBlocker,
   snapshotAcceptanceCriteria,
 } from "./subspec.ts";
-import { extractBlockerBody, hasBlocker } from "./blocker.ts";
+import { parsePatchSpec } from "./spec.ts";
 
 export type RunIo = {
   stdout: (s: string) => void;
@@ -439,25 +439,35 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         : undefined;
 
       // Check if the active subspec already has a blocker at the start
-      if (activeSubspecPath !== undefined && hasBlocker(activeSubspecPath)) {
-        const blockerBody = extractBlockerBody(activeSubspecPath);
-        const blockerText = blockerBody
-          ? `${activeSubspecPath}\n\n${blockerBody}`
-          : activeSubspecPath;
-        await fanout("harness", `${blockerText}\n`, "stderr");
-        await sendLog("harness", blockerText);
-        return 7;
+      if (activeSubspecPath !== undefined) {
+        const parsedSubspec = parsePatchSpec(
+          readFileSync(activeSubspecPath, "utf8"),
+        );
+        if (parsedSubspec.blocker !== undefined) {
+          const blockerBody = parsedSubspec.blocker;
+          const blockerText = blockerBody
+            ? `${activeSubspecPath}\n\n${blockerBody}`
+            : activeSubspecPath;
+          await fanout("harness", `${blockerText}\n`, "stderr");
+          await sendLog("harness", blockerText);
+          return 7;
+        }
       }
 
       let beforeCriteria: AcceptanceCriterion[] = [];
       let hasBlockerBefore = false;
       if (activeSubspecPath !== undefined) {
-        hasBlockerBefore = hasBlocker(activeSubspecPath);
+        const beforeParse = parsePatchSpec(readFileSync(activeSubspecPath, "utf8"));
+        hasBlockerBefore = beforeParse.blocker !== undefined;
         beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
         if (beforeCriteria.length === 0) {
+          const warningsSuffix =
+            beforeParse.warnings.length === 0
+              ? ""
+              : ` Parser warnings:\n- ${beforeParse.warnings.join("\n- ")}`;
           await fanout(
             "harness",
-            `active subspec ${activeSubspecPath} has no \`## Acceptance criteria\` checkboxes; jarvis cannot detect completion. Add an acceptance-criteria checklist to the subspec and rerun.\n`,
+            `active subspec ${activeSubspecPath} has no \`## Acceptance criteria\` checkboxes; jarvis cannot detect completion. Add an acceptance-criteria checklist to the subspec and rerun.${warningsSuffix}\n`,
             "stderr",
           );
           return 1;
@@ -556,9 +566,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
           // Check if a blocker was added during this iteration
-          const hasBlockerNow = hasBlocker(activeSubspecPath);
+          const afterParse = parsePatchSpec(readFileSync(activeSubspecPath, "utf8"));
+          const hasBlockerNow = afterParse.blocker !== undefined;
           if (hasBlockerNow && !hasBlockerBefore) {
-            const blockerBody = extractBlockerBody(activeSubspecPath);
+            const blockerBody = afterParse.blocker;
             if (!blockerBody) {
               throw new Error(
                 `Blocker section added but body is missing in ${activeSubspecPath}`,

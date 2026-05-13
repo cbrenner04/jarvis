@@ -49,7 +49,6 @@ const weakQuotaPatterns = [
   /\brate.?limit\b/i,
   /\btoo many requests\b/i,
 ];
-const weakQuotaExitCodes = new Set<number>();
 
 export function isModelConfigurationSignal(stderr: string): boolean;
 export function isModelConfigurationSignal(
@@ -98,8 +97,11 @@ export function isWeakQuotaSignal(
   _name: AgentName,
   exitCode: number,
   stderr: string,
+  weakExitCodes: ReadonlySet<number> | readonly number[] = [],
 ): boolean {
   if (exitCode === 0) return false;
-  if (weakQuotaExitCodes.has(exitCode)) return true;
+  const codes =
+    weakExitCodes instanceof Set ? weakExitCodes : new Set(weakExitCodes);
+  if (codes.has(exitCode)) return true;
   return weakQuotaPatterns.some((pattern) => pattern.test(stderr));
 }

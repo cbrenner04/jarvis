@@ -131,4 +131,19 @@ describe("isWeakQuotaSignal", () => {
       isWeakQuotaSignal("claude", 1, "TypeScript compile error in src/run.ts"),
     ).toBe(false);
   });
+
+  test("matches when exit code is in the configured weakExitCodes list", () => {
+    expect(
+      isWeakQuotaSignal("claude", 7, "TypeScript compile error", [7]),
+    ).toBe(true);
+    expect(
+      isWeakQuotaSignal("claude", 7, "TypeScript compile error", new Set([7])),
+    ).toBe(true);
+  });
+
+  test("does not match when exit code is outside the configured list", () => {
+    expect(
+      isWeakQuotaSignal("claude", 2, "TypeScript compile error", [7]),
+    ).toBe(false);
+  });
 });

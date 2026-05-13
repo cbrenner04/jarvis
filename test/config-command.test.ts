@@ -45,6 +45,7 @@ describe("config show", () => {
       version: 1,
       agentOrder: ["claude", "codex", "cursor"],
       quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
       maxIterations: 10,
       iterationTimeoutMs: 1800000,
       patchModels: {

@@ -195,8 +195,12 @@ purposes:
 - **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or
   `telemetryPath` from config). Jarvis appends one line at each iteration end
   and one terminal-state line when the run exits (complete, max-iter,
-  quota-exhausted, blocked, timeout, or error). Set `telemetryPath` to `null`
-  to disable.
+  quota-exhausted, blocked, timeout, or error). On a successful completing
+  iteration both records are written for that iteration: the per-iteration
+  line (`exit_reason: "criteria-complete"` or `"criteria-progress"`) and the
+  terminal line (e.g. `exit_reason: "completed-spec"`). A two-iteration run
+  that completes therefore writes three lines total. Set `telemetryPath` to
+  `null` to disable.
 
 `jarvis run` requires the local log server to be reachable before the loop
 starts. If the server is down or misconfigured, run exits non-zero and prints

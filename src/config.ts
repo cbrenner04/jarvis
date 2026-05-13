@@ -70,6 +70,7 @@ export type Config = {
   version: 1;
   agentOrder: AgentName[];
   quotaFallback: "strict" | "lenient";
+  weakQuotaExitCodes: number[];
   maxIterations: number;
   iterationTimeoutMs: number;
   runTimeoutMs?: number;
@@ -91,6 +92,7 @@ const DEFAULT_CONFIG: Config = {
   version: 1,
   agentOrder: ["claude", "codex", "cursor"],
   quotaFallback: "lenient",
+  weakQuotaExitCodes: [],
   maxIterations: 10,
   iterationTimeoutMs: 30 * 60_000,
   patchModels: {
@@ -161,6 +163,12 @@ function validateConfig(input: unknown, file: string): Config {
   );
   const quotaFallback = validateQuotaFallback(
     obj.quotaFallback ?? DEFAULT_CONFIG.quotaFallback,
+    (message) => fail(file, message),
+  );
+
+  const weakQuotaExitCodes = validateExitCodeList(
+    obj.weakQuotaExitCodes ?? DEFAULT_CONFIG.weakQuotaExitCodes,
+    "weakQuotaExitCodes",
     (message) => fail(file, message),
   );
 
@@ -268,6 +276,7 @@ function validateConfig(input: unknown, file: string): Config {
     version: 1,
     agentOrder,
     quotaFallback,
+    weakQuotaExitCodes,
     maxIterations,
     iterationTimeoutMs,
     ...(runTimeoutMs !== undefined ? { runTimeoutMs } : {}),
@@ -386,6 +395,30 @@ function validateQuotaFallback(
     return value;
   }
   failWith('quotaFallback must be "strict" or "lenient"');
+}
+
+function validateExitCodeList(
+  value: unknown,
+  name: string,
+  failWith: (message: string) => never,
+): number[] {
+  if (!Array.isArray(value)) {
+    failWith(`${name} must be an array of integers`);
+  }
+  const result: number[] = [];
+  for (const entry of value) {
+    if (
+      typeof entry !== "number" ||
+      !Number.isInteger(entry) ||
+      !Number.isFinite(entry)
+    ) {
+      failWith(
+        `${name} entries must be integers (got ${JSON.stringify(entry)})`,
+      );
+    }
+    result.push(entry);
+  }
+  return result;
 }
 
 function serialize(cfg: Config): string {

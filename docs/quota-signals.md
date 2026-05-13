@@ -149,6 +149,15 @@ Status key:
 - `/\\btoo many requests\\b/i` — Unverified.
   Sample link: none yet.
 
+### `weakQuotaExitCodes` (`quotaFallback: "lenient"`)
+
+The `weakQuotaExitCodes` config field (default `[]`) lets operators add
+exit codes that should be treated as probable quota when no progress was
+made in the iteration. It is intentionally empty by default until real
+samples justify a code being added. Populate it via `~/.jarvis/config.json`
+when a vendor consistently signals quota with a non-zero exit code that
+the strict patterns miss.
+
 ## Follow-up TODOs
 
 - No clearly broken pattern identified from real samples yet; reevaluate once

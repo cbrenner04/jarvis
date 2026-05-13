@@ -599,17 +599,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   state.latestIterationStderr = [];
   const before = countUnchecked(specPath);
   if (before === 0) {
-    const done = await tryFinishSpecIfDone(ctx);
-    if (done !== null) {
-      writeTelemetry({
-        agent: "harness",
-        iteration,
-        durationMs: iterationDurationMs(),
-        kind: "ok",
-        exitReason: "criteria-complete",
-      });
-      return { kind: "return", exitCode: done };
-    }
+    // tryFinishSpecIfDone returns null only when countUnchecked !== 0; since
+    // we just observed before === 0 it returns either 0 (spec complete) or 6
+    // (worktree blocker). Default to 0 if it ever races to null.
+    const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
     writeTelemetry({
       agent: "harness",
       iteration,
@@ -617,7 +610,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       kind: "ok",
       exitReason: "criteria-complete",
     });
-    return { kind: "return", exitCode: 0 };
+    return { kind: "return", exitCode: done };
   }
 
   const agent = activeAgents[0];
@@ -955,17 +948,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           kind: "ok",
           exitReason: "criteria-complete",
         });
-        const done = await tryFinishSpecIfDone(ctx);
-        if (done !== null) {
-          writeTelemetry({
-            agent: agent.name,
-            iteration,
-            durationMs: iterationDurationMs(),
-            kind: "ok",
-            exitReason: "completed-spec",
-          });
-          return { kind: "return", exitCode: done };
-        }
+        // tryFinishSpecIfDone returns null only when countUnchecked !== 0;
+        // we just observed after === 0 so it returns 0 (spec complete) or 6
+        // (worktree blocker). Default to 0 if it ever races to null.
+        const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
         writeTelemetry({
           agent: agent.name,
           iteration,
@@ -973,7 +959,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           kind: "ok",
           exitReason: "completed-spec",
         });
-        return { kind: "return", exitCode: 0 };
+        return { kind: "return", exitCode: done };
       }
       if (!isIndexSpec) {
         fanout(
@@ -1078,7 +1064,12 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       : false;
     const weakQuotaAllowed = cfg.quotaFallback !== "strict";
     const weakQuota = weakQuotaAllowed
-      ? isWeakQuotaSignal(agent.name, result.exitCode, result.stderr)
+      ? isWeakQuotaSignal(
+          agent.name,
+          result.exitCode,
+          result.stderr,
+          cfg.weakQuotaExitCodes,
+        )
       : false;
     if (weakQuota && !checkedAnyCriteria && !editedFiles) {
       activeAgents.shift();

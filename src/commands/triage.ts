@@ -1,13 +1,13 @@
 import { execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import type { ConfigOptions } from "../config.ts";
 import {
   countUnchecked,
   getActiveLinkedSubspecPath,
   getFirstUncheckedTask,
-} from "../completion.ts";
-import type { ConfigOptions } from "../config.ts";
-import { snapshotAcceptanceCriteria } from "../subspec.ts";
+} from "../modes/patch/completion.ts";
+import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;

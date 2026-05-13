@@ -79,7 +79,7 @@ Each iteration prints a banner before agent invocation with:
 
 Jarvis then builds the standard prompt and invokes the agent with `cwd` set to
 the active worktree. The prompt asks the agent to discover target-repo
-guidance and injects jarvis-owned rules from `rules/patch-mode.md` inline.
+guidance and injects jarvis-owned rules from `src/modes/patch/rules.md` inline.
 
 ## Completion
 

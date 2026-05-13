@@ -18,14 +18,14 @@ import type {
   AgentResult,
   AgentRunOptions,
 } from "../src/agents/types.ts";
+import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
+import type { LogClient } from "../src/logging.ts";
 import {
   prepareActiveSpecPath,
   type RunCommandOptions,
   type RunIo,
   runCommand,
-} from "../src/commands/run.ts";
-import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
-import type { LogClient } from "../src/logging.ts";
+} from "../src/modes/patch/run.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";

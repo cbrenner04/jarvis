@@ -7,7 +7,7 @@ import {
   getFirstUncheckedTask,
   isComplete,
   MalformedSpecError,
-} from "../src/completion.ts";
+} from "../src/modes/patch/completion.ts";
 
 let dir: string;
 

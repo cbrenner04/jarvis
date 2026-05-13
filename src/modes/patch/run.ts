@@ -17,16 +17,12 @@ import {
   relative,
   resolve,
 } from "node:path";
-import { ClaudeAgent } from "../agents/claude.ts";
-import { CodexAgent } from "../agents/codex.ts";
-import { CursorAgent } from "../agents/cursor.ts";
-import { OpencodeAgent } from "../agents/opencode.ts";
-import type { Agent } from "../agents/types.ts";
-import {
-  countUnchecked,
-  getActiveLinkedSubspecPath,
-  getFirstUncheckedTask,
-} from "../completion.ts";
+import { ClaudeAgent } from "../../agents/claude.ts";
+import { CodexAgent } from "../../agents/codex.ts";
+import { CursorAgent } from "../../agents/cursor.ts";
+import { OpencodeAgent } from "../../agents/opencode.ts";
+import type { Agent } from "../../agents/types.ts";
+import { readGitOriginUrl } from "../../commands/init.ts";
 import {
   type AgentName,
   type Config,
@@ -37,29 +33,34 @@ import {
   openSessionLog,
   type ProjectMatch,
   setProjectOrigin,
-} from "../config.ts";
+} from "../../config.ts";
 import {
   type DisambiguationResult,
   promptForProject,
-} from "../disambiguation-prompt.ts";
-import { assertGhReady, getBaseBranch } from "../gh.ts";
-import { createLogClient, type LogClient } from "../logging.ts";
-import { ensureDraftPr, maybeMarkReady } from "../pr.ts";
-import { buildPrompt } from "../prompt.ts";
-import { resolveProject } from "../resolve-project.ts";
-import {
-  type AcceptanceCriterion,
-  commitSubspec,
-  commitWipProgress,
-  snapshotAcceptanceCriteria,
-} from "../subspec.ts";
+} from "../../disambiguation-prompt.ts";
+import { assertGhReady, getBaseBranch } from "../../gh.ts";
+import { createLogClient, type LogClient } from "../../logging.ts";
+import { ensureDraftPr } from "../../pr.ts";
+import { resolveProject } from "../../resolve-project.ts";
 import {
   createWorktreeSymlinks,
   ensureWorktree,
   pushCurrent,
   worktreeCompletionBlocker,
-} from "../worktree.ts";
-import { readGitOriginUrl } from "./init.ts";
+} from "../../worktree.ts";
+import {
+  countUnchecked,
+  getActiveLinkedSubspecPath,
+  getFirstUncheckedTask,
+} from "./completion.ts";
+import { maybeMarkReady } from "./pr.ts";
+import { buildPrompt } from "./prompt.ts";
+import {
+  type AcceptanceCriterion,
+  commitSubspec,
+  commitWipProgress,
+  snapshotAcceptanceCriteria,
+} from "./subspec.ts";
 
 export type RunIo = {
   stdout: (s: string) => void;

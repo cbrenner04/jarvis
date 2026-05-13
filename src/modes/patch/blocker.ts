@@ -1,48 +1,29 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
-export function recordBlocker(subspecPath: string, reason: string): void {
+const blockerHeaderPattern = /^## Blocker$/m;
+
+export function hasBlocker(subspecPath: string): boolean {
   const content = readFileSync(subspecPath, "utf8");
-
-  if (content.includes("## Blocker")) {
-    return;
-  }
-
-  const updatedContent = `${content}\n## Blocker\n\n${reason}\n`;
-  writeFileSync(subspecPath, updatedContent);
+  return blockerHeaderPattern.test(content);
 }
 
-export function commitBlocker(
-  subspecPath: string,
-  reason: string,
-  cwd: string,
-): void {
-  recordBlocker(subspecPath, reason);
-
-  const h1 = extractH1(subspecPath);
-
-  execFileSync("git", ["add", "-A"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-  });
-
-  const relativeSpecPath = subspecPath.split("/").slice(-2).join("/");
-  const commitMessage = `WIP: ${h1}\n\nSpec: ${relativeSpecPath}\n\n## Blocker\n\n${reason}`;
-
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-  });
-}
-
-function extractH1(subspecPath: string): string {
+export function extractBlockerBody(subspecPath: string): string | null {
   const content = readFileSync(subspecPath, "utf8");
-  const match = content.match(/^# (.+)$/m);
-  if (!match?.[1]) {
-    return "Unknown";
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blockerIndex = lines.findIndex((line) => line === "## Blocker");
+  if (blockerIndex === -1) {
+    return null;
   }
-  return match[1].trim();
+
+  const bodyLines: string[] = [];
+  for (let i = blockerIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (/^##\s+/.test(line)) {
+      break;
+    }
+    bodyLines.push(line);
+  }
+
+  const body = bodyLines.join("\n").trim();
+  return body.length === 0 ? null : body;
 }

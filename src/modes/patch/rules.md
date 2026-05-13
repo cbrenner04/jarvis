@@ -21,7 +21,7 @@ Execute active spec only.
 - Leave tree compiling.
 
 ## Stop
-- Unclear: append `## Blocker` to spec; stop.
+- Unclear: append `## Blocker` to spec; stop. Jarvis will detect it, commit any progress, and exit with code 7.
 - Repeated failure: record failure in spec; stop.
 - No TODOs. Put follow-up in spec.
 - New dependency? Record decision in spec; stop.

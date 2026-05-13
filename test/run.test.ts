@@ -2178,6 +2178,141 @@ exit 0
       expect(cap.err()).toContain("exceeded timeout");
     });
   });
+
+  describe("blocker handling", () => {
+    test("exits 7 when agent appends ## Blocker section and commits work", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(
+        subspec,
+        "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Item one.\n",
+      );
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(join(projectRoot, "work.txt"), "work\n");
+        const subspecContent = readFileSync(subspec, "utf8");
+        writeFileSync(
+          subspec,
+          `${subspecContent}\n## Blocker\n\nWaiting for external API\n`,
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("Waiting for external API");
+      expect(claude.calls).toHaveLength(1);
+      expect(
+        execSync("git status --porcelain", { cwd: projectRoot }).toString(),
+      ).toBe("");
+      const lastMessage = execSync("git log -1 --format=%B", {
+        cwd: projectRoot,
+        encoding: "utf8",
+      });
+      expect(lastMessage).toContain("WIP: 00 - One (blocked)");
+      expect(lastMessage).toContain("## Blocker");
+      expect(lastMessage).toContain("Waiting for external API");
+    });
+
+    test("exits 7 without invoking agent when subspec already has blocker", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(
+        subspec,
+        "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Item one.\n\n## Blocker\n\nAlready blocked\n",
+      );
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("should not be invoked");
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("Already blocked");
+      expect(claude.calls).toHaveLength(0);
+    });
+
+    test("commits combined WIP+blocker when agent ticks criteria and adds blocker", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(
+        subspec,
+        "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n- [ ] Step B.\n",
+      );
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [ ] Step B.\n\n## Blocker\n\nNeed implementation details\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("Need implementation details");
+      expect(claude.calls).toHaveLength(1);
+      const lastMessage = execSync("git log -1 --format=%B", {
+        cwd: projectRoot,
+        encoding: "utf8",
+      });
+      expect(lastMessage).toContain("WIP: 00 - One (blocked, 1/2 criteria)");
+      expect(lastMessage).toContain("Newly checked:\n- Step A.");
+      expect(lastMessage).toContain("## Blocker");
+      expect(lastMessage).toContain("Need implementation details");
+    });
+  });
 });
 
 function writeSpec(contents: string): string {

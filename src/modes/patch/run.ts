@@ -64,8 +64,10 @@ import {
   type AcceptanceCriterion,
   commitSubspec,
   commitWipProgress,
+  commitWipProgressWithBlocker,
   snapshotAcceptanceCriteria,
 } from "./subspec.ts";
+import { extractBlockerBody, hasBlocker } from "./blocker.ts";
 
 export type RunIo = {
   stdout: (s: string) => void;
@@ -435,8 +437,22 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       const activeSubspecPath = isIndexSpec
         ? getActiveLinkedSubspecPath(specPath)
         : undefined;
+
+      // Check if the active subspec already has a blocker at the start
+      if (activeSubspecPath !== undefined && hasBlocker(activeSubspecPath)) {
+        const blockerBody = extractBlockerBody(activeSubspecPath);
+        const blockerText = blockerBody
+          ? `${activeSubspecPath}\n\n${blockerBody}`
+          : activeSubspecPath;
+        await fanout("harness", `${blockerText}\n`, "stderr");
+        await sendLog("harness", blockerText);
+        return 7;
+      }
+
       let beforeCriteria: AcceptanceCriterion[] = [];
+      let hasBlockerBefore = false;
       if (activeSubspecPath !== undefined) {
+        hasBlockerBefore = hasBlocker(activeSubspecPath);
         beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
         if (beforeCriteria.length === 0) {
           await fanout(
@@ -538,6 +554,59 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           const allChecked =
             afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
           const checkedTotal = afterCriteria.filter((c) => c.checked).length;
+
+          // Check if a blocker was added during this iteration
+          const hasBlockerNow = hasBlocker(activeSubspecPath);
+          if (hasBlockerNow && !hasBlockerBefore) {
+            const blockerBody = extractBlockerBody(activeSubspecPath);
+            if (!blockerBody) {
+              throw new Error(
+                `Blocker section added but body is missing in ${activeSubspecPath}`,
+              );
+            }
+
+            if (gitEnabled) {
+              try {
+                commitWipProgressWithBlocker(activeSubspecPath, {
+                  cwd: agentWorkingDir,
+                  newlyChecked,
+                  checkedTotal,
+                  total: afterCriteria.length,
+                  blockerBody,
+                });
+              } catch (err) {
+                const message =
+                  err instanceof Error ? err.message : String(err);
+                await fanout(
+                  "harness",
+                  `failed to commit blocker for ${activeSubspecPath}: ${message}\n`,
+                  "stderr",
+                );
+                return 1;
+              }
+
+              if (!opts.skipGhCheck) {
+                try {
+                  const firstPush = !hasUpstream(agentWorkingDir);
+                  pushCurrent({ cwd: agentWorkingDir, firstPush });
+                } catch (err) {
+                  const message =
+                    err instanceof Error ? err.message : String(err);
+                  await fanout(
+                    "harness",
+                    `failed to push blocker commit for ${activeSubspecPath}: ${message}\n`,
+                    "stderr",
+                  );
+                  return 1;
+                }
+              }
+            }
+
+            const blockerText = `${activeSubspecPath}\n\n${blockerBody}`;
+            await fanout("harness", `${blockerText}\n`, "stderr");
+            await sendLog("harness", blockerText);
+            return 7;
+          }
 
           if (allChecked) {
             if (gitEnabled) {

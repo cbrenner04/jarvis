@@ -62,17 +62,17 @@ provide the parser; until then, an inline regex is fine).
 
 ## Acceptance criteria
 
-- [ ] An iteration whose output added a `## Blocker` section to the active
+- [x] An iteration whose output added a `## Blocker` section to the active
       subspec exits with code `7` and the agent is not re-invoked.
-- [ ] The exit-7 path always commits (and pushes when git is enabled) the
+- [x] The exit-7 path always commits (and pushes when git is enabled) the
       iteration's work, including any newly-checked criteria, in a single
       commit.
-- [ ] A run started against a subspec that already has `## Blocker` exits
+- [x] A run started against a subspec that already has `## Blocker` exits
       `7` without invoking the agent.
-- [ ] The blocker body is printed to stderr.
-- [ ] `docs/run-loop.md` documents exit code `7`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] The blocker body is printed to stderr.
+- [x] `docs/run-loop.md` documents exit code `7`.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

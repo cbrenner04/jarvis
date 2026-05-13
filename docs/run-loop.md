@@ -201,6 +201,7 @@ jarvis log-server
 | `4` | A successful agent iteration made no progress (unchecked count unchanged and spec still incomplete). |
 | `5` | The configured `maxIterations` was reached. Default is 10; override with `--max-iterations <n>`. |
 | `6` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes, or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. The bail message ends with a pointer to `jarvis triage <worktree-name>` to inspect the state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
+| `7` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis triage <worktree-name>` to inspect the lock state. |
 | `130` | Interrupted with Ctrl-C. |

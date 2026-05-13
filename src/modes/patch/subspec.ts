@@ -110,6 +110,51 @@ export function commitWipProgress(
   });
 }
 
+export function commitWipProgressWithBlocker(
+  subspecPath: string,
+  opts: {
+    cwd: string;
+    newlyChecked: AcceptanceCriterion[];
+    checkedTotal: number;
+    total: number;
+    blockerBody: string;
+  },
+): void {
+  const subspecContent = readFileSync(subspecPath, "utf8");
+  const h1 = extractH1(subspecContent);
+  if (!h1) {
+    throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
+  }
+
+  execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
+
+  const relativeSpecPath = relative(
+    realpathSync(opts.cwd),
+    realpathSync(subspecPath),
+  );
+
+  let summary: string;
+  let body: string;
+
+  if (opts.newlyChecked.length === 0) {
+    summary = `WIP: ${h1} (blocked)`;
+    body = `Spec: ${relativeSpecPath}\n\n## Blocker\n\n${opts.blockerBody}`;
+  } else {
+    summary = `WIP: ${h1} (blocked, ${opts.checkedTotal}/${opts.total} criteria)`;
+    const checkedList = opts.newlyChecked.map((c) => `- ${c.text}`).join("\n");
+    body = `Spec: ${relativeSpecPath}\n\nNewly checked:\n${checkedList}\n\n## Blocker\n\n${opts.blockerBody}`;
+  }
+
+  const commitMessage = `${summary}\n\n${body}`;
+
+  execFileSync("git", ["commit", "-F", "-"], {
+    cwd: opts.cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: commitMessage,
+  });
+}
+
 function getGitRoot(subspecPath: string): string {
   try {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], {

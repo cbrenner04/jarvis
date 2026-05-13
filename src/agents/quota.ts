@@ -43,6 +43,12 @@ const modelConfigurationPatterns = [
 ];
 
 const opencodeModelConfigurationPatterns = [/\bno provider configured for\b/i];
+const weakQuotaPatterns = [
+  /\b429\b/i,
+  /\b503\b/i,
+  /\brate.?limit\b/i,
+  /\btoo many requests\b/i,
+];
 
 export function isModelConfigurationSignal(stderr: string): boolean;
 export function isModelConfigurationSignal(
@@ -85,4 +91,17 @@ export function isQuotaSignal(
   })();
 
   return patterns.some((pattern) => pattern.test(stderr));
+}
+
+export function isWeakQuotaSignal(
+  _name: AgentName,
+  exitCode: number,
+  stderr: string,
+  weakExitCodes: ReadonlySet<number> | readonly number[] = [],
+): boolean {
+  if (exitCode === 0) return false;
+  const codes =
+    weakExitCodes instanceof Set ? weakExitCodes : new Set(weakExitCodes);
+  if (codes.has(exitCode)) return true;
+  return weakQuotaPatterns.some((pattern) => pattern.test(stderr));
 }

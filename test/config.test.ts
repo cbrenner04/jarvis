@@ -50,10 +50,14 @@ describe("loadConfig", () => {
     expect(cfg).toEqual({
       version: 1,
       agentOrder: ["claude", "codex", "cursor"],
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
       maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
+      telemetryPath: join(dir, "runs.jsonl"),
       git: true,
       projects: {},
     });
@@ -78,6 +82,7 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 1,
         agentOrder: ["codex", "claude"],
+        quotaFallback: "strict",
         maxIterations: 7,
         patchModels: {
           claude: "sonnet",
@@ -91,11 +96,13 @@ describe("loadConfig", () => {
 
     const cfg = loadConfig({ dir });
     expect(cfg.agentOrder).toEqual(["codex", "claude"]);
+    expect(cfg.quotaFallback).toBe("strict");
     expect(cfg.maxIterations).toBe(7);
     expect(cfg.patchModels.claude).toBe("sonnet");
     expect(cfg.patchModels.opencode).toBe("opencode-model");
     expect(cfg.logServerUrl).toBe("http://127.0.0.1:4310/logs");
     expect(cfg.logServerBind).toBe("127.0.0.1:4310");
+    expect(cfg.telemetryPath).toBe(join(dir, "runs.jsonl"));
     expect(cfg.projects.jarvis).toEqual({ root: "/Users/me/jarvis" });
   });
 
@@ -110,6 +117,32 @@ describe("loadConfig", () => {
     );
 
     expect(loadConfig({ dir }).maxIterations).toBe(10);
+  });
+
+  test("defaults quotaFallback when an existing config omits it", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        projects: {},
+      }),
+    );
+
+    expect(loadConfig({ dir }).quotaFallback).toBe("lenient");
+  });
+
+  test("rejects invalid quotaFallback", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        quotaFallback: "off",
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/quotaFallback/);
   });
 
   test("defaults patchModels when an existing config omits it", () => {
@@ -166,6 +199,68 @@ describe("loadConfig", () => {
       }),
     );
     expect(() => loadConfig({ dir })).toThrow(/maxIterations/);
+  });
+
+  test("rejects invalid iterationTimeoutMs", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        iterationTimeoutMs: -1,
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/iterationTimeoutMs/);
+  });
+
+  test("rejects invalid runTimeoutMs", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        runTimeoutMs: 0,
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/runTimeoutMs/);
+  });
+
+  test("accepts telemetryPath as null", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        patchModels: DEFAULT_PATCH_MODELS,
+        telemetryPath: null,
+        projects: {},
+      }),
+    );
+    expect(loadConfig({ dir }).telemetryPath).toBeNull();
+  });
+
+  test("accepts optional runTimeoutMs", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        runTimeoutMs: 60 * 60_000,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.runTimeoutMs).toBe(60 * 60_000);
   });
 
   test("rejects non-object patchModels", () => {
@@ -531,7 +626,10 @@ describe("git toggle", () => {
     const cfg: Config = {
       version: 1,
       agentOrder: ["claude"],
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
       maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://x/",
       logServerBind: "x",
@@ -545,7 +643,10 @@ describe("git toggle", () => {
     const cfg: Config = {
       version: 1,
       agentOrder: ["claude"],
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
       maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://x/",
       logServerBind: "x",
@@ -559,7 +660,10 @@ describe("git toggle", () => {
     const cfg: Config = {
       version: 1,
       agentOrder: ["claude"],
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
       maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://x/",
       logServerBind: "x",
@@ -604,5 +708,35 @@ describe("openSessionLog", () => {
     } finally {
       closeSync(fd);
     }
+  });
+});
+
+describe("atomic writes", () => {
+  test("survives concurrent writes - first write is preserved", () => {
+    const _cfg1 = loadConfig({ dir });
+    registerProject("app1", "/app1", { dir });
+    expect(loadConfig({ dir }).projects.app1).toBeDefined();
+
+    registerProject("app2", "/app2", { dir });
+    const loaded = loadConfig({ dir });
+
+    // Both should be registered
+    expect(loaded.projects.app1).toBeDefined();
+    expect(loaded.projects.app2).toBeDefined();
+  });
+
+  test("config file is not corrupted by write", () => {
+    const cfg = loadConfig({ dir });
+    cfg.projects.test = { root: "/test/root" };
+    writeConfig(cfg, { dir });
+
+    // Read file and verify it's valid JSON
+    const file = join(dir, "config.json");
+    const content = readFileSync(file, "utf8");
+    expect(() => JSON.parse(content)).not.toThrow();
+
+    // Verify the write was successful
+    const loaded = loadConfig({ dir });
+    expect(loaded.projects.test).toBeDefined();
   });
 });

@@ -49,13 +49,13 @@ and exit code, did the run fall back to the next agent?"
 
 ## Acceptance criteria
 
-- [ ] Under the default (`lenient`), a non-strict-match quota-shaped error
+- [x] Under the default (`lenient`), a non-strict-match quota-shaped error
       with no progress causes fallback to the next agent.
-- [ ] Under `strict`, the same input exits 3 (unchanged behavior).
-- [ ] A real error (compile failure, syntax error in stderr) is NOT
+- [x] Under `strict`, the same input exits 3 (unchanged behavior).
+- [x] A real error (compile failure, syntax error in stderr) is NOT
       misclassified as quota under lenient mode; tests cover this.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { getBaseBranch } from "./gh.ts";
@@ -22,7 +22,10 @@ export async function ensureWorktree(
   const worktreePath = join(projectRoot, ".worktree", specName);
 
   try {
-    execSync("git fetch origin", { cwd: projectRoot, stdio: "pipe" });
+    execFileSync("git", ["fetch", "origin"], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
   } catch {
     // fetch might fail if no origin or no network, but we continue anyway
   }
@@ -36,22 +39,26 @@ export async function ensureWorktree(
 
   if (branchExists || branchExistsRemote) {
     if (!branchExists && branchExistsRemote) {
-      execSync(`git branch ${specName} origin/${specName}`, {
+      execFileSync("git", ["branch", specName, `origin/${specName}`], {
         cwd: projectRoot,
         stdio: "pipe",
       });
     }
-    execSync(`git worktree add --checkout ${worktreePath} ${specName}`, {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    execFileSync(
+      "git",
+      ["worktree", "add", "--checkout", worktreePath, specName],
+      {
+        cwd: projectRoot,
+        stdio: "pipe",
+      },
+    );
   } else {
     const baseBranch = await getBaseBranch(projectRoot);
-    execSync(`git branch ${specName} ${baseBranch}`, {
+    execFileSync("git", ["branch", specName, baseBranch], {
       cwd: projectRoot,
       stdio: "pipe",
     });
-    execSync(`git worktree add ${worktreePath} ${specName}`, {
+    execFileSync("git", ["worktree", "add", worktreePath, specName], {
       cwd: projectRoot,
       stdio: "pipe",
     });
@@ -62,7 +69,7 @@ export async function ensureWorktree(
 
 function branchExistsLocal(projectRoot: string, branchName: string): boolean {
   try {
-    execSync(`git rev-parse --verify ${branchName}`, {
+    execFileSync("git", ["rev-parse", "--verify", branchName], {
       cwd: projectRoot,
       stdio: "pipe",
     });
@@ -77,7 +84,7 @@ function branchExistsOnOrigin(
   branchName: string,
 ): boolean {
   try {
-    execSync(`git rev-parse --verify origin/${branchName}`, {
+    execFileSync("git", ["rev-parse", "--verify", `origin/${branchName}`], {
       cwd: projectRoot,
       stdio: "pipe",
     });
@@ -105,10 +112,11 @@ export function worktreeCompletionBlocker(cwd: string): string | undefined {
     return undefined;
   }
   try {
-    const porcelain = execSync("git status --porcelain", {
+    const porcelain = execFileSync("git", ["status", "--porcelain"], {
       cwd,
       encoding: "utf8",
       maxBuffer: 2 * 1024 * 1024,
+      stdio: "pipe",
     }).trim();
     if (porcelain !== "") {
       return `the worktree is not clean (${porcelain.split("\n").length} path(s)); uncommitted or untracked changes:\n${porcelain}`;

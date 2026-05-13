@@ -20,6 +20,7 @@ import type {
 } from "../src/agents/types.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
+import { generatePrBodyFromSpec } from "../src/modes/patch/pr.ts";
 import {
   prepareActiveSpecPath,
   type RunCommandOptions,
@@ -119,6 +120,86 @@ afterEach(() => {
 });
 
 describe("runCommand", () => {
+  describe("telemetry", () => {
+    test("writes one JSONL line per iteration plus a terminal line", async () => {
+      const spec = writeSpec("- [ ] one\n- [ ] two\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", (callCount) => {
+        writeFileSync(
+          spec,
+          callCount === 1 ? "- [x] one\n- [ ] two\n" : "- [x] one\n- [x] two\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const lines = readFileSync(telemetryPath, "utf8").trim().split("\n");
+      expect(lines).toHaveLength(3);
+      for (const line of lines) {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        expect(typeof parsed.ts).toBe("string");
+        expect(parsed.namespace).toBe("project:project");
+        expect(parsed.agent).toBe("claude");
+        expect(typeof parsed.iteration).toBe("number");
+        expect(typeof parsed.duration_ms).toBe("number");
+        expect(typeof parsed.kind).toBe("string");
+        expect(typeof parsed.exit_reason).toBe("string");
+      }
+    });
+
+    test("telemetryPath null disables writes", async () => {
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.telemetryPath = null;
+      writeConfig(cfg, { dir: cfgDir });
+      const spec = writeSpec("- [ ] todo\n");
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: captureIo().io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(existsSync(join(cfgDir, "runs.jsonl"))).toBe(false);
+    });
+
+    test("telemetry append errors do not change run exit code", async () => {
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.telemetryPath = "/dev/null/runs.jsonl";
+      writeConfig(cfg, { dir: cfgDir });
+      const spec = writeSpec("- [ ] todo\n");
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: captureIo().io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+    });
+  });
+
   test("refuses to run when log server is unreachable", async () => {
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
@@ -147,6 +228,69 @@ describe("runCommand", () => {
     expect(cap.err()).toContain("log server unreachable");
     expect(cap.err()).toContain("jarvis log-server");
     expect(claude.calls).toHaveLength(0);
+  });
+
+  test("log-server send latency does not delay the iteration", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "out\n", stderr: "err\n" };
+    });
+    let sendCalls = 0;
+    const slowLogClient: LogClient = {
+      assertReachable: async () => {},
+      send: async () => {
+        sendCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      },
+    };
+
+    const startedAt = Date.now();
+    const code = await runCommand({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      skipGhCheck: true,
+      logClient: slowLogClient,
+      handleSignals: false,
+    });
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(code).toBe(0);
+    // sendCalls confirms the slow client was actually invoked, but the
+    // iteration must not have awaited any of the 500ms delays. Allow a
+    // generous ceiling for CI scheduling.
+    expect(sendCalls).toBeGreaterThan(0);
+    expect(elapsedMs).toBeLessThan(500);
+  });
+
+  test("log-server send errors do not change run exit code", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "out\n", stderr: "err\n" };
+    });
+    const throwingLogClient: LogClient = {
+      assertReachable: async () => {},
+      send: async () => {
+        throw new Error("log server exploded");
+      },
+    };
+
+    const code = await runCommand({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      skipGhCheck: true,
+      logClient: throwingLogClient,
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
   });
 
   test("exits 0 immediately when the spec is already complete", async () => {
@@ -775,6 +919,41 @@ describe("runCommand", () => {
     expect(claude.calls).toHaveLength(0);
   });
 
+  test("prints parser warning when acceptance heading is malformed", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    writeFileSync(
+      join(specDir, "00-one.md"),
+      "# 00 - One\n\n### Acceptance criteria\n\n- [ ] One accepted.\n",
+    );
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("agent should not have run");
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("no `## Acceptance criteria` checkboxes");
+    expect(cap.err()).toContain("Rejected heading `### Acceptance criteria`");
+    expect(claude.calls).toHaveLength(0);
+  });
+
   test("pushes each subspec commit and opens one draft PR after the first push", async () => {
     const origin = join(dir, "origin.git");
     execSync(`git init --bare ${origin}`);
@@ -940,8 +1119,13 @@ exit 1
     expect(readFileSync(createCommitCount, "utf8").trim()).toBe("1");
     expect(readFileSync(readyCommitCount, "utf8").trim()).toBe("2");
     expect(readFileSync(prTitle, "utf8")).toBe("Feature");
+    const generatedBody = generatePrBodyFromSpec(spec).trim();
+    const expectedBody =
+      generatedBody !== ""
+        ? generatedBody
+        : "feature\n\nAuto-generated by jarvis";
     expect(readFileSync(prBody, "utf8")).toBe(
-      "Implements the feature in two subspec commits.\n\n---\n\nWritten by fake-claude through Jarvis.",
+      `${expectedBody}\n\n---\n\nWritten by fake-claude through Jarvis.`,
     );
     expect(
       execSync("gh pr view feature --json isDraft -q .isDraft", {
@@ -950,11 +1134,7 @@ exit 1
         encoding: "utf8",
       }).trim(),
     ).toBe("false");
-    expect(
-      claude.calls.filter((call) =>
-        call.prompt.includes("draft GitHub pull request body"),
-      ),
-    ).toHaveLength(1);
+    expect(claude.calls).toHaveLength(2);
     const subjects = execSync("git log --format=%s main..feature", {
       cwd: projectRoot,
       encoding: "utf8",
@@ -963,6 +1143,116 @@ exit 1
       .split("\n")
       .reverse();
     expect(subjects).toEqual(["00 - One", "01 - Two"]);
+  });
+
+  test("uses fallback PR body when deterministic spec body is empty", async () => {
+    const origin = join(dir, "origin.git");
+    execSync(`git init --bare ${origin}`);
+    execSync("git init -b main", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    execSync(`git remote add origin ${origin}`, { cwd: projectRoot });
+
+    const specDir = join(projectRoot, "spec", "degenerate");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    writeFileSync(
+      join(specDir, "00-one.md"),
+      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n",
+    );
+    execSync("git add -A && git commit -m init && git push -u origin main", {
+      cwd: projectRoot,
+    });
+
+    const binDir = join(dir, "bin");
+    mkdirSync(binDir);
+    const realGit = execSync("command -v git", { encoding: "utf8" }).trim();
+    const git = join(binDir, "git");
+    const gh = join(binDir, "gh");
+    const prState = join(dir, "pr-state");
+    const prBody = join(dir, "pr-body");
+    writeFileSync(
+      git,
+      `#!/usr/bin/env bash
+set -euo pipefail
+exec "${realGit}" "$@"
+`,
+    );
+    chmodSync(git, 0o755);
+    writeFileSync(
+      gh,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "auth status" ]]; then
+  exit 0
+fi
+if [[ "$1 $2" == "repo view" ]]; then
+  printf 'main\\n'
+  exit 0
+fi
+if [[ "$1 $2" == "pr view" ]]; then
+  if [[ ! -f "${prState}" ]]; then
+    exit 1
+  fi
+  if [[ "$*" == *"isDraft"* ]]; then
+    printf 'false\\n'
+  else
+    printf '1\\n'
+  fi
+  exit 0
+fi
+if [[ "$1 $2" == "pr create" ]]; then
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --body)
+        shift
+        printf '%s' "$1" > "${prBody}"
+        ;;
+    esac
+    shift
+  done
+  touch "${prState}"
+  exit 0
+fi
+if [[ "$1 $2" == "pr ready" ]]; then
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(gh, 0o755);
+    process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", (_callCount, _prompt, opts) => {
+      writeFileSync(join(opts.cwd, "one.txt"), "one\n");
+      writeFileSync(
+        join(opts.cwd, "spec", "degenerate", "00-one.md"),
+        "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: {
+        assertReachable: async () => {},
+        send: async () => {},
+      },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(claude.calls).toHaveLength(1);
+    expect(readFileSync(prBody, "utf8")).toBe(
+      "degenerate\n\nAuto-generated by jarvis\n\n---\n\nWritten by fake-claude through Jarvis.",
+    );
   });
 
   test("stops at the configured max iterations", async () => {
@@ -1005,7 +1295,10 @@ exit 1
       {
         version: 1,
         agentOrder: ["claude"],
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
         maxIterations: 1,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -1044,7 +1337,10 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude"],
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
         maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: {
           claude: "haiku",
           codex: "gpt-5.3-codex",
@@ -1085,7 +1381,10 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude"],
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
         maxIterations: 1,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -1148,7 +1447,10 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
         maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -1183,7 +1485,10 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
         maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -1201,6 +1506,140 @@ exit 0
 
     expect(code).toBe(5);
     expect(cap.err()).toContain("max iterations (1) reached; stopping");
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(0);
+  });
+
+  test("lenient mode falls back on weak quota-like error with no progress", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const spec = writeSpec("- [ ] todo\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "error",
+      exitCode: 1,
+      stderr: "HTTP 429: too many requests",
+    }));
+    const codex = new FakeAgent("codex", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    writeConfig(
+      {
+        version: 1,
+        agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: false,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.err()).toContain("probable quota-like error");
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+  });
+
+  test("strict mode does not fall back on weak quota-like error", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const spec = writeSpec("- [ ] todo\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "error",
+      exitCode: 1,
+      stderr: "HTTP 429: too many requests",
+    }));
+    const codex = new FakeAgent("codex", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    writeConfig(
+      {
+        version: 1,
+        agentOrder: ["claude", "codex"],
+        quotaFallback: "strict",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(0);
+  });
+
+  test("lenient mode does not classify real errors as quota", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "error",
+      exitCode: 2,
+      stderr: "TypeScript compile error in src/run.ts",
+    }));
+    const codex = new FakeAgent("codex", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    writeConfig(
+      {
+        version: 1,
+        agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(cap.err()).toContain("TypeScript compile error");
     expect(claude.calls).toHaveLength(1);
     expect(codex.calls).toHaveLength(0);
   });
@@ -1241,7 +1680,10 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
         maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
@@ -2066,6 +2508,251 @@ exit 0
 
       expect(code).toBe(0);
       expect(cap.out()).toContain("spec complete");
+    });
+  });
+
+  describe("timeout behavior", () => {
+    test("passes AbortSignal to agent via opts.signal", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      let receivedSignal: AbortSignal | undefined;
+      const claude = new FakeAgent("claude", (_callCount, _prompt, opts) => {
+        receivedSignal = opts.signal;
+        writeFileSync(spec, `repo: ${projectRoot}\n\n- [x] todo\n`);
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+      writeConfig(
+        {
+          version: 1,
+          agentOrder: ["claude"],
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 30 * 60_000,
+          patchModels: DEFAULT_PATCH_MODELS,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(receivedSignal).toBeDefined();
+      expect(receivedSignal).toBeInstanceOf(AbortSignal);
+    });
+
+    test("iteration timeout causes exit code 8", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "aborted: iteration-timeout",
+      }));
+      writeConfig(
+        {
+          version: 1,
+          agentOrder: ["claude"],
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 1,
+          patchModels: DEFAULT_PATCH_MODELS,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("exceeded timeout");
+    });
+
+    test("global run timeout causes exit code 8", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "error",
+        exitCode: -1,
+        stderr: "aborted: run-timeout",
+      }));
+      writeConfig(
+        {
+          version: 1,
+          agentOrder: ["claude"],
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 30 * 60_000,
+          runTimeoutMs: 1,
+          patchModels: DEFAULT_PATCH_MODELS,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("exceeded timeout");
+    });
+  });
+
+  describe("blocker handling", () => {
+    test("exits 7 when agent appends ## Blocker section and commits work", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(
+        subspec,
+        "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Item one.\n",
+      );
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(join(projectRoot, "work.txt"), "work\n");
+        const subspecContent = readFileSync(subspec, "utf8");
+        writeFileSync(
+          subspec,
+          `${subspecContent}\n## Blocker\n\nWaiting for external API\n`,
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("Waiting for external API");
+      expect(claude.calls).toHaveLength(1);
+      expect(
+        execSync("git status --porcelain", { cwd: projectRoot }).toString(),
+      ).toBe("");
+      const lastMessage = execSync("git log -1 --format=%B", {
+        cwd: projectRoot,
+        encoding: "utf8",
+      });
+      expect(lastMessage).toContain("WIP: 00 - One (blocked)");
+      expect(lastMessage).toContain("## Blocker");
+      expect(lastMessage).toContain("Waiting for external API");
+    });
+
+    test("exits 7 without invoking agent when subspec already has blocker", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(
+        subspec,
+        "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Item one.\n\n## Blocker\n\nAlready blocked\n",
+      );
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("should not be invoked");
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("Already blocked");
+      expect(claude.calls).toHaveLength(0);
+    });
+
+    test("commits combined WIP+blocker when agent ticks criteria and adds blocker", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(
+        subspec,
+        "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n- [ ] Step B.\n",
+      );
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [ ] Step B.\n\n## Blocker\n\nNeed implementation details\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("Need implementation details");
+      expect(claude.calls).toHaveLength(1);
+      const lastMessage = execSync("git log -1 --format=%B", {
+        cwd: projectRoot,
+        encoding: "utf8",
+      });
+      expect(lastMessage).toContain("WIP: 00 - One (blocked, 1/2 criteria)");
+      expect(lastMessage).toContain("Newly checked:\n- Step A.");
+      expect(lastMessage).toContain("## Blocker");
+      expect(lastMessage).toContain("Need implementation details");
     });
   });
 });

@@ -8,6 +8,11 @@ import {
   getFirstUncheckedTask,
 } from "../modes/patch/completion.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
+import {
+  getWorktreeLockPath,
+  isProcessAlive,
+  type WorktreeLock,
+} from "../worktree-lock.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;
@@ -109,6 +114,12 @@ function triageDrillDown(
   io.stdout("Identity\n");
   const identityContent = safeRun(() => renderIdentity(worktreePath));
   io.stdout(identityContent);
+  io.stdout("\n");
+
+  // Lock section
+  io.stdout("Lock\n");
+  const lockContent = safeRun(() => renderLock(worktreePath));
+  io.stdout(lockContent);
   io.stdout("\n");
 
   // Git section
@@ -213,6 +224,34 @@ function renderIdentity(worktreePath: string): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+function renderLock(worktreePath: string): string {
+  const lockPath = getWorktreeLockPath(worktreePath);
+
+  if (!existsSync(lockPath)) {
+    return "  (no lock)\n";
+  }
+
+  try {
+    const raw = readFileSync(lockPath, "utf8");
+    const lock: WorktreeLock = JSON.parse(raw);
+    const lines: string[] = [];
+
+    const isAlive = isProcessAlive(lock.pid);
+    const status = isAlive ? "held" : "stale";
+    lines.push(`  Status: ${status}`);
+    lines.push(`  PID: ${lock.pid}`);
+    if (!isAlive) {
+      lines.push(`  (process no longer running)`);
+    }
+    lines.push(`  Started: ${lock.started_at}`);
+    lines.push(`  Host: ${lock.host}`);
+
+    return `${lines.join("\n")}\n`;
+  } catch (err) {
+    return `  (error reading lock: ${err instanceof Error ? err.message : String(err)})\n`;
+  }
 }
 
 function renderGit(worktreePath: string): string {

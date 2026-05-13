@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
   closeSync,
   cpSync,
@@ -21,6 +21,7 @@ import { ClaudeAgent } from "../../agents/claude.ts";
 import { CodexAgent } from "../../agents/codex.ts";
 import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
+import { isWeakQuotaSignal } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
@@ -42,6 +43,7 @@ import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import { createLogClient, type LogClient } from "../../logging.ts";
 import { ensureDraftPr } from "../../pr.ts";
 import { resolveProject } from "../../resolve-project.ts";
+import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import {
   createWorktreeSymlinks,
   ensureWorktree,
@@ -49,16 +51,22 @@ import {
   worktreeCompletionBlocker,
 } from "../../worktree.ts";
 import {
+  acquireWorktreeLock,
+  releaseWorktreeLock,
+} from "../../worktree-lock.ts";
+import {
   countUnchecked,
   getActiveLinkedSubspecPath,
   getFirstUncheckedTask,
 } from "./completion.ts";
-import { maybeMarkReady } from "./pr.ts";
+import { generatePrBodyFromSpec, maybeMarkReady } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
+import { parsePatchSpec } from "./spec.ts";
 import {
   type AcceptanceCriterion,
   commitSubspec,
   commitWipProgress,
+  commitWipProgressWithBlocker,
   snapshotAcceptanceCriteria,
 } from "./subspec.ts";
 
@@ -92,15 +100,165 @@ export type RunCommandOptions = {
   disambiguate?: DisambiguateFn;
 };
 
+type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
+type LogStream = "stdout" | "stderr" | null;
+type LogAnnotations = Record<string, string | number | boolean | null>;
+
+type Fanout = (
+  tag: LogTag,
+  text: string,
+  stream: LogStream,
+  annotations?: LogAnnotations,
+) => void;
+
+type SendLog = (
+  tag: LogTag,
+  text: string,
+  annotations?: LogAnnotations,
+) => void;
+
+type WriteSessionLine = (tag: LogTag, line: string) => void;
+
+type WriteTelemetry = (record: {
+  agent: string;
+  iteration: number;
+  durationMs: number;
+  kind: TelemetryKind;
+  exitReason: string;
+}) => void;
+
+type PreflightOk = {
+  kind: "ok";
+  project: ProjectMatch;
+  projectMode: "registered" | "ad-hoc";
+  cfg: Config;
+  gitEnabled: boolean;
+  agentWorkingDir: string;
+  worktreeLocked: boolean;
+  stalepidRecovered: number | undefined;
+  specPath: string;
+  isIndexSpec: boolean;
+  additionalReadDirs: string[] | undefined;
+};
+
+type PreflightResult =
+  | PreflightOk
+  | { kind: "error"; exitCode: number }
+  | { kind: "exit"; exitCode: number };
+
+type LoggingContext = {
+  fanout: Fanout;
+  sendLog: SendLog;
+  writeSessionLine: WriteSessionLine;
+  writeTelemetry: WriteTelemetry;
+  sessionFd: number;
+  logClient: LogClient;
+  runNamespace: string;
+  specDisplayName: string;
+};
+
+type IterationContext = {
+  preflight: PreflightOk;
+  logging: LoggingContext;
+  opts: RunCommandOptions;
+  activeAgents: Agent[];
+  state: {
+    iteration: number;
+    latestIterationStdout: string[];
+    latestIterationStderr: string[];
+    draftPrEnsured: boolean;
+    currentController: AbortController | null;
+  };
+};
+
+type IterationOutcome =
+  | { kind: "continue" }
+  | { kind: "return"; exitCode: number }
+  | { kind: "exit"; exitCode: number };
+
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
-  let specPath = resolve(opts.specPath);
-  if (!existsSync(specPath)) {
-    opts.io.stderr(`spec path does not exist: ${specPath}\n`);
+  const initialSpecPath = resolve(opts.specPath);
+  if (!existsSync(initialSpecPath)) {
+    opts.io.stderr(`spec path does not exist: ${initialSpecPath}\n`);
     return 1;
   }
 
+  const preflight = await resolveAndPreflight(opts, initialSpecPath);
+  if (preflight.kind === "error") {
+    return preflight.exitCode;
+  }
+  if (preflight.kind === "exit") {
+    return preflight.exitCode;
+  }
+
+  const activeAgents = buildActiveAgents(opts, preflight.cfg);
+
+  const loggingSetup = await setupLogging(opts, preflight);
+  if (loggingSetup.kind === "error") {
+    return loggingSetup.exitCode;
+  }
+  const logging = loggingSetup.logging;
+
+  const state = {
+    iteration: 1,
+    latestIterationStdout: [] as string[],
+    latestIterationStderr: [] as string[],
+    draftPrEnsured: false,
+    currentController: null as AbortController | null,
+  };
+
+  const onSigint = () => {
+    logging.writeSessionLine("harness", "interrupted");
+    opts.io.stderr("interrupted\n");
+    if (state.currentController) {
+      state.currentController.abort("sigint");
+    } else {
+      process.exit(130);
+    }
+  };
+  if (opts.handleSignals !== false) {
+    process.once("SIGINT", onSigint);
+  }
+
+  let globalTimeoutHandle: NodeJS.Timeout | null = null;
+  if (preflight.cfg.runTimeoutMs !== undefined) {
+    globalTimeoutHandle = setTimeout(() => {
+      if (state.currentController) {
+        state.currentController.abort("run-timeout");
+      }
+    }, preflight.cfg.runTimeoutMs);
+  }
+
+  const ctx: IterationContext = {
+    preflight,
+    logging,
+    opts,
+    activeAgents,
+    state,
+  };
+
+  try {
+    while (true) {
+      const outcome = await runIteration(ctx);
+      if (outcome.kind === "return") {
+        return outcome.exitCode;
+      }
+      if (outcome.kind === "exit") {
+        process.exit(outcome.exitCode);
+      }
+      // continue
+    }
+  } finally {
+    finalize(ctx, globalTimeoutHandle, onSigint);
+  }
+}
+
+async function resolveAndPreflight(
+  opts: RunCommandOptions,
+  initialSpecPath: string,
+): Promise<PreflightResult> {
   const projectResolution = await resolveProjectFromSpec({
-    specPath,
+    specPath: initialSpecPath,
     repoFlag: opts.repoFlag,
     config: opts.config,
     io: opts.io,
@@ -108,7 +266,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   });
   if (projectResolution.error !== undefined) {
     opts.io.stderr(`${projectResolution.error}\n`);
-    return 1;
+    return { kind: "error", exitCode: 1 };
   }
   const project = projectResolution.project;
   const projectMode = projectResolution.mode;
@@ -132,7 +290,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         reason: projectRootCheck.reason,
       })}\n`,
     );
-    return 1;
+    return { kind: "error", exitCode: 1 };
   }
   const cfg = loadConfig(opts.config);
   const gitEnabled = effectiveGit(
@@ -144,14 +302,14 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     opts.io.stderr(
       'error: --cwd is only valid when effective `git` is false; set "git": false in config to use --cwd\n',
     );
-    return 1;
+    return { kind: "error", exitCode: 1 };
   }
   let cwdOverride: string | undefined;
   if (opts.cwdFlag !== undefined) {
     cwdOverride = resolve(opts.cwdFlag);
     if (!existsSync(cwdOverride)) {
       opts.io.stderr(`error: --cwd directory does not exist: ${cwdOverride}\n`);
-      return 1;
+      return { kind: "error", exitCode: 1 };
     }
   }
   if (
@@ -162,7 +320,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     opts.io.stderr(
       'error: target is not a git checkout; set "git": false in config or pass --repo to a git checkout\n',
     );
-    return 1;
+    return { kind: "error", exitCode: 1 };
   }
 
   // Lazily populate `origin` for a registered project whose record is missing
@@ -186,37 +344,52 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       await assertGhReady();
     } catch (err) {
       opts.io.stderr(`${(err as Error).message}\n`);
-      return 1;
+      return { kind: "error", exitCode: 1 };
     }
   }
 
   let agentWorkingDir = cwdOverride ?? project.root;
+  let worktreeLocked = false;
+  let stalepidRecovered: number | undefined;
   if (!opts.skipGhCheck && gitEnabled) {
     try {
-      agentWorkingDir = await ensureWorktree(project.root, specPath);
+      agentWorkingDir = await ensureWorktree(project.root, initialSpecPath);
       createWorktreeSymlinks(
         project.root,
         agentWorkingDir,
         cfg.worktreeSymlinks,
       );
+
+      const lockResult = acquireWorktreeLock(agentWorkingDir);
+      if (lockResult.kind === "busy") {
+        const lockInfo = lockResult.existingLock;
+        opts.io.stderr(
+          `worktree is in use by process ${lockInfo.pid} (started at ${lockInfo.started_at})\n`,
+        );
+        return { kind: "error", exitCode: 9 };
+      }
+      if (lockResult.kind === "recovered") {
+        stalepidRecovered = lockResult.stalepid;
+      }
+      worktreeLocked = true;
     } catch (err) {
       opts.io.stderr(
         `failed to create or resume worktree: ${(err as Error).message}\n`,
       );
-      return 1;
+      return { kind: "error", exitCode: 1 };
     }
   }
-  specPath = prepareActiveSpecPath({
+  let specPath = prepareActiveSpecPath({
     projectRoot: project.root,
     agentWorkingDir,
-    specPath,
+    specPath: initialSpecPath,
   });
   const additionalReadDirs = specOutsideWorktreeReadDirs({
     specPath,
     agentWorkingDir,
   });
 
-  const isIndexSpec = basename(specPath) === "index.md";
+  let isIndexSpec = basename(specPath) === "index.md";
   if (!isIndexSpec) {
     const specDir = dirname(specPath);
     const siblingIndex = resolve(specDir, "index.md");
@@ -238,17 +411,42 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
     if (answer === "s" && hasSiblingIndex) {
       specPath = siblingIndex;
-      // Fall through to continue with the normal index-spec path
+      isIndexSpec = true;
     } else {
       // e, empty input, or unrecognized
-      return 0;
+      return { kind: "exit", exitCode: 0 };
     }
   }
 
+  return {
+    kind: "ok",
+    project,
+    projectMode,
+    cfg,
+    gitEnabled,
+    agentWorkingDir,
+    worktreeLocked,
+    stalepidRecovered,
+    specPath,
+    isIndexSpec,
+    additionalReadDirs,
+  };
+}
+
+function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
   const agentsByName = opts.agents ?? defaultAgents(cfg);
-  const activeAgents = cfg.agentOrder
+  return cfg.agentOrder
     .map((name) => agentsByName[name])
     .filter((agent): agent is Agent => agent !== undefined);
+}
+
+async function setupLogging(
+  opts: RunCommandOptions,
+  preflight: PreflightOk,
+): Promise<
+  { kind: "ok"; logging: LoggingContext } | { kind: "error"; exitCode: number }
+> {
+  const cfg = preflight.cfg;
   const logServerUrl = cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
   const logClient = opts.logClient ?? createLogClient(logServerUrl);
   try {
@@ -258,55 +456,64 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       `jarvis: log server unreachable at ${logServerUrl}. Start it with \`jarvis log-server\` or update config.\n`,
     );
     opts.io.stderr(`jarvis: ${(err as Error).message}\n`);
-    return 1;
+    return { kind: "error", exitCode: 1 };
   }
 
-  const specDisplayName = getSpecDisplayName(specPath);
-  const runNamespace = `${project.key}:${specDisplayName}`;
-  const sendLog = async (
-    tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
-    text: string,
-    annotations?: Record<string, string | number | boolean | null>,
-  ): Promise<void> => {
+  const specDisplayName = getSpecDisplayName(preflight.specPath);
+  const runNamespace = `${preflight.project.key}:${specDisplayName}`;
+  const telemetryPath = cfg.telemetryPath ?? null;
+
+  const writeTelemetry: WriteTelemetry = (record) => {
     try {
-      const message = {
+      appendTelemetryLine(telemetryPath, {
+        ts: new Date().toISOString(),
         namespace: runNamespace,
-        text,
-        tag,
-        ...(annotations === undefined ? {} : { annotations }),
-      };
-      await logClient.send(message);
+        agent: record.agent,
+        iteration: record.iteration,
+        duration_ms: record.durationMs,
+        kind: record.kind,
+        exit_reason: record.exitReason,
+      });
     } catch {
-      // v1 best-effort after initial mandatory connectivity check
+      // best-effort
     }
   };
+
+  const sendLog: SendLog = (tag, text, annotations) => {
+    const message = {
+      namespace: runNamespace,
+      text,
+      tag,
+      ...(annotations === undefined ? {} : { annotations }),
+    };
+    // Fire-and-forget after initial mandatory connectivity check. Log
+    // server is observability only; the on-disk session log is the
+    // authoritative record. Awaiting here would let a slow log server
+    // backpressure the iteration.
+    void Promise.resolve()
+      .then(() => logClient.send(message))
+      .catch(() => {});
+  };
+
   const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   const sessionFd = openSessionLog(runNamespace, timestamp, opts.config);
-  const writeSessionLine = (
-    tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
-    line: string,
-  ): void => {
+
+  const writeSessionLine: WriteSessionLine = (tag, line) => {
     const stamped = `${new Date().toISOString()} [${tag}] ${line}\n`;
     writeSync(sessionFd, stamped, undefined, "utf8");
   };
-  const splitLines = (text: string): string[] => {
-    const normalized = text.replace(/\r\n/g, "\n");
-    const lines = normalized.split("\n");
-    if (lines.at(-1) === "") {
-      lines.pop();
-    }
-    return lines;
-  };
-  const writeLog = async (
-    tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
+
+  const writeLog = (
+    tag: LogTag,
     text: string,
-    annotations?: Record<string, string | number | boolean | null>,
-  ): Promise<void> => {
+    annotations?: LogAnnotations,
+  ): void => {
     for (const line of splitLines(text)) {
       writeSessionLine(tag, line);
-      await sendLog(tag, line, annotations);
+      sendLog(tag, line, annotations);
     }
   };
+
   const writeTerminal = (stream: "stdout" | "stderr", text: string): void => {
     if (stream === "stdout") {
       opts.io.stdout(text);
@@ -314,355 +521,647 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       opts.io.stderr(text);
     }
   };
-  const fanout = async (
-    tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
-    text: string,
-    stream: "stdout" | "stderr" | null,
-    annotations?: Record<string, string | number | boolean | null>,
-  ): Promise<void> => {
+
+  const fanout: Fanout = (tag, text, stream, annotations) => {
     if (stream !== null) {
       writeTerminal(stream, text);
     }
-    await writeLog(tag, text, annotations);
-  };
-  let iteration = 1;
-  let latestIterationStdout: string[] = [];
-  let latestIterationStderr: string[] = [];
-  let draftPrEnsured = false;
-
-  const printBoundedTail = (lines: string[]): void => {
-    const tail = lines.slice(-40);
-    for (const line of tail) {
-      opts.io.stdout(`${line}\n`);
-    }
+    writeLog(tag, text, annotations);
   };
 
-  const onSigint = () => {
-    writeSessionLine("harness", "interrupted");
-    opts.io.stderr("interrupted\n");
-    process.exit(130);
+  return {
+    kind: "ok",
+    logging: {
+      fanout,
+      sendLog,
+      writeSessionLine,
+      writeTelemetry,
+      sessionFd,
+      logClient,
+      runNamespace,
+      specDisplayName,
+    },
   };
-  if (opts.handleSignals !== false) {
-    process.once("SIGINT", onSigint);
+}
+
+function finalize(
+  ctx: IterationContext,
+  globalTimeoutHandle: NodeJS.Timeout | null,
+  onSigint: () => void,
+): void {
+  if (globalTimeoutHandle) {
+    clearTimeout(globalTimeoutHandle);
+  }
+  if (ctx.preflight.worktreeLocked) {
+    releaseWorktreeLock(ctx.preflight.agentWorkingDir);
+  }
+  if (ctx.preflight.stalepidRecovered !== undefined) {
+    ctx.logging.sendLog(
+      "harness",
+      `recovered stale worktree lock (pid ${ctx.preflight.stalepidRecovered} no longer running)`,
+    );
+  }
+  closeSync(ctx.logging.sessionFd);
+  if (ctx.opts.handleSignals !== false) {
+    process.removeListener("SIGINT", onSigint);
+  }
+}
+
+async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
+  const { preflight, logging, opts, activeAgents, state } = ctx;
+  const { specPath, isIndexSpec, gitEnabled, agentWorkingDir, cfg } = preflight;
+  const { fanout, writeTelemetry, specDisplayName } = logging;
+  const iteration = state.iteration;
+  const iterationStartedAt = Date.now();
+  const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
+
+  if (isIndexSpec && iteration > cfg.maxIterations) {
+    printBoundedTail(opts, [
+      ...state.latestIterationStdout,
+      ...state.latestIterationStderr,
+    ]);
+    fanout(
+      "harness",
+      `max iterations (${cfg.maxIterations}) reached; stopping\n`,
+      "stderr",
+    );
+    writeTelemetry({
+      agent: "harness",
+      iteration,
+      durationMs: iterationDurationMs(),
+      kind: "ok",
+      exitReason: "max-iterations",
+    });
+    return { kind: "return", exitCode: 5 };
   }
 
+  state.latestIterationStdout = [];
+  state.latestIterationStderr = [];
+  const before = countUnchecked(specPath);
+  if (before === 0) {
+    // tryFinishSpecIfDone returns null only when countUnchecked !== 0; since
+    // we just observed before === 0 it returns either 0 (spec complete) or 6
+    // (worktree blocker). Default to 0 if it ever races to null.
+    const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+    writeTelemetry({
+      agent: "harness",
+      iteration,
+      durationMs: iterationDurationMs(),
+      kind: "ok",
+      exitReason: "criteria-complete",
+    });
+    return { kind: "return", exitCode: done };
+  }
+
+  const agent = activeAgents[0];
+  if (agent === undefined) {
+    fanout("harness", "all agents quota-exhausted\n", "stderr");
+    writeTelemetry({
+      agent: "harness",
+      iteration,
+      durationMs: iterationDurationMs(),
+      kind: "quota",
+      exitReason: "quota-exhausted",
+    });
+    return { kind: "return", exitCode: 2 };
+  }
+
+  const task = getFirstUncheckedTask(specPath);
+  const taskExcerpt = task.line.slice(0, 140);
+  const activeSubspecPath = isIndexSpec
+    ? getActiveLinkedSubspecPath(specPath)
+    : undefined;
+
+  // Check if the active subspec already has a blocker at the start
+  if (activeSubspecPath !== undefined) {
+    const parsedSubspec = parsePatchSpec(
+      readFileSync(activeSubspecPath, "utf8"),
+    );
+    if (parsedSubspec.blocker !== undefined) {
+      const blockerBody = parsedSubspec.blocker;
+      const blockerText = blockerBody
+        ? `${activeSubspecPath}\n\n${blockerBody}`
+        : activeSubspecPath;
+      fanout("harness", `${blockerText}\n`, "stderr");
+      writeTelemetry({
+        agent: agent.name,
+        iteration,
+        durationMs: iterationDurationMs(),
+        kind: "blocked",
+        exitReason: "blocker-detected",
+      });
+      return { kind: "return", exitCode: 7 };
+    }
+  }
+
+  let beforeCriteria: AcceptanceCriterion[] = [];
+  let hasBlockerBefore = false;
+  if (activeSubspecPath !== undefined) {
+    const beforeParse = parsePatchSpec(readFileSync(activeSubspecPath, "utf8"));
+    hasBlockerBefore = beforeParse.blocker !== undefined;
+    beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+    if (beforeCriteria.length === 0) {
+      const warningsSuffix =
+        beforeParse.warnings.length === 0
+          ? ""
+          : ` Parser warnings:\n- ${beforeParse.warnings.join("\n- ")}`;
+      fanout(
+        "harness",
+        `active subspec ${activeSubspecPath} has no \`## Acceptance criteria\` checkboxes; jarvis cannot detect completion. Add an acceptance-criteria checklist to the subspec and rerun.${warningsSuffix}\n`,
+        "stderr",
+      );
+      return { kind: "return", exitCode: 1 };
+    }
+  }
+  const banner = `project: ${preflight.project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task.ordinal}/${task.total} ${taskExcerpt} | agent: ${agent.name}\n`;
+  fanout("harness", banner, "stdout", {
+    project: preflight.project.key,
+    spec: specDisplayName,
+    iteration,
+    currentTask: taskExcerpt,
+    currentTaskOrdinal: task.ordinal,
+    currentTaskTotal: task.total,
+    agent: agent.name,
+  });
+  const prompt = buildPrompt(specPath);
+  fanout("outbound", prompt, null, {
+    iteration,
+    agent: agent.name,
+  });
+
+  // Create per-iteration abort controller
+  state.currentController = new AbortController();
+  const iterationTimeoutHandle = setTimeout(() => {
+    state.currentController?.abort("iteration-timeout");
+  }, cfg.iterationTimeoutMs);
+
   try {
-    const tryFinishSpecIfDone = async (): Promise<number | null> => {
-      if (countUnchecked(specPath) !== 0) {
-        return null;
-      }
-      if (gitEnabled) {
-        const blocker = worktreeCompletionBlocker(agentWorkingDir);
-        if (blocker !== undefined) {
-          const worktreeName = basename(agentWorkingDir);
-          await fanout(
-            "harness",
-            `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
-            "stderr",
-          );
-          return 6;
-        }
-      }
-      await fanout("harness", "spec complete\n", "stdout");
-      return 0;
-    };
+    const result = await agent.run(prompt, {
+      cwd: agentWorkingDir,
+      ...(preflight.additionalReadDirs === undefined
+        ? {}
+        : { additionalReadDirs: preflight.additionalReadDirs }),
+      signal: state.currentController.signal,
+    });
 
-    while (true) {
-      if (isIndexSpec && iteration > cfg.maxIterations) {
-        printBoundedTail([...latestIterationStdout, ...latestIterationStderr]);
-        await fanout(
-          "harness",
-          `max iterations (${cfg.maxIterations}) reached; stopping\n`,
-          "stderr",
-        );
-        return 5;
-      }
+    // Check for iteration timeout
+    if (
+      result.kind === "error" &&
+      result.stderr.includes("aborted: iteration-timeout")
+    ) {
+      fanout(
+        "harness",
+        `iteration ${iteration} exceeded timeout of ${cfg.iterationTimeoutMs}ms\n`,
+        "stderr",
+      );
+      writeTelemetry({
+        agent: agent.name,
+        iteration,
+        durationMs: iterationDurationMs(),
+        kind: "timeout",
+        exitReason: "iteration-timeout",
+      });
+      return { kind: "return", exitCode: 8 };
+    }
 
-      latestIterationStdout = [];
-      latestIterationStderr = [];
-      const before = countUnchecked(specPath);
-      if (before === 0) {
-        const done = await tryFinishSpecIfDone();
-        if (done !== null) {
-          return done;
-        }
-        return 0;
-      }
+    // Check for global run timeout
+    if (
+      result.kind === "error" &&
+      result.stderr.includes("aborted: run-timeout")
+    ) {
+      fanout(
+        "harness",
+        cfg.runTimeoutMs
+          ? `run exceeded timeout of ${cfg.runTimeoutMs}ms\n`
+          : "run timeout\n",
+        "stderr",
+      );
+      writeTelemetry({
+        agent: agent.name,
+        iteration,
+        durationMs: iterationDurationMs(),
+        kind: "timeout",
+        exitReason: "run-timeout",
+      });
+      return { kind: "return", exitCode: 8 };
+    }
 
-      const agent = activeAgents[0];
-      if (agent === undefined) {
-        await fanout("harness", "all agents quota-exhausted\n", "stderr");
-        return 2;
-      }
+    // Check for SIGINT
+    if (result.kind === "error" && result.stderr.includes("aborted: sigint")) {
+      return { kind: "exit", exitCode: 130 };
+    }
 
-      const task = getFirstUncheckedTask(specPath);
-      const taskExcerpt = task.line.slice(0, 140);
-      const activeSubspecPath = isIndexSpec
-        ? getActiveLinkedSubspecPath(specPath)
-        : undefined;
-      let beforeCriteria: AcceptanceCriterion[] = [];
+    if (result.kind === "ok") {
+      if (result.stdout.length > 0) {
+        state.latestIterationStdout.push(...splitLines(result.stdout));
+        fanout("inbound_stdout", result.stdout, null, {
+          iteration,
+          agent: agent.name,
+        });
+      }
+      if (result.stderr.length > 0) {
+        state.latestIterationStderr.push(...splitLines(result.stderr));
+        fanout("inbound_stderr", result.stderr, null, {
+          iteration,
+          agent: agent.name,
+        });
+      }
+      let subspecCompleted = false;
+      let subspecProgressed = false;
       if (activeSubspecPath !== undefined) {
-        beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
-        if (beforeCriteria.length === 0) {
-          await fanout(
-            "harness",
-            `active subspec ${activeSubspecPath} has no \`## Acceptance criteria\` checkboxes; jarvis cannot detect completion. Add an acceptance-criteria checklist to the subspec and rerun.\n`,
-            "stderr",
-          );
-          return 1;
-        }
-      }
-      const banner = `project: ${project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task.ordinal}/${task.total} ${taskExcerpt} | agent: ${agent.name}\n`;
-      await fanout("harness", banner, "stdout", {
-        project: project.key,
-        spec: specDisplayName,
-        iteration,
-        currentTask: taskExcerpt,
-        currentTaskOrdinal: task.ordinal,
-        currentTaskTotal: task.total,
-        agent: agent.name,
-      });
-      const prompt = buildPrompt(specPath);
-      await fanout("outbound", prompt, null, {
-        iteration,
-        agent: agent.name,
-      });
-      const result = await agent.run(prompt, {
-        cwd: agentWorkingDir,
-        ...(additionalReadDirs === undefined ? {} : { additionalReadDirs }),
-      });
-      if (result.kind === "ok") {
-        if (result.stdout.length > 0) {
-          latestIterationStdout.push(...splitLines(result.stdout));
-          await fanout("inbound_stdout", result.stdout, null, {
-            iteration,
-            agent: agent.name,
-          });
-        }
-        if (result.stderr.length > 0) {
-          latestIterationStderr.push(...splitLines(result.stderr));
-          await fanout("inbound_stderr", result.stderr, null, {
-            iteration,
-            agent: agent.name,
-          });
-        }
-        let subspecCompleted = false;
-        let subspecProgressed = false;
-        if (activeSubspecPath !== undefined) {
-          const afterCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
-          const newlyChecked = diffAcceptanceCriteria(
-            beforeCriteria,
-            afterCriteria,
-          );
-          const allChecked =
-            afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
-          const checkedTotal = afterCriteria.filter((c) => c.checked).length;
+        const afterCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+        const newlyChecked = diffAcceptanceCriteria(
+          beforeCriteria,
+          afterCriteria,
+        );
+        const allChecked =
+          afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
+        const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
-          if (allChecked) {
-            if (gitEnabled) {
+        // Check if a blocker was added during this iteration
+        const afterParse = parsePatchSpec(
+          readFileSync(activeSubspecPath, "utf8"),
+        );
+        const hasBlockerNow = afterParse.blocker !== undefined;
+        if (hasBlockerNow && !hasBlockerBefore) {
+          const blockerBody = afterParse.blocker;
+          if (!blockerBody) {
+            throw new Error(
+              `Blocker section added but body is missing in ${activeSubspecPath}`,
+            );
+          }
+
+          if (gitEnabled) {
+            try {
+              commitWipProgressWithBlocker(activeSubspecPath, {
+                cwd: agentWorkingDir,
+                newlyChecked,
+                checkedTotal,
+                total: afterCriteria.length,
+                blockerBody,
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout(
+                "harness",
+                `failed to commit blocker for ${activeSubspecPath}: ${message}\n`,
+                "stderr",
+              );
+              return { kind: "return", exitCode: 1 };
+            }
+
+            if (!opts.skipGhCheck) {
               try {
-                commitSubspec(activeSubspecPath, { cwd: agentWorkingDir });
+                const firstPush = !hasUpstream(agentWorkingDir);
+                pushCurrent({ cwd: agentWorkingDir, firstPush });
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
-                await fanout(
+                fanout(
                   "harness",
-                  `failed to commit completed subspec ${activeSubspecPath}: ${message}\n`,
+                  `failed to push blocker commit for ${activeSubspecPath}: ${message}\n`,
                   "stderr",
                 );
-                return 1;
-              }
-
-              if (!opts.skipGhCheck) {
-                try {
-                  const firstPush = !hasUpstream(agentWorkingDir);
-                  pushCurrent({ cwd: agentWorkingDir, firstPush });
-                } catch (err) {
-                  const message =
-                    err instanceof Error ? err.message : String(err);
-                  await fanout(
-                    "harness",
-                    `failed to push completed subspec ${activeSubspecPath}: ${message}\n`,
-                    "stderr",
-                  );
-                  return 1;
-                }
-
-                try {
-                  if (!draftPrEnsured) {
-                    const prBody = async (): Promise<string> => {
-                      const prompt = buildPrBodyPrompt(specPath);
-                      await fanout("outbound", prompt, null, {
-                        iteration,
-                        agent: agent.name,
-                        purpose: "draft_pr_body",
-                      });
-                      const summary = await agent.run(prompt, {
-                        cwd: agentWorkingDir,
-                        ...(additionalReadDirs === undefined
-                          ? {}
-                          : { additionalReadDirs }),
-                      });
-                      if (summary.kind !== "ok") {
-                        throw new Error(
-                          `failed to generate draft PR body with ${agent.name}`,
-                        );
-                      }
-                      if (summary.stdout.length > 0) {
-                        await fanout("inbound_stdout", summary.stdout, null, {
-                          iteration,
-                          agent: agent.name,
-                          purpose: "draft_pr_body",
-                        });
-                      }
-                      if (summary.stderr.length > 0) {
-                        await fanout("inbound_stderr", summary.stderr, null, {
-                          iteration,
-                          agent: agent.name,
-                          purpose: "draft_pr_body",
-                        });
-                      }
-                      return summary.stdout.trim();
-                    };
-                    const attribution = `Written by ${agent.attributionLabel()} through Jarvis.`;
-                    await ensureDraftPr({
-                      branch: getCurrentBranch(agentWorkingDir),
-                      base: await getBaseBranch(agentWorkingDir),
-                      title: getIndexTitle(specPath),
-                      bodyGenerator: prBody,
-                      attribution,
-                      cwd: agentWorkingDir,
-                    });
-                    draftPrEnsured = true;
-                  }
-                  maybeMarkReady({
-                    indexPath: specPath,
-                    cwd: agentWorkingDir,
-                  });
-                } catch (err) {
-                  const message =
-                    err instanceof Error ? err.message : String(err);
-                  await fanout(
-                    "harness",
-                    `failed to update PR for completed subspec ${activeSubspecPath}: ${message}\n`,
-                    "stderr",
-                  );
-                  return 1;
-                }
+                return { kind: "return", exitCode: 1 };
               }
             }
-            subspecCompleted = true;
-          } else if (newlyChecked.length > 0) {
-            subspecProgressed = true;
-            if (gitEnabled) {
+          }
+
+          const blockerText = `${activeSubspecPath}\n\n${blockerBody}`;
+          fanout("harness", `${blockerText}\n`, "stderr");
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "blocked",
+            exitReason: "blocker-detected",
+          });
+          return { kind: "return", exitCode: 7 };
+        }
+
+        if (allChecked) {
+          if (gitEnabled) {
+            try {
+              commitSubspec(activeSubspecPath, { cwd: agentWorkingDir });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout(
+                "harness",
+                `failed to commit completed subspec ${activeSubspecPath}: ${message}\n`,
+                "stderr",
+              );
+              return { kind: "return", exitCode: 1 };
+            }
+
+            if (!opts.skipGhCheck) {
               try {
-                commitWipProgress(activeSubspecPath, {
+                const firstPush = !hasUpstream(agentWorkingDir);
+                pushCurrent({ cwd: agentWorkingDir, firstPush });
+              } catch (err) {
+                const message =
+                  err instanceof Error ? err.message : String(err);
+                fanout(
+                  "harness",
+                  `failed to push completed subspec ${activeSubspecPath}: ${message}\n`,
+                  "stderr",
+                );
+                return { kind: "return", exitCode: 1 };
+              }
+
+              try {
+                if (!state.draftPrEnsured) {
+                  const prBody = async (): Promise<string> =>
+                    getDeterministicPrBody(specPath);
+                  const attribution = `Written by ${agent.attributionLabel()} through Jarvis.`;
+                  await ensureDraftPr({
+                    branch: getCurrentBranch(agentWorkingDir),
+                    base: await getBaseBranch(agentWorkingDir),
+                    title: getIndexTitle(specPath),
+                    bodyGenerator: prBody,
+                    attribution,
+                    cwd: agentWorkingDir,
+                  });
+                  state.draftPrEnsured = true;
+                }
+                maybeMarkReady({
+                  indexPath: specPath,
                   cwd: agentWorkingDir,
-                  newlyChecked,
-                  checkedTotal,
-                  total: afterCriteria.length,
                 });
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
-                await fanout(
+                fanout(
                   "harness",
-                  `failed to commit WIP progress for ${activeSubspecPath}: ${message}\n`,
+                  `failed to update PR for completed subspec ${activeSubspecPath}: ${message}\n`,
                   "stderr",
                 );
-                return 1;
-              }
-            }
-          } else {
-            if (gitEnabled) {
-              const blocker = worktreeCompletionBlocker(agentWorkingDir);
-              if (blocker !== undefined) {
-                const unchecked = afterCriteria.filter((c) => !c.checked);
-                const unmetList = unchecked
-                  .map((c) => `  - ${c.text}`)
-                  .join("\n");
-                const worktreeName = basename(agentWorkingDir);
-                await fanout(
-                  "harness",
-                  `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
-                  "stderr",
-                );
-                return 6;
+                return { kind: "return", exitCode: 1 };
               }
             }
           }
-        }
-        const after = countUnchecked(specPath);
-        if (after === 0) {
-          const done = await tryFinishSpecIfDone();
-          if (done !== null) {
-            return done;
+          subspecCompleted = true;
+        } else if (newlyChecked.length > 0) {
+          subspecProgressed = true;
+          if (gitEnabled) {
+            try {
+              commitWipProgress(activeSubspecPath, {
+                cwd: agentWorkingDir,
+                newlyChecked,
+                checkedTotal,
+                total: afterCriteria.length,
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout(
+                "harness",
+                `failed to commit WIP progress for ${activeSubspecPath}: ${message}\n`,
+                "stderr",
+              );
+              return { kind: "return", exitCode: 1 };
+            }
           }
-          return 0;
+        } else {
+          if (gitEnabled) {
+            const blocker = worktreeCompletionBlocker(agentWorkingDir);
+            if (blocker !== undefined) {
+              const unchecked = afterCriteria.filter((c) => !c.checked);
+              const unmetList = unchecked
+                .map((c) => `  - ${c.text}`)
+                .join("\n");
+              const worktreeName = basename(agentWorkingDir);
+              fanout(
+                "harness",
+                `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+                "stderr",
+              );
+              return { kind: "return", exitCode: 6 };
+            }
+          }
         }
-        if (!isIndexSpec) {
-          await fanout(
-            "harness",
-            "one-iteration run finished with unchecked tasks remaining\n",
-            "stdout",
-          );
-          return 0;
-        }
-        if (after === before && !subspecCompleted && !subspecProgressed) {
-          printBoundedTail([
-            ...latestIterationStdout,
-            ...latestIterationStderr,
-          ]);
-          await fanout(
-            "harness",
-            `iteration ${iteration} made no progress; stopping\n`,
-            "stderr",
-          );
-          return 4;
-        }
-        iteration += 1;
-        continue;
       }
-      if (result.kind === "quota") {
-        activeAgents.shift();
-        await fanout(
+      const after = countUnchecked(specPath);
+      if (after === 0) {
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "ok",
+          exitReason: "criteria-complete",
+        });
+        // tryFinishSpecIfDone returns null only when countUnchecked !== 0;
+        // we just observed after === 0 so it returns 0 (spec complete) or 6
+        // (worktree blocker). Default to 0 if it ever races to null.
+        const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "ok",
+          exitReason: "completed-spec",
+        });
+        return { kind: "return", exitCode: done };
+      }
+      if (!isIndexSpec) {
+        fanout(
           "harness",
-          `${agent.name}: quota exhausted; falling back\n`,
+          "one-iteration run finished with unchecked tasks remaining\n",
+          "stdout",
+        );
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "ok",
+          exitReason: "criteria-progress",
+        });
+        return { kind: "return", exitCode: 0 };
+      }
+      if (after === before && !subspecCompleted && !subspecProgressed) {
+        printBoundedTail(opts, [
+          ...state.latestIterationStdout,
+          ...state.latestIterationStderr,
+        ]);
+        fanout(
+          "harness",
+          `iteration ${iteration} made no progress; stopping\n`,
           "stderr",
         );
-        if (activeAgents.length === 0) {
-          await fanout("harness", "all agents quota-exhausted\n", "stderr");
-          return 2;
-        }
-        iteration += 1;
-        continue;
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "ok",
+          exitReason: "no-progress",
+        });
+        return { kind: "return", exitCode: 4 };
       }
-      if (result.kind === "model_config") {
-        const configErr = `${agent.name}: configured patch model ${JSON.stringify(cfg.patchModels[agent.name])} is not supported by this CLI/account\n`;
-        await fanout("harness", configErr, "stderr");
-        if (result.stderr.length > 0) {
-          const stderr = result.stderr.endsWith("\n")
-            ? result.stderr
-            : `${result.stderr}\n`;
-          await fanout("harness", stderr, "stderr");
-        }
-        return 3;
+      writeTelemetry({
+        agent: agent.name,
+        iteration,
+        durationMs: iterationDurationMs(),
+        kind: "ok",
+        exitReason: "criteria-progress",
+      });
+      state.iteration += 1;
+      return { kind: "continue" };
+    }
+    if (result.kind === "quota") {
+      activeAgents.shift();
+      fanout(
+        "harness",
+        `${agent.name}: quota exhausted; falling back\n`,
+        "stderr",
+      );
+      if (activeAgents.length === 0) {
+        fanout("harness", "all agents quota-exhausted\n", "stderr");
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "quota",
+          exitReason: "quota-exhausted",
+        });
+        return { kind: "return", exitCode: 2 };
       }
-
+      writeTelemetry({
+        agent: agent.name,
+        iteration,
+        durationMs: iterationDurationMs(),
+        kind: "quota",
+        exitReason: "quota-fallback",
+      });
+      state.iteration += 1;
+      return { kind: "continue" };
+    }
+    if (result.kind === "model_config") {
+      const configErr = `${agent.name}: configured patch model ${JSON.stringify(cfg.patchModels[agent.name])} is not supported by this CLI/account\n`;
+      fanout("harness", configErr, "stderr");
       if (result.stderr.length > 0) {
         const stderr = result.stderr.endsWith("\n")
           ? result.stderr
           : `${result.stderr}\n`;
-        await fanout("harness", stderr, "stderr");
+        fanout("harness", stderr, "stderr");
       }
-      return 3;
+      writeTelemetry({
+        agent: agent.name,
+        iteration,
+        durationMs: iterationDurationMs(),
+        kind: "model_config",
+        exitReason: "model-config",
+      });
+      return { kind: "return", exitCode: 3 };
     }
+
+    let checkedAnyCriteria = false;
+    if (activeSubspecPath !== undefined) {
+      const afterCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+      checkedAnyCriteria =
+        diffAcceptanceCriteria(beforeCriteria, afterCriteria).length > 0;
+    }
+    const isGitWorktree = existsSync(join(agentWorkingDir, ".git"));
+    const editedFiles = isGitWorktree
+      ? worktreeCompletionBlocker(agentWorkingDir) !== undefined
+      : false;
+    const weakQuotaAllowed = cfg.quotaFallback !== "strict";
+    const weakQuota = weakQuotaAllowed
+      ? isWeakQuotaSignal(
+          agent.name,
+          result.exitCode,
+          result.stderr,
+          cfg.weakQuotaExitCodes,
+        )
+      : false;
+    if (weakQuota && !checkedAnyCriteria && !editedFiles) {
+      activeAgents.shift();
+      fanout(
+        "harness",
+        `${agent.name}: probable quota-like error (exit ${result.exitCode}); falling back\n`,
+        "stderr",
+      );
+      if (result.stderr.length > 0) {
+        const stderr = result.stderr.endsWith("\n")
+          ? result.stderr
+          : `${result.stderr}\n`;
+        fanout("harness", stderr, "stderr");
+      }
+      if (activeAgents.length === 0) {
+        fanout("harness", "all agents quota-exhausted\n", "stderr");
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "quota",
+          exitReason: "quota-exhausted",
+        });
+        return { kind: "return", exitCode: 2 };
+      }
+      writeTelemetry({
+        agent: agent.name,
+        iteration,
+        durationMs: iterationDurationMs(),
+        kind: "quota",
+        exitReason: "probable-quota-fallback",
+      });
+      state.iteration += 1;
+      return { kind: "continue" };
+    }
+
+    if (result.stderr.length > 0) {
+      const stderr = result.stderr.endsWith("\n")
+        ? result.stderr
+        : `${result.stderr}\n`;
+      fanout("harness", stderr, "stderr");
+    }
+    writeTelemetry({
+      agent: agent.name,
+      iteration,
+      durationMs: iterationDurationMs(),
+      kind: "error",
+      exitReason: "agent-error",
+    });
+    return { kind: "return", exitCode: 3 };
   } finally {
-    closeSync(sessionFd);
-    if (opts.handleSignals !== false) {
-      process.removeListener("SIGINT", onSigint);
+    clearTimeout(iterationTimeoutHandle);
+  }
+}
+
+async function tryFinishSpecIfDone(
+  ctx: IterationContext,
+): Promise<number | null> {
+  const { preflight, logging } = ctx;
+  if (countUnchecked(preflight.specPath) !== 0) {
+    return null;
+  }
+  if (preflight.gitEnabled) {
+    const blocker = worktreeCompletionBlocker(preflight.agentWorkingDir);
+    if (blocker !== undefined) {
+      const worktreeName = basename(preflight.agentWorkingDir);
+      logging.fanout(
+        "harness",
+        `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+        "stderr",
+      );
+      return 6;
     }
   }
+  logging.fanout("harness", "spec complete\n", "stdout");
+  return 0;
+}
+
+function printBoundedTail(opts: RunCommandOptions, lines: string[]): void {
+  const tail = lines.slice(-40);
+  for (const line of tail) {
+    opts.io.stdout(`${line}\n`);
+  }
+}
+
+function splitLines(text: string): string[] {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  if (lines.at(-1) === "") {
+    lines.pop();
+  }
+  return lines;
 }
 
 async function confirmFromStdin(_prompt: string): Promise<string> {
@@ -695,44 +1194,12 @@ function getIndexTitle(indexPath: string): string {
   return match[1].trim();
 }
 
-function buildPrBodyPrompt(indexPath: string): string {
-  const indexContent = readFileSync(indexPath, "utf8");
-  const subspecHeadings = getLinkedSubspecHeadings(indexPath);
-  return [
-    "Summarize this Jarvis spec for a draft GitHub pull request body.",
-    "",
-    "Requirements:",
-    "- Write a concise PR body in Markdown.",
-    "- Summarize the intent and the subspec list.",
-    "- Do not edit files or run commands.",
-    "",
-    "Spec index.md:",
-    "```md",
-    indexContent.trim(),
-    "```",
-    "",
-    "Subspec H1 headings:",
-    ...subspecHeadings.map((heading) => `- ${heading}`),
-  ].join("\n");
-}
-
-function getLinkedSubspecHeadings(indexPath: string): string[] {
-  const headings: string[] = [];
-  const content = readFileSync(indexPath, "utf8");
-  for (const line of content.split(/\r?\n/)) {
-    const match = line.match(/^\s*- \[[ xX]\] \[[^\]]+\]\(([^)]+)\)/);
-    if (!match?.[1]) {
-      continue;
-    }
-    const subspecPath = resolve(dirname(indexPath), match[1]);
-    try {
-      headings.push(getIndexTitle(subspecPath));
-    } catch {
-      // If a linked subspec is missing, the index content still gives the
-      // body generator useful context.
-    }
+function getDeterministicPrBody(specPath: string): string {
+  const generated = generatePrBodyFromSpec(specPath).trim();
+  if (generated !== "") {
+    return generated;
   }
-  return headings;
+  return `${getSpecDisplayName(specPath)}\n\nAuto-generated by jarvis`;
 }
 
 function diffAcceptanceCriteria(
@@ -751,10 +1218,14 @@ function diffAcceptanceCriteria(
 
 function hasUpstream(cwd: string): boolean {
   try {
-    execSync("git rev-parse --abbrev-ref --symbolic-full-name @{u}", {
-      cwd,
-      stdio: "pipe",
-    });
+    execFileSync(
+      "git",
+      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+      {
+        cwd,
+        stdio: "pipe",
+      },
+    );
     return true;
   } catch {
     return false;
@@ -762,7 +1233,7 @@ function hasUpstream(cwd: string): boolean {
 }
 
 function getCurrentBranch(cwd: string): string {
-  return execSync("git rev-parse --abbrev-ref HEAD", {
+  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
     cwd,
     encoding: "utf8",
     stdio: "pipe",

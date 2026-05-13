@@ -91,6 +91,11 @@ Keep subspecs atomic. If one unchecked item requires unrelated code paths,
 multiple product decisions, or verification that cannot run independently, split
 it into separate numbered subspec files and link each one from `index.md`.
 
+Subspec heading contract (enforced by patch mode parser):
+- Acceptance criteria must use the exact heading `## Acceptance criteria`.
+- Blockers must use the exact heading `## Blocker`.
+- Variants like `### Acceptance criteria` or `## acceptance criteria` are rejected.
+
 ## Agent Workflow
 
 When an agent is asked to work from a Jarvis spec:

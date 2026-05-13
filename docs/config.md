@@ -32,10 +32,15 @@ type Project = {
 type Config = {
   version: 1;
   agentOrder: AgentName[];
+  quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
+  weakQuotaExitCodes: number[]; // exit codes treated as probable-quota under lenient mode; default []
   patchModels: Record<AgentName, string>;
   maxIterations: number; // positive integer, default 10
+  iterationTimeoutMs: number; // per-iteration timeout in milliseconds, default 30 minutes (1_800_000)
+  runTimeoutMs?: number; // optional global run timeout in milliseconds; unset by default
   logServerUrl: string; // POST endpoint used by jarvis run
   logServerBind: string; // host:port used by jarvis log-server
+  telemetryPath: string | null; // JSONL path for per-iteration/terminal run telemetry; null disables
   worktreeSymlinks?: string[]; // relative paths from repo root to symlink into worktrees
   git: boolean; // whether jarvis manages git/gh (worktree, commits, PR); default true
   projects: Record<string, Project>; // key = path relative to ~/Work
@@ -66,6 +71,8 @@ Default contents on first bootstrap:
 {
   "version": 1,
   "agentOrder": ["claude", "codex", "cursor"],
+  "quotaFallback": "lenient",
+  "weakQuotaExitCodes": [],
   "patchModels": {
     "claude": "haiku",
     "codex": "gpt-5.3-codex",
@@ -74,7 +81,9 @@ Default contents on first bootstrap:
   },
   "logServerUrl": "http://127.0.0.1:4310/logs",
   "logServerBind": "127.0.0.1:4310",
+  "telemetryPath": "~/.jarvis/runs.jsonl",
   "maxIterations": 10,
+  "iterationTimeoutMs": 1800000,
   "git": true,
   "projects": {}
 }

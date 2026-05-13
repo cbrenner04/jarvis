@@ -9,6 +9,7 @@ export type AgentResult =
 export type AgentRunOptions = {
   cwd: string;
   additionalReadDirs?: string[];
+  signal?: AbortSignal;
 };
 
 export interface Agent {

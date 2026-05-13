@@ -1,16 +1,69 @@
+import { randomBytes } from "node:crypto";
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
-  writeFileSync,
+  renameSync,
+  writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
 
+let configWriteLocked = false;
+
+function atomicWriteSync(file: string, content: string): void {
+  if (configWriteLocked) {
+    throw new Error("Config write in progress");
+  }
+
+  configWriteLocked = true;
+  try {
+    const dir = resolve(file, "..");
+    mkdirSync(dir, { recursive: true });
+
+    const pid = process.pid;
+    const rand = randomBytes(4).toString("hex");
+    const tmpFile = `${file}.tmp.${pid}.${rand}`;
+
+    // Open with O_WRONLY|O_CREAT|O_EXCL so a colliding tmp path is a hard
+    // error rather than silently truncated. fsync the data fd before close
+    // so the kernel commits the page cache to disk; without that, a power
+    // loss after rename can still lose the most-recent write.
+    const fd = openSync(tmpFile, "wx");
+    try {
+      writeSync(fd, content, 0, "utf8");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmpFile, file);
+
+    // fsync the parent directory so the rename itself is durable. Failures
+    // here are non-fatal: some filesystems (notably some networked or
+    // non-POSIX filesystems) reject directory fsync with EINVAL/EISDIR.
+    let dirFd = -1;
+    try {
+      dirFd = openSync(dir, "r");
+      fsyncSync(dirFd);
+    } catch {
+      // best-effort
+    } finally {
+      if (dirFd !== -1) {
+        closeSync(dirFd);
+      }
+    }
+  } finally {
+    configWriteLocked = false;
+  }
+}
+
 export const CONFIG_DIR = join(homedir(), ".jarvis");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const SESSIONS_DIR = join(CONFIG_DIR, "sessions");
+export const TELEMETRY_PATH = join(CONFIG_DIR, "runs.jsonl");
 
 const AGENT_NAMES = ["claude", "codex", "cursor", "opencode"] as const;
 export type AgentName = (typeof AGENT_NAMES)[number];
@@ -32,10 +85,15 @@ export type PatchModels = Record<AgentName, string>;
 export type Config = {
   version: 1;
   agentOrder: AgentName[];
+  quotaFallback: "strict" | "lenient";
+  weakQuotaExitCodes: number[];
   maxIterations: number;
+  iterationTimeoutMs: number;
+  runTimeoutMs?: number;
   patchModels: PatchModels;
   logServerUrl?: string;
   logServerBind?: string;
+  telemetryPath?: string | null;
   worktreeSymlinks?: string[];
   git: boolean;
   projects: Record<string, Project>;
@@ -49,7 +107,10 @@ export type ConfigOptions = {
 const DEFAULT_CONFIG: Config = {
   version: 1,
   agentOrder: ["claude", "codex", "cursor"],
+  quotaFallback: "lenient",
+  weakQuotaExitCodes: [],
   maxIterations: 10,
+  iterationTimeoutMs: 30 * 60_000,
   patchModels: {
     claude: "haiku",
     codex: "gpt-5.3-codex",
@@ -58,6 +119,7 @@ const DEFAULT_CONFIG: Config = {
   },
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",
+  telemetryPath: TELEMETRY_PATH,
   git: true,
   projects: {},
 };
@@ -115,6 +177,31 @@ function validateConfig(input: unknown, file: string): Config {
     "maxIterations",
     (message) => fail(file, message),
   );
+  const quotaFallback = validateQuotaFallback(
+    obj.quotaFallback ?? DEFAULT_CONFIG.quotaFallback,
+    (message) => fail(file, message),
+  );
+
+  const weakQuotaExitCodes = validateExitCodeList(
+    obj.weakQuotaExitCodes ?? DEFAULT_CONFIG.weakQuotaExitCodes,
+    "weakQuotaExitCodes",
+    (message) => fail(file, message),
+  );
+
+  const iterationTimeoutMs = validatePositiveInteger(
+    obj.iterationTimeoutMs ?? DEFAULT_CONFIG.iterationTimeoutMs,
+    "iterationTimeoutMs",
+    (message) => fail(file, message),
+  );
+
+  let runTimeoutMs: number | undefined;
+  if (obj.runTimeoutMs !== undefined) {
+    runTimeoutMs = validatePositiveInteger(
+      obj.runTimeoutMs,
+      "runTimeoutMs",
+      (message) => fail(file, message),
+    );
+  }
 
   const patchModels = validatePatchModels(obj.patchModels, file);
   const logServerUrl = validateConfigString(
@@ -125,6 +212,13 @@ function validateConfig(input: unknown, file: string): Config {
   const logServerBind = validateConfigString(
     obj.logServerBind ?? DEFAULT_CONFIG.logServerBind,
     "logServerBind",
+    (message) => fail(file, message),
+  );
+  const defaultTelemetryPath = join(resolve(file, ".."), "runs.jsonl");
+  const telemetryPath = validateOptionalStringOrNull(
+    obj.telemetryPath,
+    "telemetryPath",
+    defaultTelemetryPath,
     (message) => fail(file, message),
   );
 
@@ -197,10 +291,15 @@ function validateConfig(input: unknown, file: string): Config {
   return {
     version: 1,
     agentOrder,
+    quotaFallback,
+    weakQuotaExitCodes,
     maxIterations,
+    iterationTimeoutMs,
+    ...(runTimeoutMs !== undefined ? { runTimeoutMs } : {}),
     patchModels,
     logServerUrl,
     logServerBind,
+    ...(telemetryPath === undefined ? {} : { telemetryPath }),
     git,
     projects,
   };
@@ -271,6 +370,24 @@ function validateConfigString(
   return value;
 }
 
+function validateOptionalStringOrNull(
+  value: unknown,
+  name: string,
+  fallback: string | null | undefined,
+  failWith: (message: string) => never,
+): string | null | undefined {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || value.trim().length === 0) {
+    failWith(`${name} must be a non-empty string or null`);
+  }
+  return value;
+}
+
 function validateOptionalBoolean(
   value: unknown,
   name: string,
@@ -286,6 +403,40 @@ function validateOptionalBoolean(
   return value;
 }
 
+function validateQuotaFallback(
+  value: unknown,
+  failWith: (message: string) => never,
+): "strict" | "lenient" {
+  if (value === "strict" || value === "lenient") {
+    return value;
+  }
+  failWith('quotaFallback must be "strict" or "lenient"');
+}
+
+function validateExitCodeList(
+  value: unknown,
+  name: string,
+  failWith: (message: string) => never,
+): number[] {
+  if (!Array.isArray(value)) {
+    failWith(`${name} must be an array of integers`);
+  }
+  const result: number[] = [];
+  for (const entry of value) {
+    if (
+      typeof entry !== "number" ||
+      !Number.isInteger(entry) ||
+      !Number.isFinite(entry)
+    ) {
+      failWith(
+        `${name} entries must be integers (got ${JSON.stringify(entry)})`,
+      );
+    }
+    result.push(entry);
+  }
+  return result;
+}
+
 function serialize(cfg: Config): string {
   return `${JSON.stringify(cfg, null, 2)}\n`;
 }
@@ -294,8 +445,14 @@ export function loadConfig(opts?: ConfigOptions): Config {
   const { dir, file } = resolvePaths(opts);
   if (!existsSync(file)) {
     mkdirSync(dir, { recursive: true });
-    const cfg = withOptionOverrides(structuredClone(DEFAULT_CONFIG), opts);
-    writeFileSync(file, serialize(DEFAULT_CONFIG));
+    const cfg = withOptionOverrides(
+      {
+        ...structuredClone(DEFAULT_CONFIG),
+        telemetryPath: join(dir, "runs.jsonl"),
+      },
+      opts,
+    );
+    atomicWriteSync(file, serialize(cfg));
     return cfg;
   }
   const raw = readFileSync(file, "utf8");
@@ -322,7 +479,7 @@ export function writeConfig(cfg: Config, opts?: ConfigOptions): void {
   const { dir, file } = resolvePaths(opts);
   const validated = validateConfig(cfg, file);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(file, serialize(validated));
+  atomicWriteSync(file, serialize(validated));
 }
 
 export function registerProject(

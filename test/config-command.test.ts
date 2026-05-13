@@ -44,7 +44,10 @@ describe("config show", () => {
     expect(parsed).toEqual({
       version: 1,
       agentOrder: ["claude", "codex", "cursor"],
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
       maxIterations: 10,
+      iterationTimeoutMs: 1800000,
       patchModels: {
         claude: "haiku",
         codex: "gpt-5.3-codex",
@@ -53,6 +56,7 @@ describe("config show", () => {
       },
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
+      telemetryPath: join(cfgDir, "runs.jsonl"),
       git: true,
       projects: {},
     });

@@ -57,17 +57,17 @@ lock state.
 
 ## Acceptance criteria
 
-- [ ] Crashing mid-write (simulated) leaves the previous `config.json`
+- [x] Crashing mid-write (simulated) leaves the previous `config.json`
       intact (atomic rename).
-- [ ] A worktree with a stale lock (pid no longer running) is cleared
+- [x] A worktree with a stale lock (pid no longer running) is cleared
       automatically by the next `jarvis run` and a harness log line names
       the recovered pid.
-- [ ] A worktree with a live lock causes `jarvis run` to exit `9` with a
+- [x] A worktree with a live lock causes `jarvis run` to exit `9` with a
       message that names the holding pid and the start time.
-- [ ] `jarvis triage <name>` shows the lock state.
-- [ ] `docs/run-loop.md` documents exit code `9`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `jarvis triage <name>` shows the lock state.
+- [x] `docs/run-loop.md` documents exit code `9`.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

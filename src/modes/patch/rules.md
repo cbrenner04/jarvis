@@ -12,6 +12,8 @@ Execute active spec only.
 
 ## Iteration
 - Active task = first unchecked subspec link in `index.md`. Work that subspec only.
+- Subspec acceptance criteria must be under an exact `## Acceptance criteria` heading (case-sensitive, level-2).
+- Blockers must be under an exact `## Blocker` heading (case-sensitive, level-2).
 - Inside the active subspec, tick `- [ ]` acceptance-criteria items as you actually satisfy them. Do not tick speculatively. Do not tick anything else.
 - Do not edit `index.md`. Jarvis flips the index checkbox itself when all acceptance criteria are checked.
 - Stop when you have made meaningful progress (one or more acceptance criteria ticked) or when the work is blocked.
@@ -21,7 +23,7 @@ Execute active spec only.
 - Leave tree compiling.
 
 ## Stop
-- Unclear: append `## Blocker` to spec; stop.
+- Unclear: append `## Blocker` to spec; stop. Jarvis will detect it, commit any progress, and exit with code 7.
 - Repeated failure: record failure in spec; stop.
 - No TODOs. Put follow-up in spec.
 - New dependency? Record decision in spec; stop.

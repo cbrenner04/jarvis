@@ -52,12 +52,12 @@ removes most of the regexes) move out of `runCommand`'s body unchanged.
 
 ## Acceptance criteria
 
-- [ ] `runCommand` is under 150 lines (excluding imports, types).
-- [ ] No public exported behavior or signature changes; all callers
+- [x] `runCommand` is under 150 lines (excluding imports, types).
+- [x] No public exported behavior or signature changes; all callers
       (`cli.ts`, tests) compile and run unchanged.
-- [ ] All existing tests pass (`bun test`).
-- [ ] `bun run typecheck` passes.
-- [ ] Biome check passes (`bun run check`).
+- [x] All existing tests pass (`bun test`).
+- [x] `bun run typecheck` passes.
+- [x] Biome check passes (`bun run check`).
 
 ## Documentation updates
 

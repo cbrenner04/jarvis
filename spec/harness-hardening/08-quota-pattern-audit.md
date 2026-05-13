@@ -45,12 +45,12 @@ in follow-ups once samples are in hand.
 
 ## Acceptance criteria
 
-- [ ] Every pattern in `quota.ts` has a corresponding entry in
+- [x] Every pattern in `quota.ts` has a corresponding entry in
       `docs/quota-signals.md` (sample link or "unverified" note).
-- [ ] `docs/quota-signals.md` documents the convention for adding new
+- [x] `docs/quota-signals.md` documents the convention for adding new
       captured samples.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

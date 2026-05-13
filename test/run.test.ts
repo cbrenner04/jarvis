@@ -1150,6 +1150,7 @@ exit 1
       {
         version: 1,
         agentOrder: ["claude"],
+        quotaFallback: "lenient",
         maxIterations: 1,
         iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
@@ -1190,6 +1191,7 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude"],
+        quotaFallback: "lenient",
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
         patchModels: {
@@ -1232,6 +1234,7 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude"],
+        quotaFallback: "lenient",
         maxIterations: 1,
         iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
@@ -1296,6 +1299,7 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
@@ -1332,6 +1336,7 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
@@ -1351,6 +1356,137 @@ exit 0
 
     expect(code).toBe(5);
     expect(cap.err()).toContain("max iterations (1) reached; stopping");
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(0);
+  });
+
+  test("lenient mode falls back on weak quota-like error with no progress", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const spec = writeSpec("- [ ] todo\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "error",
+      exitCode: 1,
+      stderr: "HTTP 429: too many requests",
+    }));
+    const codex = new FakeAgent("codex", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    writeConfig(
+      {
+        version: 1,
+        agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: false,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.err()).toContain("probable quota-like error");
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+  });
+
+  test("strict mode does not fall back on weak quota-like error", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const spec = writeSpec("- [ ] todo\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "error",
+      exitCode: 1,
+      stderr: "HTTP 429: too many requests",
+    }));
+    const codex = new FakeAgent("codex", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    writeConfig(
+      {
+        version: 1,
+        agentOrder: ["claude", "codex"],
+        quotaFallback: "strict",
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(0);
+  });
+
+  test("lenient mode does not classify real errors as quota", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "error",
+      exitCode: 2,
+      stderr: "TypeScript compile error in src/run.ts",
+    }));
+    const codex = new FakeAgent("codex", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    writeConfig(
+      {
+        version: 1,
+        agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
+        maxIterations: 10,
+        iterationTimeoutMs: 30 * 60_000,
+        patchModels: DEFAULT_PATCH_MODELS,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(cap.err()).toContain("TypeScript compile error");
     expect(claude.calls).toHaveLength(1);
     expect(codex.calls).toHaveLength(0);
   });
@@ -1391,6 +1527,7 @@ exit 0
       {
         version: 1,
         agentOrder: ["claude", "codex"],
+        quotaFallback: "lenient",
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
         patchModels: DEFAULT_PATCH_MODELS,
@@ -2234,6 +2371,7 @@ exit 0
         {
           version: 1,
           agentOrder: ["claude"],
+          quotaFallback: "lenient",
           maxIterations: 1,
           iterationTimeoutMs: 30 * 60_000,
           patchModels: DEFAULT_PATCH_MODELS,
@@ -2268,6 +2406,7 @@ exit 0
         {
           version: 1,
           agentOrder: ["claude"],
+          quotaFallback: "lenient",
           maxIterations: 1,
           iterationTimeoutMs: 1,
           patchModels: DEFAULT_PATCH_MODELS,
@@ -2301,6 +2440,7 @@ exit 0
         {
           version: 1,
           agentOrder: ["claude"],
+          quotaFallback: "lenient",
           maxIterations: 1,
           iterationTimeoutMs: 30 * 60_000,
           runTimeoutMs: 1,

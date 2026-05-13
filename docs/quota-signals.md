@@ -81,3 +81,19 @@ phrases, or `resource_exhausted`.
 
 Chosen matcher: non-zero exit plus one of the direct quota phrases above, or
 `429` when it appears on an error-like line.
+
+## Weak quota safety net (`quotaFallback`)
+
+When `jarvis run` receives a generic agent error (`kind: "error"`), jarvis can
+optionally treat it as quota-like and fall back to the next agent:
+
+- `quotaFallback: "lenient"` (default): if stderr matches weak quota-shaped
+  patterns (`429`, `503`, `rate.?limit`, `too many requests`) and the
+  iteration made no progress (no acceptance criteria checked and no file edits),
+  jarvis falls back like a normal quota event.
+- `quotaFallback: "strict"`: disables the weak path. Only strict
+  agent-specific quota classification triggers fallback.
+
+This weak path is a guardrail for vendor wording drift and indirect provider
+429/503 surfaces. It is intentionally secondary to the strict per-agent quota
+detectors above.

@@ -21,6 +21,7 @@ import { ClaudeAgent } from "../../agents/claude.ts";
 import { CodexAgent } from "../../agents/codex.ts";
 import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
+import { isWeakQuotaSignal } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
@@ -776,6 +777,41 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
           await fanout("harness", stderr, "stderr");
         }
         return 3;
+      }
+
+      let checkedAnyCriteria = false;
+      if (activeSubspecPath !== undefined) {
+        const afterCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+        checkedAnyCriteria =
+          diffAcceptanceCriteria(beforeCriteria, afterCriteria).length > 0;
+      }
+      const isGitWorktree = existsSync(join(agentWorkingDir, ".git"));
+      const editedFiles = isGitWorktree
+        ? worktreeCompletionBlocker(agentWorkingDir) !== undefined
+        : false;
+      const weakQuotaAllowed = cfg.quotaFallback !== "strict";
+      const weakQuota = weakQuotaAllowed
+        ? isWeakQuotaSignal(agent.name, result.exitCode, result.stderr)
+        : false;
+      if (weakQuota && !checkedAnyCriteria && !editedFiles) {
+        activeAgents.shift();
+        await fanout(
+          "harness",
+          `${agent.name}: probable quota-like error (exit ${result.exitCode}); falling back\n`,
+          "stderr",
+        );
+        if (result.stderr.length > 0) {
+          const stderr = result.stderr.endsWith("\n")
+            ? result.stderr
+            : `${result.stderr}\n`;
+          await fanout("harness", stderr, "stderr");
+        }
+        if (activeAgents.length === 0) {
+          await fanout("harness", "all agents quota-exhausted\n", "stderr");
+          return 2;
+        }
+        iteration += 1;
+        continue;
       }
 
       if (result.stderr.length > 0) {

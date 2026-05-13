@@ -71,6 +71,7 @@ export type PatchModels = Record<AgentName, string>;
 export type Config = {
   version: 1;
   agentOrder: AgentName[];
+  quotaFallback: "strict" | "lenient";
   maxIterations: number;
   iterationTimeoutMs: number;
   runTimeoutMs?: number;
@@ -90,6 +91,7 @@ export type ConfigOptions = {
 const DEFAULT_CONFIG: Config = {
   version: 1,
   agentOrder: ["claude", "codex", "cursor"],
+  quotaFallback: "lenient",
   maxIterations: 10,
   iterationTimeoutMs: 30 * 60_000,
   patchModels: {
@@ -155,6 +157,10 @@ function validateConfig(input: unknown, file: string): Config {
   const maxIterations = validatePositiveInteger(
     obj.maxIterations ?? DEFAULT_CONFIG.maxIterations,
     "maxIterations",
+    (message) => fail(file, message),
+  );
+  const quotaFallback = validateQuotaFallback(
+    obj.quotaFallback ?? DEFAULT_CONFIG.quotaFallback,
     (message) => fail(file, message),
   );
 
@@ -254,6 +260,7 @@ function validateConfig(input: unknown, file: string): Config {
   return {
     version: 1,
     agentOrder,
+    quotaFallback,
     maxIterations,
     iterationTimeoutMs,
     ...(runTimeoutMs !== undefined ? { runTimeoutMs } : {}),
@@ -343,6 +350,16 @@ function validateOptionalBoolean(
     failWith(`${name} must be a boolean`);
   }
   return value;
+}
+
+function validateQuotaFallback(
+  value: unknown,
+  failWith: (message: string) => never,
+): "strict" | "lenient" {
+  if (value === "strict" || value === "lenient") {
+    return value;
+  }
+  failWith('quotaFallback must be "strict" or "lenient"');
 }
 
 function serialize(cfg: Config): string {

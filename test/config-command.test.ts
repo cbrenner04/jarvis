@@ -44,6 +44,7 @@ describe("config show", () => {
     expect(parsed).toEqual({
       version: 1,
       agentOrder: ["claude", "codex", "cursor"],
+      quotaFallback: "lenient",
       maxIterations: 10,
       iterationTimeoutMs: 1800000,
       patchModels: {

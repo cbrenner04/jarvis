@@ -50,6 +50,7 @@ describe("loadConfig", () => {
     expect(cfg).toEqual({
       version: 1,
       agentOrder: ["claude", "codex", "cursor"],
+      quotaFallback: "lenient",
       maxIterations: 10,
       iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
@@ -79,6 +80,7 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 1,
         agentOrder: ["codex", "claude"],
+        quotaFallback: "strict",
         maxIterations: 7,
         patchModels: {
           claude: "sonnet",
@@ -92,6 +94,7 @@ describe("loadConfig", () => {
 
     const cfg = loadConfig({ dir });
     expect(cfg.agentOrder).toEqual(["codex", "claude"]);
+    expect(cfg.quotaFallback).toBe("strict");
     expect(cfg.maxIterations).toBe(7);
     expect(cfg.patchModels.claude).toBe("sonnet");
     expect(cfg.patchModels.opencode).toBe("opencode-model");
@@ -111,6 +114,32 @@ describe("loadConfig", () => {
     );
 
     expect(loadConfig({ dir }).maxIterations).toBe(10);
+  });
+
+  test("defaults quotaFallback when an existing config omits it", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        projects: {},
+      }),
+    );
+
+    expect(loadConfig({ dir }).quotaFallback).toBe("lenient");
+  });
+
+  test("rejects invalid quotaFallback", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        quotaFallback: "off",
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/quotaFallback/);
   });
 
   test("defaults patchModels when an existing config omits it", () => {
@@ -579,6 +608,7 @@ describe("git toggle", () => {
     const cfg: Config = {
       version: 1,
       agentOrder: ["claude"],
+      quotaFallback: "lenient",
       maxIterations: 10,
       iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
@@ -594,6 +624,7 @@ describe("git toggle", () => {
     const cfg: Config = {
       version: 1,
       agentOrder: ["claude"],
+      quotaFallback: "lenient",
       maxIterations: 10,
       iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,
@@ -609,6 +640,7 @@ describe("git toggle", () => {
     const cfg: Config = {
       version: 1,
       agentOrder: ["claude"],
+      quotaFallback: "lenient",
       maxIterations: 10,
       iterationTimeoutMs: 30 * 60_000,
       patchModels: DEFAULT_PATCH_MODELS,

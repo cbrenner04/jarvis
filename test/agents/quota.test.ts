@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isModelConfigurationSignal,
   isQuotaSignal,
+  isWeakQuotaSignal,
 } from "../../src/agents/quota.ts";
 
 describe("isQuotaSignal", () => {
@@ -108,5 +109,26 @@ describe("isModelConfigurationSignal", () => {
     "no provider configured for airproxy",
   ])("matches Opencode model configuration output: %s", (stderr) => {
     expect(isModelConfigurationSignal("opencode", stderr)).toBe(true);
+  });
+});
+
+describe("isWeakQuotaSignal", () => {
+  test("matches weak quota-like transport text", () => {
+    expect(
+      isWeakQuotaSignal("claude", 1, "HTTP 429: too many requests"),
+    ).toBe(true);
+    expect(isWeakQuotaSignal("codex", 1, "service unavailable (503)")).toBe(
+      true,
+    );
+    expect(isWeakQuotaSignal("cursor", 1, "rate-limit applied")).toBe(true);
+  });
+
+  test("does not classify success or unrelated errors as weak quota", () => {
+    expect(isWeakQuotaSignal("claude", 0, "HTTP 429: too many requests")).toBe(
+      false,
+    );
+    expect(
+      isWeakQuotaSignal("claude", 1, "TypeScript compile error in src/run.ts"),
+    ).toBe(false);
   });
 });

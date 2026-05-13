@@ -32,6 +32,7 @@ type Project = {
 type Config = {
   version: 1;
   agentOrder: AgentName[];
+  quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
   patchModels: Record<AgentName, string>;
   maxIterations: number; // positive integer, default 10
   iterationTimeoutMs: number; // per-iteration timeout in milliseconds, default 30 minutes (1_800_000)
@@ -68,6 +69,7 @@ Default contents on first bootstrap:
 {
   "version": 1,
   "agentOrder": ["claude", "codex", "cursor"],
+  "quotaFallback": "lenient",
   "patchModels": {
     "claude": "haiku",
     "codex": "gpt-5.3-codex",

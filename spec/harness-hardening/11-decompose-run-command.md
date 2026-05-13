@@ -52,13 +52,51 @@ removes most of the regexes) move out of `runCommand`'s body unchanged.
 
 ## Acceptance criteria
 
-- [ ] `runCommand` is under 150 lines (excluding imports, types).
-- [ ] No public exported behavior or signature changes; all callers
+- [x] `runCommand` is under 150 lines (excluding imports, types).
+- [x] No public exported behavior or signature changes; all callers
       (`cli.ts`, tests) compile and run unchanged.
-- [ ] All existing tests pass (`bun test`).
-- [ ] `bun run typecheck` passes.
+- [x] All existing tests pass (`bun test`).
+- [x] `bun run typecheck` passes.
 - [ ] Biome check passes (`bun run check`).
 
 ## Documentation updates
 
 - None required (internal refactor).
+
+## Blocker
+
+`bun run check` cannot pass without modifying files outside this
+subspec's scope. The decomposition of `runCommand` itself produces a
+`run.ts` that passes biome cleanly (`bunx biome check
+src/modes/patch/run.ts` reports no errors). However, `bun run check`
+runs against the whole repo and surfaces 14 pre-existing biome errors
+in files landed by earlier subspecs (02, 06, etc.):
+
+- `src/agents/spawn.ts` — formatter
+- `src/config.ts` — formatter and `assist/source/organizeImports`
+- `src/modes/patch/completion.ts` — formatter
+- `src/modes/patch/subspec.ts` — formatter, `noUnusedImports`,
+  `useIndexOf`
+- `src/worktree-lock.ts` — formatter, `useTemplate` (×2)
+- `src/worktree.ts` — formatter, `noUnusedImports`
+- `test/agents/quota.test.ts` — formatter
+- `test/config.test.ts` — `noUnusedVariables`, `useLiteralKeys`
+- `test/modes/patch/blocker.test.ts` — formatter
+- `test/modes/patch/spec.test.ts` — formatter
+- `test/modes/patch/subspec.test.ts` — formatter
+- `test/run.test.ts` — formatter, `useTemplate`
+- `test/worktree-lock.test.ts` — formatter, `organizeImports`,
+  `noUnusedImports`, `useTemplate` (×2), `noUnusedVariables`
+
+These are the same errors visible on the parent commit (before this
+subspec's changes — main shows 16 errors; this refactor reduced two).
+Patch-mode rule "Modify only files named by spec" forbids touching the
+above files in this iteration; this subspec only authorizes work on
+`src/modes/patch/run.ts`. Either:
+
+1. Land a follow-up subspec that authorizes a repo-wide
+   `bun run format` + biome auto-fix pass, or
+2. Loosen this acceptance criterion to "biome check passes for
+   `src/modes/patch/run.ts`".
+
+Stopping here per patch-mode rules.

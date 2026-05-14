@@ -20,15 +20,23 @@ only lands the schema, validator, defaults, and CLI surface.
 - **Type.** `planAgentOrder?: AgentName[]`. Same `AgentName` union as
   `agentOrder`. No new agent names are introduced.
 - **Default in serialized config.** **Omitted entirely** from the
-  default config emitted by auto-bootstrap. Presence is meaningful: an
-  explicit empty array means "use no agents for plan mode" (effectively
-  disables plan-mode agent calls), while an absent key means "fall back
-  to `agentOrder`". The fallback semantics are implemented in a later
-  spec.
+  default config emitted by auto-bootstrap. An absent key means "fall
+  back to `agentOrder`" at consumption time (handled by a later
+  spec). The key is either present with at least one agent or absent
+  entirely — there is no third "explicit empty" state. The fallback
+  semantics are implemented in a later spec.
 - **Validation.**
   - When present, must be an array of valid `AgentName` values.
   - Duplicates are rejected with the same error wording as `agentOrder`.
-  - Empty array is allowed (see above).
+  - **Empty array is rejected.** A user invoking `jarvis config
+    set-plan-order` is asserting they want a plan-mode order; an
+    empty list is almost certainly a typo (e.g. `set-plan-order ""`).
+    Reject with: `set-plan-order requires at least one agent; use
+    \`unset-plan-order\` to clear plan-mode order and fall back to
+    agentOrder`. Exit `1`. The on-disk schema *also* rejects an
+    explicit empty `planAgentOrder: []` for the same reason: there
+    is no semantic an empty array could carry that `unset` does not
+    already cover.
   - Unknown agent names rejected with the same error wording as
     `agentOrder`.
 - **`jarvis config` subcommands:**
@@ -62,9 +70,11 @@ only lands the schema, validator, defaults, and CLI surface.
 - [ ] Tests:
   - Auto-bootstrap omits `planAgentOrder` from the written file.
   - Loading a config with `planAgentOrder: ["claude"]` round-trips.
-  - Loading a config with `planAgentOrder: []` round-trips and remains
-    explicitly empty.
+  - Loading a config with `planAgentOrder: []` is rejected at load
+    time with the documented error wording.
   - `set-plan-order claude,codex` writes the expected file shape.
+  - `set-plan-order ""` (empty arg) is rejected with the documented
+    error wording.
   - `set-plan-order claude,claude` fails with the duplicate error.
   - `set-plan-order claude,nonsense` fails with the unknown-agent
     error.

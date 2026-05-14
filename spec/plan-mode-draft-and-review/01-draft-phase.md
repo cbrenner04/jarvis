@@ -22,10 +22,15 @@ invocation that reads `intent.md`, the target repo for context, and
   Subspecs: <count>
   ```
 
-  `<agent-attribution>` uses the same attribution string that goes into
-  the PR footer. `<count>` is the number of files matching
-  `spec/<name>/[0-9]*.md` (i.e. atomic subspecs, excluding `index.md`
-  and `intent.md`).
+  `<agent-attribution>` uses the same attribution string format used
+  elsewhere in jarvis (`AGENTS.md` PR-attribution rules). This goes
+  into the **commit body**, not the PR body — the PR body remains
+  the fixed template from `spec/plan-mode-worktree-and-commits/05`.
+  PR-body attribution depends on a separate, not-yet-written
+  "rewrite PR description on each commit / on completion" spec; that
+  work is out of scope here. `<count>` is the number of files
+  matching `spec/<name>/[0-9]*.md` (i.e. atomic subspecs, excluding
+  `index.md` and `intent.md`).
 - **Agent prompt** lives at `src/modes/plan/prompts/draft.md` and is
   short. It must:
   - Inject `<NAME>`, the relative spec directory path

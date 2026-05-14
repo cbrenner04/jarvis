@@ -17,6 +17,16 @@ branch are dead weight. They should be cleaned up by the same command.
   `plan/<directory-name-without-plan-prefix>`. Cross-check via the
   worktree's `git rev-parse --abbrev-ref HEAD` to make sure we are not
   removing a worktree on the wrong branch.
+- **Patch-mode naming restriction.** Patch-mode worktree directory
+  names (which match the spec name) **may not** start with `plan-`.
+  This is the constraint that lets the cleanup detection rule above
+  be a simple prefix check. Enforce it at the patch-mode worktree
+  creation site (in whatever helper `runCommand` calls): if the
+  resolved spec name starts with `plan-`, exit `1` with `spec name
+  must not start with \`plan-\`; that prefix is reserved for plan
+  mode`. This is a one-line guard in the patch-mode worktree
+  creator; add it as part of this subspec since the constraint is
+  what makes the cleanup logic safe.
 - **Merged condition.** Same logic as patch mode: query `gh pr view
   <branch> --json state,mergedAt` and remove only when state is
   `MERGED`. PRs in `OPEN`, `CLOSED`, or `DRAFT` state are left alone.
@@ -48,6 +58,8 @@ branch are dead weight. They should be cleaned up by the same command.
   map them to `plan/<name>` branches.
 - [ ] Update merged-detection to query the right branch.
 - [ ] Update dry-run output to tag plan worktrees with `(plan)`.
+- [ ] Add the `plan-` prefix guard to patch-mode worktree creation
+  so the cleanup detection rule remains a safe prefix check.
 - [ ] Tests:
   - Merged plan PR + clean plan worktree → both removed.
   - Open/draft plan PR → worktree left alone.
@@ -56,6 +68,8 @@ branch are dead weight. They should be cleaned up by the same command.
     remove anything.
   - Patch-mode cleanup behavior is unchanged on plain `<name>`
     worktrees.
+  - Patch-mode worktree creation refuses a spec name starting with
+    `plan-` with the documented error.
 
 ## Acceptance criteria
 
@@ -63,6 +77,8 @@ branch are dead weight. They should be cleaned up by the same command.
   `plan/<name>` when the corresponding PR is merged.
 - [ ] `jarvis cleanup --dry-run` distinguishes plan worktrees with a
   `(plan)` tag in its output.
+- [ ] Patch-mode worktree creation rejects spec names starting with
+  `plan-` with the documented actionable error.
 - [ ] Patch-mode cleanup behavior is unchanged.
 - [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
 

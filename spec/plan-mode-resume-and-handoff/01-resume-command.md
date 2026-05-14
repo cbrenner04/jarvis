@@ -17,10 +17,12 @@ pass with a different agent. Resume re-runs the self-review phase
     but no positional intent text or intent file is allowed (reject
     with exit `1` and `--resume cannot be combined with intent
     text/file`).
-- **Spec path interpretation.** Accept either:
-  - `spec/<name>/index.md` (preferred), or
-  - `spec/<name>/intent.md`.
-  Both resolve to the same `<name>`.
+- **Spec path interpretation.** Only `spec/<name>/index.md` is
+  accepted. Mirrors `jarvis run`, which also operates only on
+  `index.md`. Passing any other file (including `intent.md`,
+  `00-task.md`, etc.) exits `1` with `--resume requires an index.md
+  path; got <provided-path>`. `<name>` is the parent directory
+  segment.
 - **Preflight order:** parse → resolve repo → log-server check →
   validate the resume target:
   - `<projectRoot>/.worktree/plan-<name>/` exists and is a worktree
@@ -79,7 +81,8 @@ pass with a different agent. Resume re-runs the self-review phase
   suffix and the per-pass index.
 - [ ] Reject invalid combinations (`--resume` with intent text;
   `--review-passes 0` without interview turns; missing
-  `<spec-path>`; non-`index.md`/`intent.md` path).
+  `<spec-path>`; non-`index.md` path including `intent.md` or any
+  subspec file).
 - [ ] Tests:
   - Existing worktree + PR; `jarvis plan --resume spec/x/index.md`
     runs 2 review passes, commits as `plan: review N r1`, pushes

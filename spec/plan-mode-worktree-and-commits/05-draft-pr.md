@@ -33,18 +33,27 @@ becomes load-bearing for the merge-first rule that
   reviewed (and edited) the spec, mark it ready and merge to `main`.
   Implementation work begins in a separate run with `jarvis run
   spec/<name>/index.md` after the merge.
-
-  ---
-  Written by <attribution> through Jarvis.
   ```
 
-  `<name>` is interpolated literally. `<attribution>` is the same
-  attribution string patch mode appends today (per `AGENTS.md` PR
-  attribution rules). Since this skeleton spec doesn't actually invoke
-  an agent, attribution falls back to the configured default for the
-  first agent in `planAgentOrder` (or `agentOrder` when
-  `planAgentOrder` is unset/empty), labeled with the
-  `<cli-name> (default model)` form.
+  `<name>` is interpolated literally. **No attribution footer is
+  emitted by this spec.** Attribution on plan-mode PRs is
+  intentionally deferred: it depends on a separate, not-yet-merged
+  spec that will (a) add a "rewrite the PR description on each commit
+  / on completion" mechanism so the description can reflect every
+  agent that contributed, and (b) decide how to label
+  harness-authored placeholder content distinctly from
+  agent-authored content. Until that spec lands, the body above is
+  the literal final body. Any later spec that revisits this body
+  (including the future attribution spec) is responsible for
+  preserving the "Plan mode never marks this PR ready" paragraph
+  verbatim.
+
+  **Why no fallback footer.** Adding a `Written by Jarvis (default
+  model) through Jarvis.` footer here would attribute placeholder
+  content to a real agent that did no work, and the future
+  PR-description-update spec would have to either parse and rewrite
+  it or duplicate it. Either path is more friction than just leaving
+  it out of this skeleton.
 - **PR creation failure** (e.g. `gh` not authenticated, repo missing
   PR permissions) exits `1` with the `gh` error verbatim. The
   underlying commits stay; the user can re-run `gh pr create` manually
@@ -69,20 +78,23 @@ becomes load-bearing for the merge-first rule that
   plan-mode-specific title/body inputs or fork a slimmer
   `ensurePlanDraftPr` if the patch helper has too much patch-mode
   baggage.
-- Attribution string assembly may currently live inside `ensureDraftPr`;
-  if so, extract a small `composeAttributionFooter()` helper so plan
-  mode can compose the same footer without going through patch-mode
-  flow.
+- Do not invoke the patch-mode attribution-footer assembly path from
+  plan mode. If it is currently inlined in `ensureDraftPr`, the
+  cleanest implementation is the slim fork; if you reuse the patch
+  helper, pass an explicit "no footer" signal so plan-mode bodies
+  stay verbatim.
 
 ## Tasks
 
-- [ ] Implement `ensurePlanDraftPr({ projectRoot, name, attribution })`
-  (or extend the existing helper).
+- [ ] Implement `ensurePlanDraftPr({ projectRoot, name })` (or
+  extend the existing helper) that does **not** append an
+  attribution footer.
 - [ ] Wire it into `planCommand` after the `plan: draft` push succeeds.
 - [ ] Print the PR URL to stdout.
 - [ ] Tests:
   - Successful `gh pr create` invocation builds the documented title
-    and body, with `<name>` and `<attribution>` interpolated.
+    and body, with `<name>` interpolated and **no** attribution
+    footer present.
   - Existing PR for `plan/<name>` is reused (URL printed; no second
     create call).
   - `gh pr create` failure exits `1` with the error visible.
@@ -92,7 +104,8 @@ becomes load-bearing for the merge-first rule that
 ## Acceptance criteria
 
 - [ ] After a successful `jarvis plan` run, a draft PR exists for
-  `plan/<name>` with the documented title and body shape.
+  `plan/<name>` with the documented title and body shape, with no
+  attribution footer.
 - [ ] The PR is **draft**; plan mode never calls `gh pr ready`.
 - [ ] PR URL is printed to stdout on success.
 - [ ] Re-running `jarvis plan` against the same `<name>` reuses the

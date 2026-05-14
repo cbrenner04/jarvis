@@ -69,7 +69,10 @@ content arrives in
 
     The deliberately-unchecked `(placeholder)` checkbox keeps `jarvis
     run` from treating the spec as already complete if someone
-    accidentally points it at this skeleton output.
+    accidentally points it at this skeleton output. (Note: `jarvis
+    run` only accepts `index.md`, so the realistic "accident" is
+    running it against the placeholder `index.md`. The unchecked
+    item still serves its purpose there.)
 - **Push failures.** If push fails (network, auth), do not roll back
   the commit. Surface the git error verbatim to stderr and exit `1`.
   The next `jarvis plan --resume` (subspec arrives later) can re-push;

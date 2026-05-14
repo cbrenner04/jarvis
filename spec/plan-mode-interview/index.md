@@ -119,6 +119,13 @@ draft PR.
 
 ## Subspecs
 
+> **Preflight (do not skip):** before starting subspec 01, verify the
+> draft-and-review spec is on `main` by running `jarvis plan` against a
+> throwaway intent file and confirming the resulting PR contains real
+> agent-generated subspecs (not placeholder content) plus
+> `plan: review` commits. If the spec content is still placeholder, the
+> prior spec has not landed — stop and resolve before continuing.
+
 - [ ] [01 — Interview phase with persistent `intent.md` updates](./01-interview-phase.md)
 - [ ] [02 — Interactive mode (`jarvis plan` with no args)](./02-interactive-no-args.md)
 - [ ] [03 — Agent-proposed spec name with worktree rename](./03-agent-proposed-spec-name.md)

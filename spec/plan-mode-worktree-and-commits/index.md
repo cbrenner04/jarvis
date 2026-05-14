@@ -84,6 +84,13 @@ plan-mode spec only has to worry about content, not plumbing.
 
 ## Subspecs
 
+> **Preflight (do not skip):** before starting subspec 01, verify the
+> skeleton spec's behavior is on `main`: `jarvis plan --help` lists the
+> command, `jarvis plan` exits `2` with the stub message, and
+> `jarvis config show` includes the `planAgentOrder` line. If any check
+> fails, `spec/plan-mode-skeleton/` has not landed yet — stop and
+> resolve before continuing.
+
 - [ ] [01 — Worktree slot and branch creation](./01-worktree-and-branch.md)
 - [ ] [02 — Deterministic spec-name derivation](./02-spec-name-proposal.md)
 - [ ] [03 — Seed `intent.md` from file or inline input](./03-intent-file-skeleton.md)

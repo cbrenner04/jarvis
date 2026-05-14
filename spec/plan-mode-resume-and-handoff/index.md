@@ -23,8 +23,10 @@ After this spec merges, plan mode is feature-complete per the design:
 - **`--resume` was parsed by the skeleton spec** but inert until now.
   This spec wires real behavior:
   - `jarvis plan --resume <spec-path>` is the only valid resume form.
-    `<spec-path>` must point at an existing `spec/<name>/index.md` (or
-    `spec/<name>/intent.md`; both resolve to the same `<name>`).
+    `<spec-path>` must point at an existing `spec/<name>/index.md`.
+    Other paths (including `intent.md` or subspec files) are
+    rejected. This mirrors `jarvis run`, which also operates only on
+    `index.md`.
   - File path → `<name>` extraction is from the path's last directory
     segment. Validation: `index.md` and `intent.md` both exist; the
     branch `plan/<name>` and worktree `.worktree/plan-<name>/` exist
@@ -79,6 +81,13 @@ After this spec merges, plan mode is feature-complete per the design:
   carries a clean, current description.
 
 ## Subspecs
+
+> **Preflight (do not skip):** before starting subspec 01, verify the
+> interview spec is on `main` by running `jarvis plan` (no args) and
+> confirming the interview phase prompts for input via the `question`
+> tool and that the resulting PR contains an agent-proposed `<name>`.
+> If interactive mode still hits the skeleton stub, the prior spec has
+> not landed — stop and resolve before continuing.
 
 - [ ] [01 — `--resume` command](./01-resume-command.md)
 - [ ] [02 — Strict separation from `jarvis run` and next-step hint](./02-separation-from-run.md)

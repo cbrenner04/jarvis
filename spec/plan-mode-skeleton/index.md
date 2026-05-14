@@ -55,7 +55,22 @@ behavior.
   5. `plan-mode-resume-and-handoff/`
 
   Each later spec assumes the previous ones are merged. This is enforced
-  socially (PR review, this index), not by code.
+  socially (PR review, this index), not by code. To make accidental
+  out-of-order runs fail loudly, each later spec's `index.md` lists a
+  one-line preflight check at the top of its task list ("verify the
+  prior spec's behavior is observable") so an implementer running the
+  spec out of order notices immediately.
+- **Docs are bundled into a final per-spec subspec, not per-task.** The
+  `AGENTS.md` rule that "doc changes are part of the work, not a
+  follow-up" is satisfied at the **per-spec** level, not the
+  per-subspec level: each top-level plan-mode spec includes a final
+  `NN-docs-updates.md` subspec, and the docs land in the same merged
+  spec PR. We bundle because the bulk doc work (notably the eventual
+  `docs/plan-mode.md`) reads naturally only after the cumulative
+  behavior of a whole spec is in place; per-subspec doc deltas would
+  produce churn that obscures the final shape. Each subspec still
+  declares "None. Subspec NN covers docs." in its `## Documentation
+  updates` section so the bundling is visible at the subspec level.
 
 ## Subspecs
 

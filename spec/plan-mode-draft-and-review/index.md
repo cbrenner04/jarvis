@@ -84,6 +84,13 @@ review, edit, mark ready, and merge to `main`.
 
 ## Subspecs
 
+> **Preflight (do not skip):** before starting subspec 01, verify the
+> worktree-and-commits spec is on `main` by running `jarvis plan` against
+> a throwaway intent file and confirming a draft PR opens with placeholder
+> `index.md` and `00-task.md` content. If the worktree, branch, or PR is
+> missing, the prior spec has not landed — stop and resolve before
+> continuing.
+
 - [ ] [01 — Draft phase (real agent call replaces placeholder)](./01-draft-phase.md)
 - [ ] [02 — Self-review phase with `plan: review N` commits](./02-self-review-phase.md)
 - [ ] [03 — Stop conditions and blocker handling](./03-stop-conditions-and-blockers.md)

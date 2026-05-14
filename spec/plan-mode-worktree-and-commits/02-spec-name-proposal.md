@@ -24,20 +24,44 @@ Agent-proposed names land later in
   - **Interactive mode:** this subspec does **not** apply; interactive
     mode continues to hit the skeleton stub exit. Document this with a
     comment at the dispatch point.
-- **Uniqueness check.** After deriving the candidate name, check both:
+- **Uniqueness check.** After deriving the candidate name, check all
+  three of:
   - `<projectRoot>/spec/<name>/` exists in the working tree of the
     project's main checkout (we read from disk, not from git history).
   - `<projectRoot>/.worktree/plan-<name>/` exists.
-  If either exists, append `-2`, `-3`, ... until both are free. The
-  same suffix must apply to both checks; never end up with `spec/foo-2`
-  but `.worktree/plan-foo-3`.
-- **Branch-name collision** is handled implicitly: the suffix flows
-  through to the branch name as `plan/<name-with-suffix>`. We do not
-  separately check `git ls-remote` for branch existence in this spec;
-  if a remote `plan/<name>` exists for some reason, `git worktree add
-  -b` will fail, and that surfaces through subspec 01's error path.
-  This is acceptable for the skeleton stage; agent-proposed naming will
-  revisit.
+  - The remote branch `plan/<name>` exists, queried with
+    `git ls-remote --heads origin plan/<name>`. This catches the
+    case where a previous plan run pushed a branch but its local
+    worktree was cleaned up, or where another machine pushed a plan
+    branch with the same name.
+
+  If any of the three exists, append `-2`, `-3`, ... until **all
+  three** are free. The same suffix must apply to all three checks;
+  never end up with `spec/foo-2` but `.worktree/plan-foo-3`.
+
+  **Race window.** The local-disk checks and the `ls-remote` check
+  are not atomic with worktree creation in subspec 01. A concurrent
+  patch-mode run or a competing plan run on the same machine can
+  create a colliding directory between the check and the
+  `git worktree add`. Subspec 01's worktree creation already exits
+  `1` with an actionable message in that case (`plan worktree
+  already exists at <path>; resolve with \`jarvis cleanup\` or
+  remove manually`); that error stays the user-visible recovery
+  path. We do not retry the suffix loop after a collision: the user
+  has explicit information about what happened and a one-line fix.
+- **Inline-mode kebab + truncate ordering.** The transformation is:
+  lowercase → kebab-case (collapse non-`[a-z0-9]+` to `-`) →
+  truncate to first 6 words (split on `-`) → cap at 40 characters
+  → strip leading/trailing `-`. The leading/trailing `-` strip
+  happens **after** truncation so a truncated trailing `-` cannot
+  leak into the final name. If the result is empty after stripping,
+  fall back to `plan`.
+- **Branch-name collision** is now caught up-front by the
+  `ls-remote` check above. If `git worktree add -b` still fails (for
+  example, because a local branch `plan/<name>` exists without a
+  remote counterpart), surface the git error with an actionable
+  prefix: `plan: local branch plan/<name> already exists; delete it
+  with \`git branch -D plan/<name>\` and re-run`. Exit `1`.
 - **Reserved names.** Reject `index`, `intent`, and any name that would
   produce an invalid filesystem path. On rejection, fall back to
   `plan` and re-run the uniqueness loop.
@@ -59,20 +83,31 @@ Agent-proposed names land later in
   creation (subspec 01 then receives the chosen name).
 - [ ] Tests:
   - File mode: various basenames produce the expected kebab-case.
-  - Inline mode: long text is truncated to 6 words / 40 chars.
+  - Inline mode: long text is truncated to 6 words / 40 chars, with
+    trailing `-` stripped after truncation (input
+    `"add csv export to reports !!!"` → `add-csv-export-to-reports`,
+    not `add-csv-export-to-reports-`).
   - Empty / all-punctuation input falls back to `plan`.
   - Reserved names (`index`, `intent`) trigger the fallback.
   - Existing `spec/<name>/` directory triggers `-2` suffix; both name
     and worktree path agree on the suffix.
-  - Both `spec/<name>/` and `.worktree/plan-<name>/` existing requires
-    going to `-3` (or higher) to satisfy both.
+  - Existing `.worktree/plan-<name>/` directory alone triggers `-2`.
+  - Existing remote branch `plan/<name>` (mocked `ls-remote` output)
+    alone triggers `-2`.
+  - All three colliding requires going to a higher suffix to satisfy
+    them all.
+  - Existing local-only branch `plan/<name>` after suffix loop
+    completes surfaces the documented `git branch -D` error
+    (mocked).
 
 ## Acceptance criteria
 
 - [ ] `<name>` is derived deterministically from file or inline input
   per the rules above.
-- [ ] Collisions with existing `spec/<name>/` or
-  `.worktree/plan-<name>/` directories are resolved by suffixing.
+- [ ] Collisions with existing `spec/<name>/`, `.worktree/plan-<name>/`,
+  or remote `plan/<name>` branches are resolved by suffixing.
+- [ ] Local-only branch collisions surface the documented actionable
+  error.
 - [ ] Interactive mode continues to hit the skeleton stub exit (no
   derivation attempted).
 - [ ] No agent is invoked.

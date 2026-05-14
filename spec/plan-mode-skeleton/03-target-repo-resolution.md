@@ -18,10 +18,18 @@ treated as authoritative. The fallback chain still applies.
 
 ## Decisions
 
-- **Reuse the existing resolver.** Whatever function in `src/repo.ts`
-  (or wherever it currently lives) resolves the target repo for `jarvis
-  run` is invoked from plan mode as well. Plan mode supplies the
-  appropriate inputs:
+- **Extract a shared resolver.** The current resolver in `src/repo.ts`
+  (or wherever it lives today) is wired into `jarvis run` and likely
+  takes a parsed-spec object as input. Plan mode does not have a
+  parsed spec in inline or interactive modes, so this subspec extracts
+  a smaller core helper that both commands call. The extraction is
+  not optional; do it as part of this subspec so plan mode and run
+  mode share one code path from the start. The new shape is roughly
+  `resolveTargetRepo({ repoFlag?, candidatePath? }): ResolvedRepo`,
+  living in `src/repo.ts` and re-exported / imported by both
+  `src/commands/run.ts` and `src/commands/plan.ts`. Run mode keeps a
+  thin wrapper that derives `candidatePath` from the spec; plan mode
+  derives it as below. Plan mode supplies the appropriate inputs:
   - `--repo` flag value if present.
   - **No spec `repo:` line.** Even in file mode, intent files do not
     carry a `repo:` directive at this stage. (We may revisit later if
@@ -47,17 +55,20 @@ treated as authoritative. The fallback chain still applies.
 
 ## Implementation hints
 
-- If the existing resolver couples spec parsing into its inputs, extract
-  a smaller helper that takes the bare set of inputs plan mode actually
-  has (`--repo`, candidate path) and reuse it from both call sites.
-  Avoid duplicating the resolution chain.
+- Land the extraction first: introduce `resolveTargetRepo` with the
+  shape above, migrate `runCommand` to call it, and verify
+  `bun test` is green before wiring plan mode in. Keep the diff
+  reviewable by treating the extraction and the plan-mode wire-up as
+  two commits inside this subspec's iteration.
 
 ## Tasks
 
-- [ ] Wire repo resolution into `planCommand` after parsing succeeds.
-- [ ] If extraction is needed, factor the shared resolver into a module
-  importable from both `src/commands/run.ts` and `src/commands/plan.ts`
-  without circular imports.
+- [ ] Extract `resolveTargetRepo({ repoFlag?, candidatePath? })` into
+  `src/repo.ts` (or the existing resolver module). Migrate
+  `runCommand` to call it. Existing run-mode tests must continue to
+  pass with no behavior change.
+- [ ] Wire repo resolution into `planCommand` after parsing succeeds,
+  using the extracted helper.
 - [ ] Log the resolved project (one stderr line: `plan mode: target
   project=<name> root=<path>`) for verification.
 - [ ] Tests covering:

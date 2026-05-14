@@ -74,7 +74,7 @@ behavior.
 
 ## Subspecs
 
-- [ ] [01 — `jarvis plan` subcommand and help](./01-cli-subcommand-and-help.md)
+- [x] [01 — `jarvis plan` subcommand and help](./01-cli-subcommand-and-help.md)
 - [ ] [02 — Input modes (file, inline, no-args) parsing](./02-input-modes-parsing.md)
 - [ ] [03 — Target-repo resolution shared with `jarvis run`](./03-target-repo-resolution.md)
 - [ ] [04 — `planAgentOrder` config key](./04-plan-agent-order-config.md)

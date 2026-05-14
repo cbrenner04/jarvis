@@ -5,6 +5,7 @@ import {
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
 import { logServerCommand } from "./commands/log-server.ts";
+import { planCommand } from "./commands/plan.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
   type ConfigOptions,
@@ -20,6 +21,7 @@ export type Subcommand =
   | "log-server"
   | "cleanup"
   | "triage"
+  | "plan"
   | "help";
 
 export type ParsedArgs =
@@ -36,6 +38,7 @@ export type ParsedArgs =
   | { kind: "log-server" }
   | { kind: "cleanup"; dryRun?: boolean }
   | { kind: "triage"; worktreeName?: string }
+  | { kind: "plan"; rest: string[] }
   | { kind: "unknown"; name: string }
   | { kind: "error"; message: string };
 
@@ -56,6 +59,8 @@ Commands:
                     Remove merged worktrees.
   triage [worktree-name]
                     Inspect a dirty or orphaned worktree.
+  plan [--interview-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file-or-text>]
+                    Generate a spec tree from an intent. (planning behavior arrives in later specs)
   help              Show this message.
 `;
 
@@ -151,6 +156,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       return result;
     }
+    case "plan":
+      return { kind: "plan", rest };
     default:
       return { kind: "unknown", name: first };
   }
@@ -292,6 +299,8 @@ export function run(
       }
       return triageCommand(triageOpts);
     }
+    case "plan":
+      return planCommand({ io, args: parsed.rest });
     case "unknown":
       io.stderr(`jarvis: unknown command ${JSON.stringify(parsed.name)}\n`);
       io.stderr(USAGE);

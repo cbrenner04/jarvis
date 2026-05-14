@@ -126,6 +126,17 @@ describe("parseArgs", () => {
   test("unknown subcommand", () => {
     expect(parseArgs(["bogus"])).toEqual({ kind: "unknown", name: "bogus" });
   });
+
+  test("plan with no args", () => {
+    expect(parseArgs(["plan"])).toEqual({ kind: "plan", rest: [] });
+  });
+
+  test("plan with extra args", () => {
+    expect(parseArgs(["plan", "--repo", "foo", "intent.md"])).toEqual({
+      kind: "plan",
+      rest: ["--repo", "foo", "intent.md"],
+    });
+  });
 });
 
 describe("run", () => {
@@ -140,6 +151,8 @@ describe("run", () => {
     expect(out).toContain("init");
     expect(out).toContain("config");
     expect(out).toContain("log-server");
+    expect(out).toContain("plan [--interview-turns <n>]");
+    expect(out).toContain("Generate a spec tree from an intent.");
     expect(out).toContain("help");
   });
 
@@ -221,6 +234,24 @@ describe("run", () => {
     expect(code).toBe(1);
     expect(cap.err()).toContain("unknown command");
     expect(cap.err()).toContain("bogus");
+  });
+
+  test("plan with no args prints stub to stderr and exits 2", () => {
+    const cap = captureIo();
+    const code = run(["plan"], { io: cap.io, config: { dir: cfgDir } });
+    expect(code).toBe(2);
+    expect(cap.err()).toContain("not yet implemented");
+  });
+
+  test("plan --help prints usage to stdout and exits 0", () => {
+    const cap = captureIo();
+    const code = run(["plan", "--help"], {
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("--interview-turns");
+    expect(cap.out()).toContain("Generate a spec tree from an intent.");
   });
 
   test("run without spec path exits 1", () => {

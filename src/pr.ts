@@ -190,10 +190,19 @@ function stripTrailerBlock(body: string): string {
   while (end > 0 && (lines[end - 1] ?? "") === "") {
     end -= 1;
   }
-  // Identify the trailing run of trailer-shaped lines.
+  // Identify the trailing run of trailer-shaped lines. The `Spec: <path>`
+  // line that `commitSubspec` writes as the first body line is structurally
+  // a trailer, but our convention treats it as body content; preserve it.
   let trailerStart = end;
   const trailerLine = /^[A-Za-z][A-Za-z0-9-]*:\s.+$/;
-  while (trailerStart > 0 && trailerLine.test(lines[trailerStart - 1] ?? "")) {
+  while (trailerStart > 0) {
+    const line = lines[trailerStart - 1] ?? "";
+    if (!trailerLine.test(line)) {
+      break;
+    }
+    if (line.startsWith("Spec: ")) {
+      break;
+    }
     trailerStart -= 1;
   }
   if (trailerStart === end) {

@@ -150,11 +150,15 @@ The trailer is omitted when the active agent has no attribution label.
 Jarvis pushes every subspec commit immediately. The first push sets upstream
 tracking with `git push -u origin <branch>`; later pushes use plain
 `git push`. After the first subspec commit is pushed, jarvis opens a draft
-PR. The PR title comes from the spec `index.md` H1, and the body is generated
-once by asking the active agent to summarize the index and linked subspec H1s.
-Later commits leave the PR body unchanged. After a pushed commit leaves every
-linked subspec checkbox in `index.md` checked, jarvis marks the PR ready for
-review with `gh pr ready`.
+PR. The PR title comes from the spec `index.md` H1, and the body has three
+parts: a deterministic header (the index H1, a `## Progress` line counting
+checked vs total subspecs, and a verbatim mirror of the index subspec
+checklist), an agent-authored narrative bracketed by
+`<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->`
+markers, and an attribution footer. Later commits leave the PR body
+unchanged. After a pushed commit leaves every linked subspec checkbox in
+`index.md` checked, jarvis marks the PR ready for review with
+`gh pr ready`.
 
 Normal runs expect the supplied spec path to be an `index.md` file. Passing
 a non-index spec file such as `spec/<name>/01-task.md` prompts to either

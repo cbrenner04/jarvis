@@ -4,6 +4,71 @@ import { dirname, resolve } from "node:path";
 import { checkPrExists } from "../../pr.ts";
 import { parsePatchSpec } from "./spec.ts";
 
+export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
+export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";
+
+type LinkedSubspecLine = {
+  checked: boolean;
+  text: string;
+  path: string;
+};
+
+export function buildPrBody(opts: {
+  indexPath: string;
+  narrative: string | null;
+}): string {
+  const indexContent = readFileSync(opts.indexPath, "utf8");
+  const parsedIndex = parsePatchSpec(indexContent);
+
+  const linkedForBody: LinkedSubspecLine[] = parsedIndex.linkedSubspecs
+    .filter((linked) => linked.path.endsWith(".md"))
+    .map((linked) => ({
+      checked: linked.checked,
+      text: linked.text,
+      path: linked.path,
+    }));
+
+  const total = linkedForBody.length;
+  const completed = linkedForBody.filter((s) => s.checked).length;
+
+  const lines: string[] = [];
+  if (parsedIndex.h1) {
+    lines.push(`# ${parsedIndex.h1}`);
+    lines.push("");
+  }
+  lines.push("## Progress");
+  lines.push("");
+  lines.push(`${completed} of ${total} subspecs complete`);
+  lines.push("");
+  lines.push("## Subspecs");
+  lines.push("");
+  for (const linked of linkedForBody) {
+    const box = linked.checked ? "[x]" : "[ ]";
+    lines.push(`- ${box} [${linked.text}](${linked.path})`);
+  }
+
+  let body = lines.join("\n");
+
+  if (opts.narrative !== null) {
+    body += `\n\n${NARRATIVE_START_MARKER}\n${opts.narrative}\n${NARRATIVE_END_MARKER}`;
+  }
+
+  return body;
+}
+
+export function extractNarrative(prBody: string): string | null {
+  const startIdx = prBody.indexOf(NARRATIVE_START_MARKER);
+  if (startIdx === -1) {
+    return null;
+  }
+  const afterStart = startIdx + NARRATIVE_START_MARKER.length;
+  const endIdx = prBody.indexOf(NARRATIVE_END_MARKER, afterStart);
+  if (endIdx === -1) {
+    return null;
+  }
+  return prBody.slice(afterStart, endIdx).trim();
+}
+
 export function maybeMarkReady(opts: { indexPath: string; cwd: string }): void {
   if (!linkedSubspecsAreComplete(readFileSync(opts.indexPath, "utf8"))) {
     return;

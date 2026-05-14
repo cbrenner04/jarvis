@@ -79,7 +79,7 @@ behavior.
 - [x] [03 — Target-repo resolution shared with `jarvis run`](./03-target-repo-resolution.md)
 - [x] [04 — `planAgentOrder` config key](./04-plan-agent-order-config.md)
 - [x] [05 — Log-server requirement](./05-log-server-requirement.md)
-- [ ] [06 — README and docs stub](./06-readme-and-docs-stub.md)
+- [x] [06 — README and docs stub](./06-readme-and-docs-stub.md)
 
 ## Conventions
 

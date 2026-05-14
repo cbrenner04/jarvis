@@ -228,3 +228,11 @@ jarvis log-server
 
 On exit `4` and `5`, the bounded tail of recent agent output is printed to the
 terminal to help diagnose why progress stalled.
+
+## Plan mode
+
+Plan mode is a separate command (`jarvis plan`) that will eventually author
+specs rather than execute them. Behavior is being built incrementally; the
+CLI surface is recognized today but the planning phases are not yet
+implemented. Plan mode will be documented at `docs/plan-mode.md` once
+behavior lands.

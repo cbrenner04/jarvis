@@ -89,6 +89,9 @@ For multi-file specs and the recommended `index.md` shape, see
 ```txt
 jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                            Run the loop against a spec file in a registered project.
+jarvis plan ...            Author specs via plan mode (planning behavior is
+                           being built incrementally; see `spec/plan-mode-*`
+                           for in-flight work).
 jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.
 jarvis log-server          Run the local log aggregation server.

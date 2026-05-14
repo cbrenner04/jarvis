@@ -32,6 +32,7 @@ type Project = {
 type Config = {
   version: 1;
   agentOrder: AgentName[];
+  planAgentOrder?: AgentName[]; // optional plan-mode order; falls back to agentOrder when unset
   quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
   weakQuotaExitCodes: number[]; // exit codes treated as probable-quota under lenient mode; default []
   patchModels: Record<AgentName, string>;
@@ -128,12 +129,41 @@ The behavior that flips when `git` is `false` (no worktree, no commits, no
 PR, alternative completion semantics, `--cwd`) is implemented separately and
 documented alongside `jarvis run`.
 
+## `planAgentOrder`
+
+Optional plan-mode preference order. Same `AgentName` union as `agentOrder`.
+Plan mode (a separate command being built incrementally) will eventually
+draft and self-review specs; the workload differs from patch-mode code
+edits, so the user may want a different agent order for it.
+
+- **Type.** `AgentName[]`, optional.
+- **Default.** Omitted from the auto-bootstrapped config. When absent, plan
+  mode falls back to `agentOrder` at consumption time. Consumption (which
+  agents actually run) lands in a later spec; today the key is only
+  validated and round-tripped.
+- **Validation.** When present, must be a non-empty array of valid
+  `AgentName` values; duplicates and unknown agents are rejected with the
+  same error wording as `agentOrder`. An explicit empty array
+  (`planAgentOrder: []`) is rejected at load time — use
+  `unset-plan-order` to clear the key and fall back to `agentOrder`.
+- Legacy configs without the key continue to load unchanged.
+
 ## `jarvis config` subcommands
 
-- `jarvis config show` — print the current config as JSON.
+- `jarvis config show` — print the current config as JSON. When
+  `planAgentOrder` is present it is shown on its own line; when absent the
+  output reads `planAgentOrder: (unset; uses agentOrder)`.
 - `jarvis config path` — print the absolute path of `config.json`.
 - `jarvis config set-order <a,b,c>` — replace `agentOrder` with a
   comma-separated list of agents. Rejects unknown agents and duplicates.
+- `jarvis config set-plan-order <a,b,c>` — set `planAgentOrder` from a
+  comma-separated list of agents. Same parsing/validation as `set-order`.
+  An empty argument is rejected with `set-plan-order requires at least one
+  agent; use \`unset-plan-order\` to clear plan-mode order and fall back to
+  agentOrder` (exit 1). Consumption of `planAgentOrder` lands in a later
+  spec.
+- `jarvis config unset-plan-order` — remove `planAgentOrder` from the
+  config file, returning to "fall back to `agentOrder`" behavior.
 - `jarvis config set-git <true|false>` — write the top-level `git` toggle.
 - `jarvis config set-project-git <name> <true|false|unset>` — write or
   clear the per-project `git` override. Unknown project names exit 1.

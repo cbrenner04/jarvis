@@ -55,15 +55,15 @@ later (with each behavior spec); this subspec only lands the stubs.
 
 ## Acceptance criteria
 
-- [ ] `README.md` lists `jarvis plan ...` in `## Commands` with the
+- [x] `README.md` lists `jarvis plan ...` in `## Commands` with the
   "incremental" note.
-- [ ] `docs/run-loop.md` mentions plan mode with a forward reference to
+- [x] `docs/run-loop.md` mentions plan mode with a forward reference to
   `docs/plan-mode.md`.
-- [ ] `docs/spec-guidance.md` notes that plan-authored specs follow the
+- [x] `docs/spec-guidance.md` notes that plan-authored specs follow the
   merge-first rule.
-- [ ] `docs/config.md` documents `planAgentOrder` and the new `config`
+- [x] `docs/config.md` documents `planAgentOrder` and the new `config`
   subcommands.
-- [ ] `bun run check` passes (Biome formatting).
+- [x] `bun run check` passes (Biome formatting).
 
 ## Documentation updates
 

@@ -76,6 +76,9 @@ eventually does. The workflow is:
 
 Do not bundle spec authoring and implementation in the same PR.
 
+`jarvis plan` will eventually be one way to author specs; the merge-first
+rule applies to plan-generated specs the same as hand-written ones.
+
 ## Subspecs
 
 Each subspec should be independently implementable and testable. A good subspec

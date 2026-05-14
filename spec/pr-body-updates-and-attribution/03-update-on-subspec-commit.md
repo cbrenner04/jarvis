@@ -89,18 +89,18 @@ existed before, refresh the body.
 
 ## Acceptance criteria
 
-- [ ] After the first subspec commit, the PR body matches the output
+- [x] After the first subspec commit, the PR body matches the output
       of `buildPrBody` + `renderAttribution` (no double-update).
-- [ ] After every subsequent subspec commit, the PR body is rewritten
+- [x] After every subsequent subspec commit, the PR body is rewritten
       via `gh pr edit --body-file -` with a freshly assembled body.
-- [ ] WIP commits do not trigger a body update.
-- [ ] When `gh pr edit` fails, jarvis emits a `harness` stderr warning
+- [x] WIP commits do not trigger a body update.
+- [x] When `gh pr edit` fails, jarvis emits a `harness` stderr warning
       naming the active subspec and continues the iteration with a
       zero exit contribution. The next successful subspec update
       heals the body.
-- [ ] `maybeMarkReady` continues to run after the body update, with
+- [x] `maybeMarkReady` continues to run after the body update, with
       no change to its existing behavior.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 

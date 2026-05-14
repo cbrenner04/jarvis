@@ -142,16 +142,37 @@ cadence, draft PR lifecycle, and blocker handling, see
 Each checked subspec becomes one commit. The subject is the subspec H1, the
 first body line is `Spec: <relative subspec path>`, and the body then includes
 the subspec's `## Acceptance criteria` section. The index checkbox flip is
-staged in that same commit.
+staged in that same commit. Every commit jarvis creates — both subspec
+commits and `WIP:` commits — also carries a `Jarvis-Agent: <label>` git
+trailer at the end of the message identifying the agent that produced it.
+The trailer is omitted when the active agent has no attribution label.
 
 Jarvis pushes every subspec commit immediately. The first push sets upstream
 tracking with `git push -u origin <branch>`; later pushes use plain
 `git push`. After the first subspec commit is pushed, jarvis opens a draft
-PR. The PR title comes from the spec `index.md` H1, and the body is generated
-once by asking the active agent to summarize the index and linked subspec H1s.
-Later commits leave the PR body unchanged. After a pushed commit leaves every
-linked subspec checkbox in `index.md` checked, jarvis marks the PR ready for
-review with `gh pr ready`.
+PR. The PR title comes from the spec `index.md` H1, and the body has three
+parts: a deterministic header (the index H1, a `## Progress` line counting
+checked vs total subspecs, and a verbatim mirror of the index subspec
+checklist), an agent-authored narrative bracketed by
+`<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->`
+markers, and an attribution footer rendered from the `Jarvis-Agent` git
+trailers on the PR-branch subspec commits. The footer lists one bullet per
+subspec commit (`- <short sha> <subject> — <agent label>`, with `unknown`
+for commits missing the trailer) followed by a deduped summary line of the
+form `Written by <Label A>, <Label B> through Jarvis.` (collapsing to
+`Written by <Label> through Jarvis.` when only one unique label is
+present). Later commits leave the PR body unchanged. After a pushed commit
+leaves every linked subspec checkbox in `index.md` checked, jarvis marks
+the PR ready for review with `gh pr ready`.
+
+The PR body is rewritten after every successful subspec commit, not only
+at draft creation. Each rewrite re-runs the deterministic header and
+attribution footer from scratch and preserves whatever lives between the
+narrative markers. WIP commits do not trigger a rewrite. If `gh pr edit`
+fails, jarvis emits a `harness` warning and continues; the next successful
+subspec commit's rewrite heals the body. See
+[docs/worktrees-and-commits.md](docs/worktrees-and-commits.md#update-cadence)
+for details.
 
 Normal runs expect the supplied spec path to be an `index.md` file. Passing
 a non-index spec file such as `spec/<name>/01-task.md` prompts to either

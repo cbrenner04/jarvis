@@ -116,23 +116,23 @@ output that those subspecs can compose with.
 
 ## Acceptance criteria
 
-- [ ] `buildPrBody` produces a body whose header section contains the
+- [x] `buildPrBody` produces a body whose header section contains the
       index H1, a `## Progress` heading with `N of M subspecs
       complete`, and a `## Subspecs` checklist that mirrors the
       `index.md` linked subspec lines verbatim (including `[ ]` /
       `[x]` state).
-- [ ] When `narrative` is non-null, the body includes the bracketed
+- [x] When `narrative` is non-null, the body includes the bracketed
       narrative block exactly between
       `<!-- jarvis:narrative:start -->` and
       `<!-- jarvis:narrative:end -->` markers on their own lines.
-- [ ] When `narrative` is `null`, neither marker appears in the
+- [x] When `narrative` is `null`, neither marker appears in the
       output.
-- [ ] `extractNarrative` returns the trimmed text between markers
+- [x] `extractNarrative` returns the trimmed text between markers
       when both are present and `null` otherwise.
-- [ ] The draft-PR-creation path in `src/modes/patch/run.ts` uses
+- [x] The draft-PR-creation path in `src/modes/patch/run.ts` uses
       `buildPrBody`. No regression in the existing
       `ensureDraftPr` happy path.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 

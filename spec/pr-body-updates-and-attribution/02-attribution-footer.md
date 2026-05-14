@@ -101,31 +101,31 @@ agent's `attributionLabel()`.
 
 ## Acceptance criteria
 
-- [ ] `renderAttribution` returns `""` when there are no subspec
+- [x] `renderAttribution` returns `""` when there are no subspec
       commits on the branch.
-- [ ] When all subspec commits carry the same `Jarvis-Agent` label,
+- [x] When all subspec commits carry the same `Jarvis-Agent` label,
       the summary line collapses to `Written by <Label> through
       Jarvis.` (matches today's format).
-- [ ] When subspec commits carry multiple distinct labels, the
+- [x] When subspec commits carry multiple distinct labels, the
       summary lists them in first-appearance order, deduped,
       comma-separated, ending with ` through Jarvis.`.
-- [ ] Per-commit list bullets follow `- <short sha> <subject> —
+- [x] Per-commit list bullets follow `- <short sha> <subject> —
       <label>` format, with `unknown` for commits missing the
       trailer.
-- [ ] WIP commits are not included in the per-commit list even if
+- [x] WIP commits are not included in the per-commit list even if
       they carry trailers.
-- [ ] `ensureDraftPr` composes the body with `\n\n---\n\n<footer>`
+- [x] `ensureDraftPr` composes the body with `\n\n---\n\n<footer>`
       when the footer is non-empty, and no separator otherwise.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 
-- [ ] Update `README.md` PR body / attribution section: replace the
+- [x] Update `README.md` PR body / attribution section: replace the
       "single attribution footer" description with the per-commit
       list + summary line shape, and reference `Jarvis-Agent`
       trailers.
-- [ ] Update `AGENTS.md` "PR attribution" section: replace the
+- [x] Update `AGENTS.md` "PR attribution" section: replace the
       single-line format with the new per-commit-list-plus-summary
       format and document trailer-sourced rendering.
-- [ ] Update `docs/worktrees-and-commits.md` PR body section (added in
+- [x] Update `docs/worktrees-and-commits.md` PR body section (added in
       subspec 01) with the footer composition rules.

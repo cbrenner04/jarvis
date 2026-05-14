@@ -73,23 +73,23 @@ the call site.
 
 ## Acceptance criteria
 
-- [ ] `commitSubspec`, `commitWipProgress`, and
+- [x] `commitSubspec`, `commitWipProgress`, and
       `commitWipProgressWithBlocker` require an `agentLabel` option.
-- [ ] When `agentLabel` is non-empty, the resulting commit message
+- [x] When `agentLabel` is non-empty, the resulting commit message
       ends with a `Jarvis-Agent: <label>` line in the trailer
       position, separated from the body by exactly one blank line.
-- [ ] When `agentLabel` is empty, the commit message contains no
+- [x] When `agentLabel` is empty, the commit message contains no
       `Jarvis-Agent` line.
-- [ ] All call sites in `src/modes/patch/run.ts` pass
+- [x] All call sites in `src/modes/patch/run.ts` pass
       `agent.attributionLabel()`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes, including new trailer-coverage tests.
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes, including new trailer-coverage tests.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 
-- [ ] In `README.md`, update the "Commit shape" section to mention the
+- [x] In `README.md`, update the "Commit shape" section to mention the
       `Jarvis-Agent` trailer and that it appears on both subspec and
       WIP commits.
-- [ ] In `docs/worktrees-and-commits.md`, document the trailer (name,
+- [x] In `docs/worktrees-and-commits.md`, document the trailer (name,
       value source, placement, scope) in the commit-shape section.

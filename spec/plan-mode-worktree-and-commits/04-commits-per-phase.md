@@ -21,6 +21,16 @@ content arrives in
   of jarvis already uses for commits (i.e. don't hardcode an author;
   rely on the user's git config inside the worktree). Same as patch
   mode.
+- **`Jarvis-Agent` trailer.** Plan-mode commits go through the same
+  commit-message primitive patch mode uses (the `appendAgentTrailer`
+  helper in `src/modes/patch/subspec.ts`, factored to a shared
+  location if needed). The two placeholder commits in this subspec
+  have no agent label (no agent ran), which already maps to the
+  helper's documented behavior of omitting the trailer when the label
+  is empty. Real `plan: draft` / `plan: review N` commits in later
+  specs supply the running agent's `attributionLabel()` and pick up
+  the trailer automatically; the PR-body attribution footer (subspec
+  05) renders from those trailers.
 - **Commit 1: `plan: interview`**
   - Stages `spec/<name>/intent.md`.
   - Subject: `plan: interview`.

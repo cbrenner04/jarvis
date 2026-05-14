@@ -22,15 +22,15 @@ invocation that reads `intent.md`, the target repo for context, and
   Subspecs: <count>
   ```
 
-  `<agent-attribution>` uses the same attribution string format used
-  elsewhere in jarvis (`AGENTS.md` PR-attribution rules). This goes
-  into the **commit body**, not the PR body — the PR body remains
-  the fixed template from `spec/plan-mode-worktree-and-commits/05`.
-  PR-body attribution depends on a separate, not-yet-written
-  "rewrite PR description on each commit / on completion" spec; that
-  work is out of scope here. `<count>` is the number of files
-  matching `spec/<name>/[0-9]*.md` (i.e. atomic subspecs, excluding
-  `index.md` and `intent.md`).
+  `<agent-attribution>` uses the agent's `attributionLabel()`, the
+  same value written into the commit's `Jarvis-Agent` git trailer
+  (see `AGENTS.md`'s PR-attribution rules). The harness writes that
+  trailer automatically through the shared commit primitive, so the
+  body line is purely for human readability when reading `git log` —
+  the machine-readable source of truth is the trailer, which the
+  PR-body attribution footer renders from. `<count>` is the number
+  of files matching `spec/<name>/[0-9]*.md` (i.e. atomic subspecs,
+  excluding `index.md` and `intent.md`).
 - **Agent prompt** lives at `src/modes/plan/prompts/draft.md` and is
   short. It must:
   - Inject `<NAME>`, the relative spec directory path
@@ -69,8 +69,16 @@ invocation that reads `intent.md`, the target repo for context, and
   advance to the next agent in `planAgentOrder` (or `agentOrder` when
   unset). If all are exhausted, exit with the existing
   quota-exhausted code from `jarvis run`.
-- **No PR-body update.** The PR body stays the fixed template; we do
-  not summarize the spec into the PR in this spec.
+- **PR body live-update.** After the `plan: draft` commit is pushed,
+  trigger the same PR-body rewrite path patch mode uses on each
+  subspec commit. The deterministic header (from
+  `spec/plan-mode-worktree-and-commits/05`) is rebuilt, the
+  attribution footer re-renders to include the new commit's
+  `Jarvis-Agent` trailer, and the narrative section between the
+  markers is preserved verbatim. This subspec does not yet add any
+  agent-authored narrative content; the markers simply remain empty
+  until the review phase (subspec 02) or a future spec writes
+  between them.
 
 ## Implementation hints
 

@@ -1,59 +1,62 @@
-# 05 — Draft PR open with fixed-template body
+# 05 — Draft PR open with live-updating body
 
 ## Problem
 
 After the `plan: draft` commit lands on the remote, plan mode opens a
-draft PR so reviewers can see the work in progress. The PR title and
-body shape are fixed for now — no agent-generated summary — to keep
-this skeleton spec free of agent calls.
-
-The draft PR is **never** flipped to ready-for-review by jarvis. The
-human merges the spec PR into `main` after review. This separation
-becomes load-bearing for the merge-first rule that
+draft PR so reviewers can see the work in progress. The PR body uses
+the same live-updating + per-commit attribution mechanism that landed
+for patch mode, with a plan-mode-specific deterministic header. Plan
+mode never marks the PR ready for review — that remains the human's
+job after merging the spec PR into `main`. This separation becomes
+load-bearing for the merge-first rule that
 `spec/plan-mode-resume-and-handoff/` enforces.
 
 ## Decisions
 
 - **When:** open the PR immediately after the `plan: draft` commit's
   push succeeds.
-- **Tool:** `gh pr create --draft --base <default-branch> --head
-  plan/<name> --title "<title>" --body "<body>"`. Reuse the same `gh`
-  invocation helpers patch mode uses.
+- **Tool:** reuse the patch-mode `ensureDraftPr` helper in `src/pr.ts`
+  (the same one patch mode uses), passing plan-mode-specific inputs
+  for the title and the deterministic header. The helper already
+  handles `gh pr create --draft`, `gh pr view` idempotence, and the
+  narrative-marker / attribution-footer assembly.
 - **Title:** `plan: <name>`. No truncation; `<name>` is already short.
-- **Body (fixed template):**
+- **Body composition.** The same three-part body shape patch mode uses
+  (deterministic header, agent-authored narrative bracketed by
+  `<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->`,
+  `Jarvis-Agent`-trailer-derived attribution footer):
+  - **Deterministic header (rebuilt on every PR-body update):**
 
-  ```md
-  This PR was authored by `jarvis plan`. It contains a generated
-  spec tree under `spec/<name>/` for human review.
+    ```md
+    This PR was authored by `jarvis plan`. It contains a generated
+    spec tree under `spec/<name>/` for human review.
 
-  - Intent: `spec/<name>/intent.md`
-  - Index: `spec/<name>/index.md`
+    - Intent: `spec/<name>/intent.md`
+    - Index: `spec/<name>/index.md`
 
-  Plan mode never marks this PR ready for review. Once you have
-  reviewed (and edited) the spec, mark it ready and merge to `main`.
-  Implementation work begins in a separate run with `jarvis run
-  spec/<name>/index.md` after the merge.
-  ```
+    Plan mode never marks this PR ready for review. Once you have
+    reviewed (and edited) the spec, mark it ready and merge to `main`.
+    Implementation work begins in a separate run with `jarvis run
+    spec/<name>/index.md` after the merge.
+    ```
 
-  `<name>` is interpolated literally. **No attribution footer is
-  emitted by this spec.** Attribution on plan-mode PRs is
-  intentionally deferred: it depends on a separate, not-yet-merged
-  spec that will (a) add a "rewrite the PR description on each commit
-  / on completion" mechanism so the description can reflect every
-  agent that contributed, and (b) decide how to label
-  harness-authored placeholder content distinctly from
-  agent-authored content. Until that spec lands, the body above is
-  the literal final body. Any later spec that revisits this body
-  (including the future attribution spec) is responsible for
-  preserving the "Plan mode never marks this PR ready" paragraph
-  verbatim.
-
-  **Why no fallback footer.** Adding a `Written by Jarvis (default
-  model) through Jarvis.` footer here would attribute placeholder
-  content to a real agent that did no work, and the future
-  PR-description-update spec would have to either parse and rewrite
-  it or duplicate it. Either path is more friction than just leaving
-  it out of this skeleton.
+    `<name>` is interpolated literally. The "Plan mode never marks
+    this PR ready" paragraph is load-bearing and must be preserved
+    verbatim by every PR-body update path (initial create, live
+    rewrite on subspec commits, resume).
+  - **Narrative section.** When the PR is first created in this
+    subspec the area between the markers is empty (placeholder commits
+    only — no agent-authored summary exists yet). Later plan-mode
+    specs (draft, review, resume) populate and update it.
+  - **Attribution footer.** Rendered from the `Jarvis-Agent` trailers
+    on the PR-branch's `plan: ...` commits, exactly like patch mode.
+    For the initial open in this subspec the only commits on the
+    branch are the placeholder `plan: interview` and `plan: draft`
+    commits, neither of which has an agent label (no agent ran), so
+    the footer is empty by construction. As real agent-driven `plan:
+    draft` / `plan: review N` commits arrive in later specs, the
+    footer fills in automatically through the existing live-update
+    path.
 - **PR creation failure** (e.g. `gh` not authenticated, repo missing
   PR permissions) exits `1` with the `gh` error verbatim. The
   underlying commits stay; the user can re-run `gh pr create` manually
@@ -61,9 +64,8 @@ becomes load-bearing for the merge-first rule that
   this skeleton.
 - **Idempotence.** If a PR already exists for `plan/<name>` (e.g. the
   user re-ran `jarvis plan` after a previous run pushed but failed to
-  open the PR), detect via `gh pr view plan/<name> --json url` and
-  reuse the existing PR — print its URL and continue. Do not open a
-  duplicate.
+  open the PR), `ensureDraftPr` already detects via `gh pr view` and
+  reuses it. Plan mode inherits that behavior; do not open a duplicate.
 - **PR URL printed to stdout** on success: a single line, just the
   URL, suitable for clicking from a terminal.
 - **No transition to ready-for-review.** Plan mode never calls `gh pr
@@ -73,39 +75,43 @@ becomes load-bearing for the merge-first rule that
 
 ## Implementation hints
 
-- The patch-mode PR-open helper (likely `ensureDraftPr` per
-  `AGENTS.md`) is the closest precedent. Either call it with
-  plan-mode-specific title/body inputs or fork a slimmer
-  `ensurePlanDraftPr` if the patch helper has too much patch-mode
-  baggage.
-- Do not invoke the patch-mode attribution-footer assembly path from
-  plan mode. If it is currently inlined in `ensureDraftPr`, the
-  cleanest implementation is the slim fork; if you reuse the patch
-  helper, pass an explicit "no footer" signal so plan-mode bodies
-  stay verbatim.
+- If `ensureDraftPr` currently bakes in patch-mode-specific header
+  text, parameterize the header (and any title prefix) so plan mode
+  can supply its own. Keep narrative-marker handling and attribution
+  rendering shared — those are mode-agnostic.
+- The "live rewrite the body on each subspec commit" path in patch
+  mode (see `src/modes/patch/run.ts` around the `ensureDraftPr` calls
+  per subspec commit) should be reused by plan mode's `plan: draft`
+  and `plan: review N` commits when those land in later specs. This
+  subspec only needs to make sure the helper is structured so plan
+  mode can call it.
 
 ## Tasks
 
-- [ ] Implement `ensurePlanDraftPr({ projectRoot, name })` (or
-  extend the existing helper) that does **not** append an
-  attribution footer.
+- [ ] Make `ensureDraftPr` (or a thin plan-mode-specific wrapper)
+  accept a caller-supplied deterministic header and PR title prefix
+  while keeping the narrative-marker and attribution-footer logic
+  shared with patch mode.
 - [ ] Wire it into `planCommand` after the `plan: draft` push succeeds.
 - [ ] Print the PR URL to stdout.
 - [ ] Tests:
   - Successful `gh pr create` invocation builds the documented title
-    and body, with `<name>` interpolated and **no** attribution
-    footer present.
+    and body, with `<name>` interpolated, the narrative markers
+    present (and empty between them), and an empty attribution
+    footer (since the placeholder commits carry no `Jarvis-Agent`
+    trailer).
   - Existing PR for `plan/<name>` is reused (URL printed; no second
     create call).
   - `gh pr create` failure exits `1` with the error visible.
   - Body always contains the "Plan mode never marks this PR ready"
-    paragraph.
+    paragraph verbatim.
 
 ## Acceptance criteria
 
 - [ ] After a successful `jarvis plan` run, a draft PR exists for
-  `plan/<name>` with the documented title and body shape, with no
-  attribution footer.
+  `plan/<name>` with the documented title and the documented
+  three-part body shape (deterministic header + empty narrative
+  section + empty attribution footer for the placeholder commits).
 - [ ] The PR is **draft**; plan mode never calls `gh pr ready`.
 - [ ] PR URL is printed to stdout on success.
 - [ ] Re-running `jarvis plan` against the same `<name>` reuses the

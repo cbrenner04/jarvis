@@ -71,10 +71,17 @@ review, edit, mark ready, and merge to `main`.
     updated `intent.md` as `plan: blocker`, pushes, and exits `1` with
     the blocker section printed to stderr. The PR (already open in
     draft) reflects the blocker for the human reviewer.
-- **PR body is unchanged** by this spec. Body remains the fixed
-  template from
-  `spec/plan-mode-worktree-and-commits/05-draft-pr.md`. Only commits
-  evolve.
+- **PR body updates live on each `plan: ...` commit** via the same
+  rewrite path patch mode uses (see
+  `spec/plan-mode-worktree-and-commits/05-draft-pr.md`). The
+  deterministic header is rebuilt; the attribution footer re-renders
+  from the `Jarvis-Agent` trailers on the commits introduced by this
+  spec (`plan: draft`, `plan: review N`, `plan: blocker`); the
+  narrative section between the markers is preserved verbatim across
+  rewrites. Plan mode does not yet write into the narrative section
+  in this spec — that may land in a later spec — but the existing
+  preserve-narrative behavior of the shared helper means doing so
+  later is purely additive.
 - **Idempotence on re-run.** If `jarvis plan` is re-run with the same
   intent and the worktree already exists with prior commits, this spec
   does not handle resume — that is the next spec. For now, the

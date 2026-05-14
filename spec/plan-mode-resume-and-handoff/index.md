@@ -61,8 +61,15 @@ After this spec merges, plan mode is feature-complete per the design:
   invocation: clean completion, Ctrl-C, quota, blocker. A blocker
   raised during resume produces a `plan: blocker r<n>` commit with the
   same exit/print behavior.
-- **PR remains draft.** Resume never marks the PR ready. The body
-  remains the fixed template.
+- **PR remains draft.** Resume never marks the PR ready. The PR body
+  continues to follow the live-update mechanism established in
+  `spec/plan-mode-worktree-and-commits/05-draft-pr.md` and
+  `spec/plan-mode-draft-and-review/`: each new resume commit
+  triggers the same rewrite path, so the deterministic header is
+  rebuilt, the attribution footer picks up the resume commits'
+  `Jarvis-Agent` trailers (including the new `r<n>`-suffixed
+  subjects), and any agent-authored narrative between the markers
+  is preserved.
 - **No PR re-creation.** Resume reuses the existing draft PR.
   (Idempotent reuse is already handled by
   `spec/plan-mode-worktree-and-commits/05-draft-pr.md`.)
@@ -106,4 +113,9 @@ After this spec merges, plan mode is feature-complete per the design:
   rule is the gate.
 - Adding plan-mode behavior beyond resume; the design is complete with
   this spec.
-- Editing the PR body or title. Plan-mode PRs keep the fixed template.
+- Editing the PR title, the deterministic header, or the narrative
+  marker contract. The header text and "Plan mode never marks this
+  PR ready" paragraph from
+  `spec/plan-mode-worktree-and-commits/05-draft-pr.md` stand as-is;
+  the attribution footer continues to re-render automatically from
+  `Jarvis-Agent` trailers as new resume commits land.

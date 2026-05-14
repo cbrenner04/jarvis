@@ -70,9 +70,12 @@ plan-mode spec only has to worry about content, not plumbing.
   origin <branch>`; later pushes are plain `git push`. Same pattern as
   patch mode.
 - **Draft PR:** opened after the `plan: draft` commit lands on the
-  remote. Title `plan: <name>`. Body is a fixed template (see subspec
-  05). Always draft; never marked ready by jarvis (separation enforced
-  in `spec/plan-mode-resume-and-handoff/`).
+  remote. Title `plan: <name>`. Body uses the same live-updating
+  three-part shape patch mode uses (deterministic header + narrative
+  markers + attribution footer rendered from `Jarvis-Agent` commit
+  trailers); see subspec 05 for the plan-mode header. Always draft;
+  never marked ready by jarvis (separation enforced in
+  `spec/plan-mode-resume-and-handoff/`).
 - **Cleanup integration:** `jarvis cleanup` should remove
   `.worktree/plan-<name>/` and the `plan/<name>` branch on the same
   conditions it removes patch worktrees (PR merged on origin). Subspec
@@ -95,7 +98,7 @@ plan-mode spec only has to worry about content, not plumbing.
 - [ ] [02 — Deterministic spec-name derivation](./02-spec-name-proposal.md)
 - [ ] [03 — Seed `intent.md` from file or inline input](./03-intent-file-skeleton.md)
 - [ ] [04 — Phase commits (`plan: interview`, `plan: draft`)](./04-commits-per-phase.md)
-- [ ] [05 — Draft PR open with fixed-template body](./05-draft-pr.md)
+- [ ] [05 — Draft PR open with live-updating body](./05-draft-pr.md)
 - [ ] [06 — Cleanup integration for plan worktrees](./06-cleanup-integration.md)
 - [ ] [07 — Documentation updates](./07-docs-updates.md)
 

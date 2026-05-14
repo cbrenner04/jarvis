@@ -57,9 +57,11 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 
 ## PR attribution
 
-When Jarvis creates a draft PR, it appends a one-line footer to the PR body recording which agent and configured model produced the work. The footer is stamped by the harness itself, not requested of the agent.
+When Jarvis creates a draft PR, it appends an attribution footer to the PR body recording which agents produced the subspec commits on the PR branch. The footer is stamped by the harness itself, not requested of the agent, and is rendered from `Jarvis-Agent: <label>` git trailers that jarvis writes onto every commit it creates.
 
-- **Format**: `Written by <agent label> through Jarvis.` (e.g. `Written by Claude Opus 4.7 through Jarvis.`)
+- **Source**: per-commit `Jarvis-Agent` trailers on commits between the PR base branch and `HEAD`. Only commits whose first body line begins with `Spec: ` (i.e. subspec commits, not `WIP:` commits) are rendered. The trailer value is exactly the agent's `attributionLabel()`.
+- **Per-commit list**: chronological (oldest first), one bullet per subspec commit:
+  `- <short sha> <commit subject> — <agent label>`. Commits without a `Jarvis-Agent` trailer are listed with `unknown` as the label. Multiple `Jarvis-Agent` trailers on the same commit are joined with `, `.
+- **Summary line**: a deduped, first-appearance-ordered list of labels: `Written by <Label A>, <Label B>, <Label C> through Jarvis.`. When only one unique label is present this collapses to `Written by <Label> through Jarvis.` (matching the historical single-line format). When no labelled commits exist the summary line is omitted.
 - **Agent labels**: Each agent's `attributionLabel()` method returns a human-readable identifier for its configured model. If the model is unknown, the raw model string is used. If no model is configured, the default fallback is `<cli-name> (default model)`.
-- **Injection point**: The footer is appended by `ensureDraftPr` in `src/pr.ts` with a markdown `---` separator. It appears only when Jarvis *creates* the draft PR; existing PRs are not retroactively updated.
-- **Empty attribution**: If the attribution string is empty, no footer or separator is appended.
+- **Composition**: `ensureDraftPr` in `src/pr.ts` appends the rendered footer to the body with a markdown `---` separator. When the footer is empty (no subspec commits on the branch) no separator or footer is appended.

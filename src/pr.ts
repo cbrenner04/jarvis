@@ -111,6 +111,7 @@ export type CommitInfo = {
 const SUBSPEC_FIRST_BODY_LINE_PREFIX = "Spec: ";
 const COMMIT_FIELD_SEP = "\x1f";
 const COMMIT_RECORD_SEP = "\x1e";
+const TRAILER_VALUE_SEP = "\x02";
 
 /**
  * Read commits on the current branch ahead of `base` and parse out the
@@ -130,7 +131,7 @@ export function readBranchCommits(opts: {
         "--reverse",
         // %h short sha, %s subject, %(trailers ...) joined by US, %b full body
         // Records separated by RS so subjects/bodies can contain newlines.
-        `--format=%h${COMMIT_FIELD_SEP}%s${COMMIT_FIELD_SEP}%(trailers:key=Jarvis-Agent,valueonly=true,separator=%x1f)${COMMIT_FIELD_SEP}%b${COMMIT_RECORD_SEP}`,
+        `--format=%h${COMMIT_FIELD_SEP}%s${COMMIT_FIELD_SEP}%(trailers:key=Jarvis-Agent,valueonly=true,separator=%x02)${COMMIT_FIELD_SEP}%b${COMMIT_RECORD_SEP}`,
         `${opts.base}..HEAD`,
       ],
       { cwd: opts.cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
@@ -157,7 +158,7 @@ export function readBranchCommits(opts: {
     const trailers =
       trailerField === ""
         ? []
-        : trailerField.split(COMMIT_FIELD_SEP).map((s) => s.trim());
+        : trailerField.split(TRAILER_VALUE_SEP).map((s) => s.trim());
     // git's %b includes trailers; strip them so firstBodyLine reflects the
     // commit body proper. Detect the trailer block as the trailing run of
     // `Key: value` lines preceded by a blank line.
@@ -227,10 +228,7 @@ function stripTrailerBlock(body: string): string {
  * `Jarvis-Agent` trailer are listed with `unknown` as the label and
  * excluded from the summary.
  */
-export function renderAttribution(opts: {
-  cwd: string;
-  base: string;
-}): string {
+export function renderAttribution(opts: { cwd: string; base: string }): string {
   const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
   const subspecCommits = commits.filter((c) =>
     c.firstBodyLine.startsWith(SUBSPEC_FIRST_BODY_LINE_PREFIX),

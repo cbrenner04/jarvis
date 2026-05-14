@@ -155,10 +155,15 @@ parts: a deterministic header (the index H1, a `## Progress` line counting
 checked vs total subspecs, and a verbatim mirror of the index subspec
 checklist), an agent-authored narrative bracketed by
 `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->`
-markers, and an attribution footer. Later commits leave the PR body
-unchanged. After a pushed commit leaves every linked subspec checkbox in
-`index.md` checked, jarvis marks the PR ready for review with
-`gh pr ready`.
+markers, and an attribution footer rendered from the `Jarvis-Agent` git
+trailers on the PR-branch subspec commits. The footer lists one bullet per
+subspec commit (`- <short sha> <subject> — <agent label>`, with `unknown`
+for commits missing the trailer) followed by a deduped summary line of the
+form `Written by <Label A>, <Label B> through Jarvis.` (collapsing to
+`Written by <Label> through Jarvis.` when only one unique label is
+present). Later commits leave the PR body unchanged. After a pushed commit
+leaves every linked subspec checkbox in `index.md` checked, jarvis marks
+the PR ready for review with `gh pr ready`.
 
 Normal runs expect the supplied spec path to be an `index.md` file. Passing
 a non-index spec file such as `spec/<name>/01-task.md` prompts to either

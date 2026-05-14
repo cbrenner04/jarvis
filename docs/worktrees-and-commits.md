@@ -123,7 +123,25 @@ The PR body has three sections, in order:
 
    Reviewers may edit text *inside* the markers; jarvis preserves whatever
    lives between them on subsequent rewrites.
-3. **Attribution footer** identifying the agent(s) that produced the work.
+3. **Attribution footer** rendered from the `Jarvis-Agent` git trailers on
+   the PR-branch subspec commits. The footer has two parts, separated from
+   the body by a `---` rule:
+
+   - A **per-commit list**, in chronological order (oldest first), one
+     bullet per subspec commit (`Spec: ` first body line) on the branch:
+     `- <short sha> <commit subject> — <agent label>`. Commits without a
+     `Jarvis-Agent` trailer are listed with `unknown` as the label;
+     multi-trailer commits join the values with `, `. `WIP:` commits are
+     excluded from the list even though they carry trailers.
+   - A **deduped summary line** built from the labelled commits:
+     `Written by <Label A>, <Label B>, <Label C> through Jarvis.`,
+     preserving first-appearance order. When only one unique label is
+     present the line collapses to the historical
+     `Written by <Label> through Jarvis.` form. When no labelled commits
+     exist (all pre-upgrade or trailer-less) the summary line is omitted.
+
+   When the branch has no subspec commits at all, the entire footer
+   (including the `---` separator) is omitted.
 
 Reviewers may **not** expect edits to the deterministic header or footer to
 survive a rewrite — those sections are regenerated from scratch.

@@ -110,9 +110,11 @@ describe("renderAttribution", () => {
       "Fourth\n\nSpec: spec/foo/03-fourth.md\n\nJarvis-Agent: Cursor Composer 2",
     );
     const out = renderAttribution({ cwd: dir, base: "base" });
-    expect(out.endsWith(
-      "Written by Claude Opus 4.7, Codex GPT-5.3, Cursor Composer 2 through Jarvis.",
-    )).toBe(true);
+    expect(
+      out.endsWith(
+        "Written by Claude Opus 4.7, Codex GPT-5.3, Cursor Composer 2 through Jarvis.",
+      ),
+    ).toBe(true);
   });
 
   test("renders 'unknown' for commits missing the trailer", () => {
@@ -128,10 +130,7 @@ describe("renderAttribution", () => {
   });
 
   test("includes only labelled commits in summary; lists every commit in per-commit list", () => {
-    commitWithMessage(
-      "a.txt",
-      "Untrailed\n\nSpec: spec/foo/00-first.md\n",
-    );
+    commitWithMessage("a.txt", "Untrailed\n\nSpec: spec/foo/00-first.md\n");
     commitWithMessage(
       "b.txt",
       "Labelled\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Claude Opus 4.7",

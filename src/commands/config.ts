@@ -19,6 +19,8 @@ Subcommands:
   show                       Print the current config as JSON.
   path                       Print the absolute path of config.json.
   set-order <a,b,c>          Replace agentOrder with a comma-separated list.
+  set-plan-order <a,b,c>     Replace planAgentOrder with a comma-separated list.
+  unset-plan-order           Remove planAgentOrder (falls back to agentOrder).
   set-git <true|false>       Set the top-level git toggle.
   set-project-git <name> <true|false|unset>
                              Set or clear the per-project git override.
@@ -65,6 +67,33 @@ function parseOrder(raw: string): AgentName[] {
   return order;
 }
 
+function parsePlanOrder(raw: string): AgentName[] {
+  const parts = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (parts.length === 0) {
+    throw new Error(
+      "set-plan-order requires at least one agent; use `unset-plan-order` to clear plan-mode order and fall back to agentOrder",
+    );
+  }
+  const seen = new Set<string>();
+  const order: AgentName[] = [];
+  for (const p of parts) {
+    if (!(AGENT_NAMES as readonly string[]).includes(p)) {
+      throw new Error(
+        `set-plan-order: unknown agent ${JSON.stringify(p)} (allowed: ${AGENT_NAMES.join(", ")})`,
+      );
+    }
+    if (seen.has(p)) {
+      throw new Error(`set-plan-order: duplicate agent ${JSON.stringify(p)}`);
+    }
+    seen.add(p);
+    order.push(p as AgentName);
+  }
+  return order;
+}
+
 export function configCommand(opts: ConfigCommandOptions): number {
   const { args, io } = opts;
   const [sub, ...rest] = args;
@@ -78,6 +107,11 @@ export function configCommand(opts: ConfigCommandOptions): number {
     case "show": {
       const cfg = loadConfig(opts.config);
       io.stdout(`${JSON.stringify(cfg, null, 2)}\n`);
+      if (cfg.planAgentOrder === undefined) {
+        io.stdout("planAgentOrder: (unset; uses agentOrder)\n");
+      } else {
+        io.stdout(`planAgentOrder: ${cfg.planAgentOrder.join(", ")}\n`);
+      }
       return 0;
     }
     case "path": {
@@ -101,6 +135,32 @@ export function configCommand(opts: ConfigCommandOptions): number {
       cfg.agentOrder = order;
       writeConfig(cfg, opts.config);
       io.stdout(`agentOrder: ${order.join(", ")}\n`);
+      return 0;
+    }
+    case "set-plan-order": {
+      const arg = rest[0];
+      if (arg === undefined) {
+        io.stderr("jarvis: set-plan-order: missing <agent,agent,agent>\n");
+        return 1;
+      }
+      let order: AgentName[];
+      try {
+        order = parsePlanOrder(arg);
+      } catch (err) {
+        io.stderr(`jarvis: ${(err as Error).message}\n`);
+        return 1;
+      }
+      const cfg = loadConfig(opts.config);
+      cfg.planAgentOrder = order;
+      writeConfig(cfg, opts.config);
+      io.stdout(`planAgentOrder: ${order.join(", ")}\n`);
+      return 0;
+    }
+    case "unset-plan-order": {
+      const cfg = loadConfig(opts.config);
+      delete cfg.planAgentOrder;
+      writeConfig(cfg, opts.config);
+      io.stdout("planAgentOrder: (unset; uses agentOrder)\n");
       return 0;
     }
     case "projects": {

@@ -222,7 +222,12 @@ describe("run", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    const parsed = JSON.parse(cap.out());
+    const out = cap.out();
+    const jsonText = out.replace(
+      /\nplanAgentOrder: \(unset; uses agentOrder\)\n$/,
+      "\n",
+    );
+    const parsed = JSON.parse(jsonText);
     expect(parsed.version).toBe(1);
     expect(parsed.agentOrder).toEqual(["claude", "codex", "cursor"]);
     expect(parsed.maxIterations).toBe(10);

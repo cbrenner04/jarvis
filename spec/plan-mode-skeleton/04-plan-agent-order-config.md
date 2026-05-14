@@ -83,13 +83,13 @@ only lands the schema, validator, defaults, and CLI surface.
 
 ## Acceptance criteria
 
-- [ ] `planAgentOrder` is an optional config key, validated and
+- [x] `planAgentOrder` is an optional config key, validated and
   round-tripped per the rules above.
-- [ ] `jarvis config set-plan-order`, `unset-plan-order`, and the
+- [x] `jarvis config set-plan-order`, `unset-plan-order`, and the
   updated `show` output behave as specified.
-- [ ] Legacy configs without the key continue to load and pass
+- [x] Legacy configs without the key continue to load and pass
   validation unchanged.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

@@ -740,3 +740,77 @@ describe("atomic writes", () => {
     expect(loaded.projects.test).toBeDefined();
   });
 });
+
+describe("planAgentOrder", () => {
+  test("auto-bootstrap omits planAgentOrder from disk", () => {
+    loadConfig({ dir });
+    const onDisk = JSON.parse(readFileSync(join(dir, "config.json"), "utf8"));
+    expect(onDisk).not.toHaveProperty("planAgentOrder");
+  });
+
+  test("loading a config with planAgentOrder round-trips", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        planAgentOrder: ["claude"],
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.planAgentOrder).toEqual(["claude"]);
+  });
+
+  test("legacy configs without planAgentOrder load and validate", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.planAgentOrder).toBeUndefined();
+  });
+
+  test("rejects an explicit empty planAgentOrder at load time", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        planAgentOrder: [],
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/planAgentOrder/);
+  });
+
+  test("rejects unknown agent in planAgentOrder", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        planAgentOrder: ["bogus"],
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/unknown agent/);
+  });
+
+  test("rejects duplicates in planAgentOrder", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude"],
+        planAgentOrder: ["claude", "claude"],
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/duplicate/);
+  });
+});

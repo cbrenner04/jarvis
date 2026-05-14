@@ -85,6 +85,7 @@ export type PatchModels = Record<AgentName, string>;
 export type Config = {
   version: 1;
   agentOrder: AgentName[];
+  planAgentOrder?: AgentName[];
   quotaFallback: "strict" | "lenient";
   weakQuotaExitCodes: number[];
   maxIterations: number;
@@ -170,6 +171,38 @@ function validateConfig(input: unknown, file: string): Config {
       );
     }
     agentOrder.push(entry);
+  }
+
+  let planAgentOrder: AgentName[] | undefined;
+  if (obj.planAgentOrder !== undefined) {
+    if (!Array.isArray(obj.planAgentOrder)) {
+      fail(file, "planAgentOrder must be an array");
+    }
+    if (obj.planAgentOrder.length === 0) {
+      fail(
+        file,
+        "planAgentOrder must not be empty; omit the key to fall back to agentOrder",
+      );
+    }
+    const seen = new Set<string>();
+    const order: AgentName[] = [];
+    for (const entry of obj.planAgentOrder) {
+      if (!isAgentName(entry)) {
+        fail(
+          file,
+          `unknown agent ${JSON.stringify(entry)} (allowed: ${AGENT_NAMES.join(", ")})`,
+        );
+      }
+      if (seen.has(entry)) {
+        fail(
+          file,
+          `planAgentOrder contains duplicate agent ${JSON.stringify(entry)}`,
+        );
+      }
+      seen.add(entry);
+      order.push(entry);
+    }
+    planAgentOrder = order;
   }
 
   const maxIterations = validatePositiveInteger(
@@ -291,6 +324,7 @@ function validateConfig(input: unknown, file: string): Config {
   return {
     version: 1,
     agentOrder,
+    ...(planAgentOrder !== undefined ? { planAgentOrder } : {}),
     quotaFallback,
     weakQuotaExitCodes,
     maxIterations,

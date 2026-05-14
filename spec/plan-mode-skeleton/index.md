@@ -77,7 +77,7 @@ behavior.
 - [x] [01 — `jarvis plan` subcommand and help](./01-cli-subcommand-and-help.md)
 - [x] [02 — Input modes (file, inline, no-args) parsing](./02-input-modes-parsing.md)
 - [x] [03 — Target-repo resolution shared with `jarvis run`](./03-target-repo-resolution.md)
-- [ ] [04 — `planAgentOrder` config key](./04-plan-agent-order-config.md)
+- [x] [04 — `planAgentOrder` config key](./04-plan-agent-order-config.md)
 - [ ] [05 — Log-server requirement](./05-log-server-requirement.md)
 - [ ] [06 — README and docs stub](./06-readme-and-docs-stub.md)
 

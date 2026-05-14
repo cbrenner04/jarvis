@@ -40,7 +40,13 @@ describe("config show", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    const parsed = JSON.parse(cap.out());
+    const out = cap.out();
+    expect(out).toContain("planAgentOrder: (unset; uses agentOrder)\n");
+    const jsonText = out.replace(
+      /\nplanAgentOrder: \(unset; uses agentOrder\)\n$/,
+      "\n",
+    );
+    const parsed = JSON.parse(jsonText);
     expect(parsed).toEqual({
       version: 1,
       agentOrder: ["claude", "codex", "cursor"],
@@ -60,6 +66,22 @@ describe("config show", () => {
       git: true,
       projects: {},
     });
+  });
+
+  test("shows planAgentOrder on its own line when set", () => {
+    const cap = captureIo();
+    configCommand({
+      args: ["set-plan-order", "codex,claude"],
+      io: captureIo().io,
+      config: { dir: cfgDir },
+    });
+    const code = configCommand({
+      args: ["show"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("planAgentOrder: codex, claude\n");
   });
 });
 
@@ -198,6 +220,94 @@ describe("config set-order", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(1);
+  });
+});
+
+describe("config set-plan-order", () => {
+  test("happy path writes planAgentOrder", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "claude,codex"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.planAgentOrder).toEqual(["claude", "codex"]);
+    const onDisk = JSON.parse(
+      readFileSync(join(cfgDir, "config.json"), "utf8"),
+    );
+    expect(onDisk.planAgentOrder).toEqual(["claude", "codex"]);
+  });
+
+  test("rejects empty arg with documented wording", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", ""],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain(
+      "set-plan-order requires at least one agent; use `unset-plan-order` to clear plan-mode order and fall back to agentOrder",
+    );
+  });
+
+  test("rejects duplicates", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "claude,claude"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("duplicate");
+  });
+
+  test("rejects unknown agent", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "claude,nonsense"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("unknown agent");
+  });
+
+  test("missing arg exits 1", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("missing");
+  });
+});
+
+describe("config unset-plan-order", () => {
+  test("removes the key from disk", () => {
+    configCommand({
+      args: ["set-plan-order", "claude,codex"],
+      io: captureIo().io,
+      config: { dir: cfgDir },
+    });
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["unset-plan-order"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("planAgentOrder: (unset; uses agentOrder)");
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.planAgentOrder).toBeUndefined();
+    const onDisk = JSON.parse(
+      readFileSync(join(cfgDir, "config.json"), "utf8"),
+    );
+    expect(onDisk).not.toHaveProperty("planAgentOrder");
   });
 });
 

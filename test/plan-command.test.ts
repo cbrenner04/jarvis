@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +9,7 @@ import {
   planCommand,
 } from "../src/commands/plan.ts";
 import { parsePlanArgs } from "../src/commands/plan-args.ts";
+import { registerProject } from "../src/config.ts";
 
 function captureIo() {
   let out = "";
@@ -71,6 +73,218 @@ describe("planCommand", () => {
     expect(cap.err()).toContain("plan mode: inline");
     expect(cap.err()).toContain("this is freeform intent");
     expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+  });
+});
+
+describe("planCommand target-repo resolution", () => {
+  function setupWorld() {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-resolve-"));
+    const cfgDir = join(dir, "cfg");
+    const projectA = join(dir, "project-a");
+    const projectB = join(dir, "project-b");
+    mkdirSync(projectA);
+    mkdirSync(projectB);
+    return { dir, cfgDir, projectA, projectB };
+  }
+
+  test("file mode: intent file inside a registered project resolves to that project", () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+      const intentDir = join(projectA, "intents");
+      mkdirSync(intentDir);
+      const intentPath = join(intentDir, "intent.md");
+      writeFileSync(intentPath, "intent\n");
+
+      const cap = captureIo();
+      const code = planCommand({
+        io: cap.io,
+        args: [intentPath],
+        cwd: dir,
+        config: { dir: cfgDir },
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain(
+        `plan mode: target project=project-a root=${projectA}`,
+      );
+      expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("file mode: intent file inside a git checkout but unregistered → ad-hoc", () => {
+    const { dir, cfgDir, projectB } = setupWorld();
+    try {
+      execSync("git init -b main", { cwd: projectB });
+      const intentPath = join(projectB, "intent.md");
+      writeFileSync(intentPath, "intent\n");
+
+      const cap = captureIo();
+      const code = planCommand({
+        io: cap.io,
+        args: [intentPath],
+        cwd: dir,
+        config: { dir: cfgDir },
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain(
+        `plan mode: target project=project-b root=${projectB}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode + --cwd inside a registered project resolves to that project", () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = planCommand({
+        io: cap.io,
+        args: ["--cwd", projectA, "freeform intent"],
+        cwd: dir,
+        config: { dir: cfgDir },
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain("plan mode: inline");
+      expect(cap.err()).toContain(
+        `plan mode: target project=project-a root=${projectA}`,
+      );
+      expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("interactive mode + --cwd inside a registered project resolves to that project", () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = planCommand({
+        io: cap.io,
+        args: ["--cwd", projectA],
+        cwd: dir,
+        config: { dir: cfgDir },
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain("plan mode: interactive");
+      expect(cap.err()).toContain(
+        `plan mode: target project=project-a root=${projectA}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--repo <name> overrides path-walk fallback in file mode", () => {
+    const { dir, cfgDir, projectA, projectB } = setupWorld();
+    try {
+      execSync("git init -b main", { cwd: projectB });
+      registerProject("project-a", projectA, { dir: cfgDir });
+      const intentPath = join(projectB, "intent.md");
+      writeFileSync(intentPath, "intent\n");
+
+      const cap = captureIo();
+      const code = planCommand({
+        io: cap.io,
+        args: ["--repo", "project-a", intentPath],
+        cwd: dir,
+        config: { dir: cfgDir },
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain(
+        `plan mode: target project=project-a root=${projectA}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--repo <name> overrides path-walk fallback in inline mode", () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = planCommand({
+        io: cap.io,
+        args: ["--repo", "project-a", "freeform"],
+        cwd: dir,
+        config: { dir: cfgDir },
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain(
+        `plan mode: target project=project-a root=${projectA}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--repo <name> overrides path-walk fallback in interactive mode", () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = planCommand({
+        io: cap.io,
+        args: ["--repo", "project-a"],
+        cwd: dir,
+        config: { dir: cfgDir },
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain(
+        `plan mode: target project=project-a root=${projectA}`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resolution failure exits 1 with the same wording as jarvis run", () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = planCommand({
+        io: cap.io,
+        args: ["--repo", "nope"],
+        cwd: dir,
+        config: { dir: cfgDir },
+      });
+      expect(code).toBe(1);
+      // Same wording as run mode's resolveProject error.
+      expect(cap.err()).toContain('--repo: no project matches "nope"');
+      expect(cap.err()).not.toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("after successful resolution, the stub exit 2 still fires", () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = planCommand({
+        io: cap.io,
+        args: ["--repo", "project-a"],
+        cwd: dir,
+        config: { dir: cfgDir },
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

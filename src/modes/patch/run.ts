@@ -42,7 +42,7 @@ import {
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import { createLogClient, type LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttribution } from "../../pr.ts";
-import { resolveProject } from "../../resolve-project.ts";
+import { resolveTargetRepo } from "../../repo.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import {
   createWorktreeSymlinks,
@@ -1307,8 +1307,8 @@ async function resolveProjectFromSpec(opts: {
     };
   }
 
-  const resolveOpts: Parameters<typeof resolveProject>[0] = {
-    specPath: opts.specPath,
+  const resolveOpts: Parameters<typeof resolveTargetRepo>[0] = {
+    candidatePath: opts.specPath,
   };
   if (specRepo !== undefined) {
     resolveOpts.specRepo = specRepo;
@@ -1319,7 +1319,7 @@ async function resolveProjectFromSpec(opts: {
   if (opts.config !== undefined) {
     resolveOpts.config = opts.config;
   }
-  const result = resolveProject(resolveOpts);
+  const result = resolveTargetRepo(resolveOpts);
 
   if (result.kind === "ok") {
     return {

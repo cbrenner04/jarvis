@@ -85,14 +85,14 @@ treated as authoritative. The fallback chain still applies.
 
 ## Acceptance criteria
 
-- [ ] Plan mode resolves the target repo using the same rules as `jarvis
+- [x] Plan mode resolves the target repo using the same rules as `jarvis
   run`, in all three input modes.
-- [ ] Resolution failures exit `1` with the same wording the user
+- [x] Resolution failures exit `1` with the same wording the user
   already sees from `jarvis run`.
-- [ ] Successful resolution does not modify the project registry, the
+- [x] Successful resolution does not modify the project registry, the
   target repo, or any worktree.
-- [ ] After successful resolution, the stub exit `2` still fires.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] After successful resolution, the stub exit `2` still fires.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

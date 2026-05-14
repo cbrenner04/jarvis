@@ -41,7 +41,7 @@ import {
 } from "../../disambiguation-prompt.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import { createLogClient, type LogClient } from "../../logging.ts";
-import { ensureDraftPr } from "../../pr.ts";
+import { ensureDraftPr, renderAttribution } from "../../pr.ts";
 import { resolveProject } from "../../resolve-project.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import {
@@ -876,13 +876,17 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 if (!state.draftPrEnsured) {
                   const prBody = async (): Promise<string> =>
                     getDeterministicPrBody(specPath);
-                  const attribution = `Written by ${agent.attributionLabel()} through Jarvis.`;
+                  const base = await getBaseBranch(agentWorkingDir);
+                  const footer = renderAttribution({
+                    cwd: agentWorkingDir,
+                    base,
+                  });
                   await ensureDraftPr({
                     branch: getCurrentBranch(agentWorkingDir),
-                    base: await getBaseBranch(agentWorkingDir),
+                    base,
                     title: getIndexTitle(specPath),
                     bodyGenerator: prBody,
-                    attribution,
+                    footer,
                     cwd: agentWorkingDir,
                   });
                   state.draftPrEnsured = true;

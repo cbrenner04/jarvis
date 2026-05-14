@@ -1,3 +1,9 @@
+import { loadConfig } from "../config.ts";
+import {
+  checkLogServerReachable,
+  DEFAULT_LOG_SERVER_URL,
+} from "../log-server-preflight.ts";
+import type { LogClient } from "../logging.ts";
 import { resolveTargetRepo } from "../repo.ts";
 import { describePlanInvocation, parsePlanArgs } from "./plan-args.ts";
 
@@ -14,6 +20,8 @@ export type PlanCommandOptions = {
    * Optional config dir override (for tests).
    */
   config?: Parameters<typeof resolveTargetRepo>[0]["config"];
+  /** Override the log client (for tests). */
+  logClient?: LogClient;
 };
 
 export const PLAN_USAGE = `Usage: jarvis plan [--interview-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file-or-text>]
@@ -23,7 +31,7 @@ export const PLAN_USAGE = `Usage: jarvis plan [--interview-turns <n>] [--review-
 export const PLAN_STUB_MESSAGE =
   "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n";
 
-export function planCommand(opts: PlanCommandOptions): number {
+export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   const args = opts.args ?? [];
   if (args.includes("--help") || args.includes("-h")) {
     opts.io.stdout(PLAN_USAGE);
@@ -72,6 +80,19 @@ export function planCommand(opts: PlanCommandOptions): number {
   opts.io.stderr(
     `plan mode: target project=${project.key} root=${project.root}\n`,
   );
+
+  const cfg = loadConfig(opts.config);
+  const preflightOpts: Parameters<typeof checkLogServerReachable>[0] = {
+    io: { stderr: opts.io.stderr },
+    logServerUrl: cfg.logServerUrl ?? DEFAULT_LOG_SERVER_URL,
+  };
+  if (opts.logClient !== undefined) {
+    preflightOpts.logClient = opts.logClient;
+  }
+  const logServerResult = await checkLogServerReachable(preflightOpts);
+  if (logServerResult.kind === "error") {
+    return logServerResult.exitCode;
+  }
 
   opts.io.stderr(PLAN_STUB_MESSAGE);
   return 2;

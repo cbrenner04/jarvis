@@ -307,6 +307,9 @@ export function run(
       if (opts.cwd !== undefined) {
         planOpts.cwd = opts.cwd;
       }
+      if (opts.config !== undefined) {
+        planOpts.config = opts.config;
+      }
       return planCommand(planOpts);
     }
     case "unknown":

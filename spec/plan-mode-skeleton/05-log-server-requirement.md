@@ -64,13 +64,13 @@ exit so reviewers can confirm parity with `jarvis run`.
 
 ## Acceptance criteria
 
-- [ ] Plan mode refuses to start when the log server is not reachable,
+- [x] Plan mode refuses to start when the log server is not reachable,
   using the same message `jarvis run` uses, exit `1`.
-- [ ] Plan mode runs the preflight in the documented order (parse →
+- [x] Plan mode runs the preflight in the documented order (parse →
   resolve repo → log-server → stub).
-- [ ] No worktree, file, branch, commit, or PR is created or modified
+- [x] No worktree, file, branch, commit, or PR is created or modified
   by any invocation.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type Io, parseArgs, run } from "../src/cli.ts";
@@ -241,16 +241,42 @@ describe("run", () => {
     expect(cap.err()).toContain("bogus");
   });
 
-  test("plan with no args prints stub to stderr and exits 2", () => {
+  test("plan with no args fails the log-server preflight (exit 1) when the log server is not reachable", async () => {
+    // Pin logServerUrl to a deliberately-unreachable port so the test is
+    // robust to whether a real log server is running on the host.
+    writeFileSync(
+      join(cfgDir, "config.json"),
+      JSON.stringify({
+        version: 1,
+        agentOrder: ["claude", "codex", "cursor"],
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 1800000,
+        patchModels: {
+          claude: "haiku",
+          codex: "gpt-5.3-codex",
+          cursor: "Composer 2",
+          opencode: "github-copilot/claude-opus-4.7",
+        },
+        logServerUrl: "http://127.0.0.1:1/logs",
+        logServerBind: "127.0.0.1:4310",
+        git: true,
+        projects: {},
+      }),
+    );
     const cap = captureIo();
-    const code = run(["plan"], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(2);
-    expect(cap.err()).toContain("not yet implemented");
+    const code = await run(["plan"], { io: cap.io, config: { dir: cfgDir } });
+    // The stub message is gated behind a successful preflight; see
+    // test/plan-command.test.ts for the stub-message coverage with an
+    // injected log client.
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("log server unreachable");
   });
 
-  test("plan --help prints usage to stdout and exits 0", () => {
+  test("plan --help prints usage to stdout and exits 0", async () => {
     const cap = captureIo();
-    const code = run(["plan", "--help"], {
+    const code = await run(["plan", "--help"], {
       io: cap.io,
       config: { dir: cfgDir },
     });

@@ -10,6 +10,7 @@ import {
 } from "../src/commands/plan.ts";
 import { parsePlanArgs } from "../src/commands/plan-args.ts";
 import { registerProject } from "../src/config.ts";
+import type { LogClient } from "../src/logging.ts";
 
 function captureIo() {
   let out = "";
@@ -28,27 +29,41 @@ function captureIo() {
   };
 }
 
+const okLogClient: LogClient = {
+  assertReachable: async () => {},
+  send: async () => {},
+};
+
+function failingLogClient(message: string): LogClient {
+  return {
+    assertReachable: async () => {
+      throw new Error(message);
+    },
+    send: async () => {},
+  };
+}
+
 describe("planCommand", () => {
-  test("no args → interactive mode, stub on stderr, exit 2", () => {
+  test("no args → interactive mode, stub on stderr, exit 2", async () => {
     const cap = captureIo();
-    const code = planCommand({ io: cap.io });
+    const code = await planCommand({ io: cap.io, logClient: okLogClient });
     expect(code).toBe(2);
     expect(cap.err()).toContain("plan mode: interactive");
     expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
     expect(cap.out()).toBe("");
   });
 
-  test("--help prints usage to stdout, exit 0", () => {
+  test("--help prints usage to stdout, exit 0", async () => {
     const cap = captureIo();
-    const code = planCommand({ io: cap.io, args: ["--help"] });
+    const code = await planCommand({ io: cap.io, args: ["--help"] });
     expect(code).toBe(0);
     expect(cap.out()).toBe(PLAN_USAGE);
     expect(cap.err()).toBe("");
   });
 
-  test("-h prints usage to stdout, exit 0", () => {
+  test("-h prints usage to stdout, exit 0", async () => {
     const cap = captureIo();
-    const code = planCommand({ io: cap.io, args: ["-h"] });
+    const code = await planCommand({ io: cap.io, args: ["-h"] });
     expect(code).toBe(0);
     expect(cap.out()).toBe(PLAN_USAGE);
     expect(cap.err()).toBe("");
@@ -63,11 +78,12 @@ describe("planCommand", () => {
     expect(PLAN_USAGE).toContain("intent-file-or-text");
   });
 
-  test("inline mode: positional that is not a file", () => {
+  test("inline mode: positional that is not a file", async () => {
     const cap = captureIo();
-    const code = planCommand({
+    const code = await planCommand({
       io: cap.io,
       args: ["this is freeform intent"],
+      logClient: okLogClient,
     });
     expect(code).toBe(2);
     expect(cap.err()).toContain("plan mode: inline");
@@ -87,7 +103,7 @@ describe("planCommand target-repo resolution", () => {
     return { dir, cfgDir, projectA, projectB };
   }
 
-  test("file mode: intent file inside a registered project resolves to that project", () => {
+  test("file mode: intent file inside a registered project resolves to that project", async () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
@@ -97,11 +113,12 @@ describe("planCommand target-repo resolution", () => {
       writeFileSync(intentPath, "intent\n");
 
       const cap = captureIo();
-      const code = planCommand({
+      const code = await planCommand({
         io: cap.io,
         args: [intentPath],
         cwd: dir,
         config: { dir: cfgDir },
+        logClient: okLogClient,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(
@@ -113,7 +130,7 @@ describe("planCommand target-repo resolution", () => {
     }
   });
 
-  test("file mode: intent file inside a git checkout but unregistered → ad-hoc", () => {
+  test("file mode: intent file inside a git checkout but unregistered → ad-hoc", async () => {
     const { dir, cfgDir, projectB } = setupWorld();
     try {
       execSync("git init -b main", { cwd: projectB });
@@ -121,11 +138,12 @@ describe("planCommand target-repo resolution", () => {
       writeFileSync(intentPath, "intent\n");
 
       const cap = captureIo();
-      const code = planCommand({
+      const code = await planCommand({
         io: cap.io,
         args: [intentPath],
         cwd: dir,
         config: { dir: cfgDir },
+        logClient: okLogClient,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(
@@ -136,17 +154,18 @@ describe("planCommand target-repo resolution", () => {
     }
   });
 
-  test("inline mode + --cwd inside a registered project resolves to that project", () => {
+  test("inline mode + --cwd inside a registered project resolves to that project", async () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
-      const code = planCommand({
+      const code = await planCommand({
         io: cap.io,
         args: ["--cwd", projectA, "freeform intent"],
         cwd: dir,
         config: { dir: cfgDir },
+        logClient: okLogClient,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain("plan mode: inline");
@@ -159,17 +178,18 @@ describe("planCommand target-repo resolution", () => {
     }
   });
 
-  test("interactive mode + --cwd inside a registered project resolves to that project", () => {
+  test("interactive mode + --cwd inside a registered project resolves to that project", async () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
-      const code = planCommand({
+      const code = await planCommand({
         io: cap.io,
         args: ["--cwd", projectA],
         cwd: dir,
         config: { dir: cfgDir },
+        logClient: okLogClient,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain("plan mode: interactive");
@@ -181,7 +201,7 @@ describe("planCommand target-repo resolution", () => {
     }
   });
 
-  test("--repo <name> overrides path-walk fallback in file mode", () => {
+  test("--repo <name> overrides path-walk fallback in file mode", async () => {
     const { dir, cfgDir, projectA, projectB } = setupWorld();
     try {
       execSync("git init -b main", { cwd: projectB });
@@ -190,11 +210,12 @@ describe("planCommand target-repo resolution", () => {
       writeFileSync(intentPath, "intent\n");
 
       const cap = captureIo();
-      const code = planCommand({
+      const code = await planCommand({
         io: cap.io,
         args: ["--repo", "project-a", intentPath],
         cwd: dir,
         config: { dir: cfgDir },
+        logClient: okLogClient,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(
@@ -205,17 +226,18 @@ describe("planCommand target-repo resolution", () => {
     }
   });
 
-  test("--repo <name> overrides path-walk fallback in inline mode", () => {
+  test("--repo <name> overrides path-walk fallback in inline mode", async () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
-      const code = planCommand({
+      const code = await planCommand({
         io: cap.io,
         args: ["--repo", "project-a", "freeform"],
         cwd: dir,
         config: { dir: cfgDir },
+        logClient: okLogClient,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(
@@ -226,17 +248,18 @@ describe("planCommand target-repo resolution", () => {
     }
   });
 
-  test("--repo <name> overrides path-walk fallback in interactive mode", () => {
+  test("--repo <name> overrides path-walk fallback in interactive mode", async () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
-      const code = planCommand({
+      const code = await planCommand({
         io: cap.io,
         args: ["--repo", "project-a"],
         cwd: dir,
         config: { dir: cfgDir },
+        logClient: okLogClient,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(
@@ -247,17 +270,18 @@ describe("planCommand target-repo resolution", () => {
     }
   });
 
-  test("resolution failure exits 1 with the same wording as jarvis run", () => {
+  test("resolution failure exits 1 with the same wording as jarvis run", async () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
-      const code = planCommand({
+      const code = await planCommand({
         io: cap.io,
         args: ["--repo", "nope"],
         cwd: dir,
         config: { dir: cfgDir },
+        logClient: okLogClient,
       });
       expect(code).toBe(1);
       // Same wording as run mode's resolveProject error.
@@ -268,20 +292,119 @@ describe("planCommand target-repo resolution", () => {
     }
   });
 
-  test("after successful resolution, the stub exit 2 still fires", () => {
+  test("after successful resolution, the stub exit 2 still fires", async () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
-      const code = planCommand({
+      const code = await planCommand({
         io: cap.io,
         args: ["--repo", "project-a"],
         cwd: dir,
         config: { dir: cfgDir },
+        logClient: okLogClient,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("planCommand log-server preflight", () => {
+  function setupWorld() {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-logsrv-"));
+    const cfgDir = join(dir, "cfg");
+    const projectA = join(dir, "project-a");
+    mkdirSync(projectA);
+    return { dir, cfgDir, projectA };
+  }
+
+  test("log server down → exit 1 with shared message; stub does not fire", async () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--repo", "project-a"],
+        cwd: dir,
+        config: { dir: cfgDir },
+        logClient: failingLogClient("connect ECONNREFUSED 127.0.0.1:4310"),
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("log server unreachable");
+      expect(cap.err()).toContain("jarvis log-server");
+      expect(cap.err()).not.toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("log server up + valid repo + valid args → exit 2 with stub", async () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--repo", "project-a"],
+        cwd: dir,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("log server up + invalid repo → exit 1 with resolution error (resolution runs first)", async () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      // logClient is a tripwire: if the preflight runs before resolution, the
+      // failing client would surface a "log server unreachable" message.
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--repo", "nope"],
+        cwd: dir,
+        config: { dir: cfgDir },
+        logClient: failingLogClient("should not be called"),
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain('--repo: no project matches "nope"');
+      expect(cap.err()).not.toContain("log server unreachable");
+      expect(cap.err()).not.toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("log server down (would fail) + bad args → exit 1 with arg error (parsing runs first)", async () => {
+    const { dir, cfgDir, projectA } = setupWorld();
+    try {
+      registerProject("project-a", projectA, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--bogus"],
+        cwd: dir,
+        config: { dir: cfgDir },
+        logClient: failingLogClient("should not be called"),
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("--bogus");
+      expect(cap.err()).not.toContain("log server unreachable");
+      expect(cap.err()).not.toContain(PLAN_STUB_MESSAGE);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

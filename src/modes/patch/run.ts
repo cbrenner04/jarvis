@@ -40,7 +40,11 @@ import {
   promptForProject,
 } from "../../disambiguation-prompt.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
-import { createLogClient, type LogClient } from "../../logging.ts";
+import {
+  checkLogServerReachable,
+  DEFAULT_LOG_SERVER_URL,
+} from "../../log-server-preflight.ts";
+import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttribution } from "../../pr.ts";
 import { resolveTargetRepo } from "../../repo.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
@@ -452,17 +456,19 @@ async function setupLogging(
   { kind: "ok"; logging: LoggingContext } | { kind: "error"; exitCode: number }
 > {
   const cfg = preflight.cfg;
-  const logServerUrl = cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
-  const logClient = opts.logClient ?? createLogClient(logServerUrl);
-  try {
-    await logClient.assertReachable();
-  } catch (err) {
-    opts.io.stderr(
-      `jarvis: log server unreachable at ${logServerUrl}. Start it with \`jarvis log-server\` or update config.\n`,
-    );
-    opts.io.stderr(`jarvis: ${(err as Error).message}\n`);
-    return { kind: "error", exitCode: 1 };
+  const logServerUrl = cfg.logServerUrl ?? DEFAULT_LOG_SERVER_URL;
+  const preflightOpts: Parameters<typeof checkLogServerReachable>[0] = {
+    io: { stderr: opts.io.stderr },
+    logServerUrl,
+  };
+  if (opts.logClient !== undefined) {
+    preflightOpts.logClient = opts.logClient;
   }
+  const logServerResult = await checkLogServerReachable(preflightOpts);
+  if (logServerResult.kind === "error") {
+    return { kind: "error", exitCode: logServerResult.exitCode };
+  }
+  const logClient = logServerResult.logClient;
 
   const specDisplayName = getSpecDisplayName(preflight.specPath);
   const runNamespace = `${preflight.project.key}:${specDisplayName}`;

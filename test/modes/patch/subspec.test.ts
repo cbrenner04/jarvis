@@ -12,6 +12,7 @@ import { join } from "node:path";
 import {
   commitSubspec,
   commitWipProgress,
+  commitWipProgressWithBlocker,
 } from "../../../src/modes/patch/subspec.ts";
 
 let tempDir: string;
@@ -88,7 +89,7 @@ describe("commitSubspec", () => {
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
 
-    commitSubspec(specPath, { cwd: gitDir });
+    commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
     const message = getLastCommitMessage();
     expect(message).toContain("Test Spec");
@@ -112,7 +113,7 @@ describe("commitSubspec", () => {
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
 
-    commitSubspec(specPath, { cwd: gitDir });
+    commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
     const message = getLastCommitMessage();
     expect(message).toContain("JARVIS_COMMIT_MESSAGE");
@@ -135,7 +136,7 @@ describe("commitSubspec", () => {
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
 
-    commitSubspec(specPath, { cwd: gitDir });
+    commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
     const message = getLastCommitMessage();
     expect(message).toContain("EOF");
@@ -158,7 +159,7 @@ describe("commitSubspec", () => {
     execSync("git add .", { cwd: gitDir, stdio: "pipe" });
     execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
 
-    commitSubspec(specPath, { cwd: gitDir });
+    commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
     const indexContent = readFileSync(indexPath, "utf8");
     expect(indexContent).toContain("- [x] [01 — Test one]");
@@ -198,6 +199,7 @@ describe("commitWipProgress", () => {
       newlyChecked: [],
       checkedTotal: 0,
       total: 2,
+      agentLabel: "",
     });
 
     const message = getLastCommitMessage();
@@ -237,6 +239,7 @@ describe("commitWipProgress", () => {
       newlyChecked: [],
       checkedTotal: 1,
       total: 2,
+      agentLabel: "",
     });
 
     const message = getLastCommitMessage();
@@ -276,10 +279,193 @@ describe("commitWipProgress", () => {
       newlyChecked: [{ text: "First criterion", checked: true }],
       checkedTotal: 1,
       total: 2,
+      agentLabel: "",
     });
 
     const message = getLastCommitMessage();
     expect(message).toContain("Newly checked:");
     expect(message).toContain("- First criterion");
+  });
+});
+
+describe("Jarvis-Agent trailer", () => {
+  test("commitSubspec appends Jarvis-Agent trailer when label is non-empty", () => {
+    createIndexFile();
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
+
+## Acceptance criteria
+
+- [x] First criterion
+`,
+    );
+
+    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
+    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+
+    commitSubspec(specPath, {
+      cwd: gitDir,
+      agentLabel: "Claude Opus 4.7",
+    });
+
+    const message = getLastCommitMessage();
+    // Trailer at the end, separated by exactly one blank line.
+    expect(message.endsWith("Jarvis-Agent: Claude Opus 4.7")).toBe(true);
+    // Verify the body containing the acceptance criteria precedes the
+    // trailer, with one blank line between body and trailer.
+    expect(message).toMatch(
+      /- \[x\] First criterion\n\nJarvis-Agent: Claude Opus 4\.7$/,
+    );
+  });
+
+  test("commitSubspec omits Jarvis-Agent line when label is empty", () => {
+    createIndexFile();
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
+
+## Acceptance criteria
+
+- [x] First criterion
+`,
+    );
+
+    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
+    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+
+    commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
+
+    const message = getLastCommitMessage();
+    expect(message).not.toContain("Jarvis-Agent:");
+  });
+
+  test("commitWipProgress appends Jarvis-Agent trailer when label is non-empty", () => {
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
+
+## Acceptance criteria
+
+- [ ] First criterion
+`,
+    );
+
+    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
+    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+
+    writeFileSync(
+      specPath,
+      `# Test Spec
+
+## Acceptance criteria
+
+- [x] First criterion
+`,
+    );
+
+    commitWipProgress(specPath, {
+      cwd: gitDir,
+      newlyChecked: [{ text: "First criterion", checked: true }],
+      checkedTotal: 1,
+      total: 1,
+      agentLabel: "codex (default model)",
+    });
+
+    const message = getLastCommitMessage();
+    expect(message.endsWith("Jarvis-Agent: codex (default model)")).toBe(true);
+    expect(message).toMatch(
+      /- First criterion\n\nJarvis-Agent: codex \(default model\)$/,
+    );
+  });
+
+  test("commitWipProgressWithBlocker appends Jarvis-Agent trailer after Blocker body", () => {
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
+
+## Acceptance criteria
+
+- [ ] First criterion
+
+## Blocker
+
+External dependency missing
+`,
+    );
+
+    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
+    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+
+    writeFileSync(
+      specPath,
+      `# Test Spec
+
+## Acceptance criteria
+
+- [x] First criterion
+
+## Blocker
+
+External dependency missing
+`,
+    );
+
+    commitWipProgressWithBlocker(specPath, {
+      cwd: gitDir,
+      newlyChecked: [{ text: "First criterion", checked: true }],
+      checkedTotal: 1,
+      total: 1,
+      blockerBody: "External dependency missing",
+      agentLabel: "Cursor Composer 2",
+    });
+
+    const message = getLastCommitMessage();
+    expect(message.endsWith("Jarvis-Agent: Cursor Composer 2")).toBe(true);
+    // Body content (blocker) precedes trailer with a blank line.
+    expect(message).toMatch(
+      /External dependency missing\n\nJarvis-Agent: Cursor Composer 2$/,
+    );
+  });
+
+  test("commitWipProgressWithBlocker omits trailer when label is empty", () => {
+    const specPath = createSpecFile(
+      "01-test-one.md",
+      `# Test Spec
+
+## Acceptance criteria
+
+- [ ] First criterion
+`,
+    );
+
+    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
+    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+
+    writeFileSync(
+      specPath,
+      `# Test Spec
+
+## Acceptance criteria
+
+- [ ] First criterion
+
+## Blocker
+
+Stuck
+`,
+    );
+
+    commitWipProgressWithBlocker(specPath, {
+      cwd: gitDir,
+      newlyChecked: [],
+      checkedTotal: 0,
+      total: 1,
+      blockerBody: "Stuck",
+      agentLabel: "",
+    });
+
+    const message = getLastCommitMessage();
+    expect(message).not.toContain("Jarvis-Agent:");
   });
 });

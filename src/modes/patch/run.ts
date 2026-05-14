@@ -799,6 +799,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 checkedTotal,
                 total: afterCriteria.length,
                 blockerBody,
+                agentLabel: agent.attributionLabel(),
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
@@ -842,7 +843,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         if (allChecked) {
           if (gitEnabled) {
             try {
-              commitSubspec(activeSubspecPath, { cwd: agentWorkingDir });
+              commitSubspec(activeSubspecPath, {
+                cwd: agentWorkingDir,
+                agentLabel: agent.attributionLabel(),
+              });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
               fanout(
@@ -909,6 +913,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 newlyChecked,
                 checkedTotal,
                 total: afterCriteria.length,
+                agentLabel: agent.attributionLabel(),
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);

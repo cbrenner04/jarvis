@@ -7,7 +7,7 @@ export type { AcceptanceCriterion };
 
 export function commitSubspec(
   subspecPath: string,
-  opts: { cwd?: string } = {},
+  opts: { cwd?: string; agentLabel: string },
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
   const indexPath = getIndexPath(subspecPath);
@@ -39,7 +39,8 @@ export function commitSubspec(
   );
   const bodyFirstLine = `Spec: ${relativeSpecPath}`;
   const commitBody = `${bodyFirstLine}\n\n${acceptanceCriteriaSection}`;
-  const commitMessage = `${parsed.h1}\n\n${commitBody}`;
+  const baseMessage = `${parsed.h1}\n\n${commitBody}`;
+  const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
   execFileSync("git", ["commit", "-F", "-"], {
     cwd: gitRoot,
@@ -63,6 +64,7 @@ export function commitWipProgress(
     newlyChecked: AcceptanceCriterion[];
     checkedTotal: number;
     total: number;
+    agentLabel: string;
   },
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
@@ -84,7 +86,8 @@ export function commitWipProgress(
       : `Spec: ${relativeSpecPath}\n\nNewly checked:\n${opts.newlyChecked
           .map((c) => `- ${c.text}`)
           .join("\n")}`;
-  const commitMessage = `${summary}\n\n${body}`;
+  const baseMessage = `${summary}\n\n${body}`;
+  const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
   execFileSync("git", ["commit", "-F", "-"], {
     cwd: opts.cwd,
@@ -102,6 +105,7 @@ export function commitWipProgressWithBlocker(
     checkedTotal: number;
     total: number;
     blockerBody: string;
+    agentLabel: string;
   },
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
@@ -129,7 +133,8 @@ export function commitWipProgressWithBlocker(
     body = `Spec: ${relativeSpecPath}\n\nNewly checked:\n${checkedList}\n\n## Blocker\n\n${opts.blockerBody}`;
   }
 
-  const commitMessage = `${summary}\n\n${body}`;
+  const baseMessage = `${summary}\n\n${body}`;
+  const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
   execFileSync("git", ["commit", "-F", "-"], {
     cwd: opts.cwd,
@@ -137,6 +142,14 @@ export function commitWipProgressWithBlocker(
     stdio: ["pipe", "pipe", "pipe"],
     input: commitMessage,
   });
+}
+
+function appendAgentTrailer(message: string, agentLabel: string): string {
+  if (agentLabel === "") {
+    return message;
+  }
+  const trimmed = message.replace(/\n+$/, "");
+  return `${trimmed}\n\nJarvis-Agent: ${agentLabel}`;
 }
 
 function getGitRoot(subspecPath: string): string {

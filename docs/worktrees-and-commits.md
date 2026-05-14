@@ -55,6 +55,28 @@ commit body includes:
 The same commit also flips the index.md checkbox for the subspec from `[ ]`
 to `[x]`, staging both the work and the index update together.
 
+### Jarvis-Agent trailer
+
+Every commit jarvis creates carries a `Jarvis-Agent: <label>` git trailer
+at the end of the commit message. This applies to all three commit shapes
+jarvis produces: subspec commits, `WIP:` progress commits, and `WIP:`
+blocker commits.
+
+- **Name**: exactly `Jarvis-Agent`. No alternative spellings.
+- **Value**: `agent.attributionLabel()` for the agent that produced the
+  iteration — the same human-readable identifier used in the PR body
+  attribution footer.
+- **Placement**: at the end of the message, separated from the preceding
+  body by exactly one blank line, in the standard git-trailer position so
+  `git log --format='%(trailers)'` and `git interpret-trailers` both see
+  it.
+- **Empty label**: when the agent has no attribution label, the
+  `Jarvis-Agent` line is omitted entirely.
+
+Stamping `WIP:` commits as well as subspec commits keeps the data shape
+uniform across every commit jarvis writes, even though the PR body
+attribution footer only renders subspec commits.
+
 ## Push cadence
 
 Each subspec commit is pushed immediately:

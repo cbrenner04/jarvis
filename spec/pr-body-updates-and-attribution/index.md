@@ -124,7 +124,7 @@ per-commit list plus a deduped summary line.
 
 ## Subspecs
 
-- [ ] [00 - Stamp Jarvis-Agent trailer on every commit](./00-commit-trailers.md)
+- [x] [00 - Stamp Jarvis-Agent trailer on every commit](./00-commit-trailers.md)
 - [ ] [01 - Deterministic PR body builder with narrative preservation](./01-pr-body-builder.md)
 - [ ] [02 - Trailer-sourced attribution footer](./02-attribution-footer.md)
 - [ ] [03 - Update PR body on every subspec commit](./03-update-on-subspec-commit.md)

@@ -142,7 +142,10 @@ cadence, draft PR lifecycle, and blocker handling, see
 Each checked subspec becomes one commit. The subject is the subspec H1, the
 first body line is `Spec: <relative subspec path>`, and the body then includes
 the subspec's `## Acceptance criteria` section. The index checkbox flip is
-staged in that same commit.
+staged in that same commit. Every commit jarvis creates — both subspec
+commits and `WIP:` commits — also carries a `Jarvis-Agent: <label>` git
+trailer at the end of the message identifying the agent that produced it.
+The trailer is omitted when the active agent has no attribution label.
 
 Jarvis pushes every subspec commit immediately. The first push sets upstream
 tracking with `git push -u origin <branch>`; later pushes use plain

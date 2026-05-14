@@ -165,6 +165,15 @@ present). Later commits leave the PR body unchanged. After a pushed commit
 leaves every linked subspec checkbox in `index.md` checked, jarvis marks
 the PR ready for review with `gh pr ready`.
 
+The PR body is rewritten after every successful subspec commit, not only
+at draft creation. Each rewrite re-runs the deterministic header and
+attribution footer from scratch and preserves whatever lives between the
+narrative markers. WIP commits do not trigger a rewrite. If `gh pr edit`
+fails, jarvis emits a `harness` warning and continues; the next successful
+subspec commit's rewrite heals the body. See
+[docs/worktrees-and-commits.md](docs/worktrees-and-commits.md#update-cadence)
+for details.
+
 Normal runs expect the supplied spec path to be an `index.md` file. Passing
 a non-index spec file such as `spec/<name>/01-task.md` prompts to either
 switch to a sibling `index.md` (when one exists) or exit.

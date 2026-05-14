@@ -59,7 +59,12 @@ import {
   getActiveLinkedSubspecPath,
   getFirstUncheckedTask,
 } from "./completion.ts";
-import { buildPrBody, generatePrBodyFromSpec, maybeMarkReady } from "./pr.ts";
+import {
+  buildPrBody,
+  generatePrBodyFromSpec,
+  maybeMarkReady,
+  updatePrBody,
+} from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
 import { parsePatchSpec } from "./spec.ts";
 import {
@@ -873,23 +878,44 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               }
 
               try {
+                let createdThisIteration = false;
+                const base = await getBaseBranch(agentWorkingDir);
+                const branch = getCurrentBranch(agentWorkingDir);
                 if (!state.draftPrEnsured) {
                   const prBody = async (): Promise<string> =>
                     getDeterministicPrBody(specPath);
-                  const base = await getBaseBranch(agentWorkingDir);
                   const footer = renderAttribution({
                     cwd: agentWorkingDir,
                     base,
                   });
-                  await ensureDraftPr({
-                    branch: getCurrentBranch(agentWorkingDir),
+                  const ensured = await ensureDraftPr({
+                    branch,
                     base,
                     title: getIndexTitle(specPath),
                     bodyGenerator: prBody,
                     footer,
                     cwd: agentWorkingDir,
                   });
+                  createdThisIteration = ensured.created;
                   state.draftPrEnsured = true;
+                }
+                if (!createdThisIteration) {
+                  try {
+                    updatePrBody({
+                      indexPath: specPath,
+                      branch,
+                      base,
+                      cwd: agentWorkingDir,
+                    });
+                  } catch (err) {
+                    const message =
+                      err instanceof Error ? err.message : String(err);
+                    fanout(
+                      "harness",
+                      `failed to update PR body for ${activeSubspecPath}: ${message}\n`,
+                      "stderr",
+                    );
+                  }
                 }
                 maybeMarkReady({
                   indexPath: specPath,

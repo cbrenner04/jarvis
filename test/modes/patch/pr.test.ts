@@ -7,6 +7,7 @@ import {
   extractNarrative,
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
+  updatePrBody,
 } from "../../../src/modes/patch/pr.ts";
 
 let dir: string;
@@ -132,5 +133,131 @@ describe("extractNarrative", () => {
   test("trims surrounding whitespace from extracted content", () => {
     const body = `${NARRATIVE_START_MARKER}\n\n\nbody text\n\n\n${NARRATIVE_END_MARKER}`;
     expect(extractNarrative(body)).toBe("body text");
+  });
+});
+
+describe("updatePrBody", () => {
+  test("composes header + preserved narrative + footer when markers and footer present", () => {
+    writeFileSync(
+      indexPath,
+      [
+        "# Spec",
+        "",
+        "- [x] [00 - one](./00-one.md)",
+        "- [ ] [01 - two](./01-two.md)",
+        "",
+      ].join("\n"),
+    );
+    const currentBody = [
+      "# stale header",
+      "",
+      NARRATIVE_START_MARKER,
+      "preserved narrative",
+      NARRATIVE_END_MARKER,
+      "",
+      "stale footer",
+    ].join("\n");
+
+    let writtenBody = "";
+    updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => currentBody,
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () =>
+        "- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
+    });
+
+    expect(writtenBody).toContain("# Spec");
+    expect(writtenBody).toContain("1 of 2 subspecs complete");
+    expect(writtenBody).toContain(
+      `${NARRATIVE_START_MARKER}\npreserved narrative\n${NARRATIVE_END_MARKER}`,
+    );
+    expect(writtenBody).toContain(
+      "\n\n---\n\n- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
+    );
+  });
+
+  test("omits narrative section when markers missing in current body", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    let writtenBody = "";
+    updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => "no markers here",
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "",
+    });
+
+    expect(writtenBody).not.toContain(NARRATIVE_START_MARKER);
+    expect(writtenBody).not.toContain(NARRATIVE_END_MARKER);
+  });
+
+  test("omits footer separator when renderFooter returns empty string", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    let writtenBody = "";
+    updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => "",
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "",
+    });
+
+    expect(writtenBody).not.toContain("---");
+  });
+
+  test("passes branch and cwd through to writer", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    let seenBranch = "";
+    let seenCwd = "";
+    updatePrBody({
+      indexPath,
+      branch: "feature-x",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => "",
+      writePrBody: (branch, _body, cwd) => {
+        seenBranch = branch;
+        seenCwd = cwd;
+      },
+      renderFooter: () => "",
+    });
+
+    expect(seenBranch).toBe("feature-x");
+    expect(seenCwd).toBe(dir);
+  });
+
+  test("surfaces gh failures as thrown errors", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    expect(() =>
+      updatePrBody({
+        indexPath,
+        branch: "feature",
+        base: "main",
+        cwd: dir,
+        fetchPrBody: () => "",
+        writePrBody: () => {
+          throw new Error("gh pr edit failed");
+        },
+        renderFooter: () => "",
+      }),
+    ).toThrow("gh pr edit failed");
   });
 });

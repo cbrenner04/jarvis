@@ -146,6 +146,28 @@ The PR body has three sections, in order:
 Reviewers may **not** expect edits to the deterministic header or footer to
 survive a rewrite — those sections are regenerated from scratch.
 
+#### Update cadence
+
+The PR body is rewritten after every successful subspec commit, not only at
+draft creation. The first subspec commit creates the draft PR; every
+subsequent subspec commit pipes a freshly assembled body to
+`gh pr edit <branch> --body-file -`. WIP commits do **not** trigger an
+update. The draft-creation iteration itself does not run an extra update —
+the create-time body already has the right shape — so each iteration calls
+`gh pr edit` at most once.
+
+Each rewrite fetches the current PR body, extracts the narrative section
+between the markers (so reviewer edits inside the markers survive), rebuilds
+the deterministic header from `index.md`, renders the attribution footer
+from git trailers, and reassembles the body. If the markers are missing
+(legacy PRs or manual edits removed them), the narrative section is omitted
+on that update; it does not repopulate automatically.
+
+If `gh pr edit` fails (network, rate-limit, permissions), jarvis emits a
+`harness` warning to stderr naming the active subspec and continues the
+iteration. The next successful subspec commit's rewrite naturally heals the
+description, since both header and footer are rebuilt deterministically.
+
 ## Blocker handling
 
 When a subspec cannot be completed (due to hook failure, ambiguity, or other

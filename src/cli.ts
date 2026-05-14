@@ -299,8 +299,16 @@ export function run(
       }
       return triageCommand(triageOpts);
     }
-    case "plan":
-      return planCommand({ io, args: parsed.rest });
+    case "plan": {
+      const planOpts: Parameters<typeof planCommand>[0] = {
+        io,
+        args: parsed.rest,
+      };
+      if (opts.cwd !== undefined) {
+        planOpts.cwd = opts.cwd;
+      }
+      return planCommand(planOpts);
+    }
     case "unknown":
       io.stderr(`jarvis: unknown command ${JSON.stringify(parsed.name)}\n`);
       io.stderr(USAGE);

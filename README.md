@@ -90,8 +90,7 @@ For multi-file specs and the recommended `index.md` shape, see
 jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                            Run the loop against a spec file in a registered project.
 jarvis plan [<intent-file|"inline text">]
-                           Create a draft PR with a placeholder spec tree from a file or inline intent.
-                           Real planning content is in flight.
+                           Create a draft PR with an agent-drafted, self-reviewed spec tree from a file or inline intent.
 jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.
 jarvis log-server          Run the local log aggregation server.
@@ -181,6 +180,13 @@ Normal runs expect the supplied spec path to be an `index.md` file. Passing
 a non-index spec file such as `spec/<name>/01-task.md` prompts to either
 switch to a sibling `index.md` (when one exists) or exit.
 
+### `jarvis plan`
+
+`jarvis plan [<intent-file|"inline text">]` creates a dedicated git worktree and branch to draft a new spec collaboratively with an agent. It reads the user's intent (from a file, inline text, or interactive prompt), generates an agent-drafted `spec/<name>/index.md` with atomic subspecs, optionally refines it through self-review passes, and opens a draft PR. The spec remains in draft status until the user merges it to `main`; after merge, it becomes available to `jarvis run` for implementation.
+
+For full details — phases, flags, stop conditions, PR lifecycle, and cleanup — see
+[docs/plan-mode.md](docs/plan-mode.md).
+
 ### `jarvis cleanup`
 
 Removes merged worktrees and branches from the local repo after their PRs
@@ -203,6 +209,8 @@ Recently added subcommands:
 
 - [docs/run-loop.md](docs/run-loop.md) — iteration, completion, output
   destinations, stop conditions, exit codes.
+- [docs/plan-mode.md](docs/plan-mode.md) — plan mode phases, flags, stop
+  conditions, PR lifecycle, cleanup.
 - [docs/worktrees-and-commits.md](docs/worktrees-and-commits.md) — worktree
   layout, resume guarantees, commit shape, push cadence, draft PR lifecycle,
   cleanup.

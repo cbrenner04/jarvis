@@ -119,3 +119,8 @@ model name configured for that provider. For example,
 provider, while `AirProxy/<model>` routes through the internal AirProxy
 provider. Providers are not separate jarvis agents; they are selected only
 through the opencode entry's `model` value.
+
+## Plan-mode prompts
+
+Plan mode (`jarvis plan`) uses the same agent contract as patch mode. Plan-mode prompts live in `src/modes/plan/prompts/` (e.g., `draft.md`, `review.md`) and are short, focused prompts that inject intent and guidance without requiring new agents or permission-posture changes. The same agents configured in `modes.plan.agentOrder` can serve both patch and plan work.
+

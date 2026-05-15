@@ -1,0 +1,233 @@
+# Plan Mode
+
+Reference for `jarvis plan [<intent-file|"inline text">]` semantics: how it creates draft specs, how the phases work, and when it stops.
+
+## Overview
+
+Plan mode creates a dedicated worktree and branch (`plan/<name>/` and `plan-<name>/`) to draft a new spec collaboratively with an agent. It produces:
+
+- A seeded `spec/<name>/intent.md` capturing the user's initial request.
+- A `plan: draft` commit with an agent-generated `spec/<name>/index.md` and atomic subspec files.
+- Zero or more `plan: review <N>` commits (default 2) where agents refine the spec tree in place.
+- A draft PR titled `plan: <name>` that aggregates progress across all phases.
+
+The draft PR is opened after the `plan: draft` commit lands and remains in draft status until the user manually marks it ready for review. Unlike `jarvis run`, which expects specs to be complete, plan mode drafts incomplete specs — the user reviews the generated spec on the PR, edits it if needed, and merges it to `main`. After merging, the spec becomes available as a normal input to `jarvis run` for implementation work.
+
+Plan mode is useful for:
+
+- **Collaborative spec authoring**: agents draft specs from high-level intent, then refine them in multiple self-review passes.
+- **Non-interactive automation**: `jarvis plan intent.md` or `jarvis plan "inline text"` work end-to-end without human prompts.
+- **Spec validation before work**: review and edit the generated spec before implementation begins.
+
+Plan mode does **not** handle:
+
+- Interactive interviews (in flight; see `spec/plan-mode-interview/`).
+- Resume logic (in flight; see `spec/plan-mode-resume-and-handoff/`).
+- Spec implementation. After a plan-generated spec merges to `main`, use `jarvis run spec/<name>/index.md` to implement it.
+
+## Input modes
+
+Plan mode accepts intent in three forms:
+
+### File mode
+
+```sh
+jarvis plan spec/v1/intent.md
+```
+
+Jarvis reads the file at the path and uses its full contents as intent.
+
+### Inline mode
+
+```sh
+jarvis plan "Add dark mode toggle to the app settings"
+```
+
+Jarvis uses the supplied text directly as intent. Useful for quick one-liners without creating intermediate files.
+
+### Interactive mode
+
+```sh
+jarvis plan
+```
+
+(Not yet implemented; see `spec/plan-mode-interview/`.) Jarvis will prompt the user for intent interactively and write a `plan/<name>/intent.md` before starting draft and review phases.
+
+## Phases
+
+Plan mode executes these phases in order:
+
+### Phase 0: Worktree and intent setup
+
+Jarvis creates a git worktree at `.worktree/plan-<name>/` with a branch `plan-<name>` tracking `origin/main`. It writes `spec/<name>/intent.md` containing the user's supplied intent. If a worktree or branch already exists with that name, jarvis exits 1 (idempotence and resume are future work). Jarvis commits this setup as `plan: interview` (even in file/inline modes, where no interview happens; this marker preserves the commit shape for later resume logic).
+
+**Commit shape:**
+- Subject: `plan: interview`
+- Body: `Placeholder interview. Real content comes from spec/plan-mode-interview/.`
+- Pushed: immediately after commit.
+
+### Phase 1: Draft
+
+After `plan: interview` is pushed, jarvis invokes an agent with a focused prompt (`src/modes/plan/prompts/draft.md`) that:
+
+- Inlines `intent.md` and `docs/spec-guidance.md`.
+- Asks the agent to read the target repo for context.
+- Instructs the agent to produce `spec/<name>/index.md` plus one or more atomic subspecs (`00-*.md`, `01-*.md`, etc.).
+- Forbids modifications to `intent.md` except for appending a `## Blocker` section.
+
+The agent produces files under `spec/<name>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. The produced files are staged and committed as `plan: draft`.
+
+**Commit shape:**
+- Subject: `plan: draft`
+- Body:
+  ```
+  Drafted by <agent-attribution>.
+  Subspecs: <count>
+  ```
+  Where `<agent-attribution>` is the agent's `attributionLabel()` (same as the `Jarvis-Agent` git trailer) and `<count>` is the number of subspec files (files matching `spec/<name>/[0-9]*.md`, excluding `index.md` and `intent.md`).
+- Pushed: immediately after commit.
+
+**Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during draft, the draft files are committed as `plan: draft` and plan mode stops (see [Stop conditions](#stop-conditions)).
+
+### Phase 2: Self-review
+
+After `plan: draft` is pushed, jarvis runs zero or more review passes (default: 2; configurable via `--review-passes`). Each pass invokes an agent with a focused prompt (`src/modes/plan/prompts/review.md`) that:
+
+- Inlines the current `intent.md` and all spec files.
+- Inlines `docs/spec-guidance.md`.
+- Asks the agent to critique the current spec tree against the intent and guidance, then rewrite files in place to address the most important issues.
+- Forbids creation of new files (except for new subspec files to replace existing ones) and forbids deletion of `index.md`.
+- Forbids modifications to `intent.md` except for appending a `## Blocker` section.
+
+Each pass is a single agent invocation; the agent does not decide when to stop or how many iterations to run. After each pass, the modified files are staged and committed as `plan: review <N>` (1-indexed).
+
+**Commit shape (for pass 1):**
+- Subject: `plan: review 1`
+- Body:
+  ```
+  Reviewed by <agent-attribution>.
+  ```
+- Pushed: immediately after commit.
+
+**Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during a review pass, that pass's edits are committed as `plan: review <N>` and plan mode stops (see [Stop conditions](#stop-conditions)).
+
+**`--review-passes 0`:** Skips all review passes entirely; only the draft phase and `plan: interview` commit exist. Useful for fast feedback or when self-review is not desired.
+
+## PR body updates
+
+The draft PR opens after `plan: draft` is pushed (via the same `updatePrBody` helper patch mode uses). Each subsequent `plan: ...` commit triggers a PR-body rewrite that:
+
+1. Rebuilds the deterministic header (spec title and progress line).
+2. Rebuilds the attribution footer from `Jarvis-Agent` trailers on all plan commits on the branch (including `plan: interview`, `plan: draft`, and `plan: review N`).
+3. Preserves the narrative section between `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers unchanged.
+
+Plan mode does not yet write into the narrative section (that may land in later specs), but the preserve-narrative infrastructure is in place.
+
+## Flags
+
+### `--interview-turns <n>`
+
+(Parsed but inert; lands in `spec/plan-mode-interview/`.) When interactive mode is implemented, this will control how many interview prompts are sent. Default: 1.
+
+### `--review-passes <n>`
+
+Number of self-review passes to run. Default: `2`. Use `--review-passes 0` to skip review entirely and stop after draft.
+
+### `--repo <name|path|url>`
+
+Select the target repository. Same semantics as `jarvis run --repo`. If omitted, jarvis resolves the repo from the spec path or prompts (in TTY mode) or exits with a usage error (in non-TTY mode).
+
+### `--cwd <dir>`
+
+(Parsed but treated as a hint; the worktree path is always created under `.worktree/plan-<name>/` in the target repo.) For consistency with `jarvis run`, this flag is accepted but has limited effect in plan mode. The spec is always produced under the target repo's `.worktree/plan-<name>/` worktree.
+
+### `--resume`
+
+(Parsed but inert; lands in `spec/plan-mode-resume-and-handoff/`.) When resume logic is implemented, this will allow re-running plan mode on an existing worktree to continue from a blocker or completed phase.
+
+## Stop conditions
+
+Plan mode stops in these cases:
+
+### 1. All phases complete
+
+All draft and review passes finish without encountering a blocker. Jarvis exits `0`. The draft PR (opened after `plan: draft` lands) remains in draft status. The user reviews the PR, optionally edits the spec files, marks it ready for review, and merges it to `main`. After merge, the spec is available to `jarvis run` for implementation.
+
+### 2. Blocker encountered
+
+If an agent appends a `## Blocker` section to `spec/<name>/intent.md` (exact heading, level 2, case-sensitive), plan mode stops immediately. The current phase's edits are staged and committed as `plan: blocker` (the last plan commit for that invocation).
+
+**Commit shape:**
+- Subject: `plan: blocker`
+- Body:
+  ```
+  Blocked by <reason>.
+  Spec files to date: <count>
+  ```
+- Pushed: immediately after commit.
+
+Jarvis then prints the blocker section to stderr and exits `1`. The draft PR reflects the blocker for human review. The user can resolve the blocker offline, update `spec/<name>/intent.md` manually on the branch, and re-run `jarvis plan --resume` (when resume is implemented) to continue, or close the PR and start over.
+
+### 3. Ctrl-C
+
+User interrupts with Ctrl-C (SIGINT). Jarvis propagates the signal, leaves the worktree, branch, and PR as-is, and exits `130` (standard POSIX exit code for SIGINT). The user can return to the worktree and continue manually or with `jarvis plan --resume` (when resume is implemented).
+
+### 4. Agent quota exhausted
+
+If the selected agent (from `modes.plan.agentOrder`) reports a quota signal, jarvis advances to the next agent in the fallback chain. If all agents are exhausted, jarvis exits with the quota-exhausted exit code and message (same as `jarvis run`; see [docs/quota-signals.md](./quota-signals.md)).
+
+## Agent selection
+
+Plan mode uses `config.modes.plan.agentOrder` (not `modes.patch.agentOrder`). Config v2 requires both orders to be explicit. The quota fallback chain is the same as patch mode: if the chosen agent reports a quota signal, advance to the next; if all are exhausted, exit with code and message.
+
+There is no fallback to patch-mode order; both must be configured.
+
+## PR lifecycle
+
+### Draft open
+
+After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. The PR title is `plan: <name>` (where `<name>` is the relative spec directory path). The PR body has three parts:
+
+1. **Deterministic header**: spec title (from `spec/<name>/index.md` H1), progress line (e.g., "Progress: 0/5"), and a mirror of the index subspec checklist.
+2. **Narrative section**: currently empty, preserved for future edits (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers).
+3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on all plan commits on the branch, listing one bullet per subspec commit and a summary line of contributing agents.
+
+### Draft stays draft
+
+Unlike patch mode (which marks the PR ready for review when the spec is complete), plan mode **never** marks the PR ready. The user reviews the draft PR, optionally edits the spec files on the branch, and manually marks it ready or merges it when satisfied.
+
+### PR body updates
+
+Each `plan: draft`, `plan: review N`, or `plan: blocker` commit triggers a PR-body rewrite that rebuilds the header and footer while preserving the narrative section verbatim.
+
+### Merge-first rule
+
+After the PR merges to `main`, the spec tree under `spec/<name>/` is now available to `jarvis run` for implementation work. Do not run `jarvis run` against a spec tree that is still on a plan-mode branch; always merge the spec first.
+
+## Cleanup
+
+After a plan-mode PR is merged, the worktree and branch can be removed with:
+
+```sh
+jarvis cleanup
+```
+
+This command finds all merged worktrees (detected via `.worktree/<type>-<name>/` conventions and matching merged branches on the remote) and removes both the worktree and the local branch. The `(plan)` tag in the dry-run output (`jarvis cleanup --dry-run`) marks plan-mode worktrees.
+
+For manual cleanup of a specific plan worktree:
+
+```sh
+rm -rf .worktree/plan-<name>
+git branch -D plan-<name>
+```
+
+## Validation rules
+
+Each generated or rewritten spec must satisfy these rules (enforced by plan mode and inherited from patch mode):
+
+- **`index.md` required**: Every spec tree must have an `spec/<name>/index.md` file.
+- **Atomic subspecs**: Each subspec file (`[0-9]*.md`) must have an exact `## Acceptance criteria` heading (level 2, case-sensitive) with one or more checkboxes.
+- **Blocker heading**: If a `## Blocker` section is appended to `intent.md`, it must use the exact heading (level 2, case-sensitive).
+- **No duplicate headings**: No two subspecs should have identical H1 titles.
+
+Plan mode validates these rules after each phase. If a validation fails, jarvis emits an error and does not commit the broken spec tree.

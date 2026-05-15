@@ -125,17 +125,10 @@ any agent.
 
 ## Plan mode
 
-Plan mode (`jarvis plan [<intent-file|"inline text">]`) creates a dedicated
-worktree and branch (`plan/<name>/` and `plan-<name>/`) to draft a new spec
-collaboratively. It produces:
+Plan mode (`jarvis plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis run` implements existing specs. Plan mode creates a dedicated worktree and branch (`plan/<name>/` and `plan-<name>/`) and produces a draft PR with an agent-generated spec tree; the spec remains in draft status until the user merges it to `main`.
 
-- A seeded `spec/<name>/intent.md` capturing the user's initial request.
-- Two phase-marker commits (`plan: interview` and `plan: draft`) with
-  placeholder spec tree.
-- A draft PR titled `plan: <name>` that aggregates progress across phases.
-
-Full details on plan-mode semantics (when they land) will appear in
-`docs/plan-mode.md`.
+Full details — phases, flags, stop conditions, PR lifecycle, and cleanup — appear in
+[docs/plan-mode.md](./plan-mode.md).
 
 ## Preflight checks
 

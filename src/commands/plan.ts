@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { loadConfig } from "../config.ts";
 import {
   checkLogServerReachable,
@@ -46,7 +47,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   opts.io.stderr(`${describePlanInvocation(result.invocation)}\n`);
 
   const inv = result.invocation;
-  const candidatePath = inv.mode === "file" ? inv.intentPath : inv.cwd;
+  // Resolve from a file-like path (matching run mode, which passes a spec
+  // file). For inline/interactive plan modes there's no real intent file, so
+  // synthesize one inside cwd: resolveProject's `dirname()` then yields cwd
+  // as the walk start, mirroring "as if there were a spec here".
+  const candidatePath =
+    inv.mode === "file" ? inv.intentPath : join(inv.cwd, "intent");
   const resolveOpts: Parameters<typeof resolveTargetRepo>[0] = {
     candidatePath,
   };

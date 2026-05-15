@@ -19,11 +19,6 @@ export async function ensureWorktree(
   specPath: string,
 ): Promise<string> {
   const specName = getSpecName(specPath);
-  if (specName.startsWith("plan-")) {
-    throw new Error(
-      "spec name must not start with `plan-`; that prefix is reserved for plan mode",
-    );
-  }
   const worktreePath = join(projectRoot, ".worktree", specName);
 
   try {

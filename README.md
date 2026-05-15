@@ -89,7 +89,7 @@ For multi-file specs and the recommended `index.md` shape, see
 ```txt
 jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                            Run the loop against a spec file in a registered project.
-jarvis plan <intent-file|--inline <text>>
+jarvis plan [<intent-file|"inline text">]
                            Create a draft PR with a placeholder spec tree from a file or inline intent.
                            Real planning content is in flight.
 jarvis init                Register the current target repo.

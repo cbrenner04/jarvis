@@ -125,7 +125,7 @@ any agent.
 
 ## Plan mode
 
-Plan mode (`jarvis plan <intent-file|--inline <text>>`) creates a dedicated
+Plan mode (`jarvis plan [<intent-file|"inline text">]`) creates a dedicated
 worktree and branch (`plan/<name>/` and `plan-<name>/`) to draft a new spec
 collaboratively. It produces:
 

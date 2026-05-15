@@ -106,7 +106,7 @@ describe("planCommand", () => {
     expect(PLAN_USAGE).toContain("--repo");
     expect(PLAN_USAGE).toContain("--cwd");
     expect(PLAN_USAGE).toContain("--resume");
-    expect(PLAN_USAGE).toContain("intent-file-or-text");
+    expect(PLAN_USAGE).toContain('intent-file|"inline text"');
   });
 
   test("inline mode: positional that is not a file", async () => {

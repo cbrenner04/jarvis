@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPlanWorktree, ensureWorktree } from "../src/worktree.ts";
@@ -90,7 +96,7 @@ describe("createPlanWorktree", () => {
 });
 
 describe("ensureWorktree (patch-mode)", () => {
-  test("rejects spec names starting with plan- with documented error", async () => {
+  test("allows patch specs whose names start with plan-", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-plan-prefix-"));
     try {
       // Set up a minimal git repo
@@ -100,22 +106,18 @@ describe("ensureWorktree (patch-mode)", () => {
       writeFileSync(join(dir, "README.md"), "test");
       execSync("git add README.md", { cwd: dir });
       execSync("git commit -m 'initial'", { cwd: dir });
+      execSync("git branch plan-mode-updates main", { cwd: dir });
 
       // Create a spec dir with a plan- prefix
-      const specDir = join(dir, "spec", "plan-invalid");
+      const specDir = join(dir, "spec", "plan-mode-updates");
       const specFile = join(specDir, "index.md");
-      execSync(`mkdir -p ${specDir}`, { cwd: dir });
+      mkdirSync(specDir, { recursive: true });
       writeFileSync(specFile, "# Test spec\n");
 
-      try {
-        await ensureWorktree(dir, specFile);
-        expect(true).toBe(false); // Should not reach here
-      } catch (err) {
-        const message = (err as Error).message;
-        expect(message).toBe(
-          "spec name must not start with `plan-`; that prefix is reserved for plan mode",
-        );
-      }
+      const worktreePath = await ensureWorktree(dir, specFile);
+
+      expect(worktreePath).toBe(join(dir, ".worktree", "plan-mode-updates"));
+      expect(existsSync(worktreePath)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

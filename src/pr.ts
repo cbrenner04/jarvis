@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 
+// Stable HTML comments delimiting the manually editable PR narrative section.
 export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
 export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";
 

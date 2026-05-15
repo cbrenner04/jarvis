@@ -59,7 +59,7 @@ Commands:
                     Remove merged worktrees.
   triage [worktree-name]
                     Inspect a dirty or orphaned worktree.
-  plan [--interview-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file-or-text>]
+  plan [--interview-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
                     Generate a spec tree from an intent. (planning behavior arrives in later specs)
   help              Show this message.
 `;

@@ -18,7 +18,7 @@ the lifetime of that process. See [run-loop.md](./run-loop.md#output-destination
 for the difference between the session log, the run terminal, and the log
 server.
 
-## Schema (v1)
+## Schema (v2)
 
 ```ts
 type AgentName = "claude" | "codex" | "cursor" | "opencode";
@@ -30,9 +30,11 @@ type Project = {
 };
 
 type Config = {
-  version: 1;
-  agentOrder: AgentName[];
-  planAgentOrder?: AgentName[]; // optional plan-mode order; falls back to agentOrder when unset
+  version: 2;
+  modes: {
+    patch: { agentOrder: AgentName[] };
+    plan: { agentOrder: AgentName[] };
+  };
   quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
   weakQuotaExitCodes: number[]; // exit codes treated as probable-quota under lenient mode; default []
   patchModels: Record<AgentName, string>;
@@ -70,8 +72,11 @@ Default contents on first bootstrap:
 
 ```json
 {
-  "version": 1,
-  "agentOrder": ["claude", "codex", "cursor"],
+  "version": 2,
+  "modes": {
+    "patch": { "agentOrder": ["claude", "codex", "cursor"] },
+    "plan": { "agentOrder": ["claude", "codex", "cursor"] }
+  },
   "quotaFallback": "lenient",
   "weakQuotaExitCodes": [],
   "patchModels": {
@@ -91,10 +96,21 @@ Default contents on first bootstrap:
 ```
 
 `opencode` is present in `patchModels` so config validation has a complete
-agent map, but `agentOrder` defaults to `["claude", "codex", "cursor"]` —
-opencode is opt-in. See [agents.md](./agents.md#opencode-setup) for the
+agent map, but both default mode orders are `["claude", "codex", "cursor"]`
+— opencode is opt-in. See [agents.md](./agents.md#opencode-setup) for the
 one-time permission installer and the `patchModels.opencode` `provider/model`
 format.
+
+## Mode Agent Orders
+
+Patch mode (`jarvis run`) reads `modes.patch.agentOrder`. Plan mode
+(`jarvis plan`) reads `modes.plan.agentOrder` once agent-backed phases land.
+Both lists are required, non-empty, and validated against the same
+`AgentName` union. There is no fallback between modes.
+
+Config v1's flat `agentOrder` and optional `planAgentOrder` are not supported
+in v2. If either legacy key is present, config loading fails with a clear
+replacement path.
 
 ## `worktreeSymlinks`
 
@@ -129,41 +145,17 @@ The behavior that flips when `git` is `false` (no worktree, no commits, no
 PR, alternative completion semantics, `--cwd`) is implemented separately and
 documented alongside `jarvis run`.
 
-## `planAgentOrder`
-
-Optional plan-mode preference order. Same `AgentName` union as `agentOrder`.
-Plan mode (a separate command being built incrementally) will eventually
-draft and self-review specs; the workload differs from patch-mode code
-edits, so the user may want a different agent order for it.
-
-- **Type.** `AgentName[]`, optional.
-- **Default.** Omitted from the auto-bootstrapped config. When absent, plan
-  mode falls back to `agentOrder` at consumption time. Consumption (which
-  agents actually run) lands in a later spec; today the key is only
-  validated and round-tripped.
-- **Validation.** When present, must be a non-empty array of valid
-  `AgentName` values; duplicates and unknown agents are rejected with the
-  same error wording as `agentOrder`. An explicit empty array
-  (`planAgentOrder: []`) is rejected at load time — use
-  `unset-plan-order` to clear the key and fall back to `agentOrder`.
-- Legacy configs without the key continue to load unchanged.
-
 ## `jarvis config` subcommands
 
-- `jarvis config show` — print the current config as JSON. When
-  `planAgentOrder` is present it is shown on its own line; when absent the
-  output reads `planAgentOrder: (unset; uses agentOrder)`.
+- `jarvis config show` — print the current config as JSON, followed by
+  summary lines for `modes.patch.agentOrder` and `modes.plan.agentOrder`.
 - `jarvis config path` — print the absolute path of `config.json`.
-- `jarvis config set-order <a,b,c>` — replace `agentOrder` with a
-  comma-separated list of agents. Rejects unknown agents and duplicates.
-- `jarvis config set-plan-order <a,b,c>` — set `planAgentOrder` from a
-  comma-separated list of agents. Same parsing/validation as `set-order`.
-  An empty argument is rejected with `set-plan-order requires at least one
-  agent; use \`unset-plan-order\` to clear plan-mode order and fall back to
-  agentOrder` (exit 1). Consumption of `planAgentOrder` lands in a later
-  spec.
-- `jarvis config unset-plan-order` — remove `planAgentOrder` from the
-  config file, returning to "fall back to `agentOrder`" behavior.
+- `jarvis config set-patch-order <a,b,c>` — replace
+  `modes.patch.agentOrder` with a comma-separated list of agents. Rejects
+  unknown agents, duplicates, and empty lists.
+- `jarvis config set-plan-order <a,b,c>` — replace
+  `modes.plan.agentOrder` with a comma-separated list of agents. Same
+  parsing and validation as `set-patch-order`.
 - `jarvis config set-git <true|false>` — write the top-level `git` toggle.
 - `jarvis config set-project-git <name> <true|false|unset>` — write or
   clear the per-project `git` override. Unknown project names exit 1.

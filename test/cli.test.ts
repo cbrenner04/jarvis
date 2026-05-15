@@ -223,13 +223,17 @@ describe("run", () => {
     });
     expect(code).toBe(0);
     const out = cap.out();
-    const jsonText = out.replace(
-      /\nplanAgentOrder: \(unset; uses agentOrder\)\n$/,
-      "\n",
-    );
+    const jsonText = out
+      .replace(/\nmodes\.patch\.agentOrder: .+\n/, "\n")
+      .replace(/\nmodes\.plan\.agentOrder: .+\n$/, "\n");
     const parsed = JSON.parse(jsonText);
-    expect(parsed.version).toBe(1);
-    expect(parsed.agentOrder).toEqual(["claude", "codex", "cursor"]);
+    expect(parsed.version).toBe(2);
+    expect(parsed.modes.patch.agentOrder).toEqual([
+      "claude",
+      "codex",
+      "cursor",
+    ]);
+    expect(parsed.modes.plan.agentOrder).toEqual(["claude", "codex", "cursor"]);
     expect(parsed.maxIterations).toBe(10);
   });
 
@@ -247,8 +251,11 @@ describe("run", () => {
     writeFileSync(
       join(cfgDir, "config.json"),
       JSON.stringify({
-        version: 1,
-        agentOrder: ["claude", "codex", "cursor"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: ["claude", "codex", "cursor"] },
+          plan: { agentOrder: ["claude", "codex", "cursor"] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,

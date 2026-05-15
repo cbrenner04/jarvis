@@ -40,11 +40,8 @@ import {
   promptForProject,
 } from "../../disambiguation-prompt.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
-import {
-  checkLogServerReachable,
-  DEFAULT_LOG_SERVER_URL,
-} from "../../log-server-preflight.ts";
 import type { LogClient } from "../../logging.ts";
+import { runModeLogPreflight } from "../../mode-entry.ts";
 import { ensureDraftPr, renderAttribution } from "../../pr.ts";
 import { resolveTargetRepo } from "../../repo.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
@@ -444,7 +441,7 @@ async function resolveAndPreflight(
 
 function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
   const agentsByName = opts.agents ?? defaultAgents(cfg);
-  return cfg.agentOrder
+  return cfg.modes.patch.agentOrder
     .map((name) => agentsByName[name])
     .filter((agent): agent is Agent => agent !== undefined);
 }
@@ -456,15 +453,14 @@ async function setupLogging(
   { kind: "ok"; logging: LoggingContext } | { kind: "error"; exitCode: number }
 > {
   const cfg = preflight.cfg;
-  const logServerUrl = cfg.logServerUrl ?? DEFAULT_LOG_SERVER_URL;
-  const preflightOpts: Parameters<typeof checkLogServerReachable>[0] = {
+  const preflightOpts: Parameters<typeof runModeLogPreflight>[0] = {
     io: { stderr: opts.io.stderr },
-    logServerUrl,
+    logServerUrl: cfg.logServerUrl,
   };
   if (opts.logClient !== undefined) {
     preflightOpts.logClient = opts.logClient;
   }
-  const logServerResult = await checkLogServerReachable(preflightOpts);
+  const logServerResult = await runModeLogPreflight(preflightOpts);
   if (logServerResult.kind === "error") {
     return { kind: "error", exitCode: logServerResult.exitCode };
   }

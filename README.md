@@ -125,12 +125,12 @@ to resolve it with `jarvis config`. If the current directory is outside
 ### `jarvis run`
 
 `jarvis run` resolves the spec into a per-spec git worktree under
-`.worktree/<spec-name>/`, runs agents from `agentOrder` until the spec has
-zero unchecked boxes, and opens a draft PR after the first commit lands. The
-PR transitions to ready for review when the spec is complete; jarvis never
-merges. You may start the command from a directory that is not a git checkout
-(for example a parent folder that holds multiple repos). Jarvis reads the
-supplied spec first, resolves the target repository (see
+`.worktree/<spec-name>/`, runs agents from `modes.patch.agentOrder` until the
+spec has zero unchecked boxes, and opens a draft PR after the first commit
+lands. The PR transitions to ready for review when the spec is complete;
+jarvis never merges. You may start the command from a directory that is not a
+git checkout (for example a parent folder that holds multiple repos). Jarvis
+reads the supplied spec first, resolves the target repository (see
 [docs/run-loop.md](docs/run-loop.md) for the order), and only then prepares
 the worktree and runs `gh` / git from that repository.
 

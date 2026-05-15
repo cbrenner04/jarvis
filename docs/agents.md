@@ -16,8 +16,9 @@ and the binary each one invokes:
 | `opencode` | `opencode run --model <provider/model> --format default <prompt>` | `--model` is required and read from `patchModels.opencode`; `--format default` keeps the plain-text transcript shape; prompt is the trailing positional argument. Permissions are configured via `~/.config/opencode/opencode.json` rather than a CLI flag — see [Opencode setup](#opencode-setup). |
 
 The default fallback order is `claude → codex → cursor`. `opencode` is
-supported but **opt-in** — it is not in the default `agentOrder`. Change the
-order with `jarvis config set-order <a,b,c>` (see [config.md](./config.md)).
+supported but **opt-in** — it is not in the default patch mode order. Change the
+order with `jarvis config set-patch-order <a,b,c>` (see
+[config.md](./config.md)).
 Quota detection is per-agent and based on documented or observed stderr
 signals; see [quota-signals.md](./quota-signals.md).
 
@@ -79,7 +80,7 @@ are documented in [../spec/permissions/](../spec/permissions/).
 ## Opencode setup
 
 Opencode is supported but opt-in: it is not included in the default
-`agentOrder`, and its permission posture is configured in opencode's own
+`modes.patch.agentOrder`, and its permission posture is configured in opencode's own
 config file (`~/.config/opencode/opencode.json`) rather than via a CLI flag.
 
 Before selecting opencode, run the one-time permission installer from the
@@ -93,12 +94,15 @@ That command writes the `safe-edits` permission posture to
 `~/.config/opencode/opencode.json` without changing unrelated opencode
 settings.
 
-Then edit `~/.jarvis/config.json` to include opencode in `agentOrder` and set
+Then edit `~/.jarvis/config.json` to include opencode in `modes.patch.agentOrder` and set
 `patchModels.opencode` to a configured `provider/model` string:
 
 ```json
 {
-  "agentOrder": ["opencode", "claude", "codex", "cursor"],
+  "modes": {
+    "patch": { "agentOrder": ["opencode", "claude", "codex", "cursor"] },
+    "plan": { "agentOrder": ["claude", "codex", "cursor"] }
+  },
   "patchModels": {
     "claude": "haiku",
     "codex": "gpt-5.3-codex",

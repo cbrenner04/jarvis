@@ -82,10 +82,15 @@ export type ProjectMatch = {
 
 export type PatchModels = Record<AgentName, string>;
 
-export type Config = {
-  version: 1;
+export type ModeName = "patch" | "plan";
+
+export type ModeConfig = {
   agentOrder: AgentName[];
-  planAgentOrder?: AgentName[];
+};
+
+export type Config = {
+  version: 2;
+  modes: Record<ModeName, ModeConfig>;
   quotaFallback: "strict" | "lenient";
   weakQuotaExitCodes: number[];
   maxIterations: number;
@@ -106,8 +111,11 @@ export type ConfigOptions = {
 };
 
 const DEFAULT_CONFIG: Config = {
-  version: 1,
-  agentOrder: ["claude", "codex", "cursor"],
+  version: 2,
+  modes: {
+    patch: { agentOrder: ["claude", "codex", "cursor"] },
+    plan: { agentOrder: ["claude", "codex", "cursor"] },
+  },
   quotaFallback: "lenient",
   weakQuotaExitCodes: [],
   maxIterations: 10,
@@ -152,58 +160,27 @@ function validateConfig(input: unknown, file: string): Config {
   }
   const obj = input as Record<string, unknown>;
 
-  if (obj.version !== 1) {
+  if (obj.version !== 2) {
     fail(
       file,
-      `missing or unsupported version (expected 1, got ${JSON.stringify(obj.version)})`,
+      `missing or unsupported version (expected 2, got ${JSON.stringify(obj.version)})`,
     );
   }
 
-  if (!Array.isArray(obj.agentOrder)) {
-    fail(file, "agentOrder must be an array");
+  if (obj.planAgentOrder !== undefined) {
+    fail(
+      file,
+      "planAgentOrder is not supported in config v2; use modes.plan.agentOrder",
+    );
   }
-  const agentOrder: AgentName[] = [];
-  for (const entry of obj.agentOrder) {
-    if (!isAgentName(entry)) {
-      fail(
-        file,
-        `unknown agent ${JSON.stringify(entry)} (allowed: ${AGENT_NAMES.join(", ")})`,
-      );
-    }
-    agentOrder.push(entry);
+  if (obj.agentOrder !== undefined) {
+    fail(
+      file,
+      "agentOrder is not supported in config v2; use modes.patch.agentOrder",
+    );
   }
 
-  let planAgentOrder: AgentName[] | undefined;
-  if (obj.planAgentOrder !== undefined) {
-    if (!Array.isArray(obj.planAgentOrder)) {
-      fail(file, "planAgentOrder must be an array");
-    }
-    if (obj.planAgentOrder.length === 0) {
-      fail(
-        file,
-        "planAgentOrder must not be empty; omit the key to fall back to agentOrder",
-      );
-    }
-    const seen = new Set<string>();
-    const order: AgentName[] = [];
-    for (const entry of obj.planAgentOrder) {
-      if (!isAgentName(entry)) {
-        fail(
-          file,
-          `unknown agent ${JSON.stringify(entry)} (allowed: ${AGENT_NAMES.join(", ")})`,
-        );
-      }
-      if (seen.has(entry)) {
-        fail(
-          file,
-          `planAgentOrder contains duplicate agent ${JSON.stringify(entry)}`,
-        );
-      }
-      seen.add(entry);
-      order.push(entry);
-    }
-    planAgentOrder = order;
-  }
+  const modes = validateModes(obj.modes, file);
 
   const maxIterations = validatePositiveInteger(
     obj.maxIterations ?? DEFAULT_CONFIG.maxIterations,
@@ -322,9 +299,8 @@ function validateConfig(input: unknown, file: string): Config {
   }
 
   return {
-    version: 1,
-    agentOrder,
-    ...(planAgentOrder !== undefined ? { planAgentOrder } : {}),
+    version: 2,
+    modes,
     quotaFallback,
     weakQuotaExitCodes,
     maxIterations,
@@ -337,6 +313,69 @@ function validateConfig(input: unknown, file: string): Config {
     git,
     projects,
   };
+}
+
+function validateModes(input: unknown, file: string): Config["modes"] {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    fail(file, "modes must be an object");
+  }
+  const obj = input as Record<string, unknown>;
+  const allowed = new Set(["patch", "plan"]);
+  for (const key of Object.keys(obj)) {
+    if (!allowed.has(key)) {
+      fail(
+        file,
+        `modes contains unknown mode ${JSON.stringify(key)} (allowed: patch, plan)`,
+      );
+    }
+  }
+  return {
+    patch: validateModeConfig(obj.patch, "modes.patch", file),
+    plan: validateModeConfig(obj.plan, "modes.plan", file),
+  };
+}
+
+function validateModeConfig(
+  input: unknown,
+  path: string,
+  file: string,
+): ModeConfig {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    fail(file, `${path} must be an object`);
+  }
+  const obj = input as Record<string, unknown>;
+  return {
+    agentOrder: validateAgentOrder(obj.agentOrder, `${path}.agentOrder`, file),
+  };
+}
+
+function validateAgentOrder(
+  input: unknown,
+  path: string,
+  file: string,
+): AgentName[] {
+  if (!Array.isArray(input)) {
+    fail(file, `${path} must be an array`);
+  }
+  if (input.length === 0) {
+    fail(file, `${path} must contain at least one agent`);
+  }
+  const seen = new Set<string>();
+  const order: AgentName[] = [];
+  for (const entry of input) {
+    if (!isAgentName(entry)) {
+      fail(
+        file,
+        `unknown agent ${JSON.stringify(entry)} (allowed: ${AGENT_NAMES.join(", ")})`,
+      );
+    }
+    if (seen.has(entry)) {
+      fail(file, `${path} contains duplicate agent ${JSON.stringify(entry)}`);
+    }
+    seen.add(entry);
+    order.push(entry);
+  }
+  return order;
 }
 
 function validatePatchModels(input: unknown, file: string): PatchModels {

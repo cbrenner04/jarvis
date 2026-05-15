@@ -41,15 +41,18 @@ describe("config show", () => {
     });
     expect(code).toBe(0);
     const out = cap.out();
-    expect(out).toContain("planAgentOrder: (unset; uses agentOrder)\n");
-    const jsonText = out.replace(
-      /\nplanAgentOrder: \(unset; uses agentOrder\)\n$/,
-      "\n",
-    );
+    expect(out).toContain("modes.patch.agentOrder: claude, codex, cursor\n");
+    expect(out).toContain("modes.plan.agentOrder: claude, codex, cursor\n");
+    const jsonText = out
+      .replace(/\nmodes\.patch\.agentOrder: .+\n/, "\n")
+      .replace(/\nmodes\.plan\.agentOrder: .+\n$/, "\n");
     const parsed = JSON.parse(jsonText);
     expect(parsed).toEqual({
-      version: 1,
-      agentOrder: ["claude", "codex", "cursor"],
+      version: 2,
+      modes: {
+        patch: { agentOrder: ["claude", "codex", "cursor"] },
+        plan: { agentOrder: ["claude", "codex", "cursor"] },
+      },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
       maxIterations: 10,
@@ -68,7 +71,7 @@ describe("config show", () => {
     });
   });
 
-  test("shows planAgentOrder on its own line when set", () => {
+  test("shows modes.plan.agentOrder on its own line when set", () => {
     const cap = captureIo();
     configCommand({
       args: ["set-plan-order", "codex,claude"],
@@ -81,7 +84,7 @@ describe("config show", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    expect(cap.out()).toContain("planAgentOrder: codex, claude\n");
+    expect(cap.out()).toContain("modes.plan.agentOrder: codex, claude\n");
   });
 });
 
@@ -98,39 +101,42 @@ describe("config path", () => {
   });
 });
 
-describe("config set-order", () => {
-  test("happy path replaces agentOrder", () => {
+describe("config set-patch-order", () => {
+  test("happy path replaces modes.patch.agentOrder", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "codex,claude,cursor"],
+      args: ["set-patch-order", "codex,claude,cursor"],
       io: cap.io,
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
     const cfg = loadConfig({ dir: cfgDir });
-    expect(cfg.agentOrder).toEqual(["codex", "claude", "cursor"]);
+    expect(cfg.modes.patch.agentOrder).toEqual(["codex", "claude", "cursor"]);
   });
 
   test("subset is allowed", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "codex,claude"],
+      args: ["set-patch-order", "codex,claude"],
       io: cap.io,
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual(["codex", "claude"]);
+    expect(loadConfig({ dir: cfgDir }).modes.patch.agentOrder).toEqual([
+      "codex",
+      "claude",
+    ]);
   });
 
   test("opencode is allowed", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,opencode"],
+      args: ["set-patch-order", "claude,opencode"],
       io: cap.io,
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual([
+    expect(loadConfig({ dir: cfgDir }).modes.patch.agentOrder).toEqual([
       "claude",
       "opencode",
     ]);
@@ -147,7 +153,7 @@ describe("config set-order", () => {
 
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,bogus"],
+      args: ["set-patch-order", "claude,bogus"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -168,7 +174,7 @@ describe("config set-order", () => {
 
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,nonsense"],
+      args: ["set-patch-order", "claude,nonsense"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -182,7 +188,7 @@ describe("config set-order", () => {
   test("rejects duplicates", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,claude"],
+      args: ["set-patch-order", "claude,claude"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -193,7 +199,7 @@ describe("config set-order", () => {
   test("rejects duplicate opencode", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,opencode,opencode"],
+      args: ["set-patch-order", "claude,opencode,opencode"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -204,7 +210,7 @@ describe("config set-order", () => {
   test("missing arg exits 1", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order"],
+      args: ["set-patch-order"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -215,7 +221,7 @@ describe("config set-order", () => {
   test("empty arg exits 1", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", ""],
+      args: ["set-patch-order", ""],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -224,7 +230,7 @@ describe("config set-order", () => {
 });
 
 describe("config set-plan-order", () => {
-  test("happy path writes planAgentOrder", () => {
+  test("happy path writes modes.plan.agentOrder", () => {
     const cap = captureIo();
     const code = configCommand({
       args: ["set-plan-order", "claude,codex"],
@@ -233,14 +239,14 @@ describe("config set-plan-order", () => {
     });
     expect(code).toBe(0);
     const cfg = loadConfig({ dir: cfgDir });
-    expect(cfg.planAgentOrder).toEqual(["claude", "codex"]);
+    expect(cfg.modes.plan.agentOrder).toEqual(["claude", "codex"]);
     const onDisk = JSON.parse(
       readFileSync(join(cfgDir, "config.json"), "utf8"),
     );
-    expect(onDisk.planAgentOrder).toEqual(["claude", "codex"]);
+    expect(onDisk.modes.plan.agentOrder).toEqual(["claude", "codex"]);
   });
 
-  test("rejects empty arg with documented wording", () => {
+  test("rejects empty arg", () => {
     const cap = captureIo();
     const code = configCommand({
       args: ["set-plan-order", ""],
@@ -248,9 +254,7 @@ describe("config set-plan-order", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(1);
-    expect(cap.err()).toContain(
-      "set-plan-order requires at least one agent; use `unset-plan-order` to clear plan-mode order and fall back to agentOrder",
-    );
+    expect(cap.err()).toContain("expected a non-empty comma-separated list");
   });
 
   test("rejects duplicates", () => {
@@ -285,29 +289,15 @@ describe("config set-plan-order", () => {
     expect(code).toBe(1);
     expect(cap.err()).toContain("missing");
   });
-});
-
-describe("config unset-plan-order", () => {
-  test("removes the key from disk", () => {
-    configCommand({
-      args: ["set-plan-order", "claude,codex"],
-      io: captureIo().io,
-      config: { dir: cfgDir },
-    });
+  test("unset-plan-order is not a command", () => {
     const cap = captureIo();
     const code = configCommand({
       args: ["unset-plan-order"],
       io: cap.io,
       config: { dir: cfgDir },
     });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("planAgentOrder: (unset; uses agentOrder)");
-    const cfg = loadConfig({ dir: cfgDir });
-    expect(cfg.planAgentOrder).toBeUndefined();
-    const onDisk = JSON.parse(
-      readFileSync(join(cfgDir, "config.json"), "utf8"),
-    );
-    expect(onDisk).not.toHaveProperty("planAgentOrder");
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("unknown config subcommand");
   });
 });
 
@@ -406,8 +396,11 @@ describe("config edit", () => {
         require("node:fs").writeFileSync(
           f,
           JSON.stringify({
-            version: 1,
-            agentOrder: ["cursor", "codex", "claude"],
+            version: 2,
+            modes: {
+              patch: { agentOrder: ["cursor", "codex", "claude"] },
+              plan: { agentOrder: ["cursor", "codex", "claude"] },
+            },
             projects: {},
           }),
         );
@@ -415,7 +408,7 @@ describe("config edit", () => {
       },
     });
     expect(code).toBe(0);
-    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual([
+    expect(loadConfig({ dir: cfgDir }).modes.patch.agentOrder).toEqual([
       "cursor",
       "codex",
       "claude",

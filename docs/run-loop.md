@@ -32,7 +32,8 @@ Jarvis uses the resolved path to prepare the per-spec
 [worktree](./worktrees-and-commits.md) and as the base `cwd` for `gh`, git, and
 the agent. The operator’s shell working directory may be outside any repository,
 such as a parent directory of several clones. From that point, Jarvis runs
-agents from `agentOrder` until the active spec has no unchecked boxes.
+agents from `modes.patch.agentOrder` until the active spec has no unchecked
+boxes.
 
 ### Disambiguation prompt
 

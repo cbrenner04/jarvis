@@ -1,11 +1,8 @@
 import { join } from "node:path";
 import { loadConfig } from "../config.ts";
-import {
-  checkLogServerReachable,
-  DEFAULT_LOG_SERVER_URL,
-} from "../log-server-preflight.ts";
 import type { LogClient } from "../logging.ts";
-import { resolveTargetRepo } from "../repo.ts";
+import { enterMode } from "../mode-entry.ts";
+import type { resolveTargetRepo } from "../repo.ts";
 import { describePlanInvocation, parsePlanArgs } from "./plan-args.ts";
 
 export type PlanIo = {
@@ -53,53 +50,47 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   // as the walk start, mirroring "as if there were a spec here".
   const candidatePath =
     inv.mode === "file" ? inv.intentPath : join(inv.cwd, "intent");
-  const resolveOpts: Parameters<typeof resolveTargetRepo>[0] = {
+  const cfg = loadConfig(opts.config);
+  const entryOpts: Parameters<typeof enterMode>[0] = {
     candidatePath,
+    io: { stderr: opts.io.stderr },
+    logServerUrl: cfg.logServerUrl,
   };
   if (inv.repo !== undefined) {
-    resolveOpts.repoFlag = inv.repo;
+    entryOpts.repoFlag = inv.repo;
   }
   if (opts.config !== undefined) {
-    resolveOpts.config = opts.config;
+    entryOpts.config = opts.config;
   }
-  const resolution = resolveTargetRepo(resolveOpts);
-
-  if (resolution.kind === "error") {
-    opts.io.stderr(`${resolution.message}\n`);
+  if (opts.logClient !== undefined) {
+    entryOpts.logClient = opts.logClient;
+  }
+  const entry = await enterMode(entryOpts);
+  if (entry.kind === "error") {
+    opts.io.stderr(`${entry.message}\n`);
     return 1;
   }
-  if (resolution.kind === "ambiguous") {
-    const names = resolution.candidates.map((c) => `  - ${c.key}`).join("\n");
+  if (entry.kind === "ambiguous") {
+    const names = entry.candidates.map((c) => `  - ${c.key}`).join("\n");
     opts.io.stderr(
-      `${resolution.reason}\nMatching projects:\n${names}\nPass --repo <name> to disambiguate.\n`,
+      `${entry.reason}\nMatching projects:\n${names}\nPass --repo <name> to disambiguate.\n`,
     );
     return 1;
   }
-  if (resolution.kind === "needs-prompt") {
+  if (entry.kind === "needs-prompt") {
     opts.io.stderr(
       "could not determine a target project for this intent and no projects are registered. Run `jarvis init` in a target repo, or pass --repo <name|url>.\n",
     );
     return 1;
   }
+  if (entry.kind === "log-error") {
+    return entry.exitCode;
+  }
 
-  const project = resolution.resolved.project;
+  const project = entry.resolution.resolved.project;
   opts.io.stderr(
     `plan mode: target project=${project.key} root=${project.root}\n`,
   );
-
-  const cfg = loadConfig(opts.config);
-  const preflightOpts: Parameters<typeof checkLogServerReachable>[0] = {
-    io: { stderr: opts.io.stderr },
-    logServerUrl: cfg.logServerUrl ?? DEFAULT_LOG_SERVER_URL,
-  };
-  if (opts.logClient !== undefined) {
-    preflightOpts.logClient = opts.logClient;
-  }
-  const logServerResult = await checkLogServerReachable(preflightOpts);
-  if (logServerResult.kind === "error") {
-    return logServerResult.exitCode;
-  }
-
   opts.io.stderr(PLAN_STUB_MESSAGE);
   return 2;
 }

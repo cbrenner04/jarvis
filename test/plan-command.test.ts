@@ -34,6 +34,15 @@ const okLogClient: LogClient = {
   send: async () => {},
 };
 
+function setupRegisteredProject() {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-cmd-"));
+  const cfgDir = join(dir, "cfg");
+  const project = join(dir, "project");
+  mkdirSync(project);
+  registerProject("project", project, { dir: cfgDir });
+  return { dir, cfgDir, project };
+}
+
 function failingLogClient(message: string): LogClient {
   return {
     assertReachable: async () => {
@@ -45,12 +54,22 @@ function failingLogClient(message: string): LogClient {
 
 describe("planCommand", () => {
   test("no args → interactive mode, stub on stderr, exit 2", async () => {
-    const cap = captureIo();
-    const code = await planCommand({ io: cap.io, logClient: okLogClient });
-    expect(code).toBe(2);
-    expect(cap.err()).toContain("plan mode: interactive");
-    expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
-    expect(cap.out()).toBe("");
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain("plan mode: interactive");
+      expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+      expect(cap.out()).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("--help prints usage to stdout, exit 0", async () => {
@@ -79,16 +98,23 @@ describe("planCommand", () => {
   });
 
   test("inline mode: positional that is not a file", async () => {
-    const cap = captureIo();
-    const code = await planCommand({
-      io: cap.io,
-      args: ["this is freeform intent"],
-      logClient: okLogClient,
-    });
-    expect(code).toBe(2);
-    expect(cap.err()).toContain("plan mode: inline");
-    expect(cap.err()).toContain("this is freeform intent");
-    expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["this is freeform intent"],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(2);
+      expect(cap.err()).toContain("plan mode: inline");
+      expect(cap.err()).toContain("this is freeform intent");
+      expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

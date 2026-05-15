@@ -79,48 +79,33 @@ describe("config path", () => {
   });
 });
 
-describe("config set-order", () => {
-  test("happy path replaces agentOrder", () => {
+describe("config set-patch-order", () => {
+  test("happy path replaces modes.patch.agentOrder", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "codex,claude,cursor"],
+      args: ["set-patch-order", "codex,claude,cursor"],
       io: cap.io,
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
     const cfg = loadConfig({ dir: cfgDir });
     expect(cfg.modes.patch.agentOrder).toEqual(["codex", "claude", "cursor"]);
-    expect(cfg.modes.plan.agentOrder).toEqual(["codex", "claude", "cursor"]);
+    expect(cfg.modes.plan.agentOrder).toEqual(["claude", "codex", "cursor"]);
   });
 
   test("subset is allowed", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "codex,claude"],
+      args: ["set-patch-order", "codex,claude"],
       io: cap.io,
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
     const cfg = loadConfig({ dir: cfgDir });
     expect(cfg.modes.patch.agentOrder).toEqual(["codex", "claude"]);
-    expect(cfg.modes.plan.agentOrder).toEqual(["codex", "claude"]);
-  });
-
-  test("opencode is allowed", () => {
-    const cap = captureIo();
-    const code = configCommand({
-      args: ["set-order", "claude,opencode"],
-      io: cap.io,
-      config: { dir: cfgDir },
-    });
-    expect(code).toBe(0);
-    const cfg = loadConfig({ dir: cfgDir });
-    expect(cfg.modes.patch.agentOrder).toEqual(["claude", "opencode"]);
-    expect(cfg.modes.plan.agentOrder).toEqual(["claude", "opencode"]);
   });
 
   test("rejects unknown agent without changing file", () => {
-    // seed config
     configCommand({
       args: ["show"],
       io: captureIo().io,
@@ -130,28 +115,7 @@ describe("config set-order", () => {
 
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,bogus"],
-      io: cap.io,
-      config: { dir: cfgDir },
-    });
-    expect(code).toBe(1);
-    expect(cap.err()).toContain("unknown agent");
-
-    const after = readFileSync(join(cfgDir, "config.json"), "utf8");
-    expect(after).toBe(before);
-  });
-
-  test("rejects nonsense agent without changing file", () => {
-    configCommand({
-      args: ["show"],
-      io: captureIo().io,
-      config: { dir: cfgDir },
-    });
-    const before = readFileSync(join(cfgDir, "config.json"), "utf8");
-
-    const cap = captureIo();
-    const code = configCommand({
-      args: ["set-order", "claude,nonsense"],
+      args: ["set-patch-order", "claude,bogus"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -165,18 +129,7 @@ describe("config set-order", () => {
   test("rejects duplicates", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,claude"],
-      io: cap.io,
-      config: { dir: cfgDir },
-    });
-    expect(code).toBe(1);
-    expect(cap.err()).toContain("duplicate");
-  });
-
-  test("rejects duplicate opencode", () => {
-    const cap = captureIo();
-    const code = configCommand({
-      args: ["set-order", "claude,opencode,opencode"],
+      args: ["set-patch-order", "claude,claude"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -187,7 +140,7 @@ describe("config set-order", () => {
   test("missing arg exits 1", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order"],
+      args: ["set-patch-order"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -198,7 +151,87 @@ describe("config set-order", () => {
   test("empty arg exits 1", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", ""],
+      args: ["set-patch-order", ""],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+  });
+});
+
+describe("config set-plan-order", () => {
+  test("happy path replaces modes.plan.agentOrder", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "codex,claude,cursor"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.modes.plan.agentOrder).toEqual(["codex", "claude", "cursor"]);
+    expect(cfg.modes.patch.agentOrder).toEqual(["claude", "codex", "cursor"]);
+  });
+
+  test("subset is allowed", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "codex,claude"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.modes.plan.agentOrder).toEqual(["codex", "claude"]);
+  });
+
+  test("rejects unknown agent without changing file", () => {
+    configCommand({
+      args: ["show"],
+      io: captureIo().io,
+      config: { dir: cfgDir },
+    });
+    const before = readFileSync(join(cfgDir, "config.json"), "utf8");
+
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "claude,bogus"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("unknown agent");
+
+    const after = readFileSync(join(cfgDir, "config.json"), "utf8");
+    expect(after).toBe(before);
+  });
+
+  test("rejects duplicates", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "claude,claude"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("duplicate");
+  });
+
+  test("missing arg exits 1", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("missing");
+  });
+
+  test("empty arg exits 1", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", ""],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -314,16 +347,8 @@ describe("config edit", () => {
     });
     expect(code).toBe(0);
     const cfg = loadConfig({ dir: cfgDir });
-    expect(cfg.modes.patch.agentOrder).toEqual([
-      "cursor",
-      "codex",
-      "claude",
-    ]);
-    expect(cfg.modes.plan.agentOrder).toEqual([
-      "cursor",
-      "codex",
-      "claude",
-    ]);
+    expect(cfg.modes.patch.agentOrder).toEqual(["cursor", "codex", "claude"]);
+    expect(cfg.modes.plan.agentOrder).toEqual(["cursor", "codex", "claude"]);
   });
 
   test("editor non-zero exit is reported", () => {

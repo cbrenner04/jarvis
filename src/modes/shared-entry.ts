@@ -79,14 +79,17 @@ export async function runSharedPreflight(
   const cfg = loadConfig(opts.config);
 
   // Check log server reachability
-  const logClient = opts.logClient ?? createLogClient(
-    opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs"
-  );
+  const logClient =
+    opts.logClient ??
+    createLogClient(
+      opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs",
+    );
 
   try {
     await logClient.assertReachable();
   } catch (err) {
-    const logServerUrl = opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
+    const logServerUrl =
+      opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
     opts.io.stderr(
       `jarvis: log server unreachable at ${logServerUrl}. Start it with \`jarvis log-server\` or update config.\n`,
     );

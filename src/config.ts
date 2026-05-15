@@ -187,7 +187,11 @@ function validateConfig(input: unknown, file: string): Config {
   const modesObj = modes as Record<string, unknown>;
 
   const patchMode = modesObj.patch;
-  if (patchMode === null || typeof patchMode !== "object" || Array.isArray(patchMode)) {
+  if (
+    patchMode === null ||
+    typeof patchMode !== "object" ||
+    Array.isArray(patchMode)
+  ) {
     fail(file, 'modes.patch must be an object with "agentOrder" array');
   }
   const patchAgentOrder = validateAgentOrder(
@@ -197,7 +201,11 @@ function validateConfig(input: unknown, file: string): Config {
   );
 
   const planMode = modesObj.plan;
-  if (planMode === null || typeof planMode !== "object" || Array.isArray(planMode)) {
+  if (
+    planMode === null ||
+    typeof planMode !== "object" ||
+    Array.isArray(planMode)
+  ) {
     fail(file, 'modes.plan must be an object with "agentOrder" array');
   }
   const planAgentOrder = validateAgentOrder(

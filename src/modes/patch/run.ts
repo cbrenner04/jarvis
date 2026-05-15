@@ -49,10 +49,7 @@ import {
   acquireWorktreeLock,
   releaseWorktreeLock,
 } from "../../worktree-lock.ts";
-import {
-  runSharedPreflight,
-  type DisambiguateFn,
-} from "../shared-entry.ts";
+import { runSharedPreflight, type DisambiguateFn } from "../shared-entry.ts";
 import {
   countUnchecked,
   getActiveLinkedSubspecPath,
@@ -219,11 +216,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
   const activeAgents = buildActiveAgents(opts, preflight.cfg);
 
-  const loggingSetup = setupLogging(
-    opts,
-    preflight,
-    sharedPreflight.logClient,
-  );
+  const loggingSetup = setupLogging(opts, preflight, sharedPreflight.logClient);
   const logging = loggingSetup;
 
   const state = {

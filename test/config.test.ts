@@ -413,7 +413,9 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/config version 1 is not supported/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /config version 1 is not supported/,
+    );
   });
 
   test("rejects config with legacy agentOrder key", () => {
@@ -499,7 +501,9 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder.*non-empty/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.patch\.agentOrder.*non-empty/,
+    );
   });
 
   test("rejects empty plan agentOrder", () => {
@@ -514,7 +518,9 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/modes\.plan\.agentOrder.*non-empty/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.plan\.agentOrder.*non-empty/,
+    );
   });
 
   test("rejects duplicate agents in patch agentOrder", () => {
@@ -529,7 +535,9 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder.*duplicate/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.patch\.agentOrder.*duplicate/,
+    );
   });
 
   test("rejects duplicate agents in plan agentOrder", () => {
@@ -544,7 +552,9 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/modes\.plan\.agentOrder.*duplicate/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.plan\.agentOrder.*duplicate/,
+    );
   });
 
   test("rejects unknown agent", () => {

@@ -1354,7 +1354,10 @@ exit 1
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
+        modes: {
+          patch: { agentOrder: ["claude"] },
+          plan: { agentOrder: ["claude"] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
@@ -1396,7 +1399,10 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
+        modes: {
+          patch: { agentOrder: ["claude"] },
+          plan: { agentOrder: ["claude"] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1440,7 +1446,10 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
+        modes: {
+          patch: { agentOrder: ["claude"] },
+          plan: { agentOrder: ["claude"] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
@@ -1506,7 +1515,10 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
+        modes: {
+          patch: { agentOrder: ["claude", "codex"] },
+          plan: { agentOrder: ["claude", "codex"] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1544,7 +1556,10 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
+        modes: {
+          patch: { agentOrder: ["claude", "codex"] },
+          plan: { agentOrder: ["claude", "codex"] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1591,7 +1606,10 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
+        modes: {
+          patch: { agentOrder: ["claude", "codex"] },
+          plan: { agentOrder: ["claude", "codex"] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1638,7 +1656,10 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
+        modes: {
+          patch: { agentOrder: ["claude", "codex"] },
+          plan: { agentOrder: ["claude", "codex"] },
+        },
         quotaFallback: "strict",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1678,7 +1699,10 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
+        modes: {
+          patch: { agentOrder: ["claude", "codex"] },
+          plan: { agentOrder: ["claude", "codex"] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1739,7 +1763,10 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
+        modes: {
+          patch: { agentOrder: ["claude", "codex"] },
+          plan: { agentOrder: ["claude", "codex"] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -2584,7 +2611,10 @@ exit 0
       writeConfig(
         {
           version: 2,
-          modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
+          modes: {
+            patch: { agentOrder: ["claude"] },
+            plan: { agentOrder: ["claude"] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -2620,7 +2650,10 @@ exit 0
       writeConfig(
         {
           version: 2,
-          modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
+          modes: {
+            patch: { agentOrder: ["claude"] },
+            plan: { agentOrder: ["claude"] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -2655,7 +2688,10 @@ exit 0
       writeConfig(
         {
           version: 2,
-          modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
+          modes: {
+            patch: { agentOrder: ["claude"] },
+            plan: { agentOrder: ["claude"] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,

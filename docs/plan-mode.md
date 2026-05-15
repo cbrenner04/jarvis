@@ -63,7 +63,7 @@ Jarvis creates a git worktree at `.worktree/plan-<name>/` with a branch `plan-<n
 
 **Commit shape:**
 - Subject: `plan: interview`
-- Body: `Placeholder interview. Real content comes from spec/plan-mode-interview/.`
+- Body: starts with `Spec: spec/<name>/intent.md` (so the attribution renderer in `src/pr.ts` recognises it as a spec commit), followed by `Seeded from <intent path or "inline">`.
 - Pushed: immediately after commit.
 
 ### Phase 1: Draft
@@ -81,13 +81,15 @@ The agent produces files under `spec/<name>/` in the worktree. Jarvis does **not
 - Subject: `plan: draft`
 - Body:
   ```
+  Spec: spec/<name>/intent.md
+
   Drafted by <agent-attribution>.
   Subspecs: <count>
   ```
-  Where `<agent-attribution>` is the agent's `attributionLabel()` (same as the `Jarvis-Agent` git trailer) and `<count>` is the number of subspec files (files matching `spec/<name>/[0-9]*.md`, excluding `index.md` and `intent.md`).
+  Where `<agent-attribution>` is the agent's `attributionLabel()` (also written as the `Jarvis-Agent` git trailer) and `<count>` is the number of subspec files (files matching `spec/<name>/[0-9]*.md`, excluding `index.md` and `intent.md`). The leading `Spec: ` line lets the attribution renderer in `src/pr.ts` pick the commit up.
 - Pushed: immediately after commit.
 
-**Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during draft, the draft files are committed as `plan: draft` and plan mode stops (see [Stop conditions](#stop-conditions)).
+**Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during draft, the draft files are first committed as `plan: draft` (per the normal commit shape above) and then a separate `plan: blocker` commit captures the blocker; plan mode stops (see [Stop conditions](#stop-conditions)).
 
 ### Phase 2: Self-review
 
@@ -105,6 +107,8 @@ Each pass is a single agent invocation; the agent does not decide when to stop o
 - Subject: `plan: review 1`
 - Body:
   ```
+  Spec: spec/<name>/intent.md
+
   Reviewed by <agent-attribution>.
   ```
 - Pushed: immediately after commit.
@@ -161,20 +165,26 @@ If an agent appends a `## Blocker` section to `spec/<name>/intent.md` (exact hea
 - Subject: `plan: blocker`
 - Body:
   ```
-  Blocked by <reason>.
+  Spec: spec/<name>/intent.md
+
+  Blocked by <reason>
   Spec files to date: <count>
+  Raised by <agent-attribution>.
   ```
+  Where `<reason>` is the first non-empty line of the agent's `## Blocker` body and `<count>` is the number of `[0-9]*.md` subspec files at the time the blocker was committed.
 - Pushed: immediately after commit.
 
 Jarvis then prints the blocker section to stderr and exits `1`. The draft PR reflects the blocker for human review. The user can resolve the blocker offline, update `spec/<name>/intent.md` manually on the branch, and re-run `jarvis plan --resume` (when resume is implemented) to continue, or close the PR and start over.
 
 ### 3. Ctrl-C
 
-User interrupts with Ctrl-C (SIGINT). Jarvis propagates the signal, leaves the worktree, branch, and PR as-is, and exits `130` (standard POSIX exit code for SIGINT). The user can return to the worktree and continue manually or with `jarvis plan --resume` (when resume is implemented).
+User interrupts with Ctrl-C (SIGINT). Jarvis records the signal and, at the next interrupt-checkpoint (after the current agent invocation returns and *before* any commit/push for that pass), exits `130` (standard POSIX exit code for SIGINT) leaving the worktree, branch, and PR as they were on entry to that pass. A second Ctrl-C while an agent is still running falls through to Node's default handler and terminates the process immediately, which may leave a partially-written file in the worktree but never an unintended commit. The user can return to the worktree and continue manually or with `jarvis plan --resume` (when resume is implemented).
 
 ### 4. Agent quota exhausted
 
-If the selected agent (from `modes.plan.agentOrder`) reports a quota signal, jarvis advances to the next agent in the fallback chain. If all agents are exhausted, jarvis exits with the quota-exhausted exit code and message (same as `jarvis run`; see [docs/quota-signals.md](./quota-signals.md)).
+If the selected agent (from `modes.plan.agentOrder`) reports a quota signal, jarvis advances to the next agent in the fallback chain. If all agents are exhausted, jarvis exits `2` and prints `plan: quota exhausted` to stderr (matching patch mode's quota exit code; see [docs/quota-signals.md](./quota-signals.md)).
+
+If an agent reports a `model_config` signal (the configured model is not supported by that CLI/account), jarvis exits `3` and prints `plan mode: model configuration error` plus the agent's stderr. This matches patch mode's `model_config` exit code (see `src/modes/patch/run.ts`).
 
 ## Agent selection
 
@@ -188,9 +198,9 @@ There is no fallback to patch-mode order; both must be configured.
 
 After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. The PR title is `plan: <name>` (where `<name>` is the relative spec directory path). The PR body has three parts:
 
-1. **Deterministic header**: spec title (from `spec/<name>/index.md` H1), progress line (e.g., "Progress: 0/5"), and a mirror of the index subspec checklist.
+1. **Deterministic header**: the H1 from `spec/<name>/index.md` (or `# plan: <name>` when the index does not yet exist), a `## Progress: <checked>/<total>` line counting checked vs total subspec checkboxes in `index.md`, and a verbatim mirror of the `index.md` subspec checklist (each line preserved exactly as it appears in the index).
 2. **Narrative section**: currently empty, preserved for future edits (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers).
-3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on all plan commits on the branch, listing one bullet per subspec commit and a summary line of contributing agents.
+3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch (recognised via the `Spec: ` body-line prefix, like patch-mode subspec commits), listing one bullet per plan commit and a deduped summary line of contributing agents.
 
 ### Draft stays draft
 
@@ -228,6 +238,5 @@ Each generated or rewritten spec must satisfy these rules (enforced by plan mode
 - **`index.md` required**: Every spec tree must have an `spec/<name>/index.md` file.
 - **Atomic subspecs**: Each subspec file (`[0-9]*.md`) must have an exact `## Acceptance criteria` heading (level 2, case-sensitive) with one or more checkboxes.
 - **Blocker heading**: If a `## Blocker` section is appended to `intent.md`, it must use the exact heading (level 2, case-sensitive).
-- **No duplicate headings**: No two subspecs should have identical H1 titles.
 
 Plan mode validates these rules after each phase. If a validation fails, jarvis emits an error and does not commit the broken spec tree.

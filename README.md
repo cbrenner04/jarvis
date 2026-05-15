@@ -122,7 +122,7 @@ to resolve it with `jarvis config`. If the current directory is outside
 ### `jarvis run`
 
 `jarvis run` resolves the spec into a per-spec git worktree under
-`.worktree/<spec-name>/`, runs agents from `agentOrder` until the spec has
+`.worktree/<spec-name>/`, runs agents from `modes.patch.agentOrder` until the spec has
 zero unchecked boxes, and opens a draft PR after the first commit lands. The
 PR transitions to ready for review when the spec is complete; jarvis never
 merges. You may start the command from a directory that is not a git checkout

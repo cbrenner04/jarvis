@@ -6,7 +6,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  statSync,
   writeSync,
 } from "node:fs";
 import {
@@ -23,6 +22,7 @@ import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
 import { isWeakQuotaSignal } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
+import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
   type AgentName,
@@ -30,19 +30,13 @@ import {
   type ConfigOptions,
   effectiveGit,
   findProjectMatchForPath,
-  loadConfig,
   openSessionLog,
   type ProjectMatch,
   setProjectOrigin,
 } from "../../config.ts";
-import {
-  type DisambiguationResult,
-  promptForProject,
-} from "../../disambiguation-prompt.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
-import { createLogClient, type LogClient } from "../../logging.ts";
+import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttribution } from "../../pr.ts";
-import { resolveProject } from "../../resolve-project.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import {
   createWorktreeSymlinks,
@@ -54,6 +48,11 @@ import {
   acquireWorktreeLock,
   releaseWorktreeLock,
 } from "../../worktree-lock.ts";
+import {
+  type DisambiguateFn,
+  runSharedPreflight,
+  type SharedPreflightOpts,
+} from "../shared-entry.ts";
 import {
   countUnchecked,
   getActiveLinkedSubspecPath,
@@ -75,18 +74,9 @@ import {
   snapshotAcceptanceCriteria,
 } from "./subspec.ts";
 
-export type RunIo = {
-  stdout: (s: string) => void;
-  stderr: (s: string) => void;
-};
+export type RunIo = Io;
 
 export type ConfirmRun = (prompt: string) => string | Promise<string>;
-
-export type DisambiguateFn = (opts: {
-  candidates: ProjectMatch[];
-  reason: string;
-  io: RunIo;
-}) => Promise<DisambiguationResult> | DisambiguationResult;
 
 export type RunCommandOptions = {
   specPath: string;
@@ -188,7 +178,38 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return 1;
   }
 
-  const preflight = await resolveAndPreflight(opts, initialSpecPath);
+  // Run shared preflight (target-repo resolution and log-server reachability)
+  const sharedPreflightOpts: SharedPreflightOpts = {
+    specPath: initialSpecPath,
+    io: opts.io,
+  };
+  if (opts.repoFlag !== undefined) {
+    sharedPreflightOpts.repoFlag = opts.repoFlag;
+  }
+  if (opts.config !== undefined) {
+    sharedPreflightOpts.config = opts.config;
+  }
+  if (opts.disambiguate !== undefined) {
+    sharedPreflightOpts.disambiguate = opts.disambiguate;
+  }
+  if (opts.logClient !== undefined) {
+    sharedPreflightOpts.logClient = opts.logClient;
+  }
+
+  const sharedPreflight = await runSharedPreflight(sharedPreflightOpts);
+
+  if (sharedPreflight.kind === "error") {
+    return sharedPreflight.exitCode;
+  }
+
+  // Run mode-specific preflight (worktree, git, spec prep, etc.)
+  const preflight = await resolveModeSpecificPreflight(
+    opts,
+    initialSpecPath,
+    sharedPreflight.project,
+    sharedPreflight.projectMode,
+    sharedPreflight.cfg,
+  );
   if (preflight.kind === "error") {
     return preflight.exitCode;
   }
@@ -198,11 +219,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
   const activeAgents = buildActiveAgents(opts, preflight.cfg);
 
-  const loggingSetup = await setupLogging(opts, preflight);
-  if (loggingSetup.kind === "error") {
-    return loggingSetup.exitCode;
-  }
-  const logging = loggingSetup.logging;
+  const loggingSetup = setupLogging(opts, preflight, sharedPreflight.logClient);
+  const logging = loggingSetup;
 
   const state = {
     iteration: 1,
@@ -258,46 +276,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   }
 }
 
-async function resolveAndPreflight(
+async function resolveModeSpecificPreflight(
   opts: RunCommandOptions,
   initialSpecPath: string,
+  project: ProjectMatch,
+  projectMode: "registered" | "ad-hoc",
+  cfg: Config,
 ): Promise<PreflightResult> {
-  const projectResolution = await resolveProjectFromSpec({
-    specPath: initialSpecPath,
-    repoFlag: opts.repoFlag,
-    config: opts.config,
-    io: opts.io,
-    disambiguate: opts.disambiguate,
-  });
-  if (projectResolution.error !== undefined) {
-    opts.io.stderr(`${projectResolution.error}\n`);
-    return { kind: "error", exitCode: 1 };
-  }
-  const project = projectResolution.project;
-  const projectMode = projectResolution.mode;
-  const projectSource = projectResolution.source;
-
-  // Preflight: the resolved project root must exist on disk before any
-  // side-effecting work (worktree, gh, agent spawn, session log open).
-  // A registered or spec-`repo:`-named root may have been moved or
-  // deleted; an ad-hoc walk may land on a `.git` whose parent has been
-  // removed. Without this check, the failure surfaces several call sites
-  // later as a misleading `posix_spawn 'gh' ENOENT`, since `posix_spawn`
-  // returns ENOENT when the child's `cwd` does not exist.
-  const projectRootCheck = checkProjectRootExists(project.root);
-  if (!projectRootCheck.ok) {
-    opts.io.stderr(
-      `${formatMissingProjectRootError({
-        path: project.root,
-        projectKey: project.key,
-        source: projectSource,
-        repoFlag: opts.repoFlag,
-        reason: projectRootCheck.reason,
-      })}\n`,
-    );
-    return { kind: "error", exitCode: 1 };
-  }
-  const cfg = loadConfig(opts.config);
   const gitEnabled = effectiveGit(
     cfg,
     projectMode === "registered" ? project.key : undefined,
@@ -439,30 +424,38 @@ async function resolveAndPreflight(
 }
 
 function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
-  const agentsByName = opts.agents ?? defaultAgents(cfg);
-  return cfg.agentOrder
-    .map((name) => agentsByName[name])
-    .filter((agent): agent is Agent => agent !== undefined);
+  const overrides = opts.agents;
+  const agents: Agent[] = [];
+  for (const entry of cfg.modes.patch.agentOrder) {
+    const override = overrides?.[entry.agent];
+    if (override !== undefined) {
+      agents.push(override);
+      continue;
+    }
+    agents.push(makeAgent(entry.agent, entry.model));
+  }
+  return agents;
 }
 
-async function setupLogging(
+function makeAgent(name: AgentName, model: string): Agent {
+  switch (name) {
+    case "claude":
+      return new ClaudeAgent({ model });
+    case "codex":
+      return new CodexAgent({ model });
+    case "cursor":
+      return new CursorAgent({ model });
+    case "opencode":
+      return new OpencodeAgent({ model });
+  }
+}
+
+function setupLogging(
   opts: RunCommandOptions,
   preflight: PreflightOk,
-): Promise<
-  { kind: "ok"; logging: LoggingContext } | { kind: "error"; exitCode: number }
-> {
+  logClient: LogClient,
+): LoggingContext {
   const cfg = preflight.cfg;
-  const logServerUrl = cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
-  const logClient = opts.logClient ?? createLogClient(logServerUrl);
-  try {
-    await logClient.assertReachable();
-  } catch (err) {
-    opts.io.stderr(
-      `jarvis: log server unreachable at ${logServerUrl}. Start it with \`jarvis log-server\` or update config.\n`,
-    );
-    opts.io.stderr(`jarvis: ${(err as Error).message}\n`);
-    return { kind: "error", exitCode: 1 };
-  }
 
   const specDisplayName = getSpecDisplayName(preflight.specPath);
   const runNamespace = `${preflight.project.key}:${specDisplayName}`;
@@ -535,17 +528,14 @@ async function setupLogging(
   };
 
   return {
-    kind: "ok",
-    logging: {
-      fanout,
-      sendLog,
-      writeSessionLine,
-      writeTelemetry,
-      sessionFd,
-      logClient,
-      runNamespace,
-      specDisplayName,
-    },
+    fanout,
+    sendLog,
+    writeSessionLine,
+    writeTelemetry,
+    sessionFd,
+    logClient,
+    runNamespace,
+    specDisplayName,
   };
 }
 
@@ -1069,7 +1059,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       return { kind: "continue" };
     }
     if (result.kind === "model_config") {
-      const configErr = `${agent.name}: configured patch model ${JSON.stringify(cfg.patchModels[agent.name])} is not supported by this CLI/account\n`;
+      const entry = cfg.modes.patch.agentOrder.find(
+        (e) => e.agent === agent.name,
+      );
+      const configErr = `${agent.name}: configured patch model ${JSON.stringify(entry?.model)} is not supported by this CLI/account\n`;
       fanout("harness", configErr, "stderr");
       if (result.stderr.length > 0) {
         const stderr = result.stderr.endsWith("\n")
@@ -1275,212 +1268,6 @@ function getCurrentBranch(cwd: string): string {
   }).trim();
 }
 
-async function resolveProjectFromSpec(opts: {
-  specPath: string;
-  repoFlag?: string | undefined;
-  config?: ConfigOptions | undefined;
-  io: RunIo;
-  disambiguate?: DisambiguateFn | undefined;
-}): Promise<{
-  project: ProjectMatch;
-  mode: "registered" | "ad-hoc";
-  source?: "repo-flag" | "spec-repo" | "registered" | "ad-hoc";
-  error?: string;
-}> {
-  const specRepoRaw = readRepoPath(opts.specPath);
-  const specRepo =
-    specRepoRaw === undefined || specRepoRaw.trim() === ""
-      ? undefined
-      : specRepoRaw.trim();
-
-  // Reject relative `repo:` values up front (kept from prior behavior).
-  if (
-    specRepo !== undefined &&
-    /[\\/]/.test(specRepo) &&
-    !isAbsolute(specRepo) &&
-    !looksLikeUrlOrSlug(specRepo)
-  ) {
-    return {
-      project: { key: "", root: "" },
-      mode: "registered",
-      error: `spec repo must be an absolute path: ${specRepo}`,
-    };
-  }
-
-  const resolveOpts: Parameters<typeof resolveProject>[0] = {
-    specPath: opts.specPath,
-  };
-  if (specRepo !== undefined) {
-    resolveOpts.specRepo = specRepo;
-  }
-  if (opts.repoFlag !== undefined) {
-    resolveOpts.repoFlag = opts.repoFlag;
-  }
-  if (opts.config !== undefined) {
-    resolveOpts.config = opts.config;
-  }
-  const result = resolveProject(resolveOpts);
-
-  if (result.kind === "ok") {
-    return {
-      project: result.resolved.project,
-      mode: result.resolved.mode,
-      source: result.resolved.source,
-    };
-  }
-  if (result.kind === "error") {
-    return {
-      project: { key: "", root: "" },
-      mode: "registered",
-      error: result.message,
-    };
-  }
-
-  // Ambiguous: prompt user to pick from the matching candidates.
-  if (result.kind === "ambiguous") {
-    return await runDisambiguationPrompt({
-      candidates: result.candidates,
-      reason: result.reason,
-      io: opts.io,
-      disambiguate: opts.disambiguate,
-    });
-  }
-
-  // needs-prompt: prompt user to pick from all registered projects.
-  const allProjects = listConfiguredProjects(opts.config);
-  if (allProjects.length === 0) {
-    return {
-      project: { key: "", root: "" },
-      mode: "registered",
-      error:
-        "could not determine a target project for this spec and no projects are registered. Run `jarvis init` in a target repo, or pass --repo <name|url>, or add a `repo:` line.",
-    };
-  }
-  return await runDisambiguationPrompt({
-    candidates: allProjects,
-    reason: result.reason,
-    io: opts.io,
-    disambiguate: opts.disambiguate,
-  });
-}
-
-async function runDisambiguationPrompt(opts: {
-  candidates: ProjectMatch[];
-  reason: string;
-  io: RunIo;
-  disambiguate?: DisambiguateFn | undefined;
-}): Promise<{
-  project: ProjectMatch;
-  mode: "registered" | "ad-hoc";
-  source?: "repo-flag" | "spec-repo" | "registered" | "ad-hoc";
-  error?: string;
-}> {
-  const prompt = opts.disambiguate ?? defaultDisambiguate;
-  const result = await prompt({
-    candidates: opts.candidates,
-    reason: opts.reason,
-    io: opts.io,
-  });
-  if (result.kind === "selected") {
-    return {
-      project: result.project,
-      mode: "registered",
-      source: "registered",
-    };
-  }
-  if (result.kind === "non-tty") {
-    const list = opts.candidates.map((c) => `  - ${c.key}`).join("\n");
-    return {
-      project: { key: "", root: "" },
-      mode: "registered",
-      error: `${opts.reason}; rerun with --repo <name>. Candidates:\n${list}`,
-    };
-  }
-  // cancelled
-  return {
-    project: { key: "", root: "" },
-    mode: "registered",
-    error: "project selection cancelled",
-  };
-}
-
-function listConfiguredProjects(opts?: ConfigOptions): ProjectMatch[] {
-  const cfg = loadConfig(opts);
-  const out: ProjectMatch[] = [];
-  for (const [key, project] of Object.entries(cfg.projects)) {
-    const match: ProjectMatch = { key, root: project.root };
-    if (project.origin !== undefined) {
-      match.origin = project.origin;
-    }
-    out.push(match);
-  }
-  return out;
-}
-
-async function defaultDisambiguate(opts: {
-  candidates: ProjectMatch[];
-  reason: string;
-  io: RunIo;
-}): Promise<DisambiguationResult> {
-  const isTty = Boolean(process.stdin.isTTY);
-  return promptForProject({
-    candidates: opts.candidates,
-    reason: opts.reason,
-    io: opts.io,
-    readLine: readLineFromStdin,
-    isTty,
-  });
-}
-
-async function readLineFromStdin(): Promise<string | undefined> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    const newline = buffer.indexOf(10);
-    if (newline !== -1) {
-      chunks.push(buffer.subarray(0, newline));
-      return Buffer.concat(chunks).toString("utf8");
-    }
-    chunks.push(buffer);
-  }
-  if (chunks.length === 0) {
-    return undefined;
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-function looksLikeUrlOrSlug(value: string): boolean {
-  if (/^(https?:\/\/|ssh:\/\/|git:\/\/|git@)/i.test(value)) {
-    return true;
-  }
-  // `owner/repo` slug. Disallow leading `.` to keep `./relative` paths
-  // from being misread as a slug.
-  if (
-    /^[A-Za-z0-9_-][A-Za-z0-9._-]*\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(value)
-  ) {
-    return true;
-  }
-  return false;
-}
-
-function readRepoPath(specPath: string): string | undefined {
-  let inFence = false;
-  for (const line of readFileSync(specPath, "utf8").split(/\r?\n/)) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) {
-      continue;
-    }
-    const match = line.match(/^repo:\s*(.+?)\s*$/);
-    if (match?.[1]) {
-      return match[1].trim();
-    }
-  }
-  return undefined;
-}
-
 export function specOutsideWorktreeReadDirs(opts: {
   specPath: string;
   agentWorkingDir: string;
@@ -1535,70 +1322,5 @@ function copyMissingRecursive(sourceDir: string, targetDir: string): void {
       force: false,
       errorOnExist: false,
     });
-  }
-}
-
-function defaultAgents(cfg: Config): Record<AgentName, Agent> {
-  return {
-    claude: new ClaudeAgent({ model: cfg.patchModels.claude }),
-    codex: new CodexAgent({ model: cfg.patchModels.codex }),
-    cursor: new CursorAgent({ model: cfg.patchModels.cursor }),
-    opencode: new OpencodeAgent({ model: cfg.patchModels.opencode }),
-  };
-}
-
-function checkProjectRootExists(
-  path: string,
-): { ok: true } | { ok: false; reason: "missing" | "not-directory" } {
-  if (!existsSync(path)) {
-    return { ok: false, reason: "missing" };
-  }
-  try {
-    if (!statSync(path).isDirectory()) {
-      return { ok: false, reason: "not-directory" };
-    }
-  } catch {
-    return { ok: false, reason: "missing" };
-  }
-  return { ok: true };
-}
-
-function formatMissingProjectRootError(opts: {
-  path: string;
-  projectKey: string;
-  source: "repo-flag" | "spec-repo" | "registered" | "ad-hoc" | undefined;
-  repoFlag: string | undefined;
-  reason: "missing" | "not-directory";
-}): string {
-  const sourceText = describeProjectSource(
-    opts.source,
-    opts.repoFlag,
-    opts.projectKey,
-  );
-  const what =
-    opts.reason === "not-directory"
-      ? "is not a directory"
-      : "does not exist on disk";
-  return `error: project root ${opts.path} ${what} (resolved from ${sourceText})`;
-}
-
-function describeProjectSource(
-  source: "repo-flag" | "spec-repo" | "registered" | "ad-hoc" | undefined,
-  repoFlag: string | undefined,
-  projectKey: string,
-): string {
-  switch (source) {
-    case "repo-flag":
-      return repoFlag === undefined
-        ? "--repo flag value"
-        : `--repo flag value ${JSON.stringify(repoFlag)}`;
-    case "spec-repo":
-      return "spec `repo:` line";
-    case "ad-hoc":
-      return "ad-hoc git checkout discovered from spec location";
-    default:
-      return projectKey === ""
-        ? "registered project"
-        : `registered project \`${projectKey}\``;
   }
 }

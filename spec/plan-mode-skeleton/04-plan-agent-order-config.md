@@ -1,19 +1,16 @@
-# 04 — `planAgentOrder` config key
+# 04 — Plan mode agent order (config v2)
 
-## Problem
+**Note:** This subspec is superseded by
+`spec/cli-modes-and-config-v2/00-config-v2-modes.md` and
+`spec/cli-modes-and-config-v2/02-config-cli-and-docs.md`, which implement
+config v2 with enforced `modes.patch.agentOrder` and `modes.plan.agentOrder`
+keys (not optional). See those specs for the current schema, validation rules,
+and `jarvis config` subcommands.
 
-Plan mode will eventually call agents to draft and self-review specs.
-Patch mode and plan mode are different workloads (structured writing vs.
-code edits) and the user may want a different agent preference order
-for each. We add a new optional `planAgentOrder` config key now so that:
-
-- Validation accepts and round-trips it.
-- `jarvis config` exposes get/set commands for it.
-- A later spec can consume it without re-editing config plumbing.
-
-`planAgentOrder` is **optional**. When unset, plan mode falls back to
-`agentOrder` at consumption time (handled by a later spec). This subspec
-only lands the schema, validator, defaults, and CLI surface.
+The original problem this subspec solved remains valid: plan mode and patch
+mode are different workloads and the user may want a different agent
+preference order for each. That is now handled by the v2 `modes` structure
+where both patch and plan mode orders are required keys in the config.
 
 ## Decisions
 

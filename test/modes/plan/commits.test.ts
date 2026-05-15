@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -207,10 +201,26 @@ describe("commitPlanDraft", () => {
           intentPathOrLabel: "test intent",
         });
 
+        // Simulate agent having created spec files
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "index.md"),
+          "# Test Spec\n\n- [ ] [00-task](./00-task.md)\n",
+        );
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "00-task.md"),
+          "# Task 1\n\n## Acceptance criteria\n\n- [ ] Test\n",
+        );
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "01-task.md"),
+          "# Task 2\n\n## Acceptance criteria\n\n- [ ] Test\n",
+        );
+
         // Create draft
         commitPlanDraft({
           worktreePath,
           name: "test-spec",
+          agentLabel: "Claude Haiku",
+          subspecCount: 2,
         });
 
         // Verify commit message
@@ -219,22 +229,8 @@ describe("commitPlanDraft", () => {
           encoding: "utf8",
         }).trim();
         expect(commitMsg).toContain("plan: draft");
-        expect(commitMsg).toContain("Placeholder draft");
-        expect(commitMsg).toContain("Subspecs: 1");
-
-        // Verify placeholder files exist
-        const indexPath = join(worktreePath, "spec", "test-spec", "index.md");
-        const taskPath = join(worktreePath, "spec", "test-spec", "00-task.md");
-        expect(readFileSync(indexPath, "utf8")).toContain("# Test Spec");
-        expect(readFileSync(indexPath, "utf8")).toContain(
-          "00 - Placeholder task",
-        );
-        expect(readFileSync(taskPath, "utf8")).toContain(
-          "00 - Placeholder task",
-        );
-        expect(readFileSync(taskPath, "utf8")).toContain(
-          "This file is a placeholder",
-        );
+        expect(commitMsg).toContain("Drafted by Claude Haiku");
+        expect(commitMsg).toContain("Subspecs: 2");
 
         // Verify both commits were pushed (should have initial + interview + draft)
         const remoteCommits = execSync("git log --oneline plan/test-spec", {

@@ -6,6 +6,7 @@ import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { commitPlanDraft, commitPlanInterview } from "../modes/plan/commits.ts";
+import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import { buildPlanPrHeader } from "../modes/plan/pr.ts";
 import { ensureDraftPr, renderAttribution } from "../pr.ts";
 import type { resolveTargetRepo } from "../repo.ts";
@@ -325,11 +326,76 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return 1;
     }
 
+    // Run draft phase: invoke agent to generate spec tree
+    let draftResult: Awaited<ReturnType<typeof runDraftPhase>>;
+    try {
+      const cfg = loadConfig(opts.config);
+      draftResult = await runDraftPhase({
+        worktreePath,
+        name: specName,
+        config: cfg,
+      });
+
+      // Check if draft succeeded
+      if (draftResult.result.kind !== "ok") {
+        if (draftResult.result.kind === "quota") {
+          opts.io.stderr(`plan mode: all agents quota-exhausted\n`);
+          return 2;
+        }
+        if (draftResult.result.kind === "model_config") {
+          opts.io.stderr(
+            `plan mode: model configuration error\n${draftResult.result.stderr}`,
+          );
+          return 3;
+        }
+        // Generic error
+        opts.io.stderr(
+          `plan mode: draft phase failed\n${draftResult.result.stderr}`,
+        );
+        return 1;
+      }
+
+      // Validate output
+      const validation = validateDraftOutput(worktreePath, specName);
+      if (!validation.valid) {
+        opts.io.stderr(
+          `plan mode: draft validation failed: ${validation.error}\n`,
+        );
+        return 1;
+      }
+
+      if (draftResult.subspecCount === null) {
+        opts.io.stderr(`plan mode: could not count subspecs\n`);
+        return 1;
+      }
+
+      opts.io.stderr(`plan mode: draft phase completed\n`);
+    } catch (err) {
+      opts.io.stderr(
+        `plan mode: draft phase error: ${(err as Error).message}\n`,
+      );
+      return 1;
+    }
+
     // Create plan: draft commit and push
     try {
+      // Extract agent attribution label
+      let agentLabel: string = "unknown";
+      if (
+        draftResult.result.kind === "ok" &&
+        draftResult.result.stderr.includes("Jarvis-Agent:")
+      ) {
+        const match = draftResult.result.stderr.match(/Jarvis-Agent:\s*(.+)/);
+        if (match?.[1]) {
+          agentLabel = match[1];
+        }
+      }
+
       commitPlanDraft({
         worktreePath,
         name: specName,
+        agentLabel,
+        subspecCount: draftResult.subspecCount ?? 0,
       });
       opts.io.stderr(`plan mode: draft commit pushed\n`);
     } catch (err) {

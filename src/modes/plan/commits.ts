@@ -120,6 +120,37 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
   }
 }
 
+export type CommitPlanBlockerOptions = {
+  worktreePath: string;
+  agentLabel: string;
+};
+
+export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
+  execFileSync("git", ["add", "-A"], {
+    cwd: opts.worktreePath,
+    stdio: "pipe",
+  });
+
+  const subject = "plan: blocker";
+  const body = `Blocker raised by ${opts.agentLabel}.`;
+  const baseMessage = `${subject}\n\n${body}`;
+  const commitMessage = appendAgentTrailer(baseMessage, "");
+
+  execFileSync("git", ["commit", "-F", "-"], {
+    cwd: opts.worktreePath,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: commitMessage,
+  });
+
+  try {
+    pushCurrent({ cwd: opts.worktreePath, firstPush: false });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(message);
+  }
+}
+
 function getProjectRoot(cwd: string): string {
   try {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], {

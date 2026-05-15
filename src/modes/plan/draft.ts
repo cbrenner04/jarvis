@@ -6,11 +6,13 @@ import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { detectBlocker } from "./blocker.ts";
 
 export type DraftPhaseOptions = {
   worktreePath: string;
   name: string;
   config: Config;
+  intentBefore?: string;
 };
 
 /**
@@ -56,9 +58,11 @@ function createAgent(agentName: AgentName, model: string | undefined): Agent {
  * Run the draft phase: invoke an agent to generate the spec tree.
  * Returns the agent result and the number of subspecs generated.
  */
-export async function runDraftPhase(
-  opts: DraftPhaseOptions,
-): Promise<{ result: AgentResult; subspecCount: number | null }> {
+export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
+  result: AgentResult;
+  subspecCount: number | null;
+  agentLabel: string | null;
+}> {
   // Read intent.md
   const intentPath = join(opts.worktreePath, "spec", opts.name, "intent.md");
   const intent = readFileSync(intentPath, "utf8");
@@ -85,9 +89,13 @@ export async function runDraftPhase(
   // Try each agent in order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;
   let result: AgentResult | null = null;
+  let agentLabel: string | null = null;
 
   for (const entry of agentOrder) {
     const agent = createAgent(entry.agent, entry.model);
+    agentLabel =
+      agent.attributionLabel?.() ??
+      `${entry.agent} (${entry.model ?? "default"})`;
 
     result = await agent.run(prompt, {
       cwd: opts.worktreePath,
@@ -96,7 +104,7 @@ export async function runDraftPhase(
     if (result.kind === "ok") {
       // Success! Count subspecs and return
       const subspecCount = countSubspecs(opts.worktreePath, opts.name);
-      return { result, subspecCount };
+      return { result, subspecCount, agentLabel };
     }
 
     if (result.kind === "quota") {
@@ -105,7 +113,7 @@ export async function runDraftPhase(
 
     if (result.kind === "model_config") {
       // Model config error is fatal
-      return { result, subspecCount: null };
+      return { result, subspecCount: null, agentLabel };
     }
   }
 
@@ -119,11 +127,12 @@ export async function runDraftPhase(
         stderr: "all agents exhausted (no result produced)",
       },
       subspecCount: null,
+      agentLabel: null,
     };
   }
 
   // Last result (could be quota, error, or model_config)
-  return { result, subspecCount: null };
+  return { result, subspecCount: null, agentLabel };
 }
 
 /**
@@ -140,12 +149,45 @@ function countSubspecs(worktreePath: string, name: string): number {
 }
 
 /**
+ * Check if intent.md was only modified by appending a ## Blocker section.
+ * Returns true if the modification is valid (either unchanged or only blocker added).
+ */
+function isValidIntentModification(before: string, after: string): boolean {
+  if (before === after) {
+    return true;
+  }
+
+  // Try removing blocker from after and see if it matches before
+  const afterLines = after.replace(/\r\n/g, "\n").split("\n");
+  let blockerIndex: number | undefined;
+
+  for (let i = 0; i < afterLines.length; i += 1) {
+    const line = afterLines[i] ?? "";
+    if (line === "## Blocker") {
+      blockerIndex = i;
+      break;
+    }
+  }
+
+  if (blockerIndex === undefined) {
+    // No blocker section, so any modification is invalid
+    return false;
+  }
+
+  // Reconstruct the file without the blocker section
+  const beforeBlocker = afterLines.slice(0, blockerIndex).join("\n").trim();
+
+  return beforeBlocker === before.trim();
+}
+
+/**
  * Validate that the agent produced the required spec tree structure.
  */
 export function validateDraftOutput(
   worktreePath: string,
   name: string,
-): { valid: boolean; error: string | null } {
+  intentBefore?: string,
+): { valid: boolean; error: string | null; blocker?: string | undefined } {
   const specDir = join(worktreePath, "spec", name);
 
   // Check index.md exists
@@ -158,6 +200,21 @@ export function validateDraftOutput(
   const fs = require("node:fs");
   const files = fs.readdirSync(specDir);
   const hasSubspecs = files.some((f: string) => /^\d{2}-.*\.md$/.test(f));
+
+  // Check if blocker was added to intent.md
+  const intentPath = join(specDir, "intent.md");
+  const intentAfter = readFileSync(intentPath, "utf8");
+  const blockerDetection = detectBlocker(intentAfter);
+
+  if (blockerDetection.hasBlocker) {
+    // If blocker exists, we can return early (spec generation doesn't need to have succeeded)
+    return {
+      valid: true,
+      error: null,
+      blocker: blockerDetection.body,
+    };
+  }
+
   if (!hasSubspecs) {
     return {
       valid: false,
@@ -165,10 +222,16 @@ export function validateDraftOutput(
     };
   }
 
-  // Check intent.md was not modified
-  // We'll do this by comparing the file size and content hash before/after
-  // Actually, we can't easily check this without having stored the original
-  // Let's skip this for now and rely on the agent following instructions
+  // Check intent.md was not modified (unless a blocker was added)
+  if (intentBefore !== undefined) {
+    if (!isValidIntentModification(intentBefore, intentAfter)) {
+      return {
+        valid: false,
+        error:
+          "intent.md was modified (only allowed modification is appending ## Blocker)",
+      };
+    }
+  }
 
   return { valid: true, error: null };
 }

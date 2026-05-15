@@ -6,6 +6,7 @@ import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import {
+  commitPlanBlocker,
   commitPlanDraft,
   commitPlanInterview,
   commitPlanReview,
@@ -17,7 +18,7 @@ import {
   runReviewPass,
   validateReviewOutput,
 } from "../modes/plan/review.ts";
-import { ensureDraftPr, renderAttribution } from "../pr.ts";
+import { ensureDraftPr, renderAttribution, updatePrBody } from "../pr.ts";
 import type { resolveTargetRepo } from "../repo.ts";
 import { createPlanWorktree, createWorktreeSymlinks } from "../worktree.ts";
 import {
@@ -202,6 +203,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     opts.io.stdout(PLAN_USAGE);
     return 0;
   }
+
+  let interrupted = false;
+
+  // Set up SIGINT handler
+  const onSigint = () => {
+    interrupted = true;
+    process.removeListener("SIGINT", onSigint);
+  };
+  process.once("SIGINT", onSigint);
   const processCwd = opts.cwd ?? process.cwd();
   const result = parsePlanArgs(args, processCwd);
   if (!result.ok) {
@@ -337,18 +347,25 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
     // Run draft phase: invoke agent to generate spec tree
     let draftResult: Awaited<ReturnType<typeof runDraftPhase>>;
+    let draftBlocker: string | undefined;
     try {
       const cfg = loadConfig(opts.config);
+
+      // Read intent.md before the draft phase
+      const intentPath = join(worktreePath, "spec", specName, "intent.md");
+      const intentBefore = readFileSync(intentPath, "utf8");
+
       draftResult = await runDraftPhase({
         worktreePath,
         name: specName,
         config: cfg,
+        intentBefore,
       });
 
       // Check if draft succeeded
       if (draftResult.result.kind !== "ok") {
         if (draftResult.result.kind === "quota") {
-          opts.io.stderr(`plan mode: all agents quota-exhausted\n`);
+          opts.io.stderr(`plan: quota exhausted\n`);
           return 2;
         }
         if (draftResult.result.kind === "model_config") {
@@ -365,12 +382,21 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       }
 
       // Validate output
-      const validation = validateDraftOutput(worktreePath, specName);
+      const validation = validateDraftOutput(
+        worktreePath,
+        specName,
+        intentBefore,
+      );
       if (!validation.valid) {
         opts.io.stderr(
           `plan mode: draft validation failed: ${validation.error}\n`,
         );
         return 1;
+      }
+
+      // Check if a blocker was raised
+      if (validation.blocker !== undefined) {
+        draftBlocker = validation.blocker;
       }
 
       if (draftResult.subspecCount === null) {
@@ -386,19 +412,54 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return 1;
     }
 
+    // Check if interrupted during draft phase
+    if (interrupted) {
+      opts.io.stderr(`plan: interrupted\n`);
+      return 130;
+    }
+
+    // Handle blocker raised during draft
+    if (draftBlocker !== undefined) {
+      try {
+        const agentLabel =
+          draftResult.agentLabel ??
+          (draftResult.result.kind === "ok" ? "unknown" : "error");
+
+        commitPlanBlocker({
+          worktreePath,
+          agentLabel,
+        });
+        opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+        // Update PR body after blocker commit
+        try {
+          updatePrBody({
+            branch: `plan/${specName}`,
+            base: getCurrentBranch(project.root),
+            cwd: worktreePath,
+            headerBuilder: () => buildPlanPrHeader({ name: specName }),
+          });
+        } catch (err) {
+          opts.io.stderr(
+            `warning: could not update PR body: ${(err as Error).message}\n`,
+          );
+          // Continue anyway
+        }
+      } catch (err) {
+        opts.io.stderr(`${(err as Error).message}\n`);
+        return 1;
+      }
+
+      opts.io.stderr(`plan: blocked\n`);
+      if (draftBlocker) {
+        opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
+      }
+      return 1;
+    }
+
     // Create plan: draft commit and push
     try {
-      // Extract agent attribution label
-      let agentLabel: string = "unknown";
-      if (
-        draftResult.result.kind === "ok" &&
-        draftResult.result.stderr.includes("Jarvis-Agent:")
-      ) {
-        const match = draftResult.result.stderr.match(/Jarvis-Agent:\s*(.+)/);
-        if (match?.[1]) {
-          agentLabel = match[1];
-        }
-      }
+      const agentLabel = draftResult.agentLabel ?? "unknown";
 
       commitPlanDraft({
         worktreePath,
@@ -407,6 +468,21 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         subspecCount: draftResult.subspecCount ?? 0,
       });
       opts.io.stderr(`plan mode: draft commit pushed\n`);
+
+      // Update PR body after draft commit
+      try {
+        updatePrBody({
+          branch: `plan/${specName}`,
+          base: getCurrentBranch(project.root),
+          cwd: worktreePath,
+          headerBuilder: () => buildPlanPrHeader({ name: specName }),
+        });
+      } catch (err) {
+        opts.io.stderr(
+          `warning: could not update PR body: ${(err as Error).message}\n`,
+        );
+        // Continue anyway
+      }
     } catch (err) {
       opts.io.stderr(`${(err as Error).message}\n`);
       return 1;
@@ -447,9 +523,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
 
         if (reviewResult.result.kind === "quota") {
-          opts.io.stderr(
-            `plan mode: all agents exhausted on review pass ${pass}\n`,
-          );
+          opts.io.stderr(`plan: quota exhausted\n`);
           return 2; // Quota exhausted exit code
         }
 
@@ -472,16 +546,70 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           return 1;
         }
 
+        // Check if a blocker was raised
+        if (validation.blocker !== undefined) {
+          try {
+            const agentLabel = reviewResult.agentLabel ?? "unknown";
+
+            commitPlanBlocker({
+              worktreePath,
+              agentLabel,
+            });
+            opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+            // Update PR body after blocker commit
+            try {
+              updatePrBody({
+                branch: `plan/${specName}`,
+                base: getCurrentBranch(project.root),
+                cwd: worktreePath,
+                headerBuilder: () => buildPlanPrHeader({ name: specName }),
+              });
+            } catch (err) {
+              opts.io.stderr(
+                `warning: could not update PR body: ${(err as Error).message}\n`,
+              );
+              // Continue anyway
+            }
+          } catch (err) {
+            opts.io.stderr(`${(err as Error).message}\n`);
+            return 1;
+          }
+
+          opts.io.stderr(`plan: blocked\n`);
+          if (validation.blocker) {
+            opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
+          }
+          return 1;
+        }
+
         // Commit and push this review pass
         try {
+          const agentLabel = reviewResult.agentLabel ?? "unknown";
+
           commitPlanReview({
             worktreePath,
             passNumber: pass,
-            agentLabel: reviewResult.agentLabel ?? "unknown",
+            agentLabel,
           });
           opts.io.stderr(
             `plan mode: review pass ${pass} committed and pushed\n`,
           );
+
+          // Update PR body after review commit
+          try {
+            updatePrBody({
+              branch: `plan/${specName}`,
+              base: getCurrentBranch(project.root),
+              cwd: worktreePath,
+              headerBuilder: () => buildPlanPrHeader({ name: specName }),
+            });
+          } catch (err) {
+            opts.io.stderr(
+              `warning: could not update PR body: ${(err as Error).message}\n`,
+            );
+            // Continue anyway
+          }
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
           return 1;
@@ -492,9 +620,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         );
         return 1;
       }
+
+      // Check if interrupted during review pass
+      if (interrupted) {
+        opts.io.stderr(`plan: interrupted\n`);
+        return 130;
+      }
     }
 
-    opts.io.stderr(`plan mode: review phase completed\n`);
+    opts.io.stderr(`plan: complete\n`);
 
     // Open draft PR
     try {
@@ -521,8 +655,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     opts.io.stderr(
       `plan mode: commits created and pushed to plan/${specName}\n`,
     );
+
+    // Remove the SIGINT handler
+    process.removeListener("SIGINT", onSigint);
+
     return 0;
   }
+
+  // Remove the SIGINT handler
+  process.removeListener("SIGINT", onSigint);
 
   opts.io.stderr(PLAN_STUB_MESSAGE);
   return 2;

@@ -27,10 +27,10 @@ Follow the spec structure and conventions below. Reference this whenever you are
 - **Only write files under `spec/<NAME>/`.**
 - Do not commit or push.
 - Do not run tests.
-- Do not modify `intent.md`.
+- Do not modify `intent.md` unless appending a `## Blocker` section.
 - Produce `index.md` plus at least one numbered subspec (`00-*.md`, `01-*.md`, etc.).
 - Each subspec must have an exact `## Acceptance criteria` section with checkboxes.
-- If you identify a blocker, append an exact `## Blocker` section to the last subspec (or to `intent.md` if subspecs cannot be drafted). Do not include a `## Blocker` section unless there is a genuine blocker.
+- If you identify a blocker that prevents you from drafting the spec, append an exact `## Blocker` section to `intent.md` describing what you need. Do not invent answers; ask for human input. Do not include a `## Blocker` section unless there is a genuine blocker.
 - Follow the heading contracts from the spec guidance: exact `## Acceptance criteria` and `## Blocker` headings (level 2, case-sensitive).
 
 ## Instructions

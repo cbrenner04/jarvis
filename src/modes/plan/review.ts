@@ -7,6 +7,7 @@ import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { detectBlocker } from "./blocker.ts";
 
 export type ReviewPhaseOptions = {
   worktreePath: string;
@@ -175,13 +176,46 @@ export function hasWorkingTreeChanges(worktreePath: string): boolean {
 }
 
 /**
- * Validate the review output: check that intent.md was not modified and index.md still exists.
+ * Check if intent.md was only modified by appending a ## Blocker section.
+ * Returns true if the modification is valid (either unchanged or only blocker added).
+ */
+function isValidIntentModification(before: string, after: string): boolean {
+  if (before === after) {
+    return true;
+  }
+
+  // Try removing blocker from after and see if it matches before
+  const afterLines = after.replace(/\r\n/g, "\n").split("\n");
+  let blockerIndex: number | undefined;
+
+  for (let i = 0; i < afterLines.length; i += 1) {
+    const line = afterLines[i] ?? "";
+    if (line === "## Blocker") {
+      blockerIndex = i;
+      break;
+    }
+  }
+
+  if (blockerIndex === undefined) {
+    // No blocker section, so any modification is invalid
+    return false;
+  }
+
+  // Reconstruct the file without the blocker section
+  const beforeBlocker = afterLines.slice(0, blockerIndex).join("\n").trim();
+
+  return beforeBlocker === before.trim();
+}
+
+/**
+ * Validate the review output: check that intent.md was not modified (unless blocker added) and index.md still exists.
+ * Returns validation result and any blocker found.
  */
 export function validateReviewOutput(
   worktreePath: string,
   name: string,
   intentBefore: string,
-): { valid: boolean; error: string | null } {
+): { valid: boolean; error: string | null; blocker?: string | undefined } {
   const specDir = join(worktreePath, "spec", name);
   const indexPath = join(specDir, "index.md");
   const intentPath = join(specDir, "intent.md");
@@ -191,8 +225,28 @@ export function validateReviewOutput(
     return { valid: false, error: "index.md was deleted" };
   }
 
-  // Check intent.md was not modified
+  // Check intent.md was not modified (unless a blocker was added)
   const intentAfter = readFileSync(intentPath, "utf8");
+
+  // Check if blocker was added
+  const blockerDetection = detectBlocker(intentAfter);
+  if (blockerDetection.hasBlocker) {
+    // Valid if only blocker was added
+    if (isValidIntentModification(intentBefore, intentAfter)) {
+      return {
+        valid: true,
+        error: null,
+        blocker: blockerDetection.body,
+      };
+    }
+    // Otherwise it's an error: blocker was added but so was other content
+    return {
+      valid: false,
+      error: "intent.md was modified beyond adding a ## Blocker section",
+    };
+  }
+
+  // No blocker, so intent.md must be exactly the same
   if (intentAfter !== intentBefore) {
     return {
       valid: false,

@@ -33,11 +33,11 @@ Follow the spec structure and conventions below. Reference this whenever you are
 - **Critique and rewrite files in place.** Do not produce new files; edit the existing files listed above.
 - Do not commit or push.
 - Do not run tests.
-- **Do not modify `intent.md`.**
+- **Do not modify `intent.md` unless appending a `## Blocker` section.**
 - **Do not delete `index.md`.** You may rewrite it.
 - You **may** add new subspec files or remove existing ones; if you do, update `index.md` to match.
 - Each subspec must have an exact `## Acceptance criteria` section with checkboxes.
-- If you identify a blocker that prevents further review, append an exact `## Blocker` section to the last subspec (or `intent.md`). Do not include a `## Blocker` section unless there is a genuine blocker.
+- If you identify a blocker that prevents further review, append an exact `## Blocker` section to `intent.md`. Do not invent answers; ask for human input. Do not include a `## Blocker` section unless there is a genuine blocker.
 - Follow the heading contracts from the spec guidance: exact `## Acceptance criteria` and `## Blocker` headings (level 2, case-sensitive).
 
 ## Instructions

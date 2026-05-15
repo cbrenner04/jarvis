@@ -112,12 +112,12 @@ annotate.
 
 ## Acceptance criteria
 
-- [ ] Plan mode handles all four stop conditions (complete, Ctrl-C,
+- [x] Plan mode handles all four stop conditions (complete, Ctrl-C,
   quota, blocker) with the documented exit codes and stderr lines.
-- [ ] Blocker detection only triggers on `## Blocker` in `intent.md`.
-- [ ] Non-blocker `intent.md` modifications still fail validation.
-- [ ] PR remains draft in every stop condition.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] Blocker detection only triggers on `## Blocker` in `intent.md`.
+- [x] Non-blocker `intent.md` modifications still fail validation.
+- [x] PR remains draft in every stop condition.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

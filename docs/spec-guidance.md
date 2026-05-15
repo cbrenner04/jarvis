@@ -76,8 +76,16 @@ eventually does. The workflow is:
 
 Do not bundle spec authoring and implementation in the same PR.
 
-`jarvis plan` will eventually be one way to author specs; the merge-first
+`jarvis plan` is one way to author specs; the merge-first
 rule applies to plan-generated specs the same as hand-written ones.
+
+## Authoring with `jarvis plan`
+
+When using `jarvis plan [<intent-file|"inline text">]` to generate a spec, plan mode produces specs that conform to the conventions documented in this file: an `index.md` file with an H1 title and a GitHub-style task list of links to atomic subspecs, plus numbered subspec files (`00-*.md`, `01-*.md`, etc.) each with an exact `## Acceptance criteria` section containing checkboxes.
+
+The generated spec tree is opened as a draft PR for review and editing. After you review the generated index and subspecs on the PR, you can edit the files directly (plan mode preserves manual edits across review passes) and merge the PR to `main`. Once merged, the spec becomes available to `jarvis run` for implementation work.
+
+Plan-generated specs follow the same merge-first rule: do not run `jarvis run` against the spec until after the plan PR is merged to `main`.
 
 ## Subspecs
 

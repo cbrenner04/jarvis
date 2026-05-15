@@ -1,0 +1,236 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { ClaudeAgent } from "../../agents/claude.ts";
+import { CodexAgent } from "../../agents/codex.ts";
+import { CursorAgent } from "../../agents/cursor.ts";
+import { OpencodeAgent } from "../../agents/opencode.ts";
+import type { Agent, AgentResult } from "../../agents/types.ts";
+import type { AgentName, Config } from "../../config.ts";
+import { detectBlocker } from "./blocker.ts";
+
+export type DraftPhaseOptions = {
+  worktreePath: string;
+  name: string;
+  config: Config;
+  intentBefore?: string;
+};
+
+/**
+ * Build the draft phase prompt by injecting intent.md, spec guidance, and rules.
+ */
+export function buildDraftPrompt(opts: {
+  name: string;
+  intent: string;
+  specGuidance: string;
+}): string {
+  const promptFile = join(import.meta.dir, "prompts", "draft.md");
+  let template = readFileSync(promptFile, "utf8");
+
+  template = template.replaceAll("<WORKDIR>", opts.name);
+  template = template.replaceAll("<NAME>", opts.name);
+  template = template.replaceAll("<INTENT>", opts.intent);
+  template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
+
+  return template;
+}
+
+/**
+ * Instantiate an agent from a config entry.
+ */
+function createAgent(agentName: AgentName, model: string | undefined): Agent {
+  switch (agentName) {
+    case "claude":
+      return new ClaudeAgent(model ? { model } : {});
+    case "codex":
+      return new CodexAgent(model ? { model } : {});
+    case "cursor":
+      return new CursorAgent(model ? { model } : {});
+    case "opencode":
+      // OpenCode requires model to be set
+      if (!model) {
+        throw new Error("opencode agent requires model to be configured");
+      }
+      return new OpencodeAgent({ model });
+  }
+}
+
+/**
+ * Run the draft phase: invoke an agent to generate the spec tree.
+ * Returns the agent result and the number of subspecs generated.
+ */
+export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
+  result: AgentResult;
+  subspecCount: number | null;
+  agentLabel: string | null;
+}> {
+  // Read intent.md
+  const intentPath = join(opts.worktreePath, "spec", opts.name, "intent.md");
+  const intent = readFileSync(intentPath, "utf8");
+
+  // Read spec guidance from the main checkout
+  // Note: using import.meta.dir to find our location, then navigate back to docs/
+  const docsPath = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "docs",
+    "spec-guidance.md",
+  );
+  const specGuidance = readFileSync(docsPath, "utf8");
+
+  // Build the prompt
+  const prompt = buildDraftPrompt({
+    name: opts.name,
+    intent,
+    specGuidance,
+  });
+
+  // Try each agent in order until one succeeds
+  const agentOrder = opts.config.modes.plan.agentOrder;
+  let result: AgentResult | null = null;
+  let agentLabel: string | null = null;
+
+  for (const entry of agentOrder) {
+    const agent = createAgent(entry.agent, entry.model);
+    agentLabel =
+      agent.attributionLabel?.() ??
+      `${entry.agent} (${entry.model ?? "default"})`;
+
+    result = await agent.run(prompt, {
+      cwd: opts.worktreePath,
+    });
+
+    if (result.kind === "ok") {
+      // Success! Count subspecs and return
+      const subspecCount = countSubspecs(opts.worktreePath, opts.name);
+      return { result, subspecCount, agentLabel };
+    }
+
+    if (result.kind === "quota") {
+      continue;
+    }
+
+    if (result.kind === "model_config") {
+      // Model config error is fatal
+      return { result, subspecCount: null, agentLabel };
+    }
+  }
+
+  // All agents exhausted
+  if (result === null) {
+    // This shouldn't happen given the loop logic, but be defensive
+    return {
+      result: {
+        kind: "error",
+        exitCode: 2,
+        stderr: "all agents exhausted (no result produced)",
+      },
+      subspecCount: null,
+      agentLabel: null,
+    };
+  }
+
+  // Last result (could be quota, error, or model_config)
+  return { result, subspecCount: null, agentLabel };
+}
+
+/**
+ * Count the number of subspecs (files matching spec/<name>/NN-*.md).
+ */
+function countSubspecs(worktreePath: string, name: string): number {
+  const specDir = join(worktreePath, "spec", name);
+  if (!existsSync(specDir)) {
+    return 0;
+  }
+
+  const files = readdirSync(specDir);
+  return files.filter((f: string) => /^\d{2}-.*\.md$/.test(f)).length;
+}
+
+/**
+ * Check if intent.md was only modified by appending a ## Blocker section.
+ * Returns true if the modification is valid (either unchanged or only blocker added).
+ */
+function isValidIntentModification(before: string, after: string): boolean {
+  if (before === after) {
+    return true;
+  }
+
+  // Try removing blocker from after and see if it matches before
+  const afterLines = after.replace(/\r\n/g, "\n").split("\n");
+  let blockerIndex: number | undefined;
+
+  for (let i = 0; i < afterLines.length; i += 1) {
+    const line = afterLines[i] ?? "";
+    if (line === "## Blocker") {
+      blockerIndex = i;
+      break;
+    }
+  }
+
+  if (blockerIndex === undefined) {
+    // No blocker section, so any modification is invalid
+    return false;
+  }
+
+  // Reconstruct the file without the blocker section
+  const beforeBlocker = afterLines.slice(0, blockerIndex).join("\n").trim();
+
+  return beforeBlocker === before.trim();
+}
+
+/**
+ * Validate that the agent produced the required spec tree structure.
+ */
+export function validateDraftOutput(
+  worktreePath: string,
+  name: string,
+  intentBefore?: string,
+): { valid: boolean; error: string | null; blocker?: string | undefined } {
+  const specDir = join(worktreePath, "spec", name);
+
+  // Check index.md exists
+  const indexPath = join(specDir, "index.md");
+  if (!existsSync(indexPath)) {
+    return { valid: false, error: "index.md was not created" };
+  }
+
+  // Check at least one NN-*.md exists
+  const files = readdirSync(specDir);
+  const hasSubspecs = files.some((f: string) => /^\d{2}-.*\.md$/.test(f));
+
+  // Check if blocker was added to intent.md
+  const intentPath = join(specDir, "intent.md");
+  const intentAfter = readFileSync(intentPath, "utf8");
+  const blockerDetection = detectBlocker(intentAfter);
+
+  if (blockerDetection.hasBlocker) {
+    // If blocker exists, we can return early (spec generation doesn't need to have succeeded)
+    return {
+      valid: true,
+      error: null,
+      blocker: blockerDetection.body,
+    };
+  }
+
+  if (!hasSubspecs) {
+    return {
+      valid: false,
+      error: "no numbered subspecs (NN-*.md) were created",
+    };
+  }
+
+  // Check intent.md was not modified (unless a blocker was added)
+  if (intentBefore !== undefined) {
+    if (!isValidIntentModification(intentBefore, intentAfter)) {
+      return {
+        valid: false,
+        error:
+          "intent.md was modified (only allowed modification is appending ## Blocker)",
+      };
+    }
+  }
+
+  return { valid: true, error: null };
+}

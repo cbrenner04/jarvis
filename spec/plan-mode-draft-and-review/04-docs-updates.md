@@ -64,13 +64,13 @@ only forward-referenced plan mode.
 
 ## Acceptance criteria
 
-- [ ] `docs/plan-mode.md` exists and covers overview, input modes,
+- [x] `docs/plan-mode.md` exists and covers overview, input modes,
   phases, flags, stop conditions, PR lifecycle, and cleanup.
-- [ ] `README.md` no longer carries the "in flight" stub for
+- [x] `README.md` no longer carries the "in flight" stub for
   non-interactive plan mode and links to `docs/plan-mode.md`.
-- [ ] `docs/run-loop.md` and `docs/spec-guidance.md` reflect what plan
+- [x] `docs/run-loop.md` and `docs/spec-guidance.md` reflect what plan
   mode currently does.
-- [ ] `bun run check` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

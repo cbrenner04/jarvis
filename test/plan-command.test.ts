@@ -1,13 +1,24 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
+import {
+  deriveSpecName,
   PLAN_STUB_MESSAGE,
   PLAN_USAGE,
   planCommand,
+  seedIntentFile,
 } from "../src/commands/plan.ts";
+import type { PlanInvocation } from "../src/commands/plan-args.ts";
 import { parsePlanArgs } from "../src/commands/plan-args.ts";
 import { registerProject } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
@@ -62,6 +73,7 @@ describe("planCommand", () => {
         cwd: project,
         config: { dir: cfgDir },
         logClient: okLogClient,
+        skipGhCheck: true,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain("plan mode: interactive");
@@ -94,7 +106,7 @@ describe("planCommand", () => {
     expect(PLAN_USAGE).toContain("--repo");
     expect(PLAN_USAGE).toContain("--cwd");
     expect(PLAN_USAGE).toContain("--resume");
-    expect(PLAN_USAGE).toContain("intent-file-or-text");
+    expect(PLAN_USAGE).toContain('intent-file|"inline text"');
   });
 
   test("inline mode: positional that is not a file", async () => {
@@ -112,6 +124,30 @@ describe("planCommand", () => {
       expect(cap.err()).toContain("plan mode: inline");
       expect(cap.err()).toContain("this is freeform intent");
       expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("interactive mode with skipGhCheck: still returns 2 with stub (worktree not created)", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      execSync("git init -b main", { cwd: project });
+
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+      });
+
+      expect(code).toBe(2);
+      expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+      expect(cap.err()).toContain("plan mode: interactive");
+      const worktreePath = join(project, ".worktree");
+      expect(existsSync(worktreePath)).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -170,6 +206,7 @@ describe("planCommand target-repo resolution", () => {
         cwd: dir,
         config: { dir: cfgDir },
         logClient: okLogClient,
+        skipGhCheck: true,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(
@@ -613,6 +650,388 @@ describe("parsePlanArgs", () => {
       expect(res.message).toContain("--bogus");
     } finally {
       teardown();
+    }
+  });
+});
+
+describe("deriveSpecName", () => {
+  function setupProjectDir(): { dir: string; projectRoot: string } {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-spec-name-"));
+    const projectRoot = dir;
+    mkdirSync(join(projectRoot, "spec"), { recursive: true });
+    execSync("git init -b main", { cwd: projectRoot });
+    return { dir, projectRoot };
+  }
+
+  test("file mode: kebab-case the basename without extension", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/OAuth Login.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("oauth-login");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("file mode: various basenames produce expected kebab-case", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const cases: [string, string][] = [
+        ["simple.md", "simple"],
+        ["my-feature.md", "my-feature"],
+        ["Add CSV Export.md", "add-csv-export"],
+        ["test_underscore.md", "test-underscore"],
+        ["file!!!.md", "file"],
+        ["UPPERCASE.md", "uppercase"],
+      ];
+
+      for (const [filename, expected] of cases) {
+        const inv: PlanInvocation & { mode: "file" } = {
+          mode: "file",
+          intentPath: join(projectRoot, filename),
+          cwd: projectRoot,
+          resume: false,
+        };
+        const name = await deriveSpecName(inv, projectRoot);
+        expect(name).toBe(expected);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: truncate to first 6 words OR 40 chars, whichever comes first", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "inline",
+        intentText: "add csv export to reports !!!",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("add-csv-export-to-reports");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: strip trailing dashes after truncation", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "inline",
+        intentText: "add csv export to reports !!!",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      // Should not end with `-`
+      expect(name).not.toMatch(/-$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: 40-char limit", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const longText =
+        "this is a very long inline text that should be truncated to forty characters";
+      const inv: PlanInvocation = {
+        mode: "inline",
+        intentText: longText,
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name.length).toBeLessThanOrEqual(40);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("empty file basename falls back to 'plan'", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/!!!.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("plan");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("empty inline text falls back to 'plan'", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "inline",
+        intentText: "!!!",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("plan");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reserved name 'index' falls back to 'plan'", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/index.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("plan");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reserved name 'intent' falls back to 'plan'", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/intent.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("plan");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("existing spec/<name>/ directory triggers -2 suffix", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      mkdirSync(join(projectRoot, "spec", "oauth-login"));
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/OAuth Login.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("oauth-login-2");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("existing .worktree/plan-<name>/ directory triggers -2 suffix", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      mkdirSync(join(projectRoot, ".worktree", "plan-oauth-login"), {
+        recursive: true,
+      });
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/OAuth Login.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("oauth-login-2");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("both spec dir and worktree dir colliding requires going to higher suffix", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      mkdirSync(join(projectRoot, "spec", "oauth-login"));
+      mkdirSync(join(projectRoot, ".worktree", "plan-oauth-login-2"), {
+        recursive: true,
+      });
+
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/OAuth Login.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("oauth-login-3");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("seedIntentFile", () => {
+  test("file mode: copies intent file byte-for-byte to spec/<name>/intent.md", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-file-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      const intentContent = "# My Intent\n\nThis is the intent.\n";
+      const sourceIntentPath = join(dir, "source-intent.md");
+      writeFileSync(sourceIntentPath, intentContent, "utf8");
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "file",
+        intentPath: sourceIntentPath,
+      });
+
+      const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      expect(existsSync(writtenPath)).toBe(true);
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toBe(intentContent);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("file mode: with trailing newline preserved", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-trailing-newline-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      const intentContent = "intent text";
+      const sourceIntentPath = join(dir, "source.md");
+      writeFileSync(sourceIntentPath, intentContent, "utf8");
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "file",
+        intentPath: sourceIntentPath,
+      });
+
+      const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toBe(intentContent);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: writes text with exactly one trailing newline", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-inline-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "inline",
+        intentText: "add csv export to reports",
+      });
+
+      const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      expect(existsSync(writtenPath)).toBe(true);
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toBe("add csv export to reports\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: exactly one newline even if text is empty", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-inline-empty-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "inline",
+        intentText: "",
+      });
+
+      const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toBe("\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("existing intent.md in worktree → throws error", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-collision-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      const existingPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      mkdirSync(dirname(existingPath), { recursive: true });
+      writeFileSync(existingPath, "existing", "utf8");
+
+      expect(() => {
+        seedIntentFile({
+          worktreePath,
+          name: "my-spec",
+          mode: "inline",
+          intentText: "new intent",
+        });
+      }).toThrow("intent.md already exists");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("unreadable source intent file → throws error", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-unreadable-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      expect(() => {
+        seedIntentFile({
+          worktreePath,
+          name: "my-spec",
+          mode: "file",
+          intentPath: "/nonexistent/path/to/intent.md",
+        });
+      }).toThrow("could not read intent file");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("creates spec/<name>/ directory as needed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-mkdir-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "inline",
+        intentText: "intent",
+      });
+
+      const specDir = join(worktreePath, "spec", "my-spec");
+      expect(existsSync(specDir)).toBe(true);
+      expect(existsSync(join(specDir, "intent.md"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

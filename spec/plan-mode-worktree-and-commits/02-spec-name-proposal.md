@@ -106,16 +106,16 @@ Agent-proposed names land later in
 
 ## Acceptance criteria
 
-- [ ] `<name>` is derived deterministically from file or inline input
+- [x] `<name>` is derived deterministically from file or inline input
   per the rules above.
-- [ ] Collisions with existing `spec/<name>/`, `.worktree/plan-<name>/`,
+- [x] Collisions with existing `spec/<name>/`, `.worktree/plan-<name>/`,
   or remote `plan/<name>` branches are resolved by suffixing.
-- [ ] Local-only branch collisions surface the documented actionable
+- [x] Local-only branch collisions surface the documented actionable
   error.
-- [ ] Interactive mode continues to hit the skeleton stub exit (no
+- [x] Interactive mode continues to hit the skeleton stub exit (no
   derivation attempted).
-- [ ] No agent is invoked.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] No agent is invoked.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

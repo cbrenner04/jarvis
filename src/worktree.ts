@@ -67,6 +67,74 @@ export async function ensureWorktree(
   return worktreePath;
 }
 
+export interface CreatePlanWorktreeOptions {
+  projectRoot: string;
+  name: string;
+  baseBranch?: string;
+}
+
+export async function createPlanWorktree(
+  opts: CreatePlanWorktreeOptions,
+): Promise<string> {
+  const dirPrefix = "plan-";
+  const branchPrefix = "plan/";
+  const worktreePath = join(
+    opts.projectRoot,
+    ".worktree",
+    dirPrefix + opts.name,
+  );
+  const branchName = branchPrefix + opts.name;
+
+  try {
+    execFileSync("git", ["fetch", "origin"], {
+      cwd: opts.projectRoot,
+      stdio: "pipe",
+    });
+  } catch {
+    // fetch might fail if no origin or no network, but we continue anyway
+  }
+
+  // Fail loudly if the plan worktree already exists
+  if (existsSync(worktreePath)) {
+    throw new Error(
+      `plan worktree already exists at ${worktreePath}; resolve with \`jarvis cleanup\` or remove manually`,
+    );
+  }
+
+  const branchExists = branchExistsLocal(opts.projectRoot, branchName);
+  const branchExistsRemote = branchExistsOnOrigin(opts.projectRoot, branchName);
+
+  if (branchExists || branchExistsRemote) {
+    if (!branchExists && branchExistsRemote) {
+      execFileSync("git", ["branch", branchName, `origin/${branchName}`], {
+        cwd: opts.projectRoot,
+        stdio: "pipe",
+      });
+    }
+    execFileSync(
+      "git",
+      ["worktree", "add", "--checkout", worktreePath, branchName],
+      {
+        cwd: opts.projectRoot,
+        stdio: "pipe",
+      },
+    );
+  } else {
+    const baseBranch =
+      opts.baseBranch ?? (await getBaseBranch(opts.projectRoot));
+    execFileSync("git", ["branch", branchName, baseBranch], {
+      cwd: opts.projectRoot,
+      stdio: "pipe",
+    });
+    execFileSync("git", ["worktree", "add", worktreePath, branchName], {
+      cwd: opts.projectRoot,
+      stdio: "pipe",
+    });
+  }
+
+  return worktreePath;
+}
+
 function branchExistsLocal(projectRoot: string, branchName: string): boolean {
   try {
     execFileSync("git", ["rev-parse", "--verify", branchName], {

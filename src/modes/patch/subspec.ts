@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
+import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { type AcceptanceCriterion, parsePatchSpec } from "./spec.ts";
 
 export type { AcceptanceCriterion };
@@ -142,14 +143,6 @@ export function commitWipProgressWithBlocker(
     stdio: ["pipe", "pipe", "pipe"],
     input: commitMessage,
   });
-}
-
-function appendAgentTrailer(message: string, agentLabel: string): string {
-  if (agentLabel === "") {
-    return message;
-  }
-  const trimmed = message.replace(/\n+$/, "");
-  return `${trimmed}\n\nJarvis-Agent: ${agentLabel}`;
 }
 
 function getGitRoot(subspecPath: string): string {

@@ -132,12 +132,12 @@ content arrives in
 
 ## Acceptance criteria
 
-- [ ] After `planCommand` returns, the worktree branch has the two
+- [x] After `planCommand` returns, the worktree branch has the two
   documented commits, both pushed to `origin/plan/<name>`.
-- [ ] No PR is opened in this subspec.
-- [ ] Push failures are surfaced as exit `1` with the underlying git
+- [x] No PR is opened in this subspec.
+- [x] Push failures are surfaced as exit `1` with the underlying git
   error visible.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

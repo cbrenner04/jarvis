@@ -85,13 +85,13 @@ with minimal changes (cleanup details land in subspec 06).
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan` (file or inline mode, with a placeholder name)
+- [x] `jarvis plan` (file or inline mode, with a placeholder name)
   creates `.worktree/plan-<name>/` on branch `plan/<name>`, off the
   project's default branch.
-- [ ] No files beyond what `git worktree add` produces are written in
+- [x] No files beyond what `git worktree add` produces are written in
   this subspec.
-- [ ] Patch-mode worktree creation behavior is unchanged.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] Patch-mode worktree creation behavior is unchanged.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

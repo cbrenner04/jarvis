@@ -176,17 +176,41 @@ describing the problem, then commits and pushes as WIP. See
 [../AGENTS.md](../AGENTS.md#working-rules-for-agents-in-this-repo) for the
 blocker convention and resolution process.
 
+## Plan-mode worktrees
+
+Plan mode creates dedicated worktrees under `.worktree/plan-<name>/` on a
+`plan/<name>` branch. The `plan-` prefix distinguishes plan-mode worktrees from
+patch-mode worktrees (`.worktree/<name>/`) to prevent collision when both modes
+target the same spec name.
+
+**Phase commits** in plan mode have special subjects:
+
+- `plan: interview` — captures the seeded `intent.md` from user input (file or
+  inline).
+- `plan: draft` — commits placeholder `index.md` and placeholder `00-task.md`
+  as the initial spec tree. A later spec will fill these with real content.
+- `plan: review N` — added by a later spec for reviewer feedback passes; not
+  part of this spec.
+
+Push cadence follows the same pattern as patch mode: push after each commit.
+The first push uses `git push -u origin <plan/<name>>` to set up tracking;
+later pushes use plain `git push`.
+
+Plan mode never marks PRs ready for review (`gh pr ready`). Draft PRs remain
+in draft status for the duration of the planning phases.
+
 ## Cleanup
 
 `jarvis cleanup [--dry-run]` removes merged worktrees and branches from the
 local repo. Useful after PRs have been merged on GitHub to keep `.worktree/`
-tidy.
+tidy. Both patch-mode (`.worktree/<name>/`) and plan-mode (`.worktree/plan-<name>/`)
+worktrees are handled on the same conditions.
 
 Behavior:
 
 - Lists all worktrees whose corresponding PR has `state: MERGED`.
 - Skips worktrees with uncommitted changes or unpushed commits.
-- Prompts for confirmation before removal (use `--dry-run` to preview).
+- Prompts for confirmation before removal (use `--dry-run` to preview with `(patch)` or `(plan)` tags).
 - Removes the worktree directory and deletes the local branch.
 
 The `.worktree/.keep` directory is never removed.

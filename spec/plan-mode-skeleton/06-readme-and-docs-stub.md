@@ -28,11 +28,9 @@ later (with each behavior spec); this subspec only lands the stubs.
   the spec before implementing it" noting that `jarvis plan` will be one
   way to author specs in the future, and that the merge-first rule
   applies to plan-generated specs the same as hand-written ones.
-- **`docs/config.md`:** document the new optional `planAgentOrder` key:
-  type, default (omitted; falls back to `agentOrder`), validation rules,
-  and the new `jarvis config set-plan-order` / `unset-plan-order`
-  subcommands. Include a note that consumption (which agents actually
-  run) lands in a later spec.
+- **`docs/config.md`:** no new plan-mode config documentation in this spec.
+  Config v2 and `modes.plan.agentOrder` are documented by
+  `spec/cli-modes-and-config-v2/02-config-cli-and-docs.md`.
 - **`docs/AGENTS.md`** (the one under `docs/`): no changes. Plan mode
   uses the same agent contract as patch mode; nothing to add here yet.
 - **`AGENTS.md`** (top-level): no changes. The merge-first rule already
@@ -42,16 +40,17 @@ later (with each behavior spec); this subspec only lands the stubs.
 
 - Search the README for the existing `jarvis run ...` line in the
   `## Commands` block and clone its formatting.
-- `docs/config.md` may already enumerate config keys; add
-  `planAgentOrder` in the same shape as `agentOrder`.
+- If `docs/config.md` still mentions `planAgentOrder`, leave its removal to
+  `spec/cli-modes-and-config-v2/02-config-cli-and-docs.md` unless this spec's
+  branch directly introduced the stale text.
 
 ## Tasks
 
 - [ ] Update `README.md` `## Commands` block.
 - [ ] Add the brief forward-reference subsection in `docs/run-loop.md`.
 - [ ] Append the one-sentence note in `docs/spec-guidance.md`.
-- [ ] Document `planAgentOrder` and the new `jarvis config` subcommands
-  in `docs/config.md`.
+- [ ] Confirm this spec does not add `planAgentOrder` documentation; config
+  v2 docs are handled by `spec/cli-modes-and-config-v2/`.
 
 ## Acceptance criteria
 
@@ -61,8 +60,8 @@ later (with each behavior spec); this subspec only lands the stubs.
   `docs/plan-mode.md`.
 - [x] `docs/spec-guidance.md` notes that plan-authored specs follow the
   merge-first rule.
-- [x] `docs/config.md` documents `planAgentOrder` and the new `config`
-  subcommands.
+- [x] `docs/config.md` is not changed by this spec for plan agent order;
+  `spec/cli-modes-and-config-v2/` owns that documentation.
 - [x] `bun run check` passes (Biome formatting).
 
 ## Documentation updates

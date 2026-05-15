@@ -34,8 +34,8 @@ shipped.
 - **`docs/spec-guidance.md`:** no change beyond the sentence already
   added in the skeleton spec's docs subspec; behavior described here
   doesn't need new spec-author guidance.
-- **`docs/config.md`:** no change in this spec; `planAgentOrder`
-  documentation already landed in skeleton subspec 06.
+- **`docs/config.md`:** no change in this spec; `modes.plan.agentOrder`
+  documentation already landed in `spec/cli-modes-and-config-v2/`.
 
 ## Tasks
 

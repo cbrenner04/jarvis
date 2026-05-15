@@ -15,14 +15,10 @@ exit so reviewers can confirm parity with `jarvis run`.
 
 ## Decisions
 
-- **Extract a shared preflight helper.** The log-server preflight
-  currently lives inside `runCommand` (or whatever calls
-  `logServerUrl` today). Extract it into a small standalone module
-  (e.g. `src/log-server-preflight.ts`) that both commands import. As
-  with the resolver extraction in subspec 03, this is not optional:
-  do it now so plan mode and run mode share one preflight from the
-  start. Migrate `runCommand` to the helper and verify `bun test` is
-  green before wiring plan mode in.
+- **Use the shared mode-entry preflight.** `spec/cli-modes-and-config-v2/`
+  owns the shared log-server preflight call site for agent-running modes.
+  This subspec wires plan mode through that helper after target-repo
+  resolution; it does not add a plan-only copy of the log-server check.
 - **Failure mode.** If the log server is not reachable, plan mode prints
   the same message `jarvis run` prints (e.g. `log server not reachable
   at http://...; start it with \`jarvis log-server\``) and exits `1`.
@@ -42,17 +38,15 @@ exit so reviewers can confirm parity with `jarvis run`.
 
 ## Implementation hints
 
-- Land the extraction first as its own commit inside this subspec's
-  iteration; migrate `runCommand` to the helper; confirm tests pass;
-  then wire `planCommand`.
+- Use the same shared entry helper referenced in
+  `03-target-repo-resolution.md`; the helper should already run the
+  log-server preflight after resolution.
 
 ## Tasks
 
-- [ ] Extract the log-server preflight into a standalone helper
-  module. Migrate `runCommand` to call it. Existing run-mode tests
-  must continue to pass with no behavior change.
-- [ ] Wire the log-server preflight into `planCommand` after repo
-  resolution.
+- [ ] Wire `planCommand` through the shared mode-entry helper so the
+  log-server preflight runs after repo resolution.
+- [ ] Ensure plan mode has no duplicate log-server preflight implementation.
 - [ ] Tests:
   - Log server down → exits `1` with the existing message text.
   - Log server up + valid repo + valid args → exits `2` with the stub

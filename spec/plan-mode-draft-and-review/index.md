@@ -43,11 +43,11 @@ review, edit, mark ready, and merge to `main`.
   begins. Each commit is pushed immediately. Default passes: 2.
   `--review-passes 0` skips this phase entirely (only the draft commit
   exists).
-- **Agent selection.** Use `planAgentOrder` if set; otherwise fall back
-  to `agentOrder`. Same per-agent quota fallback chain as patch mode:
-  if the chosen agent reports a quota signal, advance to the next; if
-  all are exhausted, exit with the existing quota-exhausted exit code
-  and message text.
+- **Agent selection.** Use `config.modes.plan.agentOrder`. There is no
+  fallback to patch-mode order; config v2 requires both mode orders to be
+  explicit. Same per-agent quota fallback chain as patch mode: if the chosen
+  agent reports a quota signal, advance to the next; if all are exhausted,
+  exit with the existing quota-exhausted exit code and message text.
 - **Single agent per phase.** Each draft or review pass is a single
   agent invocation (no inner loop). The agent is given a focused prompt
   for that phase. We do not let the agent decide when to stop editing;

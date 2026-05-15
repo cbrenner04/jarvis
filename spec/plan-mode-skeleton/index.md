@@ -3,12 +3,20 @@
 repo: git@github.com:cbrenner04/jarvis.git
 
 Introduce `jarvis plan` as a recognized subcommand with the full CLI surface
-(flags, input modes, target-repo resolution, log-server requirement, new
-config key) but **no planning behavior**. After this spec merges, running
+(flags, input modes, target-repo resolution, and log-server requirement) but
+**no planning behavior**. After this spec merges, running
 `jarvis plan ...` parses arguments, resolves the target repo, validates the
 log server is reachable, and exits non-zero with a clear "not yet
 implemented" message for any actual planning work. Subsequent plan-mode
 specs hang real behavior off this scaffolding.
+
+## Prerequisite
+
+`spec/cli-modes-and-config-v2/` must land before this spec is implemented.
+That spec owns the shared mode-entry abstraction and the v2 config shape
+(`modes.patch.agentOrder`, `modes.plan.agentOrder`). This skeleton consumes
+those decisions; it does not add a plan-specific config fallback key or
+duplicate mode preflight plumbing.
 
 ## Why a skeleton spec first
 
@@ -17,13 +25,12 @@ Plan mode is large enough that landing it as a single PR would violate the
 graph. Splitting into five top-level specs lets each PR merge on its own
 merits, gives reviewers smaller diffs, and produces working partial state
 after each merge. The skeleton exists so that later specs can attach
-behavior without also having to re-litigate flag names, config keys, or
-log-server semantics.
+behavior without also having to re-litigate flag names or log-server
+semantics.
 
 This spec is intentionally inert: it changes the user-visible CLI surface
-and config schema, but the only end-to-end behavior is "exit with a stub
-message." That keeps the diff small and the review focused on shape, not
-behavior.
+but the only end-to-end behavior is "exit with a stub message." That keeps
+the diff small and the review focused on shape, not behavior.
 
 ## Decisions
 
@@ -36,9 +43,10 @@ behavior.
 - **No `intent.md` file written.** The intent file is introduced alongside
   the worktree machinery in the next spec, since it is the first artifact
   committed on the plan branch.
-- **`planAgentOrder` config key is added now**, even though no agent runs
-  yet, because validation and the `jarvis config` subcommands need to
-  accept and round-trip it before any later spec can consume it.
+- **No config schema changes in this spec.** Agent order for future plan
+  phases is already represented by `modes.plan.agentOrder` from
+  `spec/cli-modes-and-config-v2/`. This skeleton may validate that the v2
+  config is loadable, but no plan-mode code consumes agents yet.
 - **Stub exit message is uniform.** Every input mode that would otherwise
   start the planning phases prints the same `plan mode: not yet
   implemented (skeleton landed; behavior arrives in subsequent specs)`
@@ -77,7 +85,7 @@ behavior.
 - [x] [01 — `jarvis plan` subcommand and help](./01-cli-subcommand-and-help.md)
 - [x] [02 — Input modes (file, inline, no-args) parsing](./02-input-modes-parsing.md)
 - [x] [03 — Target-repo resolution shared with `jarvis run`](./03-target-repo-resolution.md)
-- [x] [04 — `planAgentOrder` config key](./04-plan-agent-order-config.md)
+- [x] [04 — Plan-mode v2 config contract](./04-plan-agent-order-config.md)
 - [x] [05 — Log-server requirement](./05-log-server-requirement.md)
 - [x] [06 — README and docs stub](./06-readme-and-docs-stub.md)
 
@@ -92,8 +100,8 @@ behavior.
 
 - Implementing any phase of plan mode (interview, draft, self-review,
   resume). Those land in subsequent top-level specs.
-- Changing patch-mode behavior. Plan mode shares config keys (`agentOrder`,
-  `logServerUrl`, etc.) but does not modify how `jarvis run` consumes them.
-- Adding `opencode` or any other agent to default `planAgentOrder`. Default
-  is empty/unset; falls back to `agentOrder` at consumption time (consumed
-  by spec 3).
+- Changing patch-mode behavior beyond consuming shared mode-entry helpers
+  already introduced by `spec/cli-modes-and-config-v2/`.
+- Adding `opencode` or any other agent to default plan-mode order. Defaults
+  are explicit v2 data under `modes.plan.agentOrder`; there is no
+  `planAgentOrder` key and no fallback to patch mode.

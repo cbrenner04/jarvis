@@ -1,12 +1,17 @@
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename } from "node:path";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+
 import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import type { resolveTargetRepo } from "../repo.ts";
-import { createWorktreeSymlinks, createPlanWorktree } from "../worktree.ts";
-import { describePlanInvocation, parsePlanArgs, type PlanInvocation } from "./plan-args.ts";
+import { createPlanWorktree, createWorktreeSymlinks } from "../worktree.ts";
+import {
+  describePlanInvocation,
+  type PlanInvocation,
+  parsePlanArgs,
+} from "./plan-args.ts";
 
 export type PlanIo = {
   stdout: (s: string) => void;
@@ -46,16 +51,92 @@ function derivePlanName(inv: PlanInvocation): string | null {
     case "file": {
       const filename = basename(inv.intentPath);
       const nameWithoutExt = filename.replace(/\.[^.]*$/, "");
-      return toKebabCase(nameWithoutExt);
+      return toKebabCase(nameWithoutExt) || "plan";
     }
     case "inline": {
       const words = inv.intentText.split(/\s+/).slice(0, 6);
-      const candidate = toKebabCase(words.join(" "));
-      return candidate.slice(0, 40);
+      const kebabbed = toKebabCase(words.join(" "));
+      const truncated = kebabbed.slice(0, 40);
+      return truncated || "plan";
     }
     case "interactive":
       return null;
   }
+}
+
+const RESERVED_NAMES = new Set(["index", "intent"]);
+
+function remoteSpecBranchExists(
+  projectRoot: string,
+  branchName: string,
+): boolean {
+  try {
+    const output = execFileSync(
+      "git",
+      ["ls-remote", "--heads", "origin", `plan/${branchName}`],
+      {
+        cwd: projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      },
+    );
+    return output.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function deriveSpecName(
+  inv: PlanInvocation,
+  projectRoot: string,
+): Promise<string> {
+  const candidateName = derivePlanName(inv);
+  // Note: derivePlanName returns null for interactive mode, but interactive mode
+  // is filtered out in planCommand before calling deriveSpecName, so candidateName
+  // is always a string here
+  if (candidateName === null) {
+    throw new Error("deriveSpecName called with interactive mode");
+  }
+
+  let name = candidateName;
+
+  // Check reserved names
+  if (RESERVED_NAMES.has(name)) {
+    name = "plan";
+  }
+
+  // Check for collisions and append suffix if needed
+  let finalName = name;
+  const specDirExists = existsSync(join(projectRoot, "spec", finalName));
+  const worktreeDirExists = existsSync(
+    join(projectRoot, ".worktree", `plan-${finalName}`),
+  );
+  const remoteBranchExists = remoteSpecBranchExists(projectRoot, finalName);
+
+  if (!specDirExists && !worktreeDirExists && !remoteBranchExists) {
+    // No collision, return the name as-is
+    return finalName;
+  }
+
+  // There's a collision, start with suffix -2
+  let suffix = 2;
+  while (true) {
+    finalName = `${name}-${suffix}`;
+
+    const specDirExists = existsSync(join(projectRoot, "spec", finalName));
+    const worktreeDirExists = existsSync(
+      join(projectRoot, ".worktree", `plan-${finalName}`),
+    );
+    const remoteBranchExists = remoteSpecBranchExists(projectRoot, finalName);
+
+    if (!specDirExists && !worktreeDirExists && !remoteBranchExists) {
+      break;
+    }
+
+    suffix += 1;
+  }
+
+  return finalName;
 }
 
 export async function planCommand(opts: PlanCommandOptions): Promise<number> {
@@ -128,25 +209,31 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     return 2;
   }
 
+  // Derive the spec name with collision handling
+  const specName = await deriveSpecName(inv, project.root);
+  opts.io.stderr(`plan mode: spec name=${specName}\n`);
+
   // Create worktree for file or inline mode (only if it's a git repo and gh is available)
   const isGitRepo = existsSync(join(project.root, ".git"));
   if (!opts.skipGhCheck && isGitRepo) {
     try {
       const worktreePath = await createPlanWorktree({
         projectRoot: project.root,
-        name: planName,
+        name: specName,
       });
       const cfg = loadConfig(opts.config);
-      createWorktreeSymlinks(
-        project.root,
-        worktreePath,
-        cfg.worktreeSymlinks,
-      );
+      createWorktreeSymlinks(project.root, worktreePath, cfg.worktreeSymlinks);
       opts.io.stderr(`plan mode: worktree created at ${worktreePath}\n`);
     } catch (err) {
-      opts.io.stderr(
-        `failed to create plan worktree: ${(err as Error).message}\n`,
-      );
+      const message = (err as Error).message;
+      // Handle local-only branch collision with a specific error message
+      if (message.includes("already exists") && message.includes(".worktree")) {
+        opts.io.stderr(
+          `plan: local branch plan/${specName} already exists; delete it with \`git branch -D plan/${specName}\` and re-run\n`,
+        );
+      } else {
+        opts.io.stderr(`failed to create plan worktree: ${message}\n`);
+      }
       return 1;
     }
   }

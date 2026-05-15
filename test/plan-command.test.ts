@@ -3,11 +3,14 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import {
+  deriveSpecName,
   PLAN_STUB_MESSAGE,
   PLAN_USAGE,
   planCommand,
 } from "../src/commands/plan.ts";
+import type { PlanInvocation } from "../src/commands/plan-args.ts";
 import { parsePlanArgs } from "../src/commands/plan-args.ts";
 import { registerProject } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
@@ -615,6 +618,231 @@ describe("parsePlanArgs", () => {
       expect(res.message).toContain("--bogus");
     } finally {
       teardown();
+    }
+  });
+});
+
+describe("deriveSpecName", () => {
+  function setupProjectDir(): { dir: string; projectRoot: string } {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-spec-name-"));
+    const projectRoot = dir;
+    mkdirSync(join(projectRoot, "spec"), { recursive: true });
+    execSync("git init -b main", { cwd: projectRoot });
+    return { dir, projectRoot };
+  }
+
+  test("file mode: kebab-case the basename without extension", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/OAuth Login.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("oauth-login");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("file mode: various basenames produce expected kebab-case", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const cases: [string, string][] = [
+        ["simple.md", "simple"],
+        ["my-feature.md", "my-feature"],
+        ["Add CSV Export.md", "add-csv-export"],
+        ["test_underscore.md", "test-underscore"],
+        ["file!!!.md", "file"],
+        ["UPPERCASE.md", "uppercase"],
+      ];
+
+      for (const [filename, expected] of cases) {
+        const inv: PlanInvocation & { mode: "file" } = {
+          mode: "file",
+          intentPath: join(projectRoot, filename),
+          cwd: projectRoot,
+          resume: false,
+        };
+        const name = await deriveSpecName(inv, projectRoot);
+        expect(name).toBe(expected);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: truncate to first 6 words OR 40 chars, whichever comes first", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "inline",
+        intentText: "add csv export to reports !!!",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("add-csv-export-to-reports");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: strip trailing dashes after truncation", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "inline",
+        intentText: "add csv export to reports !!!",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      // Should not end with `-`
+      expect(name).not.toMatch(/-$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: 40-char limit", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const longText =
+        "this is a very long inline text that should be truncated to forty characters";
+      const inv: PlanInvocation = {
+        mode: "inline",
+        intentText: longText,
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name.length).toBeLessThanOrEqual(40);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("empty file basename falls back to 'plan'", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/!!!.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("plan");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("empty inline text falls back to 'plan'", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "inline",
+        intentText: "!!!",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("plan");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reserved name 'index' falls back to 'plan'", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/index.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("plan");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("reserved name 'intent' falls back to 'plan'", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/intent.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("plan");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("existing spec/<name>/ directory triggers -2 suffix", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      mkdirSync(join(projectRoot, "spec", "oauth-login"));
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/OAuth Login.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("oauth-login-2");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("existing .worktree/plan-<name>/ directory triggers -2 suffix", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      mkdirSync(join(projectRoot, ".worktree", "plan-oauth-login"), {
+        recursive: true,
+      });
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/OAuth Login.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("oauth-login-2");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("both spec dir and worktree dir colliding requires going to higher suffix", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      mkdirSync(join(projectRoot, "spec", "oauth-login"));
+      mkdirSync(join(projectRoot, ".worktree", "plan-oauth-login-2"), {
+        recursive: true,
+      });
+
+      const inv: PlanInvocation = {
+        mode: "file",
+        intentPath: "/some/path/OAuth Login.md",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toBe("oauth-login-3");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

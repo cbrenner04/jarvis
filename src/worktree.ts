@@ -78,7 +78,11 @@ export async function createPlanWorktree(
 ): Promise<string> {
   const dirPrefix = "plan-";
   const branchPrefix = "plan/";
-  const worktreePath = join(opts.projectRoot, ".worktree", dirPrefix + opts.name);
+  const worktreePath = join(
+    opts.projectRoot,
+    ".worktree",
+    dirPrefix + opts.name,
+  );
   const branchName = branchPrefix + opts.name;
 
   try {

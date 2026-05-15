@@ -92,14 +92,14 @@ branch are dead weight. They should be cleaned up by the same command.
 
 ## Acceptance criteria
 
-- [ ] `jarvis cleanup` removes `.worktree/plan-<name>/` and
+- [x] `jarvis cleanup` removes `.worktree/plan-<name>/` and
   `plan/<name>` when the corresponding PR is merged.
-- [ ] `jarvis cleanup --dry-run` distinguishes plan worktrees with a
+- [x] `jarvis cleanup --dry-run` distinguishes plan worktrees with a
   `(plan)` tag in its output.
-- [ ] Patch-mode worktree creation rejects spec names starting with
+- [x] Patch-mode worktree creation rejects spec names starting with
   `plan-` with the documented actionable error.
-- [ ] Patch-mode cleanup behavior is unchanged.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] Patch-mode cleanup behavior is unchanged.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

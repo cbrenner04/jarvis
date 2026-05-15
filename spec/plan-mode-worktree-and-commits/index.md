@@ -103,7 +103,7 @@ plan-mode spec only has to worry about content, not plumbing.
 - [x] [03 — Seed `intent.md` from file or inline input](./03-intent-file-skeleton.md)
 - [x] [04 — Phase commits (`plan: interview`, `plan: draft`)](./04-commits-per-phase.md)
 - [x] [05 — Draft PR open with live-updating body](./05-draft-pr.md)
-- [ ] [06 — Cleanup integration for plan worktrees](./06-cleanup-integration.md)
+- [x] [06 — Cleanup integration for plan worktrees](./06-cleanup-integration.md)
 - [ ] [07 — Documentation updates](./07-docs-updates.md)
 
 ## Conventions

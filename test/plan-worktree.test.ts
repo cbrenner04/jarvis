@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPlanWorktree } from "../src/worktree.ts";
+import { createPlanWorktree, ensureWorktree } from "../src/worktree.ts";
 
 describe("createPlanWorktree", () => {
   test("creates worktree at .worktree/plan-<name>/ on plan/<name> branch", async () => {
@@ -82,6 +82,39 @@ describe("createPlanWorktree", () => {
         const message = (err as Error).message;
         expect(message).toContain("plan worktree already exists");
         expect(message).toContain("jarvis cleanup");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("ensureWorktree (patch-mode)", () => {
+  test("rejects spec names starting with plan- with documented error", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-plan-prefix-"));
+    try {
+      // Set up a minimal git repo
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "test");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'initial'", { cwd: dir });
+
+      // Create a spec dir with a plan- prefix
+      const specDir = join(dir, "spec", "plan-invalid");
+      const specFile = join(specDir, "index.md");
+      execSync(`mkdir -p ${specDir}`, { cwd: dir });
+      writeFileSync(specFile, "# Test spec\n");
+
+      try {
+        await ensureWorktree(dir, specFile);
+        expect(true).toBe(false); // Should not reach here
+      } catch (err) {
+        const message = (err as Error).message;
+        expect(message).toBe(
+          "spec name must not start with `plan-`; that prefix is reserved for plan mode",
+        );
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });

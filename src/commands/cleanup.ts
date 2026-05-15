@@ -16,16 +16,28 @@ export type CleanupCommandOptions = {
   dryRun?: boolean;
 };
 
+function branchForWorktree(dir: string): string {
+  if (dir.startsWith("plan-")) {
+    return `plan/${dir.slice(5)}`;
+  }
+  return dir;
+}
+
+function isplanWorktree(dir: string): boolean {
+  return dir.startsWith("plan-");
+}
+
 export function cleanupCommand(opts: CleanupCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
   const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
 
-  const toRemove: Array<{ path: string; branch: string }> = [];
+  const toRemove: Array<{ path: string; branch: string; dir: string }> = [];
 
   for (const worktreeName of worktrees) {
     const worktreePath = join(worktreeDir, worktreeName);
+    const branch = branchForWorktree(worktreeName);
 
-    if (!isMergedPr(worktreeName)) {
+    if (!isMergedPr(branch)) {
       continue;
     }
 
@@ -36,7 +48,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       continue;
     }
 
-    toRemove.push({ path: worktreePath, branch: worktreeName });
+    toRemove.push({ path: worktreePath, branch, dir: worktreeName });
   }
 
   if (toRemove.length === 0) {
@@ -46,7 +58,8 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
 
   opts.io.stdout("\nWorktrees to remove:\n");
   for (const item of toRemove) {
-    opts.io.stdout(`  ${item.branch}\n`);
+    const tag = isplanWorktree(item.dir) ? " (plan)" : "";
+    opts.io.stdout(`  ${item.branch}${tag}\n`);
   }
 
   if (opts.dryRun) {
@@ -69,7 +82,8 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
         cwd: opts.projectRoot,
         stdio: "pipe",
       });
-      opts.io.stdout(`removed ${item.branch}\n`);
+      const tag = isplanWorktree(item.dir) ? " (plan)" : "";
+      opts.io.stdout(`removed ${item.branch}${tag}\n`);
     } catch (err) {
       opts.io.stderr(
         `failed to remove ${item.branch}: ${(err as Error).message}\n`,

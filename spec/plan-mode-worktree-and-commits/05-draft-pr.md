@@ -137,15 +137,15 @@ load-bearing for the merge-first rule that
 
 ## Acceptance criteria
 
-- [ ] After a successful `jarvis plan` run, a draft PR exists for
+- [x] After a successful `jarvis plan` run, a draft PR exists for
   `plan/<name>` with the documented title and the documented
   three-part body shape (deterministic header + empty narrative
   section + empty attribution footer for the placeholder commits).
-- [ ] The PR is **draft**; plan mode never calls `gh pr ready`.
-- [ ] PR URL is printed to stdout on success.
-- [ ] Re-running `jarvis plan` against the same `<name>` reuses the
+- [x] The PR is **draft**; plan mode never calls `gh pr ready`.
+- [x] PR URL is printed to stdout on success.
+- [x] Re-running `jarvis plan` against the same `<name>` reuses the
   existing PR rather than failing or duplicating.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

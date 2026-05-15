@@ -6,6 +6,8 @@ import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { commitPlanDraft, commitPlanInterview } from "../modes/plan/commits.ts";
+import { buildPlanPrHeader } from "../modes/plan/pr.ts";
+import { ensureDraftPr, renderAttribution } from "../pr.ts";
 import type { resolveTargetRepo } from "../repo.ts";
 import { createPlanWorktree, createWorktreeSymlinks } from "../worktree.ts";
 import {
@@ -335,6 +337,27 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return 1;
     }
 
+    // Open draft PR
+    try {
+      const prResult = await ensureDraftPr({
+        branch: `plan/${specName}`,
+        base: getCurrentBranch(project.root),
+        title: `plan: ${specName}`,
+        bodyGenerator: async () => buildPlanPrHeader({ name: specName }),
+        footer: renderAttribution({
+          cwd: worktreePath,
+          base: getCurrentBranch(project.root),
+        }),
+        cwd: worktreePath,
+      });
+      const prUrl = getPrUrl(worktreePath, `plan/${specName}`);
+      opts.io.stdout(`${prUrl}\n`);
+      opts.io.stderr(`plan mode: draft PR #${prResult.number} opened\n`);
+    } catch (err) {
+      opts.io.stderr(`${(err as Error).message}\n`);
+      return 1;
+    }
+
     // For file/inline mode, commits were successfully created and pushed
     opts.io.stderr(
       `plan mode: commits created and pushed to plan/${specName}\n`,
@@ -344,4 +367,28 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
   opts.io.stderr(PLAN_STUB_MESSAGE);
   return 2;
+}
+
+function getCurrentBranch(cwd: string): string {
+  const output = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  });
+  return output.trim();
+}
+
+function getPrUrl(cwd: string, branch: string): string {
+  const url = execFileSync(
+    "gh",
+    ["pr", "view", branch, "--json", "url", "-q", ".url"],
+    {
+      cwd,
+      env: process.env,
+      stdio: "pipe",
+      encoding: "utf8",
+    },
+  );
+  return url.trim();
 }

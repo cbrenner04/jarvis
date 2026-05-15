@@ -1,11 +1,17 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { checkPrExists, renderAttribution } from "../../pr.ts";
+import {
+  checkPrExists,
+  extractNarrative,
+  NARRATIVE_END_MARKER,
+  NARRATIVE_START_MARKER,
+  type UpdatePrBodyOpts as SharedUpdatePrBodyOpts,
+  updatePrBody as sharedUpdatePrBody,
+} from "../../pr.ts";
 import { parsePatchSpec } from "./spec.ts";
 
-export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
-export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";
+export { NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 
 type LinkedSubspecLine = {
   checked: boolean;
@@ -56,18 +62,7 @@ export function buildPrBody(opts: {
   return body;
 }
 
-export function extractNarrative(prBody: string): string | null {
-  const startIdx = prBody.indexOf(NARRATIVE_START_MARKER);
-  if (startIdx === -1) {
-    return null;
-  }
-  const afterStart = startIdx + NARRATIVE_START_MARKER.length;
-  const endIdx = prBody.indexOf(NARRATIVE_END_MARKER, afterStart);
-  if (endIdx === -1) {
-    return null;
-  }
-  return prBody.slice(afterStart, endIdx).trim();
-}
+export { extractNarrative };
 
 export type UpdatePrBodyOpts = {
   indexPath: string;
@@ -91,39 +86,23 @@ export type UpdatePrBodyOpts = {
  * Throws on `gh` failure; callers wrap with try/catch and warn-and-continue.
  */
 export function updatePrBody(opts: UpdatePrBodyOpts): void {
-  const fetchPrBody = opts.fetchPrBody ?? defaultFetchPrBody;
-  const writePrBody = opts.writePrBody ?? defaultWritePrBody;
-  const renderFooter = opts.renderFooter ?? renderAttribution;
-
-  const currentBody = fetchPrBody(opts.branch, opts.cwd);
-  const narrative = extractNarrative(currentBody);
-  const headerAndNarrative = buildPrBody({
-    indexPath: opts.indexPath,
-    narrative,
-  });
-  const footer = renderFooter({ cwd: opts.cwd, base: opts.base });
-  const newBody =
-    footer === ""
-      ? headerAndNarrative
-      : `${headerAndNarrative}\n\n---\n\n${footer}`;
-  writePrBody(opts.branch, newBody, opts.cwd);
-}
-
-function defaultFetchPrBody(branch: string, cwd: string): string {
-  return execFileSync(
-    "gh",
-    ["pr", "view", branch, "--json", "body", "-q", ".body"],
-    { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
-  );
-}
-
-function defaultWritePrBody(branch: string, body: string, cwd: string): void {
-  execFileSync("gh", ["pr", "edit", branch, "--body-file", "-"], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: body,
-  });
+  const sharedOpts: SharedUpdatePrBodyOpts = {
+    headerBuilder: () =>
+      buildPrBody({ indexPath: opts.indexPath, narrative: null }),
+    branch: opts.branch,
+    base: opts.base,
+    cwd: opts.cwd,
+  };
+  if (opts.fetchPrBody) {
+    sharedOpts.fetchPrBody = opts.fetchPrBody;
+  }
+  if (opts.writePrBody) {
+    sharedOpts.writePrBody = opts.writePrBody;
+  }
+  if (opts.renderFooter) {
+    sharedOpts.renderFooter = opts.renderFooter;
+  }
+  sharedUpdatePrBody(sharedOpts);
 }
 
 export function maybeMarkReady(opts: { indexPath: string; cwd: string }): void {

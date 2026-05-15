@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { loadConfig } from "../config.ts";
@@ -139,6 +139,50 @@ export async function deriveSpecName(
   return finalName;
 }
 
+export type SeedIntentFileMode = "file" | "inline";
+
+export type SeedIntentFileOptions = {
+  worktreePath: string;
+  name: string;
+  mode: SeedIntentFileMode;
+  intentPath?: string;
+  intentText?: string;
+};
+
+export function seedIntentFile(opts: SeedIntentFileOptions): void {
+  const specDir = join(opts.worktreePath, "spec", opts.name);
+  const intentPath = join(specDir, "intent.md");
+
+  if (existsSync(intentPath)) {
+    throw new Error(
+      `intent.md already exists at ${intentPath}; will not overwrite`,
+    );
+  }
+
+  mkdirSync(specDir, { recursive: true });
+
+  let content: string;
+  if (opts.mode === "file") {
+    if (!opts.intentPath) {
+      throw new Error("intentPath required for file mode");
+    }
+    try {
+      content = readFileSync(opts.intentPath, "utf8");
+    } catch (err) {
+      throw new Error(`could not read intent file: ${(err as Error).message}`);
+    }
+  } else if (opts.mode === "inline") {
+    if (opts.intentText === undefined) {
+      throw new Error("intentText required for inline mode");
+    }
+    content = `${opts.intentText}\n`;
+  } else {
+    throw new Error(`unknown mode: ${opts.mode}`);
+  }
+
+  writeFileSync(intentPath, content, "utf8");
+}
+
 export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   const args = opts.args ?? [];
   if (args.includes("--help") || args.includes("-h")) {
@@ -215,9 +259,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
   // Create worktree for file or inline mode (only if it's a git repo and gh is available)
   const isGitRepo = existsSync(join(project.root, ".git"));
+  let worktreePath: string | null = null;
   if (!opts.skipGhCheck && isGitRepo) {
     try {
-      const worktreePath = await createPlanWorktree({
+      worktreePath = await createPlanWorktree({
         projectRoot: project.root,
         name: specName,
       });
@@ -234,6 +279,28 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       } else {
         opts.io.stderr(`failed to create plan worktree: ${message}\n`);
       }
+      return 1;
+    }
+
+    // Seed the intent.md file into the worktree
+    try {
+      if (inv.mode === "file") {
+        seedIntentFile({
+          worktreePath,
+          name: specName,
+          mode: "file",
+          intentPath: inv.intentPath,
+        });
+      } else if (inv.mode === "inline") {
+        seedIntentFile({
+          worktreePath,
+          name: specName,
+          mode: "inline",
+          intentText: inv.intentText,
+        });
+      }
+    } catch (err) {
+      opts.io.stderr(`failed to seed intent file: ${(err as Error).message}\n`);
       return 1;
     }
   }

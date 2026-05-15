@@ -48,9 +48,9 @@ resume).
 
 ## Tasks
 
-- [ ] Implement `seedIntentFile` with the behavior above.
-- [ ] Wire it into `planCommand` after worktree creation.
-- [ ] Tests:
+- [x] Implement `seedIntentFile` with the behavior above.
+- [x] Wire it into `planCommand` after worktree creation.
+- [x] Tests:
   - File mode: source file copied byte-for-byte to `spec/<name>/intent.md`.
   - Inline mode: text written with exactly one trailing newline.
   - Existing `intent.md` in the worktree → exit `1`.
@@ -58,12 +58,12 @@ resume).
 
 ## Acceptance criteria
 
-- [ ] After `planCommand` returns, the worktree contains
+- [x] After `planCommand` returns, the worktree contains
   `spec/<name>/intent.md` with the documented contents for file and
   inline modes.
-- [ ] Interactive mode is unaffected (still hits the skeleton stub).
-- [ ] No git commit, push, or PR action occurs in this subspec.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] Interactive mode is unaffected (still hits the skeleton stub).
+- [x] No git commit, push, or PR action occurs in this subspec.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

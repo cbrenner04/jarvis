@@ -1,14 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   deriveSpecName,
   PLAN_STUB_MESSAGE,
   PLAN_USAGE,
   planCommand,
+  seedIntentFile,
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";
 import { parsePlanArgs } from "../src/commands/plan-args.ts";
@@ -116,6 +124,30 @@ describe("planCommand", () => {
       expect(cap.err()).toContain("plan mode: inline");
       expect(cap.err()).toContain("this is freeform intent");
       expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("interactive mode with skipGhCheck: still returns 2 with stub (worktree not created)", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      execSync("git init -b main", { cwd: project });
+
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+      });
+
+      expect(code).toBe(2);
+      expect(cap.err()).toContain(PLAN_STUB_MESSAGE);
+      expect(cap.err()).toContain("plan mode: interactive");
+      const worktreePath = join(project, ".worktree");
+      expect(existsSync(worktreePath)).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -841,6 +873,163 @@ describe("deriveSpecName", () => {
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("oauth-login-3");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("seedIntentFile", () => {
+  test("file mode: copies intent file byte-for-byte to spec/<name>/intent.md", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-file-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      const intentContent = "# My Intent\n\nThis is the intent.\n";
+      const sourceIntentPath = join(dir, "source-intent.md");
+      writeFileSync(sourceIntentPath, intentContent, "utf8");
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "file",
+        intentPath: sourceIntentPath,
+      });
+
+      const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      expect(existsSync(writtenPath)).toBe(true);
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toBe(intentContent);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("file mode: with trailing newline preserved", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-trailing-newline-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      const intentContent = "intent text";
+      const sourceIntentPath = join(dir, "source.md");
+      writeFileSync(sourceIntentPath, intentContent, "utf8");
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "file",
+        intentPath: sourceIntentPath,
+      });
+
+      const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toBe(intentContent);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: writes text with exactly one trailing newline", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-inline-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "inline",
+        intentText: "add csv export to reports",
+      });
+
+      const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      expect(existsSync(writtenPath)).toBe(true);
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toBe("add csv export to reports\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("inline mode: exactly one newline even if text is empty", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-inline-empty-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "inline",
+        intentText: "",
+      });
+
+      const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toBe("\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("existing intent.md in worktree → throws error", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-collision-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      const existingPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      mkdirSync(dirname(existingPath), { recursive: true });
+      writeFileSync(existingPath, "existing", "utf8");
+
+      expect(() => {
+        seedIntentFile({
+          worktreePath,
+          name: "my-spec",
+          mode: "inline",
+          intentText: "new intent",
+        });
+      }).toThrow("intent.md already exists");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("unreadable source intent file → throws error", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-unreadable-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      expect(() => {
+        seedIntentFile({
+          worktreePath,
+          name: "my-spec",
+          mode: "file",
+          intentPath: "/nonexistent/path/to/intent.md",
+        });
+      }).toThrow("could not read intent file");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("creates spec/<name>/ directory as needed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-mkdir-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "inline",
+        intentText: "intent",
+      });
+
+      const specDir = join(worktreePath, "spec", "my-spec");
+      expect(existsSync(specDir)).toBe(true);
+      expect(existsSync(join(specDir, "intent.md"))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

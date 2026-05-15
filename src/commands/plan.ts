@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
+import { commitPlanDraft, commitPlanInterview } from "../modes/plan/commits.ts";
 import type { resolveTargetRepo } from "../repo.ts";
 import { createPlanWorktree, createWorktreeSymlinks } from "../worktree.ts";
 import {
@@ -303,6 +304,42 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       opts.io.stderr(`failed to seed intent file: ${(err as Error).message}\n`);
       return 1;
     }
+
+    // Create plan: interview commit and push
+    try {
+      const intentPathOrLabel =
+        inv.mode === "file"
+          ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
+          : (inv as Extract<typeof inv, { mode: "inline" }>).intentText;
+      commitPlanInterview({
+        worktreePath,
+        name: specName,
+        mode: inv.mode as "file" | "inline",
+        intentPathOrLabel,
+      });
+      opts.io.stderr(`plan mode: interview commit pushed\n`);
+    } catch (err) {
+      opts.io.stderr(`${(err as Error).message}\n`);
+      return 1;
+    }
+
+    // Create plan: draft commit and push
+    try {
+      commitPlanDraft({
+        worktreePath,
+        name: specName,
+      });
+      opts.io.stderr(`plan mode: draft commit pushed\n`);
+    } catch (err) {
+      opts.io.stderr(`${(err as Error).message}\n`);
+      return 1;
+    }
+
+    // For file/inline mode, commits were successfully created and pushed
+    opts.io.stderr(
+      `plan mode: commits created and pushed to plan/${specName}\n`,
+    );
+    return 0;
   }
 
   opts.io.stderr(PLAN_STUB_MESSAGE);

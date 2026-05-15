@@ -62,6 +62,7 @@ describe("planCommand", () => {
         cwd: project,
         config: { dir: cfgDir },
         logClient: okLogClient,
+        skipGhCheck: true,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain("plan mode: interactive");
@@ -170,6 +171,7 @@ describe("planCommand target-repo resolution", () => {
         cwd: dir,
         config: { dir: cfgDir },
         logClient: okLogClient,
+        skipGhCheck: true,
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(

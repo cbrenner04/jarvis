@@ -1,9 +1,12 @@
+import { existsSync } from "node:fs";
+import { basename } from "node:path";
 import { join } from "node:path";
 import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import type { resolveTargetRepo } from "../repo.ts";
-import { describePlanInvocation, parsePlanArgs } from "./plan-args.ts";
+import { createWorktreeSymlinks, createPlanWorktree } from "../worktree.ts";
+import { describePlanInvocation, parsePlanArgs, type PlanInvocation } from "./plan-args.ts";
 
 export type PlanIo = {
   stdout: (s: string) => void;
@@ -20,6 +23,8 @@ export type PlanCommandOptions = {
   config?: Parameters<typeof resolveTargetRepo>[0]["config"];
   /** Override the log client (for tests). */
   logClient?: LogClient;
+  /** Skip git/gh checks and worktree creation (for tests). */
+  skipGhCheck?: boolean;
 };
 
 export const PLAN_USAGE = `Usage: jarvis plan [--interview-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file-or-text>]
@@ -28,6 +33,30 @@ export const PLAN_USAGE = `Usage: jarvis plan [--interview-turns <n>] [--review-
 
 export const PLAN_STUB_MESSAGE =
   "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n";
+
+function toKebabCase(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function derivePlanName(inv: PlanInvocation): string | null {
+  switch (inv.mode) {
+    case "file": {
+      const filename = basename(inv.intentPath);
+      const nameWithoutExt = filename.replace(/\.[^.]*$/, "");
+      return toKebabCase(nameWithoutExt);
+    }
+    case "inline": {
+      const words = inv.intentText.split(/\s+/).slice(0, 6);
+      const candidate = toKebabCase(words.join(" "));
+      return candidate.slice(0, 40);
+    }
+    case "interactive":
+      return null;
+  }
+}
 
 export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   const args = opts.args ?? [];
@@ -91,6 +120,37 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   opts.io.stderr(
     `plan mode: target project=${project.key} root=${project.root}\n`,
   );
+
+  // For interactive mode, keep falling through to stub exit
+  const planName = derivePlanName(inv);
+  if (planName === null) {
+    opts.io.stderr(PLAN_STUB_MESSAGE);
+    return 2;
+  }
+
+  // Create worktree for file or inline mode (only if it's a git repo and gh is available)
+  const isGitRepo = existsSync(join(project.root, ".git"));
+  if (!opts.skipGhCheck && isGitRepo) {
+    try {
+      const worktreePath = await createPlanWorktree({
+        projectRoot: project.root,
+        name: planName,
+      });
+      const cfg = loadConfig(opts.config);
+      createWorktreeSymlinks(
+        project.root,
+        worktreePath,
+        cfg.worktreeSymlinks,
+      );
+      opts.io.stderr(`plan mode: worktree created at ${worktreePath}\n`);
+    } catch (err) {
+      opts.io.stderr(
+        `failed to create plan worktree: ${(err as Error).message}\n`,
+      );
+      return 1;
+    }
+  }
+
   opts.io.stderr(PLAN_STUB_MESSAGE);
   return 2;
 }

@@ -98,7 +98,7 @@ plan-mode spec only has to worry about content, not plumbing.
 > `spec/plan-mode-skeleton/` or `spec/cli-modes-and-config-v2/` has not
 > landed yet — stop and resolve before continuing.
 
-- [ ] [01 — Worktree slot and branch creation](./01-worktree-and-branch.md)
+- [x] [01 — Worktree slot and branch creation](./01-worktree-and-branch.md)
 - [ ] [02 — Deterministic spec-name derivation](./02-spec-name-proposal.md)
 - [ ] [03 — Seed `intent.md` from file or inline input](./03-intent-file-skeleton.md)
 - [ ] [04 — Phase commits (`plan: interview`, `plan: draft`)](./04-commits-per-phase.md)

@@ -13,12 +13,11 @@ and the binary each one invokes:
 | `claude` | `claude -p --permission-mode acceptEdits` | Prompt is piped on stdin (non-interactive print mode); `--permission-mode acceptEdits` auto-allows file edits and safe filesystem commands without prompting (`claude --help`). |
 | `codex` | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). |
 | `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; `--force` enables file writes in print mode; `--output-format text` matches transcript shape of other agents; prompt is the trailing positional argument (`cursor agent --help`). |
-| `opencode` | `opencode run --model <provider/model> --format default <prompt>` | `--model` is required and read from `patchModels.opencode`; `--format default` keeps the plain-text transcript shape; prompt is the trailing positional argument. Permissions are configured via `~/.config/opencode/opencode.json` rather than a CLI flag — see [Opencode setup](#opencode-setup). |
+| `opencode` | `opencode run --model <provider/model> --format default <prompt>` | `--model` is required and read from the opencode entry's `model` field in `modes.patch.agentOrder`; `--format default` keeps the plain-text transcript shape; prompt is the trailing positional argument. Permissions are configured via `~/.config/opencode/opencode.json` rather than a CLI flag — see [Opencode setup](#opencode-setup). |
 
 The default fallback order is `claude → codex → cursor`. `opencode` is
-supported but **opt-in** — it is not in the default patch mode order. Change the
-order with `jarvis config set-patch-order <a,b,c>` (see
-[config.md](./config.md)).
+supported but **opt-in** — it is not in the default `agentOrder`. Change the
+order with `jarvis config set-order <a,b,c>` (see [config.md](./config.md)).
 Quota detection is per-agent and based on documented or observed stderr
 signals; see [quota-signals.md](./quota-signals.md).
 
@@ -80,8 +79,9 @@ are documented in [../spec/permissions/](../spec/permissions/).
 ## Opencode setup
 
 Opencode is supported but opt-in: it is not included in the default
-`modes.patch.agentOrder`, and its permission posture is configured in opencode's own
-config file (`~/.config/opencode/opencode.json`) rather than via a CLI flag.
+`modes.patch.agentOrder` or `modes.plan.agentOrder`, and its permission
+posture is configured in opencode's own config file
+(`~/.config/opencode/opencode.json`) rather than via a CLI flag.
 
 Before selecting opencode, run the one-time permission installer from the
 jarvis checkout:
@@ -94,20 +94,21 @@ That command writes the `safe-edits` permission posture to
 `~/.config/opencode/opencode.json` without changing unrelated opencode
 settings.
 
-Then edit `~/.jarvis/config.json` to include opencode in `modes.patch.agentOrder` and set
-`patchModels.opencode` to a configured `provider/model` string:
+Then edit `~/.jarvis/config.json` to add an opencode entry to either
+`modes.patch.agentOrder` or `modes.plan.agentOrder` (or both) with a
+configured `provider/model` string as its `model`:
 
 ```json
 {
   "modes": {
-    "patch": { "agentOrder": ["opencode", "claude", "codex", "cursor"] },
-    "plan": { "agentOrder": ["claude", "codex", "cursor"] }
-  },
-  "patchModels": {
-    "claude": "haiku",
-    "codex": "gpt-5.3-codex",
-    "cursor": "Composer 2",
-    "opencode": "github-copilot/claude-opus-4.7"
+    "patch": {
+      "agentOrder": [
+        { "agent": "opencode", "model": "github-copilot/claude-opus-4.7" },
+        { "agent": "claude", "model": "haiku" },
+        { "agent": "codex", "model": "gpt-5.3-codex" },
+        { "agent": "cursor", "model": "Composer 2" }
+      ]
+    }
   }
 }
 ```
@@ -117,4 +118,4 @@ model name configured for that provider. For example,
 `github-copilot/claude-opus-4.7` routes through the `github-copilot`
 provider, while `AirProxy/<model>` routes through the internal AirProxy
 provider. Providers are not separate jarvis agents; they are selected only
-through `patchModels.opencode`.
+through the opencode entry's `model` value.

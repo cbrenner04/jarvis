@@ -440,10 +440,30 @@ async function resolveAndPreflight(
 }
 
 function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
-  const agentsByName = opts.agents ?? defaultAgents(cfg);
-  return cfg.modes.patch.agentOrder
-    .map((name) => agentsByName[name])
-    .filter((agent): agent is Agent => agent !== undefined);
+  const overrides = opts.agents;
+  const agents: Agent[] = [];
+  for (const entry of cfg.modes.patch.agentOrder) {
+    const override = overrides?.[entry.agent];
+    if (override !== undefined) {
+      agents.push(override);
+      continue;
+    }
+    agents.push(makeAgent(entry.agent, entry.model));
+  }
+  return agents;
+}
+
+function makeAgent(name: AgentName, model: string): Agent {
+  switch (name) {
+    case "claude":
+      return new ClaudeAgent({ model });
+    case "codex":
+      return new CodexAgent({ model });
+    case "cursor":
+      return new CursorAgent({ model });
+    case "opencode":
+      return new OpencodeAgent({ model });
+  }
 }
 
 async function setupLogging(
@@ -1071,7 +1091,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       return { kind: "continue" };
     }
     if (result.kind === "model_config") {
-      const configErr = `${agent.name}: configured patch model ${JSON.stringify(cfg.patchModels[agent.name])} is not supported by this CLI/account\n`;
+      const entry = cfg.modes.patch.agentOrder.find(
+        (e) => e.agent === agent.name,
+      );
+      const configErr = `${agent.name}: configured patch model ${JSON.stringify(entry?.model)} is not supported by this CLI/account\n`;
       fanout("harness", configErr, "stderr");
       if (result.stderr.length > 0) {
         const stderr = result.stderr.endsWith("\n")
@@ -1539,16 +1562,6 @@ function copyMissingRecursive(sourceDir: string, targetDir: string): void {
     });
   }
 }
-
-function defaultAgents(cfg: Config): Record<AgentName, Agent> {
-  return {
-    claude: new ClaudeAgent({ model: cfg.patchModels.claude }),
-    codex: new CodexAgent({ model: cfg.patchModels.codex }),
-    cursor: new CursorAgent({ model: cfg.patchModels.cursor }),
-    opencode: new OpencodeAgent({ model: cfg.patchModels.opencode }),
-  };
-}
-
 function checkProjectRootExists(
   path: string,
 ): { ok: true } | { ok: false; reason: "missing" | "not-directory" } {

@@ -89,9 +89,6 @@ For multi-file specs and the recommended `index.md` shape, see
 ```txt
 jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                            Run the loop against a spec file in a registered project.
-jarvis plan ...            Author specs via plan mode (planning behavior is
-                           being built incrementally; see `spec/plan-mode-*`
-                           for in-flight work).
 jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.
 jarvis log-server          Run the local log aggregation server.
@@ -125,12 +122,12 @@ to resolve it with `jarvis config`. If the current directory is outside
 ### `jarvis run`
 
 `jarvis run` resolves the spec into a per-spec git worktree under
-`.worktree/<spec-name>/`, runs agents from `modes.patch.agentOrder` until the
-spec has zero unchecked boxes, and opens a draft PR after the first commit
-lands. The PR transitions to ready for review when the spec is complete;
-jarvis never merges. You may start the command from a directory that is not a
-git checkout (for example a parent folder that holds multiple repos). Jarvis
-reads the supplied spec first, resolves the target repository (see
+`.worktree/<spec-name>/`, runs agents from `modes.patch.agentOrder` until the spec has
+zero unchecked boxes, and opens a draft PR after the first commit lands. The
+PR transitions to ready for review when the spec is complete; jarvis never
+merges. You may start the command from a directory that is not a git checkout
+(for example a parent folder that holds multiple repos). Jarvis reads the
+supplied spec first, resolves the target repository (see
 [docs/run-loop.md](docs/run-loop.md) for the order), and only then prepares
 the worktree and runs `gh` / git from that repository.
 

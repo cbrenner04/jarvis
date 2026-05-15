@@ -32,8 +32,7 @@ Jarvis uses the resolved path to prepare the per-spec
 [worktree](./worktrees-and-commits.md) and as the base `cwd` for `gh`, git, and
 the agent. The operator’s shell working directory may be outside any repository,
 such as a parent directory of several clones. From that point, Jarvis runs
-agents from `modes.patch.agentOrder` until the active spec has no unchecked
-boxes.
+agents from `modes.patch.agentOrder` until the active spec has no unchecked boxes.
 
 ### Disambiguation prompt
 
@@ -154,13 +153,14 @@ changes.
 
 ## Patch mode model selection
 
-Patch mode selects the model configured for the chosen agent in `patchModels`
-(see [config.md](./config.md)). Patch mode is intended for scoped
-implementation work from an active spec, so the defaults prefer lower-cost
-coding-capable models over deep-thinking models.
+Patch mode selects the model declared on the chosen agent's
+`modes.patch.agentOrder` entry (see [config.md](./config.md)). Patch mode is
+intended for scoped implementation work from an active spec, so the defaults
+prefer lower-cost coding-capable models over deep-thinking models.
 
-Jarvis validates the local config shape before invoking an agent, so malformed
-`patchModels` config fails before any CLI runs. Jarvis does not query
+Jarvis validates the local config shape before invoking an agent, so a
+malformed `agentOrder` entry (missing or empty `model`, unknown `agent`)
+fails before any CLI runs. Jarvis does not query
 providers or CLIs before running to validate model availability. If the
 selected agent CLI reports that the configured model is unsupported, jarvis
 exits with a model-configuration message and does not fall back to another
@@ -229,11 +229,3 @@ jarvis log-server
 
 On exit `4` and `5`, the bounded tail of recent agent output is printed to the
 terminal to help diagnose why progress stalled.
-
-## Plan mode
-
-Plan mode is a separate command (`jarvis plan`) that will eventually author
-specs rather than execute them. Behavior is being built incrementally; the
-CLI surface is recognized today but the planning phases are not yet
-implemented. Plan mode will be documented at `docs/plan-mode.md` once
-behavior lands.

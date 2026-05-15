@@ -29,15 +29,23 @@ type Project = {
   git?: boolean; // optional per-project override of the top-level `git` toggle
 };
 
+type AgentEntry = {
+  agent: AgentName;
+  model: string; // CLI/account-specific model identifier
+};
+
+type ModeConfig = {
+  agentOrder: AgentEntry[];
+};
+
 type Config = {
   version: 2;
   modes: {
-    patch: { agentOrder: AgentName[] };
-    plan: { agentOrder: AgentName[] };
+    patch: ModeConfig; // agent order + per-agent models for `jarvis run` (patch mode)
+    plan: ModeConfig; // agent order + per-agent models for `jarvis plan` (plan mode)
   };
   quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
   weakQuotaExitCodes: number[]; // exit codes treated as probable-quota under lenient mode; default []
-  patchModels: Record<AgentName, string>;
   maxIterations: number; // positive integer, default 10
   iterationTimeoutMs: number; // per-iteration timeout in milliseconds, default 30 minutes (1_800_000)
   runTimeoutMs?: number; // optional global run timeout in milliseconds; unset by default
@@ -74,17 +82,23 @@ Default contents on first bootstrap:
 {
   "version": 2,
   "modes": {
-    "patch": { "agentOrder": ["claude", "codex", "cursor"] },
-    "plan": { "agentOrder": ["claude", "codex", "cursor"] }
+    "patch": {
+      "agentOrder": [
+        { "agent": "claude", "model": "haiku" },
+        { "agent": "codex", "model": "gpt-5.3-codex" },
+        { "agent": "cursor", "model": "Composer 2" }
+      ]
+    },
+    "plan": {
+      "agentOrder": [
+        { "agent": "claude", "model": "haiku" },
+        { "agent": "codex", "model": "gpt-5.3-codex" },
+        { "agent": "cursor", "model": "Composer 2" }
+      ]
+    }
   },
   "quotaFallback": "lenient",
   "weakQuotaExitCodes": [],
-  "patchModels": {
-    "claude": "haiku",
-    "codex": "gpt-5.3-codex",
-    "cursor": "Composer 2",
-    "opencode": "github-copilot/claude-opus-4.7"
-  },
   "logServerUrl": "http://127.0.0.1:4310/logs",
   "logServerBind": "127.0.0.1:4310",
   "telemetryPath": "~/.jarvis/runs.jsonl",
@@ -95,22 +109,11 @@ Default contents on first bootstrap:
 }
 ```
 
-`opencode` is present in `patchModels` so config validation has a complete
-agent map, but both default mode orders are `["claude", "codex", "cursor"]`
-— opencode is opt-in. See [agents.md](./agents.md#opencode-setup) for the
-one-time permission installer and the `patchModels.opencode` `provider/model`
-format.
-
-## Mode Agent Orders
-
-Patch mode (`jarvis run`) reads `modes.patch.agentOrder`. Plan mode
-(`jarvis plan`) reads `modes.plan.agentOrder` once agent-backed phases land.
-Both lists are required, non-empty, and validated against the same
-`AgentName` union. There is no fallback between modes.
-
-Config v1's flat `agentOrder` and optional `planAgentOrder` are not supported
-in v2. If either legacy key is present, config loading fails with a clear
-replacement path.
+Both `modes.patch.agentOrder` and `modes.plan.agentOrder` default to
+`claude`, `codex`, and `cursor` — opencode is opt-in. To enable it, add an
+`opencode` entry to either order with a `provider/model` string as its
+`model`. See [agents.md](./agents.md#opencode-setup) for the one-time
+permission installer and the `provider/model` format.
 
 ## `worktreeSymlinks`
 
@@ -147,15 +150,15 @@ documented alongside `jarvis run`.
 
 ## `jarvis config` subcommands
 
-- `jarvis config show` — print the current config as JSON, followed by
-  summary lines for `modes.patch.agentOrder` and `modes.plan.agentOrder`.
+- `jarvis config show` — print the current config as JSON, including both
+  `modes.patch.agentOrder` and `modes.plan.agentOrder`.
 - `jarvis config path` — print the absolute path of `config.json`.
-- `jarvis config set-patch-order <a,b,c>` — replace
-  `modes.patch.agentOrder` with a comma-separated list of agents. Rejects
-  unknown agents, duplicates, and empty lists.
-- `jarvis config set-plan-order <a,b,c>` — replace
-  `modes.plan.agentOrder` with a comma-separated list of agents. Same
-  parsing and validation as `set-patch-order`.
+- `jarvis config set-patch-order <agent:model,agent:model,...>` — replace
+  `modes.patch.agentOrder`. Each comma-separated entry is `agent:model`
+  (e.g. `claude:haiku,codex:gpt-5.3-codex`). Rejects unknown agents,
+  duplicates, missing colons, and empty models.
+- `jarvis config set-plan-order <agent:model,agent:model,...>` — replace
+  `modes.plan.agentOrder`. Same syntax as `set-patch-order`.
 - `jarvis config set-git <true|false>` — write the top-level `git` toggle.
 - `jarvis config set-project-git <name> <true|false|unset>` — write or
   clear the per-project `git` override. Unknown project names exit 1.
@@ -165,5 +168,7 @@ documented alongside `jarvis run`.
   edited file is re-validated on save and a non-zero exit is returned if it
   is invalid.
 
-Patch-mode model settings in `patchModels` are edited manually in
-`~/.jarvis/config.json` (or via `jarvis config edit`) for now.
+Per-agent models live inline on each `agentOrder` entry. Use the
+`set-patch-order` / `set-plan-order` subcommands above to replace the whole
+order with new `agent:model` pairs, or `jarvis config edit` to adjust an
+individual `model` field by hand.

@@ -228,12 +228,13 @@ describe("run", () => {
       .replace(/\nmodes\.plan\.agentOrder: .+\n$/, "\n");
     const parsed = JSON.parse(jsonText);
     expect(parsed.version).toBe(2);
-    expect(parsed.modes.patch.agentOrder).toEqual([
-      "claude",
-      "codex",
-      "cursor",
-    ]);
-    expect(parsed.modes.plan.agentOrder).toEqual(["claude", "codex", "cursor"]);
+    const expectedOrder = [
+      { agent: "claude", model: "haiku" },
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "cursor", model: "Composer 2" },
+    ];
+    expect(parsed.modes.patch.agentOrder).toEqual(expectedOrder);
+    expect(parsed.modes.plan.agentOrder).toEqual(expectedOrder);
     expect(parsed.maxIterations).toBe(10);
   });
 
@@ -253,19 +254,25 @@ describe("run", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude", "codex", "cursor"] },
-          plan: { agentOrder: ["claude", "codex", "cursor"] },
+          patch: {
+            agentOrder: [
+              { agent: "claude", model: "haiku" },
+              { agent: "codex", model: "gpt-5.3-codex" },
+              { agent: "cursor", model: "Composer 2" },
+            ],
+          },
+          plan: {
+            agentOrder: [
+              { agent: "claude", model: "haiku" },
+              { agent: "codex", model: "gpt-5.3-codex" },
+              { agent: "cursor", model: "Composer 2" },
+            ],
+          },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
         iterationTimeoutMs: 1800000,
-        patchModels: {
-          claude: "haiku",
-          codex: "gpt-5.3-codex",
-          cursor: "Composer 2",
-          opencode: "github-copilot/claude-opus-4.7",
-        },
         logServerUrl: "http://127.0.0.1:1/logs",
         logServerBind: "127.0.0.1:4310",
         git: true,

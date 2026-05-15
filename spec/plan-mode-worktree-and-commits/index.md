@@ -104,7 +104,7 @@ plan-mode spec only has to worry about content, not plumbing.
 - [x] [04 — Phase commits (`plan: interview`, `plan: draft`)](./04-commits-per-phase.md)
 - [x] [05 — Draft PR open with live-updating body](./05-draft-pr.md)
 - [x] [06 — Cleanup integration for plan worktrees](./06-cleanup-integration.md)
-- [ ] [07 — Documentation updates](./07-docs-updates.md)
+- [x] [07 — Documentation updates](./07-docs-updates.md)
 
 ## Conventions
 

@@ -54,14 +54,14 @@ shipped.
 
 ## Acceptance criteria
 
-- [ ] `README.md` describes the current plan-mode behavior accurately
+- [x] `README.md` describes the current plan-mode behavior accurately
   (placeholder spec + draft PR), including the "real content in
   flight" note.
-- [ ] `docs/run-loop.md` plan-mode subsection reflects what landed in
+- [x] `docs/run-loop.md` plan-mode subsection reflects what landed in
   this spec.
-- [ ] `docs/worktrees-and-commits.md` documents plan worktrees, their
+- [x] `docs/worktrees-and-commits.md` documents plan worktrees, their
   branch-naming convention, phase commits, and cleanup behavior.
-- [ ] `bun run check` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

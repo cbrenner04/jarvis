@@ -123,6 +123,20 @@ checkout, `jarvis run` exits 1 with `error: target is not a git checkout;
 set "git": false in config or pass --repo to a git checkout` before invoking
 any agent.
 
+## Plan mode
+
+Plan mode (`jarvis plan <intent-file|--inline <text>>`) creates a dedicated
+worktree and branch (`plan/<name>/` and `plan-<name>/`) to draft a new spec
+collaboratively. It produces:
+
+- A seeded `spec/<name>/intent.md` capturing the user's initial request.
+- Two phase-marker commits (`plan: interview` and `plan: draft`) with
+  placeholder spec tree.
+- A draft PR titled `plan: <name>` that aggregates progress across phases.
+
+Full details on plan-mode semantics (when they land) will appear in
+`docs/plan-mode.md`.
+
 ## Preflight checks
 
 Before any side-effecting work (worktree creation, `gh` invocation, agent

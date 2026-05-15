@@ -30,12 +30,13 @@ review, edit, mark ready, and merge to `main`.
   This spec assumes the worktree, branch, intent file, two phase
   commits, and draft PR all already work (with placeholder content).
 - **Real draft phase replaces placeholder.** The placeholder
-  `index.md` and `00-task.md` from the previous spec are no longer
-  written. Instead, after the `plan: interview` commit lands and is
-  pushed, the draft phase runs an agent that reads `intent.md`, the
-  target repo for context, and `docs/spec-guidance.md`, then writes
-  `spec/<name>/index.md` plus one or more atomic subspec files. Those
-  files are committed as `plan: draft` and pushed.
+  `index.md` and `00-task.md` currently written by `commitPlanDraft`
+  in `src/modes/plan/commits.ts` are no longer written. Instead, after
+  the `plan: interview` commit lands and is pushed, the draft phase
+  runs an agent that reads `intent.md`, the target repo for context,
+  and `docs/spec-guidance.md`, then writes `spec/<name>/index.md` plus
+  one or more atomic subspec files. Those files are committed as
+  `plan: draft` and pushed.
 - **Real self-review phase.** After `plan: draft` is pushed, run
   `--review-passes` agent invocations. Each pass reads the current
   `intent.md` and spec files, re-edits the spec files in place, and is
@@ -72,16 +73,21 @@ review, edit, mark ready, and merge to `main`.
     the blocker section printed to stderr. The PR (already open in
     draft) reflects the blocker for the human reviewer.
 - **PR body updates live on each `plan: ...` commit** via the same
-  rewrite path patch mode uses (see
-  `spec/plan-mode-worktree-and-commits/05-draft-pr.md`). The
-  deterministic header is rebuilt; the attribution footer re-renders
-  from the `Jarvis-Agent` trailers on the commits introduced by this
-  spec (`plan: draft`, `plan: review N`, `plan: blocker`); the
-  narrative section between the markers is preserved verbatim across
-  rewrites. Plan mode does not yet write into the narrative section
-  in this spec — that may land in a later spec — but the existing
-  preserve-narrative behavior of the shared helper means doing so
-  later is purely additive.
+  rewrite path patch mode uses (`updatePrBody` in `src/pr.ts`,
+  combined with a plan-mode header builder; today
+  `buildPlanPrHeader` in `src/modes/plan/pr.ts` produces the
+  deterministic header but is only invoked once at PR open). This
+  spec wires that rewrite into the new commits introduced here
+  (`plan: draft`, `plan: review N`, `plan: blocker`); the
+  deterministic header is rebuilt, the attribution footer
+  re-renders from the `Jarvis-Agent` trailers on every plan commit
+  on the branch (including the existing `plan: interview` commit),
+  and the narrative section between the
+  `<!-- jarvis:narrative:start -->` / `<!-- jarvis:narrative:end -->`
+  markers is preserved verbatim across rewrites. Plan mode does not
+  yet write into the narrative section in this spec — that may land
+  in a later spec — but the existing preserve-narrative behavior of
+  the shared helper means doing so later is purely additive.
 - **Idempotence on re-run.** If `jarvis plan` is re-run with the same
   intent and the worktree already exists with prior commits, this spec
   does not handle resume — that is the next spec. For now, the
@@ -91,12 +97,15 @@ review, edit, mark ready, and merge to `main`.
 
 ## Subspecs
 
-> **Preflight (do not skip):** before starting subspec 01, verify the
-> worktree-and-commits spec is on `main` by running `jarvis plan` against
-> a throwaway intent file and confirming a draft PR opens with placeholder
-> `index.md` and `00-task.md` content. If the worktree, branch, or PR is
-> missing, the prior spec has not landed — stop and resolve before
-> continuing.
+> **Preflight:** the worktree-and-commits spec is merged on `main`
+> (commit `dcf5f47`). The harness today already produces a `plan/<name>`
+> worktree and branch, seeds `intent.md`, lands `plan: interview` and
+> placeholder `plan: draft` commits, pushes both, and opens a draft PR
+> via `planCommand` in `src/commands/plan.ts`. Read `src/commands/plan.ts`
+> and `src/modes/plan/{commits,pr}.ts` before subspec 01 to confirm the
+> exact insertion points; do not run an actual `jarvis plan` invocation
+> as a smoke test (it would push a stray branch and open a real PR on
+> the remote).
 
 - [ ] [01 — Draft phase (real agent call replaces placeholder)](./01-draft-phase.md)
 - [ ] [02 — Self-review phase with `plan: review N` commits](./02-self-review-phase.md)

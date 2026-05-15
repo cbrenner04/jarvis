@@ -2,16 +2,21 @@
 
 ## Problem
 
-`spec/plan-mode-worktree-and-commits/04-commits-per-phase.md` produces
-a `plan: draft` commit with placeholder `index.md` and `00-task.md`
-files. This subspec replaces that placeholder with a real agent
-invocation that reads `intent.md`, the target repo for context, and
-`docs/spec-guidance.md`, then writes the spec tree.
+Today, `commitPlanDraft` in `src/modes/plan/commits.ts` writes a
+placeholder `index.md` and `00-task.md`, then makes the `plan: draft`
+commit (subject `plan: draft`, body `Placeholder draft. Real content
+comes from spec/plan-mode-draft-and-review/.\nSubspecs: 1`). This
+subspec replaces that placeholder write with a real agent invocation
+that reads `intent.md`, the target repo for context, and
+`docs/spec-guidance.md`, then writes the spec tree before the same
+commit (with an updated body) is made.
 
 ## Decisions
 
-- **Replace, do not duplicate.** The placeholder file-writing logic in
-  the previous spec is removed and replaced with the agent invocation.
+- **Replace, do not duplicate.** Remove the placeholder file writes at
+  the top of `commitPlanDraft` (the `index.md` + `00-task.md`
+  `writeFileSync` calls) and arrange for the draft-phase agent
+  invocation to populate the worktree before the same commit is made.
   The `plan: draft` commit subject and basic shape stay the same; only
   the contents change (and the body line that read "Placeholder
   draft. Real content comes from..." is removed).
@@ -81,11 +86,21 @@ invocation that reads `intent.md`, the target repo for context, and
 
 ## Implementation hints
 
-- Add a `src/modes/plan/` directory mirroring `src/modes/patch/`.
-- Reuse the existing agent-spawn helper (the one patch mode uses);
-  inject the plan-mode prompt as the message body.
+- `src/modes/plan/` already exists (today it holds `commits.ts` and
+  `pr.ts`). Add `prompts/draft.md`, the `buildDraftPrompt` helper, and
+  a `draft.ts` (or similar) that wires the agent invocation alongside
+  the existing files.
+- Reuse the shared `runAgent` helper in `src/agents/spawn.ts` and the
+  per-agent classes in `src/agents/{claude,codex,cursor,opencode}.ts`
+  that patch mode already drives from `src/modes/patch/run.ts` —
+  there is no plan-specific agent contract.
 - Prompt assembly is a pure function `buildDraftPrompt({ name,
   intent, specGuidance }): string` — easy to test.
+- Today's `commitPlanDraft` lives in `src/modes/plan/commits.ts` and
+  is invoked from `planCommand` in `src/commands/plan.ts`. The agent
+  invocation should slot in between `commitPlanInterview` and
+  `commitPlanDraft`; `commitPlanDraft` itself shrinks to "stage,
+  commit, push" once it no longer writes placeholder files.
 
 ## Tasks
 

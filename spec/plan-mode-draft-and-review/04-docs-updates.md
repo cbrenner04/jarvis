@@ -28,14 +28,19 @@ only forward-referenced plan mode.
   - Cleanup: cross-reference the `(plan)` tag in
     `jarvis cleanup --dry-run` and the `.worktree/plan-<name>/`
     convention.
-- **`README.md`:** replace the "in flight" note from the skeleton-spec
-  README update with a paragraph linking to `docs/plan-mode.md` and
-  summarizing what plan mode now does (draft + self-review of
-  non-interactive intents). Keep the line in `## Commands`.
-- **`docs/run-loop.md`:** trim the placeholder plan-mode subsection;
-  link straight to `docs/plan-mode.md` for plan-mode flow, and keep
-  only what is needed to disambiguate run vs. plan in the run-loop
-  document.
+- **`README.md`:** the only current plan-mode mention is the
+  `## Commands` block line "Real planning content is in flight."
+  (around line 94). Replace that line with a one-line description of
+  what `jarvis plan` produces (a draft PR with a real, agent-drafted
+  and self-reviewed spec tree from a file or inline intent), and add
+  a short prose paragraph elsewhere in `README.md` linking to
+  `docs/plan-mode.md`. Keep the entry inside the `## Commands` code
+  block.
+- **`docs/run-loop.md`:** the current plan-mode subsection (around
+  lines 128-138) describes the worktree, two phase-marker commits,
+  and the draft PR, then forward-references `docs/plan-mode.md`. Trim
+  the subsection so it only disambiguates run vs. plan and link
+  straight to `docs/plan-mode.md` for plan-mode flow.
 - **`docs/spec-guidance.md`:** add a short "Authoring with
   `jarvis plan`" subsection noting that plan mode produces specs
   conforming to the same conventions documented in this file, and

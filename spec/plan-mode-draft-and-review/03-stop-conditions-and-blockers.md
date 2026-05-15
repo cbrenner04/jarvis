@@ -24,9 +24,10 @@ annotate.
   last completed push.
 - **Agent quota exhaustion.** Subspecs 01 and 02 already wire in
   per-phase quota fallback. This subspec asserts that when **all**
-  agents are exhausted on a phase, plan mode exits with the existing
-  quota-exhausted code and message text used by `jarvis run`. Prior
-  pushed commits remain on the branch and the draft PR remains open.
+  agents are exhausted on a phase, plan mode exits with the same
+  quota-exhausted code (`2`) and message text used by `jarvis run`
+  (see `docs/run-loop.md` exit-code table). Prior pushed commits
+  remain on the branch and the draft PR remains open.
 - **Blocker (new behavior).** During any draft or review pass, if the
   agent appends a `## Blocker` section to `spec/<name>/intent.md`,
   plan mode treats this as a structured stop:
@@ -47,8 +48,12 @@ annotate.
   4. Push the commit.
   5. Print the `## Blocker` section's body to stderr verbatim so the
      user sees it without opening the worktree.
-  6. Exit `1`. The PR stays draft and now contains the blocker
-     commit, surfacing the issue to any reviewer.
+  6. Exit `1`. Plan mode reuses exit `1` for blockers (rather than
+     patch mode's exit `7`) because plan mode is structurally
+     different — it has no per-iteration loop and no notion of
+     "active subspec"; the harness simply stops after pushing the
+     `plan: blocker` commit. The PR stays draft and now contains the
+     blocker commit, surfacing the issue to any reviewer.
 - **Blocker only valid on `intent.md`.** A `## Blocker` section in any
   *spec* file (not `intent.md`) is treated as content, not a control
   signal. We do not introduce a second blocker convention here.
@@ -70,10 +75,16 @@ annotate.
 
 - Add a small `detectBlocker(intentText): { hasBlocker: boolean;
   body?: string }` helper. Use the same heading-matching approach as
-  `docs/spec-guidance.md`'s contract.
+  patch mode's `hasBlocker`/`extractBlockerBody` in
+  `src/modes/patch/blocker.ts` (line-anchored, case-sensitive
+  `## Blocker`); consider lifting the shared parser to
+  `src/modes/plan/blocker.ts` rather than re-importing from patch
+  mode, to keep the modes independent.
 - The relaxed `intent.md` validation should compute "did anything
   other than appending a `## Blocker` section change?" by comparing
   the file before and after agent execution.
+- Patch mode already handles SIGINT in `src/modes/patch/run.ts` via
+  `handleSignals`; mirror that wiring rather than re-implementing it.
 
 ## Tasks
 

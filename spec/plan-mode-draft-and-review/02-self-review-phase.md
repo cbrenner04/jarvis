@@ -64,8 +64,15 @@ N` (1-indexed) and pushed before the next pass begins.
 - Pull "snapshot all spec files into a string for prompt injection"
   into a small helper; both draft validation and review prompt
   assembly need to read the spec tree.
-- Use `git status --porcelain` (already used elsewhere) to detect
-  whether a pass produced changes.
+- Use `git status --porcelain` (already used by patch mode in
+  `src/modes/patch/run.ts`) to detect whether a pass produced
+  changes.
+- The per-pass loop slots into `planCommand` in `src/commands/plan.ts`
+  between the draft-phase agent call (subspec 01) and `ensureDraftPr`.
+  Each iteration: build prompt, spawn agent (reusing the patch-mode
+  agent classes via `runAgent`), validate, optionally commit + push
+  via the `commitWithTrailer`/`pushCurrent` primitives that the
+  existing `commitPlanDraft`/`commitPlanInterview` already use.
 
 ## Tasks
 

@@ -66,9 +66,8 @@ invocation that reads `intent.md`, the target repo for context, and
   Validation failures surface as exit `1` with the specific failure
   named.
 - **Quota fallback.** If the chosen agent fails with a quota signal,
-  advance to the next agent in `planAgentOrder` (or `agentOrder` when
-  unset). If all are exhausted, exit with the existing
-  quota-exhausted code from `jarvis run`.
+  advance to the next agent in `config.modes.plan.agentOrder`. If all are
+  exhausted, exit with the existing quota-exhausted code from `jarvis run`.
 - **PR body live-update.** After the `plan: draft` commit is pushed,
   trigger the same PR-body rewrite path patch mode uses on each
   subspec commit. The deterministic header (from

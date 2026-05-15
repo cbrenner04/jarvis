@@ -44,7 +44,7 @@ the cross-references between `README.md`, `docs/plan-mode.md`,
   all four prompts (`interview.md`, `name-only.md`, `draft.md`,
   `review.md`) and that none of them require a non-default
   permission posture.
-- **`docs/config.md`:** confirm `planAgentOrder` documentation
+- **`docs/config.md`:** confirm `modes.plan.agentOrder` documentation
   reflects current usage (consumed by interview, draft, and review
   phases). If the consumption description is still phrased as "will
   be consumed in a later spec," correct it.

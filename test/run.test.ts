@@ -82,12 +82,8 @@ let projectRoot: string;
 let cfgDir: string;
 let originalPath: string | undefined;
 
-const DEFAULT_PATCH_MODELS = {
-  claude: "haiku",
-  codex: "gpt-5.3-codex",
-  cursor: "Composer 2",
-  opencode: "github-copilot/claude-opus-4.7",
-};
+const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
+const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
 
 async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
   return runCommand({
@@ -1353,13 +1349,15 @@ exit 1
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
         iterationTimeoutMs: 30 * 60_000,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
       },
@@ -1395,18 +1393,15 @@ exit 0
     process.env.PATH = `${binDir}:${originalPath ?? ""}`;
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
-        patchModels: {
-          claude: "haiku",
-          codex: "gpt-5.3-codex",
-          cursor: "Composer 2",
-          opencode: "github-copilot/claude-opus-4.7",
-        },
         git: true,
         projects: { project: { root: projectRoot } },
       },
@@ -1439,13 +1434,15 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
         iterationTimeoutMs: 30 * 60_000,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
       },
@@ -1505,13 +1502,15 @@ exit 0
     }));
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
       },
@@ -1543,13 +1542,15 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
       },
@@ -1590,13 +1591,15 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: false,
         projects: { project: { root: projectRoot } },
       },
@@ -1637,13 +1640,15 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "strict",
         weakQuotaExitCodes: [],
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
       },
@@ -1677,13 +1682,15 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
       },
@@ -1738,13 +1745,15 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: { project: { root: projectRoot } },
       },
@@ -2583,13 +2592,15 @@ exit 0
       });
       writeConfig(
         {
-          version: 1,
-          agentOrder: ["claude"],
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
           iterationTimeoutMs: 30 * 60_000,
-          patchModels: DEFAULT_PATCH_MODELS,
           git: true,
           projects: { project: { root: projectRoot } },
         },
@@ -2619,13 +2630,15 @@ exit 0
       }));
       writeConfig(
         {
-          version: 1,
-          agentOrder: ["claude"],
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
           iterationTimeoutMs: 1,
-          patchModels: DEFAULT_PATCH_MODELS,
           git: true,
           projects: { project: { root: projectRoot } },
         },
@@ -2654,14 +2667,16 @@ exit 0
       }));
       writeConfig(
         {
-          version: 1,
-          agentOrder: ["claude"],
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
           iterationTimeoutMs: 30 * 60_000,
           runTimeoutMs: 1,
-          patchModels: DEFAULT_PATCH_MODELS,
           git: true,
           projects: { project: { root: projectRoot } },
         },

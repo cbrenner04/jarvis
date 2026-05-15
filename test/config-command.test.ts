@@ -41,19 +41,21 @@ describe("config show", () => {
     });
     expect(code).toBe(0);
     const parsed = JSON.parse(cap.out());
+    const defaultOrder = [
+      { agent: "claude", model: "haiku" },
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "cursor", model: "Composer 2" },
+    ];
     expect(parsed).toEqual({
-      version: 1,
-      agentOrder: ["claude", "codex", "cursor"],
+      version: 2,
+      modes: {
+        patch: { agentOrder: defaultOrder },
+        plan: { agentOrder: defaultOrder },
+      },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
       maxIterations: 10,
       iterationTimeoutMs: 1800000,
-      patchModels: {
-        claude: "haiku",
-        codex: "gpt-5.3-codex",
-        cursor: "Composer 2",
-        opencode: "github-copilot/claude-opus-4.7",
-      },
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
       telemetryPath: join(cfgDir, "runs.jsonl"),
@@ -76,46 +78,47 @@ describe("config path", () => {
   });
 });
 
-describe("config set-order", () => {
-  test("happy path replaces agentOrder", () => {
+describe("config set-patch-order", () => {
+  test("happy path replaces modes.patch.agentOrder", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "codex,claude,cursor"],
+      args: [
+        "set-patch-order",
+        "codex:gpt-5.3-codex,claude:haiku,cursor:Composer 2",
+      ],
       io: cap.io,
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
     const cfg = loadConfig({ dir: cfgDir });
-    expect(cfg.agentOrder).toEqual(["codex", "claude", "cursor"]);
+    expect(cfg.modes.patch.agentOrder).toEqual([
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "claude", model: "haiku" },
+      { agent: "cursor", model: "Composer 2" },
+    ]);
+    expect(cfg.modes.plan.agentOrder).toEqual([
+      { agent: "claude", model: "haiku" },
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "cursor", model: "Composer 2" },
+    ]);
   });
 
   test("subset is allowed", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "codex,claude"],
+      args: ["set-patch-order", "codex:gpt-5.3-codex,claude:sonnet"],
       io: cap.io,
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual(["codex", "claude"]);
-  });
-
-  test("opencode is allowed", () => {
-    const cap = captureIo();
-    const code = configCommand({
-      args: ["set-order", "claude,opencode"],
-      io: cap.io,
-      config: { dir: cfgDir },
-    });
-    expect(code).toBe(0);
-    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual([
-      "claude",
-      "opencode",
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.modes.patch.agentOrder).toEqual([
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "claude", model: "sonnet" },
     ]);
   });
 
   test("rejects unknown agent without changing file", () => {
-    // seed config
     configCommand({
       args: ["show"],
       io: captureIo().io,
@@ -125,28 +128,7 @@ describe("config set-order", () => {
 
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,bogus"],
-      io: cap.io,
-      config: { dir: cfgDir },
-    });
-    expect(code).toBe(1);
-    expect(cap.err()).toContain("unknown agent");
-
-    const after = readFileSync(join(cfgDir, "config.json"), "utf8");
-    expect(after).toBe(before);
-  });
-
-  test("rejects nonsense agent without changing file", () => {
-    configCommand({
-      args: ["show"],
-      io: captureIo().io,
-      config: { dir: cfgDir },
-    });
-    const before = readFileSync(join(cfgDir, "config.json"), "utf8");
-
-    const cap = captureIo();
-    const code = configCommand({
-      args: ["set-order", "claude,nonsense"],
+      args: ["set-patch-order", "claude:haiku,bogus:m"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -160,7 +142,7 @@ describe("config set-order", () => {
   test("rejects duplicates", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,claude"],
+      args: ["set-patch-order", "claude:haiku,claude:sonnet"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -168,21 +150,32 @@ describe("config set-order", () => {
     expect(cap.err()).toContain("duplicate");
   });
 
-  test("rejects duplicate opencode", () => {
+  test("rejects entry missing colon", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", "claude,opencode,opencode"],
+      args: ["set-patch-order", "claude"],
       io: cap.io,
       config: { dir: cfgDir },
     });
     expect(code).toBe(1);
-    expect(cap.err()).toContain("duplicate");
+    expect(cap.err()).toContain("agent:model");
+  });
+
+  test("rejects empty model", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-patch-order", "claude:"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("non-empty");
   });
 
   test("missing arg exits 1", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order"],
+      args: ["set-patch-order"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -193,7 +186,101 @@ describe("config set-order", () => {
   test("empty arg exits 1", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: ["set-order", ""],
+      args: ["set-patch-order", ""],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+  });
+});
+
+describe("config set-plan-order", () => {
+  test("happy path replaces modes.plan.agentOrder", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: [
+        "set-plan-order",
+        "codex:gpt-5.3-codex,claude:haiku,cursor:Composer 2",
+      ],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.modes.plan.agentOrder).toEqual([
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "claude", model: "haiku" },
+      { agent: "cursor", model: "Composer 2" },
+    ]);
+    expect(cfg.modes.patch.agentOrder).toEqual([
+      { agent: "claude", model: "haiku" },
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "cursor", model: "Composer 2" },
+    ]);
+  });
+
+  test("subset is allowed", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "codex:gpt-5.3-codex,claude:sonnet"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.modes.plan.agentOrder).toEqual([
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "claude", model: "sonnet" },
+    ]);
+  });
+
+  test("rejects unknown agent without changing file", () => {
+    configCommand({
+      args: ["show"],
+      io: captureIo().io,
+      config: { dir: cfgDir },
+    });
+    const before = readFileSync(join(cfgDir, "config.json"), "utf8");
+
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "claude:haiku,bogus:m"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("unknown agent");
+
+    const after = readFileSync(join(cfgDir, "config.json"), "utf8");
+    expect(after).toBe(before);
+  });
+
+  test("rejects duplicates", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", "claude:haiku,claude:sonnet"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("duplicate");
+  });
+
+  test("missing arg exits 1", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order"],
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("missing");
+  });
+
+  test("empty arg exits 1", () => {
+    const cap = captureIo();
+    const code = configCommand({
+      args: ["set-plan-order", ""],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -296,8 +383,23 @@ describe("config edit", () => {
         require("node:fs").writeFileSync(
           f,
           JSON.stringify({
-            version: 1,
-            agentOrder: ["cursor", "codex", "claude"],
+            version: 2,
+            modes: {
+              patch: {
+                agentOrder: [
+                  { agent: "cursor", model: "Composer 2" },
+                  { agent: "codex", model: "gpt-5.3-codex" },
+                  { agent: "claude", model: "haiku" },
+                ],
+              },
+              plan: {
+                agentOrder: [
+                  { agent: "cursor", model: "Composer 2" },
+                  { agent: "codex", model: "gpt-5.3-codex" },
+                  { agent: "claude", model: "haiku" },
+                ],
+              },
+            },
             projects: {},
           }),
         );
@@ -305,10 +407,16 @@ describe("config edit", () => {
       },
     });
     expect(code).toBe(0);
-    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual([
-      "cursor",
-      "codex",
-      "claude",
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.modes.patch.agentOrder).toEqual([
+      { agent: "cursor", model: "Composer 2" },
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "claude", model: "haiku" },
+    ]);
+    expect(cfg.modes.plan.agentOrder).toEqual([
+      { agent: "cursor", model: "Composer 2" },
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "claude", model: "haiku" },
     ]);
   });
 

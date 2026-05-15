@@ -33,9 +33,9 @@ call sites** only, it does not reopen those decisions.
 
 ## Subspecs
 
-- [ ] [00 — Config v2: enforced `modes` shape](./00-config-v2-modes.md)
-- [ ] [01 — Shared CLI mode entry (preflight only)](./01-shared-mode-entry.md)
-- [ ] [02 — `jarvis config`, docs, cross-references](./02-config-cli-and-docs.md)
+- [x] [00 — Config v2: enforced `modes` shape](./00-config-v2-modes.md)
+- [x] [01 — Shared CLI mode entry (preflight only)](./01-shared-mode-entry.md)
+- [x] [02 — `jarvis config`, docs, cross-references](./02-config-cli-and-docs.md)
 
 ## Conventions
 

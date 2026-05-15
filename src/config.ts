@@ -80,17 +80,26 @@ export type ProjectMatch = {
   origin?: string;
 };
 
-export type PatchModels = Record<AgentName, string>;
+export type AgentEntry = {
+  agent: AgentName;
+  model: string;
+};
+
+export type ModeConfig = {
+  agentOrder: AgentEntry[];
+};
 
 export type Config = {
-  version: 1;
-  agentOrder: AgentName[];
+  version: 2;
+  modes: {
+    patch: ModeConfig;
+    plan: ModeConfig;
+  };
   quotaFallback: "strict" | "lenient";
   weakQuotaExitCodes: number[];
   maxIterations: number;
   iterationTimeoutMs: number;
   runTimeoutMs?: number;
-  patchModels: PatchModels;
   logServerUrl?: string;
   logServerBind?: string;
   telemetryPath?: string | null;
@@ -104,19 +113,29 @@ export type ConfigOptions = {
   maxIterations?: number;
 };
 
+const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
+  claude: "haiku",
+  codex: "gpt-5.3-codex",
+  cursor: "Composer 2",
+  opencode: "github-copilot/claude-opus-4.7",
+};
+
+const DEFAULT_AGENT_ORDER: AgentEntry[] = [
+  { agent: "claude", model: DEFAULT_AGENT_MODELS.claude },
+  { agent: "codex", model: DEFAULT_AGENT_MODELS.codex },
+  { agent: "cursor", model: DEFAULT_AGENT_MODELS.cursor },
+];
+
 const DEFAULT_CONFIG: Config = {
-  version: 1,
-  agentOrder: ["claude", "codex", "cursor"],
+  version: 2,
+  modes: {
+    patch: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
+    plan: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
+  },
   quotaFallback: "lenient",
   weakQuotaExitCodes: [],
   maxIterations: 10,
   iterationTimeoutMs: 30 * 60_000,
-  patchModels: {
-    claude: "haiku",
-    codex: "gpt-5.3-codex",
-    cursor: "Composer 2",
-    opencode: "github-copilot/claude-opus-4.7",
-  },
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",
   telemetryPath: TELEMETRY_PATH,
@@ -151,26 +170,58 @@ function validateConfig(input: unknown, file: string): Config {
   }
   const obj = input as Record<string, unknown>;
 
-  if (obj.version !== 1) {
+  if (obj.version !== 2) {
+    const msg =
+      obj.version === 1
+        ? `config version 1 is not supported. Convert to version 2 by:\n  1. set "version": 2\n  2. remove "agentOrder", "planAgentOrder", and "patchModels" keys\n  3. add "modes": { "patch": { "agentOrder": [{"agent": "claude", "model": "haiku"}, ...] }, "plan": { "agentOrder": [...] } }\n  See spec/cli-modes-and-config-v2/00-config-v2-modes.md for details.`
+        : `missing or unsupported version (expected 2, got ${JSON.stringify(obj.version)})`;
+    fail(file, msg);
+  }
+
+  if (
+    obj.agentOrder !== undefined ||
+    obj.planAgentOrder !== undefined ||
+    obj.patchModels !== undefined
+  ) {
     fail(
       file,
-      `missing or unsupported version (expected 1, got ${JSON.stringify(obj.version)})`,
+      `legacy keys found: "agentOrder", "planAgentOrder", and "patchModels" are no longer supported. Each entry in "modes.patch.agentOrder" / "modes.plan.agentOrder" now carries its own model: [{"agent": "claude", "model": "haiku"}, ...]. See spec/cli-modes-and-config-v2/00-config-v2-modes.md for details.`,
     );
   }
 
-  if (!Array.isArray(obj.agentOrder)) {
-    fail(file, "agentOrder must be an array");
+  const modes = obj.modes;
+  if (modes === null || typeof modes !== "object" || Array.isArray(modes)) {
+    fail(file, 'modes must be an object with "patch" and "plan" keys');
   }
-  const agentOrder: AgentName[] = [];
-  for (const entry of obj.agentOrder) {
-    if (!isAgentName(entry)) {
-      fail(
-        file,
-        `unknown agent ${JSON.stringify(entry)} (allowed: ${AGENT_NAMES.join(", ")})`,
-      );
-    }
-    agentOrder.push(entry);
+  const modesObj = modes as Record<string, unknown>;
+
+  const patchMode = modesObj.patch;
+  if (
+    patchMode === null ||
+    typeof patchMode !== "object" ||
+    Array.isArray(patchMode)
+  ) {
+    fail(file, 'modes.patch must be an object with "agentOrder" array');
   }
+  const patchAgentOrder = validateAgentOrder(
+    (patchMode as Record<string, unknown>).agentOrder,
+    "modes.patch.agentOrder",
+    file,
+  );
+
+  const planMode = modesObj.plan;
+  if (
+    planMode === null ||
+    typeof planMode !== "object" ||
+    Array.isArray(planMode)
+  ) {
+    fail(file, 'modes.plan must be an object with "agentOrder" array');
+  }
+  const planAgentOrder = validateAgentOrder(
+    (planMode as Record<string, unknown>).agentOrder,
+    "modes.plan.agentOrder",
+    file,
+  );
 
   const maxIterations = validatePositiveInteger(
     obj.maxIterations ?? DEFAULT_CONFIG.maxIterations,
@@ -203,7 +254,6 @@ function validateConfig(input: unknown, file: string): Config {
     );
   }
 
-  const patchModels = validatePatchModels(obj.patchModels, file);
   const logServerUrl = validateConfigString(
     obj.logServerUrl ?? DEFAULT_CONFIG.logServerUrl,
     "logServerUrl",
@@ -289,14 +339,20 @@ function validateConfig(input: unknown, file: string): Config {
   }
 
   return {
-    version: 1,
-    agentOrder,
+    version: 2,
+    modes: {
+      patch: {
+        agentOrder: patchAgentOrder,
+      },
+      plan: {
+        agentOrder: planAgentOrder,
+      },
+    },
     quotaFallback,
     weakQuotaExitCodes,
     maxIterations,
     iterationTimeoutMs,
     ...(runTimeoutMs !== undefined ? { runTimeoutMs } : {}),
-    patchModels,
     logServerUrl,
     logServerBind,
     ...(telemetryPath === undefined ? {} : { telemetryPath }),
@@ -305,45 +361,47 @@ function validateConfig(input: unknown, file: string): Config {
   };
 }
 
-function validatePatchModels(input: unknown, file: string): PatchModels {
-  if (input === undefined) {
-    return structuredClone(DEFAULT_CONFIG.patchModels);
+function validateAgentOrder(
+  input: unknown,
+  fieldName: string,
+  file: string,
+): AgentEntry[] {
+  if (!Array.isArray(input)) {
+    fail(file, `${fieldName} must be an array`);
   }
-  if (input === null || typeof input !== "object" || Array.isArray(input)) {
-    fail(file, "patchModels must be an object");
+  if (input.length === 0) {
+    fail(file, `${fieldName} must be a non-empty array`);
   }
-
-  const obj = input as Record<string, unknown>;
-  const allowed = new Set<string>(AGENT_NAMES);
-  const patchModels: Partial<PatchModels> = {};
-
-  for (const [name, value] of Object.entries(obj)) {
-    if (!allowed.has(name)) {
+  const agentOrder: AgentEntry[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < input.length; i++) {
+    const raw = input[i];
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
       fail(
         file,
-        `patchModels contains unknown agent ${JSON.stringify(name)} (allowed: ${AGENT_NAMES.join(", ")})`,
+        `${fieldName}[${i}] must be an object with "agent" and "model"`,
       );
     }
-    if (typeof value !== "string") {
-      fail(file, `patchModels.${name} must be a string`);
+    const entry = raw as Record<string, unknown>;
+    if (!isAgentName(entry.agent)) {
+      fail(
+        file,
+        `${fieldName}[${i}].agent: unknown agent ${JSON.stringify(entry.agent)} (allowed: ${AGENT_NAMES.join(", ")})`,
+      );
     }
-    if (value.trim() === "") {
-      fail(file, `patchModels.${name} must be a non-empty string`);
+    if (typeof entry.model !== "string" || entry.model.trim() === "") {
+      fail(file, `${fieldName}[${i}].model must be a non-empty string`);
     }
-    patchModels[name as AgentName] = value;
+    if (seen.has(entry.agent)) {
+      fail(
+        file,
+        `${fieldName}: duplicate agent ${JSON.stringify(entry.agent)}`,
+      );
+    }
+    seen.add(entry.agent);
+    agentOrder.push({ agent: entry.agent, model: entry.model });
   }
-
-  for (const name of AGENT_NAMES) {
-    if (patchModels[name] === undefined) {
-      if (name === "opencode") {
-        patchModels.opencode = DEFAULT_CONFIG.patchModels.opencode;
-        continue;
-      }
-      fail(file, `patchModels.${name} is required`);
-    }
-  }
-
-  return patchModels as PatchModels;
+  return agentOrder;
 }
 
 export function validatePositiveInteger(

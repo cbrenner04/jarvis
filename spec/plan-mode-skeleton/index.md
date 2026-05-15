@@ -36,9 +36,9 @@ behavior.
 - **No `intent.md` file written.** The intent file is introduced alongside
   the worktree machinery in the next spec, since it is the first artifact
   committed on the plan branch.
-- **`planAgentOrder` config key is added now**, even though no agent runs
-  yet, because validation and the `jarvis config` subcommands need to
-  accept and round-trip it before any later spec can consume it.
+- **Plan mode agent order comes from config**, via `modes.plan.agentOrder`
+  (see `spec/cli-modes-and-config-v2/00-config-v2-modes.md` for the enforced
+  v2 schema that replaced optional per-mode keys).
 - **Stub exit message is uniform.** Every input mode that would otherwise
   start the planning phases prints the same `plan mode: not yet
   implemented (skeleton landed; behavior arrives in subsequent specs)`
@@ -92,8 +92,6 @@ behavior.
 
 - Implementing any phase of plan mode (interview, draft, self-review,
   resume). Those land in subsequent top-level specs.
-- Changing patch-mode behavior. Plan mode shares config keys (`agentOrder`,
-  `logServerUrl`, etc.) but does not modify how `jarvis run` consumes them.
-- Adding `opencode` or any other agent to default `planAgentOrder`. Default
-  is empty/unset; falls back to `agentOrder` at consumption time (consumed
-  by spec 3).
+- Changing patch-mode behavior. Plan mode shares config keys (`modes.patch.agentOrder`,
+  `modes.plan.agentOrder`, `logServerUrl`, etc.) but does not modify how `jarvis run`
+  consumes them.

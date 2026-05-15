@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import type { Io } from "../cli.ts";
 import {
+  type AgentEntry,
   type AgentName,
   CONFIG_PATH,
   type ConfigOptions,
@@ -18,7 +19,11 @@ const USAGE = `Usage: jarvis config <subcommand> [args]
 Subcommands:
   show                       Print the current config as JSON.
   path                       Print the absolute path of config.json.
-  set-order <a,b,c>          Replace agentOrder with a comma-separated list.
+  set-patch-order <agent:model,agent:model,...>
+                             Replace modes.patch.agentOrder. Each entry is
+                             agent:model (e.g. claude:haiku,codex:gpt-5.3-codex).
+  set-plan-order <agent:model,agent:model,...>
+                             Replace modes.plan.agentOrder. Same syntax as set-patch-order.
   set-git <true|false>       Set the top-level git toggle.
   set-project-git <name> <true|false|unset>
                              Set or clear the per-project git override.
@@ -40,29 +45,60 @@ function configPath(opts?: ConfigOptions): string {
   return dir !== undefined ? join(dir, "config.json") : CONFIG_PATH;
 }
 
-function parseOrder(raw: string): AgentName[] {
+function parseOrder(raw: string): AgentEntry[] {
   const parts = raw
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   if (parts.length === 0) {
-    throw new Error("set-order: expected a non-empty comma-separated list");
+    throw new Error("expected a non-empty comma-separated list");
   }
   const seen = new Set<string>();
-  const order: AgentName[] = [];
+  const order: AgentEntry[] = [];
   for (const p of parts) {
-    if (!(AGENT_NAMES as readonly string[]).includes(p)) {
+    const colon = p.indexOf(":");
+    if (colon === -1) {
+      throw new Error(`expected agent:model (got ${JSON.stringify(p)})`);
+    }
+    const agent = p.slice(0, colon).trim();
+    const model = p.slice(colon + 1).trim();
+    if (!(AGENT_NAMES as readonly string[]).includes(agent)) {
       throw new Error(
-        `set-order: unknown agent ${JSON.stringify(p)} (allowed: ${AGENT_NAMES.join(", ")})`,
+        `unknown agent ${JSON.stringify(agent)} (allowed: ${AGENT_NAMES.join(", ")})`,
       );
     }
-    if (seen.has(p)) {
-      throw new Error(`set-order: duplicate agent ${JSON.stringify(p)}`);
+    if (model.length === 0) {
+      throw new Error(
+        `agent ${JSON.stringify(agent)}: model must be non-empty`,
+      );
     }
-    seen.add(p);
-    order.push(p as AgentName);
+    if (seen.has(agent)) {
+      throw new Error(`duplicate agent ${JSON.stringify(agent)}`);
+    }
+    seen.add(agent);
+    order.push({ agent: agent as AgentName, model });
   }
   return order;
+}
+
+function formatOrder(order: AgentEntry[]): string {
+  return order.map((e) => `${e.agent}:${e.model}`).join(", ");
+}
+
+function setModeOrder(
+  mode: "patch" | "plan",
+  raw: string,
+  opts: ConfigCommandOptions,
+): void {
+  let order: AgentEntry[];
+  try {
+    order = parseOrder(raw);
+  } catch (err) {
+    throw new Error(`set-${mode}-order: ${(err as Error).message}`);
+  }
+  const cfg = loadConfig(opts.config);
+  cfg.modes[mode].agentOrder = order;
+  writeConfig(cfg, opts.config);
 }
 
 export function configCommand(opts: ConfigCommandOptions): number {
@@ -84,24 +120,45 @@ export function configCommand(opts: ConfigCommandOptions): number {
       io.stdout(`${configPath(opts.config)}\n`);
       return 0;
     }
-    case "set-order": {
+    case "set-patch-order": {
       const arg = rest[0];
       if (arg === undefined) {
-        io.stderr("jarvis: set-order: missing <agent,agent,agent>\n");
+        io.stderr(
+          "jarvis: set-patch-order: missing <agent:model,agent:model,...>\n",
+        );
         return 1;
       }
-      let order: AgentName[];
       try {
-        order = parseOrder(arg);
+        setModeOrder("patch", arg, opts);
+        const cfg = loadConfig(opts.config);
+        io.stdout(
+          `modes.patch.agentOrder: ${formatOrder(cfg.modes.patch.agentOrder)}\n`,
+        );
+        return 0;
       } catch (err) {
         io.stderr(`jarvis: ${(err as Error).message}\n`);
         return 1;
       }
-      const cfg = loadConfig(opts.config);
-      cfg.agentOrder = order;
-      writeConfig(cfg, opts.config);
-      io.stdout(`agentOrder: ${order.join(", ")}\n`);
-      return 0;
+    }
+    case "set-plan-order": {
+      const arg = rest[0];
+      if (arg === undefined) {
+        io.stderr(
+          "jarvis: set-plan-order: missing <agent:model,agent:model,...>\n",
+        );
+        return 1;
+      }
+      try {
+        setModeOrder("plan", arg, opts);
+        const cfg = loadConfig(opts.config);
+        io.stdout(
+          `modes.plan.agentOrder: ${formatOrder(cfg.modes.plan.agentOrder)}\n`,
+        );
+        return 0;
+      } catch (err) {
+        io.stderr(`jarvis: ${(err as Error).message}\n`);
+        return 1;
+      }
     }
     case "projects": {
       const cfg = loadConfig(opts.config);

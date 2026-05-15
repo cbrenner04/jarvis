@@ -75,6 +75,10 @@ Agent-proposed names land later in
   projectRoot }): string`. Easy to unit-test.
 - Keep the kebab-case helper local to this module unless an existing
   one already exists in the codebase; if so, reuse it.
+- Wire the helper into `planCommand` in `src/commands/plan.ts`. The
+  parsed invocation already distinguishes file/inline/interactive
+  modes via `result.invocation.mode` (see `parsePlanArgs` in
+  `src/commands/plan-args.ts`); branch on that.
 
 ## Tasks
 

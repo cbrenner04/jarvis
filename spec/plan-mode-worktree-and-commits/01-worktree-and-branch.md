@@ -16,13 +16,25 @@ with minimal changes (cleanup details land in subspec 06).
   is mandatory; it disambiguates plan and patch slots for the same
   `<name>`.
 - **Branch:** `plan/<name>`. Created off the project's default branch
-  using the same base-branch resolution patch mode uses (`origin/HEAD`
-  symbolic ref, falling back to `origin/main`).
-- **Creation primitive:** reuse the existing worktree creation helper
-  in `src/worktree.ts` (or wherever patch mode currently calls
-  `git worktree add ... -b plan/<name> origin/<base>`). If the helper
-  is too coupled to patch-mode assumptions, add a small new entry point
-  alongside it; do not duplicate the entire creation logic.
+  using the same base-branch resolution patch mode uses today:
+  `getBaseBranch(cwd)` from `src/gh.ts`, which queries
+  `gh repo view --json defaultBranchRef`. Reuse it as-is; do not
+  reintroduce a `git symbolic-ref refs/remotes/origin/HEAD` fallback.
+- **Creation primitive:** reuse `ensureWorktree` from
+  `src/worktree.ts` — the same helper patch mode calls from
+  `src/modes/patch/run.ts`. Today its signature is
+  `ensureWorktree(projectRoot, specPath)` and it derives the spec
+  name from the spec path, then uses `<specName>` for **both** the
+  directory under `.worktree/` and the branch. Plan mode breaks both
+  assumptions (the directory must be `plan-<name>` while the branch
+  must be `plan/<name>`), so this subspec adds a sibling entry point
+  alongside `ensureWorktree` that takes `{ projectRoot, name,
+  baseBranch?, dirPrefix: "plan-", branchPrefix: "plan/" }` (or
+  equivalent). The shared internals — `git fetch origin`,
+  `branchExistsLocal`/`branchExistsOnOrigin`, the
+  `git branch <branch> <base>` + `git worktree add <path> <branch>`
+  pair — must be factored so the patch-mode call site is unchanged.
+  Do **not** duplicate the entire creation logic.
 - **Collision policy.** This subspec assumes `<name>` is already
   unique (subspec 02 enforces uniqueness). If the target slot or branch
   somehow exists when this code runs, fail loudly: print `plan worktree
@@ -43,19 +55,26 @@ with minimal changes (cleanup details land in subspec 06).
 
 ## Implementation hints
 
-- Look for the function patch mode calls in `src/commands/run.ts` to
-  prepare its worktree; that is the function to reuse or extend.
+- Patch mode calls `ensureWorktree` from `src/worktree.ts` in
+  `src/modes/patch/run.ts` (around line 346). That helper plus
+  `createWorktreeSymlinks` (same module) are what to reuse or extend.
 - The `<name>` value comes from subspec 02. For this subspec's tests,
   pass `<name>` directly to the helper; integration through the
   command happens in subspec 02.
+- Plan mode's call site is `src/commands/plan.ts`, which already
+  resolves the project via `enterMode` (`src/mode-entry.ts`) — invoke
+  the new helper after `entry.kind === "ok"` and before any stub exit.
 
 ## Tasks
 
 - [ ] Add `createPlanWorktree({ projectRoot, name, baseBranch })` (or
-  similar) — either as a new export from `src/worktree.ts` or by
-  parameterizing the existing helper.
-- [ ] Wire it into `planCommand` after the skeleton's preflights, but
-  do not yet seed any files (subspec 03).
+  similar) as a new export from `src/worktree.ts`. Factor any internal
+  helpers shared with `ensureWorktree` so the patch-mode call site is
+  unchanged.
+- [ ] Wire it into `planCommand` (`src/commands/plan.ts`) after the
+  successful `enterMode` resolution, but do not yet seed any files
+  (subspec 03). The existing `PLAN_STUB_MESSAGE` exit at the bottom of
+  `planCommand` is replaced by the new code path.
 - [ ] Tests:
   - Successful creation produces `.worktree/plan-<name>/` checked out
     on `plan/<name>`.

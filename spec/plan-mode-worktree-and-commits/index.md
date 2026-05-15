@@ -25,11 +25,14 @@ plan-mode spec only has to worry about content, not plumbing.
 
 ## Decisions
 
-- **Depends on `spec/plan-mode-skeleton/` being merged.** This spec
-  assumes `jarvis plan` parses arguments, resolves the target repo, and
-  runs the log-server preflight. After those checks succeed, control
-  enters the new code paths added here instead of falling through to the
-  stub exit.
+- **Depends on `spec/plan-mode-skeleton/` and
+  `spec/cli-modes-and-config-v2/` being merged.** This spec assumes
+  `jarvis plan` parses arguments via `parsePlanArgs`
+  (`src/commands/plan-args.ts`), resolves the target repo and runs
+  the log-server preflight via the shared `enterMode` helper
+  (`src/mode-entry.ts`), and only then falls through to the
+  `PLAN_STUB_MESSAGE` exit. The new code paths in this spec replace
+  that stub exit; everything before it stays put.
 - **Worktree slot:** `<projectRoot>/.worktree/plan-<name>/`.
   Distinct from patch-mode's `.worktree/<name>/` slot to prevent
   collisions when both modes target the same spec name.

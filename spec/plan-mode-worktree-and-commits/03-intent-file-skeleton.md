@@ -37,11 +37,14 @@ resume).
 
 ## Implementation hints
 
-- A small helper in `src/commands/plan.ts`: `seedIntentFile({
-  worktreePath, name, mode, intentPath?, intentText? }): void`.
-- Use Bun's file APIs (`Bun.file`, `Bun.write`) consistently with the
-  rest of the codebase; fall back to `fs/promises` if the surrounding
-  code uses that.
+- A small helper in `src/commands/plan.ts` (or a sibling module if
+  `plan.ts` is getting large): `seedIntentFile({ worktreePath, name,
+  mode, intentPath?, intentText? }): void`.
+- Use Node's `node:fs` synchronous APIs (`readFileSync`,
+  `writeFileSync`, `mkdirSync({ recursive: true })`) — that is what
+  the rest of the codebase uses (see `src/worktree-lock.ts`,
+  `src/worktree.ts`). Do not introduce `Bun.file`/`Bun.write` or
+  `fs/promises` here.
 
 ## Tasks
 

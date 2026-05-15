@@ -23,14 +23,19 @@ content arrives in
   mode.
 - **`Jarvis-Agent` trailer.** Plan-mode commits go through the same
   commit-message primitive patch mode uses (the `appendAgentTrailer`
-  helper in `src/modes/patch/subspec.ts`, factored to a shared
-  location if needed). The two placeholder commits in this subspec
-  have no agent label (no agent ran), which already maps to the
+  helper, currently a private function inside
+  `src/modes/patch/subspec.ts` at line 147). Lift it to a shared
+  location (`src/commit-trailer.ts` or extend `src/pr.ts`, which
+  already owns `Jarvis-Agent` parsing in `readBranchCommits`) and
+  re-import from `src/modes/patch/subspec.ts` so the patch-mode
+  callers are unchanged. The two placeholder commits in this subspec
+  pass an empty agent label (no agent ran), which already maps to the
   helper's documented behavior of omitting the trailer when the label
   is empty. Real `plan: draft` / `plan: review N` commits in later
   specs supply the running agent's `attributionLabel()` and pick up
   the trailer automatically; the PR-body attribution footer (subspec
-  05) renders from those trailers.
+  05) renders from those trailers via `renderAttribution` in
+  `src/pr.ts`.
 - **Commit 1: `plan: interview`**
   - Stages `spec/<name>/intent.md`.
   - Subject: `plan: interview`.
@@ -38,8 +43,9 @@ content arrives in
     appropriate word; for file mode, append the source path relative
     to the project root if it lives inside the project, otherwise the
     basename only.
-  - Pushed immediately. First push: `git push -u origin
-    plan/<name>`.
+  - Pushed immediately via `pushCurrent({ cwd: worktreePath,
+    firstPush: true })` from `src/worktree.ts`, which expands to
+    `git push -u origin plan/<name>`.
 - **Commit 2: `plan: draft`**
   - Stages `spec/<name>/index.md` and `spec/<name>/00-task.md`.
   - Subject: `plan: draft`.
@@ -50,7 +56,8 @@ content arrives in
     Subspecs: 1
     ```
 
-  - Pushed immediately with plain `git push`.
+  - Pushed immediately via `pushCurrent({ cwd: worktreePath,
+    firstPush: false })`, which expands to plain `git push`.
 - **Placeholder file contents:**
   - `spec/<name>/index.md`:
 
@@ -92,10 +99,17 @@ content arrives in
 
 ## Implementation hints
 
-- Reuse whatever helper patch mode uses to make and push commits
-  inside a worktree. If it bakes in patch-mode-specific message
-  formatting, parameterize the subject and body or extract a thinner
-  primitive.
+- For pushing, `pushCurrent` already exists in `src/worktree.ts` and
+  is mode-agnostic — call it directly.
+- For committing, patch mode uses inlined `execFileSync("git",
+  ["commit", ...])` calls inside `commitSubspec` /
+  `commitBlockerForSubspec` / `commitTriageReport` in
+  `src/modes/patch/subspec.ts`. There is no shared "commit message +
+  trailer + git commit" primitive yet. This subspec extracts a thin
+  one — e.g. `commitWithTrailer({ cwd, subject, body, agentLabel })`
+  — alongside the lifted `appendAgentTrailer` and uses it from both
+  plan-mode commits here and the patch-mode call sites (callers'
+  externally observable behavior unchanged).
 - Compute "is intent file inside the project root" with `path.relative`
   and a "starts with `..`" check rather than string prefix matching.
 

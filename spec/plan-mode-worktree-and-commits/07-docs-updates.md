@@ -10,16 +10,21 @@ shipped.
 
 ## Decisions
 
-- **`README.md`:** update the `## Quickstart`-adjacent area or the
-  `## Commands` block (whichever is least intrusive) to reflect that
-  `jarvis plan <intent-file>` and `jarvis plan "<inline text>"` now
-  produce a draft PR with placeholder content. Keep the description
-  brief and call out that real planning content is in flight.
-- **`docs/run-loop.md`:** update the placeholder plan-mode subsection
-  added by `spec/plan-mode-skeleton/06-readme-and-docs-stub.md` so it
-  describes what plan mode actually does today (worktree + branch +
-  placeholder spec + draft PR), with a forward reference to
-  `docs/plan-mode.md` for full detail when it lands.
+- **`README.md`:** add `jarvis plan ...` to the `## Commands` block
+  (currently missing — the skeleton's docs subspec intended to add it
+  but the line did not survive into `main` after the
+  `cli-modes-and-config-v2` rewrite of the same block). The line
+  should describe the behavior this spec actually ships: produces a
+  draft PR with a placeholder spec tree under `spec/<name>/` from a
+  file or inline intent. Keep the description brief and call out that
+  real planning content is in flight (forward reference to the
+  in-flight `spec/plan-mode-*` specs is fine; do not link to
+  `docs/plan-mode.md` until that file exists).
+- **`docs/run-loop.md`:** add (or update, if present) a short
+  `## Plan mode` subsection describing what plan mode actually does
+  today (worktree + branch + placeholder spec + draft PR), with a
+  forward reference to `docs/plan-mode.md` for full detail "once it
+  lands." Do not link to that file yet.
 - **`docs/worktrees-and-commits.md`:**
   - Add a `## Plan-mode worktrees` section documenting:
     - The `.worktree/plan-<name>/` slot and `plan/<name>` branch.
@@ -39,10 +44,13 @@ shipped.
 
 ## Tasks
 
-- [ ] Update `README.md`.
-- [ ] Update `docs/run-loop.md` plan-mode subsection.
+- [ ] Update `README.md` `## Commands` block to include `jarvis plan
+  ...` with the description above.
+- [ ] Add (or update, if present) `## Plan mode` in
+  `docs/run-loop.md`.
 - [ ] Add `## Plan-mode worktrees` to `docs/worktrees-and-commits.md`
-  and update the `## Cleanup` section.
+  and extend the existing `## Cleanup` section (line 179) to mention
+  plan worktrees and the `(plan)` dry-run / output tag.
 
 ## Acceptance criteria
 

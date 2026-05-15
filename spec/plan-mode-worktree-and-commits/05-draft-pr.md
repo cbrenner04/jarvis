@@ -15,11 +15,30 @@ load-bearing for the merge-first rule that
 
 - **When:** open the PR immediately after the `plan: draft` commit's
   push succeeds.
-- **Tool:** reuse the patch-mode `ensureDraftPr` helper in `src/pr.ts`
-  (the same one patch mode uses), passing plan-mode-specific inputs
-  for the title and the deterministic header. The helper already
-  handles `gh pr create --draft`, `gh pr view` idempotence, and the
-  narrative-marker / attribution-footer assembly.
+- **Tool:** reuse the existing PR-body machinery, which today is split
+  across two modules:
+  - `src/pr.ts` owns `ensureDraftPr` (mode-agnostic: `gh pr create
+    --draft` / `gh pr view` idempotence, takes a `bodyGenerator`
+    callback and an attribution `footer` string) and
+    `renderAttribution` (renders the `Jarvis-Agent`-trailer footer
+    from `git log <base>..HEAD`). These are already mode-agnostic —
+    plan mode calls them directly.
+  - `src/modes/patch/pr.ts` owns the deterministic-header / narrative
+    assembly (`buildPrBody`, `extractNarrative`, `updatePrBody`, and
+    the `NARRATIVE_START_MARKER` / `NARRATIVE_END_MARKER` constants).
+    These are coupled to patch mode today because `buildPrBody` reads
+    a spec `index.md` and renders patch-mode's `## Progress` /
+    `## Subspecs` checklist. Plan mode's deterministic header is
+    different (see below) and does not need that progress table.
+
+  This subspec lifts the **mode-agnostic pieces** out of
+  `src/modes/patch/pr.ts` into a new shared module
+  (`src/pr-body.ts`, or extend `src/pr.ts`): the narrative markers,
+  `extractNarrative`, and a generic `updatePrBody` that takes a
+  caller-supplied header builder. Patch mode's existing `buildPrBody`
+  becomes a header builder it passes in; plan mode adds a
+  `buildPlanPrHeader({ name })` that produces the header text below.
+  Patch-mode behavior must be unchanged after the lift.
 - **Title:** `plan: <name>`. No truncation; `<name>` is already short.
 - **Body composition.** The same three-part body shape patch mode uses
   (deterministic header, agent-authored narrative bracketed by
@@ -75,25 +94,35 @@ load-bearing for the merge-first rule that
 
 ## Implementation hints
 
-- If `ensureDraftPr` currently bakes in patch-mode-specific header
-  text, parameterize the header (and any title prefix) so plan mode
-  can supply its own. Keep narrative-marker handling and attribution
-  rendering shared — those are mode-agnostic.
+- `ensureDraftPr` in `src/pr.ts` is already mode-agnostic — it takes
+  `branch`, `base`, `title`, a `bodyGenerator`, and a `footer`. Plan
+  mode passes its own title/header generator in and can call it
+  directly; no change to that signature is needed beyond what falls
+  out of relocating header construction.
 - The "live rewrite the body on each subspec commit" path in patch
-  mode (see `src/modes/patch/run.ts` around the `ensureDraftPr` calls
-  per subspec commit) should be reused by plan mode's `plan: draft`
-  and `plan: review N` commits when those land in later specs. This
-  subspec only needs to make sure the helper is structured so plan
-  mode can call it.
+  mode lives in `src/modes/patch/pr.ts:updatePrBody` and is invoked
+  from `src/modes/patch/run.ts` around line 881 (the `ensureDraftPr`
+  call site). After the lift in the decisions above, plan mode's
+  `plan: draft` (and later `plan: review N`) commits call the same
+  shared `updatePrBody` with a plan-mode header builder. This subspec
+  only needs to make sure the lift lands and plan mode's first call
+  works for the placeholder commits.
 
 ## Tasks
 
-- [ ] Make `ensureDraftPr` (or a thin plan-mode-specific wrapper)
-  accept a caller-supplied deterministic header and PR title prefix
-  while keeping the narrative-marker and attribution-footer logic
-  shared with patch mode.
-- [ ] Wire it into `planCommand` after the `plan: draft` push succeeds.
-- [ ] Print the PR URL to stdout.
+- [ ] Lift the narrative markers, `extractNarrative`, and a generic
+  `updatePrBody` (taking a caller-supplied header builder) out of
+  `src/modes/patch/pr.ts` into a shared module. Re-import from the
+  patch-mode module so its callers are unchanged.
+- [ ] Add `buildPlanPrHeader({ name })` returning the deterministic
+  header text below.
+- [ ] Wire `ensureDraftPr` (with the plan-mode title and header) and
+  the shared `updatePrBody` into `planCommand` after the `plan: draft`
+  push succeeds.
+- [ ] Print the PR URL to stdout. Reuse the URL printer from
+  `print-pr-link-on-completion` if one already exists; otherwise read
+  the URL via `gh pr view <branch> --json url -q .url` after the
+  create/reuse and write a single line to stdout.
 - [ ] Tests:
   - Successful `gh pr create` invocation builds the documented title
     and body, with `<name>` interpolated, the narrative markers

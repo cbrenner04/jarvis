@@ -88,6 +88,38 @@ Subspecs: ${opts.subspecCount}`;
   }
 }
 
+export type CommitPlanReviewOptions = {
+  worktreePath: string;
+  passNumber: number;
+  agentLabel: string;
+};
+
+export function commitPlanReview(opts: CommitPlanReviewOptions): void {
+  execFileSync("git", ["add", "-A"], {
+    cwd: opts.worktreePath,
+    stdio: "pipe",
+  });
+
+  const subject = `plan: review ${opts.passNumber}`;
+  const body = `Reviewed by ${opts.agentLabel}.`;
+  const baseMessage = `${subject}\n\n${body}`;
+  const commitMessage = appendAgentTrailer(baseMessage, "");
+
+  execFileSync("git", ["commit", "-F", "-"], {
+    cwd: opts.worktreePath,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: commitMessage,
+  });
+
+  try {
+    pushCurrent({ cwd: opts.worktreePath, firstPush: false });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(message);
+  }
+}
+
 function getProjectRoot(cwd: string): string {
   try {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], {

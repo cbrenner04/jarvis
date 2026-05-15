@@ -5,9 +5,18 @@ import { basename, join } from "node:path";
 import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
-import { commitPlanDraft, commitPlanInterview } from "../modes/plan/commits.ts";
+import {
+  commitPlanDraft,
+  commitPlanInterview,
+  commitPlanReview,
+} from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import { buildPlanPrHeader } from "../modes/plan/pr.ts";
+import {
+  hasWorkingTreeChanges,
+  runReviewPass,
+  validateReviewOutput,
+} from "../modes/plan/review.ts";
 import { ensureDraftPr, renderAttribution } from "../pr.ts";
 import type { resolveTargetRepo } from "../repo.ts";
 import { createPlanWorktree, createWorktreeSymlinks } from "../worktree.ts";
@@ -402,6 +411,90 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       opts.io.stderr(`${(err as Error).message}\n`);
       return 1;
     }
+
+    // Self-review phase
+    const reviewPasses = inv.reviewPasses ?? 2;
+    for (let pass = 1; pass <= reviewPasses; pass++) {
+      opts.io.stderr(
+        `plan mode: review pass ${pass}/${reviewPasses} starting\n`,
+      );
+
+      try {
+        // Read intent.md before the pass so we can validate it wasn't modified
+        const intentPath = join(worktreePath, "spec", specName, "intent.md");
+        const intentBefore = readFileSync(intentPath, "utf8");
+
+        // Run the review pass
+        const reviewResult = await runReviewPass({
+          worktreePath,
+          name: specName,
+          config: cfg,
+        });
+
+        // Handle agent errors
+        if (reviewResult.result.kind === "error") {
+          opts.io.stderr(
+            `plan mode: review pass ${pass} failed: ${reviewResult.result.stderr}\n`,
+          );
+          return 1;
+        }
+
+        if (reviewResult.result.kind === "model_config") {
+          opts.io.stderr(
+            `plan mode: model configuration error: ${reviewResult.result.stderr}\n`,
+          );
+          return 1;
+        }
+
+        if (reviewResult.result.kind === "quota") {
+          opts.io.stderr(
+            `plan mode: all agents exhausted on review pass ${pass}\n`,
+          );
+          return 2; // Quota exhausted exit code
+        }
+
+        // Check if the pass produced changes
+        if (!hasWorkingTreeChanges(worktreePath)) {
+          opts.io.stderr(`plan: review ${pass}: no changes\n`);
+          continue;
+        }
+
+        // Validate the review output
+        const validation = validateReviewOutput(
+          worktreePath,
+          specName,
+          intentBefore,
+        );
+        if (!validation.valid) {
+          opts.io.stderr(
+            `plan mode: review pass ${pass} validation failed: ${validation.error}\n`,
+          );
+          return 1;
+        }
+
+        // Commit and push this review pass
+        try {
+          commitPlanReview({
+            worktreePath,
+            passNumber: pass,
+            agentLabel: reviewResult.agentLabel ?? "unknown",
+          });
+          opts.io.stderr(
+            `plan mode: review pass ${pass} committed and pushed\n`,
+          );
+        } catch (err) {
+          opts.io.stderr(`${(err as Error).message}\n`);
+          return 1;
+        }
+      } catch (err) {
+        opts.io.stderr(
+          `plan mode: review pass ${pass} error: ${(err as Error).message}\n`,
+        );
+        return 1;
+      }
+    }
+
+    opts.io.stderr(`plan mode: review phase completed\n`);
 
     // Open draft PR
     try {

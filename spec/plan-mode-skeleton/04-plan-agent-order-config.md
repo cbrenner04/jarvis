@@ -1,6 +1,11 @@
-# 04 — Plan-mode v2 config contract
+# 04 — Plan mode agent order (config v2)
 
-## Problem
+**Note:** This subspec is superseded by
+`spec/cli-modes-and-config-v2/00-config-v2-modes.md` and
+`spec/cli-modes-and-config-v2/02-config-cli-and-docs.md`, which implement
+config v2 with enforced `modes.patch.agentOrder` and `modes.plan.agentOrder`
+keys (not optional). See those specs for the current schema, validation rules,
+and `jarvis config` subcommands.
 
 Plan mode will eventually call agents to draft and self-review specs. Patch
 mode and plan mode are different workloads (structured writing vs. code edits),

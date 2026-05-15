@@ -40,13 +40,13 @@ match the on-disk schema and avoid reintroducing optional fallback language.
 
 ## Acceptance criteria
 
-- [ ] `jarvis config show` reflects v2 `modes` only.
-- [ ] Setting either mode order validates the same way as the core config
+- [x] `jarvis config show` reflects v2 `modes` only.
+- [x] Setting either mode order validates the same way as the core config
   loader.
-- [ ] `docs/config.md` matches the implementation; no lingering `planAgentOrder`
+- [x] `docs/config.md` matches the implementation; no lingering `planAgentOrder`
   / flat `agentOrder` **as the authoritative schema** (historical mention OK if
   clearly labeled superseded).
-- [ ] `bun run typecheck`, `bun test`, `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` pass.
 
 ## Documentation updates
 

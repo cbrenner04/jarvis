@@ -222,11 +222,7 @@ describe("run", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    const out = cap.out();
-    const jsonText = out
-      .replace(/\nmodes\.patch\.agentOrder: .+\n/, "\n")
-      .replace(/\nmodes\.plan\.agentOrder: .+\n$/, "\n");
-    const parsed = JSON.parse(jsonText);
+    const parsed = JSON.parse(cap.out());
     expect(parsed.version).toBe(2);
     const expectedOrder = [
       { agent: "claude", model: "haiku" },

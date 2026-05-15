@@ -59,11 +59,11 @@ implicit defaults between them.
 
 ## Acceptance criteria
 
-- [ ] Loading a v1 config or a file containing `agentOrder` or
+- [x] Loading a v1 config or a file containing `agentOrder` or
   `planAgentOrder` fails with a deterministic error.
-- [ ] A valid v2 config loads; both mode orders are required and validated.
-- [ ] Bootstrap writes v2 only (no legacy keys).
-- [ ] `bun run typecheck`, `bun test`, `bun run check` pass.
+- [x] A valid v2 config loads; both mode orders are required and validated.
+- [x] Bootstrap writes v2 only (no legacy keys).
+- [x] `bun run typecheck`, `bun test`, `bun run check` pass.
 
 ## Documentation updates
 

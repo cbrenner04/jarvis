@@ -39,11 +39,11 @@ parsers) without a named concept of “mode entry.”
 
 ## Acceptance criteria
 
-- [ ] No duplicated “resolve then log-server then continue” sequence between
+- [x] No duplicated “resolve then log-server then continue” sequence between
   `run` and `plan` entry paths.
-- [ ] Target-repo and log-server failure messages and codes match pre-refactor
+- [x] Target-repo and log-server failure messages and codes match pre-refactor
   behavior.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` pass.
 
 ## Documentation updates
 

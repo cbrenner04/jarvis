@@ -98,7 +98,8 @@ export function configCommand(opts: ConfigCommandOptions): number {
         return 1;
       }
       const cfg = loadConfig(opts.config);
-      cfg.agentOrder = order;
+      cfg.modes.patch.agentOrder = order;
+      cfg.modes.plan.agentOrder = order;
       writeConfig(cfg, opts.config);
       io.stdout(`agentOrder: ${order.join(", ")}\n`);
       return 0;

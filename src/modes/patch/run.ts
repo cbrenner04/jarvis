@@ -440,7 +440,7 @@ async function resolveAndPreflight(
 
 function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
   const agentsByName = opts.agents ?? defaultAgents(cfg);
-  return cfg.agentOrder
+  return cfg.modes.patch.agentOrder
     .map((name) => agentsByName[name])
     .filter((agent): agent is Agent => agent !== undefined);
 }

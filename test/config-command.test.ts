@@ -42,8 +42,11 @@ describe("config show", () => {
     expect(code).toBe(0);
     const parsed = JSON.parse(cap.out());
     expect(parsed).toEqual({
-      version: 1,
-      agentOrder: ["claude", "codex", "cursor"],
+      version: 2,
+      modes: {
+        patch: { agentOrder: ["claude", "codex", "cursor"] },
+        plan: { agentOrder: ["claude", "codex", "cursor"] },
+      },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
       maxIterations: 10,
@@ -86,7 +89,8 @@ describe("config set-order", () => {
     });
     expect(code).toBe(0);
     const cfg = loadConfig({ dir: cfgDir });
-    expect(cfg.agentOrder).toEqual(["codex", "claude", "cursor"]);
+    expect(cfg.modes.patch.agentOrder).toEqual(["codex", "claude", "cursor"]);
+    expect(cfg.modes.plan.agentOrder).toEqual(["codex", "claude", "cursor"]);
   });
 
   test("subset is allowed", () => {
@@ -97,7 +101,9 @@ describe("config set-order", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual(["codex", "claude"]);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.modes.patch.agentOrder).toEqual(["codex", "claude"]);
+    expect(cfg.modes.plan.agentOrder).toEqual(["codex", "claude"]);
   });
 
   test("opencode is allowed", () => {
@@ -108,10 +114,9 @@ describe("config set-order", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual([
-      "claude",
-      "opencode",
-    ]);
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.modes.patch.agentOrder).toEqual(["claude", "opencode"]);
+    expect(cfg.modes.plan.agentOrder).toEqual(["claude", "opencode"]);
   });
 
   test("rejects unknown agent without changing file", () => {
@@ -296,8 +301,11 @@ describe("config edit", () => {
         require("node:fs").writeFileSync(
           f,
           JSON.stringify({
-            version: 1,
-            agentOrder: ["cursor", "codex", "claude"],
+            version: 2,
+            modes: {
+              patch: { agentOrder: ["cursor", "codex", "claude"] },
+              plan: { agentOrder: ["cursor", "codex", "claude"] },
+            },
             projects: {},
           }),
         );
@@ -305,7 +313,13 @@ describe("config edit", () => {
       },
     });
     expect(code).toBe(0);
-    expect(loadConfig({ dir: cfgDir }).agentOrder).toEqual([
+    const cfg = loadConfig({ dir: cfgDir });
+    expect(cfg.modes.patch.agentOrder).toEqual([
+      "cursor",
+      "codex",
+      "claude",
+    ]);
+    expect(cfg.modes.plan.agentOrder).toEqual([
       "cursor",
       "codex",
       "claude",

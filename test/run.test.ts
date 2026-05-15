@@ -1353,8 +1353,8 @@ exit 1
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude"],
+        version: 2,
+        modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
@@ -1395,8 +1395,8 @@ exit 0
     process.env.PATH = `${binDir}:${originalPath ?? ""}`;
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude"],
+        version: 2,
+        modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1439,8 +1439,8 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude"],
+        version: 2,
+        modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
@@ -1505,8 +1505,8 @@ exit 0
     }));
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1543,8 +1543,8 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1590,8 +1590,8 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1637,8 +1637,8 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
         quotaFallback: "strict",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1677,8 +1677,8 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1738,8 +1738,8 @@ exit 0
     });
     writeConfig(
       {
-        version: 1,
-        agentOrder: ["claude", "codex"],
+        version: 2,
+        modes: { patch: { agentOrder: ["claude", "codex"] }, plan: { agentOrder: ["claude", "codex"] } },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -2583,8 +2583,8 @@ exit 0
       });
       writeConfig(
         {
-          version: 1,
-          agentOrder: ["claude"],
+          version: 2,
+          modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -2619,8 +2619,8 @@ exit 0
       }));
       writeConfig(
         {
-          version: 1,
-          agentOrder: ["claude"],
+          version: 2,
+          modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -2654,8 +2654,8 @@ exit 0
       }));
       writeConfig(
         {
-          version: 1,
-          agentOrder: ["claude"],
+          version: 2,
+          modes: { patch: { agentOrder: ["claude"] }, plan: { agentOrder: ["claude"] } },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,

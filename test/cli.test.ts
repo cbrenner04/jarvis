@@ -210,8 +210,9 @@ describe("run", () => {
     });
     expect(code).toBe(0);
     const parsed = JSON.parse(cap.out());
-    expect(parsed.version).toBe(1);
-    expect(parsed.agentOrder).toEqual(["claude", "codex", "cursor"]);
+    expect(parsed.version).toBe(2);
+    expect(parsed.modes.patch.agentOrder).toEqual(["claude", "codex", "cursor"]);
+    expect(parsed.modes.plan.agentOrder).toEqual(["claude", "codex", "cursor"]);
     expect(parsed.maxIterations).toBe(10);
   });
 

@@ -64,14 +64,14 @@ Argument parsing for the various input forms is added in subspec 02.
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan` (no args) prints the stub message to stderr and exits
+- [x] `jarvis plan` (no args) prints the stub message to stderr and exits
   with code `2`.
-- [ ] `jarvis plan --help` and `jarvis plan -h` print the usage block to
+- [x] `jarvis plan --help` and `jarvis plan -h` print the usage block to
   stdout and exit `0`.
-- [ ] `jarvis help` lists `plan` with a one-line description.
-- [ ] No worktree, file, branch, commit, or PR is created or modified by
+- [x] `jarvis help` lists `plan` with a one-line description.
+- [x] No worktree, file, branch, commit, or PR is created or modified by
   any invocation.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

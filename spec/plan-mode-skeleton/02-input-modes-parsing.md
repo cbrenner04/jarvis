@@ -86,15 +86,15 @@ runs yet — each branch ends in the same stub exit.
 
 ## Acceptance criteria
 
-- [ ] All three input modes are classified by the parser per the rules
+- [x] All three input modes are classified by the parser per the rules
   above and reach the stub exit (`2`).
-- [ ] Bad flag values (`--interview-turns -1`, `--review-passes foo`,
+- [x] Bad flag values (`--interview-turns -1`, `--review-passes foo`,
   trailing `--repo` with no value) exit `1` with a specific error.
-- [ ] Two or more positional arguments exit `1` with `too many
+- [x] Two or more positional arguments exit `1` with `too many
   arguments`.
-- [ ] No worktree, file, branch, commit, or PR is created or modified by
+- [x] No worktree, file, branch, commit, or PR is created or modified by
   any invocation.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

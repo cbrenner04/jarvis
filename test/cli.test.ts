@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type Io, parseArgs, run } from "../src/cli.ts";
@@ -126,6 +126,17 @@ describe("parseArgs", () => {
   test("unknown subcommand", () => {
     expect(parseArgs(["bogus"])).toEqual({ kind: "unknown", name: "bogus" });
   });
+
+  test("plan with no args", () => {
+    expect(parseArgs(["plan"])).toEqual({ kind: "plan", rest: [] });
+  });
+
+  test("plan with extra args", () => {
+    expect(parseArgs(["plan", "--repo", "foo", "intent.md"])).toEqual({
+      kind: "plan",
+      rest: ["--repo", "foo", "intent.md"],
+    });
+  });
 });
 
 describe("run", () => {
@@ -140,6 +151,8 @@ describe("run", () => {
     expect(out).toContain("init");
     expect(out).toContain("config");
     expect(out).toContain("log-server");
+    expect(out).toContain("plan [--interview-turns <n>]");
+    expect(out).toContain("Generate a spec tree from an intent.");
     expect(out).toContain("help");
   });
 
@@ -227,6 +240,59 @@ describe("run", () => {
     expect(code).toBe(1);
     expect(cap.err()).toContain("unknown command");
     expect(cap.err()).toContain("bogus");
+  });
+
+  test("plan with no args fails the log-server preflight (exit 1) when the log server is not reachable", async () => {
+    // Pin logServerUrl to a deliberately-unreachable port so the test is
+    // robust to whether a real log server is running on the host.
+    writeFileSync(
+      join(cfgDir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [
+              { agent: "claude", model: "haiku" },
+              { agent: "codex", model: "gpt-5.3-codex" },
+              { agent: "cursor", model: "Composer 2" },
+            ],
+          },
+          plan: {
+            agentOrder: [
+              { agent: "claude", model: "haiku" },
+              { agent: "codex", model: "gpt-5.3-codex" },
+              { agent: "cursor", model: "Composer 2" },
+            ],
+          },
+        },
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 1800000,
+        logServerUrl: "http://127.0.0.1:1/logs",
+        logServerBind: "127.0.0.1:4310",
+        git: true,
+        projects: {},
+      }),
+    );
+    const cap = captureIo();
+    const code = await run(["plan"], { io: cap.io, config: { dir: cfgDir } });
+    // The stub message is gated behind a successful preflight; see
+    // test/plan-command.test.ts for the stub-message coverage with an
+    // injected log client.
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("log server unreachable");
+  });
+
+  test("plan --help prints usage to stdout and exits 0", async () => {
+    const cap = captureIo();
+    const code = await run(["plan", "--help"], {
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("--interview-turns");
+    expect(cap.out()).toContain("Generate a spec tree from an intent.");
   });
 
   test("run without spec path exits 1", () => {

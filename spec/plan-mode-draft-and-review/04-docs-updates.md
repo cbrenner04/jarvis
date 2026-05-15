@@ -45,7 +45,7 @@ only forward-referenced plan mode.
   same agent contract as patch mode (no new agents, no permission
   posture changes).
 - **`docs/config.md`:** no schema changes in this spec; existing
-  `planAgentOrder` documentation already covers what changed.
+  `modes.plan.agentOrder` documentation already covers what changed.
 
 ## Tasks
 

@@ -6,7 +6,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  statSync,
   writeSync,
 } from "node:fs";
 import {
@@ -23,6 +22,7 @@ import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
 import { isWeakQuotaSignal } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
+import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
   type AgentName,
@@ -34,7 +34,6 @@ import {
   type ProjectMatch,
   setProjectOrigin,
 } from "../../config.ts";
-import { type Io } from "../../cli.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttribution } from "../../pr.ts";
@@ -49,7 +48,11 @@ import {
   acquireWorktreeLock,
   releaseWorktreeLock,
 } from "../../worktree-lock.ts";
-import { runSharedPreflight, type DisambiguateFn } from "../shared-entry.ts";
+import {
+  type DisambiguateFn,
+  runSharedPreflight,
+  type SharedPreflightOpts,
+} from "../shared-entry.ts";
 import {
   countUnchecked,
   getActiveLinkedSubspecPath,
@@ -176,7 +179,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   }
 
   // Run shared preflight (target-repo resolution and log-server reachability)
-  const sharedPreflightOpts: any = {
+  const sharedPreflightOpts: SharedPreflightOpts = {
     specPath: initialSpecPath,
     io: opts.io,
   };
@@ -421,10 +424,30 @@ async function resolveModeSpecificPreflight(
 }
 
 function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
-  const agentsByName = opts.agents ?? defaultAgents(cfg);
-  return cfg.modes.patch.agentOrder
-    .map((name) => agentsByName[name])
-    .filter((agent): agent is Agent => agent !== undefined);
+  const overrides = opts.agents;
+  const agents: Agent[] = [];
+  for (const entry of cfg.modes.patch.agentOrder) {
+    const override = overrides?.[entry.agent];
+    if (override !== undefined) {
+      agents.push(override);
+      continue;
+    }
+    agents.push(makeAgent(entry.agent, entry.model));
+  }
+  return agents;
+}
+
+function makeAgent(name: AgentName, model: string): Agent {
+  switch (name) {
+    case "claude":
+      return new ClaudeAgent({ model });
+    case "codex":
+      return new CodexAgent({ model });
+    case "cursor":
+      return new CursorAgent({ model });
+    case "opencode":
+      return new OpencodeAgent({ model });
+  }
 }
 
 function setupLogging(
@@ -1036,7 +1059,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       return { kind: "continue" };
     }
     if (result.kind === "model_config") {
-      const configErr = `${agent.name}: configured patch model ${JSON.stringify(cfg.patchModels[agent.name])} is not supported by this CLI/account\n`;
+      const entry = cfg.modes.patch.agentOrder.find(
+        (e) => e.agent === agent.name,
+      );
+      const configErr = `${agent.name}: configured patch model ${JSON.stringify(entry?.model)} is not supported by this CLI/account\n`;
       fanout("harness", configErr, "stderr");
       if (result.stderr.length > 0) {
         const stderr = result.stderr.endsWith("\n")
@@ -1297,13 +1323,4 @@ function copyMissingRecursive(sourceDir: string, targetDir: string): void {
       errorOnExist: false,
     });
   }
-}
-
-function defaultAgents(cfg: Config): Record<AgentName, Agent> {
-  return {
-    claude: new ClaudeAgent({ model: cfg.patchModels.claude }),
-    codex: new CodexAgent({ model: cfg.patchModels.codex }),
-    cursor: new CursorAgent({ model: cfg.patchModels.cursor }),
-    opencode: new OpencodeAgent({ model: cfg.patchModels.opencode }),
-  };
 }

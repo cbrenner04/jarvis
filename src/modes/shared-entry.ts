@@ -1,15 +1,14 @@
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute } from "node:path";
+import type { Io } from "../cli.ts";
+import type { Config, ProjectMatch } from "../config.ts";
 import { type ConfigOptions, loadConfig } from "../config.ts";
-import { type Io } from "../cli.ts";
 import {
   type DisambiguationResult,
   promptForProject,
 } from "../disambiguation-prompt.ts";
-import type { ProjectMatch } from "../config.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { resolveProject } from "../resolve-project.ts";
-import { existsSync, statSync } from "node:fs";
-import { readFileSync } from "node:fs";
-import { isAbsolute } from "node:path";
 
 export type DisambiguateFn = (opts: {
   candidates: ProjectMatch[];
@@ -32,7 +31,7 @@ export type SharedPreflightResult =
       kind: "ok";
       project: ProjectMatch;
       projectMode: "registered" | "ad-hoc";
-      cfg: any;
+      cfg: Config;
       logClient: LogClient;
     }
   | { kind: "error"; exitCode: number };

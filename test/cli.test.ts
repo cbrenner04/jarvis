@@ -211,12 +211,13 @@ describe("run", () => {
     expect(code).toBe(0);
     const parsed = JSON.parse(cap.out());
     expect(parsed.version).toBe(2);
-    expect(parsed.modes.patch.agentOrder).toEqual([
-      "claude",
-      "codex",
-      "cursor",
-    ]);
-    expect(parsed.modes.plan.agentOrder).toEqual(["claude", "codex", "cursor"]);
+    const expectedOrder = [
+      { agent: "claude", model: "haiku" },
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "cursor", model: "Composer 2" },
+    ];
+    expect(parsed.modes.patch.agentOrder).toEqual(expectedOrder);
+    expect(parsed.modes.plan.agentOrder).toEqual(expectedOrder);
     expect(parsed.maxIterations).toBe(10);
   });
 

@@ -12,8 +12,13 @@ match the on-disk schema and avoid reintroducing optional fallback language.
   `set-order` / `set-plan-order` (and related) with a **DRY** implementation:
   e.g. one internal helper parameterized by mode key plus subcommands
   `set-patch-order` and `set-plan-order` (exact names up to implementer, but
-  must be clear and symmetric). `show` prints both `modes.patch.agentOrder`
-  and `modes.plan.agentOrder`.
+  must be clear and symmetric). Each subcommand takes a single argument of
+  comma-separated `agent:model` pairs (e.g.
+  `claude:haiku,codex:gpt-5.3-codex`) — every entry carries its own model;
+  there is no separate `set-model` command. The parser rejects unknown
+  agents, duplicates, missing colons, and empty model strings. `show` prints
+  both `modes.patch.agentOrder` and `modes.plan.agentOrder` with the
+  per-entry models visible.
 - **No `unset` that removes a mode order.** Both lists must always be present
   on disk for a valid config; subcommands only **set** (replace) an order.
   Remove any prior `unset-plan-order` / “fall back to agentOrder” UX.

@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type AgentEntry,
   type Config,
   effectiveGit,
   findProjectForPath,
@@ -25,12 +26,13 @@ import {
 
 let dir: string;
 
-const DEFAULT_PATCH_MODELS = {
-  claude: "haiku",
-  codex: "gpt-5.3-codex",
-  cursor: "Composer 2",
-  opencode: "github-copilot/claude-opus-4.7",
-};
+const DEFAULT_AGENT_ORDER: AgentEntry[] = [
+  { agent: "claude", model: "haiku" },
+  { agent: "codex", model: "gpt-5.3-codex" },
+  { agent: "cursor", model: "Composer 2" },
+];
+
+const CLAUDE_ONLY: AgentEntry[] = [{ agent: "claude", model: "haiku" }];
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "jarvis-config-"));
@@ -50,14 +52,13 @@ describe("loadConfig", () => {
     expect(cfg).toEqual({
       version: 2,
       modes: {
-        patch: { agentOrder: ["claude", "codex", "cursor"] },
-        plan: { agentOrder: ["claude", "codex", "cursor"] },
+        patch: { agentOrder: DEFAULT_AGENT_ORDER },
+        plan: { agentOrder: DEFAULT_AGENT_ORDER },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
       maxIterations: 10,
       iterationTimeoutMs: 30 * 60_000,
-      patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://127.0.0.1:4310/logs",
       logServerBind: "127.0.0.1:4310",
       telemetryPath: join(dir, "runs.jsonl"),
@@ -85,28 +86,30 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["codex", "claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: {
+            agentOrder: [
+              { agent: "codex", model: "gpt-5.3-codex" },
+              { agent: "claude", model: "sonnet" },
+            ],
+          },
+          plan: { agentOrder: [{ agent: "claude", model: "haiku" }] },
         },
         quotaFallback: "strict",
         maxIterations: 7,
-        patchModels: {
-          claude: "sonnet",
-          codex: "gpt-5.3-codex",
-          cursor: "Composer 2",
-          opencode: "opencode-model",
-        },
         projects: { jarvis: { root: "/Users/me/jarvis" } },
       }),
     );
 
     const cfg = loadConfig({ dir });
-    expect(cfg.modes.patch.agentOrder).toEqual(["codex", "claude"]);
-    expect(cfg.modes.plan.agentOrder).toEqual(["claude"]);
+    expect(cfg.modes.patch.agentOrder).toEqual([
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "claude", model: "sonnet" },
+    ]);
+    expect(cfg.modes.plan.agentOrder).toEqual([
+      { agent: "claude", model: "haiku" },
+    ]);
     expect(cfg.quotaFallback).toBe("strict");
     expect(cfg.maxIterations).toBe(7);
-    expect(cfg.patchModels.claude).toBe("sonnet");
-    expect(cfg.patchModels.opencode).toBe("opencode-model");
     expect(cfg.logServerUrl).toBe("http://127.0.0.1:4310/logs");
     expect(cfg.logServerBind).toBe("127.0.0.1:4310");
     expect(cfg.telemetryPath).toBe(join(dir, "runs.jsonl"));
@@ -119,8 +122,8 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -135,8 +138,8 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -151,8 +154,8 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         quotaFallback: "off",
         projects: {},
@@ -161,63 +164,14 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ dir })).toThrow(/quotaFallback/);
   });
 
-  test("defaults patchModels when an existing config omits it", () => {
-    const file = join(dir, "config.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
-        },
-        maxIterations: 7,
-        projects: {},
-      }),
-    );
-
-    const cfg = loadConfig({ dir });
-    expect(cfg.patchModels).toEqual(DEFAULT_PATCH_MODELS);
-    expect(JSON.parse(readFileSync(file, "utf8"))).not.toHaveProperty(
-      "patchModels",
-    );
-  });
-
-  test("populates missing opencode patch model for legacy configs", () => {
-    const file = join(dir, "config.json");
-    writeFileSync(
-      file,
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
-        },
-        maxIterations: 7,
-        patchModels: {
-          claude: "haiku",
-          codex: "gpt-5.3-codex",
-          cursor: "Composer 2",
-        },
-        projects: {},
-      }),
-    );
-
-    const cfg = loadConfig({ dir });
-    expect(cfg.patchModels).toEqual(DEFAULT_PATCH_MODELS);
-    expect(
-      JSON.parse(readFileSync(file, "utf8")).patchModels,
-    ).not.toHaveProperty("opencode");
-  });
-
   test("rejects invalid maxIterations", () => {
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 0,
         projects: {},
@@ -232,8 +186,8 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
         iterationTimeoutMs: -1,
@@ -249,8 +203,8 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
@@ -267,11 +221,10 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
-        patchModels: DEFAULT_PATCH_MODELS,
         telemetryPath: null,
         projects: {},
       }),
@@ -285,13 +238,12 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
         runTimeoutMs: 60 * 60_000,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: true,
         projects: {},
       }),
@@ -300,108 +252,86 @@ describe("loadConfig", () => {
     expect(cfg.runTimeoutMs).toBe(60 * 60_000);
   });
 
-  test("rejects non-object patchModels", () => {
+  test("rejects legacy patchModels key", () => {
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
-        maxIterations: 10,
-        patchModels: "haiku",
+        patchModels: { claude: "haiku" },
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/patchModels/);
+    expect(() => loadConfig({ dir })).toThrow(/legacy keys found/);
   });
 
-  test("rejects non-string patchModels values", () => {
+  test("rejects agentOrder entry missing model", () => {
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
-        },
-        maxIterations: 10,
-        patchModels: {
-          claude: 1,
-          codex: "gpt-5.3-codex",
-          cursor: "Composer 2",
-          opencode: "github-copilot/claude-opus-4.7",
+          patch: { agentOrder: [{ agent: "claude" }] },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/patchModels\.claude/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.patch\.agentOrder\[0\]\.model/,
+    );
   });
 
-  test("rejects empty patchModels values", () => {
+  test("rejects agentOrder entry with empty model", () => {
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
-        },
-        maxIterations: 10,
-        patchModels: {
-          claude: " ",
-          codex: "gpt-5.3-codex",
-          cursor: "Composer 2",
-          opencode: "github-copilot/claude-opus-4.7",
+          patch: { agentOrder: [{ agent: "claude", model: "  " }] },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/patchModels\.claude/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.patch\.agentOrder\[0\]\.model/,
+    );
   });
 
-  test("rejects unknown patchModels keys", () => {
+  test("rejects agentOrder entry with non-string model", () => {
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
-        },
-        maxIterations: 10,
-        patchModels: {
-          claude: "haiku",
-          codex: "gpt-5.3-codex",
-          cursor: "Composer 2",
-          opencode: "github-copilot/claude-opus-4.7",
-          gpt: "model",
+          patch: { agentOrder: [{ agent: "claude", model: 1 }] },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/patchModels.*unknown agent/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.patch\.agentOrder\[0\]\.model/,
+    );
   });
 
-  test("rejects missing patchModels keys when patchModels is present", () => {
+  test("rejects agentOrder string entry (pre-{agent,model} v2)", () => {
     writeFileSync(
       join(dir, "config.json"),
       JSON.stringify({
         version: 2,
         modes: {
           patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
-        },
-        maxIterations: 10,
-        patchModels: {
-          claude: "haiku",
-          codex: "gpt-5.3-codex",
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(/patchModels\.cursor/);
+    expect(() => loadConfig({ dir })).toThrow(/agent.*and.*model/);
   });
 
   test("rejects v1 config", () => {
@@ -425,8 +355,8 @@ describe("loadConfig", () => {
         version: 2,
         agentOrder: ["claude"],
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -441,8 +371,8 @@ describe("loadConfig", () => {
         version: 2,
         planAgentOrder: ["claude"],
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -467,7 +397,7 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          plan: { agentOrder: ["claude"] },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -481,7 +411,7 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -496,7 +426,7 @@ describe("loadConfig", () => {
         version: 2,
         modes: {
           patch: { agentOrder: [] },
-          plan: { agentOrder: ["claude"] },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -512,7 +442,7 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: [] },
         },
         projects: {},
@@ -529,8 +459,13 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude", "claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: {
+            agentOrder: [
+              { agent: "claude", model: "haiku" },
+              { agent: "claude", model: "sonnet" },
+            ],
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -546,8 +481,14 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude", "codex", "claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: {
+            agentOrder: [
+              { agent: "claude", model: "haiku" },
+              { agent: "codex", model: "gpt-5.3-codex" },
+              { agent: "claude", model: "sonnet" },
+            ],
+          },
         },
         projects: {},
       }),
@@ -563,8 +504,8 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["gpt"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: [{ agent: "gpt", model: "x" }] },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -577,8 +518,8 @@ describe("loadConfig", () => {
       join(dir, "config.json"),
       JSON.stringify({
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {},
       }),
@@ -592,8 +533,8 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: { foo: { root: "relative/path" } },
       }),
@@ -607,8 +548,8 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         projects: {
           a: { root: "/tmp/shared" },
@@ -631,11 +572,10 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
-        patchModels: DEFAULT_PATCH_MODELS,
         projects: {
           "app-a": {
             root: "/tmp/jarvis-with-origin",
@@ -657,11 +597,10 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
-        patchModels: DEFAULT_PATCH_MODELS,
         projects: { "app-a": { root: "/tmp/jarvis-legacy" } },
       }),
     );
@@ -675,11 +614,10 @@ describe("loadConfig", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
-        patchModels: DEFAULT_PATCH_MODELS,
         projects: { "app-a": { root: "/tmp/jarvis-bad", origin: 42 } },
       }),
     );
@@ -779,11 +717,10 @@ describe("git toggle", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
-        patchModels: DEFAULT_PATCH_MODELS,
         projects: {},
       }),
     );
@@ -797,11 +734,10 @@ describe("git toggle", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: false,
         projects: {},
       }),
@@ -817,11 +753,10 @@ describe("git toggle", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
-        patchModels: DEFAULT_PATCH_MODELS,
         git: "yes",
         projects: {},
       }),
@@ -836,11 +771,10 @@ describe("git toggle", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
-        patchModels: DEFAULT_PATCH_MODELS,
         projects: { app: { root: "/tmp/jarvis-git-app", git: false } },
       }),
     );
@@ -858,11 +792,10 @@ describe("git toggle", () => {
       JSON.stringify({
         version: 2,
         modes: {
-          patch: { agentOrder: ["claude"] },
-          plan: { agentOrder: ["claude"] },
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
         },
         maxIterations: 10,
-        patchModels: DEFAULT_PATCH_MODELS,
         projects: { app: { root: "/tmp/jarvis-git-bad", git: "no" } },
       }),
     );
@@ -874,14 +807,13 @@ describe("git toggle", () => {
     const cfg: Config = {
       version: 2,
       modes: {
-        patch: { agentOrder: ["claude"] },
-        plan: { agentOrder: ["claude"] },
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
       maxIterations: 10,
       iterationTimeoutMs: 30 * 60_000,
-      patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://x/",
       logServerBind: "x",
       git: true,
@@ -894,14 +826,13 @@ describe("git toggle", () => {
     const cfg: Config = {
       version: 2,
       modes: {
-        patch: { agentOrder: ["claude"] },
-        plan: { agentOrder: ["claude"] },
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
       maxIterations: 10,
       iterationTimeoutMs: 30 * 60_000,
-      patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://x/",
       logServerBind: "x",
       git: false,
@@ -914,14 +845,13 @@ describe("git toggle", () => {
     const cfg: Config = {
       version: 2,
       modes: {
-        patch: { agentOrder: ["claude"] },
-        plan: { agentOrder: ["claude"] },
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
       maxIterations: 10,
       iterationTimeoutMs: 30 * 60_000,
-      patchModels: DEFAULT_PATCH_MODELS,
       logServerUrl: "http://x/",
       logServerBind: "x",
       git: false,

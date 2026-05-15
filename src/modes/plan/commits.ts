@@ -10,6 +10,17 @@ export type CommitPlanInterviewOptions = {
   intentPathOrLabel: string;
 };
 
+/**
+ * Build the body for a plan-mode commit. Every plan commit body's first
+ * non-empty line is `Spec: spec/<name>/intent.md`, matching the AGENTS.md
+ * convention used by `renderAttribution` to filter PR-attribution-eligible
+ * commits. Additional body lines follow the spec marker.
+ */
+function buildPlanBody(name: string, lines: string[]): string {
+  const specLine = `Spec: spec/${name}/intent.md`;
+  return [specLine, "", ...lines].join("\n");
+}
+
 export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
   execFileSync("git", ["add", "-A"], {
     cwd: opts.worktreePath,
@@ -36,7 +47,9 @@ export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
   }
 
   const subject = "plan: interview";
-  const baseMessage = `${subject}\n\n${bodyLine}`;
+  const body = buildPlanBody(opts.name, [bodyLine]);
+  const baseMessage = `${subject}\n\n${body}`;
+  // No agent attribution for the interview commit (no agent involved yet).
   const commitMessage = appendAgentTrailer(baseMessage, "");
 
   execFileSync("git", ["commit", "-F", "-"], {
@@ -68,10 +81,12 @@ export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
   });
 
   const subject = "plan: draft";
-  const body = `Drafted by ${opts.agentLabel}.
-Subspecs: ${opts.subspecCount}`;
+  const body = buildPlanBody(opts.name, [
+    `Drafted by ${opts.agentLabel}.`,
+    `Subspecs: ${opts.subspecCount}`,
+  ]);
   const baseMessage = `${subject}\n\n${body}`;
-  const commitMessage = appendAgentTrailer(baseMessage, "");
+  const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
   execFileSync("git", ["commit", "-F", "-"], {
     cwd: opts.worktreePath,
@@ -90,6 +105,7 @@ Subspecs: ${opts.subspecCount}`;
 
 export type CommitPlanReviewOptions = {
   worktreePath: string;
+  name: string;
   passNumber: number;
   agentLabel: string;
 };
@@ -101,9 +117,9 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
   });
 
   const subject = `plan: review ${opts.passNumber}`;
-  const body = `Reviewed by ${opts.agentLabel}.`;
+  const body = buildPlanBody(opts.name, [`Reviewed by ${opts.agentLabel}.`]);
   const baseMessage = `${subject}\n\n${body}`;
-  const commitMessage = appendAgentTrailer(baseMessage, "");
+  const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
   execFileSync("git", ["commit", "-F", "-"], {
     cwd: opts.worktreePath,
@@ -122,7 +138,12 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
 
 export type CommitPlanBlockerOptions = {
   worktreePath: string;
+  name: string;
   agentLabel: string;
+  /** First-line summary of the blocker reason (typically the first line of the agent's `## Blocker` body). */
+  reason: string;
+  /** Number of generated subspec files at the time the blocker was raised. */
+  specFilesCount: number;
 };
 
 export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
@@ -132,9 +153,13 @@ export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
   });
 
   const subject = "plan: blocker";
-  const body = `Blocker raised by ${opts.agentLabel}.`;
+  const body = buildPlanBody(opts.name, [
+    `Blocked by ${opts.reason}`,
+    `Spec files to date: ${opts.specFilesCount}`,
+    `Raised by ${opts.agentLabel}.`,
+  ]);
   const baseMessage = `${subject}\n\n${body}`;
-  const commitMessage = appendAgentTrailer(baseMessage, "");
+  const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
   execFileSync("git", ["commit", "-F", "-"], {
     cwd: opts.worktreePath,

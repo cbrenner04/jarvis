@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ClaudeAgent } from "../../agents/claude.ts";
 import { CodexAgent } from "../../agents/codex.ts";
@@ -26,10 +26,10 @@ export function buildDraftPrompt(opts: {
   const promptFile = join(import.meta.dir, "prompts", "draft.md");
   let template = readFileSync(promptFile, "utf8");
 
-  template = template.replace("<WORKDIR>", opts.name);
-  template = template.replace("<NAME>", opts.name);
-  template = template.replace("<INTENT>", opts.intent);
-  template = template.replace("<SPEC_GUIDANCE>", opts.specGuidance);
+  template = template.replaceAll("<WORKDIR>", opts.name);
+  template = template.replaceAll("<NAME>", opts.name);
+  template = template.replaceAll("<INTENT>", opts.intent);
+  template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
 
   return template;
 }
@@ -144,7 +144,7 @@ function countSubspecs(worktreePath: string, name: string): number {
     return 0;
   }
 
-  const files = require("node:fs").readdirSync(specDir);
+  const files = readdirSync(specDir);
   return files.filter((f: string) => /^\d{2}-.*\.md$/.test(f)).length;
 }
 
@@ -197,8 +197,7 @@ export function validateDraftOutput(
   }
 
   // Check at least one NN-*.md exists
-  const fs = require("node:fs");
-  const files = fs.readdirSync(specDir);
+  const files = readdirSync(specDir);
   const hasSubspecs = files.some((f: string) => /^\d{2}-.*\.md$/.test(f));
 
   // Check if blocker was added to intent.md

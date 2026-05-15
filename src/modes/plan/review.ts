@@ -27,11 +27,11 @@ export function buildReviewPrompt(opts: {
   const promptFile = join(import.meta.dir, "prompts", "review.md");
   let template = readFileSync(promptFile, "utf8");
 
-  template = template.replace("<WORKDIR>", opts.name);
-  template = template.replace("<NAME>", opts.name);
-  template = template.replace("<INTENT>", opts.intent);
-  template = template.replace("<SPEC_GUIDANCE>", opts.specGuidance);
-  template = template.replace("<CURRENT_SPEC>", opts.currentSpec);
+  template = template.replaceAll("<WORKDIR>", opts.name);
+  template = template.replaceAll("<NAME>", opts.name);
+  template = template.replaceAll("<INTENT>", opts.intent);
+  template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
+  template = template.replaceAll("<CURRENT_SPEC>", opts.currentSpec);
 
   return template;
 }
@@ -75,7 +75,7 @@ function snapshotSpecFiles(worktreePath: string, name: string): string {
   for (const file of specFiles) {
     const filePath = join(specDir, file);
     const content = readFileSync(filePath, "utf8");
-    lines.push(`## File: ${file}\n\`\`\`\n${content}\n\`\`\``);
+    lines.push(`<<<FILE name="${file}" BEGIN>>>\n${content}\n<<<FILE END>>>`);
   }
 
   return lines.length > 0 ? lines.join("\n\n") : "(no spec files found)";

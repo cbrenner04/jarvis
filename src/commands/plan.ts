@@ -348,6 +348,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     // Run draft phase: invoke agent to generate spec tree
     let draftResult: Awaited<ReturnType<typeof runDraftPhase>>;
     let draftBlocker: string | undefined;
+    let draftSpecFilesCount = 0;
     try {
       const cfg = loadConfig(opts.config);
 
@@ -381,6 +382,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
 
+      // Check for interrupt before any commit
+      if (interrupted) {
+        opts.io.stderr(`plan: interrupted\n`);
+        return 130;
+      }
+
       // Validate output
       const validation = validateDraftOutput(
         worktreePath,
@@ -399,7 +406,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         draftBlocker = validation.blocker;
       }
 
-      if (draftResult.subspecCount === null) {
+      draftSpecFilesCount = draftResult.subspecCount ?? 0;
+      if (draftBlocker === undefined && draftResult.subspecCount === null) {
         opts.io.stderr(`plan mode: could not count subspecs\n`);
         return 1;
       }
@@ -412,39 +420,81 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return 1;
     }
 
-    // Check if interrupted during draft phase
-    if (interrupted) {
-      opts.io.stderr(`plan: interrupted\n`);
-      return 130;
+    // Cache the base branch once for subsequent gh/git calls.
+    const baseBranch = getCurrentBranch(project.root);
+    const planBranch = `plan/${specName}`;
+
+    // Always create a `plan: draft` commit for whatever the agent produced
+    // (per docs/plan-mode.md: draft files are committed as `plan: draft`,
+    // even when a blocker is raised in the same pass). Then, if a blocker
+    // was raised, append a separate `plan: blocker` commit and stop.
+    try {
+      const agentLabel = draftResult.agentLabel ?? "unknown";
+
+      commitPlanDraft({
+        worktreePath,
+        name: specName,
+        agentLabel,
+        subspecCount: draftSpecFilesCount,
+      });
+      opts.io.stderr(`plan mode: draft commit pushed\n`);
+    } catch (err) {
+      opts.io.stderr(`${(err as Error).message}\n`);
+      return 1;
     }
 
-    // Handle blocker raised during draft
+    // Open the draft PR now that the first `plan: draft` commit is on the
+    // remote. Subsequent commits update the body via `updatePrBody`.
+    try {
+      const prResult = await ensureDraftPr({
+        branch: planBranch,
+        base: baseBranch,
+        title: `plan: ${specName}`,
+        bodyGenerator: async () =>
+          buildPlanPrHeader({
+            name: specName,
+            worktreePath: worktreePath as string,
+          }),
+        footer: renderAttribution({
+          cwd: worktreePath,
+          base: baseBranch,
+        }),
+        cwd: worktreePath,
+      });
+      const prUrl = getPrUrl(worktreePath, planBranch);
+      opts.io.stdout(`${prUrl}\n`);
+      opts.io.stderr(`plan mode: draft PR #${prResult.number} opened\n`);
+    } catch (err) {
+      opts.io.stderr(
+        `warning: could not open draft PR: ${(err as Error).message}\n`,
+      );
+      // Continue; downstream commits still push, and the PR can be opened
+      // manually if needed.
+    }
+
+    // If a blocker was raised during the draft phase, commit it on top of
+    // `plan: draft` and stop.
     if (draftBlocker !== undefined) {
       try {
-        const agentLabel =
-          draftResult.agentLabel ??
-          (draftResult.result.kind === "ok" ? "unknown" : "error");
+        const agentLabel = draftResult.agentLabel ?? "unknown";
+        const reason = firstNonEmptyLine(draftBlocker);
 
         commitPlanBlocker({
           worktreePath,
+          name: specName,
           agentLabel,
+          reason,
+          specFilesCount: draftSpecFilesCount,
         });
         opts.io.stderr(`plan mode: blocker commit pushed\n`);
 
-        // Update PR body after blocker commit
-        try {
-          updatePrBody({
-            branch: `plan/${specName}`,
-            base: getCurrentBranch(project.root),
-            cwd: worktreePath,
-            headerBuilder: () => buildPlanPrHeader({ name: specName }),
-          });
-        } catch (err) {
-          opts.io.stderr(
-            `warning: could not update PR body: ${(err as Error).message}\n`,
-          );
-          // Continue anyway
-        }
+        safeUpdatePrBody({
+          io: opts.io,
+          branch: planBranch,
+          base: baseBranch,
+          worktreePath,
+          name: specName,
+        });
       } catch (err) {
         opts.io.stderr(`${(err as Error).message}\n`);
         return 1;
@@ -457,40 +507,24 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return 1;
     }
 
-    // Create plan: draft commit and push
-    try {
-      const agentLabel = draftResult.agentLabel ?? "unknown";
-
-      commitPlanDraft({
-        worktreePath,
-        name: specName,
-        agentLabel,
-        subspecCount: draftResult.subspecCount ?? 0,
-      });
-      opts.io.stderr(`plan mode: draft commit pushed\n`);
-
-      // Update PR body after draft commit
-      try {
-        updatePrBody({
-          branch: `plan/${specName}`,
-          base: getCurrentBranch(project.root),
-          cwd: worktreePath,
-          headerBuilder: () => buildPlanPrHeader({ name: specName }),
-        });
-      } catch (err) {
-        opts.io.stderr(
-          `warning: could not update PR body: ${(err as Error).message}\n`,
-        );
-        // Continue anyway
-      }
-    } catch (err) {
-      opts.io.stderr(`${(err as Error).message}\n`);
-      return 1;
-    }
+    // Post-draft body refresh (header now reflects the real index.md).
+    safeUpdatePrBody({
+      io: opts.io,
+      branch: planBranch,
+      base: baseBranch,
+      worktreePath,
+      name: specName,
+    });
 
     // Self-review phase
     const reviewPasses = inv.reviewPasses ?? 2;
     for (let pass = 1; pass <= reviewPasses; pass++) {
+      // Honor a pending interrupt before doing any work for this pass.
+      if (interrupted) {
+        opts.io.stderr(`plan: interrupted\n`);
+        return 130;
+      }
+
       opts.io.stderr(
         `plan mode: review pass ${pass}/${reviewPasses} starting\n`,
       );
@@ -519,12 +553,22 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           opts.io.stderr(
             `plan mode: model configuration error: ${reviewResult.result.stderr}\n`,
           );
-          return 1;
+          // Match patch mode (src/modes/patch/run.ts:1080) which exits 3 for
+          // model_config errors so a single config typo produces the same
+          // exit code regardless of which mode hits it.
+          return 3;
         }
 
         if (reviewResult.result.kind === "quota") {
           opts.io.stderr(`plan: quota exhausted\n`);
           return 2; // Quota exhausted exit code
+        }
+
+        // Honor a pending interrupt *before* committing so Ctrl-C during the
+        // agent call leaves the worktree, branch, and PR untouched.
+        if (interrupted) {
+          opts.io.stderr(`plan: interrupted\n`);
+          return 130;
         }
 
         // Check if the pass produced changes
@@ -550,27 +594,25 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         if (validation.blocker !== undefined) {
           try {
             const agentLabel = reviewResult.agentLabel ?? "unknown";
+            const reason = firstNonEmptyLine(validation.blocker);
+            const specFilesCount = countSpecFiles(worktreePath, specName);
 
             commitPlanBlocker({
               worktreePath,
+              name: specName,
               agentLabel,
+              reason,
+              specFilesCount,
             });
             opts.io.stderr(`plan mode: blocker commit pushed\n`);
 
-            // Update PR body after blocker commit
-            try {
-              updatePrBody({
-                branch: `plan/${specName}`,
-                base: getCurrentBranch(project.root),
-                cwd: worktreePath,
-                headerBuilder: () => buildPlanPrHeader({ name: specName }),
-              });
-            } catch (err) {
-              opts.io.stderr(
-                `warning: could not update PR body: ${(err as Error).message}\n`,
-              );
-              // Continue anyway
-            }
+            safeUpdatePrBody({
+              io: opts.io,
+              branch: planBranch,
+              base: baseBranch,
+              worktreePath,
+              name: specName,
+            });
           } catch (err) {
             opts.io.stderr(`${(err as Error).message}\n`);
             return 1;
@@ -589,6 +631,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
           commitPlanReview({
             worktreePath,
+            name: specName,
             passNumber: pass,
             agentLabel,
           });
@@ -596,20 +639,13 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             `plan mode: review pass ${pass} committed and pushed\n`,
           );
 
-          // Update PR body after review commit
-          try {
-            updatePrBody({
-              branch: `plan/${specName}`,
-              base: getCurrentBranch(project.root),
-              cwd: worktreePath,
-              headerBuilder: () => buildPlanPrHeader({ name: specName }),
-            });
-          } catch (err) {
-            opts.io.stderr(
-              `warning: could not update PR body: ${(err as Error).message}\n`,
-            );
-            // Continue anyway
-          }
+          safeUpdatePrBody({
+            io: opts.io,
+            branch: planBranch,
+            base: baseBranch,
+            worktreePath,
+            name: specName,
+          });
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
           return 1;
@@ -620,36 +656,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         );
         return 1;
       }
-
-      // Check if interrupted during review pass
-      if (interrupted) {
-        opts.io.stderr(`plan: interrupted\n`);
-        return 130;
-      }
     }
 
     opts.io.stderr(`plan: complete\n`);
-
-    // Open draft PR
-    try {
-      const prResult = await ensureDraftPr({
-        branch: `plan/${specName}`,
-        base: getCurrentBranch(project.root),
-        title: `plan: ${specName}`,
-        bodyGenerator: async () => buildPlanPrHeader({ name: specName }),
-        footer: renderAttribution({
-          cwd: worktreePath,
-          base: getCurrentBranch(project.root),
-        }),
-        cwd: worktreePath,
-      });
-      const prUrl = getPrUrl(worktreePath, `plan/${specName}`);
-      opts.io.stdout(`${prUrl}\n`);
-      opts.io.stderr(`plan mode: draft PR #${prResult.number} opened\n`);
-    } catch (err) {
-      opts.io.stderr(`${(err as Error).message}\n`);
-      return 1;
-    }
 
     // For file/inline mode, commits were successfully created and pushed
     opts.io.stderr(
@@ -665,6 +674,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   // Remove the SIGINT handler
   process.removeListener("SIGINT", onSigint);
 
+  // This path is reached when `skipGhCheck` is true (test seam) or when the
+  // target is not a git repo: no worktree is created, no commits are made,
+  // and plan mode falls through to the not-yet-implemented stub. The
+  // interactive case is handled earlier when `planName` is null.
   opts.io.stderr(PLAN_STUB_MESSAGE);
   return 2;
 }
@@ -691,4 +704,55 @@ function getPrUrl(cwd: string, branch: string): string {
     },
   );
   return url.trim();
+}
+
+/**
+ * Wrap `updatePrBody` with the warn-and-continue pattern used throughout
+ * plan mode so the caller doesn't repeat the try/catch four times.
+ */
+function safeUpdatePrBody(args: {
+  io: PlanIo;
+  branch: string;
+  base: string;
+  worktreePath: string;
+  name: string;
+}): void {
+  try {
+    updatePrBody({
+      branch: args.branch,
+      base: args.base,
+      cwd: args.worktreePath,
+      headerBuilder: () =>
+        buildPlanPrHeader({
+          name: args.name,
+          worktreePath: args.worktreePath,
+        }),
+    });
+  } catch (err) {
+    args.io.stderr(
+      `warning: could not update PR body: ${(err as Error).message}\n`,
+    );
+  }
+}
+
+/** First non-empty line of `text`, trimmed. Empty string if none. */
+function firstNonEmptyLine(text: string): string {
+  for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
+    const line = rawLine.trim();
+    if (line !== "") {
+      return line;
+    }
+  }
+  return "";
+}
+
+/** Count subspec files under `spec/<name>/` matching the `NN-*.md` shape. */
+function countSpecFiles(worktreePath: string, name: string): number {
+  const specDir = join(worktreePath, "spec", name);
+  if (!existsSync(specDir)) {
+    return 0;
+  }
+  // Lazy import to avoid pulling fs at module top for a single helper.
+  const { readdirSync } = require("node:fs") as typeof import("node:fs");
+  return readdirSync(specDir).filter((f) => /^\d{2}-.*\.md$/.test(f)).length;
 }

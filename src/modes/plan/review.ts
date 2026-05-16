@@ -16,6 +16,7 @@ const PLACEHOLDER_TOKENS = [
   "<NAME>",
   "<WORKDIR>",
   "<CURRENT_SPEC>",
+  "<REVIEW_PASS_CONTEXT>",
 ];
 
 function validatePlaceholders(
@@ -35,6 +36,8 @@ export type ReviewPhaseOptions = {
   worktreePath: string;
   name: string;
   config: Config;
+  passNumber?: number;
+  totalPasses?: number;
 };
 
 /**
@@ -45,12 +48,23 @@ export function buildReviewPrompt(opts: {
   intent: string;
   specGuidance: string;
   currentSpec: string;
+  passNumber?: number;
+  totalPasses?: number;
 }): string {
+  const passNumber = opts.passNumber ?? 1;
+  const totalPasses = opts.totalPasses ?? 1;
+
+  const reviewPassContext =
+    passNumber === 1
+      ? "This is the first review pass. The spec snapshot below is the original draft."
+      : `This is review pass ${passNumber} of ${totalPasses}. The spec snapshot below reflects the prior pass.`;
+
   const collisionError = validatePlaceholders({
     name: opts.name,
     intent: opts.intent,
     specGuidance: opts.specGuidance,
     currentSpec: opts.currentSpec,
+    reviewPassContext,
   });
   if (collisionError !== null) {
     throw collisionError;
@@ -64,6 +78,7 @@ export function buildReviewPrompt(opts: {
   template = template.replaceAll("<INTENT>", opts.intent);
   template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
   template = template.replaceAll("<CURRENT_SPEC>", opts.currentSpec);
+  template = template.replaceAll("<REVIEW_PASS_CONTEXT>", reviewPassContext);
 
   return template;
 }
@@ -143,12 +158,26 @@ export async function runReviewPass(
   // Build the prompt
   let prompt: string;
   try {
-    prompt = buildReviewPrompt({
+    const promptOpts: {
+      name: string;
+      intent: string;
+      specGuidance: string;
+      currentSpec: string;
+      passNumber?: number;
+      totalPasses?: number;
+    } = {
       name: opts.name,
       intent,
       specGuidance,
       currentSpec,
-    });
+    };
+    if (opts.passNumber !== undefined) {
+      promptOpts.passNumber = opts.passNumber;
+    }
+    if (opts.totalPasses !== undefined) {
+      promptOpts.totalPasses = opts.totalPasses;
+    }
+    prompt = buildReviewPrompt(promptOpts);
   } catch (err) {
     if (err instanceof PlaceholderCollisionError) {
       return {

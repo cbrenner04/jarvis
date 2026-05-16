@@ -79,6 +79,48 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("<<<CURRENT_SPEC_END>>>");
     expect(prompt).toContain('<<<FILE name="index.md" BEGIN>>>');
   });
+
+  test("first review pass includes 'first review pass' and 'original draft' wording", () => {
+    const prompt = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+      passNumber: 1,
+      totalPasses: 2,
+    });
+    expect(prompt).toContain(
+      "This is the first review pass. The spec snapshot below is the original draft.",
+    );
+    expect(prompt).not.toContain("<REVIEW_PASS_CONTEXT>");
+  });
+
+  test("second review pass includes pass number and 'prior pass' wording", () => {
+    const prompt = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+      passNumber: 2,
+      totalPasses: 2,
+    });
+    expect(prompt).toContain(
+      "This is review pass 2 of 2. The spec snapshot below reflects the prior pass.",
+    );
+    expect(prompt).not.toContain("<REVIEW_PASS_CONTEXT>");
+  });
+
+  test("defaults passNumber to 1 if not provided", () => {
+    const prompt = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+    });
+    expect(prompt).toContain(
+      "This is the first review pass. The spec snapshot below is the original draft.",
+    );
+  });
 });
 
 describe("placeholder collision detection", () => {

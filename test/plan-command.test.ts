@@ -580,6 +580,18 @@ describe("parsePlanArgs", () => {
     }
   });
 
+  test("--review-passes 0 is accepted and set to 0", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["--review-passes", "0", "intent"], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.reviewPasses).toBe(0);
+    } finally {
+      teardown();
+    }
+  });
+
   test("--repo missing value → exit 1", () => {
     setup();
     try {

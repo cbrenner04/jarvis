@@ -585,6 +585,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath,
           name: specName,
           config: cfg,
+          passNumber: pass,
+          totalPasses: reviewPasses,
         });
 
         // Handle agent errors
@@ -619,7 +621,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
         // Check if the pass produced changes
         if (!hasWorkingTreeChanges(worktreePath)) {
-          opts.io.stderr(`plan: review ${pass}: no changes\n`);
+          opts.io.stderr(
+            `plan mode: review pass ${pass} made no changes; skipping commit\n`,
+          );
           continue;
         }
 

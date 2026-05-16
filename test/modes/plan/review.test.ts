@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { snapshotSpecFiles } from "../../../src/modes/plan/review.ts";
+import {
+  hasWorkingTreeChanges,
+  snapshotSpecFiles,
+} from "../../../src/modes/plan/review.ts";
 
 describe("snapshotSpecFiles", () => {
   test("returns files in deterministic sorted order regardless of disk order", () => {
@@ -32,5 +36,82 @@ describe("snapshotSpecFiles", () => {
 
     // Files should be sorted alphabetically regardless of disk order
     expect(extractedFiles).toEqual(["a-first.md", "m-middle.md", "z-last.md"]);
+  });
+});
+
+describe("hasWorkingTreeChanges", () => {
+  test("returns false when worktree has no changes", () => {
+    const tmpPath = join(
+      tmpdir(),
+      `review-test-${randomBytes(4).toString("hex")}`,
+    );
+    mkdirSync(tmpPath, { recursive: true });
+
+    // Initialize a git repo
+    execFileSync("git", ["init", "-b", "main"], {
+      cwd: tmpPath,
+      stdio: "pipe",
+    });
+
+    // Configure git for commits
+    execFileSync("git", ["config", "user.email", "test@test.com"], {
+      cwd: tmpPath,
+      stdio: "pipe",
+    });
+    execFileSync("git", ["config", "user.name", "Test"], {
+      cwd: tmpPath,
+      stdio: "pipe",
+    });
+
+    // Create a file and commit it
+    const testFile = join(tmpPath, "test.txt");
+    writeFileSync(testFile, "content", "utf8");
+    execFileSync("git", ["add", "."], { cwd: tmpPath, stdio: "pipe" });
+    execFileSync("git", ["commit", "-m", "Initial commit"], {
+      cwd: tmpPath,
+      stdio: "pipe",
+    });
+
+    // At this point, there should be no working tree changes
+    expect(hasWorkingTreeChanges(tmpPath)).toBe(false);
+  });
+
+  test("returns true when worktree has uncommitted changes", () => {
+    const tmpPath = join(
+      tmpdir(),
+      `review-test-${randomBytes(4).toString("hex")}`,
+    );
+    mkdirSync(tmpPath, { recursive: true });
+
+    // Initialize a git repo
+    execFileSync("git", ["init", "-b", "main"], {
+      cwd: tmpPath,
+      stdio: "pipe",
+    });
+
+    // Configure git for commits
+    execFileSync("git", ["config", "user.email", "test@test.com"], {
+      cwd: tmpPath,
+      stdio: "pipe",
+    });
+    execFileSync("git", ["config", "user.name", "Test"], {
+      cwd: tmpPath,
+      stdio: "pipe",
+    });
+
+    // Create a file and commit it
+    const testFile = join(tmpPath, "test.txt");
+    writeFileSync(testFile, "content", "utf8");
+    execFileSync("git", ["add", "."], { cwd: tmpPath, stdio: "pipe" });
+    execFileSync("git", ["commit", "-m", "Initial commit"], {
+      cwd: tmpPath,
+      stdio: "pipe",
+    });
+
+    // Modify the file
+    writeFileSync(testFile, "modified content", "utf8");
+
+    // Now there should be working tree changes
+    expect(hasWorkingTreeChanges(tmpPath)).toBe(true);
   });
 });

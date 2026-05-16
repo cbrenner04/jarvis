@@ -42,6 +42,10 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 - If you identify a blocker that prevents further review, append an exact `## Blocker` section to `intent.md`. Do not invent answers; ask for human input. Do not include a `## Blocker` section unless there is a genuine blocker.
 - Follow the heading contracts from the spec guidance: exact `## Acceptance criteria` and `## Blocker` headings (level 2, case-sensitive).
 
+## Context
+
+<REVIEW_PASS_CONTEXT>
+
 ## Instructions
 
 Critique the current spec against the intent and guidance. Rewrite the most important issues now.

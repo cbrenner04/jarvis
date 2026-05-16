@@ -153,6 +153,10 @@ Select the target repository. Same semantics as `jarvis run --repo`. If omitted,
 
 (Parsed but inert; lands in `spec/2026-05-14-plan-mode-resume-and-handoff/`.) When resume logic is implemented, this will allow re-running plan mode on an existing worktree to continue from a blocker or completed phase.
 
+## Resume
+
+Resuming a partially-reviewed worktree (e.g., re-running plan mode against an existing worktree that already has `plan: review 1` but not `plan: review 2`) is not currently supported. The worktree-collision check rejects any attempt to create a plan worktree when a branch or directory with that name already exists, ensuring that re-running plan mode starts fresh. Resume logic is tracked in `spec/2026-05-14-plan-mode-resume-and-handoff/` and will be implemented in a later spec.
+
 ## Stop conditions
 
 Plan mode stops in these cases:

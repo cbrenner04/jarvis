@@ -97,7 +97,7 @@ After this spec merges, plan mode is feature-complete per the design:
 > not landed — stop and resolve before continuing.
 
 - [x] [01 — `--resume` command](./01-resume-command.md)
-- [ ] [02 — Strict separation from `jarvis run` and next-step hint](./02-separation-from-run.md)
+- [x] [02 — Strict separation from `jarvis run` and next-step hint](./02-separation-from-run.md)
 - [ ] [03 — Final documentation pass](./03-final-docs-pass.md)
 
 ## Conventions

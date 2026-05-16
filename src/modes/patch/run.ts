@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   closeSync,
   cpSync,
@@ -408,6 +408,13 @@ async function resolveModeSpecificPreflight(
     }
   }
 
+  maybeWarnAboutUnmergedPlanBranch({
+    io: opts.io,
+    projectRoot: project.root,
+    specPath,
+    gitEnabled,
+  });
+
   return {
     kind: "ok",
     project,
@@ -421,6 +428,103 @@ async function resolveModeSpecificPreflight(
     isIndexSpec,
     additionalReadDirs,
   };
+}
+
+function deriveSpecNameFromPath(specPath: string): string {
+  return basename(dirname(resolve(specPath)));
+}
+
+function readRemoteHeadBranch(projectRoot: string): string | null {
+  try {
+    const output = execFileSync(
+      "git",
+      ["ls-remote", "--symref", "origin", "HEAD"],
+      {
+        cwd: projectRoot,
+        env: process.env,
+        stdio: "pipe",
+        encoding: "utf8",
+      },
+    );
+    for (const line of output.split("\n")) {
+      const match = /^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/.exec(line.trim());
+      if (match?.[1]) {
+        return match[1];
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function readRemoteHeadSha(projectRoot: string, ref: string): string | null {
+  try {
+    const output = execFileSync(
+      "git",
+      ["ls-remote", "--heads", "origin", ref],
+      {
+        cwd: projectRoot,
+        env: process.env,
+        stdio: "pipe",
+        encoding: "utf8",
+      },
+    );
+    const firstLine = output
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0);
+    if (firstLine === undefined) {
+      return null;
+    }
+    const sha = firstLine.split(/\s+/)[0];
+    return sha && /^[0-9a-f]{40}$/i.test(sha) ? sha : null;
+  } catch {
+    return null;
+  }
+}
+
+export function maybeWarnAboutUnmergedPlanBranch(args: {
+  io: RunIo;
+  projectRoot: string;
+  specPath: string;
+  gitEnabled: boolean;
+}): void {
+  if (!args.gitEnabled) {
+    return;
+  }
+  const specName = deriveSpecNameFromPath(args.specPath);
+  const planRef = `plan/${specName}`;
+  const planSha = readRemoteHeadSha(args.projectRoot, planRef);
+  if (planSha === null) {
+    return;
+  }
+
+  const defaultBranch = readRemoteHeadBranch(args.projectRoot);
+  if (defaultBranch === null) {
+    return;
+  }
+  const defaultSha = readRemoteHeadSha(args.projectRoot, defaultBranch);
+  if (defaultSha === null) {
+    return;
+  }
+
+  const mergeCheck = spawnSync(
+    "git",
+    ["merge-base", "--is-ancestor", planSha, defaultSha],
+    {
+      cwd: args.projectRoot,
+      env: process.env,
+      stdio: "pipe",
+      encoding: "utf8",
+    },
+  );
+  if (mergeCheck.status !== 1) {
+    return;
+  }
+  args.io.stderr(
+    `warning: a plan branch ${planRef} exists on origin and has not been merged. Run \`jarvis run\` after merging the plan PR to avoid drift between the spec on disk and the merged spec.\n`,
+  );
 }
 
 function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {

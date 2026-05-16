@@ -16,6 +16,7 @@ import {
   PLAN_USAGE,
   parseIntentFrontmatter,
   planCommand,
+  renderPlanNextSteps,
   seedIntentFile,
   validateProposedName,
 } from "../src/commands/plan.ts";
@@ -65,6 +66,28 @@ function failingLogClient(message: string): LogClient {
 }
 
 describe("planCommand", () => {
+  test("renderPlanNextSteps includes PR URL and spec name command hints", () => {
+    const text = renderPlanNextSteps({
+      prUrl: "https://github.com/acme/repo/pull/123",
+      specName: "my-plan",
+    });
+    expect(text).toContain("Next steps:");
+    expect(text).toContain("https://github.com/acme/repo/pull/123");
+    expect(text).toContain("jarvis plan --resume");
+    expect(text).toContain("spec/my-plan/index.md");
+    expect(text).toContain("jarvis run spec/my-plan/index.md");
+  });
+
+  test("plan mode does not invoke `gh pr ready`", () => {
+    const source = readFileSync(
+      join(dirname(__dirname), "src", "commands", "plan.ts"),
+      "utf8",
+    );
+    expect(source).not.toContain('"pr", "ready"');
+    expect(source).not.toContain("'pr', 'ready'");
+    expect(source).not.toContain("pr ready");
+  });
+
   test("--resume without spec path rejects", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {

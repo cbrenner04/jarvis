@@ -670,6 +670,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         nextReviewIndex += 1;
       }
 
+      let prUrl: string | null = null;
+      try {
+        prUrl = getPrUrl(resume.worktreePath, branch);
+      } catch {
+        // best-effort; completion still succeeds without a URL
+      }
+      if (prUrl !== null) {
+        opts.io.stdout(renderPlanNextSteps({ prUrl, specName: resume.name }));
+      }
       opts.io.stderr(`plan: complete (resume ${suffix})\n`);
       return 0;
     }
@@ -1429,6 +1438,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
       }
 
+      try {
+        const prUrl = getPrUrl(worktreePath, planBranch);
+        opts.io.stdout(renderPlanNextSteps({ prUrl, specName }));
+      } catch {
+        // best-effort; completion still succeeds without a URL
+      }
       opts.io.stderr(`plan: complete\n`);
 
       // For file/inline mode, commits were successfully created and pushed
@@ -1448,6 +1463,24 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   } finally {
     process.removeListener("SIGINT", onSigint);
   }
+}
+
+export function renderPlanNextSteps(args: {
+  prUrl: string;
+  specName: string;
+}): string {
+  return [
+    "",
+    "Next steps:",
+    `  1. Review the draft PR: ${args.prUrl}`,
+    `  2. Edit spec/${args.specName}/ on the plan branch as needed (locally or`,
+    "     through GitHub), or run `jarvis plan --resume",
+    `     spec/${args.specName}/index.md\` for another self-review pass.`,
+    "  3. Mark the PR ready for review and merge it to main.",
+    "  4. After the merge, implement the spec with:",
+    `       jarvis run spec/${args.specName}/index.md`,
+    "",
+  ].join("\n");
 }
 
 function getCurrentBranch(cwd: string): string {

@@ -49,16 +49,16 @@ secondary review notes (**#31**, **#32–#36**, **#37**, **#40**, **#41**,
 
 ## Acceptance criteria
 
-- [ ] `buildPlanPrHeader` omits the `## Progress` line when the index
+- [x] `buildPlanPrHeader` omits the `## Progress` line when the index
   has zero subspecs; a unit test covers this case alongside the
   existing "with subspecs" test.
-- [ ] Fallback title is `# Plan: <name>`; the existing
+- [x] Fallback title is `# Plan: <name>`; the existing
   `pr.test.ts` test that asserts the fallback shape is updated.
-- [ ] A new attribution renderer (or an extension to `renderAttribution`)
+- [x] A new attribution renderer (or an extension to `renderAttribution`)
   collapses plan-mode meta-commits into a single summary line on
   plan-mode PRs. Unit tests cover: only meta-commits, mixed
   meta-and-subspec commits, single meta-commit.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 

@@ -206,9 +206,9 @@ There is no fallback to patch-mode order; both must be configured.
 
 After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. The PR title is `plan: <name>` (where `<name>` is the relative spec directory path). The PR body has three parts:
 
-1. **Deterministic header**: the H1 from `spec/<name>/index.md` (or `# plan: <name>` when the index does not yet exist), a `## Progress: <checked>/<total>` line counting checked vs total subspec checkboxes in `index.md`, and a verbatim mirror of the `index.md` subspec checklist (each line preserved exactly as it appears in the index).
+1. **Deterministic header**: the H1 from `spec/<name>/index.md` (or `# Plan: <name>` when the index does not yet exist), a `## Progress: <checked>/<total>` line counting checked vs total subspec checkboxes in `index.md`, and a verbatim mirror of the `index.md` subspec checklist (each line preserved exactly as it appears in the index). When the index has zero subspecs, the progress line is hidden.
 2. **Narrative section**: currently empty, preserved for future edits (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers).
-3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch (recognised via the `Spec: ` body-line prefix, like patch-mode subspec commits), listing one bullet per plan commit and a deduped summary line of contributing agents.
+3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch. Plan-mode meta-commits (`plan: interview`, `plan: draft`, `plan: review N`, `plan: blocker`) are collapsed into a single summary line listing the count of collapsed commits and the deduped set of agents involved. Subspec commits are rendered individually, one bullet per commit, with a deduped summary line of all contributing agents.
 
 ### Draft stays draft
 

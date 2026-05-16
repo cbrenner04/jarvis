@@ -77,6 +77,8 @@ After `plan: interview` is pushed, jarvis invokes an agent with a focused prompt
 
 The agent produces files under `spec/<name>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. The produced files are staged and committed as `plan: draft`.
 
+**Placeholder collision errors:** If the user's intent or spec name accidentally contains a placeholder token (e.g., `<SPEC_GUIDANCE>`), jarvis detects this before invoking the agent and exits `3` with a fatal configuration error. This prevents silent prompt corruption.
+
 **Commit shape:**
 - Subject: `plan: draft`
 - Body:
@@ -102,6 +104,8 @@ After `plan: draft` is pushed, jarvis runs zero or more review passes (default: 
 - Forbids modifications to `intent.md` except for appending a `## Blocker` section.
 
 Each pass is a single agent invocation; the agent does not decide when to stop or how many iterations to run. After each pass, the modified files are staged and committed as `plan: review <N>` (1-indexed).
+
+**Placeholder collision errors:** If the current spec contains a placeholder token (e.g., `<CURRENT_SPEC>`), jarvis detects this before invoking the agent and exits `3` with a fatal configuration error. This prevents silent prompt corruption.
 
 **Commit shape (for pass 1):**
 - Subject: `plan: review 1`
@@ -148,6 +152,10 @@ Select the target repository. Same semantics as `jarvis run --repo`. If omitted,
 ### `--resume`
 
 (Parsed but inert; lands in `spec/2026-05-14-plan-mode-resume-and-handoff/`.) When resume logic is implemented, this will allow re-running plan mode on an existing worktree to continue from a blocker or completed phase.
+
+## Resume
+
+Resuming a partially-reviewed worktree (e.g., re-running plan mode against an existing worktree that already has `plan: review 1` but not `plan: review 2`) is not currently supported. The worktree-collision check rejects any attempt to create a plan worktree when a branch or directory with that name already exists, ensuring that re-running plan mode starts fresh. Resume logic is tracked in `spec/2026-05-14-plan-mode-resume-and-handoff/` and will be implemented in a later spec.
 
 ## Stop conditions
 
@@ -198,9 +206,9 @@ There is no fallback to patch-mode order; both must be configured.
 
 After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. The PR title is `plan: <name>` (where `<name>` is the relative spec directory path). The PR body has three parts:
 
-1. **Deterministic header**: the H1 from `spec/<name>/index.md` (or `# plan: <name>` when the index does not yet exist), a `## Progress: <checked>/<total>` line counting checked vs total subspec checkboxes in `index.md`, and a verbatim mirror of the `index.md` subspec checklist (each line preserved exactly as it appears in the index).
+1. **Deterministic header**: the H1 from `spec/<name>/index.md` (or `# Plan: <name>` when the index does not yet exist), a `## Progress: <checked>/<total>` line counting checked vs total subspec checkboxes in `index.md`, and a verbatim mirror of the `index.md` subspec checklist (each line preserved exactly as it appears in the index). When the index has zero subspecs, the progress line is hidden.
 2. **Narrative section**: currently empty, preserved for future edits (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers).
-3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch (recognised via the `Spec: ` body-line prefix, like patch-mode subspec commits), listing one bullet per plan commit and a deduped summary line of contributing agents.
+3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch. Plan-mode meta-commits (`plan: interview`, `plan: draft`, `plan: review N`, `plan: blocker`) are collapsed into a single summary line listing the count of collapsed commits and the deduped set of agents involved. Subspec commits are rendered individually, one bullet per commit, with a deduped summary line of all contributing agents.
 
 ### Draft stays draft
 
@@ -240,3 +248,17 @@ Each generated or rewritten spec must satisfy these rules (enforced by plan mode
 - **Blocker heading**: If a `## Blocker` section is appended to `intent.md`, it must use the exact heading (level 2, case-sensitive).
 
 Plan mode validates these rules after each phase. If a validation fails, jarvis emits an error and does not commit the broken spec tree.
+
+## Write boundary
+
+Plan mode enforces a strict write boundary: agents may only modify files within `spec/<name>/`. If an agent attempts to modify files outside this directory (e.g., `src/`, `.github/`, `README.md`), the following happens:
+
+1. **Detection**: After the agent returns and before any commit, jarvis runs `git status --porcelain=v1 -z` to check which files have been modified.
+2. **Revert**: Any files modified outside `spec/<name>/` are reverted with `git checkout --` (the working-tree changes are discarded, but the files are not deleted).
+3. **Blocker**: A `## Blocker` section is appended to `spec/<name>/intent.md` listing the offending paths and explaining the boundary violation.
+4. **Commit**: The reverted state (with all out-of-bounds changes removed but in-bounds changes preserved) is committed as `plan: blocker` and the PR body is updated.
+5. **Exit**: Jarvis exits with code `1`. The offending paths are printed to stderr for visibility.
+
+This behavior applies at the draft phase, after each review pass, and before any blocker commit from the agent itself. The boundary check uses the path as reported by `git status`, so symlinks that point outside `spec/<name>/` are detected and reverted.
+
+The intent of this enforcement is to prevent accidental or malicious modifications to files outside the spec directory, ensuring that all plan-mode work is isolated and reviewable within the spec tree.

@@ -42,22 +42,22 @@ sandbox/permissions, which is out of scope for this spec).
 
 ## Acceptance criteria
 
-- [ ] A new helper `assertPlanWriteBoundary(worktreePath, name)` in
+- [x] A new helper `assertPlanWriteBoundary(worktreePath, name)` in
   `src/modes/plan/boundary.ts` returns `{ ok: true }` or
   `{ ok: false, offendingPaths: string[] }`.
-- [ ] `planCommand` in `src/commands/plan.ts` calls the helper before
+- [x] `planCommand` in `src/commands/plan.ts` calls the helper before
   every plan-mode commit (draft, review, and blocker).
-- [ ] On a boundary violation, jarvis reverts the offending paths,
+- [x] On a boundary violation, jarvis reverts the offending paths,
   writes the blocker section, lands a `plan: blocker` commit, and
   exits `1`. The stderr message names the offending paths.
-- [ ] Tests in `test/modes/plan/boundary.test.ts` cover: clean tree,
+- [x] Tests in `test/modes/plan/boundary.test.ts` cover: clean tree,
   in-bounds writes only, single out-of-bounds write, mixed
   in-bounds/out-of-bounds, deletion of an out-of-bounds tracked file,
   symlink-traversal attempt.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 
-- Add a "Write boundary" subsection to `docs/plan-mode.md` describing
+- [x] Add a "Write boundary" subsection to `docs/plan-mode.md` describing
   the rule, the revert behavior, and the resulting exit code.
-- No changes to `README.md` or `AGENTS.md`.
+- [x] No changes to `README.md` or `AGENTS.md`.

@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { buildDraftPrompt } from "../../../src/modes/plan/draft.ts";
+import {
+  buildDraftPrompt,
+  PlaceholderCollisionError,
+} from "../../../src/modes/plan/draft.ts";
 import { buildReviewPrompt } from "../../../src/modes/plan/review.ts";
 
 describe("buildDraftPrompt", () => {
@@ -75,5 +78,98 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("<<<CURRENT_SPEC_BEGIN>>>");
     expect(prompt).toContain("<<<CURRENT_SPEC_END>>>");
     expect(prompt).toContain('<<<FILE name="index.md" BEGIN>>>');
+  });
+
+  test("first review pass includes 'first review pass' and 'original draft' wording", () => {
+    const prompt = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+      passNumber: 1,
+      totalPasses: 2,
+    });
+    expect(prompt).toContain(
+      "This is the first review pass. The spec snapshot below is the original draft.",
+    );
+    expect(prompt).not.toContain("<REVIEW_PASS_CONTEXT>");
+  });
+
+  test("second review pass includes pass number and 'prior pass' wording", () => {
+    const prompt = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+      passNumber: 2,
+      totalPasses: 2,
+    });
+    expect(prompt).toContain(
+      "This is review pass 2 of 2. The spec snapshot below reflects the prior pass.",
+    );
+    expect(prompt).not.toContain("<REVIEW_PASS_CONTEXT>");
+  });
+
+  test("defaults passNumber to 1 if not provided", () => {
+    const prompt = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+    });
+    expect(prompt).toContain(
+      "This is the first review pass. The spec snapshot below is the original draft.",
+    );
+  });
+});
+
+describe("placeholder collision detection", () => {
+  test("buildDraftPrompt throws PlaceholderCollisionError when intent contains placeholder token", () => {
+    expect(() => {
+      buildDraftPrompt({
+        name: "test",
+        intent: "some text with <SPEC_GUIDANCE> inside",
+        specGuidance: "normal guidance",
+      });
+    }).toThrow(PlaceholderCollisionError);
+  });
+
+  test("buildDraftPrompt throws PlaceholderCollisionError when name contains placeholder token", () => {
+    expect(() => {
+      buildDraftPrompt({
+        name: "test<NAME>",
+        intent: "normal intent",
+        specGuidance: "normal guidance",
+      });
+    }).toThrow(PlaceholderCollisionError);
+  });
+
+  test("buildReviewPrompt throws PlaceholderCollisionError when currentSpec contains placeholder token", () => {
+    expect(() => {
+      buildReviewPrompt({
+        name: "test",
+        intent: "normal intent",
+        specGuidance: "normal guidance",
+        currentSpec: "spec with <INTENT> inside",
+      });
+    }).toThrow(PlaceholderCollisionError);
+  });
+
+  test("PlaceholderCollisionError has correct field and token", () => {
+    try {
+      buildDraftPrompt({
+        name: "test",
+        intent: "text with <NAME> token",
+        specGuidance: "guidance",
+      });
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(PlaceholderCollisionError);
+      expect((err as PlaceholderCollisionError).field).toBe("intent");
+      expect((err as PlaceholderCollisionError).token).toBe("<NAME>");
+      expect((err as PlaceholderCollisionError).message).toContain(
+        "intent contains the literal token `<NAME>`",
+      );
+    }
   });
 });

@@ -11,7 +11,7 @@ and the binary each one invokes:
 | Agent | CLI invoked | Notes |
 | --- | --- | --- |
 | `claude` | `claude -p --permission-mode acceptEdits` | Prompt is piped on stdin (non-interactive print mode); `--permission-mode acceptEdits` auto-allows file edits and safe filesystem commands without prompting (`claude --help`). |
-| `codex` | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). |
+| `codex` | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). Token usage is extracted post-run from Codex session JSONL files under `~/.codex/sessions/`. |
 | `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; `--force` enables file writes in print mode; `--output-format text` matches transcript shape of other agents; prompt is the trailing positional argument (`cursor agent --help`). |
 | `opencode` | `opencode run --dir <cwd> --model <provider/model> --format default <prompt>` | `--dir` is set to the working directory for the run; `--model` is required and read from the opencode entry's `model` field in `modes.patch.agentOrder`; `--format default` keeps the plain-text transcript shape; prompt is the trailing positional argument. Permissions are configured via `~/.config/opencode/opencode.json` rather than a CLI flag — see [Opencode setup](#opencode-setup). |
 
@@ -127,4 +127,3 @@ through the opencode entry's `model` value.
 ## Plan-mode prompts
 
 Plan mode (`jarvis plan`) uses the same agent contract as patch mode. Plan-mode prompts live in `src/modes/plan/prompts/` (e.g., `draft.md`, `review.md`) and are short, focused prompts that inject intent and guidance without requiring new agents or permission-posture changes. The same agents configured in `modes.plan.agentOrder` can serve both patch and plan work.
-

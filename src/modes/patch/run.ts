@@ -129,6 +129,7 @@ type WriteTelemetry = (record: {
     cache_read_input_tokens: number | null;
     cache_creation_input_tokens: number | null;
   };
+  usage_source?: "agent" | "unavailable";
   cost_usd?: number | null;
   cost_source?: "agent" | "computed" | "no-price" | "no-usage";
 }) => void;
@@ -486,6 +487,9 @@ function setupLogging(
         kind: record.kind,
         exit_reason: record.exitReason,
         ...(record.usage !== undefined ? { usage: record.usage } : {}),
+        ...(record.usage_source !== undefined
+          ? { usage_source: record.usage_source }
+          : {}),
         ...(record.cost_usd !== undefined ? { cost_usd: record.cost_usd } : {}),
         ...(record.cost_source !== undefined
           ? { cost_source: record.cost_source }
@@ -588,6 +592,7 @@ type UsageCostData = {
     cache_read_input_tokens: number | null;
     cache_creation_input_tokens: number | null;
   };
+  usage_source?: "agent" | "unavailable";
   cost_usd?: number | null;
   cost_source?: "agent" | "computed" | "no-price" | "no-usage";
 };
@@ -610,6 +615,7 @@ function extractUsageAndCost(
     // Agent provided cost directly (e.g., Claude with total_cost_usd)
     if (result.usage !== undefined) {
       output.usage = result.usage;
+      output.usage_source = "agent";
     }
     output.cost_usd = result.cost_usd;
     output.cost_source = "agent";
@@ -619,6 +625,7 @@ function extractUsageAndCost(
   // If there's usage data but no cost, compute it
   if (result.usage !== undefined) {
     output.usage = result.usage;
+    output.usage_source = "agent";
     try {
       const prices = loadPrices();
       const computedCost = computeCost(result.usage, agentName, prices);

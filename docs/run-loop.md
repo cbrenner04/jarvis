@@ -283,9 +283,10 @@ When rates are `null` and no fallback exists, the bucket contributes `0` to the
 sum and `cost_source` is set to `"no-price"` to indicate incomplete data rather
 than zero cost.
 
-**Note:** This subspec (01) adds the telemetry schema and price table
-foundation. Per-agent usage extraction lands in later subspecs. The new
-telemetry fields write `null` until those subspecs are implemented.
+Codex usage is sourced from Codex's session JSONL output in
+`~/.codex/sessions/` after each `codex exec` invocation. Jarvis reads the
+newest session file created by that invocation and extracts the final running
+token totals from `token_count` events.
 
 `jarvis run` requires the local log server to be reachable before the loop
 starts. If the server is down or misconfigured, run exits non-zero and prints

@@ -124,16 +124,16 @@ record. Stdout reformatting is not needed; codex output stays as-is.
       telemetry record with non-null `usage` (verified by running the
       harness against a trivial spec — described in the task list, not
       automated).
-- [ ] Session-file discovery, parsing, and summation are isolated in
+- [x] Session-file discovery, parsing, and summation are isolated in
       `src/agents/codex-session.ts` and unit-tested against the
       committed fixture.
 - [ ] Failure modes (no file, unreadable, malformed) are non-fatal:
       iteration proceeds, telemetry records `usage = null`, one
       harness warning is emitted.
-- [ ] `## Verified session storage` section is populated.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes (including the new tests).
-- [ ] `bun run check` passes.
+- [x] `## Verified session storage` section is populated.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes (including the new tests).
+- [x] `bun run check` passes.
 
 ## Documentation updates
 
@@ -144,4 +144,27 @@ record. Stdout reformatting is not needed; codex output stays as-is.
 
 ## Verified session storage
 
-_To be filled in by the implementer during the verification task above._
+**Directory path:** `~/.codex/sessions/` (hardcoded; no env var or config command available)
+
+**Directory structure:** Sessions are organized by date: `YYYY/MM/DD/` subdirectories
+
+**File naming convention:** `rollout-YYYY-MM-DDTHH-MM-SS-<uuid>.jsonl`
+- Timestamp format: ISO 8601 with hyphens instead of colons (e.g., `2026-05-11T13-20-18`)
+- UUID is a 36-character string with dashes
+
+**JSONL event structure:** The session file is a line-delimited JSON file with events. Token usage appears in `event_msg` events:
+- Event type: `event_msg` with `payload.type === "token_count"`
+- Field path: `payload.info.total_token_usage`
+- Fields within token usage:
+  - `input_tokens`: number
+  - `cached_input_tokens`: number (cache hits; may be 0)
+  - `output_tokens`: number
+  - `reasoning_output_tokens`: number (may be 0 for non-reasoning models)
+  - `total_tokens`: number (sum of inputs and outputs)
+- The `total_token_usage` field contains cumulative/running totals (take the final event's values)
+- Each event also has `payload.info.last_token_usage` with the delta from the previous response
+- Codex version: 0.130.0
+
+**Token count strategy:** Extract the final `token_count` event from the session file (or sum deltas if needed) to get total usage. The `total_token_usage` field has cumulative values, so taking the maximum/final value gives the complete count.
+
+**Fixture location:** `test/fixtures/codex/0.130.0-session.jsonl` — captured from a real codex agent run

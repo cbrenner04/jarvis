@@ -107,10 +107,10 @@ review, edit, mark ready, and merge to `main`.
 > as a smoke test (it would push a stray branch and open a real PR on
 > the remote).
 
-- [ ] [01 — Draft phase (real agent call replaces placeholder)](./01-draft-phase.md)
-- [ ] [02 — Self-review phase with `plan: review N` commits](./02-self-review-phase.md)
-- [ ] [03 — Stop conditions and blocker handling](./03-stop-conditions-and-blockers.md)
-- [ ] [04 — Documentation updates](./04-docs-updates.md)
+- [x] [01 — Draft phase (real agent call replaces placeholder)](./01-draft-phase.md)
+- [x] [02 — Self-review phase with `plan: review N` commits](./02-self-review-phase.md)
+- [x] [03 — Stop conditions and blocker handling](./03-stop-conditions-and-blockers.md)
+- [x] [04 — Documentation updates](./04-docs-updates.md)
 
 ## Conventions
 

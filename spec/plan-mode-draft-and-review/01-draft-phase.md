@@ -127,16 +127,16 @@ commit (with an updated body) is made.
 
 ## Acceptance criteria
 
-- [ ] `plan: draft` commit contents come from the agent, not the
+- [x] `plan: draft` commit contents come from the agent, not the
   placeholder.
-- [ ] Commit body matches the documented shape with attribution and
+- [x] Commit body matches the documented shape with attribution and
   subspec count.
-- [ ] Draft validation rejects malformed agent output without
+- [x] Draft validation rejects malformed agent output without
   committing.
-- [ ] `intent.md` is never modified by the draft phase (validated).
-- [ ] Quota fallback works exactly as patch mode's; quota exhaustion
+- [x] `intent.md` is never modified by the draft phase (validated).
+- [x] Quota fallback works exactly as patch mode's; quota exhaustion
   exits with the same code/message.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

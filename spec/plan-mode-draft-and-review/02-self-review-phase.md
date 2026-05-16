@@ -100,14 +100,14 @@ N` (1-indexed) and pushed before the next pass begins.
 
 ## Acceptance criteria
 
-- [ ] After draft, `--review-passes` (default 2) review passes run,
+- [x] After draft, `--review-passes` (default 2) review passes run,
   each producing at most one `plan: review N` commit.
-- [ ] Empty passes are skipped without committing.
-- [ ] Validation failures exit `1` and leave the worktree for
+- [x] Empty passes are skipped without committing.
+- [x] Validation failures exit `1` and leave the worktree for
   inspection.
-- [ ] Per-pass quota fallback works.
-- [ ] `intent.md` is never modified by the review phase (validated).
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] Per-pass quota fallback works.
+- [x] `intent.md` is never modified by the review phase (validated).
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

@@ -1,17 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  commitPlanBlocker,
   commitPlanDraft,
   commitPlanInterview,
+  commitPlanReview,
 } from "../../../src/modes/plan/commits.ts";
 
 describe("commitPlanInterview", () => {
@@ -68,7 +64,9 @@ describe("commitPlanInterview", () => {
           cwd: worktreePath,
           encoding: "utf8",
         }).trim();
-        expect(commitMsg).toBe("plan: interview\n\nSeeded from test-intent.md");
+        expect(commitMsg).toBe(
+          "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from test-intent.md",
+        );
 
         // Verify commit was pushed
         const remoteCommits = execSync("git log --oneline", {
@@ -139,7 +137,9 @@ describe("commitPlanInterview", () => {
           cwd: worktreePath,
           encoding: "utf8",
         }).trim();
-        expect(commitMsg).toBe("plan: interview\n\nSeeded from inline");
+        expect(commitMsg).toBe(
+          "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from inline",
+        );
 
         // Verify commit was pushed
         const remoteCommits = execSync("git log --oneline", {
@@ -207,10 +207,26 @@ describe("commitPlanDraft", () => {
           intentPathOrLabel: "test intent",
         });
 
+        // Simulate agent having created spec files
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "index.md"),
+          "# Test Spec\n\n- [ ] [00-task](./00-task.md)\n",
+        );
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "00-task.md"),
+          "# Task 1\n\n## Acceptance criteria\n\n- [ ] Test\n",
+        );
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "01-task.md"),
+          "# Task 2\n\n## Acceptance criteria\n\n- [ ] Test\n",
+        );
+
         // Create draft
         commitPlanDraft({
           worktreePath,
           name: "test-spec",
+          agentLabel: "Claude Haiku",
+          subspecCount: 2,
         });
 
         // Verify commit message
@@ -219,22 +235,8 @@ describe("commitPlanDraft", () => {
           encoding: "utf8",
         }).trim();
         expect(commitMsg).toContain("plan: draft");
-        expect(commitMsg).toContain("Placeholder draft");
-        expect(commitMsg).toContain("Subspecs: 1");
-
-        // Verify placeholder files exist
-        const indexPath = join(worktreePath, "spec", "test-spec", "index.md");
-        const taskPath = join(worktreePath, "spec", "test-spec", "00-task.md");
-        expect(readFileSync(indexPath, "utf8")).toContain("# Test Spec");
-        expect(readFileSync(indexPath, "utf8")).toContain(
-          "00 - Placeholder task",
-        );
-        expect(readFileSync(taskPath, "utf8")).toContain(
-          "00 - Placeholder task",
-        );
-        expect(readFileSync(taskPath, "utf8")).toContain(
-          "This file is a placeholder",
-        );
+        expect(commitMsg).toContain("Drafted by Claude Haiku");
+        expect(commitMsg).toContain("Subspecs: 2");
 
         // Verify both commits were pushed (should have initial + interview + draft)
         const remoteCommits = execSync("git log --oneline plan/test-spec", {
@@ -247,6 +249,224 @@ describe("commitPlanDraft", () => {
         // Verify the last two are interview and draft
         expect(remoteCommits[0]).toContain("plan: draft");
         expect(remoteCommits[1]).toContain("plan: interview");
+      } finally {
+        rmSync(remoteDir, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("writes Jarvis-Agent trailer with the agent label", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-draft-trailer-"));
+    try {
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "test");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'initial'", { cwd: dir });
+
+      const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-remote-"));
+      try {
+        execSync("git init --bare -b main", { cwd: remoteDir });
+        execSync(`git remote add origin ${remoteDir}`, { cwd: dir });
+        execSync("git push -u origin main", { cwd: dir });
+
+        execSync("git branch plan/test-spec", { cwd: dir });
+        const worktreePath = join(dir, "worktree");
+        mkdirSync(worktreePath);
+        execSync("git worktree add --no-checkout worktree plan/test-spec", {
+          cwd: dir,
+        });
+        execSync("git checkout plan/test-spec", { cwd: worktreePath });
+
+        mkdirSync(join(worktreePath, "spec", "test-spec"), {
+          recursive: true,
+        });
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "intent.md"),
+          "intent",
+        );
+        commitPlanInterview({
+          worktreePath,
+          name: "test-spec",
+          mode: "inline",
+          intentPathOrLabel: "x",
+        });
+
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "index.md"),
+          "# Test\n",
+        );
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "00-task.md"),
+          "# Task\n## Acceptance criteria\n- [ ] x\n",
+        );
+
+        commitPlanDraft({
+          worktreePath,
+          name: "test-spec",
+          agentLabel: "Claude Opus 4.7",
+          subspecCount: 1,
+        });
+
+        // The trailer is parsed by `git interpret-trailers`, so use git
+        // itself to verify rather than substring-matching the body.
+        const trailers = execSync(
+          "git log -1 --format=%B | git interpret-trailers --parse",
+          { cwd: worktreePath, encoding: "utf8" },
+        ).trim();
+        expect(trailers).toContain("Jarvis-Agent: Claude Opus 4.7");
+      } finally {
+        rmSync(remoteDir, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("commitPlanReview", () => {
+  test("writes plan: review N commit with Spec line and trailer", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-review-"));
+    try {
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "x");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'init'", { cwd: dir });
+
+      const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-remote-"));
+      try {
+        execSync("git init --bare -b main", { cwd: remoteDir });
+        execSync(`git remote add origin ${remoteDir}`, { cwd: dir });
+        execSync("git push -u origin main", { cwd: dir });
+
+        execSync("git branch plan/test-spec", { cwd: dir });
+        const worktreePath = join(dir, "worktree");
+        mkdirSync(worktreePath);
+        execSync("git worktree add --no-checkout worktree plan/test-spec", {
+          cwd: dir,
+        });
+        execSync("git checkout plan/test-spec", { cwd: worktreePath });
+
+        mkdirSync(join(worktreePath, "spec", "test-spec"), {
+          recursive: true,
+        });
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "intent.md"),
+          "intent",
+        );
+        commitPlanInterview({
+          worktreePath,
+          name: "test-spec",
+          mode: "inline",
+          intentPathOrLabel: "x",
+        });
+
+        // Stage some change to commit as review.
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "index.md"),
+          "# Reviewed\n",
+        );
+
+        commitPlanReview({
+          worktreePath,
+          name: "test-spec",
+          passNumber: 1,
+          agentLabel: "Codex GPT-5.3",
+        });
+
+        const msg = execSync("git log -1 --format=%B", {
+          cwd: worktreePath,
+          encoding: "utf8",
+        });
+        expect(msg).toContain("plan: review 1");
+        expect(msg).toContain("Spec: spec/test-spec/intent.md");
+        expect(msg).toContain("Reviewed by Codex GPT-5.3.");
+        const trailers = execSync(
+          "git log -1 --format=%B | git interpret-trailers --parse",
+          { cwd: worktreePath, encoding: "utf8" },
+        ).trim();
+        expect(trailers).toContain("Jarvis-Agent: Codex GPT-5.3");
+      } finally {
+        rmSync(remoteDir, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("commitPlanBlocker", () => {
+  test("body matches docs shape (Blocked by / Spec files to date / Raised by) and includes trailer", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-blocker-"));
+    try {
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "x");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'init'", { cwd: dir });
+
+      const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-remote-"));
+      try {
+        execSync("git init --bare -b main", { cwd: remoteDir });
+        execSync(`git remote add origin ${remoteDir}`, { cwd: dir });
+        execSync("git push -u origin main", { cwd: dir });
+
+        execSync("git branch plan/test-spec", { cwd: dir });
+        const worktreePath = join(dir, "worktree");
+        mkdirSync(worktreePath);
+        execSync("git worktree add --no-checkout worktree plan/test-spec", {
+          cwd: dir,
+        });
+        execSync("git checkout plan/test-spec", { cwd: worktreePath });
+
+        mkdirSync(join(worktreePath, "spec", "test-spec"), {
+          recursive: true,
+        });
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "intent.md"),
+          "intent\n\n## Blocker\nNeed clarification on X.\n",
+        );
+        commitPlanInterview({
+          worktreePath,
+          name: "test-spec",
+          mode: "inline",
+          intentPathOrLabel: "x",
+        });
+
+        // Modify intent so there's something to commit as blocker.
+        writeFileSync(
+          join(worktreePath, "spec", "test-spec", "intent.md"),
+          "intent\n\n## Blocker\nNeed clarification on X.\nMore detail.\n",
+        );
+
+        commitPlanBlocker({
+          worktreePath,
+          name: "test-spec",
+          agentLabel: "Claude Haiku",
+          reason: "Need clarification on X.",
+          specFilesCount: 3,
+        });
+
+        const msg = execSync("git log -1 --format=%B", {
+          cwd: worktreePath,
+          encoding: "utf8",
+        });
+        expect(msg).toContain("plan: blocker");
+        expect(msg).toContain("Spec: spec/test-spec/intent.md");
+        expect(msg).toContain("Blocked by Need clarification on X.");
+        expect(msg).toContain("Spec files to date: 3");
+        expect(msg).toContain("Raised by Claude Haiku.");
+        const trailers = execSync(
+          "git log -1 --format=%B | git interpret-trailers --parse",
+          { cwd: worktreePath, encoding: "utf8" },
+        ).trim();
+        expect(trailers).toContain("Jarvis-Agent: Claude Haiku");
       } finally {
         rmSync(remoteDir, { recursive: true, force: true });
       }

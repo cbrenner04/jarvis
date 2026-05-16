@@ -98,7 +98,7 @@ After this spec merges, plan mode is feature-complete per the design:
 
 - [x] [01 — `--resume` command](./01-resume-command.md)
 - [x] [02 — Strict separation from `jarvis run` and next-step hint](./02-separation-from-run.md)
-- [ ] [03 — Final documentation pass](./03-final-docs-pass.md)
+- [x] [03 — Final documentation pass](./03-final-docs-pass.md)
 
 ## Conventions
 

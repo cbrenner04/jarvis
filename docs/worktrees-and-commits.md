@@ -196,6 +196,10 @@ values before pushing. The temporary branch is never pushed to origin.
   line after temp-slot rename.
 - `plan: draft` — commits the initial agent-drafted spec tree.
 - `plan: review N` — commits review-pass refinements to the same spec tree.
+- `plan: blocker` — records a blocker raised during draft/review.
+- `plan: interview r<n>` — records resume interview turns for resume run `n`.
+- `plan: review N r<n>` — records resume review pass `N` for resume run `n`.
+- `plan: blocker r<n>` — records a blocker raised during resume run `n`.
 
 Push cadence follows the same pattern as patch mode: push after each commit.
 The first push uses `git push -u origin <plan/<name>>` to set up tracking;

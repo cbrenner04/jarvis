@@ -67,12 +67,12 @@ the cross-references between `README.md`, `docs/plan-mode.md`,
 
 ## Acceptance criteria
 
-- [ ] `docs/plan-mode.md` is the canonical reference and contains no
+- [x] `docs/plan-mode.md` is the canonical reference and contains no
   forward references to unimplemented behavior.
-- [ ] `README.md` describes plan mode in final form.
-- [ ] All cross-references between plan-mode docs are consistent
+- [x] `README.md` describes plan mode in final form.
+- [x] All cross-references between plan-mode docs are consistent
   (no broken or stale links).
-- [ ] `bun run check` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

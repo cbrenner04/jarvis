@@ -89,6 +89,12 @@ Plan mode also supports interactive sessions (`jarvis plan` with no args) for fu
 
 Plan-generated specs follow the same merge-first rule: do not run `jarvis run` against the spec until after the plan PR is merged to `main`.
 
+When you iterate with `jarvis plan --resume spec/<name>/index.md`, resume
+review commits add an `r<n>` suffix (`plan: review 3 r1`, `plan: review 4 r1`,
+then `... r2` on a later resume invocation). This is metadata only; from
+`jarvis run`'s perspective, hand-edited specs and plan-generated specs are
+equivalent once merged to `main`.
+
 ## Subspecs
 
 Each subspec should be independently implementable and testable. A good subspec

@@ -19,10 +19,8 @@ Plan mode is useful for:
 - **Non-interactive automation**: `jarvis plan intent.md` or `jarvis plan "inline text"` work end-to-end without human prompts.
 - **Spec validation before work**: review and edit the generated spec before implementation begins.
 
-Plan mode does **not** handle:
-
-- Resume logic (in flight; see `spec/2026-05-14-plan-mode-resume-and-handoff/`).
-- Spec implementation. After a plan-generated spec merges to `main`, use `jarvis run spec/<name>/index.md` to implement it.
+Plan mode does **not** handle spec implementation. After a plan-generated
+spec merges to `main`, use `jarvis run spec/<name>/index.md` to implement it.
 
 ## Input modes
 
@@ -134,7 +132,8 @@ The draft PR opens after `plan: draft` is pushed (via the same `updatePrBody` he
 2. Rebuilds the attribution footer from `Jarvis-Agent` trailers on all plan commits on the branch (including `plan: interview`, `plan: draft`, and `plan: review N`).
 3. Preserves the narrative section between `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers unchanged.
 
-Plan mode does not yet write into the narrative section (that may land in later specs), but the preserve-narrative infrastructure is in place.
+Plan mode does not write into the narrative section itself; jarvis preserves
+whatever humans or agents add between the narrative markers across rewrites.
 
 ## Flags
 
@@ -154,13 +153,46 @@ Select the target repository. Same semantics as `jarvis run --repo`. If omitted,
 
 (Parsed but treated as a hint; the worktree path is always created under `.worktree/plan-<name>/` in the target repo.) For consistency with `jarvis run`, this flag is accepted but has limited effect in plan mode. The spec is always produced under the target repo's `.worktree/plan-<name>/` worktree.
 
-### `--resume`
+### `--resume <spec-path>`
 
-(Parsed but inert; lands in `spec/2026-05-14-plan-mode-resume-and-handoff/`.) When resume logic is implemented, this will allow re-running plan mode on an existing worktree to continue from a blocker or completed phase.
+Resume a previously created plan worktree and branch. This is the only
+supported resume form:
 
-## Resume
+```sh
+jarvis plan --resume spec/<name>/index.md
+```
 
-Resuming a partially-reviewed worktree (e.g., re-running plan mode against an existing worktree that already has `plan: review 1` but not `plan: review 2`) is not currently supported. The worktree-collision check rejects any attempt to create a plan worktree when a branch or directory with that name already exists, ensuring that re-running plan mode starts fresh. Resume logic is tracked in `spec/2026-05-14-plan-mode-resume-and-handoff/` and will be implemented in a later spec.
+Validation rules:
+
+- `<spec-path>` must be an existing `spec/<name>/index.md`.
+- The sibling `spec/<name>/intent.md` must exist.
+- Local branch `plan/<name>` and local worktree `.worktree/plan-<name>/`
+  must both exist.
+- The plan worktree must have `plan/<name>` checked out.
+
+Resume does not accept positional intent text/file and does not require
+`--repo`; it operates entirely from the existing plan worktree state.
+
+## Resuming a plan
+
+Resume runs additional phases against an existing plan branch:
+
+- Runs `--review-passes <n>` additional review passes (default `2`), same as
+  initial invocation.
+- Runs no interview turns by default.
+- If `--interview-turns <n>` is passed with `n > 0`, runs interview first and
+  appends new sections to `intent.md` as `## Interview turn <N>` continuing
+  prior numbering.
+
+Resume commit subjects carry an `r<n>` suffix where `<n>` is the resume
+invocation number for that plan branch:
+
+- `plan: interview r<n>` (only when resume interview turns run)
+- `plan: review <N> r<n>`
+- `plan: blocker r<n>`
+
+`<N>` remains the global review-pass number across the branch, while `r<n>`
+increments once per resume invocation.
 
 ## Naming
 
@@ -196,11 +228,23 @@ If an agent appends a `## Blocker` section to `spec/<name>/intent.md` (exact hea
   Where `<reason>` is the first non-empty line of the agent's `## Blocker` body and `<count>` is the number of `[0-9]*.md` subspec files at the time the blocker was committed.
 - Pushed: immediately after commit.
 
-Jarvis then prints the blocker section to stderr and exits `1`. The draft PR reflects the blocker for human review. The user can resolve the blocker offline, update `spec/<name>/intent.md` manually on the branch, and re-run `jarvis plan --resume` (when resume is implemented) to continue, or close the PR and start over.
+Jarvis then prints the blocker section to stderr and exits `1`. The draft PR
+reflects the blocker for human review. The user can resolve the blocker
+offline, update `spec/<name>/intent.md` manually on the branch, and re-run
+`jarvis plan --resume spec/<name>/index.md` to continue, or close the PR and
+start over.
 
 ### 3. Ctrl-C
 
-User interrupts with Ctrl-C (SIGINT). Jarvis records the signal and, at the next interrupt-checkpoint (after the current agent invocation returns and *before* any commit/push for that pass), exits `130` (standard POSIX exit code for SIGINT) leaving the worktree, branch, and PR as they were on entry to that pass. A second Ctrl-C while an agent is still running falls through to Node's default handler and terminates the process immediately, which may leave a partially-written file in the worktree but never an unintended commit. The user can return to the worktree and continue manually or with `jarvis plan --resume` (when resume is implemented).
+User interrupts with Ctrl-C (SIGINT). Jarvis records the signal and, at the
+next interrupt-checkpoint (after the current agent invocation returns and
+*before* any commit/push for that pass), exits `130` (standard POSIX exit code
+for SIGINT) leaving the worktree, branch, and PR as they were on entry to that
+pass. A second Ctrl-C while an agent is still running falls through to Node's
+default handler and terminates the process immediately, which may leave a
+partially-written file in the worktree but never an unintended commit. The
+user can return to the worktree and continue manually or with
+`jarvis plan --resume spec/<name>/index.md`.
 
 ### 4. Agent quota exhausted
 
@@ -235,6 +279,18 @@ Each `plan: draft`, `plan: review N`, or `plan: blocker` commit triggers a PR-bo
 ### Merge-first rule
 
 After the PR merges to `main`, the spec tree under `spec/<name>/` is now available to `jarvis run` for implementation work. Do not run `jarvis run` against a spec tree that is still on a plan-mode branch; always merge the spec first.
+
+## Handoff to `jarvis run`
+
+Every successful `jarvis plan` invocation prints a next-steps block that:
+
+- points to the plan PR URL;
+- reminds you to merge the plan PR to `main` before implementation;
+- prints the exact `jarvis run spec/<name>/index.md` command to run after
+  merge.
+
+`jarvis run` also warns (non-blocking) when the target spec appears to be on
+an unmerged `plan/*` branch in the resolved repository.
 
 ## Cleanup
 
@@ -276,3 +332,15 @@ Plan mode enforces a strict write boundary: agents may only modify files within 
 This behavior applies at the draft phase, after each review pass, and before any blocker commit from the agent itself. The boundary check uses the path as reported by `git status`, so symlinks that point outside `spec/<name>/` are detected and reverted.
 
 The intent of this enforcement is to prevent accidental or malicious modifications to files outside the spec directory, ensuring that all plan-mode work is isolated and reviewable within the spec tree.
+
+## Operational reference
+
+Plan-mode commit subjects:
+
+- `plan: interview`
+- `plan: draft`
+- `plan: review <N>`
+- `plan: blocker`
+- `plan: interview r<n>`
+- `plan: review <N> r<n>`
+- `plan: blocker r<n>`

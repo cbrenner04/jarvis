@@ -238,6 +238,55 @@ fields on the last one.
 - [ ] Update `docs/config.md` with the new
       `modes.patch.agents.claude.outputFormat` option.
 
+## Blocker
+
+Cannot execute `claude -p --output-format json` successfully due to network/authentication restrictions in this environment (403 Connection blocked by network allowlist). The verification task requires a successful run with API credentials to capture real envelope schemas.
+
+**Observed structure from error response (Claude Code 2.1.142):**
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": true,
+  "api_error_status": 403,
+  "duration_ms": 41,
+  "duration_api_ms": 0,
+  "num_turns": 1,
+  "result": "...",
+  "stop_reason": "stop_sequence",
+  "session_id": "...",
+  "total_cost_usd": 0,
+  "usage": {
+    "input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 0,
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "",
+    "iterations": [],
+    "speed": "standard"
+  },
+  "modelUsage": {},
+  "permission_denials": [],
+  "terminal_reason": "completed",
+  "fast_mode_state": "off",
+  "uuid": "..."
+}
+```
+
+**Action needed:** Verification requires running `claude -p --output-format json` with valid API credentials in an environment with network access. Need either:
+1. API credentials configured in `~/.claude/config.json`
+2. Network allowlist permission for Claude API endpoints
+3. Or defer to when environment has network access
+
 ## Verified envelope
 
 _To be filled in by the implementer during the verification task above._

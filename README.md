@@ -90,7 +90,9 @@ For multi-file specs and the recommended `index.md` shape, see
 jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                            Run the loop against a spec file in a registered project.
 jarvis plan [<intent-file|"inline text">]
-                           Create a draft PR with an agent-drafted, self-reviewed spec tree from a file or inline intent.
+                           Create a draft PR with an agent-drafted, self-reviewed spec tree from file, inline, or interactive intent.
+jarvis plan --resume <spec-path>
+                           Resume an existing plan branch/worktree for additional interview/review passes.
 jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.
 jarvis prices              View or edit pricing data for cost tracking.
@@ -183,7 +185,9 @@ switch to a sibling `index.md` (when one exists) or exit.
 
 ### `jarvis plan`
 
-`jarvis plan [<intent-file|"inline text">]` creates a dedicated git worktree and branch to draft a new spec collaboratively with an agent. It supports file mode, inline mode, and interactive mode (`jarvis plan` with no args), runs interview → draft → self-review phases, and opens a draft PR. In interactive mode, jarvis starts with an empty intent seed and gathers intent through structured interview questions. The spec remains in draft status until the user merges it to `main`; after merge, it becomes available to `jarvis run` for implementation.
+`jarvis plan [<intent-file|"inline text">]` creates a dedicated git worktree and branch to draft a new spec collaboratively with an agent. It supports file mode, inline mode, and interactive mode (`jarvis plan` with no args), runs four phases (interview, naming, draft, self-review), and opens a draft PR automatically. The spec remains in draft status until the user merges it to `main`; after merge, it becomes available to `jarvis run` for implementation.
+
+Use `jarvis plan --resume spec/<name>/index.md` to continue iterating on an existing plan PR with additional interview turns and/or review passes. Plan mode prints a final handoff block that links to the plan PR and reminds you to merge first, then run `jarvis run` on the merged spec.
 
 For full details — phases, flags, stop conditions, PR lifecycle, and cleanup — see
 [docs/plan-mode.md](docs/plan-mode.md).

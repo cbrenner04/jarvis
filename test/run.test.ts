@@ -21,6 +21,7 @@ import type {
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import {
+  maybeWarnAboutUnmergedPlanBranch,
   prepareActiveSpecPath,
   type RunCommandOptions,
   type RunIo,
@@ -115,6 +116,130 @@ afterEach(() => {
 });
 
 describe("runCommand", () => {
+  describe("plan-branch warning preflight", () => {
+    test("warns when matching origin plan/<name> branch is unmerged", () => {
+      const remote = mkdtempSync(join(tmpdir(), "jarvis-plan-warn-remote-"));
+      const local = mkdtempSync(join(tmpdir(), "jarvis-plan-warn-local-"));
+      try {
+        execSync("git init --bare -b main", { cwd: remote });
+        execSync("git init -b main", { cwd: local });
+        execSync("git config user.email 'test@example.com'", { cwd: local });
+        execSync("git config user.name 'Test User'", { cwd: local });
+        writeFileSync(join(local, "README.md"), "seed\n");
+        execSync("git add README.md", { cwd: local });
+        execSync("git commit -m 'seed'", { cwd: local });
+        execSync(`git remote add origin ${remote}`, { cwd: local });
+        execSync("git push -u origin main", { cwd: local });
+        execSync("git checkout -b plan/my-spec", { cwd: local });
+        writeFileSync(join(local, "spec.txt"), "x\n");
+        execSync("git add spec.txt", { cwd: local });
+        execSync("git commit -m 'plan work'", { cwd: local });
+        execSync("git push -u origin plan/my-spec", { cwd: local });
+
+        const cap = captureIo();
+        maybeWarnAboutUnmergedPlanBranch({
+          io: cap.io,
+          projectRoot: local,
+          specPath: join(local, "spec", "my-spec", "index.md"),
+          gitEnabled: true,
+        });
+        expect(cap.err()).toContain("warning: a plan branch plan/my-spec");
+      } finally {
+        rmSync(remote, { recursive: true, force: true });
+        rmSync(local, { recursive: true, force: true });
+      }
+    });
+
+    test("does not warn when matching plan branch is already merged", () => {
+      const remote = mkdtempSync(join(tmpdir(), "jarvis-plan-merged-remote-"));
+      const local = mkdtempSync(join(tmpdir(), "jarvis-plan-merged-local-"));
+      try {
+        execSync("git init --bare -b main", { cwd: remote });
+        execSync("git init -b main", { cwd: local });
+        execSync("git config user.email 'test@example.com'", { cwd: local });
+        execSync("git config user.name 'Test User'", { cwd: local });
+        writeFileSync(join(local, "README.md"), "seed\n");
+        execSync("git add README.md", { cwd: local });
+        execSync("git commit -m 'seed'", { cwd: local });
+        execSync(`git remote add origin ${remote}`, { cwd: local });
+        execSync("git push -u origin main", { cwd: local });
+        execSync("git checkout -b plan/my-spec", { cwd: local });
+        writeFileSync(join(local, "spec.txt"), "x\n");
+        execSync("git add spec.txt", { cwd: local });
+        execSync("git commit -m 'plan work'", { cwd: local });
+        execSync("git push -u origin plan/my-spec", { cwd: local });
+        execSync("git checkout main", { cwd: local });
+        execSync("git merge --no-ff plan/my-spec -m 'merge plan'", {
+          cwd: local,
+        });
+        execSync("git push origin main", { cwd: local });
+
+        const cap = captureIo();
+        maybeWarnAboutUnmergedPlanBranch({
+          io: cap.io,
+          projectRoot: local,
+          specPath: join(local, "spec", "my-spec", "index.md"),
+          gitEnabled: true,
+        });
+        expect(cap.err()).not.toContain("warning: a plan branch");
+      } finally {
+        rmSync(remote, { recursive: true, force: true });
+        rmSync(local, { recursive: true, force: true });
+      }
+    });
+
+    test("does not warn when no matching origin plan/<name> branch exists", () => {
+      const remote = mkdtempSync(join(tmpdir(), "jarvis-plan-none-remote-"));
+      const local = mkdtempSync(join(tmpdir(), "jarvis-plan-none-local-"));
+      try {
+        execSync("git init --bare -b main", { cwd: remote });
+        execSync("git init -b main", { cwd: local });
+        execSync("git config user.email 'test@example.com'", { cwd: local });
+        execSync("git config user.name 'Test User'", { cwd: local });
+        writeFileSync(join(local, "README.md"), "seed\n");
+        execSync("git add README.md", { cwd: local });
+        execSync("git commit -m 'seed'", { cwd: local });
+        execSync(`git remote add origin ${remote}`, { cwd: local });
+        execSync("git push -u origin main", { cwd: local });
+
+        const cap = captureIo();
+        maybeWarnAboutUnmergedPlanBranch({
+          io: cap.io,
+          projectRoot: local,
+          specPath: join(local, "spec", "my-spec", "index.md"),
+          gitEnabled: true,
+        });
+        expect(cap.err()).not.toContain("warning: a plan branch");
+      } finally {
+        rmSync(remote, { recursive: true, force: true });
+        rmSync(local, { recursive: true, force: true });
+      }
+    });
+
+    test("skips silently when ls-remote fails (no auth/remote)", () => {
+      const local = mkdtempSync(join(tmpdir(), "jarvis-plan-lsremote-fail-"));
+      try {
+        execSync("git init -b main", { cwd: local });
+        execSync("git config user.email 'test@example.com'", { cwd: local });
+        execSync("git config user.name 'Test User'", { cwd: local });
+        writeFileSync(join(local, "README.md"), "seed\n");
+        execSync("git add README.md", { cwd: local });
+        execSync("git commit -m 'seed'", { cwd: local });
+
+        const cap = captureIo();
+        maybeWarnAboutUnmergedPlanBranch({
+          io: cap.io,
+          projectRoot: local,
+          specPath: join(local, "spec", "my-spec", "index.md"),
+          gitEnabled: true,
+        });
+        expect(cap.err()).toBe("");
+      } finally {
+        rmSync(local, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("telemetry", () => {
     test("writes one JSONL line per iteration plus a terminal line", async () => {
       const spec = writeSpec("- [ ] one\n- [ ] two\n");

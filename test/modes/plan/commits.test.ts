@@ -350,6 +350,42 @@ describe("commitPlanReview", () => {
       cleanup();
     }
   });
+
+  test("supports resume suffix in review subject", () => {
+    const { worktreeRoot, cleanup } = setupPlanRemote();
+    try {
+      execSync("git branch plan/test-spec", { cwd: worktreeRoot });
+      const worktreePath = join(worktreeRoot, "worktree");
+      mkdirSync(worktreePath);
+      execSync("git worktree add --no-checkout worktree plan/test-spec", {
+        cwd: worktreeRoot,
+      });
+      execSync("git checkout plan/test-spec", { cwd: worktreePath });
+      mkdirSync(join(worktreePath, "spec", "test-spec"), { recursive: true });
+      writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "x");
+      commitPlanInterview({
+        worktreePath,
+        name: "test-spec",
+        mode: "inline",
+        intentPathOrLabel: "x",
+      });
+      writeFileSync(join(worktreePath, "spec", "test-spec", "index.md"), "x");
+      commitPlanReview({
+        worktreePath,
+        name: "test-spec",
+        passNumber: 3,
+        agentLabel: "Codex GPT-5.3",
+        subjectSuffix: "r2",
+      });
+      const msg = execSync("git log -1 --format=%s", {
+        cwd: worktreePath,
+        encoding: "utf8",
+      }).trim();
+      expect(msg).toBe("plan: review 3 r2");
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("commitPlanBlocker", () => {

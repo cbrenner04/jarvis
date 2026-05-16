@@ -164,6 +164,9 @@ spawn, session log open), `jarvis run` runs these checks in order:
    resolved root contains a `.git` entry (the "target is not a git checkout"
    guard above) and then runs `assertGhReady()` to confirm `gh` is on
    `PATH` and authenticated.
+   Jarvis also prints a non-blocking warning when the target spec appears to
+   live on an unmerged `plan/*` branch so operators can merge the plan PR
+   first before implementation.
 
 Only after these pass does jarvis create the per-spec worktree and start the
 loop.

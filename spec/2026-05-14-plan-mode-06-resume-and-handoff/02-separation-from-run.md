@@ -74,11 +74,11 @@ unmerged plan branch. We codify the separation in two ways:
 
 ## Tasks
 
-- [ ] Implement the "Next steps" block printer; wire it into the
+- [x] Implement the "Next steps" block printer; wire it into the
   successful exit path of `planCommand` (initial and resume).
-- [ ] Add the plan-branch warning preflight to `jarvis run`.
-- [ ] Add a test asserting plan mode never invokes `gh pr ready`.
-- [ ] Tests:
+- [x] Add the plan-branch warning preflight to `jarvis run`.
+- [x] Add a test asserting plan mode never invokes `gh pr ready`.
+- [x] Tests:
   - Successful plan run prints the next-steps block with the right
     PR URL and `<name>`.
   - Failed plan run (blocker stub) does not print the next-steps
@@ -93,13 +93,13 @@ unmerged plan branch. We codify the separation in two ways:
 
 ## Acceptance criteria
 
-- [ ] Plan-mode successful exits print the documented "Next steps"
+- [x] Plan-mode successful exits print the documented "Next steps"
   block.
-- [ ] Plan-mode never invokes `gh pr ready`.
-- [ ] `jarvis run` prints a warning when its spec corresponds to an
+- [x] Plan-mode never invokes `gh pr ready`.
+- [x] `jarvis run` prints a warning when its spec corresponds to an
   unmerged `plan/<name>` branch on origin, but does not block.
-- [ ] The preflight skips silently on network/auth failure.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] The preflight skips silently on network/auth failure.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

@@ -103,14 +103,14 @@ pass with a different agent. Resume re-runs the self-review phase
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan --resume <spec-path>` runs additional self-review
+- [x] `jarvis plan --resume <spec-path>` runs additional self-review
   passes against an existing plan worktree.
-- [ ] Resume commit subjects carry an `r<n>` suffix that increments
+- [x] Resume commit subjects carry an `r<n>` suffix that increments
   per resume invocation.
-- [ ] Validation rejects all documented invalid combinations.
-- [ ] Resume reuses the existing draft PR.
-- [ ] Blocker, quota, and Ctrl-C handling match initial invocation.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] Validation rejects all documented invalid combinations.
+- [x] Resume reuses the existing draft PR.
+- [x] Blocker, quota, and Ctrl-C handling match initial invocation.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

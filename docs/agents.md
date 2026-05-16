@@ -126,4 +126,10 @@ through the opencode entry's `model` value.
 
 ## Plan-mode prompts
 
-Plan mode (`jarvis plan`) uses the same agent contract as patch mode. Plan-mode prompts live in `src/modes/plan/prompts/` (e.g., `interview.md`, `draft.md`, `review.md`) and are short, focused prompts that inject intent and guidance without requiring new agents or permission-posture changes. During interview, the prompt directs the agent to gather user input via jarvis's structured `question` tool. The same agents configured in `modes.plan.agentOrder` can serve both patch and plan work.
+Plan mode (`jarvis plan`) uses the same agent contract as patch mode. Plan-mode
+prompts live in `src/modes/plan/prompts/` (`interview.md`, `name-only.md`,
+`draft.md`, `review.md`) and are short, focused prompts that inject intent and
+guidance without requiring any non-default permission-posture changes. During
+interview, the prompt directs the agent to gather user input via jarvis's
+structured `question` tool. The same agents configured in
+`modes.plan.agentOrder` can serve both patch and plan work.

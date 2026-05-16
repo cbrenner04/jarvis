@@ -16,6 +16,7 @@ import {
   PLAN_USAGE,
   parseIntentFrontmatter,
   planCommand,
+  renderPlanNextSteps,
   seedIntentFile,
   validateProposedName,
 } from "../src/commands/plan.ts";
@@ -65,6 +66,90 @@ function failingLogClient(message: string): LogClient {
 }
 
 describe("planCommand", () => {
+  test("renderPlanNextSteps includes PR URL and spec name command hints", () => {
+    const text = renderPlanNextSteps({
+      prUrl: "https://github.com/acme/repo/pull/123",
+      specName: "my-plan",
+    });
+    expect(text).toContain("Next steps:");
+    expect(text).toContain("https://github.com/acme/repo/pull/123");
+    expect(text).toContain("jarvis plan --resume");
+    expect(text).toContain("spec/my-plan/index.md");
+    expect(text).toContain("jarvis run spec/my-plan/index.md");
+  });
+
+  test("plan mode does not invoke `gh pr ready`", () => {
+    const source = readFileSync(
+      join(dirname(__dirname), "src", "commands", "plan.ts"),
+      "utf8",
+    );
+    expect(source).not.toContain('"pr", "ready"');
+    expect(source).not.toContain("'pr', 'ready'");
+    expect(source).not.toContain("pr ready");
+  });
+
+  test("--resume without spec path rejects", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      execSync("git init -b main", { cwd: project });
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--resume"],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("--resume requires a spec path");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--resume with inline intent rejects", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      execSync("git init -b main", { cwd: project });
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--resume", "hello world"],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(
+        "--resume cannot be combined with intent text/file",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--resume requires index.md path", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      execSync("git init -b main", { cwd: project });
+      mkdirSync(join(project, "spec", "x"), { recursive: true });
+      const intentPath = join(project, "spec", "x", "intent.md");
+      writeFileSync(intentPath, "x");
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--resume", intentPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("--resume requires an index.md path");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("interactive mode + --interview-turns 0 rejects before worktree creation", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {

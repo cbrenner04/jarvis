@@ -174,6 +174,7 @@ type IterationContext = {
     latestIterationStdout: string[];
     latestIterationStderr: string[];
     draftPrEnsured: boolean;
+    opencodeUnavailableNoted: boolean;
     currentController: AbortController | null;
   };
 };
@@ -239,6 +240,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     latestIterationStdout: [] as string[],
     latestIterationStderr: [] as string[],
     draftPrEnsured: false,
+    opencodeUnavailableNoted: false,
     currentController: null as AbortController | null,
   };
 
@@ -599,6 +601,7 @@ type UsageCostData = {
 
 function extractUsageAndCost(
   result: {
+    usage_source?: "agent" | "unavailable";
     usage?: {
       input_tokens: number | null;
       output_tokens: number | null;
@@ -610,6 +613,18 @@ function extractUsageAndCost(
   agentName: string,
 ): UsageCostData {
   const output: UsageCostData = {};
+  if (result.usage_source === "unavailable") {
+    output.usage = {
+      input_tokens: null,
+      output_tokens: null,
+      cache_read_input_tokens: null,
+      cache_creation_input_tokens: null,
+    };
+    output.usage_source = "unavailable";
+    output.cost_usd = null;
+    output.cost_source = "no-usage";
+    return output;
+  }
 
   if (result.cost_usd !== undefined && result.cost_usd !== null) {
     // Agent provided cost directly (e.g., Claude with total_cost_usd)
@@ -829,6 +844,18 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     if (result.kind === "ok") {
       // Extract usage and cost data from the agent result
       const usageCost = extractUsageAndCost(result, agent.name);
+      if (
+        agent.name === "opencode" &&
+        usageCost.usage_source === "unavailable" &&
+        !state.opencodeUnavailableNoted
+      ) {
+        fanout(
+          "harness",
+          "opencode: token usage not available for this CLI version (recording usage as unavailable)\n",
+          "stderr",
+        );
+        state.opencodeUnavailableNoted = true;
+      }
 
       // Forward any agent warnings through the harness log
       if (result.warnings !== undefined && result.warnings.length > 0) {

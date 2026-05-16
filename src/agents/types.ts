@@ -5,6 +5,7 @@ export type AgentResult =
       kind: "ok";
       stdout: string;
       stderr: string;
+      usage_source?: "agent" | "unavailable";
       usage?: {
         input_tokens: number | null;
         output_tokens: number | null;

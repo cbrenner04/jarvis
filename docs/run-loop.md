@@ -288,6 +288,11 @@ Codex usage is sourced from Codex's session JSONL output in
 newest session file created by that invocation and extracts the final running
 token totals from `token_count` events.
 
+Opencode usage is currently recorded as unavailable in telemetry
+(`usage_source: "unavailable"` and `cost_source: "no-usage"`). Jarvis prints a
+one-time notice on first opencode success per run:
+`opencode: token usage not available for this CLI version (recording usage as unavailable)`.
+
 `jarvis run` requires the local log server to be reachable before the loop
 starts. If the server is down or misconfigured, run exits non-zero and prints
 a connectivity error. Start it in a separate terminal:

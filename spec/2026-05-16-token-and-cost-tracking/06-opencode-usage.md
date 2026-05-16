@@ -100,17 +100,17 @@ materializes — or documents `usage_source: "unavailable"` if none does.
 
 ## Acceptance criteria
 
-- [ ] `## Verified opencode capabilities` section in this file is
+- [x] `## Verified opencode capabilities` section in this file is
       populated with the captured `--help` output, fixture references,
       and the rationale for the chosen path.
-- [ ] Either: opencode iterations record real `usage` in the
+- [x] Either: opencode iterations record real `usage` in the
       per-iteration telemetry record, OR opencode iterations record
       `usage = null` with `usage_source: "unavailable"` and a one-time
       harness notice is printed per `jarvis run`.
-- [ ] Failure modes (if any extraction path was chosen) are non-fatal.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes (including the new tests).
-- [ ] `bun run check` passes.
+- [x] Failure modes (if any extraction path was chosen) are non-fatal.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes (including the new tests).
+- [x] `bun run check` passes.
 
 ## Documentation updates
 
@@ -121,4 +121,93 @@ materializes — or documents `usage_source: "unavailable"` if none does.
 
 ## Verified opencode capabilities
 
-_To be filled in by the implementer during the investigation task above._
+### Captured `opencode run --help` output
+
+Fixture: `test/fixtures/opencode/opencode-run-help.txt`
+
+```text
+warn: CPU lacks AVX support, strange crashes may occur. Reinstall Bun or use *-baseline build:
+  https://github.com/oven-sh/bun/releases/download/bun-v1.3.13/bun-darwin-x64-baseline.zip
+opencode run [message..]
+
+run opencode with a message
+
+Positionals:
+  message  message to send                                                     [array] [default: []]
+
+Options:
+  -h, --help                          show help                                            [boolean]
+  -v, --version                       show version number                                  [boolean]
+      --print-logs                    print logs to stderr                                 [boolean]
+      --log-level                     log level [string] [choices: "DEBUG", "INFO", "WARN", "ERROR"]
+      --pure                          run without external plugins                         [boolean]
+      --command                       the command to run, use message for args              [string]
+  -c, --continue                      continue the last session                            [boolean]
+  -s, --session                       session id to continue                                [string]
+      --fork                          fork the session before continuing (requires --continue or
+                                      --session)                                           [boolean]
+      --share                         share the session                                    [boolean]
+  -m, --model                         model to use in the format of provider/model          [string]
+      --agent                         agent to use                                          [string]
+      --format                        format: default (formatted) or json (raw JSON events)
+                                          [string] [choices: "default", "json"] [default: "default"]
+  -f, --file                          file(s) to attach to message                           [array]
+      --title                         title for the session (uses truncated prompt if no value
+                                      provided)                                             [string]
+      --attach                        attach to a running opencode server (e.g.,
+                                      http://localhost:4096)                                [string]
+  -p, --password                      basic auth password (defaults to OPENCODE_SERVER_PASSWORD)
+                                                                                            [string]
+  -u, --username                      basic auth username (defaults to OPENCODE_SERVER_USERNAME or
+                                      'opencode')                                           [string]
+      --dir                           directory to run in, path on remote server if attaching
+                                                                                            [string]
+      --port                          port for the local server (defaults to random port if no value
+                                      provided)                                             [number]
+      --variant                       model variant (provider-specific reasoning effort, e.g., high,
+                                      max, minimal)                                         [string]
+      --thinking                      show thinking blocks                                 [boolean]
+  -i, --interactive                   run in direct interactive split-footer mode
+                                                                          [boolean] [default: false]
+      --dangerously-skip-permissions  auto-approve permissions that are not explicitly denied
+                                      (dangerous!)                        [boolean] [default: false]
+      --demo                          enable direct interactive demo slash commands; pass one as the
+                                      message to run it immediately       [boolean] [default: false]
+```
+
+### Investigation evidence and fixture references
+
+- Candidate flags present:
+  `--format` (`default|json`) and `--print-logs`.
+- Candidate flag trial command:
+  `opencode run --format json --command echo "hello-from-opencode"`.
+- Fixtures from the trial:
+  `test/fixtures/opencode/opencode-format-json-command.stdout`,
+  `test/fixtures/opencode/opencode-format-json-command.stderr`,
+  `test/fixtures/opencode/opencode-format-json-command.exit`.
+- Observed result:
+  exit code `0`, empty stdout, stderr contained only setup/migration logs;
+  no usage tokens/cost fields were emitted.
+- Session file check fixture:
+  `test/fixtures/opencode/opencode-session-locations.txt`.
+- Observed paths checked:
+  `~/.config/opencode/`, `~/.local/share/opencode/`, `~/.cache/opencode/`.
+  This run created DB/log files only; no usage/session artifact with token
+  counts was found.
+
+### Extraction-path assessment
+
+- (a) JSON/structured stdout path: CLI supports `--format json`, but the
+  verified local run did not emit usage-bearing JSON events.
+- (b) Stderr log-line path: `--print-logs` exists, but verified stderr output
+  for the trial contained only operational logs, not token totals.
+- (c) Session-file path: no usage/session token artifact found in checked
+  directories for the verified run.
+- (d) Unavailable path: chosen.
+
+### Recommended and implemented approach
+
+Use path (d): mark every successful opencode result with
+`usage_source: "unavailable"` and `cost_source: "no-usage"`, and print a
+one-time run-level notice:
+`opencode: token usage not available for this CLI version (recording usage as unavailable)`.

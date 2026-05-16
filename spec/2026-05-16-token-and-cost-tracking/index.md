@@ -71,7 +71,7 @@ command, both of which produce reviewable diffs.
 - [x] [03 — `jarvis prices update` (fetch from models.dev)](./03-jarvis-prices-update.md)
 - [x] [04 — Claude JSON output and usage extraction](./04-claude-json-output-and-usage.md)
 - [x] [05 — Codex usage from session JSONL](./05-codex-usage-from-session-jsonl.md)
-- [ ] [06 — Opencode usage](./06-opencode-usage.md)
+- [x] [06 — Opencode usage](./06-opencode-usage.md)
 - [ ] [07 — Cursor usage](./07-cursor-usage.md)
 - [ ] [08 — End-of-run summary](./08-end-of-run-summary.md)
 

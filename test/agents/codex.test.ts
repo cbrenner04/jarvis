@@ -177,7 +177,7 @@ describe("CodexAgent", () => {
     expect(agent.attributionLabel()).toBe("codex (default model)");
   });
 
-  test("attaches usage and no-price cost when a new session file is found", async () => {
+  test("attaches usage and computed cost when a new session file is found", async () => {
     const bin = fakeBinary({
       exit: 0,
       stdout: "ok",
@@ -212,8 +212,8 @@ exit 0
         cache_read_input_tokens: 5,
         cache_creation_input_tokens: null,
       });
-      expect(result.cost_source).toBe("no-price");
-      expect(result.cost_usd).toBeNull();
+      expect(result.cost_source).toBe("computed");
+      expect(result.cost_usd).toBeCloseTo(0.000200375);
     }
   });
 

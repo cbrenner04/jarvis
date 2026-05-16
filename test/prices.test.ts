@@ -179,6 +179,15 @@ describe("loadPrices", () => {
     expect(row.future_field).toBe("some value");
     expect(row.another_field).toBe(42);
   });
+
+  it("checked-in seed data includes the default Codex model", () => {
+    const prices = loadPrices();
+    expect(prices.models["gpt-5.3-codex"]).toMatchObject({
+      input_per_mtok: 1.75,
+      output_per_mtok: 14.0,
+      cache_read_per_mtok: 0.175,
+    });
+  });
 });
 
 describe("computeCost", () => {

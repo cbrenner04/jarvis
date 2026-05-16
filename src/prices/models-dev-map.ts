@@ -9,5 +9,6 @@ export const MODELS_DEV_ID: Record<string, string> = {
   "claude-opus-4-7": "anthropic/claude-opus-4-7",
   "claude-sonnet-4-6": "anthropic/claude-sonnet-4-6",
   "claude-haiku-4-5-20251001": "anthropic/claude-haiku-4-5",
+  "gpt-5.3-codex": "openai/gpt-5.3-codex",
   // cursor-default has no upstream entry; will be reported as not found
 };

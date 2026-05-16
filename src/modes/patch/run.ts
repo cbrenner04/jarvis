@@ -175,6 +175,7 @@ type IterationContext = {
     latestIterationStderr: string[];
     draftPrEnsured: boolean;
     opencodeUnavailableNoted: boolean;
+    cursorUnavailableNoted: boolean;
     currentController: AbortController | null;
   };
 };
@@ -241,6 +242,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     latestIterationStderr: [] as string[],
     draftPrEnsured: false,
     opencodeUnavailableNoted: false,
+    cursorUnavailableNoted: false,
     currentController: null as AbortController | null,
   };
 
@@ -855,6 +857,18 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           "stderr",
         );
         state.opencodeUnavailableNoted = true;
+      }
+      if (
+        agent.name === "cursor" &&
+        usageCost.usage_source === "unavailable" &&
+        !state.cursorUnavailableNoted
+      ) {
+        fanout(
+          "harness",
+          "cursor: token usage not available for this CLI version (recording usage as unavailable)\n",
+          "stderr",
+        );
+        state.cursorUnavailableNoted = true;
       }
 
       // Forward any agent warnings through the harness log

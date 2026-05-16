@@ -72,7 +72,7 @@ command, both of which produce reviewable diffs.
 - [x] [04 — Claude JSON output and usage extraction](./04-claude-json-output-and-usage.md)
 - [x] [05 — Codex usage from session JSONL](./05-codex-usage-from-session-jsonl.md)
 - [x] [06 — Opencode usage](./06-opencode-usage.md)
-- [ ] [07 — Cursor usage](./07-cursor-usage.md)
+- [x] [07 — Cursor usage](./07-cursor-usage.md)
 - [ ] [08 — End-of-run summary](./08-end-of-run-summary.md)
 
 Subspec 01 unblocks every other subspec. Subspecs 02 and 03 depend only on

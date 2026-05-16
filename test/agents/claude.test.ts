@@ -63,9 +63,10 @@ describe("ClaudeAgent", () => {
       "-p\0--permission-mode\0acceptEdits\0",
     );
     expect(readFileSync(join(dir, "stdin"), "utf8")).toBe("the prompt");
-    expect(readFileSync(join(dir, "cwd"), "utf8").trim()).toBe(
-      realpathSync(cwd),
-    );
+    const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
+    const resolvedReportedCwd = realpathSync(reportedCwd);
+    const resolvedCwd = realpathSync(cwd);
+    expect(resolvedReportedCwd).toBe(resolvedCwd);
   });
 
   test("includes model flag when model is configured", async () => {

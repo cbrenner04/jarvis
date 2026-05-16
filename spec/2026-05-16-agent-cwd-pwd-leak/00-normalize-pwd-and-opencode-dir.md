@@ -87,20 +87,20 @@ pile of uncommitted edits across iterations.
 
 ## Acceptance criteria
 
-- [ ] `src/agents/spawn.ts` passes `env` to `child_process.spawn` with
+- [x] `src/agents/spawn.ts` passes `env` to `child_process.spawn` with
   `PWD` set to `config.cwd` and `OLDPWD` removed; all other env keys
   inherited from `process.env`.
-- [ ] `src/agents/opencode.ts` `buildArgv` returns
+- [x] `src/agents/opencode.ts` `buildArgv` returns
   `["run", "--dir", opts.cwd, "--model", this.#model, "--format", "default", prompt]`
   (the exact order may vary as long as `--dir` precedes the prompt and
   is a separate token from its value).
-- [ ] A new test asserts the spawned child's `PWD` equals the cwd
+- [x] A new test asserts the spawned child's `PWD` equals the cwd
   jarvis configured, not the harness's own `PWD`.
-- [ ] A new or extended opencode test asserts the argv contains
+- [x] A new or extended opencode test asserts the argv contains
   `--dir` followed by the configured cwd.
-- [ ] `docs/agents.md` reflects the new opencode argv and mentions
+- [x] `docs/agents.md` reflects the new opencode argv and mentions
   the harness-level `PWD` normalization.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 

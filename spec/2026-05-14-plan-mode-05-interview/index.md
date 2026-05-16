@@ -129,7 +129,7 @@ draft PR.
 - [x] [01 — Interview phase with persistent `intent.md` updates](./01-interview-phase.md)
 - [x] [02 — Interactive mode (`jarvis plan` with no args)](./02-interactive-no-args.md)
 - [x] [03 — Agent-proposed spec name with worktree rename](./03-agent-proposed-spec-name.md)
-- [ ] [04 — Documentation updates](./04-docs-updates.md)
+- [x] [04 — Documentation updates](./04-docs-updates.md)
 
 ## Conventions
 

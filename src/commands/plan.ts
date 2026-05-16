@@ -6,7 +6,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
@@ -168,6 +168,117 @@ function remoteSpecBranchExists(
   } catch {
     return false;
   }
+}
+
+type ResumePrep = {
+  name: string;
+  worktreePath: string;
+  nextResumeIndex: number;
+  nextReviewIndex: number;
+};
+
+const RESUME_SUBJECT_RE = /^plan: (interview|review \d+|blocker)(?: r(\d+))?$/;
+const REVIEW_SUBJECT_RE = /^plan: review (\d+)(?: r\d+)?$/;
+
+function assertResumeIndexPath(specPath: string): string {
+  const resolved = resolve(specPath);
+  const base = basename(resolved);
+  if (base !== "index.md") {
+    throw new Error(
+      `--resume requires an index.md path; got ${specPath}`,
+    );
+  }
+  return basename(dirname(resolved));
+}
+
+function isWorktreeClean(cwd: string): boolean {
+  const porcelain = execFileSync("git", ["status", "--porcelain"], {
+    cwd,
+    stdio: "pipe",
+    encoding: "utf8",
+  }).trim();
+  return porcelain.length === 0;
+}
+
+function currentBranch(cwd: string): string {
+  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd,
+    stdio: "pipe",
+    encoding: "utf8",
+  }).trim();
+}
+
+function computeResumeCounters(worktreePath: string): {
+  nextResumeIndex: number;
+  nextReviewIndex: number;
+} {
+  const subjects = execFileSync("git", ["log", "--format=%s"], {
+    cwd: worktreePath,
+    stdio: "pipe",
+    encoding: "utf8",
+  })
+    .split("\n")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  let maxResume = 0;
+  let maxReview = 0;
+  for (const subject of subjects) {
+    const resumeMatch = RESUME_SUBJECT_RE.exec(subject);
+    if (resumeMatch?.[2] !== undefined) {
+      const n = Number(resumeMatch[2]);
+      if (Number.isFinite(n) && n > maxResume) {
+        maxResume = n;
+      }
+    }
+    const reviewMatch = REVIEW_SUBJECT_RE.exec(subject);
+    if (reviewMatch?.[1] !== undefined) {
+      const n = Number(reviewMatch[1]);
+      if (Number.isFinite(n) && n > maxReview) {
+        maxReview = n;
+      }
+    }
+  }
+  return {
+    nextResumeIndex: maxResume + 1,
+    nextReviewIndex: maxReview + 1,
+  };
+}
+
+function prepareResume(args: {
+  projectRoot: string;
+  specPath: string;
+}): ResumePrep {
+  const name = assertResumeIndexPath(args.specPath);
+  const worktreePath = join(args.projectRoot, ".worktree", `plan-${name}`);
+  if (!existsSync(worktreePath)) {
+    throw new Error(`plan worktree missing at ${worktreePath}`);
+  }
+  const branch = `plan/${name}`;
+  if (currentBranch(worktreePath) !== branch) {
+    throw new Error(`${worktreePath} is not checked out on ${branch}`);
+  }
+  if (!existsSync(join(worktreePath, "spec", name, "index.md"))) {
+    throw new Error(`missing spec/${name}/index.md in ${worktreePath}`);
+  }
+  if (!existsSync(join(worktreePath, "spec", name, "intent.md"))) {
+    throw new Error(`missing spec/${name}/intent.md in ${worktreePath}`);
+  }
+  if (!isWorktreeClean(worktreePath)) {
+    throw new Error(
+      `the worktree is not clean; inspect with \`jarvis triage plan-${name}\` and re-run`,
+    );
+  }
+  if (!remoteSpecBranchExists(args.projectRoot, name)) {
+    throw new Error(`plan branch plan/${name} is not on origin; cannot resume`);
+  }
+  const counters = computeResumeCounters(worktreePath);
+  return {
+    name,
+    worktreePath,
+    nextResumeIndex: counters.nextResumeIndex,
+    nextReviewIndex: counters.nextReviewIndex,
+  };
 }
 
 export async function deriveSpecName(
@@ -362,6 +473,190 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       "plan: --interview-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n",
     );
     return 1;
+  }
+
+  if (inv.resume) {
+    if (inv.mode === "interactive") {
+      opts.io.stderr("--resume requires a spec path\n");
+      return 1;
+    }
+    if (inv.mode !== "file") {
+      opts.io.stderr("--resume cannot be combined with intent text/file\n");
+      return 1;
+    }
+    const reviewPasses = inv.reviewPasses ?? 2;
+    const interviewTurns = inv.interviewTurns ?? 0;
+    if (reviewPasses === 0 && interviewTurns === 0) {
+      opts.io.stderr("--resume requires at least one phase\n");
+      return 1;
+    }
+
+    let resume: ResumePrep;
+    try {
+      resume = prepareResume({
+        projectRoot: project.root,
+        specPath: inv.intentPath,
+      });
+    } catch (err) {
+      opts.io.stderr(`${(err as Error).message}\n`);
+      return 1;
+    }
+
+    const branch = `plan/${resume.name}`;
+    const suffix = `r${resume.nextResumeIndex}`;
+    let nextReviewIndex = resume.nextReviewIndex;
+    opts.io.stderr(`plan mode: resume ${suffix} started\n`);
+
+    const cfg = loadConfig(opts.config);
+    if (interviewTurns > 0) {
+      try {
+        const interviewResult = await runInterviewPhase({
+          worktreePath: resume.worktreePath,
+          name: resume.name,
+          config: cfg,
+          interviewTurns,
+        });
+        if (interviewResult.result.kind !== "ok") {
+          if (interviewResult.result.kind === "quota") {
+            opts.io.stderr(`plan: quota exhausted\n`);
+            return 2;
+          }
+          if (interviewResult.result.kind === "model_config") {
+            opts.io.stderr(
+              `plan mode: model configuration error\n${interviewResult.result.stderr}`,
+            );
+            return 3;
+          }
+          opts.io.stderr(
+            `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
+          );
+          return 1;
+        }
+        if (hasWorkingTreeChanges(resume.worktreePath)) {
+          commitPlanInterview({
+            worktreePath: resume.worktreePath,
+            name: resume.name,
+            mode: "interactive",
+            intentPathOrLabel: "interactive",
+            completedTurns: interviewResult.completedTurns,
+            subjectSuffix: suffix,
+            resumedBy: interviewResult.agentLabel ?? "unknown",
+          });
+        }
+        if (interviewResult.blocker !== undefined) {
+          commitPlanBlocker({
+            worktreePath: resume.worktreePath,
+            name: resume.name,
+            agentLabel: interviewResult.agentLabel ?? "unknown",
+            reason: firstNonEmptyLine(interviewResult.blocker),
+            specFilesCount: countSpecFiles(resume.worktreePath, resume.name),
+            subjectSuffix: suffix,
+          });
+          safeUpdatePrBody({
+            io: opts.io,
+            branch,
+            base: getCurrentBranch(project.root),
+            worktreePath: resume.worktreePath,
+            name: resume.name,
+          });
+          opts.io.stderr(`plan: blocked\n`);
+          opts.io.stderr(`\n## Blocker\n\n${interviewResult.blocker}\n`);
+          return 1;
+        }
+      } catch (err) {
+        opts.io.stderr(`${(err as Error).message}\n`);
+        return 1;
+      }
+    }
+
+    for (let pass = 1; pass <= reviewPasses; pass += 1) {
+      const intentPath = join(
+        resume.worktreePath,
+        "spec",
+        resume.name,
+        "intent.md",
+      );
+      const intentBefore = readFileSync(intentPath, "utf8");
+      const result = await runReviewPass({
+        worktreePath: resume.worktreePath,
+        name: resume.name,
+        config: cfg,
+        passNumber: nextReviewIndex,
+        totalPasses: nextReviewIndex + reviewPasses - pass,
+      });
+      if (result.result.kind !== "ok") {
+        if (result.result.kind === "quota") {
+          opts.io.stderr(`plan: quota exhausted\n`);
+          return 2;
+        }
+        if (result.result.kind === "model_config") {
+          opts.io.stderr(
+            `plan mode: model configuration error: ${result.result.stderr}\n`,
+          );
+          return 3;
+        }
+        opts.io.stderr(
+          `plan mode: review pass ${nextReviewIndex} failed: ${result.result.stderr}\n`,
+        );
+        return 1;
+      }
+
+      if (!hasWorkingTreeChanges(resume.worktreePath)) {
+        nextReviewIndex += 1;
+        continue;
+      }
+
+      const validation = validateReviewOutput(
+        resume.worktreePath,
+        resume.name,
+        intentBefore,
+      );
+      if (!validation.valid) {
+        opts.io.stderr(
+          `plan mode: review pass ${nextReviewIndex} validation failed: ${validation.error}\n`,
+        );
+        return 1;
+      }
+      if (validation.blocker !== undefined) {
+        commitPlanBlocker({
+          worktreePath: resume.worktreePath,
+          name: resume.name,
+          agentLabel: result.agentLabel ?? "unknown",
+          reason: firstNonEmptyLine(validation.blocker),
+          specFilesCount: countSpecFiles(resume.worktreePath, resume.name),
+          subjectSuffix: suffix,
+        });
+        safeUpdatePrBody({
+          io: opts.io,
+          branch,
+          base: getCurrentBranch(project.root),
+          worktreePath: resume.worktreePath,
+          name: resume.name,
+        });
+        opts.io.stderr(`plan: blocked\n`);
+        opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
+        return 1;
+      }
+
+      commitPlanReview({
+        worktreePath: resume.worktreePath,
+        name: resume.name,
+        passNumber: nextReviewIndex,
+        agentLabel: result.agentLabel ?? "unknown",
+        subjectSuffix: suffix,
+      });
+      safeUpdatePrBody({
+        io: opts.io,
+        branch,
+        base: getCurrentBranch(project.root),
+        worktreePath: resume.worktreePath,
+        name: resume.name,
+      });
+      nextReviewIndex += 1;
+    }
+
+    opts.io.stderr(`plan: complete (resume ${suffix})\n`);
+    return 0;
   }
 
   const tempId = crypto.randomUUID().slice(0, 8);

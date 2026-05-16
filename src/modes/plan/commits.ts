@@ -9,6 +9,8 @@ export type CommitPlanInterviewOptions = {
   mode: "file" | "inline" | "interactive";
   intentPathOrLabel: string;
   completedTurns?: number;
+  subjectSuffix?: string;
+  resumedBy?: string;
 };
 
 /**
@@ -50,9 +52,12 @@ export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
   }
 
   const turns = opts.completedTurns ?? 0;
-  const bodyLines = [bodyLine, `Turns: ${turns}`];
+  const bodyLines =
+    opts.resumedBy === undefined
+      ? [bodyLine, `Turns: ${turns}`]
+      : [`Resumed by ${opts.resumedBy}.`, `Turns: ${turns}`];
 
-  const subject = "plan: interview";
+  const subject = `plan: interview${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(opts.name, bodyLines);
   const baseMessage = `${subject}\n\n${body}`;
   // No agent attribution for the interview commit (no agent involved yet).
@@ -114,6 +119,7 @@ export type CommitPlanReviewOptions = {
   name: string;
   passNumber: number;
   agentLabel: string;
+  subjectSuffix?: string;
 };
 
 export function commitPlanReview(opts: CommitPlanReviewOptions): void {
@@ -122,7 +128,7 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
     stdio: "pipe",
   });
 
-  const subject = `plan: review ${opts.passNumber}`;
+  const subject = `plan: review ${opts.passNumber}${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(opts.name, [`Reviewed by ${opts.agentLabel}.`]);
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
@@ -150,6 +156,7 @@ export type CommitPlanBlockerOptions = {
   reason: string;
   /** Number of generated subspec files at the time the blocker was raised. */
   specFilesCount: number;
+  subjectSuffix?: string;
 };
 
 export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
@@ -158,7 +165,7 @@ export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
     stdio: "pipe",
   });
 
-  const subject = "plan: blocker";
+  const subject = `plan: blocker${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(opts.name, [
     `Blocked by ${opts.reason}`,
     `Spec files to date: ${opts.specFilesCount}`,

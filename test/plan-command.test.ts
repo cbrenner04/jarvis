@@ -65,6 +65,68 @@ function failingLogClient(message: string): LogClient {
 }
 
 describe("planCommand", () => {
+  test("--resume without spec path rejects", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      execSync("git init -b main", { cwd: project });
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--resume"],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("--resume requires a spec path");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--resume with inline intent rejects", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      execSync("git init -b main", { cwd: project });
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--resume", "hello world"],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(
+        "--resume cannot be combined with intent text/file",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--resume requires index.md path", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      execSync("git init -b main", { cwd: project });
+      mkdirSync(join(project, "spec", "x"), { recursive: true });
+      const intentPath = join(project, "spec", "x", "intent.md");
+      writeFileSync(intentPath, "x");
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--resume", intentPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("--resume requires an index.md path");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("interactive mode + --interview-turns 0 rejects before worktree creation", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {

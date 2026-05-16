@@ -77,6 +77,8 @@ After `plan: interview` is pushed, jarvis invokes an agent with a focused prompt
 
 The agent produces files under `spec/<name>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. The produced files are staged and committed as `plan: draft`.
 
+**Placeholder collision errors:** If the user's intent or spec name accidentally contains a placeholder token (e.g., `<SPEC_GUIDANCE>`), jarvis detects this before invoking the agent and exits `3` with a fatal configuration error. This prevents silent prompt corruption.
+
 **Commit shape:**
 - Subject: `plan: draft`
 - Body:
@@ -102,6 +104,8 @@ After `plan: draft` is pushed, jarvis runs zero or more review passes (default: 
 - Forbids modifications to `intent.md` except for appending a `## Blocker` section.
 
 Each pass is a single agent invocation; the agent does not decide when to stop or how many iterations to run. After each pass, the modified files are staged and committed as `plan: review <N>` (1-indexed).
+
+**Placeholder collision errors:** If the current spec contains a placeholder token (e.g., `<CURRENT_SPEC>`), jarvis detects this before invoking the agent and exits `3` with a fatal configuration error. This prevents silent prompt corruption.
 
 **Commit shape (for pass 1):**
 - Subject: `plan: review 1`

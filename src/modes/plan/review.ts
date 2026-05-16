@@ -8,6 +8,28 @@ import { OpencodeAgent } from "../../agents/opencode.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { detectBlocker } from "./blocker.ts";
+import { PlaceholderCollisionError } from "./draft.ts";
+
+const PLACEHOLDER_TOKENS = [
+  "<INTENT>",
+  "<SPEC_GUIDANCE>",
+  "<NAME>",
+  "<WORKDIR>",
+  "<CURRENT_SPEC>",
+];
+
+function validatePlaceholders(
+  values: Record<string, string>,
+): PlaceholderCollisionError | null {
+  for (const [field, value] of Object.entries(values)) {
+    for (const token of PLACEHOLDER_TOKENS) {
+      if (value.includes(token)) {
+        return new PlaceholderCollisionError(field, token);
+      }
+    }
+  }
+  return null;
+}
 
 export type ReviewPhaseOptions = {
   worktreePath: string;
@@ -24,6 +46,16 @@ export function buildReviewPrompt(opts: {
   specGuidance: string;
   currentSpec: string;
 }): string {
+  const collisionError = validatePlaceholders({
+    name: opts.name,
+    intent: opts.intent,
+    specGuidance: opts.specGuidance,
+    currentSpec: opts.currentSpec,
+  });
+  if (collisionError !== null) {
+    throw collisionError;
+  }
+
   const promptFile = join(import.meta.dir, "prompts", "review.md");
   let template = readFileSync(promptFile, "utf8");
 
@@ -59,7 +91,7 @@ function createAgent(agentName: AgentName, model: string | undefined): Agent {
 /**
  * Snapshot all current spec files into a string for prompt injection.
  */
-function snapshotSpecFiles(worktreePath: string, name: string): string {
+export function snapshotSpecFiles(worktreePath: string, name: string): string {
   const specDir = join(worktreePath, "spec", name);
   if (!existsSync(specDir)) {
     return "(spec directory does not exist)";
@@ -67,9 +99,11 @@ function snapshotSpecFiles(worktreePath: string, name: string): string {
 
   const files = readdirSync(specDir);
   // Exclude intent.md and non-markdown files
-  const specFiles = files
-    .filter((f) => f.endsWith(".md") && f !== "intent.md")
-    .sort();
+  const specFiles = files.filter((f) => f.endsWith(".md") && f !== "intent.md");
+
+  // Sort deterministically using locale-independent string comparison
+  const collator = new Intl.Collator("en", { sensitivity: "variant" });
+  specFiles.sort((a, b) => collator.compare(a, b));
 
   const lines: string[] = [];
   for (const file of specFiles) {
@@ -107,12 +141,26 @@ export async function runReviewPass(
   const currentSpec = snapshotSpecFiles(opts.worktreePath, opts.name);
 
   // Build the prompt
-  const prompt = buildReviewPrompt({
-    name: opts.name,
-    intent,
-    specGuidance,
-    currentSpec,
-  });
+  let prompt: string;
+  try {
+    prompt = buildReviewPrompt({
+      name: opts.name,
+      intent,
+      specGuidance,
+      currentSpec,
+    });
+  } catch (err) {
+    if (err instanceof PlaceholderCollisionError) {
+      return {
+        result: {
+          kind: "model_config",
+          stderr: err.message,
+        },
+        agentLabel: null,
+      };
+    }
+    throw err;
+  }
 
   // Try each agent in order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;

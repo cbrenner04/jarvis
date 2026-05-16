@@ -50,18 +50,18 @@ The relevant review items are:
 
 ## Acceptance criteria
 
-- [ ] `buildDraftPrompt` and `buildReviewPrompt` throw a typed error
+- [x] `buildDraftPrompt` and `buildReviewPrompt` throw a typed error
   when any input value contains a placeholder token; the error names
   the offending field.
-- [ ] The plan-mode entry point in `src/commands/plan.ts` catches that
+- [x] The plan-mode entry point in `src/commands/plan.ts` catches that
   error and exits `3` with a stderr message describing the collision.
-- [ ] The draft and review prompt templates name the file
+- [x] The draft and review prompt templates name the file
   (`spec/<NAME>/intent.md`) inside the paragraph that introduces the
   `<<<INTENT_BEGIN>>>` block.
-- [ ] `snapshotSpecFiles` returns files in deterministic sorted order;
+- [x] `snapshotSpecFiles` returns files in deterministic sorted order;
   a new test in `test/modes/plan/review.test.ts` writes files in
   reverse order on disk and asserts ascending order in the snapshot.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 

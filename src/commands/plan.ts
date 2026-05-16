@@ -17,6 +17,7 @@ import {
   commitPlanReview,
 } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
+import { runInterviewPhase } from "../modes/plan/interview.ts";
 import { buildPlanPrHeader } from "../modes/plan/pr.ts";
 import {
   hasWorkingTreeChanges,
@@ -332,6 +333,110 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return 1;
     }
 
+    // Load config once for use in interview and draft phases
+    const cfg = loadConfig(opts.config);
+
+    // Run interview phase
+    let interviewCompletedTurns = 0;
+    let interviewBlocker: string | undefined;
+    let interviewAgentLabel: string | null = null;
+
+    try {
+      const interviewBudget = inv.interviewTurns ?? 3;
+
+      if (interviewBudget > 0) {
+        const interviewResult = await runInterviewPhase({
+          worktreePath,
+          name: specName,
+          config: cfg,
+          interviewTurns: interviewBudget,
+        });
+
+        // Handle interview result
+        if (interviewResult.result.kind !== "ok") {
+          if (interviewResult.result.kind === "quota") {
+            opts.io.stderr(`plan: quota exhausted during interview\n`);
+            return 2;
+          }
+          if (interviewResult.result.kind === "model_config") {
+            opts.io.stderr(
+              `plan mode: model configuration error\n${interviewResult.result.stderr}`,
+            );
+            return 3;
+          }
+          // Generic error
+          opts.io.stderr(
+            `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
+          );
+          return 1;
+        }
+
+        interviewCompletedTurns = interviewResult.completedTurns;
+        interviewAgentLabel = interviewResult.agentLabel;
+        interviewBlocker = interviewResult.blocker;
+      }
+    } catch (err) {
+      opts.io.stderr(
+        `plan mode: interview phase error: ${(err as Error).message}\n`,
+      );
+      return 1;
+    }
+
+    // Check for interrupt before any commit
+    if (interrupted) {
+      opts.io.stderr(`plan: interrupted\n`);
+      return 130;
+    }
+
+    // If a blocker was raised during interview, commit it and stop
+    if (interviewBlocker !== undefined) {
+      try {
+        // Create the interview commit first (with the blocked state)
+        const intentPathOrLabel =
+          inv.mode === "file"
+            ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
+            : (inv as Extract<typeof inv, { mode: "inline" }>).intentText;
+        commitPlanInterview({
+          worktreePath,
+          name: specName,
+          mode: inv.mode as "file" | "inline",
+          intentPathOrLabel,
+          completedTurns: interviewCompletedTurns,
+        });
+        opts.io.stderr(`plan mode: interview commit pushed\n`);
+
+        // Then create the blocker commit
+        const agentLabel = interviewAgentLabel ?? "unknown";
+        const reason = firstNonEmptyLine(interviewBlocker);
+
+        commitPlanBlocker({
+          worktreePath,
+          name: specName,
+          agentLabel,
+          reason,
+          specFilesCount: 0,
+        });
+        opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+        safeUpdatePrBody({
+          io: opts.io,
+          branch: `plan/${specName}`,
+          base: getCurrentBranch(project.root),
+          worktreePath,
+          name: specName,
+        });
+      } catch (err) {
+        opts.io.stderr(`${(err as Error).message}\n`);
+        return 1;
+      }
+
+      opts.io.stderr(`plan: blocked\n`);
+      if (interviewBlocker) {
+        opts.io.stderr(`\n## Blocker\n\n${interviewBlocker}\n`);
+      }
+      return 1;
+    }
+
     // Create plan: interview commit and push
     try {
       const intentPathOrLabel =
@@ -343,6 +448,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         name: specName,
         mode: inv.mode as "file" | "inline",
         intentPathOrLabel,
+        completedTurns: interviewCompletedTurns,
       });
       opts.io.stderr(`plan mode: interview commit pushed\n`);
     } catch (err) {
@@ -355,8 +461,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     let draftBlocker: string | undefined;
     let draftSpecFilesCount = 0;
     try {
-      const cfg = loadConfig(opts.config);
-
       // Read intent.md before the draft phase
       const intentPath = join(worktreePath, "spec", specName, "intent.md");
       const intentBefore = readFileSync(intentPath, "utf8");

@@ -8,6 +8,7 @@ export type CommitPlanInterviewOptions = {
   name: string;
   mode: "file" | "inline";
   intentPathOrLabel: string;
+  completedTurns?: number;
 };
 
 /**
@@ -46,8 +47,11 @@ export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
     bodyLine = `Seeded from inline`;
   }
 
+  const turns = opts.completedTurns ?? 0;
+  const bodyLines = [bodyLine, `Turns: ${turns}`];
+
   const subject = "plan: interview";
-  const body = buildPlanBody(opts.name, [bodyLine]);
+  const body = buildPlanBody(opts.name, bodyLines);
   const baseMessage = `${subject}\n\n${body}`;
   // No agent attribution for the interview commit (no agent involved yet).
   const commitMessage = appendAgentTrailer(baseMessage, "");

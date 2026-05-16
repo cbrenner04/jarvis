@@ -48,7 +48,7 @@ describe("commitPlanInterview", () => {
         encoding: "utf8",
       }).trim();
       expect(commitMsg).toBe(
-        "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from test-intent.md",
+        "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from test-intent.md\nTurns: 0",
       );
 
       // Verify commit was pushed
@@ -101,7 +101,7 @@ describe("commitPlanInterview", () => {
         encoding: "utf8",
       }).trim();
       expect(commitMsg).toBe(
-        "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from inline",
+        "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from inline\nTurns: 0",
       );
 
       // Verify commit was pushed

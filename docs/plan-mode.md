@@ -244,3 +244,17 @@ Each generated or rewritten spec must satisfy these rules (enforced by plan mode
 - **Blocker heading**: If a `## Blocker` section is appended to `intent.md`, it must use the exact heading (level 2, case-sensitive).
 
 Plan mode validates these rules after each phase. If a validation fails, jarvis emits an error and does not commit the broken spec tree.
+
+## Write boundary
+
+Plan mode enforces a strict write boundary: agents may only modify files within `spec/<name>/`. If an agent attempts to modify files outside this directory (e.g., `src/`, `.github/`, `README.md`), the following happens:
+
+1. **Detection**: After the agent returns and before any commit, jarvis runs `git status --porcelain=v1 -z` to check which files have been modified.
+2. **Revert**: Any files modified outside `spec/<name>/` are reverted with `git checkout --` (the working-tree changes are discarded, but the files are not deleted).
+3. **Blocker**: A `## Blocker` section is appended to `spec/<name>/intent.md` listing the offending paths and explaining the boundary violation.
+4. **Commit**: The reverted state (with all out-of-bounds changes removed but in-bounds changes preserved) is committed as `plan: blocker` and the PR body is updated.
+5. **Exit**: Jarvis exits with code `1`. The offending paths are printed to stderr for visibility.
+
+This behavior applies at the draft phase, after each review pass, and before any blocker commit from the agent itself. The boundary check uses the path as reported by `git status`, so symlinks that point outside `spec/<name>/` are detected and reverted.
+
+The intent of this enforcement is to prevent accidental or malicious modifications to files outside the spec directory, ensuring that all plan-mode work is isolated and reviewable within the spec tree.

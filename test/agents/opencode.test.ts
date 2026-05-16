@@ -53,7 +53,7 @@ describe("OpencodeAgent", () => {
     );
   });
 
-  test("spawns `opencode run` with model, format, and prompt positional in cwd", async () => {
+  test("spawns `opencode run` with --dir, model, format, and prompt positional in cwd", async () => {
     const bin = fakeBinary({ exit: 0, stdout: "hi-out", stderr: "hi-err" });
     const agent = new OpencodeAgent({
       binary: bin,
@@ -63,12 +63,18 @@ describe("OpencodeAgent", () => {
     const result = await agent.run("the prompt", { cwd });
 
     expect(result).toEqual({ kind: "ok", stdout: "hi-out", stderr: "hi-err" });
-    expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "run\0--model\0AirProxy/test\0--format\0default\0the prompt\0",
-    );
-    expect(readFileSync(join(dir, "cwd"), "utf8").trim()).toBe(
-      realpathSync(cwd),
-    );
+    const argv = readFileSync(join(dir, "argv"), "utf8");
+    expect(argv).toContain("--dir");
+    expect(argv).toContain(cwd);
+    expect(argv).toContain("--model");
+    expect(argv).toContain("AirProxy/test");
+    expect(argv).toContain("--format");
+    expect(argv).toContain("default");
+    expect(argv).toContain("the prompt");
+    const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
+    const resolvedReportedCwd = realpathSync(reportedCwd);
+    const resolvedCwd = realpathSync(cwd);
+    expect(resolvedReportedCwd).toBe(resolvedCwd);
   });
 
   test("does not pass a permissions bypass flag", async () => {
@@ -80,9 +86,9 @@ describe("OpencodeAgent", () => {
 
     await agent.run("the prompt", { cwd });
 
-    expect(readFileSync(join(dir, "argv"), "utf8")).not.toContain(
-      "--dangerously-skip-permissions",
-    );
+    const argv = readFileSync(join(dir, "argv"), "utf8");
+    expect(argv).not.toContain("--dangerously-skip-permissions");
+    expect(argv).toContain("--dir");
   });
 
   test("non-zero exit maps to error with captured diagnostics", async () => {

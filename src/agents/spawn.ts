@@ -23,8 +23,11 @@ export function runAgent(
 ): Promise<AgentResult> {
   return new Promise((resolvePromise) => {
     const argv = config.buildArgv(prompt, opts);
+    const env = { ...process.env, PWD: config.cwd } as Record<string, string>;
+    delete env.OLDPWD;
     const child = spawn(config.binary, argv, {
       cwd: config.cwd,
+      env,
       stdio: config.stdio,
     });
 

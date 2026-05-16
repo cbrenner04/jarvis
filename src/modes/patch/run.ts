@@ -36,7 +36,7 @@ import {
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
-import { ensureDraftPr, renderAttribution } from "../../pr.ts";
+import { checkPrExists, ensureDraftPr, renderAttribution } from "../../pr.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import {
   createWorktreeSymlinks,
@@ -1173,6 +1173,24 @@ async function tryFinishSpecIfDone(
     }
   }
   logging.fanout("harness", "spec complete\n", "stdout");
+
+  // Try to look up and print the PR URL
+  if (preflight.gitEnabled) {
+    try {
+      const branch = getCurrentBranch(preflight.agentWorkingDir);
+      const url = lookupPrUrl(branch, preflight.agentWorkingDir);
+      if (url) {
+        logging.fanout("harness", `${url}\n`, "stdout");
+      }
+    } catch (error) {
+      logging.fanout(
+        "harness",
+        `warning: failed to look up PR URL: ${error instanceof Error ? error.message : String(error)}\n`,
+        "stdout",
+      );
+    }
+  }
+
   return 0;
 }
 
@@ -1266,6 +1284,27 @@ function getCurrentBranch(cwd: string): string {
     encoding: "utf8",
     stdio: "pipe",
   }).trim();
+}
+
+function lookupPrUrl(branch: string, cwd: string): string | null {
+  // First check if a PR exists; if not, return null silently
+  const prNumber = checkPrExists(branch, cwd);
+  if (!prNumber) {
+    return null;
+  }
+
+  // PR exists, so look up the URL
+  const output = execFileSync(
+    "gh",
+    ["pr", "view", branch, "--json", "url", "-q", ".url"],
+    {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    },
+  );
+  const url = output.trim();
+  return url || null;
 }
 
 export function specOutsideWorktreeReadDirs(opts: {

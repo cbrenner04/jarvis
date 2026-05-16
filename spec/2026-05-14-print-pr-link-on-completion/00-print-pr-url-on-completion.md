@@ -75,20 +75,20 @@ different shape as long as the behavior above holds.
 
 ## Acceptance criteria
 
-- [ ] On successful completion with a draft PR open, `jarvis run` prints
+- [x] On successful completion with a draft PR open, `jarvis run` prints
   the PR URL to the run terminal and the session log/server.
-- [ ] On successful completion with no PR opened, `jarvis run` still exits
+- [x] On successful completion with no PR opened, `jarvis run` still exits
   0 with the existing `spec complete` line and does not error.
-- [ ] On successful completion when the URL lookup fails, `jarvis run`
+- [x] On successful completion when the URL lookup fails, `jarvis run`
   still exits 0 with the existing `spec complete` line and emits a
   `harness` warning naming the lookup failure.
-- [ ] Existing completion, exit-code, draft-PR-creation, and ready
+- [x] Existing completion, exit-code, draft-PR-creation, and ready
   transition behavior is unchanged.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 
-- [ ] `docs/run-loop.md`: document the PR URL line emitted on successful
+- [x] `docs/run-loop.md`: document the PR URL line emitted on successful
   completion and note the no-PR / lookup-failure fallbacks.

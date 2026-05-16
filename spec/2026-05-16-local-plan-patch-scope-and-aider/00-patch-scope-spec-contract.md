@@ -6,6 +6,11 @@ file-scope section that separates editable files from read-only context. This
 subspec defines that authoring contract in docs and plan-mode prompt guidance
 only. It does not add parser or runtime behavior.
 
+Clarification for **`jarvis plan`**: Markdown **`## Patch scope`** belongs on
+implementation subspecs consumed by **`jarvis run`**. Plan iterations enforce a
+separate writable boundary under **`spec/<name>/`** via harness checks — see
+[`boundary.ts`](../../src/modes/plan/boundary.ts) — rather than Markdown patch scope.
+
 ## Decisions
 
 - Add an optional `## Patch scope` section for each subspec.

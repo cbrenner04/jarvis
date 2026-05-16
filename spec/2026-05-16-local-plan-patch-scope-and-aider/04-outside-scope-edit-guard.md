@@ -1,8 +1,12 @@
-# 04 - Outside-scope edit guard
+# 04 - Outside-scope edit guard (patch mode)
 
-Once patch scope is parsed and passed to agents, Jarvis should detect edits
-outside `Editable`. This guard should be conservative and start as a clear
-post-run failure rather than trying to automatically revert files.
+Once patch scope is parsed and passed to agents during **`jarvis run`**, Jarvis
+should detect edits outside `Editable`. This guard should be conservative and
+start as a clear post-run failure rather than trying to automatically revert files.
+
+**Note:** **`jarvis plan`** already confines writes under `spec/<name>/` via
+[`boundary.ts`](../../src/modes/plan/boundary.ts); this subspec does not replace
+that behavior.
 
 ## Decisions
 
@@ -73,4 +77,5 @@ post-run failure rather than trying to automatically revert files.
 ## Documentation updates
 
 - Update `docs/run-loop.md` or `docs/worktrees-and-commits.md` to describe
-  the outside-scope guard and the manual recovery path.
+  the outside-scope guard and the manual recovery path for **`jarvis run`** only.
+  Cross-link [`docs/plan-mode.md`](../../docs/plan-mode.md) or note briefly that **`jarvis plan`** relies on the harness **`spec/<name>/`** boundary instead.

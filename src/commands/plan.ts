@@ -184,9 +184,7 @@ function assertResumeIndexPath(specPath: string): string {
   const resolved = resolve(specPath);
   const base = basename(resolved);
   if (base !== "index.md") {
-    throw new Error(
-      `--resume requires an index.md path; got ${specPath}`,
-    );
+    throw new Error(`--resume requires an index.md path; got ${specPath}`);
   }
   return basename(dirname(resolved));
 }
@@ -408,147 +406,238 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     process.removeListener("SIGINT", onSigint);
   };
   process.once("SIGINT", onSigint);
-  const processCwd = opts.cwd ?? process.cwd();
-  const result = parsePlanArgs(args, processCwd);
-  if (!result.ok) {
-    opts.io.stderr(`${result.message}\n`);
-    return result.exitCode;
-  }
-  opts.io.stderr(`${describePlanInvocation(result.invocation)}\n`);
+  try {
+    const processCwd = opts.cwd ?? process.cwd();
+    const result = parsePlanArgs(args, processCwd);
+    if (!result.ok) {
+      opts.io.stderr(`${result.message}\n`);
+      return result.exitCode;
+    }
+    opts.io.stderr(`${describePlanInvocation(result.invocation)}\n`);
 
-  const inv = result.invocation;
-  if (inv.mode === "interactive") {
-    opts.io.stderr("plan mode: interactive session started\n");
-  }
-  // Resolve from a file-like path (matching run mode, which passes a spec
-  // file). For inline/interactive plan modes there's no real intent file, so
-  // synthesize one inside cwd: resolveProject's `dirname()` then yields cwd
-  // as the walk start, mirroring "as if there were a spec here".
-  const candidatePath =
-    inv.mode === "file" ? inv.intentPath : join(inv.cwd, "intent");
-  const cfg = loadConfig(opts.config);
-  const entryOpts: Parameters<typeof enterMode>[0] = {
-    candidatePath,
-    io: { stderr: opts.io.stderr },
-    logServerUrl: cfg.logServerUrl,
-  };
-  if (inv.repo !== undefined) {
-    entryOpts.repoFlag = inv.repo;
-  }
-  if (opts.config !== undefined) {
-    entryOpts.config = opts.config;
-  }
-  if (opts.logClient !== undefined) {
-    entryOpts.logClient = opts.logClient;
-  }
-  const entry = await enterMode(entryOpts);
-  if (entry.kind === "error") {
-    opts.io.stderr(`${entry.message}\n`);
-    return 1;
-  }
-  if (entry.kind === "ambiguous") {
-    const names = entry.candidates.map((c) => `  - ${c.key}`).join("\n");
-    opts.io.stderr(
-      `${entry.reason}\nMatching projects:\n${names}\nPass --repo <name> to disambiguate.\n`,
-    );
-    return 1;
-  }
-  if (entry.kind === "needs-prompt") {
-    opts.io.stderr(
-      "could not determine a target project for this intent and no projects are registered. Run `jarvis init` in a target repo, or pass --repo <name|url>.\n",
-    );
-    return 1;
-  }
-  if (entry.kind === "log-error") {
-    return entry.exitCode;
-  }
-
-  const project = entry.resolution.resolved.project;
-  opts.io.stderr(
-    `plan mode: target project=${project.key} root=${project.root}\n`,
-  );
-
-  if (inv.mode === "interactive" && (inv.interviewTurns ?? 3) === 0) {
-    opts.io.stderr(
-      "plan: --interview-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n",
-    );
-    return 1;
-  }
-
-  if (inv.resume) {
+    const inv = result.invocation;
     if (inv.mode === "interactive") {
-      opts.io.stderr("--resume requires a spec path\n");
-      return 1;
+      opts.io.stderr("plan mode: interactive session started\n");
     }
-    if (inv.mode !== "file") {
-      opts.io.stderr("--resume cannot be combined with intent text/file\n");
-      return 1;
-    }
-    const reviewPasses = inv.reviewPasses ?? 2;
-    const interviewTurns = inv.interviewTurns ?? 0;
-    if (reviewPasses === 0 && interviewTurns === 0) {
-      opts.io.stderr("--resume requires at least one phase\n");
-      return 1;
-    }
-
-    let resume: ResumePrep;
-    try {
-      resume = prepareResume({
-        projectRoot: project.root,
-        specPath: inv.intentPath,
-      });
-    } catch (err) {
-      opts.io.stderr(`${(err as Error).message}\n`);
-      return 1;
-    }
-
-    const branch = `plan/${resume.name}`;
-    const suffix = `r${resume.nextResumeIndex}`;
-    let nextReviewIndex = resume.nextReviewIndex;
-    opts.io.stderr(`plan mode: resume ${suffix} started\n`);
-
+    // Resolve from a file-like path (matching run mode, which passes a spec
+    // file). For inline/interactive plan modes there's no real intent file, so
+    // synthesize one inside cwd: resolveProject's `dirname()` then yields cwd
+    // as the walk start, mirroring "as if there were a spec here".
+    const candidatePath =
+      inv.mode === "file" ? inv.intentPath : join(inv.cwd, "intent");
     const cfg = loadConfig(opts.config);
-    if (interviewTurns > 0) {
+    const entryOpts: Parameters<typeof enterMode>[0] = {
+      candidatePath,
+      io: { stderr: opts.io.stderr },
+      logServerUrl: cfg.logServerUrl,
+    };
+    if (inv.repo !== undefined) {
+      entryOpts.repoFlag = inv.repo;
+    }
+    if (opts.config !== undefined) {
+      entryOpts.config = opts.config;
+    }
+    if (opts.logClient !== undefined) {
+      entryOpts.logClient = opts.logClient;
+    }
+    const entry = await enterMode(entryOpts);
+    if (entry.kind === "error") {
+      opts.io.stderr(`${entry.message}\n`);
+      return 1;
+    }
+    if (entry.kind === "ambiguous") {
+      const names = entry.candidates.map((c) => `  - ${c.key}`).join("\n");
+      opts.io.stderr(
+        `${entry.reason}\nMatching projects:\n${names}\nPass --repo <name> to disambiguate.\n`,
+      );
+      return 1;
+    }
+    if (entry.kind === "needs-prompt") {
+      opts.io.stderr(
+        "could not determine a target project for this intent and no projects are registered. Run `jarvis init` in a target repo, or pass --repo <name|url>.\n",
+      );
+      return 1;
+    }
+    if (entry.kind === "log-error") {
+      return entry.exitCode;
+    }
+
+    const project = entry.resolution.resolved.project;
+    opts.io.stderr(
+      `plan mode: target project=${project.key} root=${project.root}\n`,
+    );
+
+    if (inv.mode === "interactive" && (inv.interviewTurns ?? 3) === 0) {
+      opts.io.stderr(
+        "plan: --interview-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n",
+      );
+      return 1;
+    }
+
+    if (inv.resume) {
+      if (inv.mode === "interactive") {
+        opts.io.stderr("--resume requires a spec path\n");
+        return 1;
+      }
+      if (inv.mode !== "file") {
+        opts.io.stderr("--resume cannot be combined with intent text/file\n");
+        return 1;
+      }
+      const reviewPasses = inv.reviewPasses ?? 2;
+      const interviewTurns = inv.interviewTurns ?? 0;
+      if (reviewPasses === 0 && interviewTurns === 0) {
+        opts.io.stderr("--resume requires at least one phase\n");
+        return 1;
+      }
+
+      let resume: ResumePrep;
       try {
-        const interviewResult = await runInterviewPhase({
+        resume = prepareResume({
+          projectRoot: project.root,
+          specPath: inv.intentPath,
+        });
+      } catch (err) {
+        opts.io.stderr(`${(err as Error).message}\n`);
+        return 1;
+      }
+
+      const branch = `plan/${resume.name}`;
+      const suffix = `r${resume.nextResumeIndex}`;
+      let nextReviewIndex = resume.nextReviewIndex;
+      opts.io.stderr(`plan mode: resume ${suffix} started\n`);
+
+      const cfg = loadConfig(opts.config);
+      if (interviewTurns > 0) {
+        if (interrupted) {
+          opts.io.stderr(`plan: interrupted\n`);
+          return 130;
+        }
+        try {
+          const interviewResult = await runInterviewPhase({
+            worktreePath: resume.worktreePath,
+            name: resume.name,
+            config: cfg,
+            interviewTurns,
+          });
+          if (interviewResult.result.kind !== "ok") {
+            if (interviewResult.result.kind === "quota") {
+              opts.io.stderr(`plan: quota exhausted\n`);
+              return 2;
+            }
+            if (interviewResult.result.kind === "model_config") {
+              opts.io.stderr(
+                `plan mode: model configuration error\n${interviewResult.result.stderr}`,
+              );
+              return 3;
+            }
+            opts.io.stderr(
+              `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
+            );
+            return 1;
+          }
+          if (interrupted) {
+            opts.io.stderr(`plan: interrupted\n`);
+            return 130;
+          }
+          if (hasWorkingTreeChanges(resume.worktreePath)) {
+            commitPlanInterview({
+              worktreePath: resume.worktreePath,
+              name: resume.name,
+              mode: "interactive",
+              intentPathOrLabel: "interactive",
+              completedTurns: interviewResult.completedTurns,
+              subjectSuffix: suffix,
+              resumedBy: interviewResult.agentLabel ?? "unknown",
+            });
+          }
+          if (interviewResult.blocker !== undefined) {
+            commitPlanBlocker({
+              worktreePath: resume.worktreePath,
+              name: resume.name,
+              agentLabel: interviewResult.agentLabel ?? "unknown",
+              reason: firstNonEmptyLine(interviewResult.blocker),
+              specFilesCount: countSpecFiles(resume.worktreePath, resume.name),
+              subjectSuffix: suffix,
+            });
+            safeUpdatePrBody({
+              io: opts.io,
+              branch,
+              base: getCurrentBranch(project.root),
+              worktreePath: resume.worktreePath,
+              name: resume.name,
+            });
+            opts.io.stderr(`plan: blocked\n`);
+            opts.io.stderr(`\n## Blocker\n\n${interviewResult.blocker}\n`);
+            return 1;
+          }
+        } catch (err) {
+          opts.io.stderr(`${(err as Error).message}\n`);
+          return 1;
+        }
+      }
+
+      for (let pass = 1; pass <= reviewPasses; pass += 1) {
+        if (interrupted) {
+          opts.io.stderr(`plan: interrupted\n`);
+          return 130;
+        }
+        const intentPath = join(
+          resume.worktreePath,
+          "spec",
+          resume.name,
+          "intent.md",
+        );
+        const intentBefore = readFileSync(intentPath, "utf8");
+        const result = await runReviewPass({
           worktreePath: resume.worktreePath,
           name: resume.name,
           config: cfg,
-          interviewTurns,
+          passNumber: nextReviewIndex,
+          totalPasses: nextReviewIndex + reviewPasses - pass,
         });
-        if (interviewResult.result.kind !== "ok") {
-          if (interviewResult.result.kind === "quota") {
+        if (result.result.kind !== "ok") {
+          if (result.result.kind === "quota") {
             opts.io.stderr(`plan: quota exhausted\n`);
             return 2;
           }
-          if (interviewResult.result.kind === "model_config") {
+          if (result.result.kind === "model_config") {
             opts.io.stderr(
-              `plan mode: model configuration error\n${interviewResult.result.stderr}`,
+              `plan mode: model configuration error: ${result.result.stderr}\n`,
             );
             return 3;
           }
           opts.io.stderr(
-            `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
+            `plan mode: review pass ${nextReviewIndex} failed: ${result.result.stderr}\n`,
           );
           return 1;
         }
-        if (hasWorkingTreeChanges(resume.worktreePath)) {
-          commitPlanInterview({
-            worktreePath: resume.worktreePath,
-            name: resume.name,
-            mode: "interactive",
-            intentPathOrLabel: "interactive",
-            completedTurns: interviewResult.completedTurns,
-            subjectSuffix: suffix,
-            resumedBy: interviewResult.agentLabel ?? "unknown",
-          });
+        if (interrupted) {
+          opts.io.stderr(`plan: interrupted\n`);
+          return 130;
         }
-        if (interviewResult.blocker !== undefined) {
+
+        if (!hasWorkingTreeChanges(resume.worktreePath)) {
+          nextReviewIndex += 1;
+          continue;
+        }
+
+        const validation = validateReviewOutput(
+          resume.worktreePath,
+          resume.name,
+          intentBefore,
+        );
+        if (!validation.valid) {
+          opts.io.stderr(
+            `plan mode: review pass ${nextReviewIndex} validation failed: ${validation.error}\n`,
+          );
+          return 1;
+        }
+        if (validation.blocker !== undefined) {
           commitPlanBlocker({
             worktreePath: resume.worktreePath,
             name: resume.name,
-            agentLabel: interviewResult.agentLabel ?? "unknown",
-            reason: firstNonEmptyLine(interviewResult.blocker),
+            agentLabel: result.agentLabel ?? "unknown",
+            reason: firstNonEmptyLine(validation.blocker),
             specFilesCount: countSpecFiles(resume.worktreePath, resume.name),
             subjectSuffix: suffix,
           });
@@ -560,70 +649,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             name: resume.name,
           });
           opts.io.stderr(`plan: blocked\n`);
-          opts.io.stderr(`\n## Blocker\n\n${interviewResult.blocker}\n`);
+          opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
           return 1;
         }
-      } catch (err) {
-        opts.io.stderr(`${(err as Error).message}\n`);
-        return 1;
-      }
-    }
 
-    for (let pass = 1; pass <= reviewPasses; pass += 1) {
-      const intentPath = join(
-        resume.worktreePath,
-        "spec",
-        resume.name,
-        "intent.md",
-      );
-      const intentBefore = readFileSync(intentPath, "utf8");
-      const result = await runReviewPass({
-        worktreePath: resume.worktreePath,
-        name: resume.name,
-        config: cfg,
-        passNumber: nextReviewIndex,
-        totalPasses: nextReviewIndex + reviewPasses - pass,
-      });
-      if (result.result.kind !== "ok") {
-        if (result.result.kind === "quota") {
-          opts.io.stderr(`plan: quota exhausted\n`);
-          return 2;
-        }
-        if (result.result.kind === "model_config") {
-          opts.io.stderr(
-            `plan mode: model configuration error: ${result.result.stderr}\n`,
-          );
-          return 3;
-        }
-        opts.io.stderr(
-          `plan mode: review pass ${nextReviewIndex} failed: ${result.result.stderr}\n`,
-        );
-        return 1;
-      }
-
-      if (!hasWorkingTreeChanges(resume.worktreePath)) {
-        nextReviewIndex += 1;
-        continue;
-      }
-
-      const validation = validateReviewOutput(
-        resume.worktreePath,
-        resume.name,
-        intentBefore,
-      );
-      if (!validation.valid) {
-        opts.io.stderr(
-          `plan mode: review pass ${nextReviewIndex} validation failed: ${validation.error}\n`,
-        );
-        return 1;
-      }
-      if (validation.blocker !== undefined) {
-        commitPlanBlocker({
+        commitPlanReview({
           worktreePath: resume.worktreePath,
           name: resume.name,
+          passNumber: nextReviewIndex,
           agentLabel: result.agentLabel ?? "unknown",
-          reason: firstNonEmptyLine(validation.blocker),
-          specFilesCount: countSpecFiles(resume.worktreePath, resume.name),
           subjectSuffix: suffix,
         });
         safeUpdatePrBody({
@@ -633,258 +667,302 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath: resume.worktreePath,
           name: resume.name,
         });
-        opts.io.stderr(`plan: blocked\n`);
-        opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
+        nextReviewIndex += 1;
+      }
+
+      opts.io.stderr(`plan: complete (resume ${suffix})\n`);
+      return 0;
+    }
+
+    const tempId = crypto.randomUUID().slice(0, 8);
+    const tempPlanName = `${TEMP_PLAN_PREFIX}${tempId}`;
+    let specName = tempPlanName;
+    opts.io.stderr(`plan mode: temporary plan name=${tempPlanName}\n`);
+
+    // Create worktree for file or inline mode (only if it's a git repo and gh is available)
+    const isGitRepo = existsSync(join(project.root, ".git"));
+    let worktreePath: string | null = null;
+    if (!opts.skipGhCheck && isGitRepo) {
+      try {
+        worktreePath = await createPlanWorktree({
+          projectRoot: project.root,
+          name: tempPlanName,
+        });
+        const cfg = loadConfig(opts.config);
+        createWorktreeSymlinks(
+          project.root,
+          worktreePath,
+          cfg.worktreeSymlinks,
+        );
+        opts.io.stderr(`plan mode: worktree created at ${worktreePath}\n`);
+      } catch (err) {
+        const message = (err as Error).message;
+        // Handle local-only branch collision with a specific error message
+        if (
+          message.includes("already exists") &&
+          message.includes(".worktree")
+        ) {
+          opts.io.stderr(
+            `plan: local branch plan/${specName} already exists; delete it with \`git branch -D plan/${specName}\` and re-run\n`,
+          );
+        } else {
+          opts.io.stderr(`failed to create plan worktree: ${message}\n`);
+        }
         return 1;
       }
 
-      commitPlanReview({
-        worktreePath: resume.worktreePath,
-        name: resume.name,
-        passNumber: nextReviewIndex,
-        agentLabel: result.agentLabel ?? "unknown",
-        subjectSuffix: suffix,
-      });
-      safeUpdatePrBody({
-        io: opts.io,
-        branch,
-        base: getCurrentBranch(project.root),
-        worktreePath: resume.worktreePath,
-        name: resume.name,
-      });
-      nextReviewIndex += 1;
-    }
-
-    opts.io.stderr(`plan: complete (resume ${suffix})\n`);
-    return 0;
-  }
-
-  const tempId = crypto.randomUUID().slice(0, 8);
-  const tempPlanName = `${TEMP_PLAN_PREFIX}${tempId}`;
-  let specName = tempPlanName;
-  opts.io.stderr(`plan mode: temporary plan name=${tempPlanName}\n`);
-
-  // Create worktree for file or inline mode (only if it's a git repo and gh is available)
-  const isGitRepo = existsSync(join(project.root, ".git"));
-  let worktreePath: string | null = null;
-  if (!opts.skipGhCheck && isGitRepo) {
-    try {
-      worktreePath = await createPlanWorktree({
-        projectRoot: project.root,
-        name: tempPlanName,
-      });
-      const cfg = loadConfig(opts.config);
-      createWorktreeSymlinks(project.root, worktreePath, cfg.worktreeSymlinks);
-      opts.io.stderr(`plan mode: worktree created at ${worktreePath}\n`);
-    } catch (err) {
-      const message = (err as Error).message;
-      // Handle local-only branch collision with a specific error message
-      if (message.includes("already exists") && message.includes(".worktree")) {
-        opts.io.stderr(
-          `plan: local branch plan/${specName} already exists; delete it with \`git branch -D plan/${specName}\` and re-run\n`,
-        );
-      } else {
-        opts.io.stderr(`failed to create plan worktree: ${message}\n`);
-      }
-      return 1;
-    }
-
-    // Seed the intent.md file into the worktree
-    try {
-      if (inv.mode === "file") {
-        seedIntentFile({
-          worktreePath,
-          name: specName,
-          mode: "file",
-          intentPath: inv.intentPath,
-        });
-      } else if (inv.mode === "inline") {
-        seedIntentFile({
-          worktreePath,
-          name: specName,
-          mode: "inline",
-          intentText: inv.intentText,
-        });
-      } else {
-        seedIntentFile({
-          worktreePath,
-          name: specName,
-          mode: "interactive",
-        });
-      }
-    } catch (err) {
-      opts.io.stderr(`failed to seed intent file: ${(err as Error).message}\n`);
-      return 1;
-    }
-
-    // Load config once for use in interview and draft phases
-    const cfg = loadConfig(opts.config);
-
-    // Run interview phase
-    let interviewCompletedTurns = 0;
-    let interviewBlocker: string | undefined;
-    let interviewAgentLabel: string | null = null;
-
-    try {
-      const interviewBudget = inv.interviewTurns ?? 3;
-
-      if (interviewBudget > 0) {
-        const interviewResult = await runInterviewPhase({
-          worktreePath,
-          name: specName,
-          config: cfg,
-          interviewTurns: interviewBudget,
-        });
-
-        // Handle interview result
-        if (interviewResult.result.kind !== "ok") {
-          if (interviewResult.result.kind === "quota") {
-            opts.io.stderr(`plan: quota exhausted during interview\n`);
-            return 2;
-          }
-          if (interviewResult.result.kind === "model_config") {
-            opts.io.stderr(
-              `plan mode: model configuration error\n${interviewResult.result.stderr}`,
-            );
-            return 3;
-          }
-          // Generic error
-          opts.io.stderr(
-            `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
-          );
-          return 1;
-        }
-
-        interviewCompletedTurns = interviewResult.completedTurns;
-        interviewAgentLabel = interviewResult.agentLabel;
-        interviewBlocker = interviewResult.blocker;
-      } else if (inv.mode !== "interactive") {
-        const namingResult = await runNameOnlyPhase({
-          worktreePath,
-          name: specName,
-          config: cfg,
-        });
-        if (namingResult.result.kind !== "ok") {
-          if (namingResult.result.kind === "quota") {
-            opts.io.stderr(`plan: quota exhausted during naming-only phase\n`);
-            return 2;
-          }
-          if (namingResult.result.kind === "model_config") {
-            opts.io.stderr(
-              `plan mode: model configuration error\n${namingResult.result.stderr}`,
-            );
-            return 3;
-          }
-          opts.io.stderr(
-            `plan mode: naming-only phase failed\n${namingResult.result.stderr}`,
-          );
-          return 1;
-        }
-      }
-    } catch (err) {
-      opts.io.stderr(
-        `plan mode: interview phase error: ${(err as Error).message}\n`,
-      );
-      return 1;
-    }
-
-    const tempIntentPath = join(worktreePath, "spec", specName, "intent.md");
-    const tempIntent = readFileSync(tempIntentPath, "utf8");
-    const parsedName = parseIntentFrontmatter(tempIntent).name;
-    const validation = validateProposedName(parsedName);
-    let chosenBaseName: string;
-    if (validation.valid && validation.normalized !== undefined) {
-      chosenBaseName = validation.normalized;
-    } else {
-      chosenBaseName = await deriveSpecName(inv, project.root);
-      opts.io.stderr(
-        `plan: agent did not propose a valid name; falling back to deterministic derivation (${chosenBaseName})\n`,
-      );
-    }
-    specName = await ensureUniquePlanName(project.root, chosenBaseName);
-    opts.io.stderr(`plan mode: spec name=${specName}\n`);
-
-    const finalIntentBody = tempIntent.startsWith("---\n")
-      ? tempIntent.replace(/^---\n[\s\S]*?\n---/, `---\nname: ${specName}\n---`)
-      : `---\nname: ${specName}\n---\n\n${tempIntent}`;
-    writeFileSync(tempIntentPath, finalIntentBody, "utf8");
-
-    try {
-      renameSync(
-        join(worktreePath, "spec", tempPlanName),
-        join(worktreePath, "spec", specName),
-      );
-    } catch (err) {
-      opts.io.stderr(
-        `plan mode: failed to rename spec directory: ${(err as Error).message}\n`,
-      );
-      return 1;
-    }
-
-    try {
-      execFileSync(
-        "git",
-        ["branch", "-m", `plan/${tempPlanName}`, `plan/${specName}`],
-        {
-          cwd: worktreePath,
-          stdio: "pipe",
-        },
-      );
-      const nextWorktreePath = join(
-        project.root,
-        ".worktree",
-        `plan-${specName}`,
-      );
-      execFileSync(
-        "git",
-        ["worktree", "move", worktreePath, nextWorktreePath],
-        {
-          cwd: project.root,
-          stdio: "pipe",
-        },
-      );
-      worktreePath = nextWorktreePath;
-      const oldBranch = `plan/${tempPlanName}`;
-      const localBranches = execFileSync(
-        "git",
-        ["branch", "--list", oldBranch],
-        {
-          cwd: project.root,
-          stdio: "pipe",
-          encoding: "utf8",
-        },
-      ).trim();
-      if (localBranches.length > 0) {
-        execFileSync("git", ["branch", "-D", oldBranch], {
-          cwd: project.root,
-          stdio: "pipe",
-        });
-      }
-      opts.io.stderr(
-        `plan mode: renamed worktree and branch to plan/${specName}\n`,
-      );
-    } catch (err) {
-      const message =
-        typeof err === "object" &&
-        err !== null &&
-        "stderr" in err &&
-        Buffer.isBuffer((err as { stderr: unknown }).stderr)
-          ? (err as { stderr: Buffer }).stderr.toString("utf8")
-          : (err as Error).message;
-      opts.io.stderr(message);
-      return 1;
-    }
-
-    // Check for interrupt before any commit
-    if (interrupted) {
-      opts.io.stderr(`plan: interrupted\n`);
-      return 130;
-    }
-
-    // If a blocker was raised during interview, commit it and stop
-    if (interviewBlocker !== undefined) {
+      // Seed the intent.md file into the worktree
       try {
-        // Create the interview commit first (with the blocked state)
+        if (inv.mode === "file") {
+          seedIntentFile({
+            worktreePath,
+            name: specName,
+            mode: "file",
+            intentPath: inv.intentPath,
+          });
+        } else if (inv.mode === "inline") {
+          seedIntentFile({
+            worktreePath,
+            name: specName,
+            mode: "inline",
+            intentText: inv.intentText,
+          });
+        } else {
+          seedIntentFile({
+            worktreePath,
+            name: specName,
+            mode: "interactive",
+          });
+        }
+      } catch (err) {
+        opts.io.stderr(
+          `failed to seed intent file: ${(err as Error).message}\n`,
+        );
+        return 1;
+      }
+
+      // Load config once for use in interview and draft phases
+      const cfg = loadConfig(opts.config);
+
+      // Run interview phase
+      let interviewCompletedTurns = 0;
+      let interviewBlocker: string | undefined;
+      let interviewAgentLabel: string | null = null;
+
+      try {
+        const interviewBudget = inv.interviewTurns ?? 3;
+
+        if (interviewBudget > 0) {
+          const interviewResult = await runInterviewPhase({
+            worktreePath,
+            name: specName,
+            config: cfg,
+            interviewTurns: interviewBudget,
+          });
+
+          // Handle interview result
+          if (interviewResult.result.kind !== "ok") {
+            if (interviewResult.result.kind === "quota") {
+              opts.io.stderr(`plan: quota exhausted during interview\n`);
+              return 2;
+            }
+            if (interviewResult.result.kind === "model_config") {
+              opts.io.stderr(
+                `plan mode: model configuration error\n${interviewResult.result.stderr}`,
+              );
+              return 3;
+            }
+            // Generic error
+            opts.io.stderr(
+              `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
+            );
+            return 1;
+          }
+
+          interviewCompletedTurns = interviewResult.completedTurns;
+          interviewAgentLabel = interviewResult.agentLabel;
+          interviewBlocker = interviewResult.blocker;
+        } else if (inv.mode !== "interactive") {
+          const namingResult = await runNameOnlyPhase({
+            worktreePath,
+            name: specName,
+            config: cfg,
+          });
+          if (namingResult.result.kind !== "ok") {
+            if (namingResult.result.kind === "quota") {
+              opts.io.stderr(
+                `plan: quota exhausted during naming-only phase\n`,
+              );
+              return 2;
+            }
+            if (namingResult.result.kind === "model_config") {
+              opts.io.stderr(
+                `plan mode: model configuration error\n${namingResult.result.stderr}`,
+              );
+              return 3;
+            }
+            opts.io.stderr(
+              `plan mode: naming-only phase failed\n${namingResult.result.stderr}`,
+            );
+            return 1;
+          }
+        }
+      } catch (err) {
+        opts.io.stderr(
+          `plan mode: interview phase error: ${(err as Error).message}\n`,
+        );
+        return 1;
+      }
+
+      const tempIntentPath = join(worktreePath, "spec", specName, "intent.md");
+      const tempIntent = readFileSync(tempIntentPath, "utf8");
+      const parsedName = parseIntentFrontmatter(tempIntent).name;
+      const validation = validateProposedName(parsedName);
+      let chosenBaseName: string;
+      if (validation.valid && validation.normalized !== undefined) {
+        chosenBaseName = validation.normalized;
+      } else {
+        chosenBaseName = await deriveSpecName(inv, project.root);
+        opts.io.stderr(
+          `plan: agent did not propose a valid name; falling back to deterministic derivation (${chosenBaseName})\n`,
+        );
+      }
+      specName = await ensureUniquePlanName(project.root, chosenBaseName);
+      opts.io.stderr(`plan mode: spec name=${specName}\n`);
+
+      const finalIntentBody = tempIntent.startsWith("---\n")
+        ? tempIntent.replace(
+            /^---\n[\s\S]*?\n---/,
+            `---\nname: ${specName}\n---`,
+          )
+        : `---\nname: ${specName}\n---\n\n${tempIntent}`;
+      writeFileSync(tempIntentPath, finalIntentBody, "utf8");
+
+      try {
+        renameSync(
+          join(worktreePath, "spec", tempPlanName),
+          join(worktreePath, "spec", specName),
+        );
+      } catch (err) {
+        opts.io.stderr(
+          `plan mode: failed to rename spec directory: ${(err as Error).message}\n`,
+        );
+        return 1;
+      }
+
+      try {
+        execFileSync(
+          "git",
+          ["branch", "-m", `plan/${tempPlanName}`, `plan/${specName}`],
+          {
+            cwd: worktreePath,
+            stdio: "pipe",
+          },
+        );
+        const nextWorktreePath = join(
+          project.root,
+          ".worktree",
+          `plan-${specName}`,
+        );
+        execFileSync(
+          "git",
+          ["worktree", "move", worktreePath, nextWorktreePath],
+          {
+            cwd: project.root,
+            stdio: "pipe",
+          },
+        );
+        worktreePath = nextWorktreePath;
+        const oldBranch = `plan/${tempPlanName}`;
+        const localBranches = execFileSync(
+          "git",
+          ["branch", "--list", oldBranch],
+          {
+            cwd: project.root,
+            stdio: "pipe",
+            encoding: "utf8",
+          },
+        ).trim();
+        if (localBranches.length > 0) {
+          execFileSync("git", ["branch", "-D", oldBranch], {
+            cwd: project.root,
+            stdio: "pipe",
+          });
+        }
+        opts.io.stderr(
+          `plan mode: renamed worktree and branch to plan/${specName}\n`,
+        );
+      } catch (err) {
+        const message =
+          typeof err === "object" &&
+          err !== null &&
+          "stderr" in err &&
+          Buffer.isBuffer((err as { stderr: unknown }).stderr)
+            ? (err as { stderr: Buffer }).stderr.toString("utf8")
+            : (err as Error).message;
+        opts.io.stderr(message);
+        return 1;
+      }
+
+      // Check for interrupt before any commit
+      if (interrupted) {
+        opts.io.stderr(`plan: interrupted\n`);
+        return 130;
+      }
+
+      // If a blocker was raised during interview, commit it and stop
+      if (interviewBlocker !== undefined) {
+        try {
+          // Create the interview commit first (with the blocked state)
+          const intentPathOrLabel =
+            inv.mode === "file"
+              ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
+              : inv.mode === "inline"
+                ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
+                : "interactive";
+          commitPlanInterview({
+            worktreePath,
+            name: specName,
+            mode: inv.mode as "file" | "inline" | "interactive",
+            intentPathOrLabel,
+            completedTurns: interviewCompletedTurns,
+          });
+          opts.io.stderr(`plan mode: interview commit pushed\n`);
+
+          // Then create the blocker commit
+          const agentLabel = interviewAgentLabel ?? "unknown";
+          const reason = firstNonEmptyLine(interviewBlocker);
+
+          commitPlanBlocker({
+            worktreePath,
+            name: specName,
+            agentLabel,
+            reason,
+            specFilesCount: 0,
+          });
+          opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+          safeUpdatePrBody({
+            io: opts.io,
+            branch: `plan/${specName}`,
+            base: getCurrentBranch(project.root),
+            worktreePath,
+            name: specName,
+          });
+        } catch (err) {
+          opts.io.stderr(`${(err as Error).message}\n`);
+          return 1;
+        }
+
+        opts.io.stderr(`plan: blocked\n`);
+        if (interviewBlocker) {
+          opts.io.stderr(`\n## Blocker\n\n${interviewBlocker}\n`);
+        }
+        return 1;
+      }
+
+      // Create plan: interview commit and push
+      try {
         const intentPathOrLabel =
           inv.mode === "file"
             ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
@@ -899,355 +977,387 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           completedTurns: interviewCompletedTurns,
         });
         opts.io.stderr(`plan mode: interview commit pushed\n`);
-
-        // Then create the blocker commit
-        const agentLabel = interviewAgentLabel ?? "unknown";
-        const reason = firstNonEmptyLine(interviewBlocker);
-
-        commitPlanBlocker({
-          worktreePath,
-          name: specName,
-          agentLabel,
-          reason,
-          specFilesCount: 0,
-        });
-        opts.io.stderr(`plan mode: blocker commit pushed\n`);
-
-        safeUpdatePrBody({
-          io: opts.io,
-          branch: `plan/${specName}`,
-          base: getCurrentBranch(project.root),
-          worktreePath,
-          name: specName,
-        });
       } catch (err) {
         opts.io.stderr(`${(err as Error).message}\n`);
         return 1;
       }
 
-      opts.io.stderr(`plan: blocked\n`);
-      if (interviewBlocker) {
-        opts.io.stderr(`\n## Blocker\n\n${interviewBlocker}\n`);
-      }
-      return 1;
-    }
-
-    // Create plan: interview commit and push
-    try {
-      const intentPathOrLabel =
-        inv.mode === "file"
-          ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
-          : inv.mode === "inline"
-            ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
-            : "interactive";
-      commitPlanInterview({
-        worktreePath,
-        name: specName,
-        mode: inv.mode as "file" | "inline" | "interactive",
-        intentPathOrLabel,
-        completedTurns: interviewCompletedTurns,
-      });
-      opts.io.stderr(`plan mode: interview commit pushed\n`);
-    } catch (err) {
-      opts.io.stderr(`${(err as Error).message}\n`);
-      return 1;
-    }
-
-    // Run draft phase: invoke agent to generate spec tree
-    let draftResult: Awaited<ReturnType<typeof runDraftPhase>>;
-    let draftBlocker: string | undefined;
-    let draftSpecFilesCount = 0;
-    try {
-      // Read intent.md before the draft phase
-      const intentPath = join(worktreePath, "spec", specName, "intent.md");
-      const intentBefore = readFileSync(intentPath, "utf8");
-
-      draftResult = await runDraftPhase({
-        worktreePath,
-        name: specName,
-        config: cfg,
-        intentBefore,
-      });
-
-      // Check if draft succeeded
-      if (draftResult.result.kind !== "ok") {
-        if (draftResult.result.kind === "quota") {
-          opts.io.stderr(`plan: quota exhausted\n`);
-          return 2;
-        }
-        if (draftResult.result.kind === "model_config") {
-          opts.io.stderr(
-            `plan mode: model configuration error\n${draftResult.result.stderr}`,
-          );
-          return 3;
-        }
-        // Generic error
-        opts.io.stderr(
-          `plan mode: draft phase failed\n${draftResult.result.stderr}`,
-        );
-        return 1;
-      }
-
-      // Check for interrupt before any commit
-      if (interrupted) {
-        opts.io.stderr(`plan: interrupted\n`);
-        return 130;
-      }
-
-      // Validate output
-      const validation = validateDraftOutput(
-        worktreePath,
-        specName,
-        intentBefore,
-      );
-      if (!validation.valid) {
-        opts.io.stderr(
-          `plan mode: draft validation failed: ${validation.error}\n`,
-        );
-        return 1;
-      }
-
-      // Check if a blocker was raised
-      if (validation.blocker !== undefined) {
-        draftBlocker = validation.blocker;
-      }
-
-      draftSpecFilesCount = draftResult.subspecCount ?? 0;
-      if (draftBlocker === undefined && draftResult.subspecCount === null) {
-        opts.io.stderr(`plan mode: could not count subspecs\n`);
-        return 1;
-      }
-
-      opts.io.stderr(`plan mode: draft phase completed\n`);
-    } catch (err) {
-      opts.io.stderr(
-        `plan mode: draft phase error: ${(err as Error).message}\n`,
-      );
-      return 1;
-    }
-
-    // Cache the base branch once for subsequent gh/git calls.
-    const baseBranch = getCurrentBranch(project.root);
-    const planBranch = `plan/${specName}`;
-
-    // Check boundary before draft commit
-    const boundaryCheck = assertPlanWriteBoundary(worktreePath, specName);
-    if (!boundaryCheck.ok) {
-      opts.io.stderr(`plan: boundary violation detected before draft commit\n`);
-      revertPaths(worktreePath, boundaryCheck.offendingPaths);
-      appendBoundaryBlocker(
-        worktreePath,
-        specName,
-        boundaryCheck.offendingPaths,
-      );
-      for (const path of boundaryCheck.offendingPaths) {
-        opts.io.stderr(`  - ${path}\n`);
-      }
-
+      // Run draft phase: invoke agent to generate spec tree
+      let draftResult: Awaited<ReturnType<typeof runDraftPhase>>;
+      let draftBlocker: string | undefined;
+      let draftSpecFilesCount = 0;
       try {
-        const agentLabel = draftResult.agentLabel ?? "unknown";
-        commitPlanBlocker({
-          worktreePath,
-          name: specName,
-          agentLabel,
-          reason: "write boundary violation",
-          specFilesCount: draftSpecFilesCount,
-        });
-        opts.io.stderr(`plan mode: blocker commit pushed\n`);
-
-        safeUpdatePrBody({
-          io: opts.io,
-          branch: planBranch,
-          base: baseBranch,
-          worktreePath,
-          name: specName,
-        });
-      } catch (err) {
-        opts.io.stderr(`${(err as Error).message}\n`);
-        return 1;
-      }
-
-      opts.io.stderr(`plan: blocked\n`);
-      return 1;
-    }
-
-    // Always create a `plan: draft` commit for whatever the agent produced
-    // (per docs/plan-mode.md: draft files are committed as `plan: draft`,
-    // even when a blocker is raised in the same pass). Then, if a blocker
-    // was raised, append a separate `plan: blocker` commit and stop.
-    try {
-      const agentLabel = draftResult.agentLabel ?? "unknown";
-
-      commitPlanDraft({
-        worktreePath,
-        name: specName,
-        agentLabel,
-        subspecCount: draftSpecFilesCount,
-      });
-      opts.io.stderr(`plan mode: draft commit pushed\n`);
-    } catch (err) {
-      opts.io.stderr(`${(err as Error).message}\n`);
-      return 1;
-    }
-
-    // Open the draft PR now that the first `plan: draft` commit is on the
-    // remote. Subsequent commits update the body via `updatePrBody`.
-    try {
-      const prResult = await ensureDraftPr({
-        branch: planBranch,
-        base: baseBranch,
-        title: `plan: ${specName}`,
-        bodyGenerator: async () =>
-          buildPlanPrHeader({
-            name: specName,
-            worktreePath: worktreePath as string,
-          }),
-        footer: renderAttribution({
-          cwd: worktreePath,
-          base: baseBranch,
-        }),
-        cwd: worktreePath,
-      });
-      const prUrl = getPrUrl(worktreePath, planBranch);
-      opts.io.stdout(`${prUrl}\n`);
-      opts.io.stderr(`plan mode: draft PR #${prResult.number} opened\n`);
-    } catch (err) {
-      opts.io.stderr(
-        `warning: could not open draft PR: ${(err as Error).message}\n`,
-      );
-      // Continue; downstream commits still push, and the PR can be opened
-      // manually if needed.
-    }
-
-    // If a blocker was raised during the draft phase, commit it on top of
-    // `plan: draft` and stop.
-    if (draftBlocker !== undefined) {
-      try {
-        const agentLabel = draftResult.agentLabel ?? "unknown";
-        const reason = firstNonEmptyLine(draftBlocker);
-
-        commitPlanBlocker({
-          worktreePath,
-          name: specName,
-          agentLabel,
-          reason,
-          specFilesCount: draftSpecFilesCount,
-        });
-        opts.io.stderr(`plan mode: blocker commit pushed\n`);
-
-        safeUpdatePrBody({
-          io: opts.io,
-          branch: planBranch,
-          base: baseBranch,
-          worktreePath,
-          name: specName,
-        });
-      } catch (err) {
-        opts.io.stderr(`${(err as Error).message}\n`);
-        return 1;
-      }
-
-      opts.io.stderr(`plan: blocked\n`);
-      if (draftBlocker) {
-        opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
-      }
-      return 1;
-    }
-
-    // Post-draft body refresh (header now reflects the real index.md).
-    safeUpdatePrBody({
-      io: opts.io,
-      branch: planBranch,
-      base: baseBranch,
-      worktreePath,
-      name: specName,
-    });
-
-    // Self-review phase
-    const reviewPasses = inv.reviewPasses ?? 2;
-    for (let pass = 1; pass <= reviewPasses; pass++) {
-      // Honor a pending interrupt before doing any work for this pass.
-      if (interrupted) {
-        opts.io.stderr(`plan: interrupted\n`);
-        return 130;
-      }
-
-      opts.io.stderr(
-        `plan mode: review pass ${pass}/${reviewPasses} starting\n`,
-      );
-
-      try {
-        // Read intent.md before the pass so we can validate it wasn't modified
+        // Read intent.md before the draft phase
         const intentPath = join(worktreePath, "spec", specName, "intent.md");
         const intentBefore = readFileSync(intentPath, "utf8");
 
-        // Run the review pass
-        const reviewResult = await runReviewPass({
+        draftResult = await runDraftPhase({
           worktreePath,
           name: specName,
           config: cfg,
-          passNumber: pass,
-          totalPasses: reviewPasses,
+          intentBefore,
         });
 
-        // Handle agent errors
-        if (reviewResult.result.kind === "error") {
+        // Check if draft succeeded
+        if (draftResult.result.kind !== "ok") {
+          if (draftResult.result.kind === "quota") {
+            opts.io.stderr(`plan: quota exhausted\n`);
+            return 2;
+          }
+          if (draftResult.result.kind === "model_config") {
+            opts.io.stderr(
+              `plan mode: model configuration error\n${draftResult.result.stderr}`,
+            );
+            return 3;
+          }
+          // Generic error
           opts.io.stderr(
-            `plan mode: review pass ${pass} failed: ${reviewResult.result.stderr}\n`,
+            `plan mode: draft phase failed\n${draftResult.result.stderr}`,
           );
           return 1;
         }
 
-        if (reviewResult.result.kind === "model_config") {
-          opts.io.stderr(
-            `plan mode: model configuration error: ${reviewResult.result.stderr}\n`,
-          );
-          // Match patch mode (src/modes/patch/run.ts:1080) which exits 3 for
-          // model_config errors so a single config typo produces the same
-          // exit code regardless of which mode hits it.
-          return 3;
-        }
-
-        if (reviewResult.result.kind === "quota") {
-          opts.io.stderr(`plan: quota exhausted\n`);
-          return 2; // Quota exhausted exit code
-        }
-
-        // Honor a pending interrupt *before* committing so Ctrl-C during the
-        // agent call leaves the worktree, branch, and PR untouched.
+        // Check for interrupt before any commit
         if (interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
           return 130;
         }
 
-        // Check if the pass produced changes
-        if (!hasWorkingTreeChanges(worktreePath)) {
-          opts.io.stderr(
-            `plan mode: review pass ${pass} made no changes; skipping commit\n`,
-          );
-          continue;
-        }
-
-        // Validate the review output
-        const validation = validateReviewOutput(
+        // Validate output
+        const validation = validateDraftOutput(
           worktreePath,
           specName,
           intentBefore,
         );
         if (!validation.valid) {
           opts.io.stderr(
-            `plan mode: review pass ${pass} validation failed: ${validation.error}\n`,
+            `plan mode: draft validation failed: ${validation.error}\n`,
           );
           return 1;
         }
 
         // Check if a blocker was raised
         if (validation.blocker !== undefined) {
-          // Check boundary before blocker commit
+          draftBlocker = validation.blocker;
+        }
+
+        draftSpecFilesCount = draftResult.subspecCount ?? 0;
+        if (draftBlocker === undefined && draftResult.subspecCount === null) {
+          opts.io.stderr(`plan mode: could not count subspecs\n`);
+          return 1;
+        }
+
+        opts.io.stderr(`plan mode: draft phase completed\n`);
+      } catch (err) {
+        opts.io.stderr(
+          `plan mode: draft phase error: ${(err as Error).message}\n`,
+        );
+        return 1;
+      }
+
+      // Cache the base branch once for subsequent gh/git calls.
+      const baseBranch = getCurrentBranch(project.root);
+      const planBranch = `plan/${specName}`;
+
+      // Check boundary before draft commit
+      const boundaryCheck = assertPlanWriteBoundary(worktreePath, specName);
+      if (!boundaryCheck.ok) {
+        opts.io.stderr(
+          `plan: boundary violation detected before draft commit\n`,
+        );
+        revertPaths(worktreePath, boundaryCheck.offendingPaths);
+        appendBoundaryBlocker(
+          worktreePath,
+          specName,
+          boundaryCheck.offendingPaths,
+        );
+        for (const path of boundaryCheck.offendingPaths) {
+          opts.io.stderr(`  - ${path}\n`);
+        }
+
+        try {
+          const agentLabel = draftResult.agentLabel ?? "unknown";
+          commitPlanBlocker({
+            worktreePath,
+            name: specName,
+            agentLabel,
+            reason: "write boundary violation",
+            specFilesCount: draftSpecFilesCount,
+          });
+          opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+          safeUpdatePrBody({
+            io: opts.io,
+            branch: planBranch,
+            base: baseBranch,
+            worktreePath,
+            name: specName,
+          });
+        } catch (err) {
+          opts.io.stderr(`${(err as Error).message}\n`);
+          return 1;
+        }
+
+        opts.io.stderr(`plan: blocked\n`);
+        return 1;
+      }
+
+      // Always create a `plan: draft` commit for whatever the agent produced
+      // (per docs/plan-mode.md: draft files are committed as `plan: draft`,
+      // even when a blocker is raised in the same pass). Then, if a blocker
+      // was raised, append a separate `plan: blocker` commit and stop.
+      try {
+        const agentLabel = draftResult.agentLabel ?? "unknown";
+
+        commitPlanDraft({
+          worktreePath,
+          name: specName,
+          agentLabel,
+          subspecCount: draftSpecFilesCount,
+        });
+        opts.io.stderr(`plan mode: draft commit pushed\n`);
+      } catch (err) {
+        opts.io.stderr(`${(err as Error).message}\n`);
+        return 1;
+      }
+
+      // Open the draft PR now that the first `plan: draft` commit is on the
+      // remote. Subsequent commits update the body via `updatePrBody`.
+      try {
+        const prResult = await ensureDraftPr({
+          branch: planBranch,
+          base: baseBranch,
+          title: `plan: ${specName}`,
+          bodyGenerator: async () =>
+            buildPlanPrHeader({
+              name: specName,
+              worktreePath: worktreePath as string,
+            }),
+          footer: renderAttribution({
+            cwd: worktreePath,
+            base: baseBranch,
+          }),
+          cwd: worktreePath,
+        });
+        const prUrl = getPrUrl(worktreePath, planBranch);
+        opts.io.stdout(`${prUrl}\n`);
+        opts.io.stderr(`plan mode: draft PR #${prResult.number} opened\n`);
+      } catch (err) {
+        opts.io.stderr(
+          `warning: could not open draft PR: ${(err as Error).message}\n`,
+        );
+        // Continue; downstream commits still push, and the PR can be opened
+        // manually if needed.
+      }
+
+      // If a blocker was raised during the draft phase, commit it on top of
+      // `plan: draft` and stop.
+      if (draftBlocker !== undefined) {
+        try {
+          const agentLabel = draftResult.agentLabel ?? "unknown";
+          const reason = firstNonEmptyLine(draftBlocker);
+
+          commitPlanBlocker({
+            worktreePath,
+            name: specName,
+            agentLabel,
+            reason,
+            specFilesCount: draftSpecFilesCount,
+          });
+          opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+          safeUpdatePrBody({
+            io: opts.io,
+            branch: planBranch,
+            base: baseBranch,
+            worktreePath,
+            name: specName,
+          });
+        } catch (err) {
+          opts.io.stderr(`${(err as Error).message}\n`);
+          return 1;
+        }
+
+        opts.io.stderr(`plan: blocked\n`);
+        if (draftBlocker) {
+          opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
+        }
+        return 1;
+      }
+
+      // Post-draft body refresh (header now reflects the real index.md).
+      safeUpdatePrBody({
+        io: opts.io,
+        branch: planBranch,
+        base: baseBranch,
+        worktreePath,
+        name: specName,
+      });
+
+      // Self-review phase
+      const reviewPasses = inv.reviewPasses ?? 2;
+      for (let pass = 1; pass <= reviewPasses; pass++) {
+        // Honor a pending interrupt before doing any work for this pass.
+        if (interrupted) {
+          opts.io.stderr(`plan: interrupted\n`);
+          return 130;
+        }
+
+        opts.io.stderr(
+          `plan mode: review pass ${pass}/${reviewPasses} starting\n`,
+        );
+
+        try {
+          // Read intent.md before the pass so we can validate it wasn't modified
+          const intentPath = join(worktreePath, "spec", specName, "intent.md");
+          const intentBefore = readFileSync(intentPath, "utf8");
+
+          // Run the review pass
+          const reviewResult = await runReviewPass({
+            worktreePath,
+            name: specName,
+            config: cfg,
+            passNumber: pass,
+            totalPasses: reviewPasses,
+          });
+
+          // Handle agent errors
+          if (reviewResult.result.kind === "error") {
+            opts.io.stderr(
+              `plan mode: review pass ${pass} failed: ${reviewResult.result.stderr}\n`,
+            );
+            return 1;
+          }
+
+          if (reviewResult.result.kind === "model_config") {
+            opts.io.stderr(
+              `plan mode: model configuration error: ${reviewResult.result.stderr}\n`,
+            );
+            // Match patch mode (src/modes/patch/run.ts:1080) which exits 3 for
+            // model_config errors so a single config typo produces the same
+            // exit code regardless of which mode hits it.
+            return 3;
+          }
+
+          if (reviewResult.result.kind === "quota") {
+            opts.io.stderr(`plan: quota exhausted\n`);
+            return 2; // Quota exhausted exit code
+          }
+
+          // Honor a pending interrupt *before* committing so Ctrl-C during the
+          // agent call leaves the worktree, branch, and PR untouched.
+          if (interrupted) {
+            opts.io.stderr(`plan: interrupted\n`);
+            return 130;
+          }
+
+          // Check if the pass produced changes
+          if (!hasWorkingTreeChanges(worktreePath)) {
+            opts.io.stderr(
+              `plan mode: review pass ${pass} made no changes; skipping commit\n`,
+            );
+            continue;
+          }
+
+          // Validate the review output
+          const validation = validateReviewOutput(
+            worktreePath,
+            specName,
+            intentBefore,
+          );
+          if (!validation.valid) {
+            opts.io.stderr(
+              `plan mode: review pass ${pass} validation failed: ${validation.error}\n`,
+            );
+            return 1;
+          }
+
+          // Check if a blocker was raised
+          if (validation.blocker !== undefined) {
+            // Check boundary before blocker commit
+            const boundaryCheck = assertPlanWriteBoundary(
+              worktreePath,
+              specName,
+            );
+            if (!boundaryCheck.ok) {
+              opts.io.stderr(
+                `plan: boundary violation detected before review blocker commit\n`,
+              );
+              revertPaths(worktreePath, boundaryCheck.offendingPaths);
+              appendBoundaryBlocker(
+                worktreePath,
+                specName,
+                boundaryCheck.offendingPaths,
+              );
+              for (const path of boundaryCheck.offendingPaths) {
+                opts.io.stderr(`  - ${path}\n`);
+              }
+
+              try {
+                const agentLabel = reviewResult.agentLabel ?? "unknown";
+                commitPlanBlocker({
+                  worktreePath,
+                  name: specName,
+                  agentLabel,
+                  reason: "write boundary violation",
+                  specFilesCount: countSpecFiles(worktreePath, specName),
+                });
+                opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+                safeUpdatePrBody({
+                  io: opts.io,
+                  branch: planBranch,
+                  base: baseBranch,
+                  worktreePath,
+                  name: specName,
+                });
+              } catch (err) {
+                opts.io.stderr(`${(err as Error).message}\n`);
+                return 1;
+              }
+
+              opts.io.stderr(`plan: blocked\n`);
+              return 1;
+            }
+
+            try {
+              const agentLabel = reviewResult.agentLabel ?? "unknown";
+              const reason = firstNonEmptyLine(validation.blocker);
+              const specFilesCount = countSpecFiles(worktreePath, specName);
+
+              commitPlanBlocker({
+                worktreePath,
+                name: specName,
+                agentLabel,
+                reason,
+                specFilesCount,
+              });
+              opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+              safeUpdatePrBody({
+                io: opts.io,
+                branch: planBranch,
+                base: baseBranch,
+                worktreePath,
+                name: specName,
+              });
+            } catch (err) {
+              opts.io.stderr(`${(err as Error).message}\n`);
+              return 1;
+            }
+
+            opts.io.stderr(`plan: blocked\n`);
+            if (validation.blocker) {
+              opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
+            }
+            return 1;
+          }
+
+          // Check boundary before review commit
           const boundaryCheck = assertPlanWriteBoundary(worktreePath, specName);
           if (!boundaryCheck.ok) {
             opts.io.stderr(
-              `plan: boundary violation detected before review blocker commit\n`,
+              `plan: boundary violation detected before review commit\n`,
             );
             revertPaths(worktreePath, boundaryCheck.offendingPaths);
             appendBoundaryBlocker(
@@ -1286,19 +1396,19 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             return 1;
           }
 
+          // Commit and push this review pass
           try {
             const agentLabel = reviewResult.agentLabel ?? "unknown";
-            const reason = firstNonEmptyLine(validation.blocker);
-            const specFilesCount = countSpecFiles(worktreePath, specName);
 
-            commitPlanBlocker({
+            commitPlanReview({
               worktreePath,
               name: specName,
+              passNumber: pass,
               agentLabel,
-              reason,
-              specFilesCount,
             });
-            opts.io.stderr(`plan mode: blocker commit pushed\n`);
+            opts.io.stderr(
+              `plan mode: review pass ${pass} committed and pushed\n`,
+            );
 
             safeUpdatePrBody({
               io: opts.io,
@@ -1311,112 +1421,33 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             opts.io.stderr(`${(err as Error).message}\n`);
             return 1;
           }
-
-          opts.io.stderr(`plan: blocked\n`);
-          if (validation.blocker) {
-            opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
-          }
-          return 1;
-        }
-
-        // Check boundary before review commit
-        const boundaryCheck = assertPlanWriteBoundary(worktreePath, specName);
-        if (!boundaryCheck.ok) {
-          opts.io.stderr(
-            `plan: boundary violation detected before review commit\n`,
-          );
-          revertPaths(worktreePath, boundaryCheck.offendingPaths);
-          appendBoundaryBlocker(
-            worktreePath,
-            specName,
-            boundaryCheck.offendingPaths,
-          );
-          for (const path of boundaryCheck.offendingPaths) {
-            opts.io.stderr(`  - ${path}\n`);
-          }
-
-          try {
-            const agentLabel = reviewResult.agentLabel ?? "unknown";
-            commitPlanBlocker({
-              worktreePath,
-              name: specName,
-              agentLabel,
-              reason: "write boundary violation",
-              specFilesCount: countSpecFiles(worktreePath, specName),
-            });
-            opts.io.stderr(`plan mode: blocker commit pushed\n`);
-
-            safeUpdatePrBody({
-              io: opts.io,
-              branch: planBranch,
-              base: baseBranch,
-              worktreePath,
-              name: specName,
-            });
-          } catch (err) {
-            opts.io.stderr(`${(err as Error).message}\n`);
-            return 1;
-          }
-
-          opts.io.stderr(`plan: blocked\n`);
-          return 1;
-        }
-
-        // Commit and push this review pass
-        try {
-          const agentLabel = reviewResult.agentLabel ?? "unknown";
-
-          commitPlanReview({
-            worktreePath,
-            name: specName,
-            passNumber: pass,
-            agentLabel,
-          });
-          opts.io.stderr(
-            `plan mode: review pass ${pass} committed and pushed\n`,
-          );
-
-          safeUpdatePrBody({
-            io: opts.io,
-            branch: planBranch,
-            base: baseBranch,
-            worktreePath,
-            name: specName,
-          });
         } catch (err) {
-          opts.io.stderr(`${(err as Error).message}\n`);
+          opts.io.stderr(
+            `plan mode: review pass ${pass} error: ${(err as Error).message}\n`,
+          );
           return 1;
         }
-      } catch (err) {
-        opts.io.stderr(
-          `plan mode: review pass ${pass} error: ${(err as Error).message}\n`,
-        );
-        return 1;
       }
+
+      opts.io.stderr(`plan: complete\n`);
+
+      // For file/inline mode, commits were successfully created and pushed
+      opts.io.stderr(
+        `plan mode: commits created and pushed to plan/${specName}\n`,
+      );
+
+      return 0;
     }
 
-    opts.io.stderr(`plan: complete\n`);
-
-    // For file/inline mode, commits were successfully created and pushed
-    opts.io.stderr(
-      `plan mode: commits created and pushed to plan/${specName}\n`,
-    );
-
-    // Remove the SIGINT handler
+    // This path is reached when `skipGhCheck` is true (test seam) or when the
+    // target is not a git repo: no worktree is created, no commits are made,
+    // and plan mode falls through to the not-yet-implemented stub. The
+    // interactive case is handled earlier when `planName` is null.
+    opts.io.stderr(PLAN_STUB_MESSAGE);
+    return 2;
+  } finally {
     process.removeListener("SIGINT", onSigint);
-
-    return 0;
   }
-
-  // Remove the SIGINT handler
-  process.removeListener("SIGINT", onSigint);
-
-  // This path is reached when `skipGhCheck` is true (test seam) or when the
-  // target is not a git repo: no worktree is created, no commits are made,
-  // and plan mode falls through to the not-yet-implemented stub. The
-  // interactive case is handled earlier when `planName` is null.
-  opts.io.stderr(PLAN_STUB_MESSAGE);
-  return 2;
 }
 
 function getCurrentBranch(cwd: string): string {

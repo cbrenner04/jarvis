@@ -109,8 +109,8 @@ pass with a different agent. Resume re-runs the self-review phase
   per resume invocation.
 - [x] Validation rejects all documented invalid combinations.
 - [x] Resume reuses the existing draft PR.
-- [ ] Blocker, quota, and Ctrl-C handling match initial invocation.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] Blocker, quota, and Ctrl-C handling match initial invocation.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

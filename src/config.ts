@@ -85,8 +85,15 @@ export type AgentEntry = {
   model: string;
 };
 
+export type ClaudeAgentConfig = {
+  outputFormat?: "json" | "text";
+};
+
 export type ModeConfig = {
   agentOrder: AgentEntry[];
+  agents?: {
+    claude?: ClaudeAgentConfig;
+  };
 };
 
 export type Config = {
@@ -203,9 +210,15 @@ function validateConfig(input: unknown, file: string): Config {
   ) {
     fail(file, 'modes.patch must be an object with "agentOrder" array');
   }
+  const patchModeObj = patchMode as Record<string, unknown>;
   const patchAgentOrder = validateAgentOrder(
-    (patchMode as Record<string, unknown>).agentOrder,
+    patchModeObj.agentOrder,
     "modes.patch.agentOrder",
+    file,
+  );
+  const patchAgents = validateModeAgents(
+    patchModeObj.agents,
+    "modes.patch",
     file,
   );
 
@@ -217,11 +230,13 @@ function validateConfig(input: unknown, file: string): Config {
   ) {
     fail(file, 'modes.plan must be an object with "agentOrder" array');
   }
+  const planModeObj = planMode as Record<string, unknown>;
   const planAgentOrder = validateAgentOrder(
-    (planMode as Record<string, unknown>).agentOrder,
+    planModeObj.agentOrder,
     "modes.plan.agentOrder",
     file,
   );
+  const planAgents = validateModeAgents(planModeObj.agents, "modes.plan", file);
 
   const maxIterations = validatePositiveInteger(
     obj.maxIterations ?? DEFAULT_CONFIG.maxIterations,
@@ -343,9 +358,11 @@ function validateConfig(input: unknown, file: string): Config {
     modes: {
       patch: {
         agentOrder: patchAgentOrder,
+        ...(patchAgents !== undefined ? { agents: patchAgents } : {}),
       },
       plan: {
         agentOrder: planAgentOrder,
+        ...(planAgents !== undefined ? { agents: planAgents } : {}),
       },
     },
     quotaFallback,
@@ -402,6 +419,55 @@ function validateAgentOrder(
     agentOrder.push({ agent: entry.agent, model: entry.model });
   }
   return agentOrder;
+}
+
+function validateModeAgents(
+  input: unknown,
+  fieldName: string,
+  file: string,
+): Record<string, unknown> | undefined {
+  if (input === undefined) {
+    return undefined;
+  }
+
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    fail(file, `${fieldName}.agents must be an object`);
+  }
+
+  const agents = input as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+
+  // Validate claude config if present
+  if (agents.claude !== undefined) {
+    const claudeConfig = agents.claude;
+    if (
+      claudeConfig === null ||
+      typeof claudeConfig !== "object" ||
+      Array.isArray(claudeConfig)
+    ) {
+      fail(file, `${fieldName}.agents.claude must be an object`);
+    }
+
+    const claudeObj = claudeConfig as Record<string, unknown>;
+    const validated: Record<string, unknown> = {};
+
+    if (claudeObj.outputFormat !== undefined) {
+      if (
+        claudeObj.outputFormat !== "json" &&
+        claudeObj.outputFormat !== "text"
+      ) {
+        fail(
+          file,
+          `${fieldName}.agents.claude.outputFormat must be "json" or "text"`,
+        );
+      }
+      validated.outputFormat = claudeObj.outputFormat;
+    }
+
+    result.claude = validated;
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 export function validatePositiveInteger(
@@ -663,4 +729,10 @@ export function openSessionLog(
   const sessionsDir = resolveSessionsDir(opts);
   mkdirSync(sessionsDir, { recursive: true });
   return openSync(join(sessionsDir, `${namespace}-${timestamp}.log`), "a");
+}
+
+export function getClaudeOutputFormat(cfg: Config): "json" | "text" {
+  const claudeConfig = cfg.modes.patch.agents?.claude;
+  const format = claudeConfig?.outputFormat;
+  return format === "text" ? "text" : "json";
 }

@@ -212,21 +212,21 @@ fields on the last one.
 
 ## Acceptance criteria
 
-- [ ] `claude -p` runs in JSON mode by default and the resulting per-
+- [x] `claude -p` runs in JSON mode by default and the resulting per-
       iteration telemetry record carries `usage` and `cost_usd` /
       `cost_source` populated by either the envelope or `computeCost`.
-- [ ] Truncated or malformed envelopes never crash the run; they fall
+- [x] Truncated or malformed envelopes never crash the run; they fall
       back to raw stdout for display, `usage = null`, and emit a single
       harness warning.
-- [ ] `outputFormat: "text"` config option restores legacy behavior
+- [x] `outputFormat: "text"` config option restores legacy behavior
       end-to-end (no JSON parsing, no usage data, streaming-style
       output as before).
-- [ ] Captured fixtures are committed under `test/fixtures/claude/`.
+- [x] Captured fixtures are committed under `test/fixtures/claude/`.
 - [x] `## Verified envelope` section in this file is populated with the
       observed schema(s).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes (including all new tests).
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes (including all new tests).
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

@@ -54,7 +54,7 @@ describe("ClaudeAgent", () => {
 
   test("spawns `claude -p` with prompt on stdin in cwd, mapping exit 0 → ok", async () => {
     const bin = fakeBinary({ exit: 0, stdout: "hi-out", stderr: "hi-err" });
-    const agent = new ClaudeAgent({ binary: bin });
+    const agent = new ClaudeAgent({ binary: bin, outputFormat: "text" });
 
     const result = await agent.run("the prompt", { cwd });
 
@@ -71,7 +71,11 @@ describe("ClaudeAgent", () => {
 
   test("includes model flag when model is configured", async () => {
     const bin = fakeBinary({ exit: 0 });
-    const agent = new ClaudeAgent({ binary: bin, model: "haiku" });
+    const agent = new ClaudeAgent({
+      binary: bin,
+      model: "haiku",
+      outputFormat: "text",
+    });
 
     await agent.run("the prompt", { cwd });
 
@@ -140,7 +144,7 @@ describe("ClaudeAgent", () => {
 
   test("appends --add-dir for each additionalReadDirs entry", async () => {
     const bin = fakeBinary({ exit: 0 });
-    const agent = new ClaudeAgent({ binary: bin });
+    const agent = new ClaudeAgent({ binary: bin, outputFormat: "text" });
 
     await agent.run("p", {
       cwd,

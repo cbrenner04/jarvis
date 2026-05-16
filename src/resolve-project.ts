@@ -49,7 +49,7 @@ export type ResolveOptions = {
 /**
  * Resolve which project a `jarvis run` invocation should target.
  *
- * See spec/portable-repo-resolution/01-repo-url-resolution.md for the
+ * See spec/2026-05-12-portable-repo-resolution/01-repo-url-resolution.md for the
  * resolution order.
  */
 export function resolveProject(opts: ResolveOptions): ResolveResult {

@@ -1,6 +1,6 @@
-// Permission posture: safe-edits (see spec/permissions/00-default-posture.md).
+// Permission posture: safe-edits (see spec/2026-05-11-permissions/00-default-posture.md).
 // Permission handling: configured in ~/.config/opencode/opencode.json (see
-// spec/opencode-as-agent/04-opencode-permission-stanza.md). Jarvis does not
+// spec/2026-05-11-opencode-as-agent/04-opencode-permission-stanza.md). Jarvis does not
 // pass --dangerously-skip-permissions.
 import { runAgent } from "./spawn.ts";
 import type {

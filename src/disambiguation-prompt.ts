@@ -27,7 +27,7 @@ export type DisambiguationResult =
  * Render a numbered picker for registered projects and read one line from
  * the user. Returns the matched project, or signals cancellation / non-TTY.
  *
- * See spec/portable-repo-resolution/02-disambiguation-prompt.md.
+ * See spec/2026-05-12-portable-repo-resolution/02-disambiguation-prompt.md.
  */
 export async function promptForProject(
   opts: DisambiguationOptions,

@@ -236,7 +236,7 @@ run check`** on pushes to `main` and on pull requests (see
 status checks, required reviews, code-owner review) need **branch
 protection** on `main`. GitHub only allows that for **public** repositories
 or **paid** plans on private repos; until then, use the steps in
-`spec/github-ci-and-governance/02-branch-protection-via-gh.md` once the repo
+`spec/2026-05-11-github-ci-and-governance/02-branch-protection-via-gh.md` once the repo
 qualifies. That guide configures protection so repository **admins can
 bypass** rules when you need to merge without waiting on checks.
 

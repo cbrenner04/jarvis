@@ -1,5 +1,5 @@
-// Permission posture: safe-edits (see spec/permissions/00-default-posture.md).
-// Permission flags: --permission-mode acceptEdits (see spec/permissions/01-claude-flags.md).
+// Permission posture: safe-edits (see spec/2026-05-11-permissions/00-default-posture.md).
+// Permission flags: --permission-mode acceptEdits (see spec/2026-05-11-permissions/01-claude-flags.md).
 // Invokes the `claude` CLI in non-interactive print mode: `claude -p` with the
 // prompt piped on stdin. Stdin is used (instead of an argv positional) so the
 // prompt size is not bounded by the OS argv limit. Default `--output-format` with

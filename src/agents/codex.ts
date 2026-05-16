@@ -1,6 +1,6 @@
-// Permission posture: safe-edits (see spec/permissions/00-default-posture.md).
+// Permission posture: safe-edits (see spec/2026-05-11-permissions/00-default-posture.md).
 // Sandbox flags: --sandbox workspace-write -c approval_policy="on-request"
-// (see spec/permissions/02-codex-flags.md).
+// (see spec/2026-05-11-permissions/02-codex-flags.md).
 // Invokes the `codex` CLI in non-interactive exec mode: `codex exec` with the
 // prompt piped on stdin. Stdin is used (instead of an argv positional) so the
 // prompt size is not bounded by the OS argv limit; `codex exec` reads the

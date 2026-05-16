@@ -74,7 +74,7 @@ Jarvis **never** passes a provider's "bypass everything" or "dangerously skip
 permissions" flags (e.g., `--dangerously-skip-permissions`,
 `--force-allow-all`). Users who need to run an agent with fewer restrictions
 should invoke the CLI directly. The rationale and per-provider implementation
-are documented in [../spec/permissions/](../spec/permissions/).
+are documented in [../spec/2026-05-11-permissions/](../spec/2026-05-11-permissions/).
 
 ## Opencode setup
 

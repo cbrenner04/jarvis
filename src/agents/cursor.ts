@@ -1,5 +1,5 @@
-// Permission posture: safe-edits (see spec/permissions/00-default-posture.md).
-// Permission flags: --force (see spec/permissions/03-cursor-flags.md).
+// Permission posture: safe-edits (see spec/2026-05-11-permissions/00-default-posture.md).
+// Permission flags: --force (see spec/2026-05-11-permissions/03-cursor-flags.md).
 // Invokes the `cursor` CLI in non-interactive print mode:
 // `cursor agent -p --output-format text --workspace <cwd> "<prompt>"`.
 // `-p`/`--print` is headless mode with full tool access; `--output-format text`

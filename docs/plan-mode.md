@@ -21,8 +21,8 @@ Plan mode is useful for:
 
 Plan mode does **not** handle:
 
-- Interactive interviews (in flight; see `spec/plan-mode-interview/`).
-- Resume logic (in flight; see `spec/plan-mode-resume-and-handoff/`).
+- Interactive interviews (in flight; see `spec/2026-05-14-plan-mode-interview/`).
+- Resume logic (in flight; see `spec/2026-05-14-plan-mode-resume-and-handoff/`).
 - Spec implementation. After a plan-generated spec merges to `main`, use `jarvis run spec/<name>/index.md` to implement it.
 
 ## Input modes
@@ -32,7 +32,7 @@ Plan mode accepts intent in three forms:
 ### File mode
 
 ```sh
-jarvis plan spec/v1/intent.md
+jarvis plan spec/2026-05-11-v1/intent.md
 ```
 
 Jarvis reads the file at the path and uses its full contents as intent.
@@ -51,7 +51,7 @@ Jarvis uses the supplied text directly as intent. Useful for quick one-liners wi
 jarvis plan
 ```
 
-(Not yet implemented; see `spec/plan-mode-interview/`.) Jarvis will prompt the user for intent interactively and write a `plan/<name>/intent.md` before starting draft and review phases.
+(Not yet implemented; see `spec/2026-05-14-plan-mode-interview/`.) Jarvis will prompt the user for intent interactively and write a `plan/<name>/intent.md` before starting draft and review phases.
 
 ## Phases
 
@@ -131,7 +131,7 @@ Plan mode does not yet write into the narrative section (that may land in later 
 
 ### `--interview-turns <n>`
 
-(Parsed but inert; lands in `spec/plan-mode-interview/`.) When interactive mode is implemented, this will control how many interview prompts are sent. Default: 1.
+(Parsed but inert; lands in `spec/2026-05-14-plan-mode-interview/`.) When interactive mode is implemented, this will control how many interview prompts are sent. Default: 1.
 
 ### `--review-passes <n>`
 
@@ -147,7 +147,7 @@ Select the target repository. Same semantics as `jarvis run --repo`. If omitted,
 
 ### `--resume`
 
-(Parsed but inert; lands in `spec/plan-mode-resume-and-handoff/`.) When resume logic is implemented, this will allow re-running plan mode on an existing worktree to continue from a blocker or completed phase.
+(Parsed but inert; lands in `spec/2026-05-14-plan-mode-resume-and-handoff/`.) When resume logic is implemented, this will allow re-running plan mode on an existing worktree to continue from a blocker or completed phase.
 
 ## Stop conditions
 

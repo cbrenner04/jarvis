@@ -173,7 +173,7 @@ function validateConfig(input: unknown, file: string): Config {
   if (obj.version !== 2) {
     const msg =
       obj.version === 1
-        ? `config version 1 is not supported. Convert to version 2 by:\n  1. set "version": 2\n  2. remove "agentOrder", "planAgentOrder", and "patchModels" keys\n  3. add "modes": { "patch": { "agentOrder": [{"agent": "claude", "model": "haiku"}, ...] }, "plan": { "agentOrder": [...] } }\n  See spec/cli-modes-and-config-v2/00-config-v2-modes.md for details.`
+        ? `config version 1 is not supported. Convert to version 2 by:\n  1. set "version": 2\n  2. remove "agentOrder", "planAgentOrder", and "patchModels" keys\n  3. add "modes": { "patch": { "agentOrder": [{"agent": "claude", "model": "haiku"}, ...] }, "plan": { "agentOrder": [...] } }\n  See spec/2026-05-14-cli-modes-and-config-v2/00-config-v2-modes.md for details.`
         : `missing or unsupported version (expected 2, got ${JSON.stringify(obj.version)})`;
     fail(file, msg);
   }
@@ -185,7 +185,7 @@ function validateConfig(input: unknown, file: string): Config {
   ) {
     fail(
       file,
-      `legacy keys found: "agentOrder", "planAgentOrder", and "patchModels" are no longer supported. Each entry in "modes.patch.agentOrder" / "modes.plan.agentOrder" now carries its own model: [{"agent": "claude", "model": "haiku"}, ...]. See spec/cli-modes-and-config-v2/00-config-v2-modes.md for details.`,
+      `legacy keys found: "agentOrder", "planAgentOrder", and "patchModels" are no longer supported. Each entry in "modes.patch.agentOrder" / "modes.plan.agentOrder" now carries its own model: [{"agent": "claude", "model": "haiku"}, ...]. See spec/2026-05-14-cli-modes-and-config-v2/00-config-v2-modes.md for details.`,
     );
   }
 

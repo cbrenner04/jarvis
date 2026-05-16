@@ -36,7 +36,7 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 ## Conventions for spec files in *this* repo
 
 - All specs live under `spec/`.
-- Multi-file specs go in a subdirectory with an `index.md` (e.g. `spec/v1/index.md`).
+- Multi-file specs go in a subdirectory with an `index.md` (e.g. `spec/2026-05-11-v1/index.md`).
 - The index is the routing file an agent reads to select work. It contains a checklist of subspec pointers; a subspec is complete when its checkbox is checked.
 - Each subspec is **atomic and testable**: it can be implemented and verified independently of the others.
 - Each subspec includes a **Documentation updates** section. Doc changes are part of the work, not a follow-up.

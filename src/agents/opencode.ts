@@ -33,8 +33,17 @@ export class OpencodeAgent implements Agent {
         name: this.name,
         binary: this.#binary,
         cwd: opts.cwd,
-        buildArgv: (prompt) => {
-          return ["run", "--model", this.#model, "--format", "default", prompt];
+        buildArgv: (prompt, buildOpts) => {
+          return [
+            "run",
+            "--dir",
+            buildOpts.cwd,
+            "--model",
+            this.#model,
+            "--format",
+            "default",
+            prompt,
+          ];
         },
         stdio: ["ignore", "pipe", "pipe"],
         streamErrorPrefix: "opencode:",

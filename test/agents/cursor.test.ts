@@ -61,9 +61,10 @@ describe("CursorAgent", () => {
     expect(argv).toBe(
       `agent\0-p\0--output-format\0text\0--force\0--workspace\0${cwd}\0the prompt\0`,
     );
-    expect(readFileSync(join(dir, "cwd"), "utf8").trim()).toBe(
-      realpathSync(cwd),
-    );
+    const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
+    const resolvedReportedCwd = realpathSync(reportedCwd);
+    const resolvedCwd = realpathSync(cwd);
+    expect(resolvedReportedCwd).toBe(resolvedCwd);
   });
 
   test("includes model flag when model is configured", async () => {

@@ -39,4 +39,4 @@ layer and one optional belt-and-suspenders flag for `opencode`. It is
 **not** about relocating worktrees outside the parent repo (a much
 larger change discussed and discarded in favor of this fix).
 
-- [ ] [00 - Normalize `PWD` and pass `--dir` for spawned agents](./00-normalize-pwd-and-opencode-dir.md)
+- [x] [00 - Normalize `PWD` and pass `--dir` for spawned agents](./00-normalize-pwd-and-opencode-dir.md)

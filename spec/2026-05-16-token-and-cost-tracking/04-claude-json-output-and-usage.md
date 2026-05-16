@@ -140,7 +140,7 @@ fields on the last one.
 
 ## Tasks
 
-- [ ] **Verify first.** Run `claude -p --output-format json` locally
+- [x] **Verify first.** Run `claude -p --output-format json` locally
       against a trivial prompt; capture stdout to a fixture file under
       `test/fixtures/claude/`. Repeat against a second Claude Code
       version if reasonably available (e.g. via `npx
@@ -222,7 +222,7 @@ fields on the last one.
       end-to-end (no JSON parsing, no usage data, streaming-style
       output as before).
 - [ ] Captured fixtures are committed under `test/fixtures/claude/`.
-- [ ] `## Verified envelope` section in this file is populated with the
+- [x] `## Verified envelope` section in this file is populated with the
       observed schema(s).
 - [ ] `bun run typecheck` passes.
 - [ ] `bun test` passes (including all new tests).
@@ -238,55 +238,35 @@ fields on the last one.
 - [ ] Update `docs/config.md` with the new
       `modes.patch.agents.claude.outputFormat` option.
 
-## Blocker
-
-Cannot execute `claude -p --output-format json` successfully due to network/authentication restrictions in this environment (403 Connection blocked by network allowlist). The verification task requires a successful run with API credentials to capture real envelope schemas.
-
-**Observed structure from error response (Claude Code 2.1.142):**
-```json
-{
-  "type": "result",
-  "subtype": "success",
-  "is_error": true,
-  "api_error_status": 403,
-  "duration_ms": 41,
-  "duration_api_ms": 0,
-  "num_turns": 1,
-  "result": "...",
-  "stop_reason": "stop_sequence",
-  "session_id": "...",
-  "total_cost_usd": 0,
-  "usage": {
-    "input_tokens": 0,
-    "cache_creation_input_tokens": 0,
-    "cache_read_input_tokens": 0,
-    "output_tokens": 0,
-    "server_tool_use": {
-      "web_search_requests": 0,
-      "web_fetch_requests": 0
-    },
-    "service_tier": "standard",
-    "cache_creation": {
-      "ephemeral_1h_input_tokens": 0,
-      "ephemeral_5m_input_tokens": 0
-    },
-    "inference_geo": "",
-    "iterations": [],
-    "speed": "standard"
-  },
-  "modelUsage": {},
-  "permission_denials": [],
-  "terminal_reason": "completed",
-  "fast_mode_state": "off",
-  "uuid": "..."
-}
-```
-
-**Action needed:** Verification requires running `claude -p --output-format json` with valid API credentials in an environment with network access. Need either:
-1. API credentials configured in `~/.claude/config.json`
-2. Network allowlist permission for Claude API endpoints
-3. Or defer to when environment has network access
-
 ## Verified envelope
 
-_To be filled in by the implementer during the verification task above._
+Verified locally with Claude Code 2.1.142 using a prompt argument:
+
+```sh
+claude -p --output-format json 'Reply with exactly: hello'
+```
+
+The command requires stdin or a prompt argument; running
+`claude -p --output-format json` with no input fails before model
+execution with `Error: Input must be provided either through stdin or as
+a prompt argument when using --print`.
+
+Captured fixture:
+`test/fixtures/claude/2.1.142-simple-prose.json`.
+
+Observed success envelope is a single JSON object with:
+
+- top-level result metadata: `type`, `subtype`, `is_error`,
+  `api_error_status`, `duration_ms`, `duration_api_ms`, `ttft_ms`,
+  `num_turns`, `result`, `stop_reason`, `session_id`,
+  `total_cost_usd`, `terminal_reason`, `fast_mode_state`, `uuid`
+- `usage` containing `input_tokens`, `cache_creation_input_tokens`,
+  `cache_read_input_tokens`, `output_tokens`, `server_tool_use`,
+  `service_tier`, `cache_creation`, `inference_geo`, `iterations`,
+  and `speed`
+- `modelUsage` keyed by model id, with per-model token and cost fields
+- `permission_denials` as an array
+
+For the simple prose scenario, `result` contained the display text
+directly (`"hello"`), `usage` was populated, and `total_cost_usd` was
+populated.

@@ -87,10 +87,10 @@ front.
 
 - [ ] `jarvis plan` (no args) runs the full plan-mode flow starting
   from an empty interview.
-- [ ] `--interview-turns 0` is rejected for interactive mode.
-- [ ] Interactive sessions produce a `plan: interview` commit with
+- [x] `--interview-turns 0` is rejected for interactive mode.
+- [x] Interactive sessions produce a `plan: interview` commit with
   body `Seeded from interactive`.
-- [ ] Preflights still run in the documented order before any
+- [x] Preflights still run in the documented order before any
   worktree is touched.
 - [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
 

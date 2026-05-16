@@ -63,6 +63,31 @@ function failingLogClient(message: string): LogClient {
 }
 
 describe("planCommand", () => {
+  test("interactive mode + --interview-turns 0 rejects before worktree creation", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      execSync("git init -b main", { cwd: project });
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--interview-turns", "0"],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(
+        "plan: --interview-turns 0 is incompatible with interactive mode",
+      );
+      expect(cap.err()).not.toContain(
+        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+      );
+      expect(existsSync(join(project, ".worktree"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("no args → interactive mode, stub on stderr, exit 2", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {
@@ -910,6 +935,21 @@ describe("deriveSpecName", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("interactive mode: base name is interactive-<short-timestamp>", async () => {
+    const { dir, projectRoot } = setupProjectDir();
+    try {
+      const inv: PlanInvocation = {
+        mode: "interactive",
+        cwd: projectRoot,
+        resume: false,
+      };
+      const name = await deriveSpecName(inv, projectRoot);
+      expect(name).toMatch(/^interactive-\d{4}-\d{2}-\d{2}-\d{4}$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("seedIntentFile", () => {
@@ -1002,6 +1042,29 @@ describe("seedIntentFile", () => {
       const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
       const written = readFileSync(writtenPath, "utf8");
       expect(written).toBe("\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("interactive mode: writes minimal seed intent", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-interactive-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "interactive",
+      });
+
+      const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
+      expect(existsSync(writtenPath)).toBe(true);
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toBe(
+        "# Intent\n\n(Interactive session — no seed text. The interview will gather\nthe intent.)\n",
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -116,6 +116,52 @@ describe("commitPlanInterview", () => {
       cleanup();
     }
   });
+
+  test("creates interview commit with correct message for interactive mode", () => {
+    const { origin, worktreeRoot, cleanup } = setupPlanRemote();
+    try {
+      execSync("git branch plan/test-spec", { cwd: worktreeRoot });
+      const worktreePath = join(worktreeRoot, "worktree");
+      mkdirSync(worktreePath);
+      execSync("git worktree add --no-checkout worktree plan/test-spec", {
+        cwd: worktreeRoot,
+      });
+      execSync("git checkout plan/test-spec", { cwd: worktreePath });
+
+      mkdirSync(join(worktreePath, "spec", "test-spec"), {
+        recursive: true,
+      });
+      writeFileSync(
+        join(worktreePath, "spec", "test-spec", "intent.md"),
+        "test intent",
+      );
+
+      commitPlanInterview({
+        worktreePath,
+        name: "test-spec",
+        mode: "interactive",
+        intentPathOrLabel: "interactive",
+      });
+
+      const commitMsg = execSync("git log -1 --format=%B", {
+        cwd: worktreePath,
+        encoding: "utf8",
+      }).trim();
+      expect(commitMsg).toBe(
+        "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from interactive\nTurns: 0",
+      );
+
+      const remoteCommits = execSync("git log --oneline", {
+        cwd: origin,
+        encoding: "utf8",
+      })
+        .trim()
+        .split("\n");
+      expect(remoteCommits.length).toBeGreaterThan(0);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("commitPlanDraft", () => {

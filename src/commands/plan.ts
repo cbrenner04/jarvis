@@ -66,7 +66,16 @@ function toKebabCase(str: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function derivePlanName(inv: PlanInvocation): string | null {
+function formatShortTimestamp(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}-${hour}${minute}`;
+}
+
+function derivePlanName(inv: PlanInvocation): string {
   switch (inv.mode) {
     case "file": {
       const filename = basename(inv.intentPath);
@@ -80,7 +89,7 @@ function derivePlanName(inv: PlanInvocation): string | null {
       return truncated || "plan";
     }
     case "interactive":
-      return null;
+      return `interactive-${formatShortTimestamp(new Date())}`;
   }
 }
 
@@ -110,15 +119,7 @@ export async function deriveSpecName(
   inv: PlanInvocation,
   projectRoot: string,
 ): Promise<string> {
-  const candidateName = derivePlanName(inv);
-  // Note: derivePlanName returns null for interactive mode, but interactive mode
-  // is filtered out in planCommand before calling deriveSpecName, so candidateName
-  // is always a string here
-  if (candidateName === null) {
-    throw new Error("deriveSpecName called with interactive mode");
-  }
-
-  let name = candidateName;
+  let name = derivePlanName(inv);
 
   // Check reserved names
   if (RESERVED_NAMES.has(name)) {
@@ -159,7 +160,7 @@ export async function deriveSpecName(
   return finalName;
 }
 
-export type SeedIntentFileMode = "file" | "inline";
+export type SeedIntentFileMode = "file" | "inline" | "interactive";
 
 export type SeedIntentFileOptions = {
   worktreePath: string;
@@ -196,6 +197,9 @@ export function seedIntentFile(opts: SeedIntentFileOptions): void {
       throw new Error("intentText required for inline mode");
     }
     content = `${opts.intentText}\n`;
+  } else if (opts.mode === "interactive") {
+    content =
+      "# Intent\n\n(Interactive session — no seed text. The interview will gather\nthe intent.)\n";
   } else {
     throw new Error(`unknown mode: ${opts.mode}`);
   }
@@ -227,6 +231,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   opts.io.stderr(`${describePlanInvocation(result.invocation)}\n`);
 
   const inv = result.invocation;
+  if (inv.mode === "interactive") {
+    opts.io.stderr("plan mode: interactive session started\n");
+  }
   // Resolve from a file-like path (matching run mode, which passes a spec
   // file). For inline/interactive plan modes there's no real intent file, so
   // synthesize one inside cwd: resolveProject's `dirname()` then yields cwd
@@ -275,11 +282,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     `plan mode: target project=${project.key} root=${project.root}\n`,
   );
 
-  // For interactive mode, keep falling through to stub exit
-  const planName = derivePlanName(inv);
-  if (planName === null) {
-    opts.io.stderr(PLAN_STUB_MESSAGE);
-    return 2;
+  if (inv.mode === "interactive" && (inv.interviewTurns ?? 3) === 0) {
+    opts.io.stderr(
+      "plan: --interview-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n",
+    );
+    return 1;
   }
 
   // Derive the spec name with collision handling
@@ -326,6 +333,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           name: specName,
           mode: "inline",
           intentText: inv.intentText,
+        });
+      } else {
+        seedIntentFile({
+          worktreePath,
+          name: specName,
+          mode: "interactive",
         });
       }
     } catch (err) {
@@ -395,11 +408,13 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         const intentPathOrLabel =
           inv.mode === "file"
             ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
-            : (inv as Extract<typeof inv, { mode: "inline" }>).intentText;
+            : inv.mode === "inline"
+              ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
+              : "interactive";
         commitPlanInterview({
           worktreePath,
           name: specName,
-          mode: inv.mode as "file" | "inline",
+          mode: inv.mode as "file" | "inline" | "interactive",
           intentPathOrLabel,
           completedTurns: interviewCompletedTurns,
         });
@@ -442,11 +457,13 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const intentPathOrLabel =
         inv.mode === "file"
           ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
-          : (inv as Extract<typeof inv, { mode: "inline" }>).intentText;
+          : inv.mode === "inline"
+            ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
+            : "interactive";
       commitPlanInterview({
         worktreePath,
         name: specName,
-        mode: inv.mode as "file" | "inline",
+        mode: inv.mode as "file" | "inline" | "interactive",
         intentPathOrLabel,
         completedTurns: interviewCompletedTurns,
       });

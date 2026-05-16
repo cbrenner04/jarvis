@@ -20,7 +20,7 @@ import { ClaudeAgent } from "../../agents/claude.ts";
 import { CodexAgent } from "../../agents/codex.ts";
 import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
-import { isWeakQuotaSignal } from "../../agents/quota.ts";
+import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
@@ -1409,16 +1409,17 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     const editedFiles = isGitWorktree
       ? worktreeCompletionBlocker(agentWorkingDir) !== undefined
       : false;
-    const weakQuotaAllowed = cfg.quotaFallback !== "strict";
-    const weakQuota = weakQuotaAllowed
-      ? isWeakQuotaSignal(
-          agent.name,
-          result.exitCode,
-          result.stderr,
-          cfg.weakQuotaExitCodes,
-        )
-      : false;
-    if (weakQuota && !checkedAnyCriteria && !editedFiles) {
+    const noIterationProgress = !checkedAnyCriteria && !editedFiles;
+    const classified = applyQuotaFallbackWhenAllowed(
+      agent.name,
+      result,
+      {
+        quotaFallback: cfg.quotaFallback,
+        weakQuotaExitCodes: cfg.weakQuotaExitCodes,
+      },
+      noIterationProgress,
+    );
+    if (classified.kind === "quota") {
       activeAgents.shift();
       fanout(
         "harness",

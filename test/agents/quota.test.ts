@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyQuotaFallbackToAgentResult,
+  applyQuotaFallbackWhenAllowed,
   isModelConfigurationSignal,
   isQuotaSignal,
   isWeakQuotaSignal,
@@ -26,6 +28,16 @@ describe("isQuotaSignal", () => {
     ).toBe(true);
   });
 
+  test("matches Claude insufficient_quota / exhausted wording", () => {
+    expect(isQuotaSignal("claude", 1, "error: insufficient_quota")).toBe(true);
+    expect(isQuotaSignal("claude", 1, "quota exceeded for this key")).toBe(
+      true,
+    );
+    expect(
+      isQuotaSignal("claude", 1, "requests have been exhausted for today"),
+    ).toBe(true);
+  });
+
   test("does not treat generic Claude Code errors as quota", () => {
     expect(
       isQuotaSignal("claude", 1, "Not logged in · Please run /login"),
@@ -48,6 +60,12 @@ describe("isQuotaSignal", () => {
       ),
     ).toBe(true);
     expect(isQuotaSignal("codex", 1, "error: rate_limit_exceeded")).toBe(true);
+  });
+
+  test("matches Codex insufficient_quota wording", () => {
+    expect(isQuotaSignal("codex", 1, '{"error":"insufficient_quota"}')).toBe(
+      true,
+    );
   });
 
   test("does not treat generic Codex errors as quota", () => {
@@ -145,5 +163,83 @@ describe("isWeakQuotaSignal", () => {
     expect(
       isWeakQuotaSignal("claude", 2, "TypeScript compile error", [7]),
     ).toBe(false);
+  });
+});
+
+describe("applyQuotaFallbackToAgentResult", () => {
+  const lenientOpts = {
+    quotaFallback: "lenient" as const,
+    weakQuotaExitCodes: [] as readonly number[],
+  };
+  const strictOpts = {
+    quotaFallback: "strict" as const,
+    weakQuotaExitCodes: [] as readonly number[],
+  };
+
+  test("passes through non-error results unchanged", () => {
+    const ok = { kind: "ok" as const, stdout: "", stderr: "" };
+    expect(applyQuotaFallbackToAgentResult("claude", ok, lenientOpts)).toBe(ok);
+
+    const quota = { kind: "quota" as const, stderr: "limit" };
+    expect(
+      applyQuotaFallbackToAgentResult("claude", quota, lenientOpts),
+    ).toEqual(quota);
+  });
+
+  test("lenient mode upgrades weak-quota-like errors to quota", () => {
+    const err = {
+      kind: "error" as const,
+      exitCode: 1,
+      stderr: "HTTP 429: too many requests",
+    };
+    expect(applyQuotaFallbackToAgentResult("claude", err, lenientOpts)).toEqual(
+      {
+        kind: "quota",
+        stderr: err.stderr,
+      },
+    );
+  });
+
+  test("strict mode leaves weak-quota-like errors as errors", () => {
+    const err = {
+      kind: "error" as const,
+      exitCode: 1,
+      stderr: "HTTP 429: too many requests",
+    };
+    expect(applyQuotaFallbackToAgentResult("claude", err, strictOpts)).toBe(
+      err,
+    );
+  });
+});
+
+describe("applyQuotaFallbackWhenAllowed", () => {
+  const lenientOpts = {
+    quotaFallback: "lenient" as const,
+    weakQuotaExitCodes: [] as readonly number[],
+  };
+
+  test("skips weak upgrade when caller disallow flag is false", () => {
+    const err = {
+      kind: "error" as const,
+      exitCode: 1,
+      stderr: "HTTP 429: too many requests",
+    };
+    expect(
+      applyQuotaFallbackWhenAllowed("claude", err, lenientOpts, false),
+    ).toBe(err);
+  });
+
+  test("delegates to applyQuotaFallbackToAgentResult when allowed", () => {
+    const err = {
+      kind: "error" as const,
+      exitCode: 1,
+      stderr: "HTTP 429: too many requests",
+    };
+    expect(
+      applyQuotaFallbackWhenAllowed("claude", err, lenientOpts, true),
+    ).toEqual({
+      kind: "quota",
+      stderr: err.stderr,
+    });
   });
 });

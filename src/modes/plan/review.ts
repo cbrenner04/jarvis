@@ -5,10 +5,12 @@ import { ClaudeAgent } from "../../agents/claude.ts";
 import { CodexAgent } from "../../agents/codex.ts";
 import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
+import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { detectBlocker } from "./blocker.ts";
 import { PlaceholderCollisionError } from "./draft.ts";
+import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 
 const PLACEHOLDER_TOKENS = [
   "<INTENT>",
@@ -202,9 +204,24 @@ export async function runReviewPass(
       agent.attributionLabel?.() ??
       `${entry.agent} (${entry.model ?? "default"})`;
 
+    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     result = await agent.run(prompt, {
       cwd: opts.worktreePath,
     });
+    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
+    const noDiskChangeDuringInvocation =
+      porcelainBefore !== null &&
+      porcelainAfter !== null &&
+      porcelainBefore === porcelainAfter;
+    result = applyQuotaFallbackWhenAllowed(
+      entry.agent,
+      result,
+      {
+        quotaFallback: opts.config.quotaFallback,
+        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
+      },
+      noDiskChangeDuringInvocation,
+    );
 
     if (result.kind === "ok") {
       return { result, agentLabel };

@@ -4,6 +4,15 @@ Jarvis classifies quota exhaustion after an agent CLI exits non-zero. Exit codes
 are not documented as stable by the vendors, so the implementation treats the
 exit code as a guard (`0` is never quota) and matches stderr text patterns.
 
+**Patch and plan modes:** With `quotaFallback: "lenient"`, **`applyQuotaFallbackWhenAllowed`**
+(`src/agents/quota.ts`) may upgrade `kind: "error"` using **`applyQuotaFallbackToAgentResult`**
+ / **`isWeakQuotaSignal`**. The caller passes **`allowLenientWeakQuotaFallback`**: patch sets it when
+an iteration made **no progress** (no new acceptance-criteria checks and no dirty worktree).
+Plan sets it when **`git status --porcelain`** is **unchanged** across that agent invocation (snapshot
+before and after `agent.run` via `src/modes/plan/git-porcelain.ts`). If the worktree changed, weak
+quota fallback is skipped so partial writes are not mistaken for a clean miss. Strict spawn-side
+**`kind: "quota"`** still triggers fallback immediately (no guard).
+
 ## Capture convention (real quota events)
 
 Record real quota stderr whenever you hit one during normal usage.

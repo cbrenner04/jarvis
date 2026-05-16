@@ -1,16 +1,21 @@
-import type { AgentName } from "./types.ts";
+import type { AgentName, AgentResult } from "./types.ts";
 
 const claudeQuotaPatterns = [
   /\byou['’]ve hit your (?:session|weekly|opus) limit\b/i,
   /\byou['’]ve hit your org['’]s monthly usage limit\b/i,
   /\bcredit balance is too low\b/i,
   /\brequest rejected \(429\)\b/i,
+  /\binsufficient[_ ]quota\b/i,
+  /\bquota exceeded\b/i,
+  /\b(usages?|requests?) (?:have been )?exhausted\b/i,
 ];
 
 const codexQuotaPatterns = [
   /\byou['’]ve (?:hit|reached) your usage limit\b/i,
   /\busage limit\b.*\b(?:reset|resets|window)\b/i,
   /\brate_limit_exceeded\b/i,
+  /\binsufficient[_ ]quota\b/i,
+  /\bquota exceeded\b/i,
 ];
 
 const cursorQuotaPatterns = [
@@ -21,6 +26,8 @@ const cursorQuotaPatterns = [
   /\bon-demand spending limit\b/i,
   /\bspend limit\b/i,
   /\bresource_exhausted\b/i,
+  /\binsufficient[_ ]quota\b/i,
+  /\bquota exceeded\b/i,
 ];
 
 const opencodeQuotaPatterns = [
@@ -104,4 +111,54 @@ export function isWeakQuotaSignal(
     weakExitCodes instanceof Set ? weakExitCodes : new Set(weakExitCodes);
   if (codes.has(exitCode)) return true;
   return weakQuotaPatterns.some((pattern) => pattern.test(stderr));
+}
+
+export type QuotaFallbackConfig = {
+  quotaFallback: "strict" | "lenient";
+  weakQuotaExitCodes: readonly number[];
+};
+
+/**
+ * Lenient weak-quota upgrade for `kind: "error"` only. Callers supply guards via
+ * {@link applyQuotaFallbackWhenAllowed}.
+ */
+export function applyQuotaFallbackToAgentResult(
+  agentName: AgentName,
+  result: AgentResult,
+  opts: QuotaFallbackConfig,
+): AgentResult {
+  if (result.kind !== "error") {
+    return result;
+  }
+  if (opts.quotaFallback === "strict") {
+    return result;
+  }
+  if (
+    isWeakQuotaSignal(
+      agentName,
+      result.exitCode,
+      result.stderr,
+      opts.weakQuotaExitCodes,
+    )
+  ) {
+    return { kind: "quota", stderr: result.stderr };
+  }
+  return result;
+}
+
+/**
+ * Applies {@link applyQuotaFallbackToAgentResult} only when `allowLenientWeakQuotaFallback`
+ * is true. Patch passes “no iteration progress”; plan passes “git porcelain unchanged
+ * for this agent invocation.”
+ */
+export function applyQuotaFallbackWhenAllowed(
+  agentName: AgentName,
+  result: AgentResult,
+  cfg: QuotaFallbackConfig,
+  allowLenientWeakQuotaFallback: boolean,
+): AgentResult {
+  if (!allowLenientWeakQuotaFallback) {
+    return result;
+  }
+  return applyQuotaFallbackToAgentResult(agentName, result, cfg);
 }

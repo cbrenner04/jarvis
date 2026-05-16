@@ -58,7 +58,9 @@ Plan mode executes these phases in order:
 
 Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). It writes `spec/<name>/intent.md` with seeded intent text (file/inline modes) or just `# Intent` (interactive mode), then runs interview turns up to the configured budget (`--interview-turns`, default `3`).
 
-Each turn is one agent invocation. The prompt tells the agent to use the structured `question` tool and batch one or more multiple-choice questions as needed. After each answered turn, jarvis validates `intent.md` changed by appending exactly one new `## Interview turn N` section and that prior content is unchanged. If the agent makes no `question` call and does not modify `intent.md` on a turn, interview ends early.
+Each turn is one agent invocation. The prompt tells the agent to use the structured `question` tool and batch one or more multiple-choice questions as needed. With `quotaFallback: "lenient"`, weak-quota fallback to the next agent runs only when **`git status --porcelain`** matches before and after that invocation (no disk mutations during the attempt); see [quota-signals.md](./quota-signals.md).
+
+After each answered turn, jarvis validates `intent.md` changed by appending exactly one new `## Interview turn N` section and that prior content is unchanged. If the agent makes no `question` call and does not modify `intent.md` on a turn, interview ends early.
 
 The interview also requires the agent to propose a kebab-case spec name by writing `name: <kebab-case>` in a leading frontmatter-ish block in `intent.md`. If the budget is `0` in file/inline modes, jarvis still runs one naming-only agent invocation; if no name is proposed, jarvis falls back to deterministic derivation and logs a stderr note.
 

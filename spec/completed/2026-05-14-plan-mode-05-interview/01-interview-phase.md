@@ -127,14 +127,14 @@ modes.
 
 ## Acceptance criteria
 
-- [ ] Interview loop runs up to `--interview-turns` iterations,
+- [x] Interview loop runs up to `--interview-turns` iterations,
   appending `## Interview turn N` sections to `intent.md` per turn.
-- [ ] `plan: interview` commit body includes the completed turn
+- [x] `plan: interview` commit body includes the completed turn
   count.
-- [ ] Per-turn validation rejects malformed agent output.
-- [ ] Blocker convention handled during interview.
-- [ ] Quota fallback per turn.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] Per-turn validation rejects malformed agent output.
+- [x] Blocker convention handled during interview.
+- [x] Quota fallback per turn.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

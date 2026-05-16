@@ -183,7 +183,7 @@ switch to a sibling `index.md` (when one exists) or exit.
 
 ### `jarvis plan`
 
-`jarvis plan [<intent-file|"inline text">]` creates a dedicated git worktree and branch to draft a new spec collaboratively with an agent. It reads the user's intent (from a file, inline text, or interactive prompt), generates an agent-drafted `spec/<name>/index.md` with atomic subspecs, optionally refines it through self-review passes, and opens a draft PR. The spec remains in draft status until the user merges it to `main`; after merge, it becomes available to `jarvis run` for implementation.
+`jarvis plan [<intent-file|"inline text">]` creates a dedicated git worktree and branch to draft a new spec collaboratively with an agent. It supports file mode, inline mode, and interactive mode (`jarvis plan` with no args), runs interview → draft → self-review phases, and opens a draft PR. In interactive mode, jarvis starts with an empty intent seed and gathers intent through structured interview questions. The spec remains in draft status until the user merges it to `main`; after merge, it becomes available to `jarvis run` for implementation.
 
 For full details — phases, flags, stop conditions, PR lifecycle, and cleanup — see
 [docs/plan-mode.md](docs/plan-mode.md).

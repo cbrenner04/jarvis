@@ -15,6 +15,39 @@ export type DraftPhaseOptions = {
   intentBefore?: string;
 };
 
+export class PlaceholderCollisionError extends Error {
+  constructor(
+    public field: string,
+    public token: string,
+  ) {
+    super(
+      `${field} contains the literal token \`${token}\`; this would corrupt the prompt`,
+    );
+    this.name = "PlaceholderCollisionError";
+  }
+}
+
+const PLACEHOLDER_TOKENS = [
+  "<INTENT>",
+  "<SPEC_GUIDANCE>",
+  "<NAME>",
+  "<WORKDIR>",
+  "<CURRENT_SPEC>",
+];
+
+function validatePlaceholders(
+  values: Record<string, string>,
+): PlaceholderCollisionError | null {
+  for (const [field, value] of Object.entries(values)) {
+    for (const token of PLACEHOLDER_TOKENS) {
+      if (value.includes(token)) {
+        return new PlaceholderCollisionError(field, token);
+      }
+    }
+  }
+  return null;
+}
+
 /**
  * Build the draft phase prompt by injecting intent.md, spec guidance, and rules.
  */
@@ -23,6 +56,15 @@ export function buildDraftPrompt(opts: {
   intent: string;
   specGuidance: string;
 }): string {
+  const collisionError = validatePlaceholders({
+    name: opts.name,
+    intent: opts.intent,
+    specGuidance: opts.specGuidance,
+  });
+  if (collisionError !== null) {
+    throw collisionError;
+  }
+
   const promptFile = join(import.meta.dir, "prompts", "draft.md");
   let template = readFileSync(promptFile, "utf8");
 
@@ -80,11 +122,26 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
   const specGuidance = readFileSync(docsPath, "utf8");
 
   // Build the prompt
-  const prompt = buildDraftPrompt({
-    name: opts.name,
-    intent,
-    specGuidance,
-  });
+  let prompt: string;
+  try {
+    prompt = buildDraftPrompt({
+      name: opts.name,
+      intent,
+      specGuidance,
+    });
+  } catch (err) {
+    if (err instanceof PlaceholderCollisionError) {
+      return {
+        result: {
+          kind: "model_config",
+          stderr: err.message,
+        },
+        subspecCount: null,
+        agentLabel: null,
+      };
+    }
+    throw err;
+  }
 
   // Try each agent in order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;
@@ -176,8 +233,23 @@ function isValidIntentModification(before: string, after: string): boolean {
 
   // Reconstruct the file without the blocker section
   const beforeBlocker = afterLines.slice(0, blockerIndex).join("\n").trim();
+  if (beforeBlocker !== before.trim()) {
+    return false;
+  }
 
-  return beforeBlocker === before.trim();
+  return readFrontmatter(before) === readFrontmatter(after);
+}
+
+function readFrontmatter(text: string): string | null {
+  const normalized = text.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return null;
+  }
+  const end = normalized.indexOf("\n---\n", 4);
+  if (end === -1) {
+    return null;
+  }
+  return normalized.slice(0, end + 5);
 }
 
 /**
@@ -227,7 +299,7 @@ export function validateDraftOutput(
       return {
         valid: false,
         error:
-          "intent.md was modified (only allowed modification is appending ## Blocker)",
+          "intent.md was modified (only allowed modification is appending ## Blocker; frontmatter is immutable)",
       };
     }
   }

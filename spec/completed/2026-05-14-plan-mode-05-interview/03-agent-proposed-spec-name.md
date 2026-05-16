@@ -138,15 +138,15 @@ worktree that gets renamed once the agent picks a name.
 
 ## Acceptance criteria
 
-- [ ] Spec names are agent-proposed by default, with
+- [x] Spec names are agent-proposed by default, with
   deterministic-fallback parity when the agent declines or proposes
   invalid input.
-- [ ] Worktree and branch names are renamed atomically (from the
+- [x] Worktree and branch names are renamed atomically (from the
   user's perspective) before any push to origin.
-- [ ] `intent.md` carries the chosen `name:` in a leading
+- [x] `intent.md` carries the chosen `name:` in a leading
   frontmatter block; later phases must not touch it.
-- [ ] Uniqueness suffix loop still applies.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] Uniqueness suffix loop still applies.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

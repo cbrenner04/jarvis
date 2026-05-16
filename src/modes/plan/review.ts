@@ -8,11 +8,36 @@ import { OpencodeAgent } from "../../agents/opencode.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { detectBlocker } from "./blocker.ts";
+import { PlaceholderCollisionError } from "./draft.ts";
+
+const PLACEHOLDER_TOKENS = [
+  "<INTENT>",
+  "<SPEC_GUIDANCE>",
+  "<NAME>",
+  "<WORKDIR>",
+  "<CURRENT_SPEC>",
+  "<REVIEW_PASS_CONTEXT>",
+];
+
+function validatePlaceholders(
+  values: Record<string, string>,
+): PlaceholderCollisionError | null {
+  for (const [field, value] of Object.entries(values)) {
+    for (const token of PLACEHOLDER_TOKENS) {
+      if (value.includes(token)) {
+        return new PlaceholderCollisionError(field, token);
+      }
+    }
+  }
+  return null;
+}
 
 export type ReviewPhaseOptions = {
   worktreePath: string;
   name: string;
   config: Config;
+  passNumber?: number;
+  totalPasses?: number;
 };
 
 /**
@@ -23,7 +48,28 @@ export function buildReviewPrompt(opts: {
   intent: string;
   specGuidance: string;
   currentSpec: string;
+  passNumber?: number;
+  totalPasses?: number;
 }): string {
+  const passNumber = opts.passNumber ?? 1;
+  const totalPasses = opts.totalPasses ?? 1;
+
+  const reviewPassContext =
+    passNumber === 1
+      ? "This is the first review pass. The spec snapshot below is the original draft."
+      : `This is review pass ${passNumber} of ${totalPasses}. The spec snapshot below reflects the prior pass.`;
+
+  const collisionError = validatePlaceholders({
+    name: opts.name,
+    intent: opts.intent,
+    specGuidance: opts.specGuidance,
+    currentSpec: opts.currentSpec,
+    reviewPassContext,
+  });
+  if (collisionError !== null) {
+    throw collisionError;
+  }
+
   const promptFile = join(import.meta.dir, "prompts", "review.md");
   let template = readFileSync(promptFile, "utf8");
 
@@ -32,6 +78,7 @@ export function buildReviewPrompt(opts: {
   template = template.replaceAll("<INTENT>", opts.intent);
   template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
   template = template.replaceAll("<CURRENT_SPEC>", opts.currentSpec);
+  template = template.replaceAll("<REVIEW_PASS_CONTEXT>", reviewPassContext);
 
   return template;
 }
@@ -59,7 +106,7 @@ function createAgent(agentName: AgentName, model: string | undefined): Agent {
 /**
  * Snapshot all current spec files into a string for prompt injection.
  */
-function snapshotSpecFiles(worktreePath: string, name: string): string {
+export function snapshotSpecFiles(worktreePath: string, name: string): string {
   const specDir = join(worktreePath, "spec", name);
   if (!existsSync(specDir)) {
     return "(spec directory does not exist)";
@@ -67,9 +114,11 @@ function snapshotSpecFiles(worktreePath: string, name: string): string {
 
   const files = readdirSync(specDir);
   // Exclude intent.md and non-markdown files
-  const specFiles = files
-    .filter((f) => f.endsWith(".md") && f !== "intent.md")
-    .sort();
+  const specFiles = files.filter((f) => f.endsWith(".md") && f !== "intent.md");
+
+  // Sort deterministically using locale-independent string comparison
+  const collator = new Intl.Collator("en", { sensitivity: "variant" });
+  specFiles.sort((a, b) => collator.compare(a, b));
 
   const lines: string[] = [];
   for (const file of specFiles) {
@@ -107,12 +156,40 @@ export async function runReviewPass(
   const currentSpec = snapshotSpecFiles(opts.worktreePath, opts.name);
 
   // Build the prompt
-  const prompt = buildReviewPrompt({
-    name: opts.name,
-    intent,
-    specGuidance,
-    currentSpec,
-  });
+  let prompt: string;
+  try {
+    const promptOpts: {
+      name: string;
+      intent: string;
+      specGuidance: string;
+      currentSpec: string;
+      passNumber?: number;
+      totalPasses?: number;
+    } = {
+      name: opts.name,
+      intent,
+      specGuidance,
+      currentSpec,
+    };
+    if (opts.passNumber !== undefined) {
+      promptOpts.passNumber = opts.passNumber;
+    }
+    if (opts.totalPasses !== undefined) {
+      promptOpts.totalPasses = opts.totalPasses;
+    }
+    prompt = buildReviewPrompt(promptOpts);
+  } catch (err) {
+    if (err instanceof PlaceholderCollisionError) {
+      return {
+        result: {
+          kind: "model_config",
+          stderr: err.message,
+        },
+        agentLabel: null,
+      };
+    }
+    throw err;
+  }
 
   // Try each agent in order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;
@@ -203,8 +280,22 @@ function isValidIntentModification(before: string, after: string): boolean {
 
   // Reconstruct the file without the blocker section
   const beforeBlocker = afterLines.slice(0, blockerIndex).join("\n").trim();
+  if (beforeBlocker !== before.trim()) {
+    return false;
+  }
+  return readFrontmatter(before) === readFrontmatter(after);
+}
 
-  return beforeBlocker === before.trim();
+function readFrontmatter(text: string): string | null {
+  const normalized = text.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return null;
+  }
+  const end = normalized.indexOf("\n---\n", 4);
+  if (end === -1) {
+    return null;
+  }
+  return normalized.slice(0, end + 5);
 }
 
 /**
@@ -242,7 +333,8 @@ export function validateReviewOutput(
     // Otherwise it's an error: blocker was added but so was other content
     return {
       valid: false,
-      error: "intent.md was modified beyond adding a ## Blocker section",
+      error:
+        "intent.md was modified beyond adding a ## Blocker section (frontmatter is immutable)",
     };
   }
 

@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { CommitInfo } from "../../pr.ts";
+import { readBranchCommits } from "../../pr.ts";
 
 /**
  * A single subspec entry parsed from `index.md`.
@@ -74,14 +76,14 @@ export function buildPlanPrHeader(opts: {
     indexPath !== null ? parseIndex(indexPath) : { title: "", subspecs: [] };
 
   const titleLine =
-    parsed.title !== "" ? `# ${parsed.title}` : `# plan: ${opts.name}`;
+    parsed.title !== "" ? `# ${parsed.title}` : `# Plan: ${opts.name}`;
   const total = parsed.subspecs.length;
   const checked = parsed.subspecs.filter((s) => s.checked).length;
-  const progressLine = `## Progress: ${checked}/${total}`;
 
   const lines: string[] = [titleLine, ""];
-  lines.push(progressLine, "");
-  if (parsed.subspecs.length > 0) {
+  if (total > 0) {
+    const progressLine = `## Progress: ${checked}/${total}`;
+    lines.push(progressLine, "");
     for (const sub of parsed.subspecs) {
       lines.push(sub.line);
     }
@@ -99,5 +101,155 @@ export function buildPlanPrHeader(opts: {
     "Implementation work begins in a separate run with `jarvis run",
     `spec/${opts.name}/index.md\` after the merge.`,
   );
+  return lines.join("\n");
+}
+
+/**
+ * Check if a commit is a plan-mode meta-commit.
+ * Meta-commits have subjects starting with "plan: " and first body line
+ * pointing to the intent.md file (not a subspec file).
+ */
+function isPlanMetaCommit(commit: CommitInfo): boolean {
+  return (
+    commit.subject.startsWith("plan: ") &&
+    commit.firstBodyLine.startsWith("Spec: spec/") &&
+    commit.firstBodyLine.includes("/intent.md")
+  );
+}
+
+/**
+ * Check if a commit is a subspec commit.
+ * Subspec commits have first body line starting with "Spec: " and pointing
+ * to an actual subspec file (not intent.md).
+ */
+function isSubspecCommit(commit: CommitInfo): boolean {
+  return (
+    commit.firstBodyLine.startsWith("Spec: spec/") &&
+    !commit.firstBodyLine.includes("/intent.md")
+  );
+}
+
+/**
+ * Group consecutive plan-mode meta-commits together.
+ */
+function groupMetaCommits(
+  commits: CommitInfo[],
+): (CommitInfo | CommitInfo[])[] {
+  const groups: (CommitInfo | CommitInfo[])[] = [];
+  let metaGroup: CommitInfo[] = [];
+
+  for (const commit of commits) {
+    if (isPlanMetaCommit(commit)) {
+      metaGroup.push(commit);
+    } else {
+      if (metaGroup.length > 0) {
+        const group =
+          metaGroup.length === 1 && metaGroup[0] ? metaGroup[0] : metaGroup;
+        groups.push(group);
+        metaGroup = [];
+      }
+      groups.push(commit);
+    }
+  }
+
+  if (metaGroup.length > 0) {
+    const group =
+      metaGroup.length === 1 && metaGroup[0] ? metaGroup[0] : metaGroup;
+    groups.push(group);
+  }
+
+  return groups;
+}
+
+/**
+ * Render the PR-body attribution footer for plan-mode PRs.
+ * Collapses consecutive plan-mode meta-commits into a single summary line.
+ * Subspec commits are rendered as individual bullets.
+ *
+ * Returns `""` when the branch has no commits at all. When the branch has
+ * commits, the footer includes collapsed meta-commits and subspec bullets.
+ */
+export function renderPlanAttribution(opts: {
+  cwd: string;
+  base: string;
+}): string {
+  const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
+  if (commits.length === 0) {
+    return "";
+  }
+
+  const grouped = groupMetaCommits(commits);
+  const bullets: string[] = [];
+  const labelOrder: string[] = [];
+  const seenLabels = new Set<string>();
+
+  for (const group of grouped) {
+    if (Array.isArray(group)) {
+      // Multiple collapsed meta-commits
+      const metaCommits = group as CommitInfo[];
+      const agentSet = new Set<string>();
+      for (const commit of metaCommits) {
+        for (const agent of commit.jarvisAgentTrailers) {
+          agentSet.add(agent);
+        }
+      }
+      const agents = Array.from(agentSet);
+      const agentLabel = agents.length === 0 ? "Jarvis" : agents.join(", ");
+      bullets.push(
+        `- ${metaCommits.length} spec commits (interview, draft, review) — ${agentLabel}`,
+      );
+      for (const agent of agents) {
+        if (agent !== "" && !seenLabels.has(agent)) {
+          seenLabels.add(agent);
+          labelOrder.push(agent);
+        }
+      }
+    } else {
+      // Single commit (meta or subspec)
+      const commit = group as CommitInfo;
+      if (isPlanMetaCommit(commit)) {
+        // Single meta-commit
+        const agentSet = new Set<string>();
+        for (const agent of commit.jarvisAgentTrailers) {
+          agentSet.add(agent);
+        }
+        const agents = Array.from(agentSet);
+        const agentLabel = agents.length === 0 ? "Jarvis" : agents.join(", ");
+        bullets.push(
+          `- 1 spec commits (interview, draft, review) — ${agentLabel}`,
+        );
+        for (const agent of agents) {
+          if (agent !== "" && !seenLabels.has(agent)) {
+            seenLabels.add(agent);
+            labelOrder.push(agent);
+          }
+        }
+      } else if (isSubspecCommit(commit)) {
+        // Individual subspec commit
+        const label =
+          commit.jarvisAgentTrailers.length === 0
+            ? "unknown"
+            : commit.jarvisAgentTrailers.join(", ");
+        bullets.push(`- ${commit.shortSha} ${commit.subject} — ${label}`);
+        for (const single of commit.jarvisAgentTrailers) {
+          if (single === "" || seenLabels.has(single)) {
+            continue;
+          }
+          seenLabels.add(single);
+          labelOrder.push(single);
+        }
+      }
+    }
+  }
+
+  if (bullets.length === 0) {
+    return "";
+  }
+
+  const lines = [...bullets];
+  if (labelOrder.length > 0) {
+    lines.push("");
+    lines.push(`Written by ${labelOrder.join(", ")} through Jarvis.`);
+  }
   return lines.join("\n");
 }

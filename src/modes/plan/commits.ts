@@ -6,8 +6,9 @@ import { pushCurrent } from "../../worktree.ts";
 export type CommitPlanInterviewOptions = {
   worktreePath: string;
   name: string;
-  mode: "file" | "inline";
+  mode: "file" | "inline" | "interactive";
   intentPathOrLabel: string;
+  completedTurns?: number;
 };
 
 /**
@@ -42,12 +43,17 @@ export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
       // Path is within project root, use relative path
       bodyLine = `Seeded from ${relativePath}`;
     }
-  } else {
+  } else if (opts.mode === "inline") {
     bodyLine = `Seeded from inline`;
+  } else {
+    bodyLine = `Seeded from interactive`;
   }
 
+  const turns = opts.completedTurns ?? 0;
+  const bodyLines = [bodyLine, `Turns: ${turns}`];
+
   const subject = "plan: interview";
-  const body = buildPlanBody(opts.name, [bodyLine]);
+  const body = buildPlanBody(opts.name, bodyLines);
   const baseMessage = `${subject}\n\n${body}`;
   // No agent attribution for the interview commit (no agent involved yet).
   const commitMessage = appendAgentTrailer(baseMessage, "");

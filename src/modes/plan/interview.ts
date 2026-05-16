@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { ClaudeAgent } from "../../agents/claude.ts";
 import { CodexAgent } from "../../agents/codex.ts";
@@ -241,7 +241,13 @@ export async function runInterviewTurn(opts: {
       // If intent was modified, validate that it's a valid modification
       if (wasModified) {
         // Check if the modification is valid: only new turn section added, nothing else modified
-        if (!isValidInterviewTurnAddition(intentBefore, intentAfter, opts.turnNumber)) {
+        if (
+          !isValidInterviewTurnAddition(
+            intentBefore,
+            intentAfter,
+            opts.turnNumber,
+          )
+        ) {
           return {
             result: {
               kind: "error",

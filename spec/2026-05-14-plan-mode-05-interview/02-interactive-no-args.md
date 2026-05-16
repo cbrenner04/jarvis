@@ -92,7 +92,7 @@ front.
   body `Seeded from interactive`.
 - [x] Preflights still run in the documented order before any
   worktree is touched.
-- [ ] `bun run typecheck`, `bun test`, `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, `bun run check` all pass.
 
 ## Documentation updates
 

@@ -40,14 +40,14 @@ affect correctness and so were deferred:
 
 ## Acceptance criteria
 
-- [ ] `setupPlanRemote()` helper exists and is consumed by all four
+- [x] `setupPlanRemote()` helper exists and is consumed by all four
   existing plan-mode test files.
-- [ ] Trailer assertions use `git log --format=...
+- [x] Trailer assertions use `git log --format=...
   trailers:key=Jarvis-Agent,valueonly`.
-- [ ] `PLAN_STUB_MESSAGE` is no longer exported from
+- [x] `PLAN_STUB_MESSAGE` is no longer exported from
   `src/commands/plan.ts`.
-- [ ] `test/plan-end-to-end.test.ts` exists and passes.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `test/plan-end-to-end.test.ts` exists and passes.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 

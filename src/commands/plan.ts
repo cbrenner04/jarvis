@@ -55,7 +55,7 @@ export const PLAN_USAGE = `Usage: jarvis plan [--interview-turns <n>] [--review-
                             Generate a spec tree from an intent. (planning behavior arrives in later specs)
 `;
 
-export const PLAN_STUB_MESSAGE =
+const PLAN_STUB_MESSAGE =
   "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n";
 
 function toKebabCase(str: string): string {

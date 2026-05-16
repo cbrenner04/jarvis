@@ -134,7 +134,7 @@ record. Stdout reformatting is not needed; codex output stays as-is.
 - [x] `bun run typecheck` passes.
 - [x] `bun test` passes (including the new tests).
 - [x] `bun run check` passes.
-- [ ] complete documentations
+- [x] complete documentations
 
 ## Documentation updates
 

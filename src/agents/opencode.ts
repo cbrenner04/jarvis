@@ -27,8 +27,8 @@ export class OpencodeAgent implements Agent {
     this.#model = opts.model;
   }
 
-  run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-    return runAgent(
+  async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+    const result = await runAgent(
       {
         name: this.name,
         binary: this.#binary,
@@ -51,6 +51,16 @@ export class OpencodeAgent implements Agent {
       prompt,
       opts,
     );
+
+    if (result.kind !== "ok") {
+      return result;
+    }
+
+    return {
+      ...result,
+      usage_source: "unavailable",
+      cost_source: "no-usage",
+    };
   }
 
   attributionLabel(): string {

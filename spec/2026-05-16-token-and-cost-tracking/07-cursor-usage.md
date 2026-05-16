@@ -30,16 +30,16 @@ explicit and documented rather than implicit.
 
 ## Tasks
 
-- [ ] **Investigate first.** Capture `cursor agent --help` and
+- [x] **Investigate first.** Capture `cursor agent --help` and
       `cursor agent -p --help` output under `## Verified cursor
       capabilities` in this file. Note any flags or behaviors related
       to JSON, logging, telemetry, usage, or cost.
-- [ ] Check cursor's data directories (`~/.cursor/`, `~/Library/
+- [x] Check cursor's data directories (`~/.cursor/`, `~/Library/
       Application Support/Cursor/`, `~/.config/cursor/`, etc.) for
       session files written during a `cursor agent -p` invocation.
-- [ ] Record findings and a recommended path under `## Verified cursor
+- [x] Record findings and a recommended path under `## Verified cursor
       capabilities`.
-- [ ] **Implement the chosen path.** Either:
+- [x] **Implement the chosen path.** Either:
       - **(a) Extraction path** (unlikely): mirror the relevant
         subspec 04/05/06 pattern.
       - **(b) Unavailable path** (expected): in `src/agents/cursor.ts`,
@@ -48,29 +48,54 @@ explicit and documented rather than implicit.
         the first time cursor runs per `jarvis run`:
         `cursor: token usage not available for this CLI version
         (recording usage as unavailable)`.
-- [ ] Add or extend `test/cursor-agent.test.ts` to assert that cursor
+- [x] Add or extend `test/cursor-agent.test.ts` to assert that cursor
       iterations attach `usage_source: "unavailable"` (or, if path (a)
       was chosen, that real usage is attached and failure modes are
       non-fatal).
 
 ## Acceptance criteria
 
-- [ ] `## Verified cursor capabilities` section in this file is
+- [x] `## Verified cursor capabilities` section in this file is
       populated.
-- [ ] Either: cursor iterations record real `usage`, OR cursor
+- [x] Either: cursor iterations record real `usage`, OR cursor
       iterations record `usage = null` with `usage_source:
       "unavailable"` and a one-time harness notice is printed per
       `jarvis run`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes (including the new tests).
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes (including the new tests).
+- [x] `bun run check` passes.
 
 ## Documentation updates
 
-- [ ] Update `docs/agents.md`'s Cursor row with the chosen strategy.
-- [ ] Update `docs/cost.md` (or equivalent) with cursor's cost
+- [x] Update `docs/agents.md`'s Cursor row with the chosen strategy.
+- [x] Update `docs/cost.md` (or equivalent) with cursor's cost
       attribution status.
 
 ## Verified cursor capabilities
 
-_To be filled in by the implementer during the investigation task above._
+### CLI help output (`cursor agent --help`, `cursor agent -p --help`)
+
+- Both commands currently return the same help text.
+- `--output-format` is available with values `text | json | stream-json`, but
+  the help only describes transcript formatting and does not document any usage
+  or cost fields in JSON output.
+- No flag in help text indicates usage/cost reporting, telemetry export, or a
+  session-file path for token accounting.
+
+### Docs and runtime checks
+
+- A headless run using `cursor agent -p --output-format json` failed early with
+  a local project directory creation error and did not emit any usage payload.
+- Local Cursor directories were inspected:
+  `~/.cursor/`, `~/Library/Application Support/Cursor/`, and `~/.config/cursor/`.
+- `~/.config/cursor/` does not exist on this machine.
+- `~/.cursor/` contains CLI state, project metadata, logs, and extension data
+  (for example `projects/*/worker.log`, `repo.json`) but no documented
+  token-usage session artifact analogous to Codex JSONL usage events.
+
+### Recommended path
+
+- Use path **(b) unavailable** for now:
+  successful cursor iterations set `usage_source: "unavailable"` and
+  `cost_source: "no-usage"`, and patch mode prints a one-time notice per run:
+  `cursor: token usage not available for this CLI version (recording usage as unavailable)`.

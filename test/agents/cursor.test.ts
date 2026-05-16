@@ -56,7 +56,13 @@ describe("CursorAgent", () => {
 
     const result = await agent.run("the prompt", { cwd });
 
-    expect(result).toEqual({ kind: "ok", stdout: "hi-out", stderr: "hi-err" });
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "hi-out",
+      stderr: "hi-err",
+      usage_source: "unavailable",
+      cost_source: "no-usage",
+    });
     const argv = readFileSync(join(dir, "argv"), "utf8");
     expect(argv).toBe(
       `agent\0-p\0--output-format\0text\0--force\0--workspace\0${cwd}\0the prompt\0`,
@@ -145,6 +151,18 @@ describe("CursorAgent", () => {
 
     const argv = readFileSync(join(dir, "argv"), "utf8");
     expect(argv).toContain("--force");
+  });
+
+  test("successful invocations always mark usage as unavailable", async () => {
+    const bin = fakeBinary({ exit: 0, stdout: "ok" });
+    const agent = new CursorAgent({ binary: bin });
+
+    const result = await agent.run("p", { cwd });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.usage_source).toBe("unavailable");
+      expect(result.cost_source).toBe("no-usage");
+    }
   });
 
   test("attributionLabel returns raw string for model ID", () => {

@@ -4,12 +4,14 @@
 // prompt piped on stdin. Stdin is used (instead of an argv positional) so the
 // prompt size is not bounded by the OS argv limit. Default `--output-format` with
 // `-p` is already plain text (`claude --help`); no extra verbosity flags.
+import { parseClaudeJsonOutput } from "./claude-json.ts";
 import { runAgent } from "./spawn.ts";
 import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 
 export type ClaudeAgentOptions = {
   binary?: string;
   model?: string;
+  outputFormat?: "json" | "text";
 };
 
 const CLAUDE_MODEL_LABELS: Record<string, string> = {
@@ -22,14 +24,16 @@ export class ClaudeAgent implements Agent {
   readonly name = "claude" as const;
   readonly #binary: string;
   readonly #model: string | undefined;
+  readonly #outputFormat: "json" | "text";
 
   constructor(opts: ClaudeAgentOptions = {}) {
     this.#binary = opts.binary ?? "claude";
     this.#model = opts.model;
+    this.#outputFormat = opts.outputFormat ?? "json";
   }
 
-  run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-    return runAgent(
+  async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+    const result = await runAgent(
       {
         name: this.name,
         binary: this.#binary,
@@ -41,6 +45,9 @@ export class ClaudeAgent implements Agent {
           }
           if (this.#model !== undefined) {
             argv.push("--model", this.#model);
+          }
+          if (this.#outputFormat === "json") {
+            argv.push("--output-format", "json");
           }
           return argv;
         },
@@ -54,6 +61,28 @@ export class ClaudeAgent implements Agent {
       prompt,
       opts,
     );
+
+    // If using JSON output format, parse the output
+    if (this.#outputFormat === "json" && result.kind === "ok") {
+      const parseResult = parseClaudeJsonOutput(result.stdout);
+      const output: typeof result = {
+        ...result,
+        stdout: parseResult.displayText,
+      };
+      if (parseResult.usage !== null) {
+        output.usage = parseResult.usage;
+      }
+      if (parseResult.cost_usd !== null) {
+        output.cost_usd = parseResult.cost_usd;
+        output.cost_source = "agent";
+      }
+      if (parseResult.warnings.length > 0) {
+        output.warnings = parseResult.warnings;
+      }
+      return output;
+    }
+
+    return result;
   }
 
   attributionLabel(): string {

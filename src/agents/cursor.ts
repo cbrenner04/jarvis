@@ -44,7 +44,16 @@ export class CursorAgent implements Agent {
       },
       prompt,
       opts,
-    );
+    ).then((result) => {
+      if (result.kind !== "ok") {
+        return result;
+      }
+      return {
+        ...result,
+        usage_source: "unavailable",
+        cost_source: "no-usage",
+      };
+    });
   }
 
   attributionLabel(): string {

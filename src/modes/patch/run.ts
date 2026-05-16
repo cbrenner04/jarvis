@@ -30,6 +30,7 @@ import {
   type ConfigOptions,
   effectiveGit,
   findProjectMatchForPath,
+  getClaudeOutputFormat,
   openSessionLog,
   type ProjectMatch,
   setProjectOrigin,
@@ -37,6 +38,9 @@ import {
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { checkPrExists, ensureDraftPr, renderAttribution } from "../../pr.ts";
+import { computeCost } from "../../prices/cost.ts";
+import { loadPrices } from "../../prices/load.ts";
+import { runSummary } from "../../run-summary.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import {
   createWorktreeSymlinks,
@@ -120,6 +124,16 @@ type WriteTelemetry = (record: {
   durationMs: number;
   kind: TelemetryKind;
   exitReason: string;
+  usage?: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cache_read_input_tokens: number | null;
+    cache_creation_input_tokens: number | null;
+  };
+  usage_source?: "agent" | "unavailable";
+  cost_usd?: number | null;
+  cost_source?: "agent" | "computed" | "no-price" | "no-usage";
+  warnings?: string[];
 }) => void;
 
 type PreflightOk = {
@@ -150,6 +164,7 @@ type LoggingContext = {
   logClient: LogClient;
   runNamespace: string;
   specDisplayName: string;
+  hasTelemetryWrites: () => boolean;
 };
 
 type IterationContext = {
@@ -162,6 +177,8 @@ type IterationContext = {
     latestIterationStdout: string[];
     latestIterationStderr: string[];
     draftPrEnsured: boolean;
+    opencodeUnavailableNoted: boolean;
+    cursorUnavailableNoted: boolean;
     currentController: AbortController | null;
   };
 };
@@ -172,6 +189,8 @@ type IterationOutcome =
   | { kind: "exit"; exitCode: number };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
+  const runStartedAt = new Date();
+  const runStartedMs = Date.now();
   const initialSpecPath = resolve(opts.specPath);
   if (!existsSync(initialSpecPath)) {
     opts.io.stderr(`spec path does not exist: ${initialSpecPath}\n`);
@@ -221,12 +240,15 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
   const loggingSetup = setupLogging(opts, preflight, sharedPreflight.logClient);
   const logging = loggingSetup;
+  let runExitReason = "error";
 
   const state = {
     iteration: 1,
     latestIterationStdout: [] as string[],
     latestIterationStderr: [] as string[],
     draftPrEnsured: false,
+    opencodeUnavailableNoted: false,
+    cursorUnavailableNoted: false,
     currentController: null as AbortController | null,
   };
 
@@ -264,15 +286,24 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     while (true) {
       const outcome = await runIteration(ctx);
       if (outcome.kind === "return") {
+        runExitReason = mapExitCodeToReason(outcome.exitCode);
         return outcome.exitCode;
       }
       if (outcome.kind === "exit") {
+        runExitReason = mapExitCodeToReason(outcome.exitCode);
         process.exit(outcome.exitCode);
       }
       // continue
     }
   } finally {
-    finalize(ctx, globalTimeoutHandle, onSigint);
+    finalize(
+      ctx,
+      globalTimeoutHandle,
+      onSigint,
+      runStartedAt,
+      runStartedMs,
+      runExitReason,
+    );
   }
 }
 
@@ -432,15 +463,18 @@ function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
       agents.push(override);
       continue;
     }
-    agents.push(makeAgent(entry.agent, entry.model));
+    agents.push(makeAgent(entry.agent, entry.model, cfg));
   }
   return agents;
 }
 
-function makeAgent(name: AgentName, model: string): Agent {
+function makeAgent(name: AgentName, model: string, cfg: Config): Agent {
   switch (name) {
     case "claude":
-      return new ClaudeAgent({ model });
+      return new ClaudeAgent({
+        model,
+        outputFormat: getClaudeOutputFormat(cfg),
+      });
     case "codex":
       return new CodexAgent({ model });
     case "cursor":
@@ -460,6 +494,7 @@ function setupLogging(
   const specDisplayName = getSpecDisplayName(preflight.specPath);
   const runNamespace = `${preflight.project.key}:${specDisplayName}`;
   const telemetryPath = cfg.telemetryPath ?? null;
+  let telemetryWrites = false;
 
   const writeTelemetry: WriteTelemetry = (record) => {
     try {
@@ -471,7 +506,17 @@ function setupLogging(
         duration_ms: record.durationMs,
         kind: record.kind,
         exit_reason: record.exitReason,
+        ...(record.usage !== undefined ? { usage: record.usage } : {}),
+        ...(record.usage_source !== undefined
+          ? { usage_source: record.usage_source }
+          : {}),
+        ...(record.cost_usd !== undefined ? { cost_usd: record.cost_usd } : {}),
+        ...(record.cost_source !== undefined
+          ? { cost_source: record.cost_source }
+          : {}),
+        ...(record.warnings !== undefined ? { warnings: record.warnings } : {}),
       });
+      telemetryWrites = true;
     } catch {
       // best-effort
     }
@@ -536,6 +581,7 @@ function setupLogging(
     logClient,
     runNamespace,
     specDisplayName,
+    hasTelemetryWrites: () => telemetryWrites,
   };
 }
 
@@ -543,7 +589,26 @@ function finalize(
   ctx: IterationContext,
   globalTimeoutHandle: NodeJS.Timeout | null,
   onSigint: () => void,
+  runStartedAt: Date,
+  runStartedMs: number,
+  runExitReason: string,
 ): void {
+  const hadIterations = ctx.logging.hasTelemetryWrites();
+  if (hadIterations) {
+    const summary = runSummary({
+      telemetryPath: ctx.preflight.cfg.telemetryPath ?? null,
+      namespace: ctx.logging.runNamespace,
+      startTs: runStartedAt.toISOString(),
+      exitReason: runExitReason,
+      iterations: ctx.state.iteration - 1,
+      durationMs: Date.now() - runStartedMs,
+      specPath: getSpecDisplayName(ctx.preflight.specPath),
+    });
+    if (summary.trim().length > 0) {
+      ctx.opts.io.stdout(`\n${summary}`);
+    }
+  }
+
   if (globalTimeoutHandle) {
     clearTimeout(globalTimeoutHandle);
   }
@@ -560,6 +625,105 @@ function finalize(
   if (ctx.opts.handleSignals !== false) {
     process.removeListener("SIGINT", onSigint);
   }
+}
+
+function mapExitCodeToReason(exitCode: number): string {
+  switch (exitCode) {
+    case 0:
+      return "criteria-complete";
+    case 1:
+      return "error";
+    case 2:
+      return "quota-exhausted";
+    case 3:
+      return "agent-error";
+    case 4:
+      return "no-progress";
+    case 5:
+      return "max-iterations";
+    case 6:
+      return "dirty-worktree";
+    case 7:
+      return "blocked";
+    case 8:
+      return "timeout";
+    case 9:
+      return "worktree-locked";
+    case 130:
+      return "sigint";
+    default:
+      return `exit-${exitCode}`;
+  }
+}
+
+type UsageCostData = {
+  usage?: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cache_read_input_tokens: number | null;
+    cache_creation_input_tokens: number | null;
+  };
+  usage_source?: "agent" | "unavailable";
+  cost_usd?: number | null;
+  cost_source?: "agent" | "computed" | "no-price" | "no-usage";
+};
+
+function extractUsageAndCost(
+  result: {
+    usage_source?: "agent" | "unavailable";
+    usage?: {
+      input_tokens: number | null;
+      output_tokens: number | null;
+      cache_read_input_tokens: number | null;
+      cache_creation_input_tokens: number | null;
+    };
+    cost_usd?: number | null;
+  },
+  agentName: string,
+): UsageCostData {
+  const output: UsageCostData = {};
+  if (result.usage_source === "unavailable") {
+    output.usage = {
+      input_tokens: null,
+      output_tokens: null,
+      cache_read_input_tokens: null,
+      cache_creation_input_tokens: null,
+    };
+    output.usage_source = "unavailable";
+    output.cost_usd = null;
+    output.cost_source = "no-usage";
+    return output;
+  }
+
+  if (result.cost_usd !== undefined && result.cost_usd !== null) {
+    // Agent provided cost directly (e.g., Claude with total_cost_usd)
+    if (result.usage !== undefined) {
+      output.usage = result.usage;
+      output.usage_source = "agent";
+    }
+    output.cost_usd = result.cost_usd;
+    output.cost_source = "agent";
+    return output;
+  }
+
+  // If there's usage data but no cost, compute it
+  if (result.usage !== undefined) {
+    output.usage = result.usage;
+    output.usage_source = "agent";
+    try {
+      const prices = loadPrices();
+      const computedCost = computeCost(result.usage, agentName, prices);
+      output.cost_usd = computedCost.cost_usd;
+      if (computedCost.cost_source !== null) {
+        output.cost_source = computedCost.cost_source;
+      }
+    } catch {
+      // If price loading fails, just return usage without cost
+    }
+    return output;
+  }
+
+  return output;
 }
 
 async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
@@ -598,13 +762,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     // we just observed before === 0 it returns either 0 (spec complete) or 6
     // (worktree blocker). Default to 0 if it ever races to null.
     const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
-    writeTelemetry({
-      agent: "harness",
-      iteration,
-      durationMs: iterationDurationMs(),
-      kind: "ok",
-      exitReason: "criteria-complete",
-    });
     return { kind: "return", exitCode: done };
   }
 
@@ -747,6 +904,44 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     }
 
     if (result.kind === "ok") {
+      // Extract usage and cost data from the agent result
+      const usageCost = extractUsageAndCost(result, agent.name);
+      const iterationWarnings =
+        result.warnings !== undefined && result.warnings.length > 0
+          ? result.warnings
+          : undefined;
+      if (
+        agent.name === "opencode" &&
+        usageCost.usage_source === "unavailable" &&
+        !state.opencodeUnavailableNoted
+      ) {
+        fanout(
+          "harness",
+          "opencode: token usage not available for this CLI version (recording usage as unavailable)\n",
+          "stderr",
+        );
+        state.opencodeUnavailableNoted = true;
+      }
+      if (
+        agent.name === "cursor" &&
+        usageCost.usage_source === "unavailable" &&
+        !state.cursorUnavailableNoted
+      ) {
+        fanout(
+          "harness",
+          "cursor: token usage not available for this CLI version (recording usage as unavailable)\n",
+          "stderr",
+        );
+        state.cursorUnavailableNoted = true;
+      }
+
+      // Forward any agent warnings through the harness log
+      if (result.warnings !== undefined && result.warnings.length > 0) {
+        for (const warning of result.warnings) {
+          fanout("harness", `${agent.name}: ${warning}\n`, "stderr");
+        }
+      }
+
       if (result.stdout.length > 0) {
         state.latestIterationStdout.push(...splitLines(result.stdout));
         fanout("inbound_stdout", result.stdout, null, {
@@ -972,6 +1167,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "ok",
           exitReason: "criteria-complete",
+          ...usageCost,
+          ...(iterationWarnings !== undefined
+            ? { warnings: iterationWarnings }
+            : {}),
         });
         // tryFinishSpecIfDone returns null only when countUnchecked !== 0;
         // we just observed after === 0 so it returns 0 (spec complete) or 6
@@ -983,6 +1182,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "ok",
           exitReason: "completed-spec",
+          ...usageCost,
+          ...(iterationWarnings !== undefined
+            ? { warnings: iterationWarnings }
+            : {}),
         });
         return { kind: "return", exitCode: done };
       }
@@ -998,6 +1201,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "ok",
           exitReason: "criteria-progress",
+          ...usageCost,
+          ...(iterationWarnings !== undefined
+            ? { warnings: iterationWarnings }
+            : {}),
         });
         return { kind: "return", exitCode: 0 };
       }
@@ -1017,6 +1224,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "ok",
           exitReason: "no-progress",
+          ...usageCost,
+          ...(iterationWarnings !== undefined
+            ? { warnings: iterationWarnings }
+            : {}),
         });
         return { kind: "return", exitCode: 4 };
       }
@@ -1026,6 +1237,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         durationMs: iterationDurationMs(),
         kind: "ok",
         exitReason: "criteria-progress",
+        ...usageCost,
+        ...(iterationWarnings !== undefined
+          ? { warnings: iterationWarnings }
+          : {}),
       });
       state.iteration += 1;
       return { kind: "continue" };

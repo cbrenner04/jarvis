@@ -1,7 +1,21 @@
 export type AgentName = "claude" | "codex" | "cursor" | "opencode";
 
 export type AgentResult =
-  | { kind: "ok"; stdout: string; stderr: string }
+  | {
+      kind: "ok";
+      stdout: string;
+      stderr: string;
+      usage_source?: "agent" | "unavailable";
+      usage?: {
+        input_tokens: number | null;
+        output_tokens: number | null;
+        cache_read_input_tokens: number | null;
+        cache_creation_input_tokens: number | null;
+      };
+      cost_usd?: number | null;
+      cost_source?: "agent" | "computed" | "no-price" | "no-usage";
+      warnings?: string[];
+    }
   | { kind: "quota"; stderr: string }
   | { kind: "model_config"; stderr: string }
   | { kind: "error"; exitCode: number; stderr: string };

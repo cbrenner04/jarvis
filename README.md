@@ -93,6 +93,7 @@ jarvis plan [<intent-file|"inline text">]
                            Create a draft PR with an agent-drafted, self-reviewed spec tree from a file or inline intent.
 jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.
+jarvis prices              View or edit pricing data for cost tracking.
 jarvis log-server          Run the local log aggregation server.
 jarvis cleanup [--dry-run] Remove merged worktrees.
 jarvis triage [worktree-name]
@@ -204,6 +205,23 @@ Recently added subcommands:
 - `jarvis config set-git <true|false>` — write the top-level `git` toggle.
 - `jarvis config set-project-git <name> <true|false|unset>` — write or clear
   a per-project `git` override.
+
+### `jarvis prices`
+
+View or edit pricing data used for cost tracking. Each `jarvis run` iteration
+records token usage and estimated cost in the telemetry JSONL. The pricing
+table lives at `data/prices.json` in the repo root.
+
+Subcommands:
+
+- `jarvis prices show` — display the current pricing table as a human-readable
+  table with per-model token rates and metadata.
+- `jarvis prices edit` — open `data/prices.json` in `$EDITOR` for manual
+  adjustments (e.g., for models with no published rates). Changes are validated
+  on save.
+
+See [docs/run-loop.md](docs/run-loop.md#token-usage-and-cost-tracking) for
+details on cost tracking and the price table schema.
 
 ## Documentation
 

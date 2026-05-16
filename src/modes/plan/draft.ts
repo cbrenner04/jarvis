@@ -233,8 +233,23 @@ function isValidIntentModification(before: string, after: string): boolean {
 
   // Reconstruct the file without the blocker section
   const beforeBlocker = afterLines.slice(0, blockerIndex).join("\n").trim();
+  if (beforeBlocker !== before.trim()) {
+    return false;
+  }
 
-  return beforeBlocker === before.trim();
+  return readFrontmatter(before) === readFrontmatter(after);
+}
+
+function readFrontmatter(text: string): string | null {
+  const normalized = text.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return null;
+  }
+  const end = normalized.indexOf("\n---\n", 4);
+  if (end === -1) {
+    return null;
+  }
+  return normalized.slice(0, end + 5);
 }
 
 /**
@@ -284,7 +299,7 @@ export function validateDraftOutput(
       return {
         valid: false,
         error:
-          "intent.md was modified (only allowed modification is appending ## Blocker)",
+          "intent.md was modified (only allowed modification is appending ## Blocker; frontmatter is immutable)",
       };
     }
   }

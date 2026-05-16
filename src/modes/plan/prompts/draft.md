@@ -27,6 +27,7 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 - **Only write files under `spec/<NAME>/`.**
 - Do not commit or push.
 - Do not run tests.
+- Preserve the leading `--- ... ---` frontmatter block in `intent.md` exactly as-is.
 - Do not modify `intent.md` unless appending a `## Blocker` section.
 - Produce `index.md` plus at least one numbered subspec (`00-*.md`, `01-*.md`, etc.).
 - Each subspec must have an exact `## Acceptance criteria` section with checkboxes.

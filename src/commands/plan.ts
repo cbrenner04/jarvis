@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join } from "node:path";
 
 import { loadConfig } from "../config.ts";
@@ -17,6 +23,8 @@ import {
   commitPlanReview,
 } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
+import { runInterviewPhase } from "../modes/plan/interview.ts";
+import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
 import { buildPlanPrHeader } from "../modes/plan/pr.ts";
 import {
   hasWorkingTreeChanges,
@@ -65,7 +73,16 @@ function toKebabCase(str: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function derivePlanName(inv: PlanInvocation): string | null {
+function formatShortTimestamp(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}-${hour}${minute}`;
+}
+
+function derivePlanName(inv: PlanInvocation): string {
   switch (inv.mode) {
     case "file": {
       const filename = basename(inv.intentPath);
@@ -79,11 +96,59 @@ function derivePlanName(inv: PlanInvocation): string | null {
       return truncated || "plan";
     }
     case "interactive":
-      return null;
+      return `interactive-${formatShortTimestamp(new Date())}`;
   }
 }
 
 const RESERVED_NAMES = new Set(["index", "intent"]);
+const TEMP_PLAN_PREFIX = "tmp-";
+
+export function parseIntentFrontmatter(text: string): {
+  name?: string | undefined;
+} {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  if ((lines[0] ?? "") !== "---") {
+    return {};
+  }
+  let end = -1;
+  for (let i = 1; i < lines.length; i += 1) {
+    if ((lines[i] ?? "") === "---") {
+      end = i;
+      break;
+    }
+  }
+  if (end === -1) {
+    return {};
+  }
+  for (let i = 1; i < end; i += 1) {
+    const line = lines[i] ?? "";
+    const match = /^name:\s*(.+)\s*$/.exec(line);
+    if (match?.[1]) {
+      return { name: match[1] };
+    }
+  }
+  return {};
+}
+
+export function validateProposedName(name: string | undefined): {
+  valid: boolean;
+  normalized?: string | undefined;
+} {
+  if (name === undefined) {
+    return { valid: false };
+  }
+  const normalized = name.trim();
+  if (!/^[a-z0-9-]+$/.test(normalized)) {
+    return { valid: false };
+  }
+  if (normalized.length === 0 || normalized.length > 40) {
+    return { valid: false };
+  }
+  if (RESERVED_NAMES.has(normalized)) {
+    return { valid: false };
+  }
+  return { valid: true, normalized };
+}
 
 function remoteSpecBranchExists(
   projectRoot: string,
@@ -109,15 +174,7 @@ export async function deriveSpecName(
   inv: PlanInvocation,
   projectRoot: string,
 ): Promise<string> {
-  const candidateName = derivePlanName(inv);
-  // Note: derivePlanName returns null for interactive mode, but interactive mode
-  // is filtered out in planCommand before calling deriveSpecName, so candidateName
-  // is always a string here
-  if (candidateName === null) {
-    throw new Error("deriveSpecName called with interactive mode");
-  }
-
-  let name = candidateName;
+  let name = derivePlanName(inv);
 
   // Check reserved names
   if (RESERVED_NAMES.has(name)) {
@@ -158,7 +215,27 @@ export async function deriveSpecName(
   return finalName;
 }
 
-export type SeedIntentFileMode = "file" | "inline";
+async function ensureUniquePlanName(
+  projectRoot: string,
+  baseName: string,
+): Promise<string> {
+  let finalName = baseName;
+  let suffix = 2;
+  while (true) {
+    const specDirExists = existsSync(join(projectRoot, "spec", finalName));
+    const worktreeDirExists = existsSync(
+      join(projectRoot, ".worktree", `plan-${finalName}`),
+    );
+    const remoteBranchExists = remoteSpecBranchExists(projectRoot, finalName);
+    if (!specDirExists && !worktreeDirExists && !remoteBranchExists) {
+      return finalName;
+    }
+    finalName = `${baseName}-${suffix}`;
+    suffix += 1;
+  }
+}
+
+export type SeedIntentFileMode = "file" | "inline" | "interactive";
 
 export type SeedIntentFileOptions = {
   worktreePath: string;
@@ -195,6 +272,9 @@ export function seedIntentFile(opts: SeedIntentFileOptions): void {
       throw new Error("intentText required for inline mode");
     }
     content = `${opts.intentText}\n`;
+  } else if (opts.mode === "interactive") {
+    content =
+      "# Intent\n\n(Interactive session — no seed text. The interview will gather\nthe intent.)\n";
   } else {
     throw new Error(`unknown mode: ${opts.mode}`);
   }
@@ -226,6 +306,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   opts.io.stderr(`${describePlanInvocation(result.invocation)}\n`);
 
   const inv = result.invocation;
+  if (inv.mode === "interactive") {
+    opts.io.stderr("plan mode: interactive session started\n");
+  }
   // Resolve from a file-like path (matching run mode, which passes a spec
   // file). For inline/interactive plan modes there's no real intent file, so
   // synthesize one inside cwd: resolveProject's `dirname()` then yields cwd
@@ -274,16 +357,17 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     `plan mode: target project=${project.key} root=${project.root}\n`,
   );
 
-  // For interactive mode, keep falling through to stub exit
-  const planName = derivePlanName(inv);
-  if (planName === null) {
-    opts.io.stderr(PLAN_STUB_MESSAGE);
-    return 2;
+  if (inv.mode === "interactive" && (inv.interviewTurns ?? 3) === 0) {
+    opts.io.stderr(
+      "plan: --interview-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n",
+    );
+    return 1;
   }
 
-  // Derive the spec name with collision handling
-  const specName = await deriveSpecName(inv, project.root);
-  opts.io.stderr(`plan mode: spec name=${specName}\n`);
+  const tempId = crypto.randomUUID().slice(0, 8);
+  const tempPlanName = `${TEMP_PLAN_PREFIX}${tempId}`;
+  let specName = tempPlanName;
+  opts.io.stderr(`plan mode: temporary plan name=${tempPlanName}\n`);
 
   // Create worktree for file or inline mode (only if it's a git repo and gh is available)
   const isGitRepo = existsSync(join(project.root, ".git"));
@@ -292,7 +376,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     try {
       worktreePath = await createPlanWorktree({
         projectRoot: project.root,
-        name: specName,
+        name: tempPlanName,
       });
       const cfg = loadConfig(opts.config);
       createWorktreeSymlinks(project.root, worktreePath, cfg.worktreeSymlinks);
@@ -326,9 +410,230 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           mode: "inline",
           intentText: inv.intentText,
         });
+      } else {
+        seedIntentFile({
+          worktreePath,
+          name: specName,
+          mode: "interactive",
+        });
       }
     } catch (err) {
       opts.io.stderr(`failed to seed intent file: ${(err as Error).message}\n`);
+      return 1;
+    }
+
+    // Load config once for use in interview and draft phases
+    const cfg = loadConfig(opts.config);
+
+    // Run interview phase
+    let interviewCompletedTurns = 0;
+    let interviewBlocker: string | undefined;
+    let interviewAgentLabel: string | null = null;
+
+    try {
+      const interviewBudget = inv.interviewTurns ?? 3;
+
+      if (interviewBudget > 0) {
+        const interviewResult = await runInterviewPhase({
+          worktreePath,
+          name: specName,
+          config: cfg,
+          interviewTurns: interviewBudget,
+        });
+
+        // Handle interview result
+        if (interviewResult.result.kind !== "ok") {
+          if (interviewResult.result.kind === "quota") {
+            opts.io.stderr(`plan: quota exhausted during interview\n`);
+            return 2;
+          }
+          if (interviewResult.result.kind === "model_config") {
+            opts.io.stderr(
+              `plan mode: model configuration error\n${interviewResult.result.stderr}`,
+            );
+            return 3;
+          }
+          // Generic error
+          opts.io.stderr(
+            `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
+          );
+          return 1;
+        }
+
+        interviewCompletedTurns = interviewResult.completedTurns;
+        interviewAgentLabel = interviewResult.agentLabel;
+        interviewBlocker = interviewResult.blocker;
+      } else if (inv.mode !== "interactive") {
+        const namingResult = await runNameOnlyPhase({
+          worktreePath,
+          name: specName,
+          config: cfg,
+        });
+        if (namingResult.result.kind !== "ok") {
+          if (namingResult.result.kind === "quota") {
+            opts.io.stderr(`plan: quota exhausted during naming-only phase\n`);
+            return 2;
+          }
+          if (namingResult.result.kind === "model_config") {
+            opts.io.stderr(
+              `plan mode: model configuration error\n${namingResult.result.stderr}`,
+            );
+            return 3;
+          }
+          opts.io.stderr(
+            `plan mode: naming-only phase failed\n${namingResult.result.stderr}`,
+          );
+          return 1;
+        }
+      }
+    } catch (err) {
+      opts.io.stderr(
+        `plan mode: interview phase error: ${(err as Error).message}\n`,
+      );
+      return 1;
+    }
+
+    const tempIntentPath = join(worktreePath, "spec", specName, "intent.md");
+    const tempIntent = readFileSync(tempIntentPath, "utf8");
+    const parsedName = parseIntentFrontmatter(tempIntent).name;
+    const validation = validateProposedName(parsedName);
+    let chosenBaseName: string;
+    if (validation.valid && validation.normalized !== undefined) {
+      chosenBaseName = validation.normalized;
+    } else {
+      chosenBaseName = await deriveSpecName(inv, project.root);
+      opts.io.stderr(
+        `plan: agent did not propose a valid name; falling back to deterministic derivation (${chosenBaseName})\n`,
+      );
+    }
+    specName = await ensureUniquePlanName(project.root, chosenBaseName);
+    opts.io.stderr(`plan mode: spec name=${specName}\n`);
+
+    const finalIntentBody = tempIntent.startsWith("---\n")
+      ? tempIntent.replace(/^---\n[\s\S]*?\n---/, `---\nname: ${specName}\n---`)
+      : `---\nname: ${specName}\n---\n\n${tempIntent}`;
+    writeFileSync(tempIntentPath, finalIntentBody, "utf8");
+
+    try {
+      renameSync(
+        join(worktreePath, "spec", tempPlanName),
+        join(worktreePath, "spec", specName),
+      );
+    } catch (err) {
+      opts.io.stderr(
+        `plan mode: failed to rename spec directory: ${(err as Error).message}\n`,
+      );
+      return 1;
+    }
+
+    try {
+      execFileSync(
+        "git",
+        ["branch", "-m", `plan/${tempPlanName}`, `plan/${specName}`],
+        {
+          cwd: worktreePath,
+          stdio: "pipe",
+        },
+      );
+      const nextWorktreePath = join(
+        project.root,
+        ".worktree",
+        `plan-${specName}`,
+      );
+      execFileSync(
+        "git",
+        ["worktree", "move", worktreePath, nextWorktreePath],
+        {
+          cwd: project.root,
+          stdio: "pipe",
+        },
+      );
+      worktreePath = nextWorktreePath;
+      const oldBranch = `plan/${tempPlanName}`;
+      const localBranches = execFileSync(
+        "git",
+        ["branch", "--list", oldBranch],
+        {
+          cwd: project.root,
+          stdio: "pipe",
+          encoding: "utf8",
+        },
+      ).trim();
+      if (localBranches.length > 0) {
+        execFileSync("git", ["branch", "-D", oldBranch], {
+          cwd: project.root,
+          stdio: "pipe",
+        });
+      }
+      opts.io.stderr(
+        `plan mode: renamed worktree and branch to plan/${specName}\n`,
+      );
+    } catch (err) {
+      const message =
+        typeof err === "object" &&
+        err !== null &&
+        "stderr" in err &&
+        Buffer.isBuffer((err as { stderr: unknown }).stderr)
+          ? (err as { stderr: Buffer }).stderr.toString("utf8")
+          : (err as Error).message;
+      opts.io.stderr(message);
+      return 1;
+    }
+
+    // Check for interrupt before any commit
+    if (interrupted) {
+      opts.io.stderr(`plan: interrupted\n`);
+      return 130;
+    }
+
+    // If a blocker was raised during interview, commit it and stop
+    if (interviewBlocker !== undefined) {
+      try {
+        // Create the interview commit first (with the blocked state)
+        const intentPathOrLabel =
+          inv.mode === "file"
+            ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
+            : inv.mode === "inline"
+              ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
+              : "interactive";
+        commitPlanInterview({
+          worktreePath,
+          name: specName,
+          mode: inv.mode as "file" | "inline" | "interactive",
+          intentPathOrLabel,
+          completedTurns: interviewCompletedTurns,
+        });
+        opts.io.stderr(`plan mode: interview commit pushed\n`);
+
+        // Then create the blocker commit
+        const agentLabel = interviewAgentLabel ?? "unknown";
+        const reason = firstNonEmptyLine(interviewBlocker);
+
+        commitPlanBlocker({
+          worktreePath,
+          name: specName,
+          agentLabel,
+          reason,
+          specFilesCount: 0,
+        });
+        opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+        safeUpdatePrBody({
+          io: opts.io,
+          branch: `plan/${specName}`,
+          base: getCurrentBranch(project.root),
+          worktreePath,
+          name: specName,
+        });
+      } catch (err) {
+        opts.io.stderr(`${(err as Error).message}\n`);
+        return 1;
+      }
+
+      opts.io.stderr(`plan: blocked\n`);
+      if (interviewBlocker) {
+        opts.io.stderr(`\n## Blocker\n\n${interviewBlocker}\n`);
+      }
       return 1;
     }
 
@@ -337,12 +642,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const intentPathOrLabel =
         inv.mode === "file"
           ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
-          : (inv as Extract<typeof inv, { mode: "inline" }>).intentText;
+          : inv.mode === "inline"
+            ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
+            : "interactive";
       commitPlanInterview({
         worktreePath,
         name: specName,
-        mode: inv.mode as "file" | "inline",
+        mode: inv.mode as "file" | "inline" | "interactive",
         intentPathOrLabel,
+        completedTurns: interviewCompletedTurns,
       });
       opts.io.stderr(`plan mode: interview commit pushed\n`);
     } catch (err) {
@@ -355,8 +663,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     let draftBlocker: string | undefined;
     let draftSpecFilesCount = 0;
     try {
-      const cfg = loadConfig(opts.config);
-
       // Read intent.md before the draft phase
       const intentPath = join(worktreePath, "spec", specName, "intent.md");
       const intentBefore = readFileSync(intentPath, "utf8");

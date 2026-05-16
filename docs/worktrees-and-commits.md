@@ -183,14 +183,19 @@ Plan mode creates dedicated worktrees under `.worktree/plan-<name>/` on a
 patch-mode worktrees (`.worktree/<name>/`) to prevent collision when both modes
 target the same spec name.
 
+During the interview phase, jarvis first uses a temporary slot:
+`.worktree/plan-tmp-<short-uuid>/` on branch `plan/tmp-<short-uuid>`. After
+the agent proposes a spec name and jarvis applies collision suffixing, jarvis
+renames the worktree and branch to the final `plan-<name>` / `plan/<name>`
+values before pushing. The temporary branch is never pushed to origin.
+
 **Phase commits** in plan mode have special subjects:
 
 - `plan: interview` — captures the seeded `intent.md` from user input (file or
-  inline).
-- `plan: draft` — commits placeholder `index.md` and placeholder `00-task.md`
-  as the initial spec tree. A later spec will fill these with real content.
-- `plan: review N` — added by a later spec for reviewer feedback passes; not
-  part of this spec.
+  inline), plus interview turn append sections and the final proposed `name:`
+  line after temp-slot rename.
+- `plan: draft` — commits the initial agent-drafted spec tree.
+- `plan: review N` — commits review-pass refinements to the same spec tree.
 
 Push cadence follows the same pattern as patch mode: push after each commit.
 The first push uses `git push -u origin <plan/<name>>` to set up tracking;

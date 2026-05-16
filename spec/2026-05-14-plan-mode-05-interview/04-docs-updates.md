@@ -54,14 +54,14 @@ reflect the new behavior.
 
 ## Acceptance criteria
 
-- [ ] `docs/plan-mode.md` documents interview, interactive mode, and
+- [x] `docs/plan-mode.md` documents interview, interactive mode, and
   agent-proposed naming with no forward references to unimplemented
   behavior beyond resume.
-- [ ] `README.md` mentions interactive mode and removes the
+- [x] `README.md` mentions interactive mode and removes the
   "in flight" caveats for interview and naming.
-- [ ] `docs/worktrees-and-commits.md` documents the temp-slot
+- [x] `docs/worktrees-and-commits.md` documents the temp-slot
   rename.
-- [ ] `bun run check` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

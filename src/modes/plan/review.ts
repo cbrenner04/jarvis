@@ -280,8 +280,22 @@ function isValidIntentModification(before: string, after: string): boolean {
 
   // Reconstruct the file without the blocker section
   const beforeBlocker = afterLines.slice(0, blockerIndex).join("\n").trim();
+  if (beforeBlocker !== before.trim()) {
+    return false;
+  }
+  return readFrontmatter(before) === readFrontmatter(after);
+}
 
-  return beforeBlocker === before.trim();
+function readFrontmatter(text: string): string | null {
+  const normalized = text.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return null;
+  }
+  const end = normalized.indexOf("\n---\n", 4);
+  if (end === -1) {
+    return null;
+  }
+  return normalized.slice(0, end + 5);
 }
 
 /**
@@ -319,7 +333,8 @@ export function validateReviewOutput(
     // Otherwise it's an error: blocker was added but so was other content
     return {
       valid: false,
-      error: "intent.md was modified beyond adding a ## Blocker section",
+      error:
+        "intent.md was modified beyond adding a ## Blocker section (frontmatter is immutable)",
     };
   }
 

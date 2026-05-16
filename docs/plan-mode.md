@@ -21,7 +21,6 @@ Plan mode is useful for:
 
 Plan mode does **not** handle:
 
-- Interactive interviews (in flight; see `spec/2026-05-14-plan-mode-interview/`).
 - Resume logic (in flight; see `spec/2026-05-14-plan-mode-resume-and-handoff/`).
 - Spec implementation. After a plan-generated spec merges to `main`, use `jarvis run spec/<name>/index.md` to implement it.
 
@@ -51,15 +50,21 @@ Jarvis uses the supplied text directly as intent. Useful for quick one-liners wi
 jarvis plan
 ```
 
-(Not yet implemented; see `spec/2026-05-14-plan-mode-interview/`.) Jarvis will prompt the user for intent interactively and write a `plan/<name>/intent.md` before starting draft and review phases.
+Jarvis starts with an empty seed (`# Intent` only) and runs the interview phase immediately. This mode requires at least one interview turn; `--interview-turns 0` is rejected because there is no initial intent text to plan from.
 
 ## Phases
 
 Plan mode executes these phases in order:
 
-### Phase 0: Worktree and intent setup
+### Phase 0: Interview
 
-Jarvis creates a git worktree at `.worktree/plan-<name>/` with a branch `plan-<name>` tracking `origin/main`. It writes `spec/<name>/intent.md` containing the user's supplied intent. If a worktree or branch already exists with that name, jarvis exits 1 (idempotence and resume are future work). Jarvis commits this setup as `plan: interview` (even in file/inline modes, where no interview happens; this marker preserves the commit shape for later resume logic).
+Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). It writes `spec/<name>/intent.md` with seeded intent text (file/inline modes) or just `# Intent` (interactive mode), then runs interview turns up to the configured budget (`--interview-turns`, default `3`).
+
+Each turn is one agent invocation. The prompt tells the agent to use the structured `question` tool and batch one or more multiple-choice questions as needed. After each answered turn, jarvis validates `intent.md` changed by appending exactly one new `## Interview turn N` section and that prior content is unchanged. If the agent makes no `question` call and does not modify `intent.md` on a turn, interview ends early.
+
+The interview also requires the agent to propose a kebab-case spec name by writing `name: <kebab-case>` in a leading frontmatter-ish block in `intent.md`. If the budget is `0` in file/inline modes, jarvis still runs one naming-only agent invocation; if no name is proposed, jarvis falls back to deterministic derivation and logs a stderr note.
+
+Once a name is chosen (with collision suffixing if needed), jarvis renames the temporary worktree and branch to final names (`.worktree/plan-<name>/`, `plan/<name>`), then commits and pushes `plan: interview`. The temporary branch is never pushed.
 
 **Commit shape:**
 - Subject: `plan: interview`
@@ -135,7 +140,7 @@ Plan mode does not yet write into the narrative section (that may land in later 
 
 ### `--interview-turns <n>`
 
-(Parsed but inert; lands in `spec/2026-05-14-plan-mode-interview/`.) When interactive mode is implemented, this will control how many interview prompts are sent. Default: 1.
+Controls the interview budget. Default: `3`. `0` skips interview question turns for file/inline modes but still runs a naming-only agent pass. In interactive mode, `0` is invalid and exits with: `plan: --interview-turns 0 is incompatible with interactive mode (no intent provided)`.
 
 ### `--review-passes <n>`
 
@@ -156,6 +161,15 @@ Select the target repository. Same semantics as `jarvis run --repo`. If omitted,
 ## Resume
 
 Resuming a partially-reviewed worktree (e.g., re-running plan mode against an existing worktree that already has `plan: review 1` but not `plan: review 2`) is not currently supported. The worktree-collision check rejects any attempt to create a plan worktree when a branch or directory with that name already exists, ensuring that re-running plan mode starts fresh. Resume logic is tracked in `spec/2026-05-14-plan-mode-resume-and-handoff/` and will be implemented in a later spec.
+
+## Naming
+
+Plan mode uses an agent-proposed spec name instead of deterministic naming by default:
+
+- During interview, the agent writes `name: <kebab-case>` in `intent.md`.
+- Jarvis reads that proposal, validates/sanitizes it, and applies the uniqueness suffix loop on collisions (`-2`, `-3`, ...).
+- If no valid proposal is produced in the naming step, jarvis falls back to deterministic derivation and emits a stderr note.
+- Because naming happens after initial interview setup, jarvis uses a temporary worktree/branch first, then renames both to final values before the `plan: interview` push.
 
 ## Stop conditions
 

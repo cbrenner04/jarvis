@@ -31,11 +31,11 @@ meaning beyond "this is which note this addresses."
 
 ## Subspecs
 
-- [ ] [01 — Prompt and template hardening](./01-prompt-and-template-hardening.md)
-- [ ] [02 — Spec-file write boundary enforcement](./02-spec-file-write-boundary.md)
-- [ ] [03 — Review-loop ergonomics and resumability](./03-review-loop-ergonomics.md)
-- [ ] [04 — PR body and attribution polish](./04-pr-body-and-attribution-polish.md)
-- [ ] [05 — Test-suite and tooling cleanups](./05-tests-and-tooling.md)
+- [x] [01 — Prompt and template hardening](./01-prompt-and-template-hardening.md)
+- [x] [02 — Spec-file write boundary enforcement](./02-spec-file-write-boundary.md)
+- [x] [03 — Review-loop ergonomics and resumability](./03-review-loop-ergonomics.md)
+- [x] [04 — PR body and attribution polish](./04-pr-body-and-attribution-polish.md)
+- [x] [05 — Test-suite and tooling cleanups](./05-tests-and-tooling.md)
 
 ## Conventions
 

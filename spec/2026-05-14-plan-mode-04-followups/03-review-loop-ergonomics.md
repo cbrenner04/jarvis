@@ -46,16 +46,16 @@ flagged usability rough edges in the self-review loop:
 
 ## Acceptance criteria
 
-- [ ] Empty review passes log the skip message and do not create a
+- [x] Empty review passes log the skip message and do not create a
   commit; a test asserts no `plan: review` commit is created when the
   agent makes no changes.
-- [ ] The review prompt template emits different wording for N=1 vs
+- [x] The review prompt template emits different wording for N=1 vs
   N>1; a unit test on `buildReviewPrompt` covers both branches.
-- [ ] A `--review-passes 0` test covers the no-review path.
-- [ ] `docs/plan-mode.md` has a "Resume" subsection that points at
+- [x] A `--review-passes 0` test covers the no-review path.
+- [x] `docs/plan-mode.md` has a "Resume" subsection that points at
   `spec/2026-05-14-plan-mode-resume-and-handoff/` and states the current
   no-resume behavior.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` all pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` all pass.
 
 ## Documentation updates
 

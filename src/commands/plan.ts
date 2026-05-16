@@ -6,6 +6,11 @@ import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import {
+  appendBoundaryBlocker,
+  assertPlanWriteBoundary,
+  revertPaths,
+} from "../modes/plan/boundary.ts";
+import {
   commitPlanBlocker,
   commitPlanDraft,
   commitPlanInterview,
@@ -50,7 +55,7 @@ export const PLAN_USAGE = `Usage: jarvis plan [--interview-turns <n>] [--review-
                             Generate a spec tree from an intent. (planning behavior arrives in later specs)
 `;
 
-export const PLAN_STUB_MESSAGE =
+const PLAN_STUB_MESSAGE =
   "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n";
 
 function toKebabCase(str: string): string {
@@ -424,6 +429,47 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const baseBranch = getCurrentBranch(project.root);
     const planBranch = `plan/${specName}`;
 
+    // Check boundary before draft commit
+    const boundaryCheck = assertPlanWriteBoundary(worktreePath, specName);
+    if (!boundaryCheck.ok) {
+      opts.io.stderr(`plan: boundary violation detected before draft commit\n`);
+      revertPaths(worktreePath, boundaryCheck.offendingPaths);
+      appendBoundaryBlocker(
+        worktreePath,
+        specName,
+        boundaryCheck.offendingPaths,
+      );
+      for (const path of boundaryCheck.offendingPaths) {
+        opts.io.stderr(`  - ${path}\n`);
+      }
+
+      try {
+        const agentLabel = draftResult.agentLabel ?? "unknown";
+        commitPlanBlocker({
+          worktreePath,
+          name: specName,
+          agentLabel,
+          reason: "write boundary violation",
+          specFilesCount: draftSpecFilesCount,
+        });
+        opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+        safeUpdatePrBody({
+          io: opts.io,
+          branch: planBranch,
+          base: baseBranch,
+          worktreePath,
+          name: specName,
+        });
+      } catch (err) {
+        opts.io.stderr(`${(err as Error).message}\n`);
+        return 1;
+      }
+
+      opts.io.stderr(`plan: blocked\n`);
+      return 1;
+    }
+
     // Always create a `plan: draft` commit for whatever the agent produced
     // (per docs/plan-mode.md: draft files are committed as `plan: draft`,
     // even when a blocker is raised in the same pass). Then, if a blocker
@@ -539,6 +585,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath,
           name: specName,
           config: cfg,
+          passNumber: pass,
+          totalPasses: reviewPasses,
         });
 
         // Handle agent errors
@@ -573,7 +621,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
         // Check if the pass produced changes
         if (!hasWorkingTreeChanges(worktreePath)) {
-          opts.io.stderr(`plan: review ${pass}: no changes\n`);
+          opts.io.stderr(
+            `plan mode: review pass ${pass} made no changes; skipping commit\n`,
+          );
           continue;
         }
 
@@ -592,6 +642,49 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
         // Check if a blocker was raised
         if (validation.blocker !== undefined) {
+          // Check boundary before blocker commit
+          const boundaryCheck = assertPlanWriteBoundary(worktreePath, specName);
+          if (!boundaryCheck.ok) {
+            opts.io.stderr(
+              `plan: boundary violation detected before review blocker commit\n`,
+            );
+            revertPaths(worktreePath, boundaryCheck.offendingPaths);
+            appendBoundaryBlocker(
+              worktreePath,
+              specName,
+              boundaryCheck.offendingPaths,
+            );
+            for (const path of boundaryCheck.offendingPaths) {
+              opts.io.stderr(`  - ${path}\n`);
+            }
+
+            try {
+              const agentLabel = reviewResult.agentLabel ?? "unknown";
+              commitPlanBlocker({
+                worktreePath,
+                name: specName,
+                agentLabel,
+                reason: "write boundary violation",
+                specFilesCount: countSpecFiles(worktreePath, specName),
+              });
+              opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+              safeUpdatePrBody({
+                io: opts.io,
+                branch: planBranch,
+                base: baseBranch,
+                worktreePath,
+                name: specName,
+              });
+            } catch (err) {
+              opts.io.stderr(`${(err as Error).message}\n`);
+              return 1;
+            }
+
+            opts.io.stderr(`plan: blocked\n`);
+            return 1;
+          }
+
           try {
             const agentLabel = reviewResult.agentLabel ?? "unknown";
             const reason = firstNonEmptyLine(validation.blocker);
@@ -622,6 +715,49 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           if (validation.blocker) {
             opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
           }
+          return 1;
+        }
+
+        // Check boundary before review commit
+        const boundaryCheck = assertPlanWriteBoundary(worktreePath, specName);
+        if (!boundaryCheck.ok) {
+          opts.io.stderr(
+            `plan: boundary violation detected before review commit\n`,
+          );
+          revertPaths(worktreePath, boundaryCheck.offendingPaths);
+          appendBoundaryBlocker(
+            worktreePath,
+            specName,
+            boundaryCheck.offendingPaths,
+          );
+          for (const path of boundaryCheck.offendingPaths) {
+            opts.io.stderr(`  - ${path}\n`);
+          }
+
+          try {
+            const agentLabel = reviewResult.agentLabel ?? "unknown";
+            commitPlanBlocker({
+              worktreePath,
+              name: specName,
+              agentLabel,
+              reason: "write boundary violation",
+              specFilesCount: countSpecFiles(worktreePath, specName),
+            });
+            opts.io.stderr(`plan mode: blocker commit pushed\n`);
+
+            safeUpdatePrBody({
+              io: opts.io,
+              branch: planBranch,
+              base: baseBranch,
+              worktreePath,
+              name: specName,
+            });
+          } catch (err) {
+            opts.io.stderr(`${(err as Error).message}\n`);
+            return 1;
+          }
+
+          opts.io.stderr(`plan: blocked\n`);
           return 1;
         }
 

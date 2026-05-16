@@ -97,6 +97,7 @@ export function parseCodexSessionUsage(filePath: string): {
   let best: TelemetryUsage | null = null;
   let bestTotal = -1;
   const warnings: string[] = [];
+  let malformedJsonlLines = 0;
   const lines = content.split(/\r?\n/);
 
   for (const line of lines) {
@@ -107,7 +108,7 @@ export function parseCodexSessionUsage(filePath: string): {
     try {
       parsed = JSON.parse(line);
     } catch {
-      warnings.push("malformed JSONL line in codex session file");
+      malformedJsonlLines += 1;
       continue;
     }
 
@@ -124,6 +125,12 @@ export function parseCodexSessionUsage(filePath: string): {
       best = usage;
       bestTotal = total;
     }
+  }
+
+  if (malformedJsonlLines > 0) {
+    warnings.push(
+      `skipped ${malformedJsonlLines} malformed JSONL line(s) in codex session file`,
+    );
   }
 
   if (best === null) {

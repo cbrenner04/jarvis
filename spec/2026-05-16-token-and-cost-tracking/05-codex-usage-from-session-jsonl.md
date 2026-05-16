@@ -127,7 +127,7 @@ record. Stdout reformatting is not needed; codex output stays as-is.
 - [x] Session-file discovery, parsing, and summation are isolated in
       `src/agents/codex-session.ts` and unit-tested against the
       committed fixture.
-- [ ] Failure modes (no file, unreadable, malformed) are non-fatal:
+- [x] Failure modes (no file, unreadable, malformed) are non-fatal:
       iteration proceeds, telemetry records `usage = null`, one
       harness warning is emitted.
 - [x] `## Verified session storage` section is populated.

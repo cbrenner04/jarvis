@@ -107,24 +107,20 @@ export class CodexAgent implements Agent {
     }
 
     const output: AgentResult = { ...result };
-    const usageForTelemetry = usage ?? {
-      input_tokens: null,
-      output_tokens: null,
-      cache_read_input_tokens: null,
-      cache_creation_input_tokens: null,
-    };
-    output.usage = usageForTelemetry;
-    try {
-      const prices = loadPrices();
-      const computed = computeCost(
-        usageForTelemetry,
-        this.#model ?? "codex-default",
-        prices,
-      );
-      output.cost_usd = computed.cost_usd;
-      output.cost_source = computed.cost_source ?? "computed";
-    } catch {
-      // best-effort: telemetry still records usage without cost
+    if (usage !== undefined) {
+      output.usage = usage;
+      try {
+        const prices = loadPrices();
+        const computed = computeCost(
+          usage,
+          this.#model ?? "codex-default",
+          prices,
+        );
+        output.cost_usd = computed.cost_usd;
+        output.cost_source = computed.cost_source ?? "computed";
+      } catch {
+        // best-effort: telemetry still records usage without cost
+      }
     }
     if (warnings.length > 0) {
       output.warnings = warnings;

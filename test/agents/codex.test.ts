@@ -217,18 +217,13 @@ exit 0
     }
   });
 
-  test("returns null-token usage with warning when no new session file exists", async () => {
+  test("omits usage and returns warning when no new session file exists", async () => {
     const bin = fakeBinary({ exit: 0, stdout: "ok" });
     const agent = new CodexAgent({ binary: bin });
     const result = await agent.run("prompt", { cwd });
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {
-      expect(result.usage).toEqual({
-        input_tokens: null,
-        output_tokens: null,
-        cache_read_input_tokens: null,
-        cache_creation_input_tokens: null,
-      });
+      expect(result.usage).toBeUndefined();
       expect(
         result.warnings?.some((w) => w.includes("session file not found")),
       ).toBe(true);

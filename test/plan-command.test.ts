@@ -14,8 +14,10 @@ import { dirname, join } from "node:path";
 import {
   deriveSpecName,
   PLAN_USAGE,
+  parseIntentFrontmatter,
   planCommand,
   seedIntentFile,
+  validateProposedName,
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";
 import { parsePlanArgs } from "../src/commands/plan-args.ts";
@@ -1129,5 +1131,33 @@ describe("seedIntentFile", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("intent frontmatter naming helpers", () => {
+  test("parseIntentFrontmatter reads leading name field", () => {
+    const parsed = parseIntentFrontmatter(
+      "---\nname: csv-export\n---\n\n# Intent\nhello\n",
+    );
+    expect(parsed.name).toBe("csv-export");
+  });
+
+  test("parseIntentFrontmatter ignores non-leading block", () => {
+    const parsed = parseIntentFrontmatter(
+      "# Intent\n---\nname: csv-export\n---\n",
+    );
+    expect(parsed.name).toBeUndefined();
+  });
+
+  test("validateProposedName accepts valid kebab name", () => {
+    const validation = validateProposedName("csv-export-v2");
+    expect(validation.valid).toBe(true);
+    expect(validation.normalized).toBe("csv-export-v2");
+  });
+
+  test("validateProposedName rejects reserved and invalid names", () => {
+    expect(validateProposedName("index").valid).toBe(false);
+    expect(validateProposedName("UPPER").valid).toBe(false);
+    expect(validateProposedName("a".repeat(41)).valid).toBe(false);
   });
 });

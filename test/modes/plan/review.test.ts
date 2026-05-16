@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   hasWorkingTreeChanges,
   snapshotSpecFiles,
+  validateReviewOutput,
 } from "../../../src/modes/plan/review.ts";
 
 describe("snapshotSpecFiles", () => {
@@ -113,5 +114,26 @@ describe("hasWorkingTreeChanges", () => {
 
     // Now there should be working tree changes
     expect(hasWorkingTreeChanges(tmpPath)).toBe(true);
+  });
+});
+
+describe("validateReviewOutput", () => {
+  test("rejects frontmatter edits even when blocker is appended", () => {
+    const tmpPath = join(
+      tmpdir(),
+      `review-frontmatter-${randomBytes(4).toString("hex")}`,
+    );
+    const specDir = join(tmpPath, "spec", "test-spec");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "index.md"), "# Index\n", "utf8");
+
+    const intentBefore = "---\nname: alpha\n---\n\n# Intent\nbody\n";
+    const intentAfter =
+      "---\nname: beta\n---\n\n# Intent\nbody\n\n## Blocker\n\nNeed input.\n";
+    writeFileSync(join(specDir, "intent.md"), intentAfter, "utf8");
+
+    const result = validateReviewOutput(tmpPath, "test-spec", intentBefore);
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("frontmatter is immutable");
   });
 });

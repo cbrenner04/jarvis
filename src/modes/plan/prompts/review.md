@@ -35,6 +35,7 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 - **Critique and rewrite files in place.** Do not produce new files; edit the existing files listed above.
 - Do not commit or push.
 - Do not run tests.
+- Preserve the leading `--- ... ---` frontmatter block in `intent.md` exactly as-is.
 - **Do not modify `intent.md` unless appending a `## Blocker` section.**
 - **Do not delete `index.md`.** You may rewrite it.
 - You **may** add new subspec files or remove existing ones; if you do, update `index.md` to match.

@@ -3,6 +3,8 @@ import {
   buildDraftPrompt,
   PlaceholderCollisionError,
 } from "../../../src/modes/plan/draft.ts";
+import { buildInterviewPrompt } from "../../../src/modes/plan/interview.ts";
+import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
 import { buildReviewPrompt } from "../../../src/modes/plan/review.ts";
 
 describe("buildDraftPrompt", () => {
@@ -120,6 +122,30 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain(
       "This is the first review pass. The spec snapshot below is the original draft.",
     );
+  });
+});
+
+describe("interview/name-only prompts", () => {
+  test("interview prompt includes name-frontmatter requirements", () => {
+    const prompt = buildInterviewPrompt({
+      name: "test-name",
+      intent: "# Intent\n",
+      specGuidance: "guidance",
+      turnsRemaining: 2,
+    });
+    expect(prompt).toContain("name: <kebab-case>");
+    expect(prompt).toContain("max 40 chars");
+    expect(prompt).toContain("reserved (`index`, `intent`)");
+  });
+
+  test("name-only prompt injects intent and includes strict scope", () => {
+    const prompt = buildNameOnlyPrompt({
+      name: "test-name",
+      intent: "# Intent\nhello\n",
+    });
+    expect(prompt).toContain("Do not ask questions in this phase");
+    expect(prompt).toContain("name: <kebab-case>");
+    expect(prompt).toContain("# Intent\nhello\n");
   });
 });
 

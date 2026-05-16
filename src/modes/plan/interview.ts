@@ -238,6 +238,25 @@ export async function runInterviewTurn(opts: {
         };
       }
 
+      if (wasModified && !hasNewTurnSection) {
+        if (!isFrontmatterOnlyChange(intentBefore, intentAfter)) {
+          return {
+            result: {
+              kind: "error",
+              exitCode: 1,
+              stderr: `interview: invalid intent.md modification on turn ${opts.turnNumber}; expected interview-turn append or frontmatter-only naming update`,
+            },
+            agentLabel,
+            continueInterview: false,
+          };
+        }
+        return {
+          result,
+          agentLabel,
+          continueInterview: false,
+        };
+      }
+
       // If intent was modified, validate that it's a valid modification
       if (wasModified) {
         // Check if the modification is valid: only new turn section added, nothing else modified
@@ -293,6 +312,24 @@ export async function runInterviewTurn(opts: {
 
   // Last result (could be quota, error, or model_config)
   return { result, agentLabel, continueInterview: false };
+}
+
+function stripFrontmatter(text: string): string {
+  const normalized = text.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return normalized;
+  }
+  const end = normalized.indexOf("\n---\n", 4);
+  if (end === -1) {
+    return normalized;
+  }
+  return normalized.slice(end + 5);
+}
+
+function isFrontmatterOnlyChange(before: string, after: string): boolean {
+  return (
+    stripFrontmatter(before).trimEnd() === stripFrontmatter(after).trimEnd()
+  );
 }
 
 /**

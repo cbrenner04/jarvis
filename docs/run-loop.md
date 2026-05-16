@@ -231,7 +231,8 @@ purposes:
 ### Token usage and cost tracking
 
 Each telemetry record optionally includes token usage and cost information when
-available. These fields are:
+available. These fields are. For aggregated totals shown to humans at run end,
+see [End-of-run summary](#end-of-run-summary):
 
 - **`usage`**: Object with `input_tokens`, `output_tokens`,
   `cache_read_input_tokens`, and `cache_creation_input_tokens` (each `number |
@@ -297,6 +298,23 @@ Cursor usage is currently recorded as unavailable in telemetry
 (`usage_source: "unavailable"` and `cost_source: "no-usage"`). Jarvis prints a
 one-time notice on first cursor success per run:
 `cursor: token usage not available for this CLI version (recording usage as unavailable)`.
+
+### End-of-run summary
+
+After `jarvis run` exits (success or failure after at least one iteration),
+jarvis prints a summary block to stdout with:
+
+- spec path, exit reason, iteration count, and run duration.
+- per-agent aggregated totals for `tokens_in`, `tokens_out`, optional cache
+  columns, cost, and dominant source.
+- a total row across all agents.
+- a `notes:` block when data quality is mixed (`usage_source: "unavailable"`,
+  `cost_source: "no-price"`, mixed per-agent cost sources, parse warnings, or
+  null costs excluded from totals).
+
+The summary is computed from the session's telemetry JSONL lines
+(`namespace` + `ts >= run_start_ts`), not from in-memory counters, so the same
+totals can be recomputed directly from `~/.jarvis/runs.jsonl`.
 
 `jarvis run` requires the local log server to be reachable before the loop
 starts. If the server is down or misconfigured, run exits non-zero and prints

@@ -139,18 +139,18 @@ per agent and overall, with explicit annotations when sources are mixed
 
 ## Acceptance criteria
 
-- [ ] At end of `jarvis run` (any exit reason except pre-iteration
+- [x] At end of `jarvis run` (any exit reason except pre-iteration
       preflight failure), a summary block is printed to stdout with
       per-agent and total rows.
-- [ ] The summary's totals match the sum of telemetry records written
+- [x] The summary's totals match the sum of telemetry records written
       during the run (verified by integration test).
-- [ ] Mixed sources, missing usage, and missing prices are surfaced in
+- [x] Mixed sources, missing usage, and missing prices are surfaced in
       the `notes:` block rather than silently flattened.
-- [ ] Cache columns are omitted when not used.
-- [ ] No summary is printed when zero iterations ran.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes (including the new tests).
-- [ ] `bun run check` passes.
+- [x] Cache columns are omitted when not used.
+- [x] No summary is printed when zero iterations ran.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes (including the new tests).
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

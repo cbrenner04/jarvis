@@ -31,6 +31,7 @@ export type TelemetryRecord = {
   usage_source?: UsageSource;
   cost_usd?: number | null;
   cost_source?: CostSource;
+  warnings?: string[];
 };
 
 export function appendTelemetryLine(

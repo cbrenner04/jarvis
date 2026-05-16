@@ -40,6 +40,7 @@ import type { LogClient } from "../../logging.ts";
 import { checkPrExists, ensureDraftPr, renderAttribution } from "../../pr.ts";
 import { computeCost } from "../../prices/cost.ts";
 import { loadPrices } from "../../prices/load.ts";
+import { runSummary } from "../../run-summary.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import {
   createWorktreeSymlinks,
@@ -132,6 +133,7 @@ type WriteTelemetry = (record: {
   usage_source?: "agent" | "unavailable";
   cost_usd?: number | null;
   cost_source?: "agent" | "computed" | "no-price" | "no-usage";
+  warnings?: string[];
 }) => void;
 
 type PreflightOk = {
@@ -162,6 +164,7 @@ type LoggingContext = {
   logClient: LogClient;
   runNamespace: string;
   specDisplayName: string;
+  hasTelemetryWrites: () => boolean;
 };
 
 type IterationContext = {
@@ -186,6 +189,8 @@ type IterationOutcome =
   | { kind: "exit"; exitCode: number };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
+  const runStartedAt = new Date();
+  const runStartedMs = Date.now();
   const initialSpecPath = resolve(opts.specPath);
   if (!existsSync(initialSpecPath)) {
     opts.io.stderr(`spec path does not exist: ${initialSpecPath}\n`);
@@ -235,6 +240,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
   const loggingSetup = setupLogging(opts, preflight, sharedPreflight.logClient);
   const logging = loggingSetup;
+  let runExitReason = "error";
 
   const state = {
     iteration: 1,
@@ -280,15 +286,24 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     while (true) {
       const outcome = await runIteration(ctx);
       if (outcome.kind === "return") {
+        runExitReason = mapExitCodeToReason(outcome.exitCode);
         return outcome.exitCode;
       }
       if (outcome.kind === "exit") {
+        runExitReason = mapExitCodeToReason(outcome.exitCode);
         process.exit(outcome.exitCode);
       }
       // continue
     }
   } finally {
-    finalize(ctx, globalTimeoutHandle, onSigint);
+    finalize(
+      ctx,
+      globalTimeoutHandle,
+      onSigint,
+      runStartedAt,
+      runStartedMs,
+      runExitReason,
+    );
   }
 }
 
@@ -479,6 +494,7 @@ function setupLogging(
   const specDisplayName = getSpecDisplayName(preflight.specPath);
   const runNamespace = `${preflight.project.key}:${specDisplayName}`;
   const telemetryPath = cfg.telemetryPath ?? null;
+  let telemetryWrites = false;
 
   const writeTelemetry: WriteTelemetry = (record) => {
     try {
@@ -498,7 +514,9 @@ function setupLogging(
         ...(record.cost_source !== undefined
           ? { cost_source: record.cost_source }
           : {}),
+        ...(record.warnings !== undefined ? { warnings: record.warnings } : {}),
       });
+      telemetryWrites = true;
     } catch {
       // best-effort
     }
@@ -563,6 +581,7 @@ function setupLogging(
     logClient,
     runNamespace,
     specDisplayName,
+    hasTelemetryWrites: () => telemetryWrites,
   };
 }
 
@@ -570,7 +589,26 @@ function finalize(
   ctx: IterationContext,
   globalTimeoutHandle: NodeJS.Timeout | null,
   onSigint: () => void,
+  runStartedAt: Date,
+  runStartedMs: number,
+  runExitReason: string,
 ): void {
+  const hadIterations = ctx.logging.hasTelemetryWrites();
+  if (hadIterations) {
+    const summary = runSummary({
+      telemetryPath: ctx.preflight.cfg.telemetryPath ?? null,
+      namespace: ctx.logging.runNamespace,
+      startTs: runStartedAt.toISOString(),
+      exitReason: runExitReason,
+      iterations: ctx.state.iteration - 1,
+      durationMs: Date.now() - runStartedMs,
+      specPath: getSpecDisplayName(ctx.preflight.specPath),
+    });
+    if (summary.trim().length > 0) {
+      ctx.opts.io.stdout(`\n${summary}`);
+    }
+  }
+
   if (globalTimeoutHandle) {
     clearTimeout(globalTimeoutHandle);
   }
@@ -586,6 +624,35 @@ function finalize(
   closeSync(ctx.logging.sessionFd);
   if (ctx.opts.handleSignals !== false) {
     process.removeListener("SIGINT", onSigint);
+  }
+}
+
+function mapExitCodeToReason(exitCode: number): string {
+  switch (exitCode) {
+    case 0:
+      return "criteria-complete";
+    case 1:
+      return "error";
+    case 2:
+      return "quota-exhausted";
+    case 3:
+      return "agent-error";
+    case 4:
+      return "no-progress";
+    case 5:
+      return "max-iterations";
+    case 6:
+      return "dirty-worktree";
+    case 7:
+      return "blocked";
+    case 8:
+      return "timeout";
+    case 9:
+      return "worktree-locked";
+    case 130:
+      return "sigint";
+    default:
+      return `exit-${exitCode}`;
   }
 }
 
@@ -695,13 +762,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     // we just observed before === 0 it returns either 0 (spec complete) or 6
     // (worktree blocker). Default to 0 if it ever races to null.
     const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
-    writeTelemetry({
-      agent: "harness",
-      iteration,
-      durationMs: iterationDurationMs(),
-      kind: "ok",
-      exitReason: "criteria-complete",
-    });
     return { kind: "return", exitCode: done };
   }
 
@@ -846,6 +906,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     if (result.kind === "ok") {
       // Extract usage and cost data from the agent result
       const usageCost = extractUsageAndCost(result, agent.name);
+      const iterationWarnings =
+        result.warnings !== undefined && result.warnings.length > 0
+          ? result.warnings
+          : undefined;
       if (
         agent.name === "opencode" &&
         usageCost.usage_source === "unavailable" &&
@@ -1104,6 +1168,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           kind: "ok",
           exitReason: "criteria-complete",
           ...usageCost,
+          ...(iterationWarnings !== undefined
+            ? { warnings: iterationWarnings }
+            : {}),
         });
         // tryFinishSpecIfDone returns null only when countUnchecked !== 0;
         // we just observed after === 0 so it returns 0 (spec complete) or 6
@@ -1116,6 +1183,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           kind: "ok",
           exitReason: "completed-spec",
           ...usageCost,
+          ...(iterationWarnings !== undefined
+            ? { warnings: iterationWarnings }
+            : {}),
         });
         return { kind: "return", exitCode: done };
       }
@@ -1132,6 +1202,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           kind: "ok",
           exitReason: "criteria-progress",
           ...usageCost,
+          ...(iterationWarnings !== undefined
+            ? { warnings: iterationWarnings }
+            : {}),
         });
         return { kind: "return", exitCode: 0 };
       }
@@ -1152,6 +1225,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           kind: "ok",
           exitReason: "no-progress",
           ...usageCost,
+          ...(iterationWarnings !== undefined
+            ? { warnings: iterationWarnings }
+            : {}),
         });
         return { kind: "return", exitCode: 4 };
       }
@@ -1162,6 +1238,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         kind: "ok",
         exitReason: "criteria-progress",
         ...usageCost,
+        ...(iterationWarnings !== undefined
+          ? { warnings: iterationWarnings }
+          : {}),
       });
       state.iteration += 1;
       return { kind: "continue" };

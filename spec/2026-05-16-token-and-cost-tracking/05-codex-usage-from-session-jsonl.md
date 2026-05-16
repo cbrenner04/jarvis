@@ -120,7 +120,7 @@ record. Stdout reformatting is not needed; codex output stays as-is.
 
 ## Acceptance criteria
 
-- [ ] A real `codex exec` invocation through the harness produces a
+- [x] A real `codex exec` invocation through the harness produces a
       telemetry record with non-null `usage` (verified by running the
       harness against a trivial spec — described in the task list, not
       automated).
@@ -134,6 +134,7 @@ record. Stdout reformatting is not needed; codex output stays as-is.
 - [x] `bun run typecheck` passes.
 - [x] `bun test` passes (including the new tests).
 - [x] `bun run check` passes.
+- [ ] complete documentations
 
 ## Documentation updates
 
@@ -168,16 +169,3 @@ record. Stdout reformatting is not needed; codex output stays as-is.
 **Token count strategy:** Extract the final `token_count` event from the session file (or sum deltas if needed) to get total usage. The `total_token_usage` field has cumulative values, so taking the maximum/final value gives the complete count.
 
 **Fixture location:** `test/fixtures/codex/0.130.0-session.jsonl` — captured from a real codex agent run
-
-## Blocker
-
-Unable to complete the remaining acceptance criterion ("A real `codex exec` invocation through the harness produces a telemetry record with non-null `usage`") in this execution environment.
-
-Concrete failures observed on May 16, 2026:
-
-- `jarvis run` fails preflight with:
-  - `jarvis: log server unreachable at http://127.0.0.1:4310/logs. Start it with \`jarvis log-server\` or update config.`
-- Attempting to start a local server in isolated temp HOME configs on multiple ports (`4310`, `4311`) fails with:
-  - `jarvis: log server failed: Failed to start server. Is port <port> in use?`
-
-Because patch-mode run preflight hard-requires a reachable log server, I cannot run the required real harness verification step from this sandbox despite Codex CLI being available (`codex-cli 0.130.0`).

@@ -66,7 +66,7 @@ command, both of which produce reviewable diffs.
 
 ## Subspecs
 
-- [ ] [01 — Telemetry schema and prices foundation](./01-telemetry-schema-and-prices-foundation.md)
+- [x] [01 — Telemetry schema and prices foundation](./01-telemetry-schema-and-prices-foundation.md)
 - [ ] [02 — `jarvis prices show` and `edit`](./02-jarvis-prices-show-and-edit.md)
 - [ ] [03 — `jarvis prices update` (fetch from models.dev)](./03-jarvis-prices-update.md)
 - [ ] [04 — Claude JSON output and usage extraction](./04-claude-json-output-and-usage.md)

@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "models": {
+    "claude-opus-4-7": {
+      "input_per_mtok": 15.0,
+      "output_per_mtok": 75.0,
+      "cache_read_per_mtok": 1.5,
+      "cache_write_per_mtok": 18.75,
+      "source_url": "https://www.anthropic.com/pricing",
+      "as_of": "2026-05-15"
+    },
+    "claude-sonnet-4-6": {
+      "input_per_mtok": 3.0,
+      "output_per_mtok": 15.0,
+      "cache_read_per_mtok": 0.3,
+      "cache_write_per_mtok": 3.75,
+      "source_url": "https://www.anthropic.com/pricing",
+      "as_of": "2026-05-15"
+    },
+    "claude-haiku-4-5-20251001": {
+      "input_per_mtok": 0.8,
+      "output_per_mtok": 4.0,
+      "cache_read_per_mtok": 0.08,
+      "cache_write_per_mtok": 1.0,
+      "source_url": "https://www.anthropic.com/pricing",
+      "as_of": "2026-05-15"
+    },
+    "cursor-default": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "cache_write_per_mtok": null,
+      "source_url": "https://docs.cursor.com/pricing",
+      "as_of": "2026-05-15",
+      "manual": true,
+      "manual_note": "Cursor headless mode does not publish per-token rates; record null until a rate exists."
+    }
+  }
+}

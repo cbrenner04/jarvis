@@ -97,6 +97,24 @@ regardless of dirty or untracked files in the agent's working directory.
 A spec with no task list checkboxes is malformed. Jarvis fails fast instead of
 treating it as complete.
 
+### Completion output
+
+On successful completion, the run terminal prints `spec complete` followed (on
+the next line) by the URL of the draft PR, if one was opened. For example:
+
+```
+spec complete
+https://github.com/example/repo/pull/42
+```
+
+If no PR was opened (e.g., the spec had zero unchecked boxes on the first
+iteration so jarvis never made a subspec commit), or if the PR URL lookup fails
+(due to network error, `gh` authentication, PR deletion, etc.), jarvis still
+prints `spec complete` and exits 0. In the failure case, a `harness` warning
+naming the lookup failure is printed to the log.  The run terminal, session
+log, and log server all receive the PR URL via the same `spec complete` output
+channel.
+
 ## Draft PR body
 
 When a run in `git: true` mode completes its first subspec and opens a draft

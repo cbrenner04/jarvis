@@ -1033,6 +1033,10 @@ if [[ "$1 $2" == "pr view" ]]; then
     if [[ -f "${prBody}" ]]; then
       cat "${prBody}"
     fi
+  elif [[ "$*" == *"--json number,state"* ]]; then
+    printf '1\\n'
+  elif [[ "$*" == *"--json url"* ]]; then
+    printf 'https://github.com/example/repo/pull/1\\n'
   else
     printf '1\\n'
   fi
@@ -1129,7 +1133,7 @@ exit 1
       "push",
     ]);
     expect(readFileSync(prLog, "utf8").trim().split("\n")).toEqual(["create"]);
-    expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(4);
+    expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(5);
     expect(readFileSync(prEditLog, "utf8").trim().split("\n")).toEqual([
       "edit",
     ]);

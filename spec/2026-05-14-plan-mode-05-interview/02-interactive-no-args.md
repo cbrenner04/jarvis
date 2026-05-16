@@ -85,7 +85,7 @@ front.
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan` (no args) runs the full plan-mode flow starting
+- [x] `jarvis plan` (no args) runs the full plan-mode flow starting
   from an empty interview.
 - [x] `--interview-turns 0` is rejected for interactive mode.
 - [x] Interactive sessions produce a `plan: interview` commit with

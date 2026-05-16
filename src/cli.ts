@@ -6,6 +6,7 @@ import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
 import { logServerCommand } from "./commands/log-server.ts";
 import { planCommand } from "./commands/plan.ts";
+import { pricesCommand } from "./commands/prices.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
   type ConfigOptions,
@@ -22,6 +23,7 @@ export type Subcommand =
   | "cleanup"
   | "triage"
   | "plan"
+  | "prices"
   | "help";
 
 export type ParsedArgs =
@@ -39,6 +41,7 @@ export type ParsedArgs =
   | { kind: "cleanup"; dryRun?: boolean }
   | { kind: "triage"; worktreeName?: string }
   | { kind: "plan"; rest: string[] }
+  | { kind: "prices"; rest: string[] }
   | { kind: "unknown"; name: string }
   | { kind: "error"; message: string };
 
@@ -61,6 +64,7 @@ Commands:
                     Inspect a dirty or orphaned worktree.
   plan [--interview-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
                     Generate a spec tree from an intent. (planning behavior arrives in later specs)
+  prices            View or edit pricing data for cost tracking.
   help              Show this message.
 `;
 
@@ -158,6 +162,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     }
     case "plan":
       return { kind: "plan", rest };
+    case "prices":
+      return { kind: "prices", rest };
     default:
       return { kind: "unknown", name: first };
   }
@@ -312,6 +318,8 @@ export function run(
       }
       return planCommand(planOpts);
     }
+    case "prices":
+      return pricesCommand({ args: parsed.rest, io });
     case "unknown":
       io.stderr(`jarvis: unknown command ${JSON.stringify(parsed.name)}\n`);
       io.stderr(USAGE);

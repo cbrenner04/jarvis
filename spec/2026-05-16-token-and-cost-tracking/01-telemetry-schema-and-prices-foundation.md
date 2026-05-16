@@ -192,22 +192,22 @@ them.
 
 ## Acceptance criteria
 
-- [ ] `data/prices.json` exists and validates against `loadPrices`.
-- [ ] `loadPrices` and `computeCost` are exported from `src/prices/`.
-- [ ] `TelemetryRecord` carries the new optional fields without breaking
+- [x] `data/prices.json` exists and validates against `loadPrices`.
+- [x] `loadPrices` and `computeCost` are exported from `src/prices/`.
+- [x] `TelemetryRecord` carries the new optional fields without breaking
       existing call sites.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 
-- [ ] Add a `## Token usage and cost` section to `docs/run-loop.md` (or a
+- [x] Add a `## Token usage and cost` section to `docs/run-loop.md` (or a
       new `docs/cost.md` linked from `README.md` and `docs/run-loop.md` —
       pick whichever fits the existing docs structure better) that:
       - Documents the new telemetry fields and their `source` enum values.
       - Documents the `data/prices.json` schema.
       - Notes that this subspec adds the foundation only; per-agent
         wiring lands in subspecs 04–07.
-- [ ] No README changes yet; subspec 02 introduces the user-facing
+- [x] No README changes yet; subspec 02 introduces the user-facing
       `jarvis prices` commands.

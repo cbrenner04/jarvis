@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   realpathSync,
@@ -13,13 +14,21 @@ import { CodexAgent } from "../../src/agents/codex.ts";
 
 let dir: string;
 let cwd: string;
+let originalHome: string | undefined;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "jarvis-codex-"));
   cwd = mkdtempSync(join(tmpdir(), "jarvis-codex-cwd-"));
+  originalHome = process.env.HOME;
+  process.env.HOME = dir;
 });
 
 afterEach(() => {
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = originalHome;
+  }
   rmSync(dir, { recursive: true, force: true });
   rmSync(cwd, { recursive: true, force: true });
 });
@@ -58,7 +67,11 @@ describe("CodexAgent", () => {
 
     const result = await agent.run("the prompt", { cwd });
 
-    expect(result).toEqual({ kind: "ok", stdout: "hi-out", stderr: "hi-err" });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.stdout).toBe("hi-out");
+      expect(result.stderr).toBe("hi-err");
+    }
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
       'exec\0--color\0never\0--sandbox\0workspace-write\0-c\0approval_policy="on-request"\0',
     );
@@ -162,5 +175,58 @@ describe("CodexAgent", () => {
   test("attributionLabel returns default fallback when model is undefined", () => {
     const agent = new CodexAgent({ binary: "fake" });
     expect(agent.attributionLabel()).toBe("codex (default model)");
+  });
+
+  test("attaches usage and computed cost when a new session file is found", async () => {
+    const bin = fakeBinary({
+      exit: 0,
+      stdout: "ok",
+    });
+    const sessionDir = join(dir, ".codex", "sessions", "2026", "05", "16");
+    mkdirSync(sessionDir, { recursive: true });
+    const sessionPath = join(sessionDir, "rollout-1.jsonl");
+    writeFileSync(
+      bin,
+      `#!/usr/bin/env bash
+: > "${dir}/argv"
+for a in "$@"; do printf '%s\\0' "$a" >> "${dir}/argv"; done
+cat > "${dir}/stdin"
+pwd > "${dir}/cwd"
+mkdir -p "${sessionDir}"
+cat > "${sessionPath}" <<'JSONL'
+{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":42,"cached_input_tokens":5,"output_tokens":9}}}}
+JSONL
+printf '%s' "ok"
+exit 0
+`,
+    );
+    chmodSync(bin, 0o755);
+
+    const agent = new CodexAgent({ binary: bin, model: "gpt-5.3-codex" });
+    const result = await agent.run("prompt", { cwd });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.usage).toEqual({
+        input_tokens: 42,
+        output_tokens: 9,
+        cache_read_input_tokens: 5,
+        cache_creation_input_tokens: null,
+      });
+      expect(result.cost_source).toBe("computed");
+      expect(result.cost_usd).toBeCloseTo(0.000200375);
+    }
+  });
+
+  test("omits usage and returns warning when no new session file exists", async () => {
+    const bin = fakeBinary({ exit: 0, stdout: "ok" });
+    const agent = new CodexAgent({ binary: bin });
+    const result = await agent.run("prompt", { cwd });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.usage).toBeUndefined();
+      expect(
+        result.warnings?.some((w) => w.includes("session file not found")),
+      ).toBe(true);
+    }
   });
 });

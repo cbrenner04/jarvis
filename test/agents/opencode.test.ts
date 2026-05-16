@@ -62,7 +62,13 @@ describe("OpencodeAgent", () => {
 
     const result = await agent.run("the prompt", { cwd });
 
-    expect(result).toEqual({ kind: "ok", stdout: "hi-out", stderr: "hi-err" });
+    expect(result).toEqual({
+      kind: "ok",
+      stdout: "hi-out",
+      stderr: "hi-err",
+      usage_source: "unavailable",
+      cost_source: "no-usage",
+    });
     const argv = readFileSync(join(dir, "argv"), "utf8");
     expect(argv).toContain("--dir");
     expect(argv).toContain(cwd);
@@ -126,7 +132,29 @@ describe("OpencodeAgent", () => {
 
     const result = await agent.run("p", { cwd });
 
-    expect(result).toEqual({ kind: "ok", stdout, stderr: "" });
+    expect(result).toEqual({
+      kind: "ok",
+      stdout,
+      stderr: "",
+      usage_source: "unavailable",
+      cost_source: "no-usage",
+    });
+  });
+
+  test("successful invocations always mark usage as unavailable", async () => {
+    const bin = fakeBinary({ exit: 0, stdout: "ok" });
+    const agent = new OpencodeAgent({
+      binary: bin,
+      model: "AirProxy/test",
+    });
+
+    const result = await agent.run("p", { cwd });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.usage_source).toBe("unavailable");
+      expect(result.cost_source).toBe("no-usage");
+      expect(result.usage).toBeUndefined();
+    }
   });
 
   test("unsupported model signal maps to model_config", async () => {

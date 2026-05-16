@@ -231,6 +231,94 @@ purposes:
   that completes therefore writes three lines total. Set `telemetryPath` to
   `null` to disable.
 
+### Token usage and cost tracking
+
+Each telemetry record optionally includes token usage and cost information when
+available. These fields are. For aggregated totals shown to humans at run end,
+see [End-of-run summary](#end-of-run-summary):
+
+- **`usage`**: Object with `input_tokens`, `output_tokens`,
+  `cache_read_input_tokens`, and `cache_creation_input_tokens` (each `number |
+  null`). When an agent CLI exposes token counts, they are recorded here.
+
+- **`usage_source`**: How the usage data was obtained. One of:
+  - `"agent"` — real token counts from the agent CLI.
+  - `"unavailable"` — the agent CLI does not expose token counts.
+  - `null` — no agent has populated usage yet (initial state, or agent does not
+    support usage extraction).
+
+- **`cost_usd`**: Estimated USD cost for the iteration (`number | null`). Computed
+  from token counts and rates in `data/prices.json` (see below). `null` when
+  cost cannot be computed.
+
+- **`cost_source`**: How the cost was derived. One of:
+  - `"computed"` — calculated from `usage` and the price table.
+  - `"agent"` — agent CLI provided a dollar figure directly.
+  - `"no-price"` — token counts exist but the model has no published rates.
+  - `"no-usage"` — no token counts were available to compute from.
+  - `null` — no cost has been computed yet (initial state).
+
+### Price table
+
+Jarvis maintains a price table at `data/prices.json` with per-model token rates
+in USD per million tokens (per-MTok). Each entry includes:
+
+- `input_per_mtok`: input token rate (or `null` if unavailable).
+- `output_per_mtok`: output token rate (or `null` if unavailable).
+- `cache_read_per_mtok` (optional): cache read rate; falls back to
+  `input_per_mtok` if omitted or `null`.
+- `cache_write_per_mtok` (optional): cache write rate; falls back to
+  `input_per_mtok` if omitted or `null`.
+- `source_url`: URL where rates were sourced.
+- `as_of`: date rates were last confirmed (ISO 8601 format).
+- `manual` (optional): `true` if this row requires manual maintenance.
+- `manual_note` (optional): explanation of why manual maintenance is needed.
+
+Cost is computed as:
+```
+(input_tokens * input_per_mtok +
+ output_tokens * output_per_mtok +
+ cache_read_input_tokens * (cache_read_per_mtok ?? input_per_mtok) +
+ cache_creation_input_tokens * (cache_write_per_mtok ?? input_per_mtok))
+/ 1_000_000
+```
+
+When rates are `null` and no fallback exists, the bucket contributes `0` to the
+sum and `cost_source` is set to `"no-price"` to indicate incomplete data rather
+than zero cost.
+
+Codex usage is sourced from Codex's session JSONL output in
+`~/.codex/sessions/` after each `codex exec` invocation. Jarvis reads the
+newest session file created by that invocation and extracts the final running
+token totals from `token_count` events.
+
+Opencode usage is currently recorded as unavailable in telemetry
+(`usage_source: "unavailable"` and `cost_source: "no-usage"`). Jarvis prints a
+one-time notice on first opencode success per run:
+`opencode: token usage not available for this CLI version (recording usage as unavailable)`.
+
+Cursor usage is currently recorded as unavailable in telemetry
+(`usage_source: "unavailable"` and `cost_source: "no-usage"`). Jarvis prints a
+one-time notice on first cursor success per run:
+`cursor: token usage not available for this CLI version (recording usage as unavailable)`.
+
+### End-of-run summary
+
+After `jarvis run` exits (success or failure after at least one iteration),
+jarvis prints a summary block to stdout with:
+
+- spec path, exit reason, iteration count, and run duration.
+- per-agent aggregated totals for `tokens_in`, `tokens_out`, optional cache
+  columns, cost, and dominant source.
+- a total row across all agents.
+- a `notes:` block when data quality is mixed (`usage_source: "unavailable"`,
+  `cost_source: "no-price"`, mixed per-agent cost sources, parse warnings, or
+  null costs excluded from totals).
+
+The summary is computed from the session's telemetry JSONL lines
+(`namespace` + `ts >= run_start_ts`), not from in-memory counters, so the same
+totals can be recomputed directly from `~/.jarvis/runs.jsonl`.
+
 `jarvis run` requires the local log server to be reachable before the loop
 starts. If the server is down or misconfigured, run exits non-zero and prints
 a connectivity error. Start it in a separate terminal:

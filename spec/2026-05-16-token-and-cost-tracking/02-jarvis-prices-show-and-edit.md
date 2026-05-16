@@ -123,20 +123,20 @@ might one day consume `show` output.
 
 ## Acceptance criteria
 
-- [ ] `jarvis prices show` prints the table described above against the
+- [x] `jarvis prices show` prints the table described above against the
       repo's `data/prices.json`.
-- [ ] `jarvis prices edit` opens `$EDITOR` and behaves per the four cases
+- [x] `jarvis prices edit` opens `$EDITOR` and behaves per the four cases
       above (no-changes, saved, validation-failed, aborted).
-- [ ] `jarvis help` lists both subcommands.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes (including the new test files).
-- [ ] `bun run check` passes.
+- [x] `jarvis help` lists both subcommands.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes (including the new test files).
+- [x] `bun run check` passes.
 
 ## Documentation updates
 
-- [ ] Add a `Prices` subsection under the `## Commands` table in
+- [x] Add a `Prices` subsection under the `## Commands` table in
       `README.md`, documenting `jarvis prices show` and `jarvis prices
       edit`. Reference subspec 03's `update` only as "see also" — full
       docs for `update` land with that subspec.
-- [ ] Cross-link from the `docs/cost.md` (or `docs/run-loop.md`) section
+- [x] Cross-link from the `docs/cost.md` (or `docs/run-loop.md`) section
       added in subspec 01 to the new `jarvis prices` commands.

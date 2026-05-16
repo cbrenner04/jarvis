@@ -9,6 +9,16 @@
 //
 // `--color never`: documented on `codex exec --help`; disables ANSI so session
 // logs match Claude/Cursor-style plain text more closely.
+
+import { computeCost } from "../prices/cost.ts";
+import { loadPrices } from "../prices/load.ts";
+import {
+  findCodexSessionFile,
+  findCodexSessionFilesSince,
+  getCodexSessionsDir,
+  latestCodexSessionMtime,
+  parseCodexSessionUsage,
+} from "./codex-session.ts";
 import { runAgent } from "./spawn.ts";
 import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 
@@ -29,8 +39,11 @@ export class CodexAgent implements Agent {
     this.#model = opts.model;
   }
 
-  run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-    return runAgent(
+  async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+    const sessionsDir = getCodexSessionsDir();
+    const snapshotMtime = latestCodexSessionMtime(sessionsDir);
+
+    const result = await runAgent(
       {
         name: this.name,
         binary: this.#binary,
@@ -60,6 +73,59 @@ export class CodexAgent implements Agent {
       prompt,
       opts,
     );
+
+    if (result.kind !== "ok") {
+      return result;
+    }
+
+    const warnings: string[] = [];
+    let usage:
+      | {
+          input_tokens: number | null;
+          output_tokens: number | null;
+          cache_read_input_tokens: number | null;
+          cache_creation_input_tokens: number | null;
+        }
+      | undefined;
+
+    const newFiles = findCodexSessionFilesSince({ sessionsDir, snapshotMtime });
+    if (newFiles.length === 0) {
+      warnings.push("codex session file not found after invocation");
+    } else if (newFiles.length > 1) {
+      warnings.push(
+        `multiple codex session files detected; using newest: ${newFiles[0]} (also saw ${newFiles[1]})`,
+      );
+    }
+
+    const sessionFile = findCodexSessionFile({ sessionsDir, snapshotMtime });
+    if (sessionFile !== null) {
+      const parsed = parseCodexSessionUsage(sessionFile);
+      warnings.push(...parsed.warnings);
+      if (parsed.usage !== null) {
+        usage = parsed.usage;
+      }
+    }
+
+    const output: AgentResult = { ...result };
+    if (usage !== undefined) {
+      output.usage = usage;
+      try {
+        const prices = loadPrices();
+        const computed = computeCost(
+          usage,
+          this.#model ?? "codex-default",
+          prices,
+        );
+        output.cost_usd = computed.cost_usd;
+        output.cost_source = computed.cost_source ?? "computed";
+      } catch {
+        // best-effort: telemetry still records usage without cost
+      }
+    }
+    if (warnings.length > 0) {
+      output.warnings = warnings;
+    }
+    return output;
   }
 
   attributionLabel(): string {

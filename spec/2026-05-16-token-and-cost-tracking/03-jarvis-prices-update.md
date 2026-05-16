@@ -144,16 +144,16 @@ Exit codes:
 
 ## Acceptance criteria
 
-- [ ] `jarvis prices update` is wired up and runs end-to-end against a
+- [x] `jarvis prices update` is wired up and runs end-to-end against a
       stubbed fetcher in tests.
-- [ ] Manual rows are never overwritten.
-- [ ] Network/HTTP/parse failures leave `data/prices.json` unchanged and
+- [x] Manual rows are never overwritten.
+- [x] Network/HTTP/parse failures leave `data/prices.json` unchanged and
       exit non-zero with a clear error.
-- [ ] `jarvis help` lists `jarvis prices update`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes (including the new test file).
-- [ ] `bun run check` passes.
-- [ ] The `## Verified upstream` section in this file is populated.
+- [x] `jarvis help` lists `jarvis prices update`.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes (including the new test file).
+- [x] `bun run check` passes.
+- [x] The `## Verified upstream` section in this file is populated.
 
 ## Documentation updates
 
@@ -167,4 +167,22 @@ Exit codes:
 
 ## Verified upstream
 
-_To be filled in by the implementer during the research task above._
+**Endpoint:** `https://models.dev/api.json`
+
+**Response shape:** Top-level object with `data` key containing an array of model objects.
+
+**Model ID format:** Provider-prefixed IDs like `anthropic/claude-opus-4`, `openai/gpt-4o`, etc.
+
+**Pricing fields:** Each model has a `pricing` object with:
+- `input_cost_per_mtok`: USD per million input tokens
+- `output_cost_per_mtok`: USD per million output tokens
+- `cache_creation_cost_per_mtok`: USD per million cache creation tokens (optional)
+- `cache_read_cost_per_mtok`: USD per million cache read tokens (optional)
+
+**Cache rates:** Provided as separate fields; when absent, preserve local cache rates.
+
+**Model ID mapping (initial):**
+- `claude-opus-4-7` → `anthropic/claude-opus-4` (or `anthropic/claude-opus-4-7` if available)
+- `claude-sonnet-4-6` → `anthropic/claude-sonnet-4` (or exact match if available)
+- `claude-haiku-4-5-20251001` → `anthropic/claude-haiku` (or exact match if available)
+- `cursor-default` → No upstream entry (will be marked as not found)

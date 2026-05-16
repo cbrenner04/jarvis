@@ -1547,7 +1547,7 @@ exit 0
 
     expect(code).toBe(4);
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "-p\0--permission-mode\0acceptEdits\0--model\0haiku\0",
+      "-p\0--permission-mode\0acceptEdits\0--model\0haiku\0--output-format\0json\0",
     );
   });
 

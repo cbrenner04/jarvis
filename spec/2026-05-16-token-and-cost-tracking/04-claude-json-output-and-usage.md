@@ -140,7 +140,7 @@ fields on the last one.
 
 ## Tasks
 
-- [ ] **Verify first.** Run `claude -p --output-format json` locally
+- [x] **Verify first.** Run `claude -p --output-format json` locally
       against a trivial prompt; capture stdout to a fixture file under
       `test/fixtures/claude/`. Repeat against a second Claude Code
       version if reasonably available (e.g. via `npx
@@ -212,21 +212,21 @@ fields on the last one.
 
 ## Acceptance criteria
 
-- [ ] `claude -p` runs in JSON mode by default and the resulting per-
+- [x] `claude -p` runs in JSON mode by default and the resulting per-
       iteration telemetry record carries `usage` and `cost_usd` /
       `cost_source` populated by either the envelope or `computeCost`.
-- [ ] Truncated or malformed envelopes never crash the run; they fall
+- [x] Truncated or malformed envelopes never crash the run; they fall
       back to raw stdout for display, `usage = null`, and emit a single
       harness warning.
-- [ ] `outputFormat: "text"` config option restores legacy behavior
+- [x] `outputFormat: "text"` config option restores legacy behavior
       end-to-end (no JSON parsing, no usage data, streaming-style
       output as before).
-- [ ] Captured fixtures are committed under `test/fixtures/claude/`.
-- [ ] `## Verified envelope` section in this file is populated with the
+- [x] Captured fixtures are committed under `test/fixtures/claude/`.
+- [x] `## Verified envelope` section in this file is populated with the
       observed schema(s).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes (including all new tests).
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes (including all new tests).
+- [x] `bun run check` passes.
 
 ## Documentation updates
 
@@ -240,4 +240,33 @@ fields on the last one.
 
 ## Verified envelope
 
-_To be filled in by the implementer during the verification task above._
+Verified locally with Claude Code 2.1.142 using a prompt argument:
+
+```sh
+claude -p --output-format json 'Reply with exactly: hello'
+```
+
+The command requires stdin or a prompt argument; running
+`claude -p --output-format json` with no input fails before model
+execution with `Error: Input must be provided either through stdin or as
+a prompt argument when using --print`.
+
+Captured fixture:
+`test/fixtures/claude/2.1.142-simple-prose.json`.
+
+Observed success envelope is a single JSON object with:
+
+- top-level result metadata: `type`, `subtype`, `is_error`,
+  `api_error_status`, `duration_ms`, `duration_api_ms`, `ttft_ms`,
+  `num_turns`, `result`, `stop_reason`, `session_id`,
+  `total_cost_usd`, `terminal_reason`, `fast_mode_state`, `uuid`
+- `usage` containing `input_tokens`, `cache_creation_input_tokens`,
+  `cache_read_input_tokens`, `output_tokens`, `server_tool_use`,
+  `service_tier`, `cache_creation`, `inference_geo`, `iterations`,
+  and `speed`
+- `modelUsage` keyed by model id, with per-model token and cost fields
+- `permission_denials` as an array
+
+For the simple prose scenario, `result` contained the display text
+directly (`"hello"`), `usage` was populated, and `total_cost_usd` was
+populated.

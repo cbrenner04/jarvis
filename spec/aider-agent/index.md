@@ -43,7 +43,7 @@ flag names.
 ## Subspecs
 
 - [x] [00 — Verify aider CLI flags](./00-verify-aider-cli.md)
-- [ ] [01 — Aider agent module](./01-aider-agent-module.md)
+- [x] [01 — Aider agent module](./01-aider-agent-module.md)
 - [ ] [02 — Config and AgentName expansion](./02-config-and-agentname.md)
 - [ ] [03 — Aider quota and model-config signals](./03-aider-signals.md)
 - [ ] [04 — Documentation](./04-documentation.md)

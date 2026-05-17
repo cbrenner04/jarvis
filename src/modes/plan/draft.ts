@@ -1,10 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { AiderAgent } from "../../agents/aider.ts";
-import { ClaudeAgent } from "../../agents/claude.ts";
-import { CodexAgent } from "../../agents/codex.ts";
-import { CursorAgent } from "../../agents/cursor.ts";
-import { OpencodeAgent } from "../../agents/opencode.ts";
+import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
@@ -82,34 +78,6 @@ export function buildDraftPrompt(opts: {
   template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
 
   return template;
-}
-
-/**
- * Instantiate an agent from a config entry.
- */
-function defaultCreateAgent(
-  agentName: AgentName,
-  model: string | undefined,
-): Agent {
-  switch (agentName) {
-    case "claude":
-      return new ClaudeAgent(model ? { model } : {});
-    case "codex":
-      return new CodexAgent(model ? { model } : {});
-    case "cursor":
-      return new CursorAgent(model ? { model } : {});
-    case "opencode":
-      // OpenCode requires model to be set
-      if (!model) {
-        throw new Error("opencode agent requires model to be configured");
-      }
-      return new OpencodeAgent({ model });
-    case "aider":
-      if (!model) {
-        throw new Error("aider agent requires model to be configured");
-      }
-      return new AiderAgent({ model });
-  }
 }
 
 /**

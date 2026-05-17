@@ -13,9 +13,11 @@ Prerequisites:
   (run `gh auth login` if needed).
 - At least one supported agent CLI available on `PATH`: `claude`, `codex`,
   `cursor`, `opencode`, or `aider`. See [docs/agents.md](docs/agents.md).
-  `opencode` is supported but opt-in; see
+  `opencode` and `aider` are supported but opt-in; see
   [docs/agents.md#opencode-setup](docs/agents.md#opencode-setup) for the
-  one-time permission installer.
+  one-time opencode permission installer and
+  [docs/agents.md#aider-setup](docs/agents.md#aider-setup) for local-model
+  setup.
 
 Install jarvis from a local clone:
 
@@ -244,47 +246,9 @@ Default fallback order remains `claude → codex → cursor`. `opencode` and
 
 Aider is opt-in and is not included in the default `modes.patch.agentOrder`
 or `modes.plan.agentOrder`. Its primary use case in jarvis is local LLM runs,
-where you bring your own runtime.
-
-Worked example (Ollama):
-
-1. Install Ollama and start it.
-2. Pull a local model:
-
-```sh
-ollama pull llama3.1:8b
-```
-
-3. Add an aider entry with an Ollama model string to `~/.jarvis/config.json`:
-
-```json
-{
-  "modes": {
-    "patch": {
-      "agentOrder": [
-        { "agent": "aider", "model": "ollama/llama3.1:8b" },
-        { "agent": "claude", "model": "haiku" },
-        { "agent": "codex", "model": "gpt-5.3-codex" },
-        { "agent": "cursor", "model": "Composer 2" }
-      ]
-    }
-  }
-}
-```
-
-4. Run jarvis as usual:
-
-```sh
-jarvis run spec/<name>/index.md
-```
-
-Aider also supports hosted providers and other local runtimes (for example
-llama.cpp and LM Studio); see <https://aider.chat/docs/llms.html>.
-
-For quota/model-config detection specifics, see the [Aider section in
-docs/quota-signals.md](docs/quota-signals.md#aider). Local-model runs report no
-per-token usage cost in jarvis telemetry (`cost_source: "no-usage"`), matching
-the agent module behavior.
+where you bring your own runtime. See
+[docs/agents.md#aider-setup](docs/agents.md#aider-setup) for setup and
+model-string examples.
 
 ## Documentation
 

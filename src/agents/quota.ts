@@ -103,7 +103,7 @@ export function isQuotaSignal(
   if (exitCode === 0) return false;
 
   const patterns = (() => {
-    switch (name as AgentName | "opencode" | "aider") {
+    switch (name) {
       case "claude":
         return claudeQuotaPatterns;
       case "codex":

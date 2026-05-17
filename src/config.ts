@@ -125,7 +125,7 @@ const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
   codex: "gpt-5.3-codex",
   cursor: "Composer 2",
   opencode: "github-copilot/claude-opus-4.7",
-  aider: "ollama/llama3.1:8b",
+  aider: "ollama_chat/qwen3.6:35b",
 };
 
 const DEFAULT_AGENT_ORDER: AgentEntry[] = [

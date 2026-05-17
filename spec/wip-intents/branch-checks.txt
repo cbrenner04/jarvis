@@ -1,0 +1,17 @@
+we need to update branch checks.
+
+we are often getting PRs moved from draft and yet checks are failing. We should use .github/workflows/ci.yml as source of truth for our checks before marking a PR ready for review. All of those checks should pass. Additionally, lets add some scripts to make that easiest.
+
+    "check": "bun node_modules/@biomejs/biome/bin/biome check .",
+    "check:fix": "bun node_modules/@biomejs/biome/bin/biome check --write .",
+    "check:fix:unsafe": "bun node_modules/@biomejs/biome/bin/biome check --write --unsafe .",
+    "format:check": "bun node_modules/@biomejs/biome/bin/biome format .",
+    "format": "bun node_modules/@biomejs/biome/bin/biome format --write .",
+    "format:unsafe": "bun node_modules/@biomejs/biome/bin/biome format --write --unsafe .",
+    "lint": "bun node_modules/@biomejs/biome/bin/biome lint .",
+    "lint:fix": "bun node_modules/@biomejs/biome/bin/biome lint --write .",
+    "lint:fix:unsafe": "bun node_modules/@biomejs/biome/bin/biome lint --write --unsafe .",
+
+I am ok with `unsafe` versions being used AFTER `write` versions being used as long as the output is inspected and deemed acceptable. Usually they are.
+
+This may require a `bun install` step. Generally on these .worktrees it has not been run. Alternatively we could symlink files/directories needed from main, but I  would assume that might pose some risk.  

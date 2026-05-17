@@ -78,14 +78,13 @@ describe("planCommand", () => {
     expect(text).toContain("jarvis run spec/my-plan/index.md");
   });
 
-  test("plan mode does not invoke `gh pr ready`", () => {
+  test("plan mode invokes `gh pr ready` via maybeMarkPlanPrReady", () => {
     const source = readFileSync(
       join(dirname(__dirname), "src", "commands", "plan.ts"),
       "utf8",
     );
-    expect(source).not.toContain('"pr", "ready"');
-    expect(source).not.toContain("'pr', 'ready'");
-    expect(source).not.toContain("pr ready");
+    expect(source).toContain("maybeMarkPlanPrReady");
+    expect(source).toContain("safeMarkPlanPrReady");
   });
 
   test("--resume without spec path rejects", async () => {

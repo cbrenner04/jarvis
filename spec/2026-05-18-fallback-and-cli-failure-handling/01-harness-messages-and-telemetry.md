@@ -19,11 +19,11 @@ Harness stderr prefixes and **`runs.jsonl`** `exitReason` / `kind` values evolve
 
 ## Acceptance criteria
 
-- [ ] At least one test per mode asserts aligned quota-fallback vocabulary (exact substring contract documented in code comment or `docs/quota-signals.md`).
-- [ ] Telemetry `kind` / `exitReason` for quota fallback and exhaustion documented in the outcome matrix (subspec 00) or in `docs/quota-signals.md`.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] At least one test per mode asserts aligned quota-fallback vocabulary (exact substring contract documented in code comment or `docs/quota-signals.md`).
+- [x] Telemetry `kind` / `exitReason` for quota fallback and exhaustion documented in the outcome matrix (subspec 00) or in `docs/quota-signals.md`.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 
-- [ ] `docs/quota-signals.md` (telemetry column or linked subsection).
-- [ ] `docs/run-loop.md` / `docs/plan-mode.md` only if operator-visible strings change meaningfully.
+- [x] `docs/quota-signals.md` (telemetry column or linked subsection).
+- [x] `docs/run-loop.md` / `docs/plan-mode.md` only if operator-visible strings change meaningfully.

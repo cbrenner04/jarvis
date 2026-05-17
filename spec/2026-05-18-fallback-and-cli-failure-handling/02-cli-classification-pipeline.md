@@ -20,9 +20,9 @@ New contributors cannot see the **end-to-end pipeline** in one place; extension 
 
 ## Acceptance criteria
 
-- [ ] Pipeline doc merged and linked from `docs/quota-signals.md`.
-- [ ] Callsite inventory in the doc matches `rg 'agent\\.run'` / equivalent audit at implementation time.
-- [ ] If any refactor lands: `bun run typecheck` and `bun test` pass with no intentional behavior change (or behavior change explicitly listed in this subspec’s acceptance criteria and tested).
+- [x] Pipeline doc merged and linked from `docs/quota-signals.md`.
+- [x] Callsite inventory in the doc matches `rg 'agent\\.run'` / equivalent audit at implementation time.
+- [x] If any refactor lands: `bun run typecheck` and `bun test` pass with no intentional behavior change (or behavior change explicitly listed in this subspec’s acceptance criteria and tested).
 
 ## Documentation updates
 

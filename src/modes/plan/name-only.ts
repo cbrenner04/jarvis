@@ -7,7 +7,9 @@ import { OpencodeAgent } from "../../agents/opencode.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { PlaceholderCollisionError } from "./draft.ts";
+import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 
 function createAgent(agentName: AgentName, model: string | undefined): Agent {
@@ -49,6 +51,7 @@ export async function runNameOnlyPhase(opts: {
   worktreePath: string;
   name: string;
   config: Config;
+  stderr?: (s: string) => void;
 }): Promise<{ result: AgentResult; agentLabel: string | null }> {
   const intentPath = join(opts.worktreePath, "spec", opts.name, "intent.md");
   const intent = readFileSync(intentPath, "utf8");
@@ -63,7 +66,7 @@ export async function runNameOnlyPhase(opts: {
       agent.attributionLabel?.() ??
       `${entry.agent} (${entry.model ?? "default"})`;
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    result = await agent.run(prompt, { cwd: opts.worktreePath });
+    const spawnResult = await agent.run(prompt, { cwd: opts.worktreePath });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
       porcelainBefore !== null &&
@@ -71,13 +74,14 @@ export async function runNameOnlyPhase(opts: {
       porcelainBefore === porcelainAfter;
     result = applyQuotaFallbackWhenAllowed(
       entry.agent,
-      result,
+      spawnResult,
       {
         quotaFallback: opts.config.quotaFallback,
         weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
       },
       noDiskChangeDuringInvocation,
     );
+    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
     if (result.kind === "ok") {
       return { result, agentLabel };
     }
@@ -94,7 +98,7 @@ export async function runNameOnlyPhase(opts: {
       result: {
         kind: "error",
         exitCode: 2,
-        stderr: "all agents exhausted (no result produced)",
+        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
       },
       agentLabel,
     };

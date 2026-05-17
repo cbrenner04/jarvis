@@ -13,6 +13,60 @@ before and after `agent.run` via `src/modes/plan/git-porcelain.ts`). If the work
 quota fallback is skipped so partial writes are not mistaken for a clean miss. Strict spawn-side
 **`kind: "quota"`** still triggers fallback immediately (no guard).
 
+For spawn ordering, harness **`agent.run`** callsites, and mode guards end-to-end, see [Agent CLI failure pipeline](agent-cli-failure-pipeline.md).
+
+## Classification and fallback outcome matrix
+
+Authoritative outcomes for CLI result classification, fallback behavior, exit
+codes after fallback exhaustion, and telemetry semantics.
+
+| Raw CLI outcome | Classified kind | Patch iteration behavior (`jarvis run`) | Plan phase behavior (`jarvis plan`) | Exit code when all agents exhausted or no fallback remains | Telemetry kind/reason |
+| --- | --- | --- | --- | --- | --- |
+| Non-zero exit + strict quota signal from stderr patterns | `quota` | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) | `quota` / `quota-exhausted` |
+| Non-zero exit + weak quota signal (lenient), guard passes (`allowLenientWeakQuotaFallback=true`) | `quota` (upgraded from weak `error`) | Rotate to next agent only when no-progress guard passes | Rotate to next agent only when unchanged-porcelain guard passes | `2` (quota exhausted) | `quota` / `quota-exhausted` |
+| Non-zero exit + weak quota signal (lenient), guard fails | `error` (no upgrade) | No quota rotation; treated as hard failure for that iteration | In current behavior, plan inner loop still continues to later agents on hard `error` (see mode difference below) | Patch exits `1` for error when no fallback path applies | `error` / `agent-error` |
+| Non-zero exit + model configuration signal | `model_config` | Stop immediately; do not rotate | Stop immediately; do not rotate | `3` (model configuration error) | `model_config` / `model-config` |
+| Timeout / interrupt signal from harness or process control | `timeout` / interrupted run state | Stop run (no quota rotation) | Stop run (no quota rotation) | `124` (timeout) or `130` (SIGINT) | `timeout` / `timeout` or interrupted terminal reason |
+| Non-zero exit + generic error (no quota/model-config classification) | `error` | Stop run for that iteration path (no quota rotation) | In current behavior, plan inner loop may continue to next agent after hard `error` | `1` (error) | `error` / `agent-error` |
+| Zero exit | `ok` | Continue normal post-iteration completion/progress logic | Continue normal phase progression | `0` (when run/phase completes) | `ok` / completion or progress reason |
+
+Mode-specific note: patch mode runs one selected agent per iteration, while
+plan mode executes an inner agent-order loop per phase invocation. **Documented
+policy:** the plan inner loop continues to the next agent after a hard `error`
+(availability for spec drafting). Patch stops the iteration on hard `error` and
+only rotates agents for quota-classified results within that iteration; see
+[plan-mode.md § Hard generic errors](./plan-mode.md#5-hard-generic-errors-excluding-quota-and-model-configuration).
+
+### Operator-visible stderr (grep contract)
+
+Patch (`jarvis run`) and plan (`jarvis plan`) share these substrings when
+rotating agents after a quota-classified result:
+
+- **Per-agent rotation:** `quota exhausted; falling back` (strict spawn-side
+  quota) and `probable quota-like error (exit N); falling back` (lenient
+  weak-quota upgrade when the no-progress / porcelain guard passes).
+- **Plan prefix:** the same phrases appear after `plan: <agent>: ` so mixed logs
+  stay mode-tagged.
+- **Final exhaustion:** patch prints `all agents quota-exhausted`. Plan prints
+  `plan: all agents quota-exhausted` and may add a phase suffix (` during
+  interview`, ` during naming-only phase`, etc.).
+
+Canonical string constants: `src/quota-harness-messages.ts`. Plan rotation
+lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.
+
+### Patch telemetry (`~/.jarvis/runs.jsonl`)
+
+Only **`jarvis run`** (patch mode) appends JSONL via `writeTelemetry` today.
+For quota events, records use **`kind`: `"quota"`** with **`exitReason`**:
+
+| exitReason | When |
+| --- | --- |
+| `quota-exhausted` | No fallback agents remain (including empty order edge cases). |
+| `quota-fallback` | Strict quota on the current agent; at least one later agent remains. |
+| `probable-quota-fallback` | Lenient weak-quota upgrade on the current agent; at least one later agent remains. |
+
+Plan phases do not emit matching JSONL rows for per-phase agent outcomes.
+
 ## Capture convention (real quota events)
 
 Record real quota stderr whenever you hit one during normal usage.

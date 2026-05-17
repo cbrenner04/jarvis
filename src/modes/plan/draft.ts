@@ -7,7 +7,9 @@ import { OpencodeAgent } from "../../agents/opencode.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
+import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 
 export type DraftPhaseOptions = {
@@ -15,6 +17,9 @@ export type DraftPhaseOptions = {
   name: string;
   config: Config;
   intentBefore?: string;
+  stderr?: (s: string) => void;
+  /** For tests only; defaults to real CLI agents. */
+  createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
 };
 
 export class PlaceholderCollisionError extends Error {
@@ -81,7 +86,10 @@ export function buildDraftPrompt(opts: {
 /**
  * Instantiate an agent from a config entry.
  */
-function createAgent(agentName: AgentName, model: string | undefined): Agent {
+function defaultCreateAgent(
+  agentName: AgentName,
+  model: string | undefined,
+): Agent {
   switch (agentName) {
     case "claude":
       return new ClaudeAgent(model ? { model } : {});
@@ -149,15 +157,16 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
   const agentOrder = opts.config.modes.plan.agentOrder;
   let result: AgentResult | null = null;
   let agentLabel: string | null = null;
+  const resolveAgent = opts.createAgent ?? defaultCreateAgent;
 
   for (const entry of agentOrder) {
-    const agent = createAgent(entry.agent, entry.model);
+    const agent = resolveAgent(entry.agent, entry.model);
     agentLabel =
       agent.attributionLabel?.() ??
       `${entry.agent} (${entry.model ?? "default"})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    result = await agent.run(prompt, {
+    const spawnResult = await agent.run(prompt, {
       cwd: opts.worktreePath,
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
@@ -167,13 +176,14 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       porcelainBefore === porcelainAfter;
     result = applyQuotaFallbackWhenAllowed(
       entry.agent,
-      result,
+      spawnResult,
       {
         quotaFallback: opts.config.quotaFallback,
         weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
       },
       noDiskChangeDuringInvocation,
     );
+    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
 
     if (result.kind === "ok") {
       // Success! Count subspecs and return
@@ -198,7 +208,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       result: {
         kind: "error",
         exitCode: 2,
-        stderr: "all agents exhausted (no result produced)",
+        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
       },
       subspecCount: null,
       agentLabel: null,

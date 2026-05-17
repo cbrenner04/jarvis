@@ -27,10 +27,11 @@ behavior, gated on a plan-mode notion of "complete."
   `updatePrBody` call, only when no blocker is present. Follow the
   warn-and-continue pattern used for `updatePrBody` so a `gh` failure does
   not crash the run.
-- **Resume runs.** `jarvis plan --resume` reuses the existing branch and PR.
-  The mark-ready step must be idempotent: calling `gh pr ready` on an
-  already-ready PR should be tolerated (treat non-zero exit as a warning,
-  not a fatal error).
+- **Resume runs.** `jarvis plan --resume` reuses the existing branch and PR,
+  so the helper will sometimes run against a PR that is already in the
+  non-draft "Open" state. `gh pr ready` against an already-ready PR exits
+  non-zero; the warn-and-continue wrapper from the previous bullet absorbs
+  that, so no separate idempotency handling is needed.
 
 ## Scope
 

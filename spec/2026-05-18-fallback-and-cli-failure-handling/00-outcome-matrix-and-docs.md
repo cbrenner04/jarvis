@@ -20,9 +20,9 @@ Without that matrix, follow-up harness changes risk inconsistent UX and regressi
 
 ## Acceptance criteria
 
-- [ ] `docs/quota-signals.md` contains the matrix (or a clearly titled subsection linked from the intro).
-- [ ] `docs/run-loop.md` and `docs/plan-mode.md` reference that subsection without copying the full matrix.
-- [ ] `bun run typecheck` passes (docs-only change still runs quickly in CI).
+- [x] `docs/quota-signals.md` contains the matrix (or a clearly titled subsection linked from the intro).
+- [x] `docs/run-loop.md` and `docs/plan-mode.md` reference that subsection without copying the full matrix.
+- [x] `bun run typecheck` passes (docs-only change still runs quickly in CI).
 
 ## Documentation updates
 

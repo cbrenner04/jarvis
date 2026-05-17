@@ -6,7 +6,7 @@ Unify how Jarvis classifies agent CLI failures (stderr/exit codes), how **strict
 
 ## Subspecs
 
-- [ ] [00 — Outcome matrix and operator-facing docs](./00-outcome-matrix-and-docs.md)
+- [x] [00 — Outcome matrix and operator-facing docs](./00-outcome-matrix-and-docs.md)
 - [ ] [01 — Harness messages and telemetry alignment](./01-harness-messages-and-telemetry.md)
 - [ ] [02 — CLI classification pipeline (spawn + post-process)](./02-cli-classification-pipeline.md)
 - [ ] [03 — Multi-agent hard-error semantics (plan vs patch)](./03-multi-agent-hard-error-semantics.md)

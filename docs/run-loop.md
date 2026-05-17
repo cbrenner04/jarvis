@@ -195,7 +195,9 @@ exits with a model-configuration message and does not fall back to another
 agent. Fallback is reserved for quota exhaustion: if an agent reports quota
 exhaustion, jarvis removes it from the active list for that run and falls back
 to the next configured agent. See [quota-signals.md](./quota-signals.md) for
-the detection rules.
+the detection rules and
+[Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix)
+for the authoritative outcome mapping.
 
 ## Output destinations
 

@@ -13,6 +13,26 @@ before and after `agent.run` via `src/modes/plan/git-porcelain.ts`). If the work
 quota fallback is skipped so partial writes are not mistaken for a clean miss. Strict spawn-side
 **`kind: "quota"`** still triggers fallback immediately (no guard).
 
+## Classification and fallback outcome matrix
+
+Authoritative outcomes for CLI result classification, fallback behavior, exit
+codes after fallback exhaustion, and telemetry semantics.
+
+| Raw CLI outcome | Classified kind | Patch iteration behavior (`jarvis run`) | Plan phase behavior (`jarvis plan`) | Exit code when all agents exhausted or no fallback remains | Telemetry kind/reason |
+| --- | --- | --- | --- | --- | --- |
+| Non-zero exit + strict quota signal from stderr patterns | `quota` | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) | `quota` / `quota-exhausted` |
+| Non-zero exit + weak quota signal (lenient), guard passes (`allowLenientWeakQuotaFallback=true`) | `quota` (upgraded from weak `error`) | Rotate to next agent only when no-progress guard passes | Rotate to next agent only when unchanged-porcelain guard passes | `2` (quota exhausted) | `quota` / `quota-exhausted` |
+| Non-zero exit + weak quota signal (lenient), guard fails | `error` (no upgrade) | No quota rotation; treated as hard failure for that iteration | In current behavior, plan inner loop still continues to later agents on hard `error` (see mode difference below) | Patch exits `1` for error when no fallback path applies | `error` / `agent-error` |
+| Non-zero exit + model configuration signal | `model_config` | Stop immediately; do not rotate | Stop immediately; do not rotate | `3` (model configuration error) | `model_config` / `model-config` |
+| Timeout / interrupt signal from harness or process control | `timeout` / interrupted run state | Stop run (no quota rotation) | Stop run (no quota rotation) | `124` (timeout) or `130` (SIGINT) | `timeout` / `timeout` or interrupted terminal reason |
+| Non-zero exit + generic error (no quota/model-config classification) | `error` | Stop run for that iteration path (no quota rotation) | In current behavior, plan inner loop may continue to next agent after hard `error` | `1` (error) | `error` / `agent-error` |
+| Zero exit | `ok` | Continue normal post-iteration completion/progress logic | Continue normal phase progression | `0` (when run/phase completes) | `ok` / completion or progress reason |
+
+Mode-specific note: patch mode runs one selected agent per iteration, while
+plan mode executes an inner agent-order loop per phase invocation. Today, that
+plan inner loop can continue after hard `error`; this intentional difference is
+tracked for potential change in subspec 03.
+
 ## Capture convention (real quota events)
 
 Record real quota stderr whenever you hit one during normal usage.

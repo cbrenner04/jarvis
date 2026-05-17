@@ -250,9 +250,13 @@ user can return to the worktree and continue manually or with
 
 ### 4. Agent quota exhausted
 
-If the selected agent (from `modes.plan.agentOrder`) reports a quota signal, jarvis advances to the next agent in the fallback chain. If all agents are exhausted, jarvis exits `2` and prints `plan: quota exhausted` to stderr (matching patch mode's quota exit code; see [docs/quota-signals.md](./quota-signals.md)).
+If the selected agent (from `modes.plan.agentOrder`) reports a quota signal, jarvis advances to the next agent in the fallback chain. If all agents are exhausted, jarvis exits `2` and prints `plan: quota exhausted` to stderr (matching patch mode's quota exit code; see [docs/quota-signals.md](./quota-signals.md) and the [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix)).
 
 If an agent reports a `model_config` signal (the configured model is not supported by that CLI/account), jarvis exits `3` and prints `plan mode: model configuration error` plus the agent's stderr. This matches patch mode's `model_config` exit code (see `src/modes/patch/run.ts`).
+
+Behavior note: plan mode may continue its inner agent loop after a hard generic
+`error` in cases where patch mode stops the iteration. That current difference
+is summarized in the matrix and tracked for potential unification in subspec 03.
 
 ## Agent selection
 

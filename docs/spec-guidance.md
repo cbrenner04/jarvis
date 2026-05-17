@@ -3,12 +3,28 @@
 This file is stable guidance for agents that need to create or work from
 Jarvis specs.
 
-Jarvis specs should use an index-routed shape for normal work:
+New hand-written Jarvis specs should live under directories whose **basename**
+includes a filesystem-safe UTC timestamp prefix and a descriptive slug:
+
+`spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
+
+The prefix converts `Date.prototype.toISOString()` (`:` → `-`, no milliseconds): for
+example `2026-05-17T22-14-03Z-my-feature`. Omitting the timestamp matches older
+trees and remains valid on disk — jarvis reads whatever path you pass (`jarvis
+run`, resume, cleanup) — but **new specs should adopt the prefixed form so same-day
+trees sort and collide predictably.**
+
+Plan-generated specs already use `spec/<timestamp>-<validated-plan-name>/`. The
+**plan branch and worktree** stay untimestamped: `plan/<plan-name>` with
+`.worktree/plan-<plan-name>/` even when files live under
+`spec/2026-05-17T22-14-03Z-<plan-name>/`.
+
+Jarvis specs should use an index-routed shape:
 
 ```text
-spec/<feature>/index.md
-spec/<feature>/00-first-task.md
-spec/<feature>/01-second-task.md
+spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/index.md
+spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/00-first-task.md
+spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/01-second-task.md
 ```
 
 The `index.md` file is the routing file. It contains a GitHub-style task list
@@ -26,7 +42,7 @@ repo: https://github.com/owner/target-repo
 Run Jarvis against the index:
 
 ```sh
-jarvis run spec/<feature>/index.md
+jarvis run spec/2026-05-17T22-14-03Z-my-feature/index.md
 ```
 
 Specs may live anywhere. The `repo:` line is **optional**; when present, it
@@ -89,10 +105,13 @@ Plan mode also supports interactive sessions (`jarvis plan` with no args) for fu
 
 Plan-generated specs follow the same merge-first rule: do not run `jarvis run` against the spec until after the plan PR is merged to `main`.
 
-When you iterate with `jarvis plan --resume spec/<name>/index.md`, resume
-review commits add an `r<n>` suffix (`plan: review 3 r1`, `plan: review 4 r1`,
-then `... r2` on a later resume invocation). This is metadata only; from
-`jarvis run`'s perspective, hand-edited specs and plan-generated specs are
+When you iterate with
+`jarvis plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md` (or a legacy
+`spec/<plan-name>/index.md`), resume review commits add an `r<n>` suffix
+(`plan: review 3 r1`, `plan: review 4 r1`, then `... r2` on a later resume
+invocation). The timestamp (when present) is **only** in the spec directory path;
+resume still attaches to **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`.
+From `jarvis run`'s perspective, hand-edited specs and plan-generated specs are
 equivalent once merged to `main`.
 
 ## Subspecs
@@ -120,7 +139,8 @@ Subspec heading contract (enforced by patch mode parser):
 When an agent is asked to work from a Jarvis spec:
 
 1. Read the target repo guidance first.
-2. Read `spec/<feature>/index.md`.
+2. Read the spec directory's `index.md` (`spec/<timestamp>-<slug>/index.md` or a
+   legacy untimestamped directory).
 3. Pick the single most important unchecked subspec from the index.
 4. Read that subspec before editing.
 5. Complete only that subspec.
@@ -132,7 +152,7 @@ index after one subspec is complete.
 
 ## Non-index spec handling
 
-Passing a non-index spec to `jarvis run`, such as `spec/<feature>/01-task.md`,
+Passing a non-index spec to `jarvis run`, such as `spec/2026-05-17T22-14-03Z-my-feature/01-task.md`,
 prompts for one of these actions:
 
 - `s`: switch to a sibling `index.md` and run the normal loop from there (only

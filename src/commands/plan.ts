@@ -68,7 +68,7 @@ export type PlanCommandOptions = {
 };
 
 export const PLAN_USAGE = `Usage: jarvis plan [--interview-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
-                            Generate a spec tree from an intent. (planning behavior arrives in later specs)
+                            Run plan mode (draft specs under spec/…; see docs/plan-mode.md).
 `;
 
 const PLAN_STUB_MESSAGE =

@@ -65,7 +65,7 @@ export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 export const SESSIONS_DIR = join(CONFIG_DIR, "sessions");
 export const TELEMETRY_PATH = join(CONFIG_DIR, "runs.jsonl");
 
-const AGENT_NAMES = ["claude", "codex", "cursor", "opencode"] as const;
+const AGENT_NAMES = ["claude", "codex", "cursor", "opencode", "aider"] as const;
 export type AgentName = (typeof AGENT_NAMES)[number];
 
 export type Project = {
@@ -125,6 +125,7 @@ const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
   codex: "gpt-5.3-codex",
   cursor: "Composer 2",
   opencode: "github-copilot/claude-opus-4.7",
+  aider: "ollama_chat/qwen3.6:35b",
 };
 
 const DEFAULT_AGENT_ORDER: AgentEntry[] = [

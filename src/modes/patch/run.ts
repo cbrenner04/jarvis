@@ -16,10 +16,7 @@ import {
   relative,
   resolve,
 } from "node:path";
-import { ClaudeAgent } from "../../agents/claude.ts";
-import { CodexAgent } from "../../agents/codex.ts";
-import { CursorAgent } from "../../agents/cursor.ts";
-import { OpencodeAgent } from "../../agents/opencode.ts";
+import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
@@ -572,25 +569,13 @@ function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
       agents.push(override);
       continue;
     }
-    agents.push(makeAgent(entry.agent, entry.model, cfg));
+    agents.push(
+      createAgent(entry.agent, entry.model, {
+        claude: { outputFormat: getClaudeOutputFormat(cfg) },
+      }),
+    );
   }
   return agents;
-}
-
-function makeAgent(name: AgentName, model: string, cfg: Config): Agent {
-  switch (name) {
-    case "claude":
-      return new ClaudeAgent({
-        model,
-        outputFormat: getClaudeOutputFormat(cfg),
-      });
-    case "codex":
-      return new CodexAgent({ model });
-    case "cursor":
-      return new CursorAgent({ model });
-    case "opencode":
-      return new OpencodeAgent({ model });
-  }
 }
 
 function setupLogging(

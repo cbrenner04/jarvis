@@ -14,10 +14,12 @@ and the binary each one invokes:
 | `codex` | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). Token usage is extracted post-run from Codex session JSONL files under `~/.codex/sessions/`. |
 | `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; `--force` enables file writes in print mode; `--output-format text` matches transcript shape of other agents; prompt is the trailing positional argument (`cursor agent --help`). Although Cursor exposes JSON and stream JSON transcript formats, token usage is not currently exposed in a stable machine-readable field for jarvis extraction, so successful cursor iterations record `usage_source: "unavailable"`. |
 | `opencode` | `opencode run --dir <cwd> --model <provider/model> --format default <prompt>` | `--dir` is set to the working directory for the run; `--model` is required and read from the opencode entry's `model` field in `modes.patch.agentOrder`; `--format default` keeps the plain-text transcript shape; prompt is the trailing positional argument. This CLI version does not expose stable token usage for jarvis extraction, so telemetry records `usage_source: "unavailable"` for successful opencode iterations. Permissions are configured via `~/.config/opencode/opencode.json` rather than a CLI flag — see [Opencode setup](#opencode-setup). |
+| `aider` | `aider --message "<prompt>" --model <provider/model> --yes-always --no-auto-commits --no-git --no-stream` | `--model` is required and read from the aider entry's `model` field in `modes.patch.agentOrder`; prompt is passed via `--message`; `--yes-always` keeps runs non-interactive; `--no-auto-commits` keeps jarvis as the only committer; `--no-git` prevents aider from managing the worktree's git state. Local-model runs report no per-token usage cost in jarvis telemetry (`cost_source: "no-usage"`). |
 
-The default fallback order is `claude → codex → cursor`. `opencode` is
-supported but **opt-in** — it is not in the default `agentOrder`. Change the
-order with `jarvis config set-order <a,b,c>` (see [config.md](./config.md)).
+The default fallback order is `claude → codex → cursor`. `opencode` and
+`aider` are supported but **opt-in** — they are not in the default
+`agentOrder`. Change the order with `jarvis config set-order <a,b,c>` (see
+[config.md](./config.md)).
 Quota detection is per-agent and based on documented or observed stderr
 signals; see [quota-signals.md](./quota-signals.md).
 
@@ -57,6 +59,8 @@ to each upstream CLI. Current defaults:
   default print transcript (JSON/stream modes would flood logs).
 - **Opencode**: `--format default` — keeps output in the plain-text
   transcript shape used by the other agents.
+- **Aider**: `--no-stream` — keeps output in a compact, non-streaming
+  transcript shape.
 
 ## Permission posture
 
@@ -123,6 +127,42 @@ model name configured for that provider. For example,
 provider, while `AirProxy/<model>` routes through the internal AirProxy
 provider. Providers are not separate jarvis agents; they are selected only
 through the opencode entry's `model` value.
+
+## Aider setup
+
+Aider is supported but opt-in: it is not included in the default
+`modes.patch.agentOrder` or `modes.plan.agentOrder`. Its primary use case in
+jarvis is local LLM runs, where you bring your own runtime.
+
+Worked example (Ollama):
+
+1. Install Ollama and start it.
+2. Pull a local model:
+
+```sh
+ollama pull qwen3.6:35b
+```
+
+3. Add an aider entry with an Ollama Chat model string to
+   `~/.jarvis/config.json`:
+
+```json
+{
+  "modes": {
+    "patch": {
+      "agentOrder": [
+        { "agent": "aider", "model": "ollama_chat/qwen3.6:35b" },
+        { "agent": "claude", "model": "haiku" },
+        { "agent": "codex", "model": "gpt-5.3-codex" },
+        { "agent": "cursor", "model": "Composer 2" }
+      ]
+    }
+  }
+}
+```
+
+Aider also supports hosted providers and other local runtimes such as
+llama.cpp and LM Studio; see <https://aider.chat/docs/llms.html>.
 
 ## Plan-mode prompts
 

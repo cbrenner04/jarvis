@@ -1,7 +1,7 @@
 # jarvis
 
 Coding agent harness — a minimal "ralph loop" that drives an underlying agent
-CLI (`claude`, `codex`, `cursor`, or `opencode`) against a Markdown spec
+CLI (`claude`, `codex`, `cursor`, `opencode`, or `aider`) against a Markdown spec
 until every task checkbox is checked.
 
 ## Installation
@@ -12,10 +12,12 @@ Prerequisites:
 - [GitHub CLI](https://cli.github.com/) (`gh`) installed and authenticated
   (run `gh auth login` if needed).
 - At least one supported agent CLI available on `PATH`: `claude`, `codex`,
-  `cursor`, or `opencode`. See [docs/agents.md](docs/agents.md). `opencode`
-  is supported but opt-in; see
+  `cursor`, `opencode`, or `aider`. See [docs/agents.md](docs/agents.md).
+  `opencode` and `aider` are supported but opt-in; see
   [docs/agents.md#opencode-setup](docs/agents.md#opencode-setup) for the
-  one-time permission installer.
+  one-time opencode permission installer and
+  [docs/agents.md#aider-setup](docs/agents.md#aider-setup) for local-model
+  setup.
 
 Install jarvis from a local clone:
 

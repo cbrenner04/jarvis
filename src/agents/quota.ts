@@ -39,6 +39,14 @@ const opencodeQuotaPatterns = [
   /\byou have exceeded your\b/i,
 ];
 
+const aiderQuotaPatterns = [
+  /\brate limit\b/i,
+  /\bquota exceeded\b/i,
+  /\binsufficient_quota\b/i,
+  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b429\b/i,
+  /(?:^|\n)[^\n]*\b429\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
+];
+
 const modelConfigurationPatterns = [
   /\bunknown model\b/i,
   /\bunsupported model\b/i,
@@ -47,9 +55,17 @@ const modelConfigurationPatterns = [
   /\bmodel is not available\b/i,
   /\bnot available for your account\b/i,
   /\bunrecognized model\b/i,
+  /\bLLM Provider NOT provided\b/i,
 ];
 
 const opencodeModelConfigurationPatterns = [/\bno provider configured for\b/i];
+const aiderModelConfigurationPatterns = [
+  /\bcould not connect to ollama\b/i,
+  /\bconnection refused\b.*\b(model|host|localhost|127\.0\.0\.1|ollama|llama\.cpp|lm studio)\b/i,
+  /\b(model|host|localhost|127\.0\.0\.1|ollama|llama\.cpp|lm studio)\b.*\bconnection refused\b/i,
+  /\bmodel is not loaded\b/i,
+  /\bno such model\b/i,
+];
 const weakQuotaPatterns = [
   /\b429\b/i,
   /\b503\b/i,
@@ -72,7 +88,9 @@ export function isModelConfigurationSignal(
   const patterns =
     name === "opencode"
       ? [...modelConfigurationPatterns, ...opencodeModelConfigurationPatterns]
-      : modelConfigurationPatterns;
+      : name === "aider"
+        ? [...modelConfigurationPatterns, ...aiderModelConfigurationPatterns]
+        : modelConfigurationPatterns;
 
   return patterns.some((pattern) => pattern.test(stderr));
 }
@@ -85,7 +103,7 @@ export function isQuotaSignal(
   if (exitCode === 0) return false;
 
   const patterns = (() => {
-    switch (name as AgentName | "opencode") {
+    switch (name) {
       case "claude":
         return claudeQuotaPatterns;
       case "codex":
@@ -94,6 +112,8 @@ export function isQuotaSignal(
         return cursorQuotaPatterns;
       case "opencode":
         return opencodeQuotaPatterns;
+      case "aider":
+        return aiderQuotaPatterns;
     }
   })();
 

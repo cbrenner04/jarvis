@@ -52,22 +52,22 @@ expanding that union in every location it is declared and handling
 
 ## Tasks
 
-- [ ] Add `"aider"` to `AgentName` in `src/agents/types.ts`.
-- [ ] Add `"aider"` to the `AGENT_NAMES` tuple in `src/config.ts` so the
+- [x] Add `"aider"` to `AgentName` in `src/agents/types.ts`.
+- [x] Add `"aider"` to the `AGENT_NAMES` tuple in `src/config.ts` so the
       derived `AgentName` type and `isAgentName` validator both accept
       it.
-- [ ] Add `aider: "ollama/llama3.1:8b"` (or another sensible
+- [x] Add `aider: "ollama/llama3.1:8b"` (or another sensible
       placeholder) to `DEFAULT_AGENT_MODELS` in `src/config.ts` to keep
       the `Record<AgentName, string>` exhaustive.
-- [ ] Extend the `makeAgent` switch in `src/modes/patch/run.ts` with an
+- [x] Extend the `makeAgent` switch in `src/modes/patch/run.ts` with an
       `"aider"` case returning `new AiderAgent({ model })`. Import
       `AiderAgent` from `../../agents/aider.ts`.
-- [ ] Extend the equivalent switches in `src/modes/plan/draft.ts` and
+- [x] Extend the equivalent switches in `src/modes/plan/draft.ts` and
       `src/modes/plan/review.ts` the same way.
-- [ ] Search for any other exhaustive `switch (name)` or
+- [x] Search for any other exhaustive `switch (name)` or
       `case "opencode"` sites that the compiler now flags and add the
       `"aider"` branch (e.g. attribution / logging helpers).
-- [ ] Add tests for:
+- [x] Add tests for:
       - A config with `modes.patch.agentOrder` containing an `aider`
         entry validates successfully.
       - A config with two `aider` entries in the same `agentOrder`
@@ -79,16 +79,16 @@ expanding that union in every location it is declared and handling
 
 ## Acceptance criteria
 
-- [ ] `bun run typecheck` passes — every exhaustive switch over
+- [x] `bun run typecheck` passes — every exhaustive switch over
       `AgentName` now also handles `"aider"`.
-- [ ] `bun test` passes including the new cases.
-- [ ] `bun run check` passes.
-- [ ] A config file with
+- [x] `bun test` passes including the new cases.
+- [x] `bun run check` passes.
+- [x] A config file with
       `{"agent": "aider", "model": "ollama/llama3.1:8b"}` in
       `modes.patch.agentOrder` loads without error.
-- [ ] The patch-mode factory returns an `AiderAgent` instance for that
+- [x] The patch-mode factory returns an `AiderAgent` instance for that
       entry (verified by the factory test).
-- [ ] Default config produced by `loadConfig` on a fresh
+- [x] Default config produced by `loadConfig` on a fresh
       `~/.jarvis/config.json` still has the pre-existing
       `modes.{patch,plan}.agentOrder` and does **not** include `aider`.
 

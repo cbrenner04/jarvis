@@ -85,12 +85,12 @@ subspec documents the initial signal set and wires it into `quota.ts`.
 
 ## Acceptance criteria
 
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
-- [ ] An `AiderAgent` failure where stderr contains `"rate limit reached"`
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] An `AiderAgent` failure where stderr contains `"rate limit reached"`
       returns `kind: "quota"`.
-- [ ] An `AiderAgent` failure where stderr contains
+- [x] An `AiderAgent` failure where stderr contains
       `"could not connect to ollama"` returns `kind: "model_config"`.
-- [ ] A successful (`code === 0`) aider run still returns `kind: "ok"`
+- [x] A successful (`code === 0`) aider run still returns `kind: "ok"`
       even if stdout mentions one of the substrings.
 
 ## Documentation updates

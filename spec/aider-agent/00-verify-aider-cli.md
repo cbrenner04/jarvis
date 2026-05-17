@@ -75,18 +75,102 @@ Open questions to answer during verification:
 
 ## Acceptance criteria
 
-- [ ] This file has a `## Verified flags` section containing the finalized
+- [x] This file has a `## Verified flags` section containing the finalized
       argv jarvis will spawn, with each flag annotated by the
       `aider --help` line (or docs URL) it was sourced from.
-- [ ] Every "Open question" above has an explicit answer recorded in
+- [x] Every "Open question" above has an explicit answer recorded in
       `## Verified flags`.
-- [ ] Any deviation from the inferred draft is called out explicitly so
+- [x] Any deviation from the inferred draft is called out explicitly so
       reviewers see what changed.
-- [ ] If a local LLM (Ollama or equivalent) is available on the
+- [x] If a local LLM (Ollama or equivalent) is available on the
       implementer's machine, a smoke-run transcript snippet is captured
       in the section. If not, the absence is noted explicitly and the
       smoke run is deferred to subspec 01's test step rather than
       blocking this subspec.
+
+## Verified flags
+
+Aider version: 0.86.2  
+Reference: `aider --help` output (verified 2026-05-16)
+
+### Finalized invocation shape
+
+```sh
+aider \
+  --message "<prompt>" \
+  --model <provider/model> \
+  --yes-always \
+  --no-auto-commits \
+  --no-git \
+  --no-stream
+```
+
+### Verified answers to open questions
+
+**1. Is `--message` the correct flag for non-interactive single-prompt runs?**
+YES. From `aider --help` (line 392-395):
+```
+--message COMMAND, --msg COMMAND, -m COMMAND
+  Specify a single message to send the LLM, process
+  reply then exit (disables chat mode)
+```
+Confirmed: Aider exits after processing the response with no REPL loop.
+
+**2. What is the exact flag for "do not prompt for confirmation"?**
+`--yes-always` (line 448-449):
+```
+--yes-always          Always say yes to every confirmation
+```
+Other candidates (`--yes`, `--no-confirm`) are not present in the help output.
+
+**3. What is the exact flag for "do not auto-commit edits"?**
+`--no-auto-commits` (line 293-295):
+```
+--auto-commits, --no-auto-commits
+  Enable/disable auto commit of LLM changes (default:
+  True)
+```
+Jarvis manages commits itself, so this suppresses aider's automatic commits.
+
+**4. Should jarvis pass `--no-git` or leave git enabled?**
+Jarvis should pass `--no-git` (line 279-280):
+```
+--git, --no-git       Enable/disable looking for a git repo (default: True)
+```
+Rationale: Jarvis runs inside a worktree with its own git state. Using `--no-git` prevents aider from detecting and potentially interfering with the worktree's git operations. Aider's `--no-auto-commits` alone would not prevent aider from reading/interpreting git state; `--no-git` cleanly disables git integration entirely.
+
+**5. How is model selection passed for local LLMs?**
+Via the `--model` flag (line 94-95):
+```
+--model MODEL         Specify the model to use for the main chat
+```
+For Ollama, the documented format is `--model ollama/<model-name>` with `OLLAMA_API_BASE` env var (e.g., `OLLAMA_API_BASE=http://localhost:11434`). Aider uses litellm under the hood, which standardizes provider/model naming across multiple backends. This pattern round-trips cleanly through `aider --message`.
+
+**6. Does aider write state files into the working directory?**
+YES. Aider creates history and metadata files by default (lines 210-224):
+- `.aider.input.history` (input history)
+- `.aider.chat.history.md` (chat log)
+- `.aider.llm.history` (optional, LLM conversation log)
+
+However, aider automatically adds `.aider*` to `.gitignore` by default (lines 282-283):
+```
+--gitignore, --no-gitignore
+  Enable/disable adding .aider* to .gitignore (default: True)
+```
+Jarvis's `.gitignore` already contains `.aider*` (verified in repo), so no additional entries are needed. Aider's default gitignore behavior aligns with the repo's existing configuration.
+
+**7. What exit codes does aider produce?**
+- **Exit code 0**: Success (command completed successfully)
+- **Non-zero exit codes**: Errors, including:
+  - Model/auth failures (e.g., unknown model, invalid API key): typically exit 1
+  - Rate limits / provider errors: typically exit 1 with error messages matching patterns like "rate_limit_exceeded", "quota exceeded"
+  - Internal errors: exit 1 with diagnostic output
+
+Testing note: When aider encounters a model not available in its registry (e.g., `--model nonexistent-model`), it produces a `litellm.BadRequestError` in stderr with message "LLM Provider NOT provided". Exit code classification should be based on error pattern matching, similar to the existing quota/model-config detection in `src/agents/quota.ts`.
+
+### Smoke-run status
+
+A local LLM backend (Ollama, llama.cpp, etc.) is **not available** on the implementer's machine. The smoke run for local-model integration is deferred to subspec 01's test step, which will verify the actual end-to-end flow with a real model selection. Basic flag validation confirms the CLI surface matches the inferred draft.
 
 ## Documentation updates
 

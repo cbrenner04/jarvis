@@ -50,13 +50,13 @@ local LLM.
 
 ## Acceptance criteria
 
-- [ ] README clearly states aider is supported, that its primary use case
+- [x] README clearly states aider is supported, that its primary use case
       is local LLMs, and how to enable it with a worked Ollama example.
-- [ ] The Agents table includes an `aider` row consistent with the
+- [x] The Agents table includes an `aider` row consistent with the
       existing rows.
-- [ ] No vendor-specific recommendation beyond "Ollama is the worked
+- [x] No vendor-specific recommendation beyond "Ollama is the worked
       example"; other backends get a pointer, not a walkthrough.
-- [ ] `bun run check` passes (Biome formatting on Markdown if applicable).
+- [x] `bun run check` passes (Biome formatting on Markdown if applicable).
 
 ## Documentation updates
 

@@ -1,32 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ClaudeAgent } from "../../agents/claude.ts";
-import { CodexAgent } from "../../agents/codex.ts";
-import { CursorAgent } from "../../agents/cursor.ts";
-import { OpencodeAgent } from "../../agents/opencode.ts";
+import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
-import type { Agent, AgentResult } from "../../agents/types.ts";
-import type { AgentName, Config } from "../../config.ts";
+import type { AgentResult } from "../../agents/types.ts";
+import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { PlaceholderCollisionError } from "./draft.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
-
-function createAgent(agentName: AgentName, model: string | undefined): Agent {
-  switch (agentName) {
-    case "claude":
-      return new ClaudeAgent(model ? { model } : {});
-    case "codex":
-      return new CodexAgent(model ? { model } : {});
-    case "cursor":
-      return new CursorAgent(model ? { model } : {});
-    case "opencode":
-      if (!model) {
-        throw new Error("opencode agent requires model to be configured");
-      }
-      return new OpencodeAgent({ model });
-  }
-}
 
 export function buildNameOnlyPrompt(opts: {
   name: string;

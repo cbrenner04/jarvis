@@ -21,7 +21,10 @@ import {
   validateProposedName,
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";
-import { parsePlanArgs } from "../src/commands/plan-args.ts";
+import {
+  describePlanInvocation,
+  parsePlanArgs,
+} from "../src/commands/plan-args.ts";
 import { registerProject } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 
@@ -47,6 +50,24 @@ const okLogClient: LogClient = {
   send: async () => {},
 };
 
+function capturingLogClient(): {
+  client: LogClient;
+  harnessTexts: string[];
+} {
+  const harnessTexts: string[] = [];
+  return {
+    harnessTexts,
+    client: {
+      assertReachable: async () => {},
+      send: async (m) => {
+        if (m.tag === "harness") {
+          harnessTexts.push(m.text);
+        }
+      },
+    },
+  };
+}
+
 function setupRegisteredProject() {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-cmd-"));
   const cfgDir = join(dir, "cfg");
@@ -66,16 +87,35 @@ function failingLogClient(message: string): LogClient {
 }
 
 describe("planCommand", () => {
-  test("renderPlanNextSteps includes PR URL and spec name command hints", () => {
+  test("renderPlanNextSteps includes PR URL and timestamped spec path command hints", () => {
+    const specDirBasename = "2026-05-17T123456-aider-agent";
     const text = renderPlanNextSteps({
       prUrl: "https://github.com/acme/repo/pull/123",
-      specName: "my-plan",
+      specDirBasename,
     });
     expect(text).toContain("Next steps:");
     expect(text).toContain("https://github.com/acme/repo/pull/123");
     expect(text).toContain("jarvis plan --resume");
-    expect(text).toContain("spec/my-plan/index.md");
-    expect(text).toContain("jarvis run spec/my-plan/index.md");
+    expect(text).toContain(`spec/${specDirBasename}/index.md`);
+    expect(text).toContain(`jarvis run spec/${specDirBasename}/index.md`);
+  });
+
+  test("successful-plan next steps omit ready-flip wording; plan.ts omits redundant stderr footers", () => {
+    const specDirBasename = "2026-05-17T123456-aider-agent";
+    const text = renderPlanNextSteps({
+      prUrl: "https://github.com/acme/repo/pull/555",
+      specDirBasename,
+    });
+    expect(text).not.toContain("Mark the PR ready");
+    expect(text).not.toContain("plan: complete");
+    expect(text).not.toContain("commits created and pushed");
+
+    const planSource = readFileSync(
+      join(dirname(__dirname), "src", "commands", "plan.ts"),
+      "utf8",
+    );
+    expect(planSource).not.toContain("`plan: complete");
+    expect(planSource).not.toContain("commits created and pushed to plan/");
   });
 
   test("plan mode invokes `gh pr ready` via maybeMarkPlanPrReady", () => {
@@ -225,16 +265,27 @@ describe("planCommand", () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {
       const cap = captureIo();
+      const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
         io: cap.io,
         args: ["this is freeform intent"],
         cwd: project,
         config: { dir: cfgDir },
-        logClient: okLogClient,
+        logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain("plan mode: inline");
-      expect(cap.err()).toContain("this is freeform intent");
+      const inlineInv: PlanInvocation = {
+        mode: "inline",
+        intentText: "this is freeform intent",
+        cwd: project,
+        resume: false,
+      };
+      expect(cap.err()).not.toContain(describePlanInvocation(inlineInv));
+      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(harnessTexts).toContain(describePlanInvocation(inlineInv));
+      expect(
+        harnessTexts.some((t) => t.startsWith("plan mode: target project=")),
+      ).toBe(true);
       expect(cap.err()).toContain(
         "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
@@ -291,15 +342,25 @@ describe("planCommand target-repo resolution", () => {
       writeFileSync(intentPath, "intent\n");
 
       const cap = captureIo();
+      const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
         io: cap.io,
         args: [intentPath],
         cwd: dir,
         config: { dir: cfgDir },
-        logClient: okLogClient,
+        logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain(
+      const fileInv: PlanInvocation = {
+        mode: "file",
+        intentPath,
+        cwd: dir,
+        resume: false,
+      };
+      expect(cap.err()).not.toContain(describePlanInvocation(fileInv));
+      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(harnessTexts).toContain(describePlanInvocation(fileInv));
+      expect(harnessTexts).toContain(
         `plan mode: target project=project-a root=${projectA}`,
       );
       expect(cap.err()).toContain(
@@ -318,16 +379,18 @@ describe("planCommand target-repo resolution", () => {
       writeFileSync(intentPath, "intent\n");
 
       const cap = captureIo();
+      const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
         io: cap.io,
         args: [intentPath],
         cwd: dir,
         config: { dir: cfgDir },
-        logClient: okLogClient,
+        logClient,
         skipGhCheck: true,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain(
+      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(harnessTexts).toContain(
         `plan mode: target project=project-b root=${projectB}`,
       );
     } finally {
@@ -341,16 +404,25 @@ describe("planCommand target-repo resolution", () => {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
+      const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
         io: cap.io,
         args: ["--cwd", projectA, "freeform intent"],
         cwd: dir,
         config: { dir: cfgDir },
-        logClient: okLogClient,
+        logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain("plan mode: inline");
-      expect(cap.err()).toContain(
+      const inlineInv: PlanInvocation = {
+        mode: "inline",
+        intentText: "freeform intent",
+        cwd: projectA,
+        resume: false,
+      };
+      expect(cap.err()).not.toContain(describePlanInvocation(inlineInv));
+      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(harnessTexts).toContain(describePlanInvocation(inlineInv));
+      expect(harnessTexts).toContain(
         `plan mode: target project=project-a root=${projectA}`,
       );
       expect(cap.err()).toContain(
@@ -367,16 +439,25 @@ describe("planCommand target-repo resolution", () => {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
+      const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
         io: cap.io,
         args: ["--cwd", projectA],
         cwd: dir,
         config: { dir: cfgDir },
-        logClient: okLogClient,
+        logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain("plan mode: interactive");
-      expect(cap.err()).toContain(
+      expect(cap.err()).toContain("plan mode: interactive session started");
+      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(harnessTexts).toContain(
+        describePlanInvocation({
+          mode: "interactive",
+          cwd: projectA,
+          resume: false,
+        }),
+      );
+      expect(harnessTexts).toContain(
         `plan mode: target project=project-a root=${projectA}`,
       );
     } finally {
@@ -393,15 +474,17 @@ describe("planCommand target-repo resolution", () => {
       writeFileSync(intentPath, "intent\n");
 
       const cap = captureIo();
+      const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
         io: cap.io,
         args: ["--repo", "project-a", intentPath],
         cwd: dir,
         config: { dir: cfgDir },
-        logClient: okLogClient,
+        logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain(
+      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(harnessTexts).toContain(
         `plan mode: target project=project-a root=${projectA}`,
       );
     } finally {
@@ -415,15 +498,17 @@ describe("planCommand target-repo resolution", () => {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
+      const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
         io: cap.io,
         args: ["--repo", "project-a", "freeform"],
         cwd: dir,
         config: { dir: cfgDir },
-        logClient: okLogClient,
+        logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain(
+      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(harnessTexts).toContain(
         `plan mode: target project=project-a root=${projectA}`,
       );
     } finally {
@@ -437,15 +522,18 @@ describe("planCommand target-repo resolution", () => {
       registerProject("project-a", projectA, { dir: cfgDir });
 
       const cap = captureIo();
+      const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
         io: cap.io,
         args: ["--repo", "project-a"],
         cwd: dir,
         config: { dir: cfgDir },
-        logClient: okLogClient,
+        logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain(
+      expect(cap.err()).toContain("plan mode: interactive session started");
+      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(harnessTexts).toContain(
         `plan mode: target project=project-a root=${projectA}`,
       );
     } finally {

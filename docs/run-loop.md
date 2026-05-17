@@ -143,7 +143,7 @@ any agent.
 
 ## Plan mode
 
-Plan mode (`jarvis plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis run` implements existing specs. Plan mode runs interview → draft → self-review, creates a dedicated worktree and branch (`plan/<name>/` and `plan-<name>/`), and produces a draft PR with an agent-generated spec tree; the spec remains in draft status until the user merges it to `main`.
+Plan mode (`jarvis plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis run` implements existing specs. Interview → draft → self-review runs inside **`.worktree/plan-<plan-name>/`** on branch **`plan/<plan-name>`** (branch/worktree names intentionally **omit** the UTC prefix even when authoring files live under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`**). **Legacy trees** capped at **`spec/<plan-name>/`** remain **`jarvis plan --resume` capable**. A GitHub draft PR opens after **`plan: draft`**; **`gh pr ready`** runs programmatically whenever blockers absent, stderr defaults stay quiet besides milestone chatter ([quieter-output section in plan-mode docs](./plan-mode.md#default-terminal-output)), and stdout **Next steps** recap merge/`jarvis run` without instructing reviewers to toggle readiness manually.
 
 Full details — phases, flags, stop conditions, PR lifecycle, and cleanup — appear in
 [docs/plan-mode.md](./plan-mode.md).

@@ -40,16 +40,16 @@ The current prompt still describes the phase as if questions are asked and answe
 
 ## Acceptance criteria
 
-- [ ] Interview mode is documented and implemented as non-interactive.
-- [ ] The interview prompt no longer tells agents to ask the user questions, use a question tool, or record user answers.
-- [ ] Interview mode no longer commits the original seed intent verbatim as if useful interview work happened.
-- [ ] A successful interview produces reviewable refinement content or an explicit skip/no-op result.
-- [ ] Missing human clarification is represented as a visible `## Blocker`, not invented answers.
-- [ ] Users see concise interview progress and a clear terminal interview outcome.
-- [ ] Existing `--interview-turns`, turn budget, name proposal, blocker, commit, and resume behavior remain compatible except where the no-op fix explicitly changes commit behavior.
-- [ ] Validation continues to reject edits to existing non-frontmatter intent content.
-- [ ] Tests cover the corrected non-interactive interview contract.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] Interview mode is documented and implemented as non-interactive.
+- [x] The interview prompt no longer tells agents to ask the user questions, use a question tool, or record user answers.
+- [x] Interview mode no longer commits the original seed intent verbatim as if useful interview work happened.
+- [x] A successful interview produces reviewable refinement content or an explicit skip/no-op result.
+- [x] Missing human clarification is represented as a visible `## Blocker`, not invented answers.
+- [x] Users see concise interview progress and a clear terminal interview outcome.
+- [x] Existing `--interview-turns`, turn budget, name proposal, blocker, commit, and resume behavior remain compatible except where the no-op fix explicitly changes commit behavior.
+- [x] Validation continues to reject edits to existing non-frontmatter intent content.
+- [x] Tests cover the corrected non-interactive interview contract.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

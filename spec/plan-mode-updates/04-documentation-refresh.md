@@ -33,15 +33,15 @@ The behavior changes in this spec affect user-facing plan-mode workflow, plan-mo
 
 ## Acceptance criteria
 
-- [ ] Documentation tells users to create new spec directories with a filesystem-safe ISO 8601 timestamp prefix.
-- [ ] Plan-mode docs show timestamped `spec/.../index.md` paths for new plan specs.
-- [ ] Plan-mode docs no longer tell users that the CLI next steps include a PR ready-flip instruction.
-- [ ] Plan-mode PR-ready behavior is documented consistently across all docs: successful lifecycle behavior is described separately from the terminal next-steps text.
-- [ ] Plan-mode output examples match the quieter default terminal output.
-- [ ] Docs state that existing untimestamped plan specs remain supported.
-- [ ] Docs clearly state that timestamped spec directory basenames map back to untimestamped plan branch and worktree names during resume.
-- [ ] Any CLI help text touched by the implementation is consistent with the docs.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] Documentation tells users to create new spec directories with a filesystem-safe ISO 8601 timestamp prefix.
+- [x] Plan-mode docs show timestamped `spec/.../index.md` paths for new plan specs.
+- [x] Plan-mode docs no longer tell users that the CLI next steps include a PR ready-flip instruction.
+- [x] Plan-mode PR-ready behavior is documented consistently across all docs: successful lifecycle behavior is described separately from the terminal next-steps text.
+- [x] Plan-mode output examples match the quieter default terminal output.
+- [x] Docs state that existing untimestamped plan specs remain supported.
+- [x] Docs clearly state that timestamped spec directory basenames map back to untimestamped plan branch and worktree names during resume.
+- [x] Any CLI help text touched by the implementation is consistent with the docs.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

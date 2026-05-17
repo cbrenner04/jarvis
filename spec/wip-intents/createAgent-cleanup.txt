@@ -1,0 +1,1 @@
+right now `createAgent` has different signature for claude, opencode, and aider. Additionally, there are model checks for calling each agent constructor. Model should not be undefined ever. Additionally, I am not sure why the ClaudeAgent constructor has the outputFormat check. We should either that is expected to live in the config or its just hardcoded in the ClaudeAgent. 

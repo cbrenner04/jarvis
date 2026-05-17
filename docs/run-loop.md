@@ -227,20 +227,26 @@ purposes:
   arrive out of order or be silently dropped under load. The on-disk
   session log is the authoritative record.
 - **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or
-  `telemetryPath` from config). Jarvis appends one line at each iteration end
-  and one terminal-state line when the run exits (complete, max-iter,
-  quota-exhausted, blocked, timeout, or error). On a successful completing
-  iteration both records are written for that iteration: the per-iteration
-  line (`exit_reason: "criteria-complete"` or `"criteria-progress"`) and the
-  terminal line (e.g. `exit_reason: "completed-spec"`). A two-iteration run
-  that completes therefore writes three lines total. Set `telemetryPath` to
-  `null` to disable.
+  `telemetryPath` from config). Patch mode emits one invocation line per agent outcome
+  (for example each `criteria-progress`, `criteria-complete`, or `quota`). When an
+  iteration finishes the checklist, Jarvis emits `criteria-complete` with tokens
+  and cost, followed by a short `completed-spec` line marked
+  **`record_role: "run_terminal"`** so end-of-run summaries do not sum usage twice.
+  Rows may include optional **`configured_model`** (patch `modes.patch.agentOrder`
+  entry at invocation time). Set `telemetryPath` to `null` to disable.
 
 ### Token usage and cost tracking
 
 Each telemetry record optionally includes token usage and cost information when
-available. These fields are. For aggregated totals shown to humans at run end,
-see [End-of-run summary](#end-of-run-summary):
+available. For aggregated totals shown to humans at run end, see
+[End-of-run summary](#end-of-run-summary):
+
+- **`record_role`** (optional): `run_terminal` marks JSONL duplicates that mirror
+  run exit (`completed-spec`) and must **not** be summed with invocation rows.
+
+- **`configured_model`** (optional): Patch mode stores `modes.patch.agentOrder`
+  `model` for the invoking CLI so summaries can cite the priced model without
+  inferring from the CLI name alone.
 
 - **`usage`**: Object with `input_tokens`, `output_tokens`,
   `cache_read_input_tokens`, and `cache_creation_input_tokens` (each `number |
@@ -257,7 +263,8 @@ see [End-of-run summary](#end-of-run-summary):
   cost cannot be computed.
 
 - **`cost_source`**: How the cost was derived. One of:
-  - `"computed"` — calculated from `usage` and the price table.
+  - `"computed"` — calculated from `usage` and the price table using the configured
+    patch model id (`configured_model`), not the CLI product name fallback.
   - `"agent"` — agent CLI provided a dollar figure directly.
   - `"no-price"` — token counts exist but the model has no published rates.
   - `"no-usage"` — no token counts were available to compute from.
@@ -318,15 +325,28 @@ one-time notice on first cursor success per run:
 After `jarvis run` exits (success or failure after at least one iteration),
 jarvis prints a summary block to stdout with:
 
-- spec path, exit reason, iteration count, and run duration.
+- spec path and exit reason.
+- **`iterations`**: Completed Jarvis patch iterations—each successful telemetry
+  `kind: "ok"` invocation line for a real agent (not `record_role: run_terminal`).
+- **`attempts`**: Telemetry lines that represent CLI/harness-facing outcomes,
+  excluding `run_terminal` rows and omitting synthetic `agent: harness` bookkeeping.
+- run duration (`duration:`).
 - per-agent aggregated totals for `tokens_in`, `tokens_out`, optional cache
-  columns, cost, and dominant source.
-- a total row across all agents.
-- a `notes:` block when data quality is mixed (`usage_source: "unavailable"`,
-  `cost_source: "no-price"`, mixed per-agent cost sources, parse warnings, or
-  null costs excluded from totals).
+  columns (`cache_r`, `cache_w`), cost (`null` renders as `—`), and dominant source.
+  Per-agent suffixes say `(N iteration(s))` counted from those summarized rows only.
+- a total row across all agents counting **known numeric `cost_usd` only**.
+- a `notes:` block explaining issues not obvious from tallies:
+  - quota attempts excluded from summarized totals (`"<n> quota attempt(s) under <agent>"`)
+  - `usage_source: "unavailable"` rows
+  - `cost_source: "no-price"` (usage present but missing rate metadata)
+  - parse warnings surfaced on telemetry
+  - **mixed cost sources**, only when records with measurable usage disagree on
+    `agent` versus `computed` versus `no-price` (combinations involving
+    `"unavailable"` / `"no-usage"` intentionally do **not** count as mixes)
+  - null-dollar rows excluded from the displayed total.
 
-The summary is computed from the session's telemetry JSONL lines
+
+The summary table is computed from the session's telemetry JSONL lines
 (`namespace` + `ts >= run_start_ts`), not from in-memory counters, so the same
 totals can be recomputed directly from `~/.jarvis/runs.jsonl`.
 

@@ -25,6 +25,7 @@ describe("runSummary", () => {
         duration_ms: 1000,
         kind: "ok",
         exit_reason: "criteria-progress",
+        configured_model: "claude-haiku-4-5-20251001",
         usage: {
           input_tokens: 1000,
           output_tokens: 500,
@@ -47,13 +48,17 @@ describe("runSummary", () => {
     });
 
     expect(summary).toContain("run summary");
-    expect(summary).toContain("claude (1 iters)");
+    expect(summary).toContain("iterations: 1");
+    expect(summary).toContain("attempts: 1");
+    expect(summary).toContain(
+      "claude (claude-haiku-4-5-20251001) (1 iteration(s))",
+    );
     expect(summary).toContain("$0.42");
     expect(summary).toContain("cache_r");
     expect(summary).toContain("cache_w");
   });
 
-  test("mixed cost sources create notes", () => {
+  test("mixed meaningful cost sources create notes", () => {
     const telemetryPath = writeTelemetry([
       {
         ts: "2026-05-16T10:00:01.000Z",
@@ -91,7 +96,149 @@ describe("runSummary", () => {
     });
 
     expect(summary).toContain("notes:");
-    expect(summary).toContain("codex mixes cost sources: computed, agent.");
+    expect(summary).toContain("codex mixes cost sources: agent, computed.");
+  });
+
+  test("quota attempts are excluded with a grouped note", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 100,
+        kind: "quota",
+        exit_reason: "quota-fallback",
+      },
+      {
+        ts: "2026-05-16T10:00:02.000Z",
+        namespace: "p:spec",
+        agent: "codex",
+        iteration: 1,
+        duration_ms: 900,
+        kind: "ok",
+        exit_reason: "criteria-complete",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 800,
+          output_tokens: 200,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.12,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "criteria-complete",
+      iterations: 1,
+      durationMs: 2_000,
+      specPath: "spec/foo/index.md",
+    });
+
+    expect(summary).toContain("attempts: 2");
+    expect(summary).not.toContain("claude (");
+    expect(summary).toContain("codex (1 iteration(s))");
+    expect(summary).toContain(
+      "1 quota attempt(s) under claude were excluded from usage totals.",
+    );
+  });
+
+  test("completed-spec duplicate row must not double-count usage", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 100,
+        kind: "ok",
+        exit_reason: "criteria-complete",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 1,
+        cost_source: "agent",
+      },
+      {
+        ts: "2026-05-16T10:00:02.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 0,
+        kind: "ok",
+        exit_reason: "completed-spec",
+        record_role: "run_terminal",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "criteria-complete",
+      iterations: 1,
+      durationMs: 2_000,
+      specPath: "spec/foo/index.md",
+    });
+
+    expect(summary).toContain("$1.00");
+    expect(summary).toContain("100");
+    expect(summary).toContain("50");
+    expect(summary).toContain("claude (1 iteration(s))");
+  });
+
+  test("available cost plus unavailable usage does not emit mixed-sources note", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.01,
+        cost_source: "agent",
+      },
+      {
+        ts: "2026-05-16T10:00:02.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 2,
+        duration_ms: 500,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        usage_source: "unavailable",
+        cost_usd: null,
+        cost_source: "no-usage",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "criteria-progress",
+      iterations: 2,
+      durationMs: 2_000,
+      specPath: "spec/foo/index.md",
+    });
+
+    expect(summary).not.toContain("mixes cost sources");
+    expect(summary).toContain("no usage data (usage_source=unavailable)");
   });
 
   test("unavailable usage is listed per agent", () => {
@@ -165,6 +312,43 @@ describe("runSummary", () => {
     expect(summary).toContain(
       "1 iteration(s) had null cost and were excluded from total cost.",
     );
+  });
+
+  test("shows computed dominance when telemetry records computed-only cost", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "codex",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        configured_model: "gpt-5.3-codex",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 1_000_000,
+          output_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 1.75,
+        cost_source: "computed",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "criteria-progress",
+      iterations: 1,
+      durationMs: 2_000,
+      specPath: "spec/foo/index.md",
+    });
+
+    expect(summary).toContain("codex (gpt-5.3-codex) (1 iteration(s))");
+    expect(summary).toContain("$1.75");
+    expect(summary).toMatch(/\bcomputed\b/);
   });
 
   test("cache columns are omitted when always zero", () => {
@@ -241,5 +425,19 @@ describe("runSummary", () => {
 
     expect(summary).toContain("$0.50");
     expect(summary).not.toContain("$9.99");
+  });
+
+  test("handles missing telemetry file gracefully", () => {
+    expect(
+      runSummary({
+        telemetryPath: "/nonexistent/runs.jsonl",
+        namespace: "p:x",
+        startTs: "2026-05-17T01:02:03.000Z",
+        exitReason: "error",
+        iterations: 0,
+        durationMs: 123,
+        specPath: "spec/x/index.md",
+      }),
+    ).toContain("attempts: 0");
   });
 });

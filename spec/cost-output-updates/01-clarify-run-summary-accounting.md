@@ -47,16 +47,16 @@ This makes the output harder to trust, especially when a fallback agent complete
 
 ## Acceptance criteria
 
-- [ ] A run where Claude hits quota and Codex completes the only task shows one completed iteration in the header and does not render a normal `claude (1 iters)` cost row.
-- [ ] The same run includes a note explaining that the Claude quota attempt was excluded from usage totals.
-- [ ] A completing run with one successful agent invocation and one terminal telemetry record does not double-count the successful invocation's usage, cost, or row count.
-- [ ] A Claude run with one real cost record and one unavailable/no-usage record does not print `claude mixes cost sources: agent, unavailable`.
-- [ ] Mixed-source notes still appear when an agent has multiple meaningful cost sources for records with usage.
-- [ ] A usage-only record for a configured model with a price-table entry is rendered with `source` `computed` and a known cost, even when the CLI name alone would not identify a priced model.
-- [ ] A usage-only record for a configured model without a price-table entry is rendered with `source` `no-price` and an explicit no-price note.
-- [ ] The total row includes only known costs and keeps a note for null costs excluded from the total.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] A run where Claude hits quota and Codex completes the only task shows one completed iteration in the header and does not render a normal `claude (1 iters)` cost row.
+- [x] The same run includes a note explaining that the Claude quota attempt was excluded from usage totals.
+- [x] A completing run with one successful agent invocation and one terminal telemetry record does not double-count the successful invocation's usage, cost, or row count.
+- [x] A Claude run with one real cost record and one unavailable/no-usage record does not print `claude mixes cost sources: agent, unavailable`.
+- [x] Mixed-source notes still appear when an agent has multiple meaningful cost sources for records with usage.
+- [x] A usage-only record for a configured model with a price-table entry is rendered with `source` `computed` and a known cost, even when the CLI name alone would not identify a priced model.
+- [x] A usage-only record for a configured model without a price-table entry is rendered with `source` `no-price` and an explicit no-price note.
+- [x] The total row includes only known costs and keeps a note for null costs excluded from the total.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

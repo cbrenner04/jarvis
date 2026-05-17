@@ -19,6 +19,9 @@ export type TelemetryUsage = {
 export type UsageSource = "agent" | "unavailable" | null;
 export type CostSource = "computed" | "agent" | "no-price" | "no-usage" | null;
 
+/**Invocation JSONL rows carry agent/session results; terminal rows describe run exit without duplicating usage.*/
+export type TelemetryRecordRole = "invocation" | "run_terminal";
+
 export type TelemetryRecord = {
   ts: string;
   namespace: string;
@@ -32,6 +35,9 @@ export type TelemetryRecord = {
   cost_usd?: number | null;
   cost_source?: CostSource;
   warnings?: string[];
+  /** Omit from aggregated summary totals (`run_terminal` rows duplicate exit state only).*/
+  record_role?: TelemetryRecordRole;
+  configured_model?: string;
 };
 
 export function appendTelemetryLine(

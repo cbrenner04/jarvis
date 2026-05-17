@@ -12,8 +12,9 @@ type RunSummaryArgs = {
 };
 
 type AgentAggregate = {
-  agent: string;
-  iterations: number;
+  cliName: string;
+  configuredModels: Set<string>;
+  patchIterations: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -24,7 +25,8 @@ type AgentAggregate = {
   noPriceCount: number;
   parseWarningCount: number;
   nullCostCount: number;
-  costSources: Set<string>;
+  costSourcesAll: Set<string>;
+  meaningfulCostSources: Set<string>;
 };
 
 function toNumber(value: number | null | undefined): number {
@@ -56,6 +58,24 @@ function normalizeSource(source: CostSource | null | undefined): string {
   return "unavailable";
 }
 
+/** Rows for the cost table: successful patch completions (telemetry kind ok).*/
+function shouldAggregateForCostTable(record: TelemetryRecord): boolean {
+  if (record.record_role === "run_terminal") {
+    return false;
+  }
+  if (record.agent === "harness") {
+    return false;
+  }
+  return record.kind === "ok";
+}
+
+function attemptLine(record: TelemetryRecord): boolean {
+  if (record.record_role === "run_terminal") {
+    return false;
+  }
+  return record.agent !== "harness";
+}
+
 function dominantSource(sources: Set<string>): string {
   if (sources.has("agent")) {
     return "agent";
@@ -69,16 +89,66 @@ function dominantSource(sources: Set<string>): string {
   return "unavailable";
 }
 
+function iterationCountLabel(n: number): string {
+  return `${n} iteration(s)`;
+}
+
+function formatAgentColumn(cli: string, models: Set<string>): string {
+  if (models.size === 1) {
+    const m = [...models][0];
+    if (m !== undefined && m.trim() !== "") {
+      return `${cli} (${m})`;
+    }
+  }
+  return cli;
+}
+
+function meaningfulSourceForMix(record: TelemetryRecord): string | null {
+  if (record.usage_source !== ("agent" satisfies UsageSource)) {
+    return null;
+  }
+  const n = normalizeSource(record.cost_source);
+  if (
+    n === "agent" ||
+    n === "computed" ||
+    n === "no-price"
+  ) {
+    return n;
+  }
+  return null;
+}
+
+function newAggregate(cli: string): AgentAggregate {
+  return {
+    cliName: cli,
+    configuredModels: new Set<string>(),
+    patchIterations: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    knownCostUsd: 0,
+    knownCostCount: 0,
+    unavailableUsageCount: 0,
+    noPriceCount: 0,
+    parseWarningCount: 0,
+    nullCostCount: 0,
+    costSourcesAll: new Set<string>(),
+    meaningfulCostSources: new Set<string>(),
+  };
+}
+
 export function runSummary(args: RunSummaryArgs): string {
   const lines: string[] = [];
   lines.push("─── run summary ───");
   lines.push(`spec: ${args.specPath}`);
   lines.push(`exit reason: ${args.exitReason}`);
   lines.push(`iterations: ${args.iterations}`);
-  lines.push(`duration: ${formatDuration(args.durationMs)}`);
-  lines.push("");
 
   if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {
+    lines.push("attempts: 0");
+    lines.push(`duration: ${formatDuration(args.durationMs)}`);
+    lines.push("");
     lines.push("(no telemetry records found for this run)");
     return `${lines.join("\n")}\n`;
   }
@@ -100,33 +170,45 @@ export function runSummary(args: RunSummaryArgs): string {
     }
   }
 
+  lines.push(`attempts: ${runRecords.filter(attemptLine).length}`);
+  lines.push(`duration: ${formatDuration(args.durationMs)}`);
+  lines.push("");
+
   if (runRecords.length === 0) {
     lines.push("(no telemetry records found for this run)");
     return `${lines.join("\n")}\n`;
   }
 
-  const perAgent = new Map<string, AgentAggregate>();
+  const quotaExcludedByAgent = new Map<string, number>();
   for (const record of runRecords) {
-    const existing = perAgent.get(record.agent);
-    const aggregate: AgentAggregate =
-      existing ??
-      ({
-        agent: record.agent,
-        iterations: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        knownCostUsd: 0,
-        knownCostCount: 0,
-        unavailableUsageCount: 0,
-        noPriceCount: 0,
-        parseWarningCount: 0,
-        nullCostCount: 0,
-        costSources: new Set<string>(),
-      } satisfies AgentAggregate);
+    if (record.kind === "quota") {
+      const cli = record.agent;
+      quotaExcludedByAgent.set(
+        cli,
+        (quotaExcludedByAgent.get(cli) ?? 0) + 1,
+      );
+    }
+  }
 
-    aggregate.iterations += 1;
+  const perAgent = new Map<string, AgentAggregate>();
+
+  for (const record of runRecords) {
+    if (!shouldAggregateForCostTable(record)) {
+      continue;
+    }
+
+    const cli = record.agent;
+    let aggregate = perAgent.get(cli);
+    if (aggregate === undefined) {
+      aggregate = newAggregate(cli);
+      perAgent.set(cli, aggregate);
+    }
+
+    if (record.configured_model?.trim()) {
+      aggregate.configuredModels.add(record.configured_model.trim());
+    }
+
+    aggregate.patchIterations += 1;
     aggregate.inputTokens += toNumber(record.usage?.input_tokens);
     aggregate.outputTokens += toNumber(record.usage?.output_tokens);
     aggregate.cacheReadTokens += toNumber(
@@ -144,7 +226,12 @@ export function runSummary(args: RunSummaryArgs): string {
     }
 
     const source = normalizeSource(record.cost_source);
-    aggregate.costSources.add(source);
+    aggregate.costSourcesAll.add(source);
+
+    const mix = meaningfulSourceForMix(record);
+    if (mix !== null) {
+      aggregate.meaningfulCostSources.add(mix);
+    }
 
     if (record.usage_source === ("unavailable" satisfies UsageSource)) {
       aggregate.unavailableUsageCount += 1;
@@ -158,111 +245,131 @@ export function runSummary(args: RunSummaryArgs): string {
     if (record.warnings !== undefined && record.warnings.length > 0) {
       aggregate.parseWarningCount += 1;
     }
-
-    perAgent.set(record.agent, aggregate);
   }
 
   const rows = [...perAgent.values()].sort((a, b) =>
-    a.agent.localeCompare(b.agent),
-  );
-  const showCacheColumns = rows.some(
-    (row) => row.cacheReadTokens > 0 || row.cacheWriteTokens > 0,
+    a.cliName.localeCompare(b.cliName),
   );
 
-  const headerColumns = [
-    "agent",
-    "tokens_in",
-    "tokens_out",
-    ...(showCacheColumns ? ["cache_r", "cache_w"] : []),
-    "cost",
-    "source",
-  ];
+  const showCacheColumns =
+    rows.length > 0 &&
+    rows.some(
+      (row) => row.cacheReadTokens > 0 || row.cacheWriteTokens > 0,
+    );
 
-  const table: string[][] = [];
-  table.push(headerColumns);
+  if (rows.length > 0) {
+    const headerColumns = [
+      "agent",
+      "tokens_in",
+      "tokens_out",
+      ...(showCacheColumns ? ["cache_r", "cache_w"] : []),
+      "cost",
+      "source",
+    ];
 
-  for (const row of rows) {
+    const table: string[][] = [];
+    table.push(headerColumns);
+
+    for (const row of rows) {
+      table.push([
+        `${formatAgentColumn(row.cliName, row.configuredModels)} (${iterationCountLabel(row.patchIterations)})`,
+        formatInt(row.inputTokens),
+        formatInt(row.outputTokens),
+        ...(showCacheColumns
+          ? [formatInt(row.cacheReadTokens), formatInt(row.cacheWriteTokens)]
+          : []),
+        formatMoney(row.knownCostCount > 0 ? row.knownCostUsd : null),
+        dominantSource(row.costSourcesAll),
+      ]);
+    }
+
+    const totalInput = rows.reduce((sum, row) => sum + row.inputTokens, 0);
+    const totalOutput = rows.reduce((sum, row) => sum + row.outputTokens, 0);
+    const totalCacheRead = rows.reduce(
+      (sum, row) => sum + row.cacheReadTokens,
+      0,
+    );
+    const totalCacheWrite = rows.reduce(
+      (sum, row) => sum + row.cacheWriteTokens,
+      0,
+    );
+    const totalKnownCost = rows.reduce(
+      (sum, row) => sum + row.knownCostUsd,
+      0,
+    );
+    const totalKnownCostCount = rows.reduce(
+      (sum, row) => sum + row.knownCostCount,
+      0,
+    );
+
     table.push([
-      `${row.agent} (${row.iterations} iters)`,
-      formatInt(row.inputTokens),
-      formatInt(row.outputTokens),
+      "total",
+      formatInt(totalInput),
+      formatInt(totalOutput),
       ...(showCacheColumns
-        ? [formatInt(row.cacheReadTokens), formatInt(row.cacheWriteTokens)]
+        ? [formatInt(totalCacheRead), formatInt(totalCacheWrite)]
         : []),
-      formatMoney(row.knownCostCount > 0 ? row.knownCostUsd : null),
-      dominantSource(row.costSources),
+      formatMoney(totalKnownCostCount > 0 ? totalKnownCost : null),
+      "",
     ]);
-  }
 
-  const totalInput = rows.reduce((sum, row) => sum + row.inputTokens, 0);
-  const totalOutput = rows.reduce((sum, row) => sum + row.outputTokens, 0);
-  const totalCacheRead = rows.reduce(
-    (sum, row) => sum + row.cacheReadTokens,
-    0,
-  );
-  const totalCacheWrite = rows.reduce(
-    (sum, row) => sum + row.cacheWriteTokens,
-    0,
-  );
-  const totalKnownCost = rows.reduce((sum, row) => sum + row.knownCostUsd, 0);
-  const totalKnownCostCount = rows.reduce(
-    (sum, row) => sum + row.knownCostCount,
-    0,
-  );
-
-  table.push([
-    "total",
-    formatInt(totalInput),
-    formatInt(totalOutput),
-    ...(showCacheColumns
-      ? [formatInt(totalCacheRead), formatInt(totalCacheWrite)]
-      : []),
-    formatMoney(totalKnownCostCount > 0 ? totalKnownCost : null),
-    "",
-  ]);
-
-  const headerRow = table[0];
-  if (headerRow === undefined) {
-    return `${lines.join("\n")}\n`;
-  }
-  const widths = headerRow.map((_, col) =>
-    Math.max(...table.map((row) => row[col]?.length ?? 0)),
-  );
-  for (let i = 0; i < table.length; i += 1) {
-    const row = table[i];
-    if (row === undefined) {
-      continue;
+    const headerRow = table[0];
+    if (headerRow !== undefined) {
+      const widths = headerRow.map((_, col) =>
+        Math.max(...table.map((row) => row[col]?.length ?? 0)),
+      );
+      for (let i = 0; i < table.length; i += 1) {
+        const row = table[i];
+        if (row === undefined) {
+          continue;
+        }
+        const rendered = row
+          .map((cell, col) => cell.padEnd(widths[col] ?? 0))
+          .join("  ")
+          .trimEnd();
+        lines.push(rendered);
+        if (i === table.length - 2) {
+          lines.push("─".repeat(rendered.length));
+        }
+      }
     }
-    const rendered = row
-      .map((cell, col) => cell.padEnd(widths[col] ?? 0))
-      .join("  ")
-      .trimEnd();
-    lines.push(rendered);
-    if (i === table.length - 2) {
-      lines.push("─".repeat(rendered.length));
-    }
+  } else if (quotaExcludedByAgent.size === 0) {
+    lines.push("(patch cost totals aggregate completed iterations only.)");
   }
 
   const notes: string[] = [];
+
+  const quotaAgents = [...quotaExcludedByAgent.keys()].sort((a, b) =>
+    a.localeCompare(b),
+  );
+  for (const qa of quotaAgents) {
+    const n = quotaExcludedByAgent.get(qa) ?? 0;
+    if (n > 0) {
+      notes.push(
+        `${n} quota attempt(s) under ${qa} were excluded from usage totals.`,
+      );
+    }
+  }
+
   for (const row of rows) {
     if (row.unavailableUsageCount > 0) {
       notes.push(
-        `${row.unavailableUsageCount} iteration(s) under ${row.agent} had no usage data (usage_source=unavailable).`,
+        `${row.unavailableUsageCount} iteration(s) under ${row.cliName} had no usage data (usage_source=unavailable).`,
       );
     }
     if (row.noPriceCount > 0) {
       notes.push(
-        `${row.noPriceCount} iteration(s) under ${row.agent} had usage data but no price-table entry for the model.`,
+        `${row.noPriceCount} iteration(s) under ${row.cliName} had usage data but no price-table entry for the model.`,
       );
     }
     if (row.parseWarningCount > 0) {
       notes.push(
-        `${row.parseWarningCount} iteration(s) under ${row.agent} recorded parse warnings.`,
+        `${row.parseWarningCount} iteration(s) under ${row.cliName} recorded parse warnings.`,
       );
     }
-    if (row.costSources.size > 1) {
+    if (row.meaningfulCostSources.size > 1) {
       notes.push(
-        `${row.agent} mixes cost sources: ${[...row.costSources].join(", ")}.`,
+        `${row.cliName} mixes cost sources: ${[...row.meaningfulCostSources].sort().join(", ")}.`,
       );
     }
   }

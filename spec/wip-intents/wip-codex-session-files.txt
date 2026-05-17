@@ -1,0 +1,35 @@
+I am seeing:
+
+```
+codex: multiple codex session files detected; using newest: /Users/christopherbrenner/.codex/sessions/2026/05/16/rollout-2026-05-16T21-15-32-019e33b7-a005-74f3-af1f-41753b79440e.jsonl (also saw /Users/christopherbrenner/.codex/sessions/2026/05/16/rollout-2026-05-16T21-15-46-019e33b7-d750-78e0-b9df-976a7092e659.jsonl)
+```
+
+when running `jarvis run` and it is using the codex agent. I think that it is possible there are collisions when i run an interactive codex session from within jarvis repo diretcory. This is not great as it will reflect the wrong usage.
+I am also concerned that if there are multiple jarvis sessions happening in the same repo there will be similar collisions.
+
+Is there anything we can do to remove this risk?
+
+Similarly, the end output shows something i want to ask about
+
+```
+─── run summary ───
+spec: aider-agent
+exit reason: criteria-complete
+iterations: 5
+duration: 19m 29s
+
+agent             tokens_in  tokens_out  cache_r    cache_w  cost   source
+claude (3 iters)  460        21,764      2,894,765  146,359  $0.58  agent
+codex (4 iters)   2,815,027  16,593      2,653,696  0        $5.62  agent
+─────────────────────────────────────────────────────────────────────────
+total             2,815,487  38,357      5,548,461  146,359  $6.21
+
+notes:
+  - claude mixes cost sources: agent, unavailable.
+  - 2 iteration(s) under codex recorded parse warnings.
+  - 1 iteration(s) had null cost and were excluded from total cost.
+```
+
+this `mixed cost sources from claude` doesn't make sense to me. we know what model we are asking for. it shouldn't be a problem assuming the model from the agent and mode. 
+
+Finally, I am not seeing these things when i run plan mode. why is that? its possible this was spec'ed and/or implemented before plan mode landed. If that is the case we are going to need to spec out adding it to plan mode (including abstractions to keep things dry)

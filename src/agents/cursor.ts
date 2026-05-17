@@ -19,36 +19,17 @@ export type CursorAgentOptions = {
 // (identity, since cursor's UI names are the price-table keys) and to surface
 // known cursor models to config validation.
 const CURSOR_KNOWN_MODELS: readonly string[] = [
-  "Composer 1",
-  "Composer 1.5",
   "Composer 2",
   "Claude 4 Sonnet",
   "Claude 4.5 Haiku",
-  "Claude 4.5 Sonnet",
-  "Claude 4.5 Opus",
   "Claude 4.6 Sonnet",
-  "Claude 4.6 Opus",
   "Claude 4.7 Opus",
-  "GPT-5",
-  "GPT-5 Mini",
-  "GPT-5-Codex",
-  "GPT-5.1 Codex",
-  "GPT-5.1 Codex Max",
-  "GPT-5.1 Codex Mini",
-  "GPT-5.2",
-  "GPT-5.2 Codex",
   "GPT-5.3 Codex",
   "GPT-5.4",
-  "GPT-5.4 Mini",
-  "GPT-5.4 Nano",
   "GPT-5.5",
-  "Gemini 2.5 Flash",
   "Gemini 3 Flash",
   "Gemini 3 Pro",
-  "Gemini 3.1 Pro",
-  "Grok 4.20",
-  "Grok 4.3",
-  "Kimi K2.5",
+  "Gemini 3.1 Pro"
 ];
 
 const CURSOR_MODEL_LABELS: Record<string, string> = {};

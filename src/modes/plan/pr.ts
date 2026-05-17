@@ -257,12 +257,14 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
     return;
   }
 
-  const mark = opts.markReady ?? ((branch, cwd) => {
-    execFileSync("gh", ["pr", "ready", branch], {
-      cwd,
-      env: process.env,
-      stdio: "pipe",
+  const mark =
+    opts.markReady ??
+    ((branch, cwd) => {
+      execFileSync("gh", ["pr", "ready", branch], {
+        cwd,
+        env: process.env,
+        stdio: "pipe",
+      });
     });
-  });
   mark(opts.branch, opts.cwd);
 }

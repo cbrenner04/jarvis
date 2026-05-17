@@ -25,10 +25,7 @@ import {
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import { runInterviewPhase } from "../modes/plan/interview.ts";
 import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
-import {
-  buildPlanPrHeader,
-  maybeMarkPlanPrReady,
-} from "../modes/plan/pr.ts";
+import { buildPlanPrHeader, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
 import {
   hasWorkingTreeChanges,
   runReviewPass,

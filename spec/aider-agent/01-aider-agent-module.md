@@ -105,12 +105,12 @@ Stream handling and exit-code interpretation are otherwise identical to
 
 ## Acceptance criteria
 
-- [ ] `AiderAgent` implements `Agent` and compiles under `bun run typecheck`.
-- [ ] The argv assertion test passes.
-- [ ] Importing `AiderAgent` from `src/agents/aider.ts` does not break
+- [x] `AiderAgent` implements `Agent` and compiles under `bun run typecheck`.
+- [x] The argv assertion test passes.
+- [x] Importing `AiderAgent` from `src/agents/aider.ts` does not break
       existing agent imports.
-- [ ] `bun test` passes.
-- [ ] `bun run check` passes.
+- [x] `bun test` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

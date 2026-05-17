@@ -39,6 +39,8 @@ const opencodeQuotaPatterns = [
   /\byou have exceeded your\b/i,
 ];
 
+const aiderQuotaPatterns: RegExp[] = [];
+
 const modelConfigurationPatterns = [
   /\bunknown model\b/i,
   /\bunsupported model\b/i,
@@ -47,6 +49,7 @@ const modelConfigurationPatterns = [
   /\bmodel is not available\b/i,
   /\bnot available for your account\b/i,
   /\bunrecognized model\b/i,
+  /\bLLM Provider NOT provided\b/i,
 ];
 
 const opencodeModelConfigurationPatterns = [/\bno provider configured for\b/i];
@@ -85,7 +88,7 @@ export function isQuotaSignal(
   if (exitCode === 0) return false;
 
   const patterns = (() => {
-    switch (name as AgentName | "opencode") {
+    switch (name as AgentName | "opencode" | "aider") {
       case "claude":
         return claudeQuotaPatterns;
       case "codex":
@@ -94,6 +97,8 @@ export function isQuotaSignal(
         return cursorQuotaPatterns;
       case "opencode":
         return opencodeQuotaPatterns;
+      case "aider":
+        return aiderQuotaPatterns;
     }
   })();
 

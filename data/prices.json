@@ -39,15 +39,282 @@
       "source_url": "https://developers.openai.com/api/docs/models/gpt-5.5",
       "as_of": "2026-05-17"
     },
-    "cursor-default": {
+    "Composer 1": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Composer 1.5": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Composer 2": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Claude 4 Sonnet": {
       "input_per_mtok": null,
       "output_per_mtok": null,
       "cache_read_per_mtok": null,
       "cache_write_per_mtok": null,
-      "source_url": "https://docs.cursor.com/pricing",
-      "as_of": "2026-05-15",
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
       "manual": true,
-      "manual_note": "Cursor headless mode does not publish per-token rates; record null until a rate exists."
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Claude 4.5 Haiku": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "cache_write_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Claude 4.5 Sonnet": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "cache_write_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Claude 4.5 Opus": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "cache_write_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Claude 4.6 Sonnet": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "cache_write_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Claude 4.6 Opus": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "cache_write_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Claude 4.7 Opus": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "cache_write_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5 Mini": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5-Codex": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.1 Codex": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.1 Codex Max": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.1 Codex Mini": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.2": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.2 Codex": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.3 Codex": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.4": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.4 Mini": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.4 Nano": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "GPT-5.5": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Gemini 2.5 Flash": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Gemini 3 Flash": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Gemini 3 Pro": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Gemini 3.1 Pro": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Grok 4.20": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Grok 4.3": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
+    "Kimi K2.5": {
+      "input_per_mtok": null,
+      "output_per_mtok": null,
+      "cache_read_per_mtok": null,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
     }
   }
 }

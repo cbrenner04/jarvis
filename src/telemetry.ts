@@ -16,8 +16,14 @@ export type TelemetryUsage = {
   cache_creation_input_tokens: number | null;
 };
 
-export type UsageSource = "agent" | "unavailable" | null;
-export type CostSource = "computed" | "agent" | "no-price" | "no-usage" | null;
+export type UsageSource = "agent" | "estimated" | "unavailable" | null;
+export type CostSource =
+  | "computed"
+  | "agent"
+  | "estimated"
+  | "no-price"
+  | "no-usage"
+  | null;
 
 /**Invocation JSONL rows carry agent/session results; terminal rows describe run exit without duplicating usage.*/
 export type TelemetryRecordRole = "invocation" | "run_terminal";

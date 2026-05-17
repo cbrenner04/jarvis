@@ -22,7 +22,7 @@ export type UsageCostFields = {
  */
 export function extractUsageAndCost(
   result: {
-    usage_source?: "agent" | "unavailable";
+    usage_source?: "agent" | "estimated" | "unavailable";
     usage?: {
       input_tokens: number | null;
       output_tokens: number | null;
@@ -60,8 +60,9 @@ export function extractUsageAndCost(
   }
 
   if (result.usage !== undefined) {
+    const isEstimated = result.usage_source === "estimated";
     output.usage = result.usage;
-    output.usage_source = "agent";
+    output.usage_source = isEstimated ? "estimated" : "agent";
     if (priceKey === null) {
       output.cost_usd = null;
       output.cost_source = "no-price";
@@ -70,7 +71,9 @@ export function extractUsageAndCost(
         const prices = loadPrices();
         const computedCost = computeCost(result.usage, priceKey, prices);
         output.cost_usd = computedCost.cost_usd;
-        if (computedCost.cost_source !== null) {
+        if (isEstimated && computedCost.cost_source === "computed") {
+          output.cost_source = "estimated";
+        } else if (computedCost.cost_source !== null) {
           output.cost_source = computedCost.cost_source;
         }
       } catch {

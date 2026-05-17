@@ -61,9 +61,9 @@ describe("prices show", () => {
     expect(code).toBe(0);
 
     const output = cap.out();
-    // cursor-default should have null rates displayed as "—"
+    // Composer 2 should have null rates displayed as "—"
     const lines = output.trim().split("\n");
-    const cursorLine = lines.find((line) => line.includes("cursor-default"));
+    const cursorLine = lines.find((line) => line.includes("Composer 2"));
     expect(cursorLine).toContain("—");
   });
 
@@ -73,9 +73,9 @@ describe("prices show", () => {
     expect(code).toBe(0);
 
     const output = cap.out();
-    // cursor-default should have * in MANUAL column
+    // Composer 2 should have * in MANUAL column
     const lines = output.trim().split("\n");
-    const cursorLine = lines.find((line) => line.includes("cursor-default"));
+    const cursorLine = lines.find((line) => line.includes("Composer 2"));
     if (cursorLine) {
       // The MANUAL column should be near the end
       expect(cursorLine).toMatch(/\*\s+https:\/\//);

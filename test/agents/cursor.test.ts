@@ -56,13 +56,14 @@ describe("CursorAgent", () => {
 
     const result = await agent.run("the prompt", { cwd });
 
-    expect(result).toEqual({
-      kind: "ok",
-      stdout: "hi-out",
-      stderr: "hi-err",
-      usage_source: "unavailable",
-      cost_source: "no-usage",
-    });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.stdout).toBe("hi-out");
+      expect(result.stderr).toBe("hi-err");
+      expect(result.usage_source).toBe("estimated");
+      expect(result.usage?.input_tokens).toBeGreaterThan(0);
+      expect(result.usage?.output_tokens).toBeGreaterThan(0);
+    }
     const argv = readFileSync(join(dir, "argv"), "utf8");
     expect(argv).toBe(
       `agent\0-p\0--output-format\0text\0--force\0--workspace\0${cwd}\0the prompt\0`,
@@ -153,15 +154,16 @@ describe("CursorAgent", () => {
     expect(argv).toContain("--force");
   });
 
-  test("successful invocations always mark usage as unavailable", async () => {
+  test("successful invocations report estimated usage from prompt + stdout", async () => {
     const bin = fakeBinary({ exit: 0, stdout: "ok" });
     const agent = new CursorAgent({ binary: bin });
 
     const result = await agent.run("p", { cwd });
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {
-      expect(result.usage_source).toBe("unavailable");
-      expect(result.cost_source).toBe("no-usage");
+      expect(result.usage_source).toBe("estimated");
+      expect(result.usage?.input_tokens).toBe(1);
+      expect(result.usage?.output_tokens).toBe(1);
     }
   });
 

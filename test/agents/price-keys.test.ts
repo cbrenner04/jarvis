@@ -37,8 +37,12 @@ describe("resolveAgentPriceKey", () => {
     expect(resolveAgentPriceKey("aider", "anything")).toBeNull();
   });
 
-  test("cursor returns null pre-subspec-04", () => {
-    expect(resolveAgentPriceKey("cursor", "Composer 2")).toBeNull();
+  test("cursor identity-maps its known model menu", () => {
+    expect(resolveAgentPriceKey("cursor", "Composer 2")).toBe("Composer 2");
+    expect(resolveAgentPriceKey("cursor", "Claude 4.7 Opus")).toBe(
+      "Claude 4.7 Opus",
+    );
+    expect(resolveAgentPriceKey("cursor", "not-a-cursor-model")).toBeNull();
   });
 });
 
@@ -46,7 +50,7 @@ describe("agentHasPricedModels", () => {
   test("returns true only for agents with non-empty price-key maps", () => {
     expect(agentHasPricedModels("claude")).toBe(true);
     expect(agentHasPricedModels("codex")).toBe(true);
-    expect(agentHasPricedModels("cursor")).toBe(false);
+    expect(agentHasPricedModels("cursor")).toBe(true);
     expect(agentHasPricedModels("opencode")).toBe(false);
     expect(agentHasPricedModels("aider")).toBe(false);
   });

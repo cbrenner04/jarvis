@@ -5,6 +5,7 @@
 // `-p`/`--print` is headless mode with full tool access; `--output-format text`
 // matches Claude-style transcript output (see `cursor agent --help`);
 // `--workspace` sets the working directory; the prompt is the trailing positional.
+import { estimateCursorUsage } from "./cursor-tokens.ts";
 import { runAgent } from "./spawn.ts";
 import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 
@@ -13,12 +14,50 @@ export type CursorAgentOptions = {
   model?: string;
 };
 
+// Cursor's model menu, sourced from https://cursor.com/docs/models-and-pricing.
+// Hand-maintained; cursor adds models infrequently. Used as the price-key map
+// (identity, since cursor's UI names are the price-table keys) and to surface
+// known cursor models to config validation.
+const CURSOR_KNOWN_MODELS: readonly string[] = [
+  "Composer 1",
+  "Composer 1.5",
+  "Composer 2",
+  "Claude 4 Sonnet",
+  "Claude 4.5 Haiku",
+  "Claude 4.5 Sonnet",
+  "Claude 4.5 Opus",
+  "Claude 4.6 Sonnet",
+  "Claude 4.6 Opus",
+  "Claude 4.7 Opus",
+  "GPT-5",
+  "GPT-5 Mini",
+  "GPT-5-Codex",
+  "GPT-5.1 Codex",
+  "GPT-5.1 Codex Max",
+  "GPT-5.1 Codex Mini",
+  "GPT-5.2",
+  "GPT-5.2 Codex",
+  "GPT-5.3 Codex",
+  "GPT-5.4",
+  "GPT-5.4 Mini",
+  "GPT-5.4 Nano",
+  "GPT-5.5",
+  "Gemini 2.5 Flash",
+  "Gemini 3 Flash",
+  "Gemini 3 Pro",
+  "Gemini 3.1 Pro",
+  "Grok 4.20",
+  "Grok 4.3",
+  "Kimi K2.5",
+];
+
 const CURSOR_MODEL_LABELS: Record<string, string> = {};
 
-// Filled by subspec 04; empty until cursor pricing + estimation lands.
-const CURSOR_PRICE_KEYS: Record<string, string> = {};
+const CURSOR_PRICE_KEYS: Record<string, string> = Object.fromEntries(
+  CURSOR_KNOWN_MODELS.map((m) => [m, m]),
+);
 
-export const CURSOR_HAS_PRICED_MODELS = false;
+export const CURSOR_HAS_PRICED_MODELS = true;
 
 export function resolveCursorPriceKey(
   model: string | undefined,
@@ -60,10 +99,25 @@ export class CursorAgent implements Agent {
       if (result.kind !== "ok") {
         return result;
       }
+      const estimated = estimateCursorUsage({
+        prompt,
+        stdout: result.stdout,
+      });
+      if (estimated === null) {
+        return {
+          ...result,
+          usage_source: "unavailable",
+          cost_source: "no-usage",
+          warnings: [
+            ...(result.warnings ?? []),
+            "cursor: token estimator unavailable; usage recorded as unavailable.",
+          ],
+        };
+      }
       return {
         ...result,
-        usage_source: "unavailable",
-        cost_source: "no-usage",
+        usage: estimated,
+        usage_source: "estimated",
       };
     });
   }

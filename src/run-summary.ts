@@ -39,6 +39,7 @@ type AgentAggregate = {
   knownCostCount: number;
   unavailableUsageCount: number;
   noPriceCount: number;
+  estimatedCount: number;
   parseWarningCount: number;
   nullCostCount: number;
   costSourcesAll: Set<string>;
@@ -68,7 +69,12 @@ function formatDuration(durationMs: number): string {
 }
 
 function normalizeSource(source: CostSource | null | undefined): string {
-  if (source === "agent" || source === "computed" || source === "no-price") {
+  if (
+    source === "agent" ||
+    source === "computed" ||
+    source === "estimated" ||
+    source === "no-price"
+  ) {
     return source;
   }
   return "unavailable";
@@ -109,6 +115,9 @@ function dominantSource(sources: Set<string>): string {
   if (sources.has("computed")) {
     return "computed";
   }
+  if (sources.has("estimated")) {
+    return "estimated";
+  }
   if (sources.has("no-price")) {
     return "no-price";
   }
@@ -130,10 +139,15 @@ function formatAgentColumn(cli: string, models: Set<string>): string {
 }
 
 function meaningfulSourceForMix(record: TelemetryRecord): string | null {
-  if (record.usage_source !== ("agent" satisfies UsageSource)) {
+  if (
+    record.usage_source !== ("agent" satisfies UsageSource) &&
+    record.usage_source !== ("estimated" satisfies UsageSource)
+  ) {
     return null;
   }
   const n = normalizeSource(record.cost_source);
+  // "estimated" intentionally excluded: estimated and computed/agent are
+  // expected to coexist for cursor across model switches; don't flag as mixed.
   if (n === "agent" || n === "computed" || n === "no-price") {
     return n;
   }
@@ -155,6 +169,7 @@ function newAggregate(cli: string): AgentAggregate {
     noPriceCount: 0,
     parseWarningCount: 0,
     nullCostCount: 0,
+    estimatedCount: 0,
     costSourcesAll: new Set<string>(),
     meaningfulCostSources: new Set<string>(),
   };
@@ -290,7 +305,9 @@ function renderSummaryFromRecords(args: {
     aggregate.completedOkInvocations += 1;
     aggregate.inputTokens += toNumber(record.usage?.input_tokens);
     aggregate.outputTokens += toNumber(record.usage?.output_tokens);
-    aggregate.cacheReadTokens += toNumber(record.usage?.cache_read_input_tokens);
+    aggregate.cacheReadTokens += toNumber(
+      record.usage?.cache_read_input_tokens,
+    );
     aggregate.cacheWriteTokens += toNumber(
       record.usage?.cache_creation_input_tokens,
     );
@@ -314,10 +331,14 @@ function renderSummaryFromRecords(args: {
       aggregate.unavailableUsageCount += 1;
     }
     if (
-      record.usage_source === ("agent" satisfies UsageSource) &&
+      (record.usage_source === ("agent" satisfies UsageSource) ||
+        record.usage_source === ("estimated" satisfies UsageSource)) &&
       record.cost_source === ("no-price" satisfies CostSource)
     ) {
       aggregate.noPriceCount += 1;
+    }
+    if (record.usage_source === ("estimated" satisfies UsageSource)) {
+      aggregate.estimatedCount += 1;
     }
     if (record.warnings !== undefined && record.warnings.length > 0) {
       aggregate.parseWarningCount += 1;
@@ -360,7 +381,10 @@ function renderSummaryFromRecords(args: {
 
     const totalInput = rows.reduce((sum, row) => sum + row.inputTokens, 0);
     const totalOutput = rows.reduce((sum, row) => sum + row.outputTokens, 0);
-    const totalCacheRead = rows.reduce((sum, row) => sum + row.cacheReadTokens, 0);
+    const totalCacheRead = rows.reduce(
+      (sum, row) => sum + row.cacheReadTokens,
+      0,
+    );
     const totalCacheWrite = rows.reduce(
       (sum, row) => sum + row.cacheWriteTokens,
       0,
@@ -469,6 +493,13 @@ function renderSummaryFromRecords(args: {
       `${totalNullCostCount} ${nu}(s) had null cost and were excluded from total cost.`,
     );
   }
+
+  if (rows.some((row) => row.estimatedCount > 0)) {
+    notes.push(
+      "cursor cost is estimated from prompt + stdout token counts; actual cursor usage (tool calls, sub-turns) is not measurable from the CLI.",
+    );
+  }
+
 
   if (notes.length > 0) {
     lines.push("");

@@ -32,6 +32,13 @@
       "source_url": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
       "as_of": "2026-05-16"
     },
+    "gpt-5.5": {
+      "input_per_mtok": 5.0,
+      "output_per_mtok": 30.0,
+      "cache_read_per_mtok": 0.5,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.5",
+      "as_of": "2026-05-17"
+    },
     "cursor-default": {
       "input_per_mtok": null,
       "output_per_mtok": null,

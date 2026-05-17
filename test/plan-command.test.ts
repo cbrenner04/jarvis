@@ -21,7 +21,10 @@ import {
   validateProposedName,
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";
-import { describePlanInvocation, parsePlanArgs } from "../src/commands/plan-args.ts";
+import {
+  describePlanInvocation,
+  parsePlanArgs,
+} from "../src/commands/plan-args.ts";
 import { registerProject } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 
@@ -280,9 +283,9 @@ describe("planCommand", () => {
       expect(cap.err()).not.toContain(describePlanInvocation(inlineInv));
       expect(cap.err()).not.toContain("plan mode: target project=");
       expect(harnessTexts).toContain(describePlanInvocation(inlineInv));
-      expect(harnessTexts.some((t) => t.startsWith("plan mode: target project="))).toBe(
-        true,
-      );
+      expect(
+        harnessTexts.some((t) => t.startsWith("plan mode: target project=")),
+      ).toBe(true);
       expect(cap.err()).toContain(
         "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );

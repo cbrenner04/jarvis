@@ -24,20 +24,20 @@ import {
 } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import {
-  runInterviewPhase,
   type InterviewTerminalOutcome,
+  runInterviewPhase,
 } from "../modes/plan/interview.ts";
 import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
-import {
-  formatPlanSpecTimestamp,
-  stripPlanSpecTimestampPrefix,
-} from "../modes/plan/spec-paths.ts";
 import {
   hasWorkingTreeChanges,
   runReviewPass,
   validateReviewOutput,
 } from "../modes/plan/review.ts";
+import {
+  formatPlanSpecTimestamp,
+  stripPlanSpecTimestampPrefix,
+} from "../modes/plan/spec-paths.ts";
 import { ensureDraftPr, renderAttribution, updatePrBody } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import type { resolveTargetRepo } from "../repo.ts";
@@ -279,7 +279,9 @@ function prepareResume(args: {
     throw new Error(`${worktreePath} is not checked out on ${branch}`);
   }
   if (!existsSync(join(worktreePath, "spec", specDirBasename, "index.md"))) {
-    throw new Error(`missing spec/${specDirBasename}/index.md in ${worktreePath}`);
+    throw new Error(
+      `missing spec/${specDirBasename}/index.md in ${worktreePath}`,
+    );
   }
   if (!existsSync(join(worktreePath, "spec", specDirBasename, "intent.md"))) {
     throw new Error(
@@ -571,7 +573,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             return 130;
           }
           if (interviewResult.terminalOutcome !== undefined) {
-            opts.io.stderr(`plan: interview: ${interviewResult.terminalOutcome}\n`);
+            opts.io.stderr(
+              `plan: interview: ${interviewResult.terminalOutcome}\n`,
+            );
           }
           if (hasWorkingTreeChanges(resume.worktreePath)) {
             commitPlanInterview({
@@ -857,7 +861,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           interviewBlocker = interviewResult.blocker;
           interviewTerminalOutcome = interviewResult.terminalOutcome;
           if (interviewResult.terminalOutcome !== undefined) {
-            opts.io.stderr(`plan: interview: ${interviewResult.terminalOutcome}\n`);
+            opts.io.stderr(
+              `plan: interview: ${interviewResult.terminalOutcome}\n`,
+            );
           }
         } else if (inv.mode !== "interactive") {
           const namingResult = await runNameOnlyPhase({
@@ -1158,7 +1164,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const planBranch = `plan/${planName}`;
 
       // Check boundary before draft commit
-      const boundaryCheck = assertPlanWriteBoundary(worktreePath, specDirBasename);
+      const boundaryCheck = assertPlanWriteBoundary(
+        worktreePath,
+        specDirBasename,
+      );
       if (!boundaryCheck.ok) {
         opts.io.stderr(
           `plan: boundary violation detected before draft commit\n`,
@@ -1549,7 +1558,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       try {
         const prUrl = getPrUrl(worktreePath, planBranch);
-        opts.io.stdout(renderPlanNextSteps({ prUrl, planName, specDirBasename }));
+        opts.io.stdout(
+          renderPlanNextSteps({ prUrl, planName, specDirBasename }),
+        );
       } catch {
         // best-effort; completion still succeeds without a URL
       }

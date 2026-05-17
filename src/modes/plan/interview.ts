@@ -454,7 +454,12 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
     completedTurns = turn;
   }
 
-  const finalIntentPath = join(opts.worktreePath, "spec", opts.name, "intent.md");
+  const finalIntentPath = join(
+    opts.worktreePath,
+    "spec",
+    opts.name,
+    "intent.md",
+  );
   const finalIntent = readFileSync(finalIntentPath, "utf8");
   const terminalOutcome = classifyInterviewIntentOutcome(finalIntent);
 

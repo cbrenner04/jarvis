@@ -223,14 +223,16 @@ changed intent
 
   test("classifyInterviewIntentOutcome detects explicit skip", () => {
     expect(
-      classifyInterviewIntentOutcome(`# I\n\n${INTERVIEW_SKIP_HEADING}\n\nok\n`),
+      classifyInterviewIntentOutcome(
+        `# I\n\n${INTERVIEW_SKIP_HEADING}\n\nok\n`,
+      ),
     ).toBe("skipped");
   });
 
   test("classifyInterviewIntentOutcome defaults to refined when no blocker or skip heading", () => {
-    expect(classifyInterviewIntentOutcome("# Intent\n\n## Interview turn 1\n\nx")).toBe(
-      "refined",
-    );
+    expect(
+      classifyInterviewIntentOutcome("# Intent\n\n## Interview turn 1\n\nx"),
+    ).toBe("refined");
   });
 });
 

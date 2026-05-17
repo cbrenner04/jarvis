@@ -3,7 +3,10 @@ import {
   buildDraftPrompt,
   PlaceholderCollisionError,
 } from "../../../src/modes/plan/draft.ts";
-import { buildInterviewPrompt } from "../../../src/modes/plan/interview.ts";
+import {
+  buildInterviewPrompt,
+  isValidInterviewTurnAddition,
+} from "../../../src/modes/plan/interview.ts";
 import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
 import { buildReviewPrompt } from "../../../src/modes/plan/review.ts";
 
@@ -146,6 +149,44 @@ describe("interview/name-only prompts", () => {
     expect(prompt).toContain("Do not ask questions in this phase");
     expect(prompt).toContain("name: <kebab-case>");
     expect(prompt).toContain("# Intent\nhello\n");
+  });
+});
+
+describe("interview intent validation", () => {
+  test("accepts frontmatter naming plus appended interview turn", () => {
+    const before =
+      "jarvis should move completed spec to spec/completed/ when 'jarvis cleanup' is used\n";
+    const after = `---
+name: cleanup-completed-specs
+---
+
+${before}
+## Interview turn 1
+
+### Scope
+- Question: Should cleanup move only completed specs?
+- Answer: Yes
+`;
+
+    expect(isValidInterviewTurnAddition(before, after, 1)).toBe(true);
+  });
+
+  test("rejects non-frontmatter edits before appended interview turn", () => {
+    const before = "initial intent\n";
+    const after = `---
+name: renamed
+---
+
+changed intent
+
+## Interview turn 1
+
+### Scope
+- Question: q
+- Answer: a
+`;
+
+    expect(isValidInterviewTurnAddition(before, after, 1)).toBe(false);
   });
 });
 

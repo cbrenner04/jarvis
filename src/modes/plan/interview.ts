@@ -319,7 +319,8 @@ function stripFrontmatter(text: string): string {
   if (end === -1) {
     return normalized;
   }
-  return normalized.slice(end + 5);
+  const body = normalized.slice(end + 5);
+  return body.startsWith("\n") ? body.slice(1) : body;
 }
 
 function isFrontmatterOnlyChange(before: string, after: string): boolean {
@@ -331,15 +332,16 @@ function isFrontmatterOnlyChange(before: string, after: string): boolean {
 /**
  * Validate that the only change to intent.md is appending a new interview turn section.
  */
-function isValidInterviewTurnAddition(
+export function isValidInterviewTurnAddition(
   before: string,
   after: string,
   turnNumber: number,
 ): boolean {
   const expectedTurnHeader = `## Interview turn ${turnNumber}`;
 
-  // Find the turn header in the after version
-  const turnHeaderIndex = after.indexOf(expectedTurnHeader);
+  // Find the appended turn header in the after version. Use the last
+  // occurrence so user-supplied seed text can mention the heading literally.
+  const turnHeaderIndex = after.lastIndexOf(expectedTurnHeader);
   if (turnHeaderIndex === -1) {
     return false;
   }
@@ -347,8 +349,12 @@ function isValidInterviewTurnAddition(
   // Extract everything before the new turn section
   const afterWithoutNewTurn = after.substring(0, turnHeaderIndex).trimEnd();
 
-  // This should match the before content
-  return afterWithoutNewTurn === before.trimEnd();
+  // This should match the previous content, allowing only the leading
+  // frontmatter naming update that the interview prompt permits.
+  return (
+    stripFrontmatter(afterWithoutNewTurn).trimEnd() ===
+    stripFrontmatter(before).trimEnd()
+  );
 }
 
 /**

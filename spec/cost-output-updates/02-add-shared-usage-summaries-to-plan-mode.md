@@ -40,17 +40,17 @@ The implementation should not copy patch-mode summary logic into plan mode. The 
 
 ## Acceptance criteria
 
-- [ ] Successful `jarvis plan` output includes a token/cost summary sourced from telemetry.
-- [ ] Plan-mode blocker or all-agents-quota exits include a summary when at least one agent invocation occurred.
-- [ ] Plan-mode preflight/configuration failures before any agent invocation do not print a summary.
-- [ ] Plan summaries label counts as attempts or phase attempts, not implementation iterations.
-- [ ] Plan summaries compute model-based cost for usage-only agent results using `modes.plan.agentOrder` model ids.
-- [ ] Patch-mode `jarvis run` summaries still render with implementation iteration language.
-- [ ] Patch-mode `jarvis run` summaries do not include plan-mode telemetry records from the same telemetry file.
-- [ ] Plan-mode summaries do not include patch-mode telemetry records from the same telemetry file.
-- [ ] Patch and plan summaries share aggregation logic for usage totals, cost totals, cost-source notes, null-cost notes, warnings, and excluded quota attempts.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] Successful `jarvis plan` output includes a token/cost summary sourced from telemetry.
+- [x] Plan-mode blocker or all-agents-quota exits include a summary when at least one agent invocation occurred.
+- [x] Plan-mode preflight/configuration failures before any agent invocation do not print a summary.
+- [x] Plan summaries label counts as attempts or phase attempts, not implementation iterations.
+- [x] Plan summaries compute model-based cost for usage-only agent results using `modes.plan.agentOrder` model ids.
+- [x] Patch-mode `jarvis run` summaries still render with implementation iteration language.
+- [x] Patch-mode `jarvis run` summaries do not include plan-mode telemetry records from the same telemetry file.
+- [x] Plan-mode summaries do not include patch-mode telemetry records from the same telemetry file.
+- [x] Patch and plan summaries share aggregation logic for usage totals, cost totals, cost-source notes, null-cost notes, warnings, and excluded quota attempts.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

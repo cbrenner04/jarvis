@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runSummary } from "../src/run-summary.ts";
+import { runSummary, planSummary } from "../src/run-summary.ts";
 
 function writeTelemetry(lines: object[]): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-run-summary-"));
@@ -439,5 +439,154 @@ describe("runSummary", () => {
         specPath: "spec/x/index.md",
       }),
     ).toContain("attempts: 0");
+  });
+
+  test("patch summary ignores plan-mode rows in the same JSONL file", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 100,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        mode: "plan",
+        plan_phase: "draft",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 99999,
+          output_tokens: 1,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 99,
+        cost_source: "agent",
+      },
+      {
+        ts: "2026-05-16T10:00:02.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 100,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        mode: "patch",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.02,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "criteria-complete",
+      iterations: 1,
+      durationMs: 2000,
+      specPath: "spec/foo/index.md",
+    });
+    expect(summary).toContain("$0.02");
+    expect(summary).not.toContain("$99");
+    expect(summary).toContain("attempts: 1");
+  });
+
+  test("plan summary uses phase attempts and attempt labels", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "plan:k:n",
+        agent: "codex",
+        iteration: 1,
+        duration_ms: 100,
+        kind: "ok",
+        exit_reason: "plan-draft-ok",
+        mode: "plan",
+        plan_phase: "draft",
+        configured_model: "gpt-5.3-codex",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.05,
+        cost_source: "computed",
+      },
+    ]);
+    const summary = planSummary({
+      telemetryPath,
+      namespace: "plan:k:n",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "complete",
+      durationMs: 500,
+      specPath: "spec/foo/index.md",
+    });
+    expect(summary).toContain("plan summary");
+    expect(summary).toContain("phase attempts: 1");
+    expect(summary).not.toContain("iterations:");
+    expect(summary).toContain("(1 attempt(s))");
+    expect(summary).not.toContain("iteration(s))");
+  });
+
+  test("plan summary ignores patch-mode rows", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "plan:k:n",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 50,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        mode: "patch",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 500,
+          output_tokens: 500,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 9,
+        cost_source: "agent",
+      },
+      {
+        ts: "2026-05-16T10:00:02.000Z",
+        namespace: "plan:k:n",
+        agent: "codex",
+        iteration: 1,
+        duration_ms: 50,
+        kind: "ok",
+        exit_reason: "plan-draft-ok",
+        mode: "plan",
+        plan_phase: "draft",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.02,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = planSummary({
+      telemetryPath,
+      namespace: "plan:k:n",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "complete",
+      durationMs: 100,
+      specPath: "spec/foo/index.md",
+    });
+    expect(summary).toContain("$0.02");
+    expect(summary).not.toContain("$9");
   });
 });

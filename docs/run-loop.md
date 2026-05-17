@@ -228,8 +228,10 @@ purposes:
   session log is the authoritative record.
 - **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or
   `telemetryPath` from config). Patch mode emits one invocation line per agent outcome
-  (for example each `criteria-progress`, `criteria-complete`, or `quota`). When an
-  iteration finishes the checklist, Jarvis emits `criteria-complete` with tokens
+  (for example each `criteria-progress`, `criteria-complete`, or `quota`). Plan mode
+  emits analogous rows with **`mode: "plan"`** and **`plan_phase`** (`interview`,
+  `name-only`, `draft`, or `review`) so patch and plan summaries can filter a shared
+  file safely. When an iteration finishes the checklist, Jarvis emits `criteria-complete` with tokens
   and cost, followed by a short `completed-spec` line marked
   **`record_role: "run_terminal"`** so end-of-run summaries do not sum usage twice.
   Rows may include optional **`configured_model`** (patch `modes.patch.agentOrder`
@@ -349,6 +351,12 @@ jarvis prints a summary block to stdout with:
 The summary table is computed from the session's telemetry JSONL lines
 (`namespace` + `ts >= run_start_ts`), not from in-memory counters, so the same
 totals can be recomputed directly from `~/.jarvis/runs.jsonl`.
+
+**Plan mode** (`jarvis plan`) writes invocation rows with `mode: "plan"` and
+prints a **plan summary** after exits where at least one agent ran. It shares the
+same aggregation rules and cost-source vocabulary as patch summaries but labels
+counts as **phase attempts** (not patch iterations). See
+[Plan mode — Usage summaries](./plan-mode.md#usage-summaries).
 
 `jarvis run` requires the local log server to be reachable before the loop
 starts. If the server is down or misconfigured, run exits non-zero and prints

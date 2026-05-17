@@ -10,6 +10,7 @@ import { detectBlocker } from "./blocker.ts";
 import { PlaceholderCollisionError } from "./draft.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
+import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 
 const PLACEHOLDER_TOKENS = [
   "<INTENT>",
@@ -40,6 +41,7 @@ export type ReviewPhaseOptions = {
   passNumber?: number;
   totalPasses?: number;
   stderr?: (s: string) => void;
+  planTelemetry?: PlanTelemetryWriter | undefined;
 };
 
 /**
@@ -185,6 +187,7 @@ export async function runReviewPass(
       `${entry.agent} (${entry.model ?? "default"})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
+    const invocationStartedAt = Date.now();
     const spawnResult = await agent.run(prompt, {
       cwd: opts.worktreePath,
     });
@@ -203,6 +206,14 @@ export async function runReviewPass(
       noDiskChangeDuringInvocation,
     );
     emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
+
+    opts.planTelemetry?.recordAgentAttempt({
+      phase: "review",
+      agentCli: entry.agent,
+      configuredModel: entry.model,
+      durationMs: Date.now() - invocationStartedAt,
+      result,
+    });
 
     if (result.kind === "ok") {
       return { result, agentLabel };

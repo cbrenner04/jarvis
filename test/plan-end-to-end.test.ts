@@ -91,6 +91,7 @@ describe("plan mode end-to-end", () => {
       });
 
       expect(typeof code).toBe("number");
+      expect(cap.getOut()).not.toContain("plan summary");
     } finally {
       setup.cleanup();
     }

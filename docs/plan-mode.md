@@ -126,6 +126,24 @@ Each pass is a single agent invocation; the agent does not decide when to stop o
 
 **`--review-passes 0`:** Skips all review passes entirely; only the draft phase and `plan: interview` commit exist. Useful for fast feedback or when self-review is not desired.
 
+## Usage summaries
+
+When at least one plan-phase agent invocation writes telemetry, Jarvis appends a **plan summary** block to stdout on exit. On successful completion, this appears after the "Next steps" section so the existing completion output stays intact.
+
+Coverage:
+
+- **Phases**: interview turns, naming-only (`--interview-turns 0` on non-interactive intents), draft, and each review pass—all agent attempts participate in the same telemetry stream.
+
+- **Telemetry**: Rows use the configured `telemetryPath` JSONL file (same file as `jarvis run`), with **`mode: "plan"`** and **`plan_phase`** set to `interview`, `name-only`, `draft`, or `review`. Patch summaries ignore these rows; plan summaries ignore patch rows, so both modes can coexist in one file.
+
+- **Labels**: The summary header reports **`phase attempts`** (count of non-`harness`, non-`run_terminal` invocation rows), not patch-style implementation iterations. Table rows use **`N attempt(s)`** per agent instead of **`N iteration(s)`**.
+
+- **Cost**: Usage-only agent results get cost computed from **`modes.plan.agentOrder`** model ids when the price table has a matching entry—the same enrichment path as patch mode (`modes.patch.agentOrder` there). Shared terminology for token buckets, `cost_source`, and notes is documented under [Token usage and cost tracking](./run-loop.md#token-usage-and-cost-tracking) and [End-of-run summary](./run-loop.md#end-of-run-summary).
+
+- **Quota fallback**: Quota-only attempts are excluded from aggregated totals with the same quota-excluded notes as patch mode.
+
+No summary is printed for configuration or project-resolution failures that occur **before** any agent invocation.
+
 ## PR body updates
 
 The draft PR opens after `plan: draft` is pushed (via the same `updatePrBody` helper patch mode uses). Each subsequent `plan: ...` commit triggers a PR-body rewrite that:

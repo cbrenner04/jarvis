@@ -8,6 +8,7 @@ import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages
 import { PlaceholderCollisionError } from "./draft.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
+import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 
 export function buildNameOnlyPrompt(opts: {
   name: string;
@@ -33,6 +34,7 @@ export async function runNameOnlyPhase(opts: {
   name: string;
   config: Config;
   stderr?: (s: string) => void;
+  planTelemetry?: PlanTelemetryWriter | undefined;
 }): Promise<{ result: AgentResult; agentLabel: string | null }> {
   const intentPath = join(opts.worktreePath, "spec", opts.name, "intent.md");
   const intent = readFileSync(intentPath, "utf8");
@@ -47,6 +49,7 @@ export async function runNameOnlyPhase(opts: {
       agent.attributionLabel?.() ??
       `${entry.agent} (${entry.model ?? "default"})`;
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
+    const invocationStartedAt = Date.now();
     const spawnResult = await agent.run(prompt, { cwd: opts.worktreePath });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
@@ -63,6 +66,13 @@ export async function runNameOnlyPhase(opts: {
       noDiskChangeDuringInvocation,
     );
     emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
+    opts.planTelemetry?.recordAgentAttempt({
+      phase: "name-only",
+      agentCli: entry.agent,
+      configuredModel: entry.model,
+      durationMs: Date.now() - invocationStartedAt,
+      result,
+    });
     if (result.kind === "ok") {
       return { result, agentLabel };
     }

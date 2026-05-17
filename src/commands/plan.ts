@@ -25,6 +25,10 @@ import {
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import { runInterviewPhase } from "../modes/plan/interview.ts";
 import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
+import {
+  createPlanTelemetryWriter,
+  type PlanTelemetryWriter,
+} from "../modes/plan/plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
 import {
   hasWorkingTreeChanges,
@@ -32,6 +36,7 @@ import {
   validateReviewOutput,
 } from "../modes/plan/review.ts";
 import { ensureDraftPr, renderAttribution, updatePrBody } from "../pr.ts";
+import { planSummary } from "../run-summary.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import type { resolveTargetRepo } from "../repo.ts";
 import { createPlanWorktree, createWorktreeSymlinks } from "../worktree.ts";
@@ -508,9 +513,30 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       opts.io.stderr(`plan mode: resume ${suffix} started\n`);
 
       const cfg = loadConfig(opts.config);
+      const resumePlanStartedAt = new Date();
+      const resumePlanStartedMs = Date.now();
+      const resumeTelemetryPath = cfg.telemetryPath ?? null;
+      const resumePlanNs = `plan:${project.key}:${resume.name}`;
+      const resumePlanTelemetry = createPlanTelemetryWriter({
+        telemetryPath: resumeTelemetryPath,
+        namespace: resumePlanNs,
+      });
+      const summarizeResume = (exitReason: string): void => {
+        emitPlanUsageSummaryIfNeeded({
+          io: opts.io,
+          telemetryPath: resumeTelemetryPath,
+          namespace: resumePlanNs,
+          startedAt: resumePlanStartedAt,
+          startedMs: resumePlanStartedMs,
+          exitReason,
+          specPathForSummary: `spec/${resume.name}/index.md`,
+          writer: resumePlanTelemetry,
+        });
+      };
       if (interviewTurns > 0) {
         if (interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
+          summarizeResume("sigint");
           return 130;
         }
         try {
@@ -520,25 +546,30 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             config: cfg,
             interviewTurns,
             stderr: opts.io.stderr,
+            planTelemetry: resumePlanTelemetry,
           });
           if (interviewResult.result.kind !== "ok") {
             if (interviewResult.result.kind === "quota") {
               opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+              summarizeResume("quota-exhausted");
               return 2;
             }
             if (interviewResult.result.kind === "model_config") {
               opts.io.stderr(
                 `plan mode: model configuration error\n${interviewResult.result.stderr}`,
               );
+              summarizeResume("model-config");
               return 3;
             }
             opts.io.stderr(
               `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
             );
+            summarizeResume("agent-error");
             return 1;
           }
           if (interrupted) {
             opts.io.stderr(`plan: interrupted\n`);
+            summarizeResume("sigint");
             return 130;
           }
           if (hasWorkingTreeChanges(resume.worktreePath)) {
@@ -570,10 +601,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
             opts.io.stderr(`plan: blocked\n`);
             opts.io.stderr(`\n## Blocker\n\n${interviewResult.blocker}\n`);
+            summarizeResume("blocker");
             return 1;
           }
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
+          summarizeResume("error");
           return 1;
         }
       }
@@ -581,6 +614,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       for (let pass = 1; pass <= reviewPasses; pass += 1) {
         if (interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
+          summarizeResume("sigint");
           return 130;
         }
         const intentPath = join(
@@ -597,25 +631,30 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           passNumber: nextReviewIndex,
           totalPasses: nextReviewIndex + reviewPasses - pass,
           stderr: opts.io.stderr,
+          planTelemetry: resumePlanTelemetry,
         });
         if (result.result.kind !== "ok") {
           if (result.result.kind === "quota") {
             opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+            summarizeResume("quota-exhausted");
             return 2;
           }
           if (result.result.kind === "model_config") {
             opts.io.stderr(
               `plan mode: model configuration error: ${result.result.stderr}\n`,
             );
+            summarizeResume("model-config");
             return 3;
           }
           opts.io.stderr(
             `plan mode: review pass ${nextReviewIndex} failed: ${result.result.stderr}\n`,
           );
+          summarizeResume("agent-error");
           return 1;
         }
         if (interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
+          summarizeResume("sigint");
           return 130;
         }
 
@@ -633,6 +672,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           opts.io.stderr(
             `plan mode: review pass ${nextReviewIndex} validation failed: ${validation.error}\n`,
           );
+          summarizeResume("error");
           return 1;
         }
         if (validation.blocker !== undefined) {
@@ -653,6 +693,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           });
           opts.io.stderr(`plan: blocked\n`);
           opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
+          summarizeResume("blocker");
           return 1;
         }
 
@@ -682,6 +723,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       if (prUrl !== null) {
         opts.io.stdout(renderPlanNextSteps({ prUrl, specName: resume.name }));
       }
+      summarizeResume("complete");
       opts.io.stderr(`plan: complete (resume ${suffix})\n`);
       return 0;
     }
@@ -756,6 +798,30 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       // Load config once for use in interview and draft phases
       const cfg = loadConfig(opts.config);
 
+      const planStartedAt = new Date();
+      const planStartedMs = Date.now();
+      const planTelemetryPath = cfg.telemetryPath ?? null;
+      const planNsBase = `plan:${project.key}:${tempPlanName}`;
+      const planTelemetryWriter = createPlanTelemetryWriter({
+        telemetryPath: planTelemetryPath,
+        namespace: planNsBase,
+      });
+      const summarizePlan = (
+        exitReason: string,
+        summarySpecName: string,
+      ): void => {
+        emitPlanUsageSummaryIfNeeded({
+          io: opts.io,
+          telemetryPath: planTelemetryPath,
+          namespace: planNsBase,
+          startedAt: planStartedAt,
+          startedMs: planStartedMs,
+          exitReason,
+          specPathForSummary: `spec/${summarySpecName}/index.md`,
+          writer: planTelemetryWriter,
+        });
+      };
+
       // Run interview phase
       let interviewCompletedTurns = 0;
       let interviewBlocker: string | undefined;
@@ -771,6 +837,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             config: cfg,
             interviewTurns: interviewBudget,
             stderr: opts.io.stderr,
+            planTelemetry: planTelemetryWriter,
           });
 
           // Handle interview result
@@ -779,18 +846,21 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               opts.io.stderr(
                 `plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during interview\n`,
               );
+              summarizePlan("quota-exhausted", specName);
               return 2;
             }
             if (interviewResult.result.kind === "model_config") {
               opts.io.stderr(
                 `plan mode: model configuration error\n${interviewResult.result.stderr}`,
               );
+              summarizePlan("model-config", specName);
               return 3;
             }
             // Generic error
             opts.io.stderr(
               `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
             );
+            summarizePlan("agent-error", specName);
             return 1;
           }
 
@@ -803,23 +873,27 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             name: specName,
             config: cfg,
             stderr: opts.io.stderr,
+            planTelemetry: planTelemetryWriter,
           });
           if (namingResult.result.kind !== "ok") {
             if (namingResult.result.kind === "quota") {
               opts.io.stderr(
                 `plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during naming-only phase\n`,
               );
+              summarizePlan("quota-exhausted", specName);
               return 2;
             }
             if (namingResult.result.kind === "model_config") {
               opts.io.stderr(
                 `plan mode: model configuration error\n${namingResult.result.stderr}`,
               );
+              summarizePlan("model-config", specName);
               return 3;
             }
             opts.io.stderr(
               `plan mode: naming-only phase failed\n${namingResult.result.stderr}`,
             );
+            summarizePlan("agent-error", specName);
             return 1;
           }
         }
@@ -827,6 +901,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr(
           `plan mode: interview phase error: ${(err as Error).message}\n`,
         );
+        summarizePlan("error", specName);
         return 1;
       }
 
@@ -863,6 +938,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr(
           `plan mode: failed to rename spec directory: ${(err as Error).message}\n`,
         );
+        summarizePlan("error", specName);
         return 1;
       }
 
@@ -917,12 +993,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             ? (err as { stderr: Buffer }).stderr.toString("utf8")
             : (err as Error).message;
         opts.io.stderr(message);
+        summarizePlan("error", specName);
         return 1;
       }
 
       // Check for interrupt before any commit
       if (interrupted) {
         opts.io.stderr(`plan: interrupted\n`);
+        summarizePlan("sigint", specName);
         return 130;
       }
 
@@ -967,6 +1045,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           });
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
+          summarizePlan("error", specName);
           return 1;
         }
 
@@ -974,6 +1053,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         if (interviewBlocker) {
           opts.io.stderr(`\n## Blocker\n\n${interviewBlocker}\n`);
         }
+        summarizePlan("blocker", specName);
         return 1;
       }
 
@@ -995,6 +1075,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr(`plan mode: interview commit pushed\n`);
       } catch (err) {
         opts.io.stderr(`${(err as Error).message}\n`);
+        summarizePlan("error", specName);
         return 1;
       }
 
@@ -1013,30 +1094,35 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           config: cfg,
           intentBefore,
           stderr: opts.io.stderr,
+          planTelemetry: planTelemetryWriter,
         });
 
         // Check if draft succeeded
         if (draftResult.result.kind !== "ok") {
           if (draftResult.result.kind === "quota") {
             opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+            summarizePlan("quota-exhausted", specName);
             return 2;
           }
           if (draftResult.result.kind === "model_config") {
             opts.io.stderr(
               `plan mode: model configuration error\n${draftResult.result.stderr}`,
             );
+            summarizePlan("model-config", specName);
             return 3;
           }
           // Generic error
           opts.io.stderr(
             `plan mode: draft phase failed\n${draftResult.result.stderr}`,
           );
+          summarizePlan("agent-error", specName);
           return 1;
         }
 
         // Check for interrupt before any commit
         if (interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
+          summarizePlan("sigint", specName);
           return 130;
         }
 
@@ -1050,6 +1136,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           opts.io.stderr(
             `plan mode: draft validation failed: ${validation.error}\n`,
           );
+          summarizePlan("error", specName);
           return 1;
         }
 
@@ -1061,6 +1148,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         draftSpecFilesCount = draftResult.subspecCount ?? 0;
         if (draftBlocker === undefined && draftResult.subspecCount === null) {
           opts.io.stderr(`plan mode: could not count subspecs\n`);
+          summarizePlan("error", specName);
           return 1;
         }
 
@@ -1069,6 +1157,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr(
           `plan mode: draft phase error: ${(err as Error).message}\n`,
         );
+        summarizePlan("error", specName);
         return 1;
       }
 
@@ -1112,10 +1201,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           });
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
+          summarizePlan("error", specName);
           return 1;
         }
 
         opts.io.stderr(`plan: blocked\n`);
+        summarizePlan("blocker", specName);
         return 1;
       }
 
@@ -1135,6 +1226,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr(`plan mode: draft commit pushed\n`);
       } catch (err) {
         opts.io.stderr(`${(err as Error).message}\n`);
+        summarizePlan("error", specName);
         return 1;
       }
 
@@ -1192,6 +1284,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           });
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
+          summarizePlan("error", specName);
           return 1;
         }
 
@@ -1199,6 +1292,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         if (draftBlocker) {
           opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
         }
+        summarizePlan("blocker", specName);
         return 1;
       }
 
@@ -1217,6 +1311,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         // Honor a pending interrupt before doing any work for this pass.
         if (interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
+          summarizePlan("sigint", specName);
           return 130;
         }
 
@@ -1237,6 +1332,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             passNumber: pass,
             totalPasses: reviewPasses,
             stderr: opts.io.stderr,
+            planTelemetry: planTelemetryWriter,
           });
 
           // Handle agent errors
@@ -1244,6 +1340,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             opts.io.stderr(
               `plan mode: review pass ${pass} failed: ${reviewResult.result.stderr}\n`,
             );
+            summarizePlan("agent-error", specName);
             return 1;
           }
 
@@ -1251,6 +1348,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             opts.io.stderr(
               `plan mode: model configuration error: ${reviewResult.result.stderr}\n`,
             );
+            summarizePlan("model-config", specName);
             // Match patch mode (src/modes/patch/run.ts:1080) which exits 3 for
             // model_config errors so a single config typo produces the same
             // exit code regardless of which mode hits it.
@@ -1259,6 +1357,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
           if (reviewResult.result.kind === "quota") {
             opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+            summarizePlan("quota-exhausted", specName);
             return 2; // Quota exhausted exit code
           }
 
@@ -1266,6 +1365,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           // agent call leaves the worktree, branch, and PR untouched.
           if (interrupted) {
             opts.io.stderr(`plan: interrupted\n`);
+            summarizePlan("sigint", specName);
             return 130;
           }
 
@@ -1287,6 +1387,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             opts.io.stderr(
               `plan mode: review pass ${pass} validation failed: ${validation.error}\n`,
             );
+            summarizePlan("error", specName);
             return 1;
           }
 
@@ -1331,10 +1432,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 });
               } catch (err) {
                 opts.io.stderr(`${(err as Error).message}\n`);
+                summarizePlan("error", specName);
                 return 1;
               }
 
               opts.io.stderr(`plan: blocked\n`);
+              summarizePlan("blocker", specName);
               return 1;
             }
 
@@ -1361,6 +1464,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               });
             } catch (err) {
               opts.io.stderr(`${(err as Error).message}\n`);
+              summarizePlan("error", specName);
               return 1;
             }
 
@@ -1368,6 +1472,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             if (validation.blocker) {
               opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
             }
+            summarizePlan("blocker", specName);
             return 1;
           }
 
@@ -1407,10 +1512,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               });
             } catch (err) {
               opts.io.stderr(`${(err as Error).message}\n`);
+              summarizePlan("error", specName);
               return 1;
             }
 
             opts.io.stderr(`plan: blocked\n`);
+            summarizePlan("blocker", specName);
             return 1;
           }
 
@@ -1437,12 +1544,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
           } catch (err) {
             opts.io.stderr(`${(err as Error).message}\n`);
+            summarizePlan("error", specName);
             return 1;
           }
         } catch (err) {
           opts.io.stderr(
             `plan mode: review pass ${pass} error: ${(err as Error).message}\n`,
           );
+          summarizePlan("error", specName);
           return 1;
         }
       }
@@ -1453,6 +1562,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       } catch {
         // best-effort; completion still succeeds without a URL
       }
+      summarizePlan("complete", specName);
       opts.io.stderr(`plan: complete\n`);
 
       // For file/inline mode, commits were successfully created and pushed
@@ -1569,6 +1679,32 @@ function safeMarkPlanPrReady(args: {
       `warning: could not mark PR ready for review: ${(err as Error).message}\n`,
     );
   }
+}
+
+/** Emit stdout usage summary when at least one plan agent invocation wrote telemetry.*/
+function emitPlanUsageSummaryIfNeeded(args: {
+  io: PlanIo;
+  telemetryPath: string | null;
+  namespace: string;
+  startedAt: Date;
+  startedMs: number;
+  exitReason: string;
+  specPathForSummary: string;
+  writer: PlanTelemetryWriter;
+}): void {
+  if (!args.writer.hasAgentInvocationWrites()) {
+    return;
+  }
+  args.io.stdout(
+    `\n${planSummary({
+      telemetryPath: args.telemetryPath,
+      namespace: args.namespace,
+      startTs: args.startedAt.toISOString(),
+      exitReason: args.exitReason,
+      durationMs: Date.now() - args.startedMs,
+      specPath: args.specPathForSummary,
+    })}`,
+  );
 }
 
 /** First non-empty line of `text`, trimmed. Empty string if none. */

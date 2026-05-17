@@ -35,8 +35,7 @@ import {
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { checkPrExists, ensureDraftPr, renderAttribution } from "../../pr.ts";
-import { computeCost } from "../../prices/cost.ts";
-import { loadPrices } from "../../prices/load.ts";
+import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -45,8 +44,10 @@ import {
 import { runSummary } from "../../run-summary.ts";
 import {
   appendTelemetryLine,
+  type CostSource,
   type TelemetryKind,
   type TelemetryRecordRole,
+  type UsageSource,
 } from "../../telemetry.ts";
 import {
   createWorktreeSymlinks,
@@ -138,9 +139,9 @@ type WriteTelemetry = (record: {
     cache_read_input_tokens: number | null;
     cache_creation_input_tokens: number | null;
   };
-  usage_source?: "agent" | "unavailable";
+  usage_source?: UsageSource;
   cost_usd?: number | null;
-  cost_source?: "agent" | "computed" | "no-price" | "no-usage";
+  cost_source?: CostSource;
   warnings?: string[];
 }) => void;
 
@@ -603,6 +604,7 @@ function setupLogging(
       appendTelemetryLine(telemetryPath, {
         ts: new Date().toISOString(),
         namespace: runNamespace,
+        mode: "patch",
         agent: record.agent,
         iteration: record.iteration,
         duration_ms: record.durationMs,
@@ -770,76 +772,6 @@ function mapExitCodeToReason(exitCode: number): string {
     default:
       return `exit-${exitCode}`;
   }
-}
-
-type UsageCostData = {
-  usage?: {
-    input_tokens: number | null;
-    output_tokens: number | null;
-    cache_read_input_tokens: number | null;
-    cache_creation_input_tokens: number | null;
-  };
-  usage_source?: "agent" | "unavailable";
-  cost_usd?: number | null;
-  cost_source?: "agent" | "computed" | "no-price" | "no-usage";
-};
-
-function extractUsageAndCost(
-  result: {
-    usage_source?: "agent" | "unavailable";
-    usage?: {
-      input_tokens: number | null;
-      output_tokens: number | null;
-      cache_read_input_tokens: number | null;
-      cache_creation_input_tokens: number | null;
-    };
-    cost_usd?: number | null;
-  },
-  pricingModelId: string,
-): UsageCostData {
-  const output: UsageCostData = {};
-  if (result.usage_source === "unavailable") {
-    output.usage = {
-      input_tokens: null,
-      output_tokens: null,
-      cache_read_input_tokens: null,
-      cache_creation_input_tokens: null,
-    };
-    output.usage_source = "unavailable";
-    output.cost_usd = null;
-    output.cost_source = "no-usage";
-    return output;
-  }
-
-  if (result.cost_usd !== undefined && result.cost_usd !== null) {
-    // Agent provided cost directly (e.g., Claude with total_cost_usd)
-    if (result.usage !== undefined) {
-      output.usage = result.usage;
-      output.usage_source = "agent";
-    }
-    output.cost_usd = result.cost_usd;
-    output.cost_source = "agent";
-    return output;
-  }
-
-  // If there's usage data but no cost, compute it
-  if (result.usage !== undefined) {
-    output.usage = result.usage;
-    output.usage_source = "agent";
-    try {
-      const prices = loadPrices();
-      const computedCost = computeCost(result.usage, pricingModelId, prices);
-      output.cost_usd = computedCost.cost_usd;
-      if (computedCost.cost_source !== null) {
-        output.cost_source = computedCost.cost_source;
-      }
-    } catch {
-      // If price loading fails, just return usage without cost
-    }
-    return output;
-  }
-
-  return output;
 }
 
 async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {

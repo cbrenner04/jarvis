@@ -1,5 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
-import type { CostSource, TelemetryRecord, UsageSource } from "./telemetry.ts";
+import type {
+  CostSource,
+  TelemetryRecord,
+  TelemetryUsage,
+  UsageSource,
+} from "./telemetry.ts";
 
 type RunSummaryArgs = {
   telemetryPath: string | null;
@@ -11,10 +16,21 @@ type RunSummaryArgs = {
   specPath: string;
 };
 
+export type PlanSummaryArgs = {
+  telemetryPath: string | null;
+  namespace: string;
+  startTs: string;
+  exitReason: string;
+  durationMs: number;
+  specPath: string;
+};
+
+type TelemetrySummaryMode = "patch" | "plan";
+
 type AgentAggregate = {
   cliName: string;
   configuredModels: Set<string>;
-  patchIterations: number;
+  completedOkInvocations: number;
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
@@ -58,7 +74,7 @@ function normalizeSource(source: CostSource | null | undefined): string {
   return "unavailable";
 }
 
-/** Rows for the cost table: successful patch completions (telemetry kind ok).*/
+/** Rows for the cost table: successful completions (telemetry kind ok).*/
 function shouldAggregateForCostTable(record: TelemetryRecord): boolean {
   if (record.record_role === "run_terminal") {
     return false;
@@ -76,6 +92,16 @@ function attemptLine(record: TelemetryRecord): boolean {
   return record.agent !== "harness";
 }
 
+function recordMatchesMode(
+  record: TelemetryRecord,
+  mode: TelemetrySummaryMode,
+): boolean {
+  if (mode === "patch") {
+    return record.mode !== "plan";
+  }
+  return record.mode === "plan";
+}
+
 function dominantSource(sources: Set<string>): string {
   if (sources.has("agent")) {
     return "agent";
@@ -89,8 +115,8 @@ function dominantSource(sources: Set<string>): string {
   return "unavailable";
 }
 
-function iterationCountLabel(n: number): string {
-  return `${n} iteration(s)`;
+function rowCountLabel(n: number, noun: "iteration" | "attempt"): string {
+  return `${n} ${noun}(s)`;
 }
 
 function formatAgentColumn(cli: string, models: Set<string>): string {
@@ -108,11 +134,7 @@ function meaningfulSourceForMix(record: TelemetryRecord): string | null {
     return null;
   }
   const n = normalizeSource(record.cost_source);
-  if (
-    n === "agent" ||
-    n === "computed" ||
-    n === "no-price"
-  ) {
+  if (n === "agent" || n === "computed" || n === "no-price") {
     return n;
   }
   return null;
@@ -122,7 +144,7 @@ function newAggregate(cli: string): AgentAggregate {
   return {
     cliName: cli,
     configuredModels: new Set<string>(),
-    patchIterations: 0,
+    completedOkInvocations: 0,
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -138,21 +160,28 @@ function newAggregate(cli: string): AgentAggregate {
   };
 }
 
-export function runSummary(args: RunSummaryArgs): string {
-  const lines: string[] = [];
-  lines.push("─── run summary ───");
-  lines.push(`spec: ${args.specPath}`);
-  lines.push(`exit reason: ${args.exitReason}`);
-  lines.push(`iterations: ${args.iterations}`);
-
-  if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {
-    lines.push("attempts: 0");
-    lines.push(`duration: ${formatDuration(args.durationMs)}`);
-    lines.push("");
-    lines.push("(no telemetry records found for this run)");
-    return `${lines.join("\n")}\n`;
+function hasMeaningfulUsage(usage: TelemetryUsage | undefined): boolean {
+  if (usage === undefined) {
+    return false;
   }
+  return (
+    toNumber(usage.input_tokens) +
+      toNumber(usage.output_tokens) +
+      toNumber(usage.cache_read_input_tokens) +
+      toNumber(usage.cache_creation_input_tokens) >
+    0
+  );
+}
 
+function loadFilteredRecords(args: {
+  telemetryPath: string | null;
+  namespace: string;
+  startTs: string;
+  mode: TelemetrySummaryMode;
+}): TelemetryRecord[] {
+  if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {
+    return [];
+  }
   const raw = readFileSync(args.telemetryPath, "utf8");
   const runRecords: TelemetryRecord[] = [];
   for (const line of raw.split("\n")) {
@@ -161,7 +190,11 @@ export function runSummary(args: RunSummaryArgs): string {
     }
     try {
       const parsed = JSON.parse(line) as TelemetryRecord;
-      if (parsed.namespace !== args.namespace || parsed.ts < args.startTs) {
+      if (
+        parsed.namespace !== args.namespace ||
+        parsed.ts < args.startTs ||
+        !recordMatchesMode(parsed, args.mode)
+      ) {
         continue;
       }
       runRecords.push(parsed);
@@ -169,30 +202,76 @@ export function runSummary(args: RunSummaryArgs): string {
       // Ignore malformed lines.
     }
   }
+  return runRecords;
+}
 
-  lines.push(`attempts: ${runRecords.filter(attemptLine).length}`);
+type RenderLabels = {
+  title: string;
+  rowCountNoun: "iteration" | "attempt";
+  noteUnitNoun: "iteration" | "attempt";
+};
+
+function renderSummaryFromRecords(args: {
+  runRecords: TelemetryRecord[];
+  exitReason: string;
+  durationMs: number;
+  specPath: string;
+  labels: RenderLabels;
+  /** Patch-only: implementation iterations completed (harness counter).*/
+  patchIterations?: number;
+  /** When true, emit `phase attempts:` instead of pairing iterations + attempts.*/
+  planStyleHeaders?: boolean;
+}): string {
+  const lines: string[] = [];
+  lines.push(`─── ${args.labels.title} ───`);
+  lines.push(`spec: ${args.specPath}`);
+  lines.push(`exit reason: ${args.exitReason}`);
+
+  const invocationAttempts = args.runRecords.filter(attemptLine).length;
+
+  if (args.planStyleHeaders === true) {
+    lines.push(`phase attempts: ${invocationAttempts}`);
+  } else if (args.patchIterations !== undefined) {
+    lines.push(`iterations: ${args.patchIterations}`);
+  }
+
+  if (args.planStyleHeaders !== true) {
+    lines.push(`attempts: ${invocationAttempts}`);
+  }
+
   lines.push(`duration: ${formatDuration(args.durationMs)}`);
   lines.push("");
 
-  if (runRecords.length === 0) {
+  if (args.runRecords.length === 0) {
     lines.push("(no telemetry records found for this run)");
     return `${lines.join("\n")}\n`;
   }
 
   const quotaExcludedByAgent = new Map<string, number>();
-  for (const record of runRecords) {
+  const errorWithoutUsageByAgent = new Map<string, number>();
+
+  for (const record of args.runRecords) {
     if (record.kind === "quota") {
       const cli = record.agent;
-      quotaExcludedByAgent.set(
-        cli,
-        (quotaExcludedByAgent.get(cli) ?? 0) + 1,
+      quotaExcludedByAgent.set(cli, (quotaExcludedByAgent.get(cli) ?? 0) + 1);
+    }
+    if (
+      record.kind === "error" &&
+      record.agent !== "harness" &&
+      record.record_role !== "run_terminal" &&
+      !hasMeaningfulUsage(record.usage) &&
+      record.usage_source !== "agent"
+    ) {
+      errorWithoutUsageByAgent.set(
+        record.agent,
+        (errorWithoutUsageByAgent.get(record.agent) ?? 0) + 1,
       );
     }
   }
 
   const perAgent = new Map<string, AgentAggregate>();
 
-  for (const record of runRecords) {
+  for (const record of args.runRecords) {
     if (!shouldAggregateForCostTable(record)) {
       continue;
     }
@@ -208,12 +287,10 @@ export function runSummary(args: RunSummaryArgs): string {
       aggregate.configuredModels.add(record.configured_model.trim());
     }
 
-    aggregate.patchIterations += 1;
+    aggregate.completedOkInvocations += 1;
     aggregate.inputTokens += toNumber(record.usage?.input_tokens);
     aggregate.outputTokens += toNumber(record.usage?.output_tokens);
-    aggregate.cacheReadTokens += toNumber(
-      record.usage?.cache_read_input_tokens,
-    );
+    aggregate.cacheReadTokens += toNumber(record.usage?.cache_read_input_tokens);
     aggregate.cacheWriteTokens += toNumber(
       record.usage?.cache_creation_input_tokens,
     );
@@ -253,9 +330,7 @@ export function runSummary(args: RunSummaryArgs): string {
 
   const showCacheColumns =
     rows.length > 0 &&
-    rows.some(
-      (row) => row.cacheReadTokens > 0 || row.cacheWriteTokens > 0,
-    );
+    rows.some((row) => row.cacheReadTokens > 0 || row.cacheWriteTokens > 0);
 
   if (rows.length > 0) {
     const headerColumns = [
@@ -272,7 +347,7 @@ export function runSummary(args: RunSummaryArgs): string {
 
     for (const row of rows) {
       table.push([
-        `${formatAgentColumn(row.cliName, row.configuredModels)} (${iterationCountLabel(row.patchIterations)})`,
+        `${formatAgentColumn(row.cliName, row.configuredModels)} (${rowCountLabel(row.completedOkInvocations, args.labels.rowCountNoun)})`,
         formatInt(row.inputTokens),
         formatInt(row.outputTokens),
         ...(showCacheColumns
@@ -285,18 +360,12 @@ export function runSummary(args: RunSummaryArgs): string {
 
     const totalInput = rows.reduce((sum, row) => sum + row.inputTokens, 0);
     const totalOutput = rows.reduce((sum, row) => sum + row.outputTokens, 0);
-    const totalCacheRead = rows.reduce(
-      (sum, row) => sum + row.cacheReadTokens,
-      0,
-    );
+    const totalCacheRead = rows.reduce((sum, row) => sum + row.cacheReadTokens, 0);
     const totalCacheWrite = rows.reduce(
       (sum, row) => sum + row.cacheWriteTokens,
       0,
     );
-    const totalKnownCost = rows.reduce(
-      (sum, row) => sum + row.knownCostUsd,
-      0,
-    );
+    const totalKnownCost = rows.reduce((sum, row) => sum + row.knownCostUsd, 0);
     const totalKnownCostCount = rows.reduce(
       (sum, row) => sum + row.knownCostCount,
       0,
@@ -334,7 +403,11 @@ export function runSummary(args: RunSummaryArgs): string {
       }
     }
   } else if (quotaExcludedByAgent.size === 0) {
-    lines.push("(patch cost totals aggregate completed iterations only.)");
+    lines.push(
+      args.planStyleHeaders === true
+        ? "(plan cost totals aggregate successful agent attempts only.)"
+        : "(patch cost totals aggregate completed iterations only.)",
+    );
   }
 
   const notes: string[] = [];
@@ -351,20 +424,33 @@ export function runSummary(args: RunSummaryArgs): string {
     }
   }
 
+  const errAgents = [...errorWithoutUsageByAgent.keys()].sort((a, b) =>
+    a.localeCompare(b),
+  );
+  for (const ea of errAgents) {
+    const n = errorWithoutUsageByAgent.get(ea) ?? 0;
+    if (n > 0) {
+      notes.push(
+        `${n} failed agent attempt(s) under ${ea} recorded no usage (excluded from usage totals).`,
+      );
+    }
+  }
+
+  const nu = args.labels.noteUnitNoun;
   for (const row of rows) {
     if (row.unavailableUsageCount > 0) {
       notes.push(
-        `${row.unavailableUsageCount} iteration(s) under ${row.cliName} had no usage data (usage_source=unavailable).`,
+        `${row.unavailableUsageCount} ${nu}(s) under ${row.cliName} had no usage data (usage_source=unavailable).`,
       );
     }
     if (row.noPriceCount > 0) {
       notes.push(
-        `${row.noPriceCount} iteration(s) under ${row.cliName} had usage data but no price-table entry for the model.`,
+        `${row.noPriceCount} ${nu}(s) under ${row.cliName} had usage data but no price-table entry for the model.`,
       );
     }
     if (row.parseWarningCount > 0) {
       notes.push(
-        `${row.parseWarningCount} iteration(s) under ${row.cliName} recorded parse warnings.`,
+        `${row.parseWarningCount} ${nu}(s) under ${row.cliName} recorded parse warnings.`,
       );
     }
     if (row.meaningfulCostSources.size > 1) {
@@ -380,7 +466,7 @@ export function runSummary(args: RunSummaryArgs): string {
   );
   if (totalNullCostCount > 0) {
     notes.push(
-      `${totalNullCostCount} iteration(s) had null cost and were excluded from total cost.`,
+      `${totalNullCostCount} ${nu}(s) had null cost and were excluded from total cost.`,
     );
   }
 
@@ -393,4 +479,79 @@ export function runSummary(args: RunSummaryArgs): string {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+export function runSummary(args: RunSummaryArgs): string {
+  if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {
+    const lines = [
+      "─── run summary ───",
+      `spec: ${args.specPath}`,
+      `exit reason: ${args.exitReason}`,
+      `iterations: ${args.iterations}`,
+      "attempts: 0",
+      `duration: ${formatDuration(args.durationMs)}`,
+      "",
+      "(no telemetry records found for this run)",
+      "",
+    ];
+    return lines.join("\n");
+  }
+
+  const runRecords = loadFilteredRecords({
+    telemetryPath: args.telemetryPath,
+    namespace: args.namespace,
+    startTs: args.startTs,
+    mode: "patch",
+  });
+
+  return renderSummaryFromRecords({
+    runRecords,
+    exitReason: args.exitReason,
+    durationMs: args.durationMs,
+    specPath: args.specPath,
+    labels: {
+      title: "run summary",
+      rowCountNoun: "iteration",
+      noteUnitNoun: "iteration",
+    },
+    patchIterations: args.iterations,
+    planStyleHeaders: false,
+  });
+}
+
+/** Plan-mode usage summary: shared aggregation as patch, plan-specific headers/labels.*/
+export function planSummary(args: PlanSummaryArgs): string {
+  if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {
+    const lines = [
+      "─── plan summary ───",
+      `spec: ${args.specPath}`,
+      `exit reason: ${args.exitReason}`,
+      "phase attempts: 0",
+      `duration: ${formatDuration(args.durationMs)}`,
+      "",
+      "(no telemetry records found for this run)",
+      "",
+    ];
+    return lines.join("\n");
+  }
+
+  const runRecords = loadFilteredRecords({
+    telemetryPath: args.telemetryPath,
+    namespace: args.namespace,
+    startTs: args.startTs,
+    mode: "plan",
+  });
+
+  return renderSummaryFromRecords({
+    runRecords,
+    exitReason: args.exitReason,
+    durationMs: args.durationMs,
+    specPath: args.specPath,
+    labels: {
+      title: "plan summary",
+      rowCountNoun: "attempt",
+      noteUnitNoun: "attempt",
+    },
+    planStyleHeaders: true,
+  });
 }

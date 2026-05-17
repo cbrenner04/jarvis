@@ -8,6 +8,7 @@ import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
+import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 
 export type DraftPhaseOptions = {
   worktreePath: string;
@@ -17,6 +18,7 @@ export type DraftPhaseOptions = {
   stderr?: (s: string) => void;
   /** For tests only; defaults to real CLI agents. */
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
+  planTelemetry?: PlanTelemetryWriter | undefined;
 };
 
 export class PlaceholderCollisionError extends Error {
@@ -140,6 +142,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       `${entry.agent} (${entry.model ?? "default"})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
+    const invocationStartedAt = Date.now();
     const spawnResult = await agent.run(prompt, {
       cwd: opts.worktreePath,
     });
@@ -158,6 +161,14 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       noDiskChangeDuringInvocation,
     );
     emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
+
+    opts.planTelemetry?.recordAgentAttempt({
+      phase: "draft",
+      agentCli: entry.agent,
+      configuredModel: entry.model,
+      durationMs: Date.now() - invocationStartedAt,
+      result,
+    });
 
     if (result.kind === "ok") {
       // Success! Count subspecs and return

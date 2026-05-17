@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -42,20 +43,65 @@ function captureIo(responses: string[] = []): {
 let root: string;
 let projectRoot: string;
 let worktreeDir: string;
+let remoteDir: string;
+
+function createTrackedWorktree(specName: string): string {
+  const worktreePath = join(worktreeDir, specName);
+  execSync(`git branch ${specName} main`, { cwd: projectRoot, stdio: "pipe" });
+  execSync(`git push -u origin ${specName}`, {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  execSync(`git worktree add "${worktreePath}" ${specName}`, {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  return worktreePath;
+}
+
+function createTrackedPlanWorktree(name: string): string {
+  const branch = `plan/${name}`;
+  const dirName = `plan-${name}`;
+  const worktreePath = join(worktreeDir, dirName);
+  execSync(`git branch ${branch} main`, { cwd: projectRoot, stdio: "pipe" });
+  execSync(`git push -u origin ${branch}`, {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  execSync(`git worktree add "${worktreePath}" ${branch}`, {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  return worktreePath;
+}
 
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "jarvis-cleanup-"));
   projectRoot = root;
   worktreeDir = join(projectRoot, ".worktree");
+  remoteDir = join(projectRoot, "remote.git");
   mkdirSync(worktreeDir, { recursive: true });
+  mkdirSync(remoteDir, { recursive: true });
 
-  // Set up a minimal git repo
-  execSync("git init -b main", { cwd: projectRoot });
-  execSync("git config user.email 'test@example.com'", { cwd: projectRoot });
-  execSync("git config user.name 'Test User'", { cwd: projectRoot });
+  execSync("git init -b main", { cwd: projectRoot, stdio: "pipe" });
+  execSync("git config user.email 'test@example.com'", {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  execSync("git config user.name 'Test User'", {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
   writeFileSync(join(projectRoot, "README.md"), "test");
-  execSync("git add README.md", { cwd: projectRoot });
-  execSync("git commit -m 'initial'", { cwd: projectRoot });
+  execSync("git add README.md", { cwd: projectRoot, stdio: "pipe" });
+  execSync("git commit -m 'initial'", { cwd: projectRoot, stdio: "pipe" });
+
+  execSync("git init --bare -b main", { cwd: remoteDir, stdio: "pipe" });
+  execSync(`git remote add origin ${remoteDir}`, {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  execSync("git push -u origin main", { cwd: projectRoot, stdio: "pipe" });
 });
 
 afterEach(() => {
@@ -70,118 +116,151 @@ describe("cleanupCommand", () => {
     expect(out()).toBe("no merged worktrees to remove\n");
   });
 
-  test("clean patch worktree (no merged PR) is left alone", () => {
-    const { io, out } = captureIo();
+  test("archives patch-mode spec after successful cleanup", () => {
+    const { io } = captureIo(["y"]);
 
-    // Create a patch worktree
-    const specName = "test-spec";
-    const worktreePath = join(worktreeDir, specName);
-    execSync(`git branch ${specName} main`, { cwd: projectRoot });
-    execSync(`git worktree add "${worktreePath}" ${specName}`, {
-      cwd: projectRoot,
-    });
+    const specName = "patch-spec";
+    const worktreePath = createTrackedWorktree(specName);
+    const source = join(projectRoot, "spec", specName);
+    const destination = join(projectRoot, "spec", "completed", specName);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# patch\n");
 
-    const code = cleanupCommand({ projectRoot, io });
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
 
     expect(code).toBe(0);
-    // PR not merged (no remotes in test), so cleanup should not try to remove it
-    expect(out()).toBe("no merged worktrees to remove\n");
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe(
+      "# patch\n",
+    );
+  });
+
+  test("archives plan-mode spec from spec/<name>", () => {
+    const { io } = captureIo(["yes"]);
+
+    const name = "plan-spec";
+    const worktreePath = createTrackedPlanWorktree(name);
+    const source = join(projectRoot, "spec", name);
+    const destination = join(projectRoot, "spec", "completed", name);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# plan\n");
+
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+  });
+
+  test("dry-run does not mutate worktrees or spec directories", () => {
+    const { io } = captureIo();
+
+    const specName = "dry-run-spec";
+    const worktreePath = createTrackedWorktree(specName);
+    const source = join(projectRoot, "spec", specName);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# dry run\n");
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      dryRun: true,
+      isMergedPr: () => true,
+    });
+
+    expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(true);
+    expect(existsSync(source)).toBe(true);
+    expect(existsSync(join(projectRoot, "spec", "completed"))).toBe(false);
   });
 
-  test("clean plan worktree (no merged PR) is left alone", () => {
-    const { io, out } = captureIo();
+  test("missing source spec is non-fatal", () => {
+    const { io, out, err } = captureIo(["y"]);
 
-    // Create a plan worktree
-    const planName = "test-plan";
-    const planDirName = `plan-${planName}`;
-    const worktreePath = join(worktreeDir, planDirName);
-    execSync(`git branch plan/${planName} main`, { cwd: projectRoot });
-    execSync(`git worktree add "${worktreePath}" plan/${planName}`, {
-      cwd: projectRoot,
-    });
+    const specName = "missing-spec";
+    const worktreePath = createTrackedWorktree(specName);
 
-    const code = cleanupCommand({ projectRoot, io });
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
 
     expect(code).toBe(0);
-    // PR not merged, so cleanup should not try to remove it
-    expect(out()).toBe("no merged worktrees to remove\n");
-    expect(existsSync(worktreePath)).toBe(true);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(out()).toContain("no spec directory moved");
+    expect(err()).toBe("");
   });
 
-  test("dry-run lists no worktrees when none are merged", () => {
-    const { io, out } = captureIo();
+  test("reserved completed name reports failure and continues", () => {
+    const { io, err } = captureIo(["y"]);
 
-    // Create a plan worktree
-    const planName = "test-plan";
-    const planDirName = `plan-${planName}`;
-    const worktreePath = join(worktreeDir, planDirName);
-    execSync(`git branch plan/${planName} main`, { cwd: projectRoot });
-    execSync(`git worktree add "${worktreePath}" plan/${planName}`, {
-      cwd: projectRoot,
-    });
+    const unsafe = createTrackedWorktree("completed");
+    const safe = createTrackedWorktree("safe-spec");
+    const safeSource = join(projectRoot, "spec", "safe-spec");
+    const safeDestination = join(projectRoot, "spec", "completed", "safe-spec");
+    mkdirSync(safeSource, { recursive: true });
 
-    // Create a patch worktree for comparison
-    const patchName = "patch-spec";
-    const patchPath = join(worktreeDir, patchName);
-    execSync(`git branch ${patchName} main`, { cwd: projectRoot });
-    execSync(`git worktree add "${patchPath}" ${patchName}`, {
-      cwd: projectRoot,
-    });
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
 
-    const code = cleanupCommand({ projectRoot, io, dryRun: true });
-
-    expect(code).toBe(0);
-    // No merged PRs, so cleanup doesn't list anything
-    expect(out()).toBe("no merged worktrees to remove\n");
+    expect(code).toBe(1);
+    expect(existsSync(unsafe)).toBe(false);
+    expect(existsSync(safe)).toBe(false);
+    expect(existsSync(safeDestination)).toBe(true);
+    expect(err()).toContain("unsafe spec archive mapping");
   });
 
-  test("patch-mode cleanup behavior unaffected by plan mode changes", () => {
-    const { io, out } = captureIo();
+  test("destination collision keeps source, reports failure, and continues", () => {
+    const { io, err } = captureIo(["y"]);
 
-    // Create a patch worktree with a regular name
-    const specName = "regular-spec";
-    const worktreePath = join(worktreeDir, specName);
-    execSync(`git branch ${specName} main`, { cwd: projectRoot });
-    execSync(`git worktree add "${worktreePath}" ${specName}`, {
-      cwd: projectRoot,
-    });
+    createTrackedWorktree("collide-spec");
+    createTrackedWorktree("ok-spec");
 
-    const code = cleanupCommand({ projectRoot, io });
+    const collidingSource = join(projectRoot, "spec", "collide-spec");
+    const collidingDestination = join(
+      projectRoot,
+      "spec",
+      "completed",
+      "collide-spec",
+    );
+    const okSource = join(projectRoot, "spec", "ok-spec");
+    const okDestination = join(projectRoot, "spec", "completed", "ok-spec");
 
-    expect(code).toBe(0);
-    // PR not merged, so cleanup should not remove it
-    expect(out()).toBe("no merged worktrees to remove\n");
-    expect(existsSync(worktreePath)).toBe(true);
+    mkdirSync(collidingSource, { recursive: true });
+    mkdirSync(collidingDestination, { recursive: true });
+    mkdirSync(okSource, { recursive: true });
+
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+
+    expect(code).toBe(1);
+    expect(existsSync(collidingSource)).toBe(true);
+    expect(existsSync(collidingDestination)).toBe(true);
+    expect(existsSync(okDestination)).toBe(true);
+    expect(err()).toContain("spec archive destination already exists");
+    expect(err()).toContain(collidingSource);
+    expect(err()).toContain(collidingDestination);
   });
 
-  test("cleanup enumerates both patch and plan worktrees", () => {
-    const { io, out } = captureIo();
+  test("if removal fails, spec is not moved", () => {
+    const { io, err } = captureIo(["y"]);
 
-    // Create a patch worktree
-    const patchName = "patch-spec";
-    const patchPath = join(worktreeDir, patchName);
-    execSync(`git branch ${patchName} main`, { cwd: projectRoot });
-    execSync(`git worktree add "${patchPath}" ${patchName}`, {
-      cwd: projectRoot,
+    const specName = "remove-fails";
+    createTrackedWorktree(specName);
+    const source = join(projectRoot, "spec", specName);
+    const destination = join(projectRoot, "spec", "completed", specName);
+    mkdirSync(source, { recursive: true });
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      removeItem: () => {
+        throw new Error("simulated removal failure");
+      },
     });
 
-    // Create a plan worktree
-    const planName = "test-plan";
-    const planDirName = `plan-${planName}`;
-    const planPath = join(worktreeDir, planDirName);
-    execSync(`git branch plan/${planName} main`, { cwd: projectRoot });
-    execSync(`git worktree add "${planPath}" plan/${planName}`, {
-      cwd: projectRoot,
-    });
-
-    const code = cleanupCommand({ projectRoot, io });
-
-    expect(code).toBe(0);
-    // No merged PRs, so nothing to remove
-    expect(out()).toBe("no merged worktrees to remove\n");
-    // Both worktrees should still exist
-    expect(existsSync(patchPath)).toBe(true);
-    expect(existsSync(planPath)).toBe(true);
+    expect(code).toBe(1);
+    expect(existsSync(source)).toBe(true);
+    expect(existsSync(destination)).toBe(false);
+    expect(err()).toContain("failed to remove");
   });
 });

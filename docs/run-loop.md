@@ -197,7 +197,10 @@ exhaustion, jarvis removes it from the active list for that run and falls back
 to the next configured agent. See [quota-signals.md](./quota-signals.md) for
 the detection rules and
 [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix)
-for the authoritative outcome mapping.
+for the authoritative outcome mapping. Operator-visible quota stderr phrases
+(including the exact grep substrings shared with plan mode) are listed under
+[Operator-visible stderr](./quota-signals.md#operator-visible-stderr-grep-contract)
+in that doc.
 
 ## Output destinations
 

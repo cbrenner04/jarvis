@@ -7,7 +7,9 @@ import { OpencodeAgent } from "../../agents/opencode.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
+import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 
 export type InterviewPhaseOptions = {
@@ -15,6 +17,8 @@ export type InterviewPhaseOptions = {
   name: string;
   config: Config;
   interviewTurns?: number;
+  /** When set, quota rotation emits lines aligned with patch harness wording. */
+  stderr?: (s: string) => void;
 };
 
 class PlaceholderCollisionError extends Error {
@@ -135,6 +139,7 @@ export async function runInterviewTurn(opts: {
   config: Config;
   turnNumber: number;
   totalTurns: number;
+  stderr?: (s: string) => void;
 }): Promise<{
   result: AgentResult;
   agentLabel: string | null;
@@ -191,7 +196,7 @@ export async function runInterviewTurn(opts: {
       `${entry.agent} (${entry.model ?? "default"})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    result = await agent.run(prompt, {
+    const spawnResult = await agent.run(prompt, {
       cwd: opts.worktreePath,
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
@@ -201,13 +206,14 @@ export async function runInterviewTurn(opts: {
       porcelainBefore === porcelainAfter;
     result = applyQuotaFallbackWhenAllowed(
       entry.agent,
-      result,
+      spawnResult,
       {
         quotaFallback: opts.config.quotaFallback,
         weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
       },
       noDiskChangeDuringInvocation,
     );
+    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
 
     if (result.kind === "ok") {
       // Agent succeeded; validate the output
@@ -320,7 +326,7 @@ export async function runInterviewTurn(opts: {
       result: {
         kind: "error",
         exitCode: 2,
-        stderr: "all agents exhausted (no result produced)",
+        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
       },
       agentLabel: null,
       continueInterview: false,
@@ -402,6 +408,7 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
       config: opts.config,
       turnNumber: turn,
       totalTurns: budgetTurns,
+      ...(opts.stderr !== undefined ? { stderr: opts.stderr } : {}),
     });
 
     // Update agent label (use the most recent non-null one)

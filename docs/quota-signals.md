@@ -33,6 +33,36 @@ plan mode executes an inner agent-order loop per phase invocation. Today, that
 plan inner loop can continue after hard `error`; this intentional difference is
 tracked for potential change in subspec 03.
 
+### Operator-visible stderr (grep contract)
+
+Patch (`jarvis run`) and plan (`jarvis plan`) share these substrings when
+rotating agents after a quota-classified result:
+
+- **Per-agent rotation:** `quota exhausted; falling back` (strict spawn-side
+  quota) and `probable quota-like error (exit N); falling back` (lenient
+  weak-quota upgrade when the no-progress / porcelain guard passes).
+- **Plan prefix:** the same phrases appear after `plan: <agent>: ` so mixed logs
+  stay mode-tagged.
+- **Final exhaustion:** patch prints `all agents quota-exhausted`. Plan prints
+  `plan: all agents quota-exhausted` and may add a phase suffix (` during
+  interview`, ` during naming-only phase`, etc.).
+
+Canonical string constants: `src/quota-harness-messages.ts`. Plan rotation
+lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.
+
+### Patch telemetry (`~/.jarvis/runs.jsonl`)
+
+Only **`jarvis run`** (patch mode) appends JSONL via `writeTelemetry` today.
+For quota events, records use **`kind`: `"quota"`** with **`exitReason`**:
+
+| exitReason | When |
+| --- | --- |
+| `quota-exhausted` | No fallback agents remain (including empty order edge cases). |
+| `quota-fallback` | Strict quota on the current agent; at least one later agent remains. |
+| `probable-quota-fallback` | Lenient weak-quota upgrade on the current agent; at least one later agent remains. |
+
+Plan phases do not emit matching JSONL rows for per-phase agent outcomes.
+
 ## Capture convention (real quota events)
 
 Record real quota stderr whenever you hit one during normal usage.

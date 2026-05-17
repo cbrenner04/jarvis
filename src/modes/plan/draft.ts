@@ -7,7 +7,9 @@ import { OpencodeAgent } from "../../agents/opencode.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
+import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 
 export type DraftPhaseOptions = {
@@ -15,6 +17,7 @@ export type DraftPhaseOptions = {
   name: string;
   config: Config;
   intentBefore?: string;
+  stderr?: (s: string) => void;
 };
 
 export class PlaceholderCollisionError extends Error {
@@ -157,7 +160,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       `${entry.agent} (${entry.model ?? "default"})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    result = await agent.run(prompt, {
+    const spawnResult = await agent.run(prompt, {
       cwd: opts.worktreePath,
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
@@ -167,13 +170,14 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       porcelainBefore === porcelainAfter;
     result = applyQuotaFallbackWhenAllowed(
       entry.agent,
-      result,
+      spawnResult,
       {
         quotaFallback: opts.config.quotaFallback,
         weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
       },
       noDiskChangeDuringInvocation,
     );
+    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
 
     if (result.kind === "ok") {
       // Success! Count subspecs and return
@@ -198,7 +202,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       result: {
         kind: "error",
         exitCode: 2,
-        stderr: "all agents exhausted (no result produced)",
+        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
       },
       subspecCount: null,
       agentLabel: null,

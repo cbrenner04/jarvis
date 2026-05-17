@@ -10,6 +10,7 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import { enterMode } from "../mode-entry.ts";
 import {
   appendBoundaryBlocker,
@@ -518,10 +519,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             name: resume.name,
             config: cfg,
             interviewTurns,
+            stderr: opts.io.stderr,
           });
           if (interviewResult.result.kind !== "ok") {
             if (interviewResult.result.kind === "quota") {
-              opts.io.stderr(`plan: quota exhausted\n`);
+              opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
               return 2;
             }
             if (interviewResult.result.kind === "model_config") {
@@ -594,10 +596,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           config: cfg,
           passNumber: nextReviewIndex,
           totalPasses: nextReviewIndex + reviewPasses - pass,
+          stderr: opts.io.stderr,
         });
         if (result.result.kind !== "ok") {
           if (result.result.kind === "quota") {
-            opts.io.stderr(`plan: quota exhausted\n`);
+            opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
             return 2;
           }
           if (result.result.kind === "model_config") {
@@ -767,12 +770,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             name: specName,
             config: cfg,
             interviewTurns: interviewBudget,
+            stderr: opts.io.stderr,
           });
 
           // Handle interview result
           if (interviewResult.result.kind !== "ok") {
             if (interviewResult.result.kind === "quota") {
-              opts.io.stderr(`plan: quota exhausted during interview\n`);
+              opts.io.stderr(
+                `plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during interview\n`,
+              );
               return 2;
             }
             if (interviewResult.result.kind === "model_config") {
@@ -796,11 +802,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             worktreePath,
             name: specName,
             config: cfg,
+            stderr: opts.io.stderr,
           });
           if (namingResult.result.kind !== "ok") {
             if (namingResult.result.kind === "quota") {
               opts.io.stderr(
-                `plan: quota exhausted during naming-only phase\n`,
+                `plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during naming-only phase\n`,
               );
               return 2;
             }
@@ -1005,12 +1012,13 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           name: specName,
           config: cfg,
           intentBefore,
+          stderr: opts.io.stderr,
         });
 
         // Check if draft succeeded
         if (draftResult.result.kind !== "ok") {
           if (draftResult.result.kind === "quota") {
-            opts.io.stderr(`plan: quota exhausted\n`);
+            opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
             return 2;
           }
           if (draftResult.result.kind === "model_config") {
@@ -1228,6 +1236,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             config: cfg,
             passNumber: pass,
             totalPasses: reviewPasses,
+            stderr: opts.io.stderr,
           });
 
           // Handle agent errors
@@ -1249,7 +1258,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
 
           if (reviewResult.result.kind === "quota") {
-            opts.io.stderr(`plan: quota exhausted\n`);
+            opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
             return 2; // Quota exhausted exit code
           }
 

@@ -27,6 +27,11 @@ import {
   type RunIo,
   runCommand,
 } from "../src/modes/patch/run.ts";
+import {
+  HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessQuotaFallbackLenientLine,
+} from "../src/quota-harness-messages.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
@@ -1613,7 +1618,7 @@ exit 0
     expect(code).toBe(0);
     expect(cap.out()).toContain("iteration: 1");
     expect(cap.out()).toContain("iteration: 2");
-    expect(cap.err()).toContain("claude: quota exhausted");
+    expect(cap.err()).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
     expect(claude.calls).toHaveLength(1);
     expect(codex.calls).toHaveLength(1);
   });
@@ -1655,7 +1660,7 @@ exit 0
     });
 
     expect(code).toBe(2);
-    expect(cap.err()).toContain("all agents quota-exhausted");
+    expect(cap.err()).toContain(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
   });
 
   test("quota fallback iterations count toward the cap", async () => {
@@ -1744,7 +1749,7 @@ exit 0
     });
 
     expect(code).toBe(0);
-    expect(cap.err()).toContain("probable quota-like error");
+    expect(cap.err()).toContain(harnessQuotaFallbackLenientLine(1));
     expect(claude.calls).toHaveLength(1);
     expect(codex.calls).toHaveLength(1);
   });

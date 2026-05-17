@@ -8,8 +8,10 @@ import { OpencodeAgent } from "../../agents/opencode.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
 import { PlaceholderCollisionError } from "./draft.ts";
+import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 
 const PLACEHOLDER_TOKENS = [
@@ -40,6 +42,7 @@ export type ReviewPhaseOptions = {
   config: Config;
   passNumber?: number;
   totalPasses?: number;
+  stderr?: (s: string) => void;
 };
 
 /**
@@ -205,7 +208,7 @@ export async function runReviewPass(
       `${entry.agent} (${entry.model ?? "default"})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    result = await agent.run(prompt, {
+    const spawnResult = await agent.run(prompt, {
       cwd: opts.worktreePath,
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
@@ -215,13 +218,14 @@ export async function runReviewPass(
       porcelainBefore === porcelainAfter;
     result = applyQuotaFallbackWhenAllowed(
       entry.agent,
-      result,
+      spawnResult,
       {
         quotaFallback: opts.config.quotaFallback,
         weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
       },
       noDiskChangeDuringInvocation,
     );
+    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
 
     if (result.kind === "ok") {
       return { result, agentLabel };
@@ -243,7 +247,7 @@ export async function runReviewPass(
       result: {
         kind: "error",
         exitCode: 2,
-        stderr: "all agents exhausted (no result produced)",
+        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
       },
       agentLabel: null,
     };

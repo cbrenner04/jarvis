@@ -22,6 +22,11 @@ import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
+import {
+  HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessQuotaFallbackLenientLine,
+} from "../../quota-harness-messages.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
@@ -871,7 +876,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
 
   const agent = activeAgents[0];
   if (agent === undefined) {
-    fanout("harness", "all agents quota-exhausted\n", "stderr");
+    fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
     writeTelemetry({
       agent: "harness",
       iteration,
@@ -1353,11 +1358,11 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       activeAgents.shift();
       fanout(
         "harness",
-        `${agent.name}: quota exhausted; falling back\n`,
+        `${agent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`,
         "stderr",
       );
       if (activeAgents.length === 0) {
-        fanout("harness", "all agents quota-exhausted\n", "stderr");
+        fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
         writeTelemetry({
           agent: agent.name,
           iteration,
@@ -1423,7 +1428,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       activeAgents.shift();
       fanout(
         "harness",
-        `${agent.name}: probable quota-like error (exit ${result.exitCode}); falling back\n`,
+        `${agent.name}: ${harnessQuotaFallbackLenientLine(result.exitCode)}\n`,
         "stderr",
       );
       if (result.stderr.length > 0) {
@@ -1433,7 +1438,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         fanout("harness", stderr, "stderr");
       }
       if (activeAgents.length === 0) {
-        fanout("harness", "all agents quota-exhausted\n", "stderr");
+        fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
         writeTelemetry({
           agent: agent.name,
           iteration,

@@ -31,9 +31,11 @@ codes after fallback exhaustion, and telemetry semantics.
 | Zero exit | `ok` | Continue normal post-iteration completion/progress logic | Continue normal phase progression | `0` (when run/phase completes) | `ok` / completion or progress reason |
 
 Mode-specific note: patch mode runs one selected agent per iteration, while
-plan mode executes an inner agent-order loop per phase invocation. Today, that
-plan inner loop can continue after hard `error`; this intentional difference is
-tracked for potential change in subspec 03.
+plan mode executes an inner agent-order loop per phase invocation. **Documented
+policy:** the plan inner loop continues to the next agent after a hard `error`
+(availability for spec drafting). Patch stops the iteration on hard `error` and
+only rotates agents for quota-classified results within that iteration; see
+[plan-mode.md § Hard generic errors](./plan-mode.md#5-hard-generic-errors-excluding-quota-and-model-configuration).
 
 ### Operator-visible stderr (grep contract)
 

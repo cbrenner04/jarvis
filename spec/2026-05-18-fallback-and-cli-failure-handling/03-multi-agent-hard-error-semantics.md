@@ -11,6 +11,8 @@ This asymmetry may be intentional (plan optimizes availability) or accidental.
 
 ## Decisions
 
+**Recorded choice:** policy **1 — status quo** (plan keeps trying agents on hard `error` after classification; patch stops the iteration on hard `error`). Documented in `docs/plan-mode.md` and the outcome matrix in `docs/quota-signals.md`.
+
 Pick **one** documented policy:
 
 1. **Status quo:** plan keeps trying agents on hard error; patch stops — document clearly in outcome matrix (subspec 00).
@@ -27,9 +29,9 @@ Default recommendation in this subspec’s tasks: **document status quo** unless
 
 ## Acceptance criteria
 
-- [ ] Documented policy matches implementation.
-- [ ] Tests cover the chosen behavior for at least **one** plan phase (interview or draft) with a fake/synthetic agent double.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] Documented policy matches implementation.
+- [x] Tests cover the chosen behavior for at least **one** plan phase (interview or draft) with a fake/synthetic agent double.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

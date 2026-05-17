@@ -254,9 +254,13 @@ If the selected agent (from `modes.plan.agentOrder`) reports a quota signal, jar
 
 If an agent reports a `model_config` signal (the configured model is not supported by that CLI/account), jarvis exits `3` and prints `plan mode: model configuration error` plus the agent's stderr. This matches patch mode's `model_config` exit code (see `src/modes/patch/run.ts`).
 
-Behavior note: plan mode may continue its inner agent loop after a hard generic
-`error` in cases where patch mode stops the iteration. That current difference
-is summarized in the matrix and tracked for potential unification in subspec 03.
+### 5. Hard generic errors (excluding quota and model configuration)
+
+**Policy (status quo):** After spawn-time classification and any lenient weak-quota upgrade (`quotaFallback: "lenient"`), a remaining classified `error` does **not** exit the inner `modes.plan.agentOrder` loop. Jarvis tries the next configured agent for the same phase invocation (interview turn, name-only pass, draft, or review). Rationale: plan mode favors completing an authoring run when one vendor CLI glitches while another may work.
+
+**Difference from patch:** `jarvis run` stops the current iteration on the same classified `error` (typically harness exit `1`). The operator fixes the CLI or config and re-runs jarvis; only **quota** results rotate to the next agent within a single patch iteration. See [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
+
+If every agent in the order fails without `ok`, the phase returns the last failure (often the last agent's `error`).
 
 ## Agent selection
 

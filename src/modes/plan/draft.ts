@@ -18,6 +18,8 @@ export type DraftPhaseOptions = {
   config: Config;
   intentBefore?: string;
   stderr?: (s: string) => void;
+  /** For tests only; defaults to real CLI agents. */
+  createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
 };
 
 export class PlaceholderCollisionError extends Error {
@@ -84,7 +86,7 @@ export function buildDraftPrompt(opts: {
 /**
  * Instantiate an agent from a config entry.
  */
-function createAgent(agentName: AgentName, model: string | undefined): Agent {
+function defaultCreateAgent(agentName: AgentName, model: string | undefined): Agent {
   switch (agentName) {
     case "claude":
       return new ClaudeAgent(model ? { model } : {});
@@ -152,9 +154,10 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
   const agentOrder = opts.config.modes.plan.agentOrder;
   let result: AgentResult | null = null;
   let agentLabel: string | null = null;
+  const resolveAgent = opts.createAgent ?? defaultCreateAgent;
 
   for (const entry of agentOrder) {
-    const agent = createAgent(entry.agent, entry.model);
+    const agent = resolveAgent(entry.agent, entry.model);
     agentLabel =
       agent.attributionLabel?.() ??
       `${entry.agent} (${entry.model ?? "default"})`;

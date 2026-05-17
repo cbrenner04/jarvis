@@ -116,6 +116,19 @@ describe("isQuotaSignal", () => {
   test("does not treat successful Opencode output as quota", () => {
     expect(isQuotaSignal("opencode", 0, "rate limit reached")).toBe(false);
   });
+
+  test.each([
+    "rate limit reached",
+    "quota exceeded",
+    "insufficient_quota",
+    "error: HTTP 429 from provider",
+  ])("matches Aider quota output: %s", (stderr) => {
+    expect(isQuotaSignal("aider", 1, stderr)).toBe(true);
+  });
+
+  test("does not treat successful Aider output as quota", () => {
+    expect(isQuotaSignal("aider", 0, "rate limit reached")).toBe(false);
+  });
 });
 
 describe("isModelConfigurationSignal", () => {
@@ -127,6 +140,25 @@ describe("isModelConfigurationSignal", () => {
     "no provider configured for airproxy",
   ])("matches Opencode model configuration output: %s", (stderr) => {
     expect(isModelConfigurationSignal("opencode", stderr)).toBe(true);
+  });
+
+  test.each([
+    "model not found",
+    "unknown model",
+    "unsupported model",
+    "invalid model",
+    "could not connect to ollama",
+    "connection refused at localhost",
+    "model is not loaded",
+    "no such model",
+  ])("matches Aider model configuration output: %s", (stderr) => {
+    expect(isModelConfigurationSignal("aider", stderr)).toBe(true);
+  });
+
+  test("does not match bare 'connection refused' for Aider without model/host hint", () => {
+    expect(isModelConfigurationSignal("aider", "connection refused")).toBe(
+      false,
+    );
   });
 });
 

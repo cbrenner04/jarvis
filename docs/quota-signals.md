@@ -120,6 +120,39 @@ Doc-only workflow is intentional: low friction beats extra tooling here.
 
 - No real samples recorded yet.
 
+## Aider
+
+Initial best-effort substrings for aider are conservative and expected to grow
+as real stderr samples are captured.
+
+### Quota substrings (non-zero exit required)
+
+- `rate limit`
+- `quota exceeded`
+- `insufficient_quota`
+- `429` when it appears in an error/status line
+
+### Model-configuration substrings
+
+- `model not found`
+- `unknown model`
+- `unsupported model`
+- `invalid model`
+- `could not connect to ollama`
+- `connection refused` combined with a model/host hint (for example
+  `model`, `host`, `localhost`, `127.0.0.1`, `ollama`, `llama.cpp`,
+  `lm studio`)
+- `model is not loaded`
+- `no such model`
+
+### Observed quota stderr (real samples)
+
+- No real samples recorded yet.
+
+### Observed model-configuration stderr (real samples)
+
+- No real samples recorded yet.
+
 ## Pattern audit (`src/agents/quota.ts`)
 
 Status key:
@@ -179,6 +212,19 @@ Status key:
 - `/\\byou have exceeded your\\b/i` — Unverified.
   Sample link: none yet.
 
+### `aiderQuotaPatterns`
+
+- `/\\brate limit\\b/i` — Unverified.
+  Sample link: none yet.
+- `/\\bquota exceeded\\b/i` — Unverified.
+  Sample link: none yet.
+- `/\\binsufficient_quota\\b/i` — Unverified.
+  Sample link: none yet.
+- `/(?:^|\\n)[^\\n]*(?:error|err|failed|failure|http|status)[^\\n]*\\b429\\b/i`
+  — Unverified. Sample link: none yet.
+- `/(?:^|\\n)[^\\n]*\\b429\\b[^\\n]*(?:error|err|failed|failure|http|status)\\b/i`
+  — Unverified. Sample link: none yet.
+
 ### `modelConfigurationPatterns`
 
 - `/\\bunknown model\\b/i` — Unverified.
@@ -199,6 +245,19 @@ Status key:
 ### `opencodeModelConfigurationPatterns`
 
 - `/\\bno provider configured for\\b/i` — Unverified.
+  Sample link: none yet.
+
+### `aiderModelConfigurationPatterns`
+
+- `/\\bcould not connect to ollama\\b/i` — Unverified.
+  Sample link: none yet.
+- `/\\bconnection refused\\b.*\\b(model|host|localhost|127\\.0\\.0\\.1|ollama|llama\\.cpp|lm studio)\\b/i`
+  — Unverified. Sample link: none yet.
+- `/\\b(model|host|localhost|127\\.0\\.0\\.1|ollama|llama\\.cpp|lm studio)\\b.*\\bconnection refused\\b/i`
+  — Unverified. Sample link: none yet.
+- `/\\bmodel is not loaded\\b/i` — Unverified.
+  Sample link: none yet.
+- `/\\bno such model\\b/i` — Unverified.
   Sample link: none yet.
 
 ### `weakQuotaPatterns` (`quotaFallback: "lenient"`)

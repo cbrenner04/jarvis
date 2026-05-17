@@ -124,6 +124,32 @@ describe("AiderAgent", () => {
     expect(result).toEqual({ kind: "model_config", stderr });
   });
 
+  test("rate limit signal maps to quota", async () => {
+    const stderr = "error: rate limit reached";
+    const bin = fakeBinary({ exit: 1, stderr });
+    const agent = new AiderAgent({
+      binary: bin,
+      model: "ollama/llama3",
+    });
+
+    const result = await agent.run("p", { cwd });
+
+    expect(result).toEqual({ kind: "quota", stderr });
+  });
+
+  test("could not connect to ollama maps to model_config", async () => {
+    const stderr = "could not connect to ollama at http://localhost:11434";
+    const bin = fakeBinary({ exit: 1, stderr });
+    const agent = new AiderAgent({
+      binary: bin,
+      model: "ollama/llama3",
+    });
+
+    const result = await agent.run("p", { cwd });
+
+    expect(result).toEqual({ kind: "model_config", stderr });
+  });
+
   test("successful output with model_config text stays ok", async () => {
     const stdout = "unknown model is in the output";
     const bin = fakeBinary({ exit: 0, stdout });

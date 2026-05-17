@@ -80,7 +80,7 @@ export function runAgent(
       const diagnostics = `${errBuf}${outBuf}`;
 
       // Classification order: model config → quota → generic error
-      if (config.name === "opencode") {
+      if (config.name === "opencode" || config.name === "aider") {
         if (isModelConfigurationSignal(config.name, diagnostics)) {
           settle({ kind: "model_config", stderr: diagnostics });
           return;

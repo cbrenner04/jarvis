@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { ConfigOptions } from "../config.ts";
 
@@ -14,6 +14,8 @@ export type CleanupCommandOptions = {
   io: CleanupIo;
   config?: ConfigOptions;
   dryRun?: boolean;
+  isMergedPr?: (branch: string) => boolean;
+  removeItem?: (item: { path: string; branch: string; dir: string }) => void;
 };
 
 function branchForWorktree(dir: string): string {
@@ -27,6 +29,13 @@ function isplanWorktree(dir: string): boolean {
   return dir.startsWith("plan-");
 }
 
+function specNameForWorktree(dir: string): string {
+  if (isplanWorktree(dir)) {
+    return dir.slice(5);
+  }
+  return dir;
+}
+
 export function cleanupCommand(opts: CleanupCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
   const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
@@ -37,7 +46,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     const worktreePath = join(worktreeDir, worktreeName);
     const branch = branchForWorktree(worktreeName);
 
-    if (!isMergedPr(branch)) {
+    if (!(opts.isMergedPr ?? isMergedPr)(branch)) {
       continue;
     }
 
@@ -72,27 +81,71 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     return 0;
   }
 
+  let hadFailures = false;
   for (const item of toRemove) {
     try {
-      execSync(`git worktree remove "${item.path}"`, {
-        cwd: opts.projectRoot,
-        stdio: "pipe",
-      });
-      execSync(`git branch -d "${item.branch}"`, {
-        cwd: opts.projectRoot,
-        stdio: "pipe",
-      });
+      if (opts.removeItem) {
+        opts.removeItem(item);
+      } else {
+        execSync(`git worktree remove "${item.path}"`, {
+          cwd: opts.projectRoot,
+          stdio: "pipe",
+        });
+        execSync(`git branch -d "${item.branch}"`, {
+          cwd: opts.projectRoot,
+          stdio: "pipe",
+        });
+      }
       const tag = isplanWorktree(item.dir) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
+
+      const specName = specNameForWorktree(item.dir);
+      if (specName === "completed") {
+        opts.io.stderr(
+          `unsafe spec archive mapping for "${item.dir}": refusing to move spec/completed/\n`,
+        );
+        hadFailures = true;
+        continue;
+      }
+
+      const source = join(opts.projectRoot, "spec", specName);
+      const completedRoot = join(opts.projectRoot, "spec", "completed");
+      const destination = join(completedRoot, specName);
+
+      if (!existsSync(source)) {
+        opts.io.stdout(
+          `no spec directory moved for ${item.branch}: missing ${source}\n`,
+        );
+        continue;
+      }
+
+      if (existsSync(destination)) {
+        opts.io.stderr(
+          `spec archive destination already exists; left source in place: ${source} -> ${destination}\n`,
+        );
+        hadFailures = true;
+        continue;
+      }
+
+      try {
+        mkdirSync(completedRoot, { recursive: true });
+        renameSync(source, destination);
+        opts.io.stdout(`moved spec directory ${source} -> ${destination}\n`);
+      } catch (err) {
+        opts.io.stderr(
+          `failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`,
+        );
+        hadFailures = true;
+      }
     } catch (err) {
       opts.io.stderr(
         `failed to remove ${item.branch}: ${(err as Error).message}\n`,
       );
-      return 1;
+      hadFailures = true;
     }
   }
 
-  return 0;
+  return hadFailures ? 1 : 0;
 }
 
 function isMergedPr(branch: string): boolean {

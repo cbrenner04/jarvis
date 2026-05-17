@@ -32,17 +32,17 @@
 
 ## Acceptance criteria
 
-- [ ] After confirmation, `jarvis cleanup` removes a merged patch-mode worktree for `.worktree/<name>/` on branch `<name>` and moves `spec/<name>/` to `spec/completed/<name>/`.
-- [ ] After confirmation, `jarvis cleanup` removes a merged plan-mode worktree for `.worktree/plan-<name>/` on branch `plan/<name>` and moves `spec/<name>/` to `spec/completed/<name>/`.
-- [ ] A real archive move creates `spec/completed/` if needed; `jarvis cleanup --dry-run` lists removable worktrees but does not move, create, or delete any spec directories.
-- [ ] If worktree or branch removal fails for an item, cleanup reports that removal failure and does not move that item's spec directory.
-- [ ] Cleanup still removes the merged worktree and branch when the matching `spec/<name>/` directory is absent, reports that no spec directory was moved, and exits zero if no other cleanup step failed.
-- [ ] Cleanup never moves the archive root `spec/completed/` as if it were a patch spec named `completed`; that unsafe archive mapping is reported, cleanup continues with any remaining removable worktrees, and the command exits non-zero.
-- [ ] Cleanup does not overwrite an existing `spec/completed/<name>/`; the source spec remains in place, the collision is reported with both source and destination paths, cleanup continues with any remaining removable worktrees, and the command exits non-zero.
-- [ ] Cleanup returns non-zero when any archive move fails, while preserving successful removals and successful archive moves for other items processed in the same run.
-- [ ] Existing cleanup safety gates remain intact: unmerged PRs are ignored, dirty worktrees are skipped, and confirmation is still required outside `--dry-run`.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] After confirmation, `jarvis cleanup` removes a merged patch-mode worktree for `.worktree/<name>/` on branch `<name>` and moves `spec/<name>/` to `spec/completed/<name>/`.
+- [x] After confirmation, `jarvis cleanup` removes a merged plan-mode worktree for `.worktree/plan-<name>/` on branch `plan/<name>` and moves `spec/<name>/` to `spec/completed/<name>/`.
+- [x] A real archive move creates `spec/completed/` if needed; `jarvis cleanup --dry-run` lists removable worktrees but does not move, create, or delete any spec directories.
+- [x] If worktree or branch removal fails for an item, cleanup reports that removal failure and does not move that item's spec directory.
+- [x] Cleanup still removes the merged worktree and branch when the matching `spec/<name>/` directory is absent, reports that no spec directory was moved, and exits zero if no other cleanup step failed.
+- [x] Cleanup never moves the archive root `spec/completed/` as if it were a patch spec named `completed`; that unsafe archive mapping is reported, cleanup continues with any remaining removable worktrees, and the command exits non-zero.
+- [x] Cleanup does not overwrite an existing `spec/completed/<name>/`; the source spec remains in place, the collision is reported with both source and destination paths, cleanup continues with any remaining removable worktrees, and the command exits non-zero.
+- [x] Cleanup returns non-zero when any archive move fails, while preserving successful removals and successful archive moves for other items processed in the same run.
+- [x] Existing cleanup safety gates remain intact: unmerged PRs are ignored, dirty worktrees are skipped, and confirmation is still required outside `--dry-run`.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

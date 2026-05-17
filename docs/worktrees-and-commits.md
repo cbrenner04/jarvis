@@ -221,6 +221,9 @@ Behavior:
 - Skips worktrees with uncommitted changes or unpushed commits.
 - Prompts for confirmation before removal (use `--dry-run` to preview with `(patch)` or `(plan)` tags).
 - Removes the worktree directory and deletes the local branch.
+- After successful removal, moves `spec/<name>/` to `spec/completed/<name>/` as an uncommitted local file move.
+- If `spec/<name>/` is missing, cleanup still succeeds for that worktree and reports that no spec directory was moved.
+- If `spec/completed/<name>/` already exists (or archival fails for another filesystem reason), cleanup leaves `spec/<name>/` in place, reports the issue, continues processing other removable worktrees, and exits non-zero at the end.
 
 The `.worktree/.keep` directory is never removed.
 

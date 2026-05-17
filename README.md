@@ -197,7 +197,8 @@ For full details â€” phases, flags, stop conditions, PR lifecycle, and cleanup â
 ### `jarvis cleanup`
 
 Removes merged worktrees and branches from the local repo after their PRs
-have been merged on GitHub. See
+have been merged on GitHub, then archives matching spec directories from
+`spec/<name>/` to `spec/completed/<name>/` as an uncommitted local move. See
 [docs/worktrees-and-commits.md](docs/worktrees-and-commits.md#cleanup) for
 behavior.
 

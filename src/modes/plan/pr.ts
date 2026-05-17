@@ -64,12 +64,14 @@ export function parseIndex(indexPath: string): {
  */
 export function buildPlanPrHeader(opts: {
   name: string;
+  specDirBasename?: string;
   /** Worktree root; used to locate `spec/<name>/index.md`. Required to render the live header. */
   worktreePath?: string;
 }): string {
+  const specDirBasename = opts.specDirBasename ?? opts.name;
   const indexPath =
     opts.worktreePath !== undefined
-      ? join(opts.worktreePath, "spec", opts.name, "index.md")
+      ? join(opts.worktreePath, "spec", specDirBasename, "index.md")
       : null;
   const parsed =
     indexPath !== null ? parseIndex(indexPath) : { title: "", subspecs: [] };
@@ -80,8 +82,8 @@ export function buildPlanPrHeader(opts: {
   const lines: string[] = [
     titleLine,
     "",
-    `- Intent: \`spec/${opts.name}/intent.md\``,
-    `- Index: \`spec/${opts.name}/index.md\``,
+    `- Intent: \`spec/${specDirBasename}/intent.md\``,
+    `- Index: \`spec/${specDirBasename}/index.md\``,
   ];
   return lines.join("\n");
 }

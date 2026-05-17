@@ -152,7 +152,7 @@ describe("run", () => {
     expect(out).toContain("config");
     expect(out).toContain("log-server");
     expect(out).toContain("plan [--interview-turns <n>]");
-    expect(out).toContain("Generate a spec tree from an intent.");
+    expect(out).toContain("Draft specs via plan mode");
     expect(out).toContain("help");
   });
 
@@ -292,7 +292,7 @@ describe("run", () => {
     });
     expect(code).toBe(0);
     expect(cap.out()).toContain("--interview-turns");
-    expect(cap.out()).toContain("Generate a spec tree from an intent.");
+    expect(cap.out()).toContain("docs/plan-mode.md");
   });
 
   test("run without spec path exits 1", () => {

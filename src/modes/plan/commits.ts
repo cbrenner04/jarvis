@@ -5,12 +5,15 @@ import { pushCurrent } from "../../worktree.ts";
 
 export type CommitPlanInterviewOptions = {
   worktreePath: string;
-  name: string;
+  specDirBasename?: string;
+  name?: string;
   mode: "file" | "inline" | "interactive";
   intentPathOrLabel: string;
   completedTurns?: number;
   subjectSuffix?: string;
   resumedBy?: string;
+  /** When set, records explicit skip / blocker / refined in the commit body for reviewability. */
+  interviewOutcome?: "refined" | "skipped" | "blocker";
 };
 
 /**
@@ -19,12 +22,16 @@ export type CommitPlanInterviewOptions = {
  * convention used by `renderAttribution` to filter PR-attribution-eligible
  * commits. Additional body lines follow the spec marker.
  */
-function buildPlanBody(name: string, lines: string[]): string {
-  const specLine = `Spec: spec/${name}/intent.md`;
+function buildPlanBody(specDirBasename: string, lines: string[]): string {
+  const specLine = `Spec: spec/${specDirBasename}/intent.md`;
   return [specLine, "", ...lines].join("\n");
 }
 
 export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
+  const specDirBasename = opts.specDirBasename ?? opts.name;
+  if (specDirBasename === undefined) {
+    throw new Error("specDirBasename is required");
+  }
   execFileSync("git", ["add", "-A"], {
     cwd: opts.worktreePath,
     stdio: "pipe",
@@ -57,8 +64,14 @@ export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
       ? [bodyLine, `Turns: ${turns}`]
       : [`Resumed by ${opts.resumedBy}.`, `Turns: ${turns}`];
 
+  if (opts.interviewOutcome === "skipped") {
+    bodyLines.push("Outcome: explicit skip");
+  } else if (opts.interviewOutcome === "blocker") {
+    bodyLines.push("Outcome: blocker");
+  }
+
   const subject = `plan: interview${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
-  const body = buildPlanBody(opts.name, bodyLines);
+  const body = buildPlanBody(specDirBasename, bodyLines);
   const baseMessage = `${subject}\n\n${body}`;
   // No agent attribution for the interview commit (no agent involved yet).
   const commitMessage = appendAgentTrailer(baseMessage, "");
@@ -80,19 +93,24 @@ export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
 
 export type CommitPlanDraftOptions = {
   worktreePath: string;
-  name: string;
+  specDirBasename?: string;
+  name?: string;
   agentLabel: string;
   subspecCount: number;
 };
 
 export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
+  const specDirBasename = opts.specDirBasename ?? opts.name;
+  if (specDirBasename === undefined) {
+    throw new Error("specDirBasename is required");
+  }
   execFileSync("git", ["add", "-A"], {
     cwd: opts.worktreePath,
     stdio: "pipe",
   });
 
   const subject = "plan: draft";
-  const body = buildPlanBody(opts.name, [
+  const body = buildPlanBody(specDirBasename, [
     `Drafted by ${opts.agentLabel}.`,
     `Subspecs: ${opts.subspecCount}`,
   ]);
@@ -116,20 +134,27 @@ export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
 
 export type CommitPlanReviewOptions = {
   worktreePath: string;
-  name: string;
+  specDirBasename?: string;
+  name?: string;
   passNumber: number;
   agentLabel: string;
   subjectSuffix?: string;
 };
 
 export function commitPlanReview(opts: CommitPlanReviewOptions): void {
+  const specDirBasename = opts.specDirBasename ?? opts.name;
+  if (specDirBasename === undefined) {
+    throw new Error("specDirBasename is required");
+  }
   execFileSync("git", ["add", "-A"], {
     cwd: opts.worktreePath,
     stdio: "pipe",
   });
 
   const subject = `plan: review ${opts.passNumber}${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
-  const body = buildPlanBody(opts.name, [`Reviewed by ${opts.agentLabel}.`]);
+  const body = buildPlanBody(specDirBasename, [
+    `Reviewed by ${opts.agentLabel}.`,
+  ]);
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
@@ -150,7 +175,8 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
 
 export type CommitPlanBlockerOptions = {
   worktreePath: string;
-  name: string;
+  specDirBasename?: string;
+  name?: string;
   agentLabel: string;
   /** First-line summary of the blocker reason (typically the first line of the agent's `## Blocker` body). */
   reason: string;
@@ -160,13 +186,17 @@ export type CommitPlanBlockerOptions = {
 };
 
 export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
+  const specDirBasename = opts.specDirBasename ?? opts.name;
+  if (specDirBasename === undefined) {
+    throw new Error("specDirBasename is required");
+  }
   execFileSync("git", ["add", "-A"], {
     cwd: opts.worktreePath,
     stdio: "pipe",
   });
 
   const subject = `plan: blocker${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
-  const body = buildPlanBody(opts.name, [
+  const body = buildPlanBody(specDirBasename, [
     `Blocked by ${opts.reason}`,
     `Spec files to date: ${opts.specFilesCount}`,
     `Raised by ${opts.agentLabel}.`,

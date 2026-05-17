@@ -40,14 +40,14 @@ Plan-generated spec directories currently use only the proposed spec name, such 
 
 ## Acceptance criteria
 
-- [ ] A new plan run creates spec files under `spec/YYYY-MM-DDTHH-mm-ssZ-<name>/`.
-- [ ] Plan branch and worktree names remain `plan/<name>` and `.worktree/plan-<name>/`.
-- [ ] Existing branch/worktree collision suffixing still applies to `<name>` before the timestamped directory basename is formed.
-- [ ] `jarvis plan --resume spec/YYYY-MM-DDTHH-mm-ssZ-<name>/index.md` resumes the matching `plan/<name>` worktree.
-- [ ] Existing untimestamped plan specs can still be resumed.
-- [ ] Timestamp stripping only applies to an exact `YYYY-MM-DDTHH-mm-ssZ-` prefix.
-- [ ] Timestamped spec paths are used in user-facing next-step commands, PR body file references, commit body `Spec:` lines, agent prompts, active-spec markers, and write-boundary checks.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] A new plan run creates spec files under `spec/YYYY-MM-DDTHH-mm-ssZ-<name>/`.
+- [x] Plan branch and worktree names remain `plan/<name>` and `.worktree/plan-<name>/`.
+- [x] Existing branch/worktree collision suffixing still applies to `<name>` before the timestamped directory basename is formed.
+- [x] `jarvis plan --resume spec/YYYY-MM-DDTHH-mm-ssZ-<name>/index.md` resumes the matching `plan/<name>` worktree.
+- [x] Existing untimestamped plan specs can still be resumed.
+- [x] Timestamp stripping only applies to an exact `YYYY-MM-DDTHH-mm-ssZ-` prefix.
+- [x] Timestamped spec paths are used in user-facing next-step commands, PR body file references, commit body `Spec:` lines, agent prompts, active-spec markers, and write-boundary checks.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

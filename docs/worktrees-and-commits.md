@@ -178,15 +178,15 @@ blocker convention and resolution process.
 
 ## Plan-mode worktrees
 
-Plan mode creates dedicated worktrees under `.worktree/plan-<name>/` on a
-`plan/<name>` branch. The `plan-` prefix distinguishes plan-mode worktrees from
+Plan mode creates dedicated worktrees under `.worktree/plan-<plan-name>/` on a
+`plan/<plan-name>` branch. The `plan-` prefix distinguishes plan-mode worktrees from
 patch-mode worktrees (`.worktree/<name>/`) to prevent collision when both modes
 target the same spec name.
 
 During the interview phase, jarvis first uses a temporary slot:
 `.worktree/plan-tmp-<short-uuid>/` on branch `plan/tmp-<short-uuid>`. After
 the agent proposes a spec name and jarvis applies collision suffixing, jarvis
-renames the worktree and branch to the final `plan-<name>` / `plan/<name>`
+renames the worktree and branch to the final `plan-<plan-name>` / `plan/<plan-name>`
 values before pushing. The temporary branch is never pushed to origin.
 
 **Phase commits** in plan mode have special subjects:
@@ -202,17 +202,18 @@ values before pushing. The temporary branch is never pushed to origin.
 - `plan: blocker r<n>` — records a blocker raised during resume run `n`.
 
 Push cadence follows the same pattern as patch mode: push after each commit.
-The first push uses `git push -u origin <plan/<name>>` to set up tracking;
+The first push uses `git push -u origin plan/<plan-name>` to set up tracking;
+
 later pushes use plain `git push`.
 
-Plan mode never marks PRs ready for review (`gh pr ready`). Draft PRs remain
-in draft status for the duration of the planning phases.
+
+When every scripted phase succeeds, plan mode invokes **`gh pr ready`** automatically (mirroring **`jarvis run`** readiness semantics). Encountering **`plan: blocker`** commits (or lingering blockers) stops before readiness—the PR stays draft until recovery via **`jarvis plan --resume …`**.
 
 ## Cleanup
 
 `jarvis cleanup [--dry-run]` removes merged worktrees and branches from the
 local repo. Useful after PRs have been merged on GitHub to keep `.worktree/`
-tidy. Both patch-mode (`.worktree/<name>/`) and plan-mode (`.worktree/plan-<name>/`)
+tidy. Patch-mode repos use **`.worktree/<spec-dir>/`**; plan branches use **`.worktree/plan-<plan-name>/`** (sans UTC prefix despite timestamped **`spec/`** paths).
 worktrees are handled on the same conditions.
 
 Behavior:
@@ -220,10 +221,13 @@ Behavior:
 - Lists all worktrees whose corresponding PR has `state: MERGED`.
 - Skips worktrees with uncommitted changes or unpushed commits.
 - Prompts for confirmation before removal (use `--dry-run` to preview with `(patch)` or `(plan)` tags).
-- Removes the worktree directory and deletes the local branch.
-- After successful removal, moves `spec/<name>/` to `spec/completed/<name>/` as an uncommitted local file move.
-- If `spec/<name>/` is missing, cleanup still succeeds for that worktree and reports that no spec directory was moved.
-- If `spec/completed/<name>/` already exists (or archival fails for another filesystem reason), cleanup leaves `spec/<name>/` in place, reports the issue, continues processing other removable worktrees, and exits non-zero at the end.
+- Removes the git worktrees and deletes the matching local branches.
+
+- Afterwards tries **`spec/<archive>/ → spec/completed/<archive>/`** using a filesystem `rename()` when **`spec/<archive>/`** exists, letting **`<archive>`** be the `.worktree/<archive>/` directory name verbatim for patch layouts and stripping the **`plan-`** prefix for plan layouts (**`<archive> = plan-name`**). Timestamped authoring directories (**`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**) **do not** automatically match `<archive>`; archive them manually after cleanup if desired (cross-check **[plan-mode cleanup](./plan-mode.md#cleanup)**).
+
+- If **`spec/<archive>/`** is missing entirely, cleanup still succeeds but emits **`no spec directory moved`**.
+
+- If **`spec/completed/<archive>/`** already exists (or another filesystem guard trips), jarvis emits a descriptive warning while continuing other candidates and exits **non-zero only after exhausting the queue**.
 
 The `.worktree/.keep` directory is never removed.
 
@@ -240,9 +244,7 @@ dirty worktree and you need to understand what work is in progress.
 
 The full report (`jarvis triage <worktree-name>`) includes six sections:
 
-**Identity**: Worktree path, branch name, spec path (from a marker file in the
-worktree), active subspec (if the spec is an index), and run namespace.
-Degrades gracefully if the spec marker is missing (older worktrees).
+**Identity**: Worktree path, branch name, spec pointer (preferred: `.active-spec-path` referencing something like **`spec/2026-05-17T22-14-03Z-my-plan/index.md`** for current plan runs versus legacy **`spec/<plan-name>/index.md`**), active subspec when resolvable from that index path, namespace, and graceful fallback when `.active-spec-path` is unreadable/absent (“pre-marker” worktrees).
 
 **Git**: Porcelain output (`git status --porcelain`), ahead/behind vs upstream
 (`git rev-list --left-right --count @{u}...HEAD`), unpushed commits

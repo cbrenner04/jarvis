@@ -187,20 +187,29 @@ switch to a sibling `index.md` (when one exists) or exit.
 
 ### `jarvis plan`
 
-`jarvis plan [<intent-file|"inline text">]` creates a dedicated git worktree and branch to draft a new spec collaboratively with an agent. It supports file mode, inline mode, and interactive mode (`jarvis plan` with no args), runs four phases (interview, naming, draft, self-review), and opens a draft PR automatically. The spec remains in draft status until the user merges it to `main`; after merge, it becomes available to `jarvis run` for implementation.
+`jarvis plan [<intent-file|"inline text">]` creates a dedicated `.worktree/plan-<plan-name>/`
+worktree and `plan/<plan-name>` branch (timestamp-free) to draft a new spec with an agent.
+New runs author files under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** by default; legacy
+**`spec/<plan-name>/`** trees still resume. It supports file/inline/interactive entry points,
+runs interview → draft → self-review, opens a draft PR after `plan: draft`, and calls
+**`gh pr ready`** automatically when every scripted phase succeeds (blockers keep the PR draft).
+Stdout **Next steps** focus on review/merge/`jarvis run` without asking you to toggle readiness
+manually. After merge, run **`jarvis run spec/<spec-dir>/index.md`** (with whatever directory
+basename you authored).
 
-Use `jarvis plan --resume spec/<name>/index.md` to continue iterating on an existing plan PR with additional interview turns and/or review passes. Plan mode prints a final handoff block that links to the plan PR and reminds you to merge first, then run `jarvis run` on the merged spec.
+Use **`jarvis plan --resume spec/<spec-dir>/index.md`** (timestamped or legacy basenames both
+work) to iterate on an existing plan branch with more interview turns and/or review passes.
 
-For full details — phases, flags, stop conditions, PR lifecycle, and cleanup — see
-[docs/plan-mode.md](docs/plan-mode.md).
+For full details — phases, flags, stop conditions, PR lifecycle, cleanup, and quieter default
+output — see [docs/plan-mode.md](docs/plan-mode.md).
 
 ### `jarvis cleanup`
 
 Removes merged worktrees and branches from the local repo after their PRs
 have been merged on GitHub, then archives matching spec directories from
-`spec/<name>/` to `spec/completed/<name>/` as an uncommitted local move. See
-[docs/worktrees-and-commits.md](docs/worktrees-and-commits.md#cleanup) for
-behavior.
+`spec/<archive>/` to `spec/completed/<archive>/` as an uncommitted local move
+(see [docs/worktrees-and-commits.md](docs/worktrees-and-commits.md#cleanup) for how
+**`<archive>`** maps from `.worktree/` names and how timestamped plan directories differ).
 
 ### `jarvis config`
 

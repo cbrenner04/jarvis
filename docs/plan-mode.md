@@ -4,14 +4,16 @@ Reference for `jarvis plan [<intent-file|"inline text">]` semantics: how it crea
 
 ## Overview
 
-Plan mode creates a dedicated worktree and branch (`plan/<name>/` and `plan-<name>/`) to draft a new spec collaboratively with an agent. It produces:
+Plan mode creates a dedicated worktree and branch (`plan/<plan-name>` and `.worktree/plan-<plan-name>/`; **no UTC prefix**) to draft a new spec collaboratively with an agent. It produces:
 
-- A seeded `spec/<name>/intent.md` capturing the user's initial request.
-- A `plan: draft` commit with an agent-generated `spec/<name>/index.md` and atomic subspec files.
+- A seeded `spec/<spec-dir>/intent.md` capturing the user's initial request. New runs use **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** (`<plan-name>` is the validated kebab-case name after collisions). Older trees may still omit the timestamp (**`<spec-dir>`** = `<plan-name>` only); both layouts stay valid for resume and `jarvis run`.
+- A `plan: draft` commit with `spec/<spec-dir>/index.md` plus atomic subspec files.
 - Zero or more `plan: review <N>` commits (default 2) where agents refine the spec tree in place.
-- A draft PR titled `plan: <name>` that aggregates progress across all phases.
+- A draft PR titled `plan: <plan-name>` (derived from branch identity, **not** the UTC prefix) that aggregates progress across all phases.
 
-The draft PR is opened after the `plan: draft` commit lands and remains in draft status until the user manually marks it ready for review. Unlike `jarvis run`, which expects specs to be complete, plan mode drafts incomplete specs — the user reviews the generated spec on the PR, edits it if needed, and merges it to `main`. After merging, the spec becomes available as a normal input to `jarvis run` for implementation work.
+The draft PR opens after `plan: draft`. **Lifecycle:** when every phase succeeds without a blocker, **`gh pr ready` runs automatically** (same readiness transition as patch mode). **Stdout Next steps:** jarvis prints the PR URL plus exact `jarvis plan --resume …` and `jarvis run …` commands using **`spec/<spec-dir>/` paths**. That block deliberately **does not** ask you to toggle draft/readiness manually.
+
+Unlike `jarvis run`, which expects specs to be complete before PR readiness, plan mode drafts incomplete specs: you review/edit on the PR, then merge to `main`; after merging, **`jarvis run spec/<spec-dir>/index.md`** implements it.
 
 Plan mode is useful for:
 
@@ -19,8 +21,41 @@ Plan mode is useful for:
 - **Non-interactive automation**: `jarvis plan intent.md` or `jarvis plan "inline text"` work end-to-end without human prompts.
 - **Spec validation before work**: review and edit the generated spec before implementation begins.
 
-Plan mode does **not** handle spec implementation. After a plan-generated
-spec merges to `main`, use `jarvis run spec/<name>/index.md` to implement it.
+
+## Names and paths
+
+- **`<plan-name>`** — The collision-suffixed kebab-case slug backing **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`; it **never** includes the filesystem timestamp segment.
+- **`<spec-dir>`** — Directory basename under **`spec/`** hosting `intent.md` / `index.md`. New runs mint **`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**; legacy trees may still flatten to **`<plan-name>`** alone. Resume + `jarvis run` honor both layouts.
+
+After merge, **`jarvis run spec/<spec-dir>/index.md`** consumes the finalized tree (**`<spec-dir>`** keeps the UTC prefix when plan mode created one).
+
+## Default terminal output
+
+Successful runs omit chatty setup breadcrumbs by default (inline intent echoes,
+temporary slug previews, provisional worktrees, rename chatter). Harness /
+session logs still capture those details.
+
+Typical milestone stderr lines look like **`plan mode: interactive session started`**
+(TTY interview sessions when applicable), **`plan mode: interview commit pushed`**,
+**`plan mode: draft phase completed`**, **`plan mode: draft commit pushed`**,
+**`plan mode: draft PR #… opened`**, and review notifications such as
+**`plan mode: review pass k/n starting`** then **`plan mode: review pass k committed
+and pushed`**. Blockers, validation failures, quota/model errors, and agent stderr
+stay visible untouched.
+
+Stdout ends with:
+
+```text
+Next steps:
+  1. Review the draft PR: https://…
+  2. Edit spec/<spec-dir>/ …
+ … `jarvis plan --resume spec/<spec-dir>/index.md`
+ … merge … `jarvis run spec/<spec-dir>/index.md`
+```
+
+Notice there is **no** third bullet telling reviewers to toggle draft/readiness —
+jarvis performs that readiness transition programmatically whenever every phase
+succeeds.
 
 ## Input modes
 
@@ -29,10 +64,10 @@ Plan mode accepts intent in three forms:
 ### File mode
 
 ```sh
-jarvis plan spec/2026-05-11-v1/intent.md
+jarvis plan spec/2026-05-17T22-14-03Z-my-feature/intent.md
 ```
 
-Jarvis reads the file at the path and uses its full contents as intent.
+Older date-only prefixes (for example **`spec/2026-05-11-v1/intent.md`**) remain valid authoring inputs; **[docs/spec-guidance.md](./spec-guidance.md)** captures the canonical timestamp shape for newly created trees.
 
 ### Inline mode
 
@@ -56,7 +91,7 @@ Plan mode executes these phases in order:
 
 ### Phase 0: Interview
 
-Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). It writes `spec/<name>/intent.md` with seeded intent text (file/inline modes) or just `# Intent` (interactive mode), then runs interview turns up to the configured budget (`--interview-turns`, default `3`).
+Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). **`intent.md` inside the eventual `spec/<spec-dir>/` tree captures** full intent for file/inline modes or **`# Intent` scaffolding** for interactive shells, before interview prompts begin (`--interview-turns`, default `3`).
 
 Each turn is one agent invocation. The prompt tells the agent to use the structured `question` tool and batch one or more multiple-choice questions as needed. With `quotaFallback: "lenient"`, weak-quota fallback to the next agent runs only when **`git status --porcelain`** matches before and after that invocation (no disk mutations during the attempt); see [quota-signals.md](./quota-signals.md).
 
@@ -64,11 +99,11 @@ After each answered turn, jarvis validates `intent.md` changed by appending exac
 
 The interview also requires the agent to propose a kebab-case spec name by writing `name: <kebab-case>` in a leading frontmatter-ish block in `intent.md`. If the budget is `0` in file/inline modes, jarvis still runs one naming-only agent invocation; if no name is proposed, jarvis falls back to deterministic derivation and logs a stderr note.
 
-Once a name is chosen (with collision suffixing if needed), jarvis renames the temporary worktree and branch to final names (`.worktree/plan-<name>/`, `plan/<name>`), then commits and pushes `plan: interview`. The temporary branch is never pushed.
+Once a name is chosen (with collision suffixing if needed), jarvis stamps the filesystem-safe UTC prefix, renames the temporary worktree and branch to final identities (`.worktree/plan-<plan-name>/`, `plan/<plan-name>` — **still no timestamp**), commits, and pushes `plan: interview`. The temporary branch is never pushed.
 
 **Commit shape:**
 - Subject: `plan: interview`
-- Body: starts with `Spec: spec/<name>/intent.md` (so the attribution renderer in `src/pr.ts` recognises it as a spec commit), followed by `Seeded from <intent path or "inline">`.
+- Body: starts with **`Spec: spec/<spec-dir>/intent.md`** (example: `Spec: spec/2026-05-17T22-14-03Z-my-plan/intent.md`, or `Spec: spec/my-plan/intent.md` for legacy dirs) so the attribution renderer in `src/pr.ts` recognises it as a meta commit; followed by `Seeded from <intent path or "inline">`.
 - Pushed: immediately after commit.
 
 ### Phase 1: Draft
@@ -77,10 +112,10 @@ After `plan: interview` is pushed, jarvis invokes an agent with a focused prompt
 
 - Inlines `intent.md` and `docs/spec-guidance.md`.
 - Asks the agent to read the target repo for context.
-- Instructs the agent to produce `spec/<name>/index.md` plus one or more atomic subspecs (`00-*.md`, `01-*.md`, etc.).
+- Instructs the agent to produce `spec/<spec-dir>/index.md` plus one or more atomic subspecs (`00-*.md`, `01-*.md`, etc.).
 - Forbids modifications to `intent.md` except for appending a `## Blocker` section.
 
-The agent produces files under `spec/<name>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. The produced files are staged and committed as `plan: draft`.
+The agent produces files under `spec/<spec-dir>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. The produced files are staged and committed as `plan: draft`.
 
 **Placeholder collision errors:** If the user's intent or spec name accidentally contains a placeholder token (e.g., `<SPEC_GUIDANCE>`), jarvis detects this before invoking the agent and exits `3` with a fatal configuration error. This prevents silent prompt corruption.
 
@@ -88,12 +123,12 @@ The agent produces files under `spec/<name>/` in the worktree. Jarvis does **not
 - Subject: `plan: draft`
 - Body:
   ```
-  Spec: spec/<name>/intent.md
+  Spec: spec/<spec-dir>/intent.md
 
   Drafted by <agent-attribution>.
   Subspecs: <count>
   ```
-  Where `<agent-attribution>` is the agent's `attributionLabel()` (also written as the `Jarvis-Agent` git trailer) and `<count>` is the number of subspec files (files matching `spec/<name>/[0-9]*.md`, excluding `index.md` and `intent.md`). The leading `Spec: ` line lets the attribution renderer in `src/pr.ts` pick the commit up.
+  Where `<agent-attribution>` is the agent's `attributionLabel()` (also written as the `Jarvis-Agent` git trailer) and `<count>` is the number of subspec files (files matching `spec/<spec-dir>/[0-9]*.md`, excluding `index.md` and `intent.md`). The leading `Spec: ` line lets the attribution renderer in `src/pr.ts` pick the commit up.
 - Pushed: immediately after commit.
 
 **Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during draft, the draft files are first committed as `plan: draft` (per the normal commit shape above) and then a separate `plan: blocker` commit captures the blocker; plan mode stops (see [Stop conditions](#stop-conditions)).
@@ -116,7 +151,7 @@ Each pass is a single agent invocation; the agent does not decide when to stop o
 - Subject: `plan: review 1`
 - Body:
   ```
-  Spec: spec/<name>/intent.md
+  Spec: spec/<spec-dir>/intent.md
 
   Reviewed by <agent-attribution>.
   ```
@@ -171,7 +206,7 @@ Select the target repository. Same semantics as `jarvis run --repo`. If omitted,
 
 ### `--cwd <dir>`
 
-(Parsed but treated as a hint; the worktree path is always created under `.worktree/plan-<name>/` in the target repo.) For consistency with `jarvis run`, this flag is accepted but has limited effect in plan mode. The spec is always produced under the target repo's `.worktree/plan-<name>/` worktree.
+(Parsed but treated as a hint; the finalized worktree always lives under `.worktree/plan-<plan-name>/` in the target repo.) For consistency with `jarvis run`, this flag is accepted but has limited effect in plan mode. Produced files reside under **`spec/<spec-dir>/`** checked out inside that untimestamped plan worktree.
 
 ### `--resume <spec-path>`
 
@@ -179,16 +214,17 @@ Resume a previously created plan worktree and branch. This is the only
 supported resume form:
 
 ```sh
-jarvis plan --resume spec/<name>/index.md
+jarvis plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md
+# legacy layouts still accepted, e.g. spec/my-plan/index.md
 ```
 
 Validation rules:
 
-- `<spec-path>` must be an existing `spec/<name>/index.md`.
-- The sibling `spec/<name>/intent.md` must exist.
-- Local branch `plan/<name>` and local worktree `.worktree/plan-<name>/`
-  must both exist.
-- The plan worktree must have `plan/<name>` checked out.
+- `<spec-path>` must point at `spec/<spec-dir>/index.md` on disk.
+- The sibling `spec/<spec-dir>/intent.md` must exist.
+- Local branch **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`
+  must both exist (basename derived **without** the UTC prefix via `YYYY-MM-DDTHH-mm-ssZ-` stripping when present).
+- The plan worktree must have **`plan/<plan-name>`** checked out.
 
 Resume does not accept positional intent text/file and does not require
 `--repo`; it operates entirely from the existing plan worktree state.
@@ -229,17 +265,17 @@ Plan mode stops in these cases:
 
 ### 1. All phases complete
 
-All draft and review passes finish without encountering a blocker. Jarvis exits `0`. The draft PR (opened after `plan: draft` lands) is marked ready for review. The user reviews the PR, optionally edits the spec files, and merges it to `main`. After merge, the spec is available to `jarvis run` for implementation.
+All draft and review passes finish without encountering a blocker. Jarvis exits **`0`** and triggers **`gh pr ready`** alongside the customary stdout **Next steps** block (**which omits redundant manual ready-flip instructions**). Humans still review/modify GitHub/Git content and merge once satisfied using `jarvis run spec/<spec-dir>/index.md` afterward.
 
 ### 2. Blocker encountered
 
-If an agent appends a `## Blocker` section to `spec/<name>/intent.md` (exact heading, level 2, case-sensitive), plan mode stops immediately. The current phase's edits are staged and committed as `plan: blocker` (the last plan commit for that invocation).
+If an agent appends a `## Blocker` section to `spec/<spec-dir>/intent.md` (exact heading, level 2, case-sensitive), plan mode stops immediately. The current phase's edits are staged and committed as `plan: blocker` (the last plan commit for that invocation).
 
 **Commit shape:**
 - Subject: `plan: blocker`
 - Body:
   ```
-  Spec: spec/<name>/intent.md
+  Spec: spec/<spec-dir>/intent.md
 
   Blocked by <reason>
   Spec files to date: <count>
@@ -250,8 +286,8 @@ If an agent appends a `## Blocker` section to `spec/<name>/intent.md` (exact hea
 
 Jarvis then prints the blocker section to stderr and exits `1`. The draft PR
 reflects the blocker for human review. The user can resolve the blocker
-offline, update `spec/<name>/intent.md` manually on the branch, and re-run
-`jarvis plan --resume spec/<name>/index.md` to continue, or close the PR and
+offline, update `spec/<spec-dir>/intent.md` manually on the branch, and re-run
+`jarvis plan --resume spec/<spec-dir>/index.md` to continue, or close the PR and
 start over.
 
 ### 3. Ctrl-C
@@ -264,7 +300,7 @@ pass. A second Ctrl-C while an agent is still running falls through to Node's
 default handler and terminates the process immediately, which may leave a
 partially-written file in the worktree but never an unintended commit. The
 user can return to the worktree and continue manually or with
-`jarvis plan --resume spec/<name>/index.md`.
+`jarvis plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md`.
 
 ### 4. Agent quota exhausted
 
@@ -290,15 +326,15 @@ There is no fallback to patch-mode order; both must be configured.
 
 ### Draft open
 
-After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. The PR title is `plan: <name>` (where `<name>` is the relative spec directory path). The PR body has three parts:
+After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. GitHub renders the draft bit until **`gh pr ready` succeeds**. The PR title stays **`plan: <plan-name>`** — i.e., the slug shared with the branch (**not** the leading UTC segment of **`spec/`** paths when present). PR body internals:
 
-1. **Deterministic header**: the H1 from `spec/<name>/index.md` (or `# Plan: <name>` when the index does not yet exist), followed by a short bullet list with references to the intent and index files.
+1. **Deterministic header**: the H1 from `spec/<spec-dir>/index.md` (or `# Plan: <plan-name>` when the index does not yet exist), followed by bullets that cite **`spec/<spec-dir>/intent.md`** and **`spec/<spec-dir>/index.md`**.
 2. **Narrative section**: currently empty, preserved for future edits (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers).
 3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch. Plan-mode meta-commits (`plan: interview`, `plan: draft`, `plan: review N`, `plan: blocker`) are collapsed into a single summary line listing the count of collapsed commits and the deduped set of agents involved. Subspec commits are rendered individually, one bullet per commit, with a deduped summary line of all contributing agents.
 
 ### Auto-mark ready on success
 
-Like patch mode, plan mode marks the PR ready for review when the spec is complete (all phases finish without a blocker). If a blocker is encountered, the PR remains in draft status. The user reviews the PR, optionally edits the spec files on the branch, and merges it when satisfied.
+Like patch mode, plan mode invokes **`gh pr ready`** automatically once every scripted phase succeeds (no blocker). That readiness transition stays **outside** stdout: **Next steps** never instruct you to mark the draft ready manually. Encountering a blocker leaves the GitHub PR in draft until content is repaired and **`jarvis plan --resume …`** succeeds.
 
 ### PR body updates
 
@@ -306,42 +342,46 @@ Each `plan: draft`, `plan: review N`, or `plan: blocker` commit triggers a PR-bo
 
 ### Merge-first rule
 
-After the PR merges to `main`, the spec tree under `spec/<name>/` is now available to `jarvis run` for implementation work. Do not run `jarvis run` against a spec tree that is still on a plan-mode branch; always merge the spec first.
+After the PR merges to `main`, the spec tree under **`spec/<spec-dir>`** is available to **`jarvis run spec/<spec-dir>/index.md`**. Do not run `jarvis run` against a spec tree that is still only on an unmerged `plan/*` branch; merge the authoring PR first.
 
 ## Handoff to `jarvis run`
 
 Every successful `jarvis plan` invocation prints a next-steps block that:
 
-- points to the plan PR URL;
-- reminds you to merge the plan PR to `main` before implementation;
-- prints the exact `jarvis run spec/<name>/index.md` command to run after
-  merge.
+- highlights the authoring PR URL;
+- reminds you to merge the authoring PR before implementation;
+- prints working-directory-aware commands for **`jarvis plan --resume spec/<spec-dir>/index.md`** (when iterating) alongside **`jarvis run spec/<spec-dir>/index.md`** post-merge;
+- omits **`gh pr ready` / dashboard toggles**, because **`gh pr ready` already succeeded** whenever you reach this footer under normal exits.
 
-`jarvis run` also warns (non-blocking) when the target spec appears to be on
-an unmerged `plan/*` branch in the resolved repository.
+`jarvis run` also warns (non-blocking) when the target spec appears to be on an
+unmerged `plan/*` branch in the resolved repository.
 
 ## Cleanup
 
-After a plan-mode PR is merged, the worktree and branch can be removed with:
+Merged plan-branch PRs (and merged patch-branch PRs) can be reclaimed with:
 
 ```sh
 jarvis cleanup
 ```
 
-This command finds all merged worktrees (detected via `.worktree/<type>-<name>/` conventions and matching merged branches on the remote), removes the worktree and local branch, then moves `spec/<name>/` to `spec/completed/<name>/` as an uncommitted local file move. The `(plan)` tag in the dry-run output (`jarvis cleanup --dry-run`) marks plan-mode worktrees.
+The command discovers merged git worktrees, removes them locally, then attempts
+to **`spec/<archive>/ → spec/completed/<archive>/`** when **`spec/<archive>/`**
+exists (see authoritative rules in **[Worktrees: Cleanup](./worktrees-and-commits.md#cleanup)**).
 
-For manual cleanup of a specific plan worktree:
+Important mapping note: for `.worktree/plan-<plan-name>/`, **`<archive>` collapses to `<plan-name>`**, which matches **`spec/<plan-name>/`** spec trees authored before timestamps existed. **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** does **not** share that flattened archive basename, so **`jarvis cleanup`** may report **`no spec directory moved`** even though files remain under **`spec/`** until you reorganize/move them manually into **`spec/completed/…`**.
+
+Manual teardown without `jarvis cleanup`:
 
 ```sh
-rm -rf .worktree/plan-<name>
-git branch -D plan/<name>
+rm -rf .worktree/plan-<plan-name>
+git branch -D plan/<plan-name>
 ```
 
 ## Validation rules
 
 Each generated or rewritten spec must satisfy these rules (enforced by plan mode and inherited from patch mode):
 
-- **`index.md` required**: Every spec tree must have an `spec/<name>/index.md` file.
+- **`index.md` required**: Every plan-mode tree publishes **`spec/<spec-dir>/index.md`** beside `intent.md`.
 - **Atomic subspecs**: Each subspec file (`[0-9]*.md`) must have an exact `## Acceptance criteria` heading (level 2, case-sensitive) with one or more checkboxes.
 - **Blocker heading**: If a `## Blocker` section is appended to `intent.md`, it must use the exact heading (level 2, case-sensitive).
 
@@ -349,15 +389,15 @@ Plan mode validates these rules after each phase. If a validation fails, jarvis 
 
 ## Write boundary
 
-Plan mode enforces a strict write boundary: agents may only modify files within `spec/<name>/`. If an agent attempts to modify files outside this directory (e.g., `src/`, `.github/`, `README.md`), the following happens:
+Plan mode enforces a strict write boundary: agents may only modify files within `spec/<spec-dir>/`. If an agent attempts to modify files outside this directory (e.g., `src/`, `.github/`, `README.md`), the following happens:
 
 1. **Detection**: After the agent returns and before any commit, jarvis runs `git status --porcelain=v1 -z` to check which files have been modified.
-2. **Revert**: Any files modified outside `spec/<name>/` are reverted with `git checkout --` (the working-tree changes are discarded, but the files are not deleted).
-3. **Blocker**: A `## Blocker` section is appended to `spec/<name>/intent.md` listing the offending paths and explaining the boundary violation.
+2. **Revert**: Any files modified outside `spec/<spec-dir>/` are reverted with `git checkout --` (the working-tree changes are discarded, but the files are not deleted).
+3. **Blocker**: A `## Blocker` section is appended to `spec/<spec-dir>/intent.md` listing the offending paths and explaining the boundary violation.
 4. **Commit**: The reverted state (with all out-of-bounds changes removed but in-bounds changes preserved) is committed as `plan: blocker` and the PR body is updated.
 5. **Exit**: Jarvis exits with code `1`. The offending paths are printed to stderr for visibility.
 
-This behavior applies at the draft phase, after each review pass, and before any blocker commit from the agent itself. The boundary check uses the path as reported by `git status`, so symlinks that point outside `spec/<name>/` are detected and reverted.
+This behavior applies at the draft phase, after each review pass, and before any blocker commit from the agent itself. The boundary check uses the path as reported by `git status`, so symlinks that point outside `spec/<spec-dir>/` are detected and reverted.
 
 The intent of this enforcement is to prevent accidental or malicious modifications to files outside the spec directory, ensuring that all plan-mode work is isolated and reviewable within the spec tree.
 

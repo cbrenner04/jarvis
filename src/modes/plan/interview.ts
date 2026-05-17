@@ -10,6 +10,9 @@ import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 
+/** Level-2 heading for explicit no-op interview outcome (append-only). */
+export const INTERVIEW_SKIP_HEADING = "## Interview skip";
+
 export type InterviewPhaseOptions = {
   worktreePath: string;
   name: string;
@@ -19,6 +22,13 @@ export type InterviewPhaseOptions = {
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
 };
+
+/** Outcome for default CLI reporting after the interview phase completes. */
+export type InterviewTerminalOutcome =
+  | "refined"
+  | "skipped"
+  | "blocker"
+  | "not_run";
 
 class PlaceholderCollisionError extends Error {
   constructor(
@@ -86,13 +96,6 @@ export function buildInterviewPrompt(opts: {
 
   return template;
 }
-
-export type InterviewTurnResult = {
-  result: AgentResult;
-  agentLabel: string;
-  completedTurns: number;
-  blocker?: string | undefined;
-};
 
 export async function runInterviewTurn(opts: {
   worktreePath: string;
@@ -201,15 +204,8 @@ export async function runInterviewTurn(opts: {
         };
       }
 
-      // Check if intent.md was modified
-      const wasModified = intentBefore !== intentAfter;
-
-      // Check if the expected interview turn section was added
-      const expectedTurnHeader = `## Interview turn ${opts.turnNumber}`;
-      const hasNewTurnSection = intentAfter.includes(expectedTurnHeader);
-
-      if (!wasModified && !hasNewTurnSection) {
-        // Agent ran successfully but didn't modify intent.md — treat as done asking.
+      // Explicit non-interactive skip (append-only ## Interview skip)
+      if (isValidInterviewSkipAddition(intentBefore, intentAfter)) {
         return {
           result,
           agentLabel,
@@ -217,20 +213,43 @@ export async function runInterviewTurn(opts: {
         };
       }
 
+      // Check if intent.md was modified
+      const wasModified = intentBefore !== intentAfter;
+
+      // Check if the expected interview turn section was added
+      const expectedTurnHeader = `## Interview turn ${opts.turnNumber}`;
+      const hasNewTurnSection = intentAfter.includes(expectedTurnHeader);
+
+      if (!wasModified) {
+        return {
+          result: {
+            kind: "error",
+            exitCode: 1,
+            stderr: `interview: intent.md unchanged on turn ${opts.turnNumber}; append ${INTERVIEW_SKIP_HEADING}, ## Interview turn ${opts.turnNumber}, or ## Blocker`,
+          },
+          agentLabel,
+          continueInterview: false,
+        };
+      }
+
       if (wasModified && !hasNewTurnSection) {
-        if (!isFrontmatterOnlyChange(intentBefore, intentAfter)) {
+        if (isFrontmatterOnlyChange(intentBefore, intentAfter)) {
           return {
             result: {
               kind: "error",
               exitCode: 1,
-              stderr: `interview: invalid intent.md modification on turn ${opts.turnNumber}; expected interview-turn append or frontmatter-only naming update`,
+              stderr: `interview: intent.md only changed frontmatter on turn ${opts.turnNumber}; append ${INTERVIEW_SKIP_HEADING} or ## Interview turn ${opts.turnNumber} to the body`,
             },
             agentLabel,
             continueInterview: false,
           };
         }
         return {
-          result,
+          result: {
+            kind: "error",
+            exitCode: 1,
+            stderr: `interview: invalid intent.md modification on turn ${opts.turnNumber}; expected append-only ## Interview turn ${opts.turnNumber} or ${INTERVIEW_SKIP_HEADING}`,
+          },
           agentLabel,
           continueInterview: false,
         };
@@ -341,6 +360,42 @@ export function isValidInterviewTurnAddition(
 }
 
 /**
+ * Validate that the only body change is an append-only `## Interview skip` section.
+ */
+export function isValidInterviewSkipAddition(
+  before: string,
+  after: string,
+): boolean {
+  const skipHeaderIndex = after.lastIndexOf(INTERVIEW_SKIP_HEADING);
+  if (skipHeaderIndex === -1) {
+    return false;
+  }
+  const afterWithoutSkip = after.substring(0, skipHeaderIndex).trimEnd();
+  return (
+    stripFrontmatter(afterWithoutSkip).trimEnd() ===
+    stripFrontmatter(before).trimEnd()
+  );
+}
+
+/**
+ * Classify persisted intent for reporting and plan commits (blocker wins over skip).
+ */
+export function classifyInterviewIntentOutcome(
+  intent: string,
+): "refined" | "skipped" | "blocker" {
+  const blocker = detectBlocker(intent);
+  if (blocker.hasBlocker) {
+    return "blocker";
+  }
+  for (const line of intent.replace(/\r\n/g, "\n").split("\n")) {
+    if (line === INTERVIEW_SKIP_HEADING) {
+      return "skipped";
+    }
+  }
+  return "refined";
+}
+
+/**
  * Run the complete interview phase.
  */
 export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
@@ -348,6 +403,7 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
   completedTurns: number;
   agentLabel: string | null;
   blocker?: string | undefined;
+  terminalOutcome?: InterviewTerminalOutcome | undefined;
 }> {
   const budgetTurns = opts.interviewTurns ?? 3;
 
@@ -357,8 +413,11 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
       result: { kind: "ok", stdout: "", stderr: "" },
       completedTurns: 0,
       agentLabel: null,
+      terminalOutcome: "not_run",
     };
   }
+
+  opts.stderr?.("plan: interview phase started\n");
 
   let completedTurns = 0;
   let agentLabel: string | null = null;
@@ -398,6 +457,7 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
         completedTurns,
         agentLabel,
         blocker: turnResult.blocker,
+        terminalOutcome: "blocker",
       };
     }
 
@@ -409,9 +469,19 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
     completedTurns = turn;
   }
 
+  const finalIntentPath = join(
+    opts.worktreePath,
+    "spec",
+    opts.name,
+    "intent.md",
+  );
+  const finalIntent = readFileSync(finalIntentPath, "utf8");
+  const terminalOutcome = classifyInterviewIntentOutcome(finalIntent);
+
   return {
     result: { kind: "ok", stdout: "", stderr: "" },
     completedTurns,
     agentLabel,
+    terminalOutcome,
   };
 }

@@ -236,8 +236,7 @@ describe("sessionContentHasInvocationMarker", () => {
 
 describe("sessionFileCwdsCompatible", () => {
   test("allows files with no cwd metadata", () => {
-    const content =
-      userMessageLine("hi") + "\n" + tokenLine({ input: 1, out: 0, cache: 0 });
+    const content = `${userMessageLine("hi")}\n${tokenLine({ input: 1, out: 0, cache: 0 })}`;
     expect(sessionFileCwdsCompatible(content, "/any/cwd")).toBe(true);
   });
 
@@ -282,10 +281,10 @@ describe("resolveCodexSessionUsage", () => {
       const path = join(dir, "s.jsonl");
       writeFileSync(
         path,
-        [
+        `${[
           userMessageLine(`task ${m}`),
           tokenLine({ input: 3, out: 1, cache: 0 }),
-        ].join("\n") + "\n",
+        ].join("\n")}\n`,
       );
       const r = resolveCodexSessionUsage({
         sessionsDir: dir,
@@ -308,20 +307,20 @@ describe("resolveCodexSessionUsage", () => {
       const unrelated = join(dir, "other.jsonl");
       writeFileSync(
         unrelated,
-        [
+        `${[
           userMessageLine("other session"),
           tokenLine({ input: 99, out: 99, cache: 0 }),
-        ].join("\n") + "\n",
+        ].join("\n")}\n`,
       );
       const before = snapshotCodexSessionFiles(dir);
       const m = "<!-- jarvis-codex-invocation: ours -->";
       const ours = join(dir, "ours.jsonl");
       writeFileSync(
         ours,
-        [
+        `${[
           userMessageLine(`mine ${m}`),
           tokenLine({ input: 2, out: 0, cache: 0 }),
-        ].join("\n") + "\n",
+        ].join("\n")}\n`,
       );
       const r = resolveCodexSessionUsage({
         sessionsDir: dir,
@@ -340,11 +339,10 @@ describe("resolveCodexSessionUsage", () => {
       const m = "<!-- jarvis-codex-invocation: dup -->";
       const a = join(dir, "a.jsonl");
       const b = join(dir, "b.jsonl");
-      const body =
-        [
-          userMessageLine(`x ${m}`),
-          tokenLine({ input: 1, out: 1, cache: 0 }),
-        ].join("\n") + "\n";
+      const body = `${[
+        userMessageLine(`x ${m}`),
+        tokenLine({ input: 1, out: 1, cache: 0 }),
+      ].join("\n")}\n`;
       writeFileSync(a, body);
       writeFileSync(b, body);
       const r = resolveCodexSessionUsage({
@@ -371,10 +369,10 @@ describe("resolveCodexSessionUsage", () => {
       const before = snapshotCodexSessionFiles(dir);
       writeFileSync(
         join(dir, "s.jsonl"),
-        [
+        `${[
           userMessageLine("no marker here"),
           tokenLine({ input: 1, out: 0, cache: 0 }),
-        ].join("\n") + "\n",
+        ].join("\n")}\n`,
       );
       const r = resolveCodexSessionUsage({
         sessionsDir: dir,

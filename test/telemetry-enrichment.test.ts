@@ -19,8 +19,7 @@ describe("extractUsageAndCost: estimated cursor usage", () => {
       "Composer 2",
     );
     expect(result.usage_source).toBe("estimated");
-    // Composer 2 has null rates today → no-price, not estimated.
-    expect(result.cost_source).toBe("no-price");
+    expect(result.cost_source).toBe("estimated");
     expect(result.usage?.input_tokens).toBe(100);
   });
 

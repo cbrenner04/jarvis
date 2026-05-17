@@ -29,7 +29,7 @@ const CURSOR_KNOWN_MODELS: readonly string[] = [
   "GPT-5.5",
   "Gemini 3 Flash",
   "Gemini 3 Pro",
-  "Gemini 3.1 Pro"
+  "Gemini 3.1 Pro",
 ];
 
 const CURSOR_MODEL_LABELS: Record<string, string> = {};

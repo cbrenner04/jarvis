@@ -500,7 +500,6 @@ function renderSummaryFromRecords(args: {
     );
   }
 
-
   if (notes.length > 0) {
     lines.push("");
     lines.push("notes:");

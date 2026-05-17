@@ -270,7 +270,7 @@ describe("CodexAgent", () => {
     const otherPath = join(sub, "other.jsonl");
     writeFileSync(
       otherPath,
-      [
+      `${[
         JSON.stringify({
           type: "event_msg",
           payload: {
@@ -291,7 +291,7 @@ describe("CodexAgent", () => {
             },
           },
         }),
-      ].join("\n") + "\n",
+      ].join("\n")}\n`,
     );
 
     const sessionPath = join(sub, "jarvis.jsonl");

@@ -37,9 +37,11 @@ local LLM.
         other local runtimes — see `https://aider.chat/docs/llms.html`.
       - No per-token cost is reported for local runs (matches the
         `cost_source: "no-usage"` returned by the agent module).
-- [ ] Update the "Agent CLI verbosity" subsection (if present) to add an
-      `Aider` bullet naming `--no-stream` and the rationale (matches the
-      buffered transcript shape of the other agents).
+- [ ] If `README.md` has an "Agent CLI verbosity" (or similarly named)
+      subsection, add an `Aider` bullet naming `--no-stream` and the
+      rationale (matches the buffered transcript shape of the other
+      agents). If no such subsection exists, skip this task and note the
+      skip in the PR description rather than inventing a new section.
 - [ ] Update the `Config` schema example in `README.md` to show `aider`
       in `patchModels` (with the placeholder string) and a note that
       adding it to `agentOrder` is opt-in.

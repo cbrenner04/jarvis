@@ -58,10 +58,15 @@ subspec documents the initial signal set and wires it into `quota.ts`.
 - [ ] Add a test that ensures a `code === 0` run does not get reclassified
       as `quota` or `model_config` even when output contains a matching
       substring.
-- [ ] Update `docs/quota-signals.md` (or whichever file documents quota
-      signals today; create the section if the file already exists) with an
-      `## Aider` subsection listing the same substrings and a note that the
-      list is expected to grow.
+- [ ] Document the signal set under an `## Aider` heading. First check
+      whether quota signals are documented somewhere today (look for any
+      existing file under `docs/` mentioning quota signals, or a section
+      in `README.md`). If such a location exists, append the `## Aider`
+      subsection there. If none exists, create `docs/quota-signals.md`
+      with sections for the existing agents (lifted from current source
+      comments / `quota.ts`) plus the new `## Aider` section. Either way,
+      the new section lists the substrings above and notes the list is
+      expected to grow.
 
 ## Acceptance criteria
 

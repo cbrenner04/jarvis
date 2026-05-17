@@ -76,12 +76,17 @@ Open questions to answer during verification:
 ## Acceptance criteria
 
 - [ ] This file has a `## Verified flags` section containing the finalized
-      argv jarvis will spawn.
-- [ ] The verified invocation runs non-interactively against a local model
-      end-to-end (a smoke run, captured as a transcript snippet in the
-      section).
+      argv jarvis will spawn, with each flag annotated by the
+      `aider --help` line (or docs URL) it was sourced from.
+- [ ] Every "Open question" above has an explicit answer recorded in
+      `## Verified flags`.
 - [ ] Any deviation from the inferred draft is called out explicitly so
       reviewers see what changed.
+- [ ] If a local LLM (Ollama or equivalent) is available on the
+      implementer's machine, a smoke-run transcript snippet is captured
+      in the section. If not, the absence is noted explicitly and the
+      smoke run is deferred to subspec 01's test step rather than
+      blocking this subspec.
 
 ## Documentation updates
 

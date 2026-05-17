@@ -15,9 +15,15 @@ first-class but opt-in agent.
 - Default `agentOrder` is unchanged. Aider is **not** in the default
   order. Users opt in.
 - Default `patchModels` gains an `aider` entry. The value is a placeholder
-  string the validator accepts but that the user is expected to overwrite
-  with their local-LLM target (e.g. `ollama/llama3.1:8b`). Use an obvious
-  stub so it fails loudly if anyone actually runs it without changing it.
+  string (recommend `"<set-aider-model>"`) the validator **accepts at
+  config-load time** so existing flows are not broken, but that aider's
+  agent factory rejects at **run time** if `agentOrder` actually includes
+  `aider` and the value is still the placeholder. The run-time rejection
+  must use the existing model-configuration exit path (same path the
+  opencode placeholder uses today) so fallback behaves consistently. If
+  opencode does not currently behave this way, mirror whatever it does
+  rather than inventing a new code path — flag the divergence in the PR
+  description.
 - `jarvis config set-order` accepts `aider` in its comma-separated list
   with the same duplicate/unknown rejection rules as today.
 - Validation rejects:

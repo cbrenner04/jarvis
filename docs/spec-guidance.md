@@ -3,8 +3,8 @@
 This file is stable guidance for agents that need to create or work from
 Jarvis specs.
 
-New hand-written Jarvis specs should live under directories whose **basename**
-includes a filesystem-safe UTC timestamp prefix and a descriptive slug:
+New Jarvis specs should live under directories whose **basename** includes
+a filesystem-safe UTC timestamp prefix and a descriptive slug:
 
 `spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
 

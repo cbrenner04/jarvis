@@ -3,94 +3,94 @@
 ## Problem
 
 `AgentName` is a closed union (`"claude" | "codex" | "cursor" | "opencode"`)
-used as the key type for `agentOrder` and `patchModels`. Adding aider
-means expanding that union and updating config defaults, validation, the
-agent factory, and the `jarvis config set-order` command so aider is a
-first-class but opt-in agent.
+used to type every place agents are referenced — including
+`modes.{patch,plan}.agentOrder` entries in `src/config.ts`, the
+`makeAgent` factory in `src/modes/patch/run.ts`, the plan-mode agent
+factories in `src/modes/plan/draft.ts` and `src/modes/plan/review.ts`,
+and the per-agent branches in `src/agents/quota.ts`. Adding aider means
+expanding that union in every location it is declared and handling
+`"aider"` in every exhaustive switch.
 
 ## Decisions
 
-- Expand `AgentName` to
-  `"claude" | "codex" | "cursor" | "opencode" | "aider"`.
-- Default `agentOrder` is unchanged. Aider is **not** in the default
-  order. Users opt in.
-- Default `patchModels` gains an `aider` entry. The value is a placeholder
-  string (recommend `"<set-aider-model>"`) the validator **accepts at
-  config-load time** so existing flows are not broken, but that aider's
-  agent factory rejects at **run time** if `agentOrder` actually includes
-  `aider` and the value is still the placeholder. The run-time rejection
-  must use the existing model-configuration exit path (same path the
-  opencode placeholder uses today) so fallback behaves consistently. If
-  opencode does not currently behave this way, mirror whatever it does
-  rather than inventing a new code path — flag the divergence in the PR
-  description.
-- `jarvis config set-order` accepts `aider` in its comma-separated list
-  with the same duplicate/unknown rejection rules as today.
-- Validation rejects:
-  - Unknown agent names anywhere (`agentOrder`, `patchModels`).
-  - Missing `patchModels.aider` only when the config is being
-    auto-bootstrapped or freshly validated; legacy configs without
-    `patchModels.aider` should load with the placeholder default populated
-    in memory (same legacy-handling pattern used for the opencode
-    addition).
-- The agent factory must handle `"aider"` by constructing `AiderAgent`
-  with `model` taken from `patchModels.aider`.
+- `AgentName` is declared in **two** places that must stay in sync:
+  - `src/agents/types.ts` line 1.
+  - `src/config.ts` (the `AGENT_NAMES` const and derived `AgentName`
+    type, currently around lines 68–69).
 
-## Behavior
-
-Config type after this subspec:
-
-```ts
-type AgentName = "claude" | "codex" | "cursor" | "opencode" | "aider";
-
-type PatchModels = Record<AgentName, string>;
-```
-
-Default serialized config gains the `aider` placeholder:
-
-```json
-{
-  "patchModels": {
-    "claude": "haiku",
-    "codex": "gpt-5.3-codex",
-    "cursor": "Composer 2",
-    "opencode": "<placeholder>",
-    "aider": "<local-llm-placeholder>"
-  }
-}
-```
+  Both must be updated to include `"aider"`. The validator's
+  `isAgentName` check (`config.ts`) derives from `AGENT_NAMES`, so the
+  config side is the single source of truth for what is accepted in
+  `agentOrder` entries.
+- Config v2 has **no `patchModels` map**. Each entry in
+  `modes.patch.agentOrder` / `modes.plan.agentOrder` carries its own
+  `model`. Aider is opted in by adding
+  `{ "agent": "aider", "model": "<...>" }` to one of those arrays in
+  `~/.jarvis/config.json` — there is no dedicated `jarvis config`
+  subcommand for editing the order, so this subspec adds none.
+- Default `modes.{patch,plan}.agentOrder` is **unchanged**. Aider is not
+  in the default order; users opt in by editing config.
+- `DEFAULT_AGENT_MODELS` (used to keep `Record<AgentName, string>`
+  exhaustive) gains an `aider` entry. Pick a sensible placeholder —
+  recommend `"ollama/llama3.1:8b"` since Ollama is the worked example in
+  subspec 04. This is not enforced anywhere at run time; it's just the
+  exhaustiveness fill-in.
+- The agent factories in `src/modes/patch/run.ts` (`makeAgent`),
+  `src/modes/plan/draft.ts`, and `src/modes/plan/review.ts` each contain
+  a `switch (name)` over `AgentName`. Each must gain an `"aider"` case
+  that constructs `new AiderAgent({ model })`.
+- `validateAgentOrder` in `src/config.ts` already enforces unique agent
+  names, non-empty model strings, and rejects unknown agents via
+  `isAgentName`. No new validation code is needed beyond extending the
+  union — adding `"aider"` to `AGENT_NAMES` automatically allows it in
+  the existing per-entry validator, with the same duplicate /
+  empty-model / unknown-agent error paths existing agents get.
+- Aider does **not** need a per-agent block under
+  `modes.{patch,plan}.agents` (unlike `claude.outputFormat`). If a
+  future change adds aider-specific config it can be added there; this
+  subspec does not.
 
 ## Tasks
 
-- [ ] Update `src/agents/types.ts` to add `"aider"` to `AgentName`.
-- [ ] Update `src/config.ts` defaults and validation to require/accept the
-      new `patchModels.aider` key, with legacy-config fill-in.
-- [ ] Update the agent factory (the function that turns an `AgentName` plus
-      `patchModels` into an `Agent` instance) to construct `AiderAgent`.
-- [ ] Update `jarvis config set-order` parser/validator to accept `aider`.
-- [ ] Update `jarvis config show` so the default-shape output includes the
-      new key.
-- [ ] Update existing tests where `AgentName` is exhaustively switched or
-      asserted (e.g. test fixtures that enumerate all agents).
+- [ ] Add `"aider"` to `AgentName` in `src/agents/types.ts`.
+- [ ] Add `"aider"` to the `AGENT_NAMES` tuple in `src/config.ts` so the
+      derived `AgentName` type and `isAgentName` validator both accept
+      it.
+- [ ] Add `aider: "ollama/llama3.1:8b"` (or another sensible
+      placeholder) to `DEFAULT_AGENT_MODELS` in `src/config.ts` to keep
+      the `Record<AgentName, string>` exhaustive.
+- [ ] Extend the `makeAgent` switch in `src/modes/patch/run.ts` with an
+      `"aider"` case returning `new AiderAgent({ model })`. Import
+      `AiderAgent` from `../../agents/aider.ts`.
+- [ ] Extend the equivalent switches in `src/modes/plan/draft.ts` and
+      `src/modes/plan/review.ts` the same way.
+- [ ] Search for any other exhaustive `switch (name)` or
+      `case "opencode"` sites that the compiler now flags and add the
+      `"aider"` branch (e.g. attribution / logging helpers).
 - [ ] Add tests for:
-      - Auto-bootstrap producing the new `patchModels.aider` placeholder.
-      - Legacy config without `patchModels.aider` loading with the
-        placeholder populated.
-      - `set-order claude,aider` succeeding.
-      - `set-order aider,aider` failing with a duplicate error.
-      - `set-order claude,nonsense` failing with an unknown-agent error.
+      - A config with `modes.patch.agentOrder` containing an `aider`
+        entry validates successfully.
+      - A config with two `aider` entries in the same `agentOrder`
+        fails with the existing duplicate-agent error.
+      - A config with `{ "agent": "aider", "model": "" }` fails with the
+        existing empty-model error.
+      - The patch-mode factory returns an `AiderAgent` instance for an
+        `{ agent: "aider", model: "..." }` entry.
 
 ## Acceptance criteria
 
-- [ ] `bun run typecheck` passes (exhaustive switches over `AgentName` now
-      also handle `"aider"`).
+- [ ] `bun run typecheck` passes — every exhaustive switch over
+      `AgentName` now also handles `"aider"`.
 - [ ] `bun test` passes including the new cases.
 - [ ] `bun run check` passes.
-- [ ] Running `jarvis config show` on a freshly bootstrapped config
-      includes `aider` in `patchModels` but **not** in `agentOrder`.
-- [ ] `jarvis run` against a spec with `agentOrder: ["aider"]` and the
-      placeholder model fails with the existing model-configuration exit
-      path, not a panic.
+- [ ] A config file with
+      `{"agent": "aider", "model": "ollama/llama3.1:8b"}` in
+      `modes.patch.agentOrder` loads without error.
+- [ ] The patch-mode factory returns an `AiderAgent` instance for that
+      entry (verified by the factory test).
+- [ ] Default config produced by `loadConfig` on a fresh
+      `~/.jarvis/config.json` still has the pre-existing
+      `modes.{patch,plan}.agentOrder` and does **not** include `aider`.
 
 ## Documentation updates
 

@@ -27,10 +27,13 @@ Mirror the existing agent modules — especially `src/agents/opencode.ts`,
 since opencode is the most recent "third-party CLI shaped like the others"
 addition. Add a fifth module `src/agents/aider.ts` that spawns `aider` in
 non-interactive mode with the prompt passed via `--message`. Expand
-`AgentName` to include `"aider"`. Update config validation and the agent
-factory so aider is selectable but **not** in the default `agentOrder` —
-users opt in explicitly via `jarvis config` or by editing
-`~/.jarvis/config.json`.
+`AgentName` (declared in both `src/agents/types.ts` and the `AGENT_NAMES`
+tuple in `src/config.ts`) to include `"aider"`, then add an `"aider"`
+case to the agent factories in `src/modes/patch/run.ts`,
+`src/modes/plan/draft.ts`, and `src/modes/plan/review.ts`. Aider is
+selectable but **not** in the default `modes.{patch,plan}.agentOrder` —
+users opt in by adding `{ "agent": "aider", "model": "..." }` to one of
+those arrays in `~/.jarvis/config.json`.
 
 The first subspec verifies the aider CLI flag surface (non-interactive
 invocation, model selection, auto-commit suppression, permission posture)

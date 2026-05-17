@@ -29,8 +29,13 @@ subspec documents the initial signal set and wires it into `quota.ts`.
   - `"quota exceeded"`.
   - `"insufficient_quota"` (OpenAI-compatible error code).
   - `"429"` appearing in an error line.
-- Initial **model_config signals** (case-insensitive, only when exit code
-  is non-zero):
+- `isModelConfigurationSignal` in `quota.ts` does **not** take an exit
+  code today — it is called from sites that have already established the
+  agent failed. Aider follows that contract: the new aider branch in
+  `isModelConfigurationSignal(name, stderr)` only inspects stderr.
+  Callers (existing code) decide when to run it.
+- Initial **model_config signals** (case-insensitive, matched on
+  stderr):
   - `"model not found"`.
   - `"unknown model"`.
   - `"unsupported model"`.
@@ -48,16 +53,26 @@ subspec documents the initial signal set and wires it into `quota.ts`.
 
 ## Tasks
 
-- [ ] Extend `src/agents/quota.ts` so `isQuotaSignal` and
-      `isModelConfigurationSignal` handle the `"aider"` agent name with the
-      substrings listed above.
-- [ ] Keep the implementation simple (a per-agent switch with an
-      aider-specific list is fine; do not refactor existing branches).
+- [ ] Add `aiderQuotaPatterns` and `aiderModelConfigurationPatterns`
+      arrays to `src/agents/quota.ts` mirroring the existing
+      `opencodeQuotaPatterns` / `opencodeModelConfigurationPatterns`
+      shape.
+- [ ] Extend the `switch (name)` inside `isQuotaSignal` to return
+      `aiderQuotaPatterns` for `"aider"` (keeping the existing
+      `exitCode === 0` guard).
+- [ ] Extend `isModelConfigurationSignal` so when `name === "aider"` it
+      runs `[...modelConfigurationPatterns, ...aiderModelConfigurationPatterns]`,
+      following the same pattern the function already uses for
+      `"opencode"`. Do not add an exit-code guard — the function does
+      not take one.
+- [ ] Do not refactor existing branches.
 - [ ] Add tests for each substring in both `isQuotaSignal` and
       `isModelConfigurationSignal` so regressions surface immediately.
-- [ ] Add a test that ensures a `code === 0` run does not get reclassified
-      as `quota` or `model_config` even when output contains a matching
-      substring.
+- [ ] Add a test that ensures `isQuotaSignal("aider", 0, stderr)` returns
+      `false` even when `stderr` contains a matching substring. (No
+      equivalent test is needed for `isModelConfigurationSignal` because
+      it has no exit-code argument and is only called after a failed
+      run.)
 - [ ] Document the signal set under an `## Aider` heading. First check
       whether quota signals are documented somewhere today (look for any
       existing file under `docs/` mentioning quota signals, or a section

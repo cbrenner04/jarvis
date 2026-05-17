@@ -8,6 +8,15 @@ implements the `Agent` interface from `src/agents/types.ts` and spawns
 `src/agents/opencode.ts` so the rest of the harness (fallback, quota
 detection, logging, attribution) does not change.
 
+This subspec adds the module file only. Extending `AgentName` (declared
+in both `src/agents/types.ts` and `src/config.ts`) and wiring the
+factories in `src/modes/patch/run.ts`, `src/modes/plan/draft.ts`, and
+`src/modes/plan/review.ts` lives in subspec 02. The new module is
+therefore unreferenced after this subspec lands; that's fine — landing
+it in isolation keeps the diff focused. Cast `"aider" as AgentName` in
+the class body the same way `opencode.ts` does today so the file
+typechecks before subspec 02 widens the union.
+
 ## Decisions
 
 - Binary name: `aider`.
@@ -82,8 +91,10 @@ Stream handling and exit-code interpretation are otherwise identical to
 - [ ] Spawn `aider` via `runAgent` with the argv finalized in subspec 00.
 - [ ] Wire stdout/stderr capture, error handling, and exit-code → kind
       mapping the same way `opencode.ts` does.
-- [ ] Export the class from wherever the other agent classes are exported
-      (mirror the existing pattern).
+- [ ] Export `AiderAgent` as a named export from `src/agents/aider.ts`,
+      mirroring how `OpencodeAgent` is exported from
+      `src/agents/opencode.ts`. There is no central barrel — the
+      factories in subspec 02 import directly from the module path.
 - [ ] Add a test under `test/` that:
       - Constructs `AiderAgent({ binary: <stub>, model: "ollama/llama3" })`.
       - Spawns against a stub binary or asserts argv via a spawn mock.

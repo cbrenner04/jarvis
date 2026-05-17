@@ -17,6 +17,14 @@ export type OpencodeAgentOptions = {
 
 const OPENCODE_MODEL_LABELS: Record<string, string> = {};
 
+export const OPENCODE_HAS_PRICED_MODELS = false;
+
+export function resolveOpencodePriceKey(
+  _model: string | undefined,
+): string | null {
+  return null;
+}
+
 export class OpencodeAgent implements Agent {
   readonly name = "opencode" as AgentName;
   readonly #binary: string;

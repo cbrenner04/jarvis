@@ -11,6 +11,10 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
+import {
+  agentHasPricedModels,
+  resolveAgentPriceKey,
+} from "./agents/price-keys.ts";
 
 let configWriteLocked = false;
 
@@ -417,6 +421,15 @@ function validateAgentOrder(
       );
     }
     seen.add(entry.agent);
+    if (
+      agentHasPricedModels(entry.agent) &&
+      resolveAgentPriceKey(entry.agent, entry.model) === null
+    ) {
+      fail(
+        file,
+        `${fieldName}[${i}].model: ${JSON.stringify(entry.model)} is not a known priced model for agent ${JSON.stringify(entry.agent)}`,
+      );
+    }
     agentOrder.push({ agent: entry.agent, model: entry.model });
   }
   return agentOrder;

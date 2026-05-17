@@ -1,10 +1,10 @@
 import type { AgentName, AgentResult } from "../../agents/types.ts";
-import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import {
   appendTelemetryLine,
   type PlanTelemetryPhase,
   type TelemetryKind,
 } from "../../telemetry.ts";
+import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 
 function telemetryKindForResult(r: AgentResult): TelemetryKind {
   switch (r.kind) {
@@ -71,7 +71,6 @@ export function createPlanTelemetryWriter(args: {
       durationMs: number;
       result: AgentResult;
     }): void {
-      const pricingModelId = opts.configuredModel ?? opts.agentCli;
       const kind = telemetryKindForResult(opts.result);
       const base = {
         ts: new Date().toISOString(),
@@ -90,7 +89,11 @@ export function createPlanTelemetryWriter(args: {
       seq += 1;
 
       if (opts.result.kind === "ok") {
-        const enriched = extractUsageAndCost(opts.result, pricingModelId);
+        const enriched = extractUsageAndCost(
+          opts.result,
+          opts.agentCli,
+          opts.configuredModel,
+        );
         appendTelemetryLine(args.telemetryPath, {
           ...base,
           ...enriched,

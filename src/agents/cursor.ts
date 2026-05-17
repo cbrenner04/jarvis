@@ -15,6 +15,18 @@ export type CursorAgentOptions = {
 
 const CURSOR_MODEL_LABELS: Record<string, string> = {};
 
+// Filled by subspec 04; empty until cursor pricing + estimation lands.
+const CURSOR_PRICE_KEYS: Record<string, string> = {};
+
+export const CURSOR_HAS_PRICED_MODELS = false;
+
+export function resolveCursorPriceKey(
+  model: string | undefined,
+): string | null {
+  if (model === undefined) return null;
+  return CURSOR_PRICE_KEYS[model] ?? null;
+}
+
 export class CursorAgent implements Agent {
   readonly name = "cursor" as const;
   readonly #binary: string;

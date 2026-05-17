@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runSummary, planSummary } from "../src/run-summary.ts";
+import { planSummary, runSummary } from "../src/run-summary.ts";
 
 function writeTelemetry(lines: object[]): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-run-summary-"));

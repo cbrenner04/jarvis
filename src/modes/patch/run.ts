@@ -35,7 +35,6 @@ import {
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { checkPrExists, ensureDraftPr, renderAttribution } from "../../pr.ts";
-import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -49,6 +48,7 @@ import {
   type TelemetryRecordRole,
   type UsageSource,
 } from "../../telemetry.ts";
+import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import {
   createWorktreeSymlinks,
   ensureWorktree,
@@ -699,7 +699,8 @@ function setupLogging(
     runNamespace,
     specDisplayName,
     hasTelemetryWrites: () => telemetryWrites,
-    patchIterationsCompletedForSummary: () => patchIterationsCompletedForSummary,
+    patchIterationsCompletedForSummary: () =>
+      patchIterationsCompletedForSummary,
   };
 }
 
@@ -833,8 +834,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     configuredPatchModelEntry?.model !== undefined
       ? { configured_model: configuredPatchModelEntry.model }
       : {};
-  const pricingModelId =
-    configuredPatchModelEntry?.model ?? agent.name;
+  const configuredPatchModel = configuredPatchModelEntry?.model;
 
   const task = getFirstUncheckedTask(specPath);
   const taskExcerpt = task.line.slice(0, 140);
@@ -966,7 +966,11 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
 
     if (result.kind === "ok") {
       // Extract usage and cost data from the agent result
-      const usageCost = extractUsageAndCost(result, pricingModelId);
+      const usageCost = extractUsageAndCost(
+        result,
+        agent.name,
+        configuredPatchModel,
+      );
       const iterationWarnings =
         result.warnings !== undefined && result.warnings.length > 0
           ? result.warnings

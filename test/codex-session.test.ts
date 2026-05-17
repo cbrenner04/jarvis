@@ -209,7 +209,10 @@ describe("listChangedCodexSessionFiles", () => {
 describe("sessionContentHasInvocationMarker", () => {
   test("detects marker in structured user_message", () => {
     const m = "<!-- jarvis-codex-invocation: x -->";
-    const content = [userMessageLine(`hello ${m}`), tokenLine({ input: 1, out: 1, cache: 0 })].join("\n");
+    const content = [
+      userMessageLine(`hello ${m}`),
+      tokenLine({ input: 1, out: 1, cache: 0 }),
+    ].join("\n");
     expect(sessionContentHasInvocationMarker(content, m)).toEqual({
       matched: true,
       usedRawFallback: false,
@@ -222,7 +225,9 @@ describe("sessionContentHasInvocationMarker", () => {
       type: "event_msg",
       payload: { type: "custom", note: `prefix ${m} suffix` },
     });
-    const content = [weird, tokenLine({ input: 1, out: 1, cache: 0 })].join("\n");
+    const content = [weird, tokenLine({ input: 1, out: 1, cache: 0 })].join(
+      "\n",
+    );
     const r = sessionContentHasInvocationMarker(content, m);
     expect(r.matched).toBe(true);
     expect(r.usedRawFallback).toBe(true);
@@ -231,7 +236,8 @@ describe("sessionContentHasInvocationMarker", () => {
 
 describe("sessionFileCwdsCompatible", () => {
   test("allows files with no cwd metadata", () => {
-    const content = userMessageLine("hi") + "\n" + tokenLine({ input: 1, out: 0, cache: 0 });
+    const content =
+      userMessageLine("hi") + "\n" + tokenLine({ input: 1, out: 0, cache: 0 });
     expect(sessionFileCwdsCompatible(content, "/any/cwd")).toBe(true);
   });
 
@@ -240,8 +246,14 @@ describe("sessionFileCwdsCompatible", () => {
       type: "session_meta",
       payload: { cwd: "/somewhere/else" },
     });
-    const content = [meta, userMessageLine("hi"), tokenLine({ input: 1, out: 0, cache: 0 })].join("\n");
-    expect(sessionFileCwdsCompatible(content, "/tmp/jarvis-project")).toBe(false);
+    const content = [
+      meta,
+      userMessageLine("hi"),
+      tokenLine({ input: 1, out: 0, cache: 0 }),
+    ].join("\n");
+    expect(sessionFileCwdsCompatible(content, "/tmp/jarvis-project")).toBe(
+      false,
+    );
   });
 });
 
@@ -257,7 +269,9 @@ describe("resolveCodexSessionUsage", () => {
       });
       expect(r.sessionFile).toBeNull();
       expect(r.usage).toBeNull();
-      expect(r.warnings.some((w) => w.includes("no session JSONL changed"))).toBe(true);
+      expect(
+        r.warnings.some((w) => w.includes("no session JSONL changed")),
+      ).toBe(true);
     });
   });
 
@@ -268,7 +282,10 @@ describe("resolveCodexSessionUsage", () => {
       const path = join(dir, "s.jsonl");
       writeFileSync(
         path,
-        [userMessageLine(`task ${m}`), tokenLine({ input: 3, out: 1, cache: 0 })].join("\n") + "\n",
+        [
+          userMessageLine(`task ${m}`),
+          tokenLine({ input: 3, out: 1, cache: 0 }),
+        ].join("\n") + "\n",
       );
       const r = resolveCodexSessionUsage({
         sessionsDir: dir,
@@ -291,14 +308,20 @@ describe("resolveCodexSessionUsage", () => {
       const unrelated = join(dir, "other.jsonl");
       writeFileSync(
         unrelated,
-        [userMessageLine("other session"), tokenLine({ input: 99, out: 99, cache: 0 })].join("\n") + "\n",
+        [
+          userMessageLine("other session"),
+          tokenLine({ input: 99, out: 99, cache: 0 }),
+        ].join("\n") + "\n",
       );
       const before = snapshotCodexSessionFiles(dir);
       const m = "<!-- jarvis-codex-invocation: ours -->";
       const ours = join(dir, "ours.jsonl");
       writeFileSync(
         ours,
-        [userMessageLine(`mine ${m}`), tokenLine({ input: 2, out: 0, cache: 0 })].join("\n") + "\n",
+        [
+          userMessageLine(`mine ${m}`),
+          tokenLine({ input: 2, out: 0, cache: 0 }),
+        ].join("\n") + "\n",
       );
       const r = resolveCodexSessionUsage({
         sessionsDir: dir,
@@ -317,7 +340,11 @@ describe("resolveCodexSessionUsage", () => {
       const m = "<!-- jarvis-codex-invocation: dup -->";
       const a = join(dir, "a.jsonl");
       const b = join(dir, "b.jsonl");
-      const body = [userMessageLine(`x ${m}`), tokenLine({ input: 1, out: 1, cache: 0 })].join("\n") + "\n";
+      const body =
+        [
+          userMessageLine(`x ${m}`),
+          tokenLine({ input: 1, out: 1, cache: 0 }),
+        ].join("\n") + "\n";
       writeFileSync(a, body);
       writeFileSync(b, body);
       const r = resolveCodexSessionUsage({
@@ -328,9 +355,13 @@ describe("resolveCodexSessionUsage", () => {
       });
       expect(r.sessionFile).toBeNull();
       expect(r.usage).toBeNull();
-      expect(r.warnings.some((w) => w.includes("multiple session files matched"))).toBe(true);
       expect(
-        r.warnings.some((w) => w.includes("multiple codex session files detected; using newest")),
+        r.warnings.some((w) => w.includes("multiple session files matched")),
+      ).toBe(true);
+      expect(
+        r.warnings.some((w) =>
+          w.includes("multiple codex session files detected; using newest"),
+        ),
       ).toBe(false);
     });
   });
@@ -340,7 +371,10 @@ describe("resolveCodexSessionUsage", () => {
       const before = snapshotCodexSessionFiles(dir);
       writeFileSync(
         join(dir, "s.jsonl"),
-        [userMessageLine("no marker here"), tokenLine({ input: 1, out: 0, cache: 0 })].join("\n") + "\n",
+        [
+          userMessageLine("no marker here"),
+          tokenLine({ input: 1, out: 0, cache: 0 }),
+        ].join("\n") + "\n",
       );
       const r = resolveCodexSessionUsage({
         sessionsDir: dir,
@@ -349,7 +383,9 @@ describe("resolveCodexSessionUsage", () => {
         cwd: dir,
       });
       expect(r.sessionFile).toBeNull();
-      expect(r.warnings.some((w) => w.includes("no changed session file matched"))).toBe(true);
+      expect(
+        r.warnings.some((w) => w.includes("no changed session file matched")),
+      ).toBe(true);
     });
   });
 });

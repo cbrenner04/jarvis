@@ -1,4 +1,10 @@
-import { type Dirent, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import {
+  type Dirent,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TelemetryUsage } from "../telemetry.ts";
@@ -56,7 +62,9 @@ export function getCodexSessionsDir(): string {
   return join(process.env.HOME ?? homedir(), ".codex", "sessions");
 }
 
-export function snapshotCodexSessionFiles(sessionsDir: string): CodexSessionsSnapshot {
+export function snapshotCodexSessionFiles(
+  sessionsDir: string,
+): CodexSessionsSnapshot {
   const map: CodexSessionsSnapshot = new Map();
   for (const f of listSessionFileStats(sessionsDir)) {
     map.set(f.path, { mtimeMs: f.mtimeMs, size: f.size });
@@ -114,7 +122,11 @@ export function sessionFileCwdsCompatible(
     } catch {
       continue;
     }
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
       continue;
     }
     const rec = parsed as Record<string, unknown>;

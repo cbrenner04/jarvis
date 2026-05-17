@@ -192,38 +192,18 @@ describe("run summary integration", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test("records no-price when configured model is missing from price table", async () => {
+  test("rejects unknown priced-model values at config load", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-summary-no-price-"));
-    const projectRoot = join(dir, "project");
     const cfgDir = join(dir, "cfg");
-    mkdirSync(projectRoot);
-    registerProject("project", projectRoot, { dir: cfgDir });
+    mkdirSync(cfgDir, { recursive: true });
+    registerProject("project", join(dir, "project"), { dir: cfgDir });
     const cfg = loadConfig({ dir: cfgDir });
-    cfg.git = false;
     cfg.modes.patch.agentOrder = [
       { agent: "codex", model: "not-a-priced-model-xyz" },
     ];
-    writeConfig(cfg, { dir: cfgDir });
-    const specPath = join(projectRoot, "index.md");
-    writeFileSync(specPath, "- [ ] todo\n");
-    const cap = captureIo();
-    const code = await runCommand({
-      specPath,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { codex: new FakeCodexNoUsd(specPath) },
-      skipGhCheck: true,
-      logClient: {
-        assertReachable: async () => {},
-        send: async () => {},
-      },
-      handleSignals: false,
-    });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("no-price");
-    expect(cap.out()).toContain("no price-table entry");
-    const telemetry = readFileSync(join(cfgDir, "runs.jsonl"), "utf8");
-    expect(telemetry).toContain('"cost_source":"no-price"');
+    expect(() => writeConfig(cfg, { dir: cfgDir })).toThrow(
+      /not a known priced model for agent "codex"/,
+    );
     rmSync(dir, { recursive: true, force: true });
   });
 });

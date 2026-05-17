@@ -57,7 +57,10 @@ exit ${opts.exit}
 }
 
 /** Bun fake that records argv/stdin/cwd and writes a correlatable Codex session JSONL. */
-function bunCodexFakeWithSession(sessionPath: string, sessionDir: string): string {
+function bunCodexFakeWithSession(
+  sessionPath: string,
+  sessionDir: string,
+): string {
   const binPath = join(dir, "codex");
   const script = `#!/usr/bin/env bun
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";

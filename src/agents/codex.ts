@@ -28,6 +28,18 @@ export type CodexAgentOptions = {
 
 const CODEX_MODEL_LABELS: Record<string, string> = {};
 
+const CODEX_PRICE_KEYS: Record<string, string> = {
+  "gpt-5.3-codex": "gpt-5.3-codex",
+  "gpt-5.5": "gpt-5.5",
+};
+
+export const CODEX_HAS_PRICED_MODELS = true;
+
+export function resolveCodexPriceKey(model: string | undefined): string | null {
+  if (model === undefined) return null;
+  return CODEX_PRICE_KEYS[model] ?? null;
+}
+
 export class CodexAgent implements Agent {
   readonly name = "codex" as const;
   readonly #binary: string;
@@ -99,17 +111,19 @@ export class CodexAgent implements Agent {
 
     if (resolved.usage !== null) {
       output.usage = resolved.usage;
-      try {
-        const prices = loadPrices();
-        const computed = computeCost(
-          resolved.usage,
-          this.#model ?? "codex-default",
-          prices,
-        );
-        output.cost_usd = computed.cost_usd;
-        output.cost_source = computed.cost_source ?? "computed";
-      } catch {
-        // best-effort: telemetry still records usage without cost
+      const priceKey = resolveCodexPriceKey(this.#model);
+      if (priceKey === null) {
+        output.cost_usd = null;
+        output.cost_source = "no-price";
+      } else {
+        try {
+          const prices = loadPrices();
+          const computed = computeCost(resolved.usage, priceKey, prices);
+          output.cost_usd = computed.cost_usd;
+          output.cost_source = computed.cost_source ?? "computed";
+        } catch {
+          // best-effort: telemetry still records usage without cost
+        }
       }
     }
 

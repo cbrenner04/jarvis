@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { planSummary } from "../src/run-summary.ts";
 import { createPlanTelemetryWriter } from "../src/modes/plan/plan-telemetry.ts";
+import { planSummary } from "../src/run-summary.ts";
 
 describe("plan telemetry + planSummary", () => {
   test("records hard-error then ok and surfaces error attempt note", () => {

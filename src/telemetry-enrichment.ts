@@ -1,3 +1,5 @@
+import { resolveAgentPriceKey } from "./agents/price-keys.ts";
+import type { AgentName } from "./agents/types.ts";
 import { computeCost } from "./prices/cost.ts";
 import { loadPrices } from "./prices/load.ts";
 import type { CostSource, UsageSource } from "./telemetry.ts";
@@ -29,8 +31,10 @@ export function extractUsageAndCost(
     };
     cost_usd?: number | null;
   },
-  pricingModelId: string,
+  agent: AgentName,
+  configuredModel: string | undefined,
 ): UsageCostFields {
+  const priceKey = resolveAgentPriceKey(agent, configuredModel);
   const output: UsageCostFields = {};
   if (result.usage_source === "unavailable") {
     output.usage = {
@@ -58,15 +62,20 @@ export function extractUsageAndCost(
   if (result.usage !== undefined) {
     output.usage = result.usage;
     output.usage_source = "agent";
-    try {
-      const prices = loadPrices();
-      const computedCost = computeCost(result.usage, pricingModelId, prices);
-      output.cost_usd = computedCost.cost_usd;
-      if (computedCost.cost_source !== null) {
-        output.cost_source = computedCost.cost_source;
+    if (priceKey === null) {
+      output.cost_usd = null;
+      output.cost_source = "no-price";
+    } else {
+      try {
+        const prices = loadPrices();
+        const computedCost = computeCost(result.usage, priceKey, prices);
+        output.cost_usd = computedCost.cost_usd;
+        if (computedCost.cost_source !== null) {
+          output.cost_source = computedCost.cost_source;
+        }
+      } catch {
+        // If price loading fails, leave usage without inferred cost fields.
       }
-    } catch {
-      // If price loading fails, leave usage without inferred cost fields.
     }
     return output;
   }

@@ -16,6 +16,7 @@ import {
   relative,
   resolve,
 } from "node:path";
+import { AiderAgent } from "../../agents/aider.ts";
 import { ClaudeAgent } from "../../agents/claude.ts";
 import { CodexAgent } from "../../agents/codex.ts";
 import { CursorAgent } from "../../agents/cursor.ts";
@@ -590,6 +591,8 @@ function makeAgent(name: AgentName, model: string, cfg: Config): Agent {
       return new CursorAgent({ model });
     case "opencode":
       return new OpencodeAgent({ model });
+    case "aider":
+      return new AiderAgent({ model });
   }
 }
 

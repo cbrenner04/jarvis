@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { AiderAgent } from "../../agents/aider.ts";
 import { ClaudeAgent } from "../../agents/claude.ts";
 import { CodexAgent } from "../../agents/codex.ts";
 import { CursorAgent } from "../../agents/cursor.ts";
@@ -105,6 +106,11 @@ function createAgent(agentName: AgentName, model: string | undefined): Agent {
         throw new Error("opencode agent requires model to be configured");
       }
       return new OpencodeAgent({ model });
+    case "aider":
+      if (!model) {
+        throw new Error("aider agent requires model to be configured");
+      }
+      return new AiderAgent({ model });
   }
 }
 

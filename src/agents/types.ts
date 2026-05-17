@@ -1,4 +1,4 @@
-export type AgentName = "claude" | "codex" | "cursor" | "opencode";
+export type AgentName = "claude" | "codex" | "cursor" | "opencode" | "aider";
 
 export type AgentResult =
   | {

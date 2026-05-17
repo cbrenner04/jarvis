@@ -116,6 +116,27 @@ describe("loadConfig", () => {
     expect(cfg.projects.jarvis).toEqual({ root: "/Users/me/jarvis" });
   });
 
+  test("accepts aider in patch agentOrder", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "aider", model: "ollama/llama3.1:8b" }],
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {},
+      }),
+    );
+
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.agentOrder).toEqual([
+      { agent: "aider", model: "ollama/llama3.1:8b" },
+    ]);
+  });
+
   test("defaults maxIterations when an existing config omits it", () => {
     writeFileSync(
       join(dir, "config.json"),
@@ -302,6 +323,23 @@ describe("loadConfig", () => {
     );
   });
 
+  test("rejects aider agentOrder entry with empty model", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: [{ agent: "aider", model: "  " }] },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.patch\.agentOrder\[0\]\.model/,
+    );
+  });
+
   test("rejects agentOrder entry with non-string model", () => {
     writeFileSync(
       join(dir, "config.json"),
@@ -463,6 +501,28 @@ describe("loadConfig", () => {
             agentOrder: [
               { agent: "claude", model: "haiku" },
               { agent: "claude", model: "sonnet" },
+            ],
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.patch\.agentOrder.*duplicate/,
+    );
+  });
+
+  test("rejects duplicate aider entries in patch agentOrder", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [
+              { agent: "aider", model: "ollama/llama3.1:8b" },
+              { agent: "aider", model: "ollama/qwen3:8b" },
             ],
           },
           plan: { agentOrder: CLAUDE_ONLY },

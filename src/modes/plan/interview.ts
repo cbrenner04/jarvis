@@ -115,24 +115,6 @@ export type InterviewTurnResult = {
   blocker?: string | undefined;
 };
 
-/**
- * Run a single interview turn: invoke agent and validate output.
- * Returns whether the interview should continue.
- */
-/**
- * Check if the agent output indicates use of the question tool.
- * This is a heuristic check based on stderr content.
- */
-function didUseQuestionTool(result: AgentResult): boolean {
-  if (result.kind !== "ok") {
-    return false;
-  }
-  // Check stderr for question tool markers. The harness/claude CLI should output
-  // some indication of tool usage. We use a simple heuristic here.
-  const diagnostics = result.stderr.toLowerCase();
-  return diagnostics.includes("question") || diagnostics.includes("tool");
-}
-
 export async function runInterviewTurn(opts: {
   worktreePath: string;
   name: string;
@@ -237,23 +219,8 @@ export async function runInterviewTurn(opts: {
       const expectedTurnHeader = `## Interview turn ${opts.turnNumber}`;
       const hasNewTurnSection = intentAfter.includes(expectedTurnHeader);
 
-      // Check if question tool was used
-      const usedQuestionTool = didUseQuestionTool(result);
-
       if (!wasModified && !hasNewTurnSection) {
-        // If the agent didn't modify intent but asked questions, that's an error
-        if (usedQuestionTool) {
-          return {
-            result: {
-              kind: "error",
-              exitCode: 1,
-              stderr: `interview: agent used question tool on turn ${opts.turnNumber} but did not write answers to intent.md`,
-            },
-            agentLabel,
-            continueInterview: false,
-          };
-        }
-        // Agent is done asking
+        // Agent ran successfully but didn't modify intent.md — treat as done asking.
         return {
           result,
           agentLabel,

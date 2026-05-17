@@ -2,48 +2,49 @@
 
 ## Problem
 
-The interview phase is intended to clarify fuzzy intents before draft generation, but recent plan PRs show that it does not reliably improve the resulting spec. The examples in the intent indicate that interview output can be too mechanical, can ask low-value questions, and can spend turns collecting preferences that do not change the eventual subspecs.
+Plan mode's "interview" phase is presented like it clarifies the user's intent, but current Jarvis behavior does not ask the user questions or show meaningful progress while the phase runs. The harness sends an interview prompt to an agent and waits. If the agent spends time in that phase, the user sees little or no feedback and cannot tell whether Jarvis is working, blocked, or collecting clarification somewhere invisible.
+
+The spec examples linked from the intent should therefore not be treated as evidence that the question quality is poor. The more basic failure is that there is no reliable user-facing interview interaction to review.
 
 ## Decisions
 
-- Treat this as an interview-quality fix, not a new product flow. Keep the existing number of turns, `question` tool shape, `intent.md` persistence contract, and blocker contract.
-- Update `src/modes/plan/prompts/interview.md` so the agent first decides whether there are genuine unknowns that would change the spec's scope, sequencing, acceptance criteria, or documentation requirements. If not, it should end the interview and proceed to naming.
-- Interview questions should be concrete product or implementation decisions. Avoid questions whose answer is already implied by the intent, the target repo conventions, or Jarvis spec guidance.
-- The prompt should require the agent to identify the downstream spec detail controlled by each question before it asks. That rationale must be captured in the persisted interview turn so review can distinguish useful clarification from preference collection.
-- The persisted rationale should use a stable, easy-to-validate text shape, for example `Why this matters: <one sentence>`, immediately before the matching question.
-- The updated persisted format should be explicit enough for tests to assert. A question entry should include the question header, a `Why this matters:` line, the exact question text, and the selected or typed answer.
-- If a turn asks no questions because the intent is already sufficient, the agent should either make a frontmatter-only naming update or append a short no-question `## Interview turn N` section using a stable sentence such as `No material clarification was needed before drafting.` The implementation should choose one contract and document it in the prompt and tests.
-- Keep multiple-choice batching, but cap each turn to the smallest useful set of questions. A single high-value question is preferable to filling the batch.
-- Do not attempt to enforce semantic quality at runtime. Runtime validation may enforce only structural safety, such as append-only edits and the presence of required `Why this matters:` lines when a turn section records questions. Use prompt text and fixture-agent tests to prevent regressions in question quality.
-- Naming remains required, but the name-only behavior should not force a fake interview question.
-- When the intent is sufficient, the persisted interview output should make that decision visible without inventing a question, for example by recording that no material clarification was needed before the proposed name.
-- Keep the current behavior that no disk change during an interview turn means the interview is done only if the implementation intentionally retains that contract; otherwise update the validation and tests so a skipped-question turn has one clear observable shape.
+- Treat this as an honesty and observability fix for the existing plan flow, not as a prompt-only "better questions" fix.
+- Do not rely on an agent-side `question` tool unless Jarvis actually wires a supported user-interaction channel through the agent invocation. If that bridge is not implemented in this subspec, remove or rewrite prompt text that tells agents to ask the user questions.
+- Preserve the existing `--interview-turns` option, turn budget, `intent.md` persistence contract, name proposal requirement, blocker contract, commits, and resume behavior unless a change is directly required to make interview behavior honest.
+- During each interview turn, default CLI output should show concise progress so the user can tell that interview mode is running. It should include at least a start line before the first agent invocation and a completion, skip, blocker, or failure line when the phase ends.
+- Progress output must not dump the full intent, prompt, worktree path, or other setup diagnostics that the CLI-verbosity subspec is meant to quiet.
+- If Jarvis keeps interview mode non-interactive, the interview prompt should frame the phase as intent analysis/refinement: the agent may append useful assumptions, discovered gaps, or a blocker to `intent.md`, but it must not pretend it received answers from the user.
+- If the agent cannot draft a useful spec without human clarification, it should append a `## Blocker` section explaining the missing decision instead of inventing answers or writing fake Q&A.
+- If a real user-question bridge is implemented instead, the prompt, runtime behavior, and tests must cover the actual CLI/user interaction path end to end. The user must visibly receive the questions and Jarvis must persist the user's actual answers.
+- A no-question/no-change interview completion remains valid only if it is observable in CLI output and covered by tests.
+- Runtime validation should remain structural: it should protect existing non-frontmatter intent content and reject malformed writes where needed. Do not try to enforce semantic interview quality at runtime.
 
 ## Tasks
 
-- [ ] Revise `src/modes/plan/prompts/interview.md` to emphasize decision-quality questions and early exit when no useful clarification is needed.
-- [ ] Update the required persisted `## Interview turn N` format to include a concise `Why this matters:` line per asked question.
-- [ ] Define and document the no-question persisted format, or explicitly preserve frontmatter-only naming as the no-question completion signal.
-- [ ] Adjust interview validation in `src/modes/plan/interview.ts` only where needed to support the chosen persisted format and reject structurally malformed interview-turn additions.
-- [ ] Add or update tests using stub agents for:
-  - no useful questions, name only,
-  - one useful clarifying question,
-  - multiple-choice batching without padding,
-  - preservation of seeded intent body content and leading frontmatter,
-  - rejection of malformed persisted interview content if validation is tightened.
+- [ ] Audit `src/modes/plan/interview.ts`, `src/modes/plan/prompts/interview.md`, and the plan command call sites to document what "interview" currently can and cannot do.
+- [ ] Update `src/modes/plan/prompts/interview.md` so it no longer promises invisible user questions. Either define the phase as non-interactive intent analysis or describe the real user-question bridge implemented by this subspec.
+- [ ] Add concise default CLI progress around the interview phase, including start and terminal outcome messages.
+- [ ] Preserve quiet output goals from the CLI-verbosity subspec: do not reintroduce setup diagnostics as interview progress.
+- [ ] Ensure blocker handling remains visible when interview mode determines that human clarification is required.
+- [ ] Update interview validation only where needed to support the chosen persisted format while preserving append-only protection for existing intent body content.
+- [ ] Add or update tests for:
+  - successful non-interactive interview completion with visible progress,
+  - no-change/name-only interview completion with visible progress,
+  - blocker output when clarification is required,
+  - prompt text that does not claim user questions are asked unless a real interaction bridge exists,
+  - preservation of seeded intent body content and leading frontmatter.
 
 ## Acceptance criteria
 
-- [ ] Interview prompt tells agents to ask only questions that would materially change the draft spec.
-- [ ] Interview prompt tells agents to skip questions and finish naming when the intent is already sufficient.
-- [ ] Persisted interview turns record why each asked question matters.
-- [ ] A no-question interview can complete without requiring a fake question.
-- [ ] If no-question completion is persisted as an interview turn, it can be resumed safely; if it completes through a frontmatter-only naming update, tests make that behavior explicit instead.
+- [ ] Interview mode no longer claims or implies that user questions are asked unless Jarvis actually shows those questions to the user and persists the answers.
+- [ ] Users see concise progress while the interview phase is running and a clear terminal interview outcome.
+- [ ] A non-interactive interview can complete without fake questions or fake answers.
+- [ ] Missing human clarification is represented as a visible blocker, not invented interview output.
+- [ ] Existing `--interview-turns`, turn budget, name proposal, blocker, commit, and resume behavior remain compatible.
 - [ ] Validation continues to reject edits to existing non-frontmatter intent content.
-- [ ] Existing `question` tool, turn budget, name proposal, and blocker behavior remain compatible.
-- [ ] Tests cover the updated interview behavior or prompt contract.
+- [ ] Tests cover the corrected interview behavior and prompt contract.
 - [ ] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 
-- Update docs in a later subspec in this spec tree. This subspec may update prompt comments only where they are part of the runtime behavior.
+- Update docs in a later subspec in this spec tree so plan-mode documentation describes what the interview phase actually does and what the user should expect to see in the terminal.

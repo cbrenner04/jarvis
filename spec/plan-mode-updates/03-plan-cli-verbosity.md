@@ -44,13 +44,13 @@ Those should be available to the log server, session log, or another existing de
 
 ## Acceptance criteria
 
-- [ ] Default successful plan output no longer prints inline intent, target project root, temporary plan name, worktree path, spec name, or rename details.
-- [ ] The omitted setup details are still recorded in the log server, session log, or equivalent debug logging path.
-- [ ] Phase-progress, PR, review, blocker, quota, and failure messages remain visible in the CLI.
-- [ ] File-mode output also avoids printing the full intent path as a normal successful setup diagnostic unless needed for an error.
-- [ ] Interactive-mode output remains usable in a terminal while still avoiding the noisy setup lines after naming succeeds.
-- [ ] Tests cover the quieter default output.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] Default successful plan output no longer prints inline intent, target project root, temporary plan name, worktree path, spec name, or rename details.
+- [x] The omitted setup details are still recorded in the log server, session log, or equivalent debug logging path.
+- [x] Phase-progress, PR, review, blocker, quota, and failure messages remain visible in the CLI.
+- [x] File-mode output also avoids printing the full intent path as a normal successful setup diagnostic unless needed for an error.
+- [x] Interactive-mode output remains usable in a terminal while still avoiding the noisy setup lines after naming succeeds.
+- [x] Tests cover the quieter default output.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

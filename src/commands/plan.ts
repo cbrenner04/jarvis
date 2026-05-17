@@ -74,6 +74,17 @@ export const PLAN_USAGE = `Usage: jarvis plan [--interview-turns <n>] [--review-
 const PLAN_STUB_MESSAGE =
   "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n";
 
+/** Best-effort harness log for plan setup diagnostics (mirrors patch-mode fanout style). */
+function planHarnessLog(logClient: LogClient, text: string): void {
+  void logClient
+    .send({
+      namespace: "jarvis",
+      text,
+      tag: "harness",
+    })
+    .catch(() => {});
+}
+
 function toKebabCase(str: string): string {
   return str
     .toLowerCase()
@@ -429,12 +440,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       opts.io.stderr(`${result.message}\n`);
       return result.exitCode;
     }
-    opts.io.stderr(`${describePlanInvocation(result.invocation)}\n`);
 
     const inv = result.invocation;
-    if (inv.mode === "interactive") {
-      opts.io.stderr("plan mode: interactive session started\n");
-    }
     // Resolve from a file-like path (matching run mode, which passes a spec
     // file). For inline/interactive plan modes there's no real intent file, so
     // synthesize one inside cwd: resolveProject's `dirname()` then yields cwd
@@ -478,9 +485,16 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return entry.exitCode;
     }
 
+    const planLogClient = entry.logClient;
+    planHarnessLog(planLogClient, describePlanInvocation(inv));
+    if (inv.mode === "interactive") {
+      opts.io.stderr("plan mode: interactive session started\n");
+    }
+
     const project = entry.resolution.resolved.project;
-    opts.io.stderr(
-      `plan mode: target project=${project.key} root=${project.root}\n`,
+    planHarnessLog(
+      planLogClient,
+      `plan mode: target project=${project.key} root=${project.root}`,
     );
 
     if (inv.mode === "interactive" && (inv.interviewTurns ?? 3) === 0) {
@@ -726,7 +740,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const tempPlanName = `${TEMP_PLAN_PREFIX}${tempId}`;
     let planName = tempPlanName;
     let specDirBasename = tempPlanName;
-    opts.io.stderr(`plan mode: temporary plan name=${tempPlanName}\n`);
+    planHarnessLog(
+      planLogClient,
+      `plan mode: temporary plan name=${tempPlanName}`,
+    );
 
     // Create worktree for file or inline mode (only if it's a git repo and gh is available)
     const isGitRepo = existsSync(join(project.root, ".git"));
@@ -743,7 +760,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath,
           cfg.worktreeSymlinks,
         );
-        opts.io.stderr(`plan mode: worktree created at ${worktreePath}\n`);
+        planHarnessLog(
+          planLogClient,
+          `plan mode: worktree created at ${worktreePath}`,
+        );
       } catch (err) {
         const message = (err as Error).message;
         // Handle local-only branch collision with a specific error message
@@ -893,7 +913,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       planName = await ensureUniquePlanName(project.root, chosenBaseName);
       const timestampPrefix = formatPlanSpecTimestamp();
       specDirBasename = `${timestampPrefix}-${planName}`;
-      opts.io.stderr(`plan mode: spec name=${planName}\n`);
+      planHarnessLog(planLogClient, `plan mode: spec name=${planName}`);
 
       const finalIntentBody = tempIntent.startsWith("---\n")
         ? tempIntent.replace(
@@ -954,8 +974,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             stdio: "pipe",
           });
         }
-        opts.io.stderr(
-          `plan mode: renamed worktree and branch to plan/${planName}\n`,
+        planHarnessLog(
+          planLogClient,
+          `plan mode: renamed worktree and branch to plan/${planName}`,
         );
       } catch (err) {
         const message =

@@ -46,7 +46,7 @@ flag names.
 - [x] [01 — Aider agent module](./01-aider-agent-module.md)
 - [x] [02 — Config and AgentName expansion](./02-config-and-agentname.md)
 - [x] [03 — Aider quota and model-config signals](./03-aider-signals.md)
-- [ ] [04 — Documentation](./04-documentation.md)
+- [x] [04 — Documentation](./04-documentation.md)
 
 ## Conventions
 

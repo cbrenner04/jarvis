@@ -1,7 +1,8 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CommitInfo } from "../../pr.ts";
-import { readBranchCommits } from "../../pr.ts";
+import { checkPrExists, readBranchCommits } from "../../pr.ts";
 
 /**
  * A single subspec entry parsed from `index.md`.
@@ -233,4 +234,35 @@ export function renderPlanAttribution(opts: {
     lines.push(`Written by ${labelOrder.join(", ")} through Jarvis.`);
   }
   return lines.join("\n");
+}
+
+export type MaybeMarkPlanPrReadyOpts = {
+  branch: string;
+  cwd: string;
+  /** Test seam: check if PR exists. Defaults to `checkPrExists`. */
+  checkPrExists?: (branch: string, cwd: string) => number | null;
+  /** Test seam: invoke `gh pr ready`. Defaults to `execFileSync`. */
+  markReady?: (branch: string, cwd: string) => void;
+};
+
+/**
+ * Mark the plan-mode PR ready for review by invoking `gh pr ready <branch>`.
+ * Skips silently if no PR exists. Throws on `gh` failure; callers wrap with
+ * try/catch and warn-and-continue.
+ */
+export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
+  const checkPr = opts.checkPrExists ?? checkPrExists;
+  const prNumber = checkPr(opts.branch, opts.cwd);
+  if (prNumber === null) {
+    return;
+  }
+
+  const mark = opts.markReady ?? ((branch, cwd) => {
+    execFileSync("gh", ["pr", "ready", branch], {
+      cwd,
+      env: process.env,
+      stdio: "pipe",
+    });
+  });
+  mark(opts.branch, opts.cwd);
 }

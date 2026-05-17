@@ -211,7 +211,7 @@ Plan mode stops in these cases:
 
 ### 1. All phases complete
 
-All draft and review passes finish without encountering a blocker. Jarvis exits `0`. The draft PR (opened after `plan: draft` lands) remains in draft status. The user reviews the PR, optionally edits the spec files, marks it ready for review, and merges it to `main`. After merge, the spec is available to `jarvis run` for implementation.
+All draft and review passes finish without encountering a blocker. Jarvis exits `0`. The draft PR (opened after `plan: draft` lands) is marked ready for review. The user reviews the PR, optionally edits the spec files, and merges it to `main`. After merge, the spec is available to `jarvis run` for implementation.
 
 ### 2. Blocker encountered
 
@@ -278,9 +278,9 @@ After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the 
 2. **Narrative section**: currently empty, preserved for future edits (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers).
 3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch. Plan-mode meta-commits (`plan: interview`, `plan: draft`, `plan: review N`, `plan: blocker`) are collapsed into a single summary line listing the count of collapsed commits and the deduped set of agents involved. Subspec commits are rendered individually, one bullet per commit, with a deduped summary line of all contributing agents.
 
-### Draft stays draft
+### Auto-mark ready on success
 
-Unlike patch mode (which marks the PR ready for review when the spec is complete), plan mode **never** marks the PR ready. The user reviews the draft PR, optionally edits the spec files on the branch, and manually marks it ready or merges it when satisfied.
+Like patch mode, plan mode marks the PR ready for review when the spec is complete (all phases finish without a blocker). If a blocker is encountered, the PR remains in draft status. The user reviews the PR, optionally edits the spec files on the branch, and merges it when satisfied.
 
 ### PR body updates
 

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildPlanPrHeader,
+  maybeMarkPlanPrReady,
   renderPlanAttribution,
 } from "../../../src/modes/plan/pr.ts";
 import {
@@ -138,6 +139,62 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(gitDir, { recursive: true, force: true });
+});
+
+describe("maybeMarkPlanPrReady", () => {
+  test("skips silently when PR does not exist", () => {
+    let checkPrCalled = false;
+    let markReadyCalled = false;
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      checkPrExists: (_branch, _cwd) => {
+        checkPrCalled = true;
+        return null;
+      },
+      markReady: () => {
+        markReadyCalled = true;
+      },
+    });
+
+    expect(checkPrCalled).toBe(true);
+    expect(markReadyCalled).toBe(false);
+  });
+
+  test("calls markReady when PR exists", () => {
+    let markReadyCalled = false;
+    let markReadyBranch = "";
+    let markReadyCwd = "";
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      checkPrExists: (_branch, _cwd) => 123,
+      markReady: (branch, cwd) => {
+        markReadyCalled = true;
+        markReadyBranch = branch;
+        markReadyCwd = cwd;
+      },
+    });
+
+    expect(markReadyCalled).toBe(true);
+    expect(markReadyBranch).toBe("feature");
+    expect(markReadyCwd).toBe(gitDir);
+  });
+
+  test("does not throw when markReady throws", () => {
+    expect(() => {
+      maybeMarkPlanPrReady({
+        branch: "feature",
+        cwd: gitDir,
+        checkPrExists: () => 123,
+        markReady: () => {
+          throw new Error("gh pr ready failed");
+        },
+      });
+    }).toThrow("gh pr ready failed");
+  });
 });
 
 describe("renderPlanAttribution", () => {

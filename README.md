@@ -229,27 +229,6 @@ Subcommands:
 See [docs/run-loop.md](docs/run-loop.md#token-usage-and-cost-tracking) for
 details on cost tracking and the price table schema.
 
-## Agents
-
-| Agent | CLI invoked | Notes |
-| --- | --- | --- |
-| `claude` | `claude -p --permission-mode acceptEdits` | Prompt is piped on stdin (non-interactive print mode). |
-| `codex` | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` keeps logs plain-text. |
-| `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; prompt is the trailing positional argument. |
-| `opencode` | `opencode run --dir <cwd> --model <provider/model> --format default <prompt>` | `--model` is required; output stays in plain-text transcript shape. |
-| `aider` | `aider --message "<prompt>" --model <provider/model> --yes-always --no-auto-commits --no-git --no-stream` | `--model` is required; prompt is passed via `--message`; `--yes-always` keeps runs non-interactive; `--no-auto-commits` keeps jarvis as the only committer. |
-
-Default fallback order remains `claude → codex → cursor`. `opencode` and
-`aider` are supported but opt-in.
-
-### Aider setup
-
-Aider is opt-in and is not included in the default `modes.patch.agentOrder`
-or `modes.plan.agentOrder`. Its primary use case in jarvis is local LLM runs,
-where you bring your own runtime. See
-[docs/agents.md#aider-setup](docs/agents.md#aider-setup) for setup and
-model-string examples.
-
 ## Documentation
 
 - [docs/run-loop.md](docs/run-loop.md) — iteration, completion, output

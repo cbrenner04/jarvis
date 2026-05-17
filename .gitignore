@@ -5,3 +5,4 @@ dist/
 .worktree/*
 !.worktree/.keep
 .claude/
+.aider*

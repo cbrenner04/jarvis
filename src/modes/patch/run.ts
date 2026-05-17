@@ -22,11 +22,6 @@ import { CursorAgent } from "../../agents/cursor.ts";
 import { OpencodeAgent } from "../../agents/opencode.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
-import {
-  HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
-  HARNESS_QUOTA_FALLBACK_STRICT,
-  harnessQuotaFallbackLenientLine,
-} from "../../quota-harness-messages.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
@@ -45,6 +40,11 @@ import type { LogClient } from "../../logging.ts";
 import { checkPrExists, ensureDraftPr, renderAttribution } from "../../pr.ts";
 import { computeCost } from "../../prices/cost.ts";
 import { loadPrices } from "../../prices/load.ts";
+import {
+  HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessQuotaFallbackLenientLine,
+} from "../../quota-harness-messages.ts";
 import { runSummary } from "../../run-summary.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import {

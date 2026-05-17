@@ -86,7 +86,10 @@ export function buildDraftPrompt(opts: {
 /**
  * Instantiate an agent from a config entry.
  */
-function defaultCreateAgent(agentName: AgentName, model: string | undefined): Agent {
+function defaultCreateAgent(
+  agentName: AgentName,
+  model: string | undefined,
+): Agent {
   switch (agentName) {
     case "claude":
       return new ClaudeAgent(model ? { model } : {});

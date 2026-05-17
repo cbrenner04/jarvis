@@ -10,7 +10,6 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { loadConfig } from "../config.ts";
 import type { LogClient } from "../logging.ts";
-import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import { enterMode } from "../mode-entry.ts";
 import {
   appendBoundaryBlocker,
@@ -33,6 +32,7 @@ import {
   validateReviewOutput,
 } from "../modes/plan/review.ts";
 import { ensureDraftPr, renderAttribution, updatePrBody } from "../pr.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import type { resolveTargetRepo } from "../repo.ts";
 import { createPlanWorktree, createWorktreeSymlinks } from "../worktree.ts";
 import {

@@ -130,7 +130,7 @@ Each pass is a single agent invocation; the agent does not decide when to stop o
 
 The draft PR opens after `plan: draft` is pushed (via the same `updatePrBody` helper patch mode uses). Each subsequent `plan: ...` commit triggers a PR-body rewrite that:
 
-1. Rebuilds the deterministic header (spec title and progress line).
+1. Rebuilds the deterministic header (spec title and file references).
 2. Rebuilds the attribution footer from `Jarvis-Agent` trailers on all plan commits on the branch (including `plan: interview`, `plan: draft`, and `plan: review N`).
 3. Preserves the narrative section between `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers unchanged.
 
@@ -211,7 +211,7 @@ Plan mode stops in these cases:
 
 ### 1. All phases complete
 
-All draft and review passes finish without encountering a blocker. Jarvis exits `0`. The draft PR (opened after `plan: draft` lands) remains in draft status. The user reviews the PR, optionally edits the spec files, marks it ready for review, and merges it to `main`. After merge, the spec is available to `jarvis run` for implementation.
+All draft and review passes finish without encountering a blocker. Jarvis exits `0`. The draft PR (opened after `plan: draft` lands) is marked ready for review. The user reviews the PR, optionally edits the spec files, and merges it to `main`. After merge, the spec is available to `jarvis run` for implementation.
 
 ### 2. Blocker encountered
 
@@ -274,13 +274,13 @@ There is no fallback to patch-mode order; both must be configured.
 
 After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. The PR title is `plan: <name>` (where `<name>` is the relative spec directory path). The PR body has three parts:
 
-1. **Deterministic header**: the H1 from `spec/<name>/index.md` (or `# Plan: <name>` when the index does not yet exist), a `## Progress: <checked>/<total>` line counting checked vs total subspec checkboxes in `index.md`, and a verbatim mirror of the `index.md` subspec checklist (each line preserved exactly as it appears in the index). When the index has zero subspecs, the progress line is hidden.
+1. **Deterministic header**: the H1 from `spec/<name>/index.md` (or `# Plan: <name>` when the index does not yet exist), followed by a short bullet list with references to the intent and index files.
 2. **Narrative section**: currently empty, preserved for future edits (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers).
 3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch. Plan-mode meta-commits (`plan: interview`, `plan: draft`, `plan: review N`, `plan: blocker`) are collapsed into a single summary line listing the count of collapsed commits and the deduped set of agents involved. Subspec commits are rendered individually, one bullet per commit, with a deduped summary line of all contributing agents.
 
-### Draft stays draft
+### Auto-mark ready on success
 
-Unlike patch mode (which marks the PR ready for review when the spec is complete), plan mode **never** marks the PR ready. The user reviews the draft PR, optionally edits the spec files on the branch, and manually marks it ready or merges it when satisfied.
+Like patch mode, plan mode marks the PR ready for review when the spec is complete (all phases finish without a blocker). If a blocker is encountered, the PR remains in draft status. The user reviews the PR, optionally edits the spec files on the branch, and merges it when satisfied.
 
 ### PR body updates
 

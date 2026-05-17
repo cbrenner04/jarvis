@@ -62,16 +62,16 @@ behavior, gated on a plan-mode notion of "complete."
 
 ## Acceptance criteria
 
-- [ ] A new helper in `src/modes/plan/pr.ts` marks the plan-mode PR ready
+- [x] A new helper in `src/modes/plan/pr.ts` marks the plan-mode PR ready
       for review by invoking `gh pr ready <branch>`, no-ops when no PR
       exists, and does not throw on `gh` failure.
-- [ ] On a successful `jarvis plan` run (no blocker appended to
+- [x] On a successful `jarvis plan` run (no blocker appended to
       `intent.md`), the plan PR ends in the non-draft "Open" state.
-- [ ] When plan mode appends a `## Blocker` to `intent.md`, the PR is
+- [x] When plan mode appends a `## Blocker` to `intent.md`, the PR is
       left in draft state.
-- [ ] `jarvis plan --resume` against an already-ready PR completes without
+- [x] `jarvis plan --resume` against an already-ready PR completes without
       error.
-- [ ] Tests cover: helper PR-exists path, helper no-PR path, helper
+- [x] Tests cover: helper PR-exists path, helper no-PR path, helper
       `gh`-failure path, integration happy path (ready), and integration
       blocker path (still draft).
 

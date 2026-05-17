@@ -25,7 +25,7 @@ import {
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import { runInterviewPhase } from "../modes/plan/interview.ts";
 import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
-import { buildPlanPrHeader } from "../modes/plan/pr.ts";
+import { buildPlanPrHeader, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
 import {
   hasWorkingTreeChanges,
   runReviewPass,
@@ -1460,6 +1460,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         `plan mode: commits created and pushed to plan/${specName}\n`,
       );
 
+      safeMarkPlanPrReady({
+        io: opts.io,
+        branch: planBranch,
+        worktreePath,
+      });
+
       return 0;
     }
 
@@ -1541,6 +1547,26 @@ function safeUpdatePrBody(args: {
   } catch (err) {
     args.io.stderr(
       `warning: could not update PR body: ${(err as Error).message}\n`,
+    );
+  }
+}
+
+/**
+ * Wrap `maybeMarkPlanPrReady` with the warn-and-continue pattern.
+ */
+function safeMarkPlanPrReady(args: {
+  io: PlanIo;
+  branch: string;
+  worktreePath: string;
+}): void {
+  try {
+    maybeMarkPlanPrReady({
+      branch: args.branch,
+      cwd: args.worktreePath,
+    });
+  } catch (err) {
+    args.io.stderr(
+      `warning: could not mark PR ready for review: ${(err as Error).message}\n`,
     );
   }
 }

@@ -310,13 +310,13 @@ After a plan-mode PR is merged, the worktree and branch can be removed with:
 jarvis cleanup
 ```
 
-This command finds all merged worktrees (detected via `.worktree/<type>-<name>/` conventions and matching merged branches on the remote) and removes both the worktree and the local branch. The `(plan)` tag in the dry-run output (`jarvis cleanup --dry-run`) marks plan-mode worktrees.
+This command finds all merged worktrees (detected via `.worktree/<type>-<name>/` conventions and matching merged branches on the remote), removes the worktree and local branch, then moves `spec/<name>/` to `spec/completed/<name>/` as an uncommitted local file move. The `(plan)` tag in the dry-run output (`jarvis cleanup --dry-run`) marks plan-mode worktrees.
 
 For manual cleanup of a specific plan worktree:
 
 ```sh
 rm -rf .worktree/plan-<name>
-git branch -D plan-<name>
+git branch -D plan/<name>
 ```
 
 ## Validation rules

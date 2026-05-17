@@ -719,7 +719,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }),
         );
       }
-      opts.io.stderr(`plan: complete (resume ${suffix})\n`);
       return 0;
     }
 
@@ -1533,12 +1532,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       } catch {
         // best-effort; completion still succeeds without a URL
       }
-      opts.io.stderr(`plan: complete\n`);
-
-      // For file/inline mode, commits were successfully created and pushed
-      opts.io.stderr(
-        `plan mode: commits created and pushed to plan/${planName}\n`,
-      );
 
       safeMarkPlanPrReady({
         io: opts.io,
@@ -1577,8 +1570,7 @@ export function renderPlanNextSteps(args: {
     `  2. Edit spec/${specDirBasename}/ on the plan branch as needed (locally or`,
     "     through GitHub), or run `jarvis plan --resume",
     `     spec/${specDirBasename}/index.md\` for another self-review pass.`,
-    "  3. Mark the PR ready for review and merge it to main.",
-    "  4. After the merge, implement the spec with:",
+    "  3. After the merge, implement the spec with:",
     `       jarvis run spec/${specDirBasename}/index.md`,
     "",
   ].join("\n");

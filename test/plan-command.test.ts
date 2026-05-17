@@ -66,16 +66,35 @@ function failingLogClient(message: string): LogClient {
 }
 
 describe("planCommand", () => {
-  test("renderPlanNextSteps includes PR URL and spec name command hints", () => {
+  test("renderPlanNextSteps includes PR URL and timestamped spec path command hints", () => {
+    const specDirBasename = "2026-05-17T123456-aider-agent";
     const text = renderPlanNextSteps({
       prUrl: "https://github.com/acme/repo/pull/123",
-      specName: "my-plan",
+      specDirBasename,
     });
     expect(text).toContain("Next steps:");
     expect(text).toContain("https://github.com/acme/repo/pull/123");
     expect(text).toContain("jarvis plan --resume");
-    expect(text).toContain("spec/my-plan/index.md");
-    expect(text).toContain("jarvis run spec/my-plan/index.md");
+    expect(text).toContain(`spec/${specDirBasename}/index.md`);
+    expect(text).toContain(`jarvis run spec/${specDirBasename}/index.md`);
+  });
+
+  test("successful-plan next steps omit ready-flip wording; plan.ts omits redundant stderr footers", () => {
+    const specDirBasename = "2026-05-17T123456-aider-agent";
+    const text = renderPlanNextSteps({
+      prUrl: "https://github.com/acme/repo/pull/555",
+      specDirBasename,
+    });
+    expect(text).not.toContain("Mark the PR ready");
+    expect(text).not.toContain("plan: complete");
+    expect(text).not.toContain("commits created and pushed");
+
+    const planSource = readFileSync(
+      join(dirname(__dirname), "src", "commands", "plan.ts"),
+      "utf8",
+    );
+    expect(planSource).not.toContain("`plan: complete");
+    expect(planSource).not.toContain("commits created and pushed to plan/");
   });
 
   test("plan mode invokes `gh pr ready` via maybeMarkPlanPrReady", () => {

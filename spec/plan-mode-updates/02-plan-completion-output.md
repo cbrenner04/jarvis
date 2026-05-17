@@ -38,13 +38,13 @@ The final output after a successful plan run contains two pieces of friction:
 
 ## Acceptance criteria
 
-- [ ] Successful plan output does not instruct the user to mark the PR ready for review.
-- [ ] Successful plan output does not include `plan: complete` or `plan mode: commits created and pushed to plan/<name>` as trailing footer lines.
-- [ ] The output still includes the PR URL, review/edit guidance, resume command, and `jarvis run spec/.../index.md` implementation command.
-- [ ] The resume and implementation commands use the timestamped spec path after subspec 00 is implemented.
-- [ ] Successful output does not add a new "PR marked ready" success line.
-- [ ] Blocker and error output remains unchanged except where it shares the same redundant success footer.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] Successful plan output does not instruct the user to mark the PR ready for review.
+- [x] Successful plan output does not include `plan: complete` or `plan mode: commits created and pushed to plan/<name>` as trailing footer lines.
+- [x] The output still includes the PR URL, review/edit guidance, resume command, and `jarvis run spec/.../index.md` implementation command.
+- [x] The resume and implementation commands use the timestamped spec path after subspec 00 is implemented.
+- [x] Successful output does not add a new "PR marked ready" success line.
+- [x] Blocker and error output remains unchanged except where it shares the same redundant success footer.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

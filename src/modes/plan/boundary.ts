@@ -15,7 +15,7 @@ export type BoundaryCheckResult =
  */
 export function assertPlanWriteBoundary(
   worktreePath: string,
-  name: string,
+  specDirBasename: string,
 ): BoundaryCheckResult {
   // Use git status --porcelain=v1 -z to get null-terminated output
   let output: string;
@@ -44,7 +44,7 @@ export function assertPlanWriteBoundary(
     const path = record.slice(3); // Skip "XY "
 
     // Check if path is within spec/<name>/
-    const isInSpec = path.startsWith(`spec/${name}/`);
+    const isInSpec = path.startsWith(`spec/${specDirBasename}/`);
 
     if (!isInSpec) {
       offendingPaths.push(path);
@@ -84,19 +84,19 @@ export function revertPaths(worktreePath: string, paths: string[]): void {
  */
 export function appendBoundaryBlocker(
   worktreePath: string,
-  name: string,
+  specDirBasename: string,
   offendingPaths: string[],
 ): void {
-  const intentPath = join(worktreePath, "spec", name, "intent.md");
+  const intentPath = join(worktreePath, "spec", specDirBasename, "intent.md");
 
   const pathList = offendingPaths.map((p) => `  - \`${p}\``).join("\n");
   const blockerSection = `## Blocker
 
-Out-of-bounds write detected. The following paths were modified outside \`spec/${name}/\` and have been reverted:
+Out-of-bounds write detected. The following paths were modified outside \`spec/${specDirBasename}/\` and have been reverted:
 
 ${pathList}
 
-Spec-file write boundary is enforced: only files under \`spec/${name}/\` may be modified.`;
+Spec-file write boundary is enforced: only files under \`spec/${specDirBasename}/\` may be modified.`;
 
   try {
     const currentContent = readFileSync(intentPath, "utf8");

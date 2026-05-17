@@ -2,53 +2,55 @@
 
 ## Problem
 
-Plan mode's "interview" phase is presented like it clarifies the user's intent, but current Jarvis behavior does not appear to add any information before drafting. In the example PRs linked from the intent, the interview commit contains `intent.md` verbatim from the seed intent, with no appended analysis, questions, answers, assumptions, or blocker.
+Plan mode has an "interview" phase, but with the current spawn-agent architecture it is not interactive. Jarvis runs an underlying agent CLI for the phase, waits for it to exit, then validates disk changes. There is no supported channel where that agent can pause, ask Jarvis structured questions, have Jarvis ask the terminal user, and resume the same agent turn with the answers.
 
-The failure is therefore more basic than low-quality questions or missing terminal feedback: the phase effectively does nothing useful today. The user cannot review interview output because there is no interview output beyond the original intent.
+The current prompt still describes the phase as if questions are asked and answers are collected. In the example PRs linked from the intent, the interview commit does not contain questions, answers, assumptions, analysis, or blockers. It just commits the seed `intent.md` verbatim. That means the interview phase is currently producing no reviewable value before drafting.
 
 ## Decisions
 
-- Treat this as a no-op interview fix for the existing plan flow, not as a prompt-only "better questions" fix.
-- The implementation must first make the interview phase produce a meaningful, reviewable result or explicitly remove/disable the phase. Do not keep committing a verbatim copy of the seed intent as if an interview happened.
-- Do not rely on an agent-side `question` tool unless Jarvis actually wires a supported user-interaction channel through the agent invocation. If that bridge is not implemented in this subspec, remove or rewrite prompt text that tells agents to ask the user questions.
-- Preserve the existing `--interview-turns` option, turn budget, `intent.md` persistence contract, name proposal requirement, blocker contract, commits, and resume behavior unless a change is directly required to make interview behavior honest.
-- During each interview turn, default CLI output should show concise progress so the user can tell that interview mode is running. It should include at least a start line before the first agent invocation and a completion, no-op/skip, blocker, or failure line when the phase ends.
-- Progress output must not dump the full intent, prompt, worktree path, or other setup diagnostics that the CLI-verbosity subspec is meant to quiet.
-- If Jarvis keeps interview mode non-interactive, the interview prompt should frame the phase as intent analysis/refinement: the agent may append useful assumptions, discovered gaps, or a blocker to `intent.md`, but it must not pretend it received answers from the user.
-- If the agent cannot draft a useful spec without human clarification, it should append a `## Blocker` section explaining the missing decision instead of inventing answers or writing fake Q&A.
-- If a real user-question bridge is implemented instead, the prompt, runtime behavior, and tests must cover the actual CLI/user interaction path end to end. The user must visibly receive the questions and Jarvis must persist the user's actual answers.
-- A no-change interview result must not be treated as successful interview work. It may be allowed only as an explicit skip/no-op path that is visible in CLI output and represented accurately in commits/PR body text.
-- Runtime validation should remain structural: it should protect existing non-frontmatter intent content and reject malformed writes where needed. Do not try to enforce semantic interview quality at runtime.
+- Define interview mode as non-interactive, period.
+- Remove prompt language that tells agents to ask the user questions, use a question tool, or record user answers.
+- Interview mode should be an intent-refinement pass. The agent may inspect the target repo and append useful planning context to `intent.md`, such as inferred constraints, assumptions, scope boundaries, risks, or draft-shaping notes.
+- If the intent is already sufficient and no useful refinement exists, interview mode must represent that honestly. It may append a stable skip/no-op note or skip creating an interview-content commit, but it must not commit the seed intent verbatim as if interview work happened.
+- If the agent needs human input before a useful spec can be drafted, it must append a `## Blocker` section to `intent.md` and stop. It must not invent answers or fake a Q&A transcript.
+- Preserve the existing `--interview-turns` option, turn budget, name proposal requirement, blocker contract, resume behavior, and append-only protection unless a change is directly required by this non-interactive contract.
+- Default CLI output should make the non-interactive interview phase observable with concise start and terminal outcome lines: refined, skipped/no-op, blocker, or failed.
+- Interview progress output must not print the full intent, prompt, worktree path, or setup diagnostics that the CLI-verbosity subspec is meant to quiet.
+- Runtime validation should remain structural. It should protect existing non-frontmatter intent content and validate the chosen appended interview/blocker/skip shape, but it should not try to judge the quality of the agent's reasoning.
 
 ## Tasks
 
 - [ ] Audit the example PR interview commits from the intent and the current `src/modes/plan/interview.ts` flow to confirm why `intent.md` is committed verbatim.
-- [ ] Update `src/modes/plan/prompts/interview.md` so it no longer promises invisible user questions. Either define the phase as non-interactive intent analysis or describe the real user-question bridge implemented by this subspec.
+- [ ] Rewrite `src/modes/plan/prompts/interview.md` around non-interactive intent refinement. Remove references to asking questions, batching questions, the `question` tool, and recording user answers.
+- [ ] Define the allowed persisted interview outcomes:
+  - appended refinement notes,
+  - appended `## Blocker`,
+  - explicit skip/no-op when no useful refinement is needed.
+- [ ] Stop representing a verbatim seed-intent commit as interview output. Either skip the interview commit when nothing changed, or commit an explicit skip/no-op marker so the result is reviewable.
 - [ ] Add concise default CLI progress around the interview phase, including start and terminal outcome messages.
-- [ ] Stop representing a verbatim seed-intent commit as meaningful interview output. Either append meaningful interview analysis/blocker content, skip the interview commit when nothing changed, or label the result clearly as skipped/no-op.
-- [ ] Preserve quiet output goals from the CLI-verbosity subspec: do not reintroduce setup diagnostics as interview progress.
-- [ ] Ensure blocker handling remains visible when interview mode determines that human clarification is required.
-- [ ] Update interview validation only where needed to support the chosen persisted format while preserving append-only protection for existing intent body content.
+- [ ] Preserve quiet output goals from the CLI-verbosity subspec; do not reintroduce setup diagnostics as interview progress.
+- [ ] Update interview validation only where needed to support the chosen persisted shapes while preserving append-only protection for existing intent body content.
 - [ ] Add or update tests for:
-  - current-regression coverage showing that verbatim seed-intent interview output is not treated as successful interview work,
-  - successful non-interactive interview completion that appends meaningful analysis or explicitly records a skip/no-op,
-  - name-only completion without pretending interview content was produced,
-  - blocker output when clarification is required,
-  - prompt text that does not claim user questions are asked unless a real interaction bridge exists,
+  - prompt text does not describe interactive questions or user answers,
+  - verbatim seed-intent output is not treated as successful interview work,
+  - successful non-interactive refinement appends reviewable content,
+  - explicit skip/no-op behavior when no refinement is needed,
+  - blocker behavior when human clarification is required,
   - preservation of seeded intent body content and leading frontmatter.
 
 ## Acceptance criteria
 
+- [ ] Interview mode is documented and implemented as non-interactive.
+- [ ] The interview prompt no longer tells agents to ask the user questions, use a question tool, or record user answers.
 - [ ] Interview mode no longer commits the original seed intent verbatim as if useful interview work happened.
-- [ ] Interview mode no longer claims or implies that user questions are asked unless Jarvis actually shows those questions to the user and persists the answers.
-- [ ] Users see concise progress while the interview phase is running and a clear terminal interview outcome.
-- [ ] A non-interactive interview can complete with meaningful appended analysis, an explicit skip/no-op result, or a blocker, without fake questions or fake answers.
-- [ ] Missing human clarification is represented as a visible blocker, not invented interview output.
-- [ ] Existing `--interview-turns`, turn budget, name proposal, blocker, commit, and resume behavior remain compatible.
+- [ ] A successful interview produces reviewable refinement content or an explicit skip/no-op result.
+- [ ] Missing human clarification is represented as a visible `## Blocker`, not invented answers.
+- [ ] Users see concise interview progress and a clear terminal interview outcome.
+- [ ] Existing `--interview-turns`, turn budget, name proposal, blocker, commit, and resume behavior remain compatible except where the no-op fix explicitly changes commit behavior.
 - [ ] Validation continues to reject edits to existing non-frontmatter intent content.
-- [ ] Tests cover the corrected interview behavior and prompt contract.
+- [ ] Tests cover the corrected non-interactive interview contract.
 - [ ] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 
-- Update docs in a later subspec in this spec tree so plan-mode documentation describes what the interview phase actually does and what the user should expect to see in the terminal.
+- Update docs in a later subspec in this spec tree so plan-mode documentation describes interview as non-interactive intent refinement and explains the possible outcomes: refinement, skip/no-op, blocker, or failure.

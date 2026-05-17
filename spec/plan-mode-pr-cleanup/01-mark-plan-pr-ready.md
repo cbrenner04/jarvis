@@ -44,10 +44,10 @@ behavior, gated on a plan-mode notion of "complete."
   `src/commands/plan.ts` once plan mode has finished without raising a
   blocker. Wrap the call in the same warn-and-continue pattern used for
   `updatePrBody` (see `src/commands/plan.ts` around line 1520+).
-- Remove the now-stale claim in `src/modes/plan/pr.ts` that "Plan mode never
-  marks this PR ready for review." If `[[00-simplify-plan-pr-body]]` has
-  already deleted the surrounding paragraph from the PR body, this is just
-  a code-comment cleanup.
+- If any code comment or string literal in `src/modes/plan/pr.ts` still
+  asserts "Plan mode never marks this PR ready for review" after
+  `[[00-simplify-plan-pr-body]]` lands, delete it. Skip if no occurrence
+  remains.
 - Add tests for the helper (PR exists → calls `gh pr ready`; no PR → no-op;
   `gh` failure → does not throw) and for the integration point (blocker
   present → not marked ready; happy path → marked ready). Follow the

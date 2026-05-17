@@ -52,7 +52,7 @@ function createTrackedWorktree(specName: string): string {
     cwd: projectRoot,
     stdio: "pipe",
   });
-  execSync(`git worktree add \"${worktreePath}\" ${specName}`, {
+  execSync(`git worktree add "${worktreePath}" ${specName}`, {
     cwd: projectRoot,
     stdio: "pipe",
   });
@@ -68,7 +68,7 @@ function createTrackedPlanWorktree(name: string): string {
     cwd: projectRoot,
     stdio: "pipe",
   });
-  execSync(`git worktree add \"${worktreePath}\" ${branch}`, {
+  execSync(`git worktree add "${worktreePath}" ${branch}`, {
     cwd: projectRoot,
     stdio: "pipe",
   });
@@ -132,7 +132,9 @@ describe("cleanupCommand", () => {
     expect(existsSync(worktreePath)).toBe(false);
     expect(existsSync(source)).toBe(false);
     expect(existsSync(destination)).toBe(true);
-    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# patch\n");
+    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe(
+      "# patch\n",
+    );
   });
 
   test("archives plan-mode spec from spec/<name>", () => {
@@ -214,7 +216,12 @@ describe("cleanupCommand", () => {
     createTrackedWorktree("ok-spec");
 
     const collidingSource = join(projectRoot, "spec", "collide-spec");
-    const collidingDestination = join(projectRoot, "spec", "completed", "collide-spec");
+    const collidingDestination = join(
+      projectRoot,
+      "spec",
+      "completed",
+      "collide-spec",
+    );
     const okSource = join(projectRoot, "spec", "ok-spec");
     const okDestination = join(projectRoot, "spec", "completed", "ok-spec");
 

@@ -56,12 +56,10 @@ export function parseIndex(indexPath: string): {
 /**
  * Build the deterministic header for a plan-mode PR body.
  *
- * The header has three parts (matching the global PR-body contract documented
- * in `AGENTS.md` § "PR attribution"): the spec H1 title, a `## Progress` line
- * counting checked vs total subspecs, and a verbatim mirror of the index
- * subspec checklist. When `index.md` does not yet exist (e.g., before the
- * first `plan: draft` commit), the header falls back to a minimal
- * description that does not block PR creation.
+ * The header is the spec H1 title followed by a short bullet list referencing
+ * the intent and index files. When `index.md` does not yet exist (e.g., before
+ * the first `plan: draft` commit), the header falls back to a minimal title
+ * that does not block PR creation.
  */
 export function buildPlanPrHeader(opts: {
   name: string;
@@ -77,30 +75,13 @@ export function buildPlanPrHeader(opts: {
 
   const titleLine =
     parsed.title !== "" ? `# ${parsed.title}` : `# Plan: ${opts.name}`;
-  const total = parsed.subspecs.length;
-  const checked = parsed.subspecs.filter((s) => s.checked).length;
 
-  const lines: string[] = [titleLine, ""];
-  if (total > 0) {
-    const progressLine = `## Progress: ${checked}/${total}`;
-    lines.push(progressLine, "");
-    for (const sub of parsed.subspecs) {
-      lines.push(sub.line);
-    }
-    lines.push("");
-  }
-  lines.push(
-    "This PR was authored by `jarvis plan`. It contains a generated",
-    `spec tree under \`spec/${opts.name}/\` for human review.`,
+  const lines: string[] = [
+    titleLine,
     "",
     `- Intent: \`spec/${opts.name}/intent.md\``,
     `- Index: \`spec/${opts.name}/index.md\``,
-    "",
-    "Plan mode never marks this PR ready for review. Once you have",
-    "reviewed (and edited) the spec, mark it ready and merge to `main`.",
-    "Implementation work begins in a separate run with `jarvis run",
-    `spec/${opts.name}/index.md\` after the merge.`,
-  );
+  ];
   return lines.join("\n");
 }
 

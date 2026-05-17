@@ -39,16 +39,16 @@ that matter, and stop there.
 
 ## Acceptance criteria
 
-- [ ] `buildPlanPrHeader` no longer emits a `## Progress: x/y` line.
-- [ ] `buildPlanPrHeader` no longer emits the verbatim index checklist
+- [x] `buildPlanPrHeader` no longer emits a `## Progress: x/y` line.
+- [x] `buildPlanPrHeader` no longer emits the verbatim index checklist
       inside the PR body.
-- [ ] `buildPlanPrHeader` no longer emits the "This PR was authored by
+- [x] `buildPlanPrHeader` no longer emits the "This PR was authored by
       `jarvis plan`..." paragraph or the "Plan mode never marks this PR
       ready for review..." paragraph.
-- [ ] The output still contains the H1 title (from `index.md` when present,
+- [x] The output still contains the H1 title (from `index.md` when present,
       else `# Plan: <name>`) and still references `spec/<name>/intent.md`
       and `spec/<name>/index.md` so reviewers can navigate to the files.
-- [ ] Tests covering `buildPlanPrHeader` are updated to match the new shape
+- [x] Tests covering `buildPlanPrHeader` are updated to match the new shape
       and pass.
 
 ## Documentation

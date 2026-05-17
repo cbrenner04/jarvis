@@ -26,12 +26,10 @@ describe("buildPlanPrHeader", () => {
     expect(header).toContain("# Plan: test");
   });
 
-  test("includes the 'plan mode never marks ready' paragraph", () => {
+  test("includes intent and index file references", () => {
     const header = buildPlanPrHeader({ name: "test" });
-    expect(header).toContain("Plan mode never marks this PR ready for review");
-    expect(header).toContain("mark it ready and merge to `main`");
-    expect(header).toContain("jarvis run");
-    expect(header).toContain("spec/test/index.md");
+    expect(header).toContain("- Intent: `spec/test/intent.md`");
+    expect(header).toContain("- Index: `spec/test/index.md`");
   });
 
   test("is deterministic - same input produces same output", () => {
@@ -46,9 +44,18 @@ describe("buildPlanPrHeader", () => {
     expect(header).not.toContain(">");
   });
 
-  test("omits Progress line when index has zero subspecs", () => {
+  test("never includes Progress line or checklist", () => {
     const header = buildPlanPrHeader({ name: "test" });
     expect(header).not.toContain("## Progress");
+    expect(header).not.toContain("- [ ]");
+    expect(header).not.toContain("- [x]");
+  });
+
+  test("does not include prose paragraphs about reviewing and merging", () => {
+    const header = buildPlanPrHeader({ name: "test" });
+    expect(header).not.toContain("This PR was authored by");
+    expect(header).not.toContain("Plan mode never marks");
+    expect(header).not.toContain("Implementation work begins");
   });
 });
 

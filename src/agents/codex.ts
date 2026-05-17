@@ -10,14 +10,13 @@
 // `--color never`: documented on `codex exec --help`; disables ANSI so session
 // logs match Claude/Cursor-style plain text more closely.
 
+import { randomUUID } from "node:crypto";
 import { computeCost } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
 import {
-  findCodexSessionFile,
-  findCodexSessionFilesSince,
   getCodexSessionsDir,
-  latestCodexSessionMtime,
-  parseCodexSessionUsage,
+  resolveCodexSessionUsage,
+  snapshotCodexSessionFiles,
 } from "./codex-session.ts";
 import { runAgent } from "./spawn.ts";
 import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
@@ -41,7 +40,10 @@ export class CodexAgent implements Agent {
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     const sessionsDir = getCodexSessionsDir();
-    const snapshotMtime = latestCodexSessionMtime(sessionsDir);
+    const beforeSnapshot = snapshotCodexSessionFiles(sessionsDir);
+    const invocationId = randomUUID();
+    const invocationMarker = `<!-- jarvis-codex-invocation: ${invocationId} -->`;
+    const augmentedPrompt = `${prompt}\n${invocationMarker}`;
 
     const result = await runAgent(
       {
@@ -64,13 +66,13 @@ export class CodexAgent implements Agent {
           return argv;
         },
         stdio: ["pipe", "pipe", "pipe"],
-        writeStdin: (stdin, prompt) => {
-          stdin.write(prompt);
+        writeStdin: (stdin, piped) => {
+          stdin.write(piped);
           stdin.end();
         },
         streamErrorPrefix: "codex:",
       },
-      prompt,
+      augmentedPrompt,
       opts,
     );
 
@@ -78,41 +80,29 @@ export class CodexAgent implements Agent {
       return result;
     }
 
-    const warnings: string[] = [];
-    let usage:
-      | {
-          input_tokens: number | null;
-          output_tokens: number | null;
-          cache_read_input_tokens: number | null;
-          cache_creation_input_tokens: number | null;
-        }
-      | undefined;
-
-    const newFiles = findCodexSessionFilesSince({ sessionsDir, snapshotMtime });
-    if (newFiles.length === 0) {
-      warnings.push("codex session file not found after invocation");
-    } else if (newFiles.length > 1) {
-      warnings.push(
-        `multiple codex session files detected; using newest: ${newFiles[0]} (also saw ${newFiles[1]})`,
-      );
-    }
-
-    const sessionFile = findCodexSessionFile({ sessionsDir, snapshotMtime });
-    if (sessionFile !== null) {
-      const parsed = parseCodexSessionUsage(sessionFile);
-      warnings.push(...parsed.warnings);
-      if (parsed.usage !== null) {
-        usage = parsed.usage;
-      }
-    }
+    const resolved = resolveCodexSessionUsage({
+      sessionsDir,
+      beforeSnapshot,
+      invocationMarker,
+      cwd: opts.cwd,
+    });
 
     const output: AgentResult = { ...result };
-    if (usage !== undefined) {
-      output.usage = usage;
+
+    if (resolved.sessionFile === null) {
+      output.usage_source = "unavailable";
+      output.cost_usd = null;
+      output.cost_source = "no-usage";
+      output.warnings = resolved.warnings;
+      return output;
+    }
+
+    if (resolved.usage !== null) {
+      output.usage = resolved.usage;
       try {
         const prices = loadPrices();
         const computed = computeCost(
-          usage,
+          resolved.usage,
           this.#model ?? "codex-default",
           prices,
         );
@@ -122,8 +112,9 @@ export class CodexAgent implements Agent {
         // best-effort: telemetry still records usage without cost
       }
     }
-    if (warnings.length > 0) {
-      output.warnings = warnings;
+
+    if (resolved.warnings.length > 0) {
+      output.warnings = resolved.warnings;
     }
     return output;
   }

@@ -292,10 +292,16 @@ When rates are `null` and no fallback exists, the bucket contributes `0` to the
 sum and `cost_source` is set to `"no-price"` to indicate incomplete data rather
 than zero cost.
 
-Codex usage is sourced from Codex's session JSONL output in
-`~/.codex/sessions/` after each `codex exec` invocation. Jarvis reads the
-newest session file created by that invocation and extracts the final running
-token totals from `token_count` events.
+Codex usage is **correlated** from Codex's session JSONL in `~/.codex/sessions/`
+after each `codex exec` invocation. Jarvis adds a unique per-invocation marker
+(an HTML comment) to the prompt, snapshots each session file's size and mtime
+beforehand, and considers only session files that are new or changed afterward.
+It records usage only when exactly one such file contains the marker in prompt
+events (with a documented whole-file substring fallback for older JSONL
+shapes), matches cwd metadata when Codex recorded it, and includes token-count
+events. If multiple files match or none do, the iteration still succeeds but
+telemetry uses `usage_source: "unavailable"` and `cost_source: "no-usage"` with
+an explanatory warning rather than attributing usage from the wrong session.
 
 Opencode usage is currently recorded as unavailable in telemetry
 (`usage_source: "unavailable"` and `cost_source: "no-usage"`). Jarvis prints a

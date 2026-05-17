@@ -5,6 +5,9 @@ import {
 } from "../../../src/modes/plan/draft.ts";
 import {
   buildInterviewPrompt,
+  classifyInterviewIntentOutcome,
+  INTERVIEW_SKIP_HEADING,
+  isValidInterviewSkipAddition,
   isValidInterviewTurnAddition,
 } from "../../../src/modes/plan/interview.ts";
 import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
@@ -141,6 +144,17 @@ describe("interview/name-only prompts", () => {
     expect(prompt).toContain("reserved (`index`, `intent`)");
   });
 
+  test("interview prompt does not describe interactive questions or question tools", () => {
+    const prompt = buildInterviewPrompt({
+      name: "n",
+      intent: "x",
+      specGuidance: "g",
+      turnsRemaining: 1,
+    });
+    expect(prompt).toContain("not interactive");
+    expect(prompt).toContain(INTERVIEW_SKIP_HEADING);
+  });
+
   test("name-only prompt injects intent and includes strict scope", () => {
     const prompt = buildNameOnlyPrompt({
       name: "test-name",
@@ -164,8 +178,7 @@ ${before}
 ## Interview turn 1
 
 ### Scope
-- Question: Should cleanup move only completed specs?
-- Answer: Yes
+Notes: inferred constraint.
 `;
 
     expect(isValidInterviewTurnAddition(before, after, 1)).toBe(true);
@@ -182,11 +195,42 @@ changed intent
 ## Interview turn 1
 
 ### Scope
-- Question: q
-- Answer: a
+- x
 `;
 
     expect(isValidInterviewTurnAddition(before, after, 1)).toBe(false);
+  });
+
+  test("accepts append-only interview skip section", () => {
+    const before = "seed intent\n";
+    const after = `${before}\n${INTERVIEW_SKIP_HEADING}\n\nNo further refinement.\n`;
+    expect(isValidInterviewSkipAddition(before, after)).toBe(true);
+  });
+
+  test("rejects interview skip when prior body was altered", () => {
+    const before = "seed intent\n";
+    const after = `changed\n${INTERVIEW_SKIP_HEADING}\n\nx\n`;
+    expect(isValidInterviewSkipAddition(before, after)).toBe(false);
+  });
+
+  test("classifyInterviewIntentOutcome prefers blocker over skip", () => {
+    expect(
+      classifyInterviewIntentOutcome(
+        `## Blocker\n\nmissing info\n\n${INTERVIEW_SKIP_HEADING}\n`,
+      ),
+    ).toBe("blocker");
+  });
+
+  test("classifyInterviewIntentOutcome detects explicit skip", () => {
+    expect(
+      classifyInterviewIntentOutcome(`# I\n\n${INTERVIEW_SKIP_HEADING}\n\nok\n`),
+    ).toBe("skipped");
+  });
+
+  test("classifyInterviewIntentOutcome defaults to refined when no blocker or skip heading", () => {
+    expect(classifyInterviewIntentOutcome("# Intent\n\n## Interview turn 1\n\nx")).toBe(
+      "refined",
+    );
   });
 });
 

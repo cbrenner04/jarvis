@@ -23,7 +23,10 @@ import {
   commitPlanReview,
 } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
-import { runInterviewPhase } from "../modes/plan/interview.ts";
+import {
+  runInterviewPhase,
+  type InterviewTerminalOutcome,
+} from "../modes/plan/interview.ts";
 import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
 import {
@@ -553,6 +556,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             opts.io.stderr(`plan: interrupted\n`);
             return 130;
           }
+          if (interviewResult.terminalOutcome !== undefined) {
+            opts.io.stderr(`plan: interview: ${interviewResult.terminalOutcome}\n`);
+          }
           if (hasWorkingTreeChanges(resume.worktreePath)) {
             commitPlanInterview({
               worktreePath: resume.worktreePath,
@@ -562,6 +568,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               completedTurns: interviewResult.completedTurns,
               subjectSuffix: suffix,
               resumedBy: interviewResult.agentLabel ?? "unknown",
+              ...(interviewResult.terminalOutcome === "skipped" ||
+              interviewResult.terminalOutcome === "blocker"
+                ? { interviewOutcome: interviewResult.terminalOutcome }
+                : {}),
             });
           }
           if (interviewResult.blocker !== undefined) {
@@ -788,6 +798,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       let interviewCompletedTurns = 0;
       let interviewBlocker: string | undefined;
       let interviewAgentLabel: string | null = null;
+      let interviewTerminalOutcome: InterviewTerminalOutcome | undefined;
 
       try {
         const interviewBudget = inv.interviewTurns ?? 3;
@@ -825,6 +836,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           interviewCompletedTurns = interviewResult.completedTurns;
           interviewAgentLabel = interviewResult.agentLabel;
           interviewBlocker = interviewResult.blocker;
+          interviewTerminalOutcome = interviewResult.terminalOutcome;
+          if (interviewResult.terminalOutcome !== undefined) {
+            opts.io.stderr(`plan: interview: ${interviewResult.terminalOutcome}\n`);
+          }
         } else if (inv.mode !== "interactive") {
           const namingResult = await runNameOnlyPhase({
             worktreePath,
@@ -977,6 +992,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             mode: inv.mode as "file" | "inline" | "interactive",
             intentPathOrLabel,
             completedTurns: interviewCompletedTurns,
+            interviewOutcome: "blocker",
           });
           opts.io.stderr(`plan mode: interview commit pushed\n`);
 
@@ -1027,6 +1043,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           mode: inv.mode as "file" | "inline" | "interactive",
           intentPathOrLabel,
           completedTurns: interviewCompletedTurns,
+          ...(interviewTerminalOutcome === "skipped" ||
+          interviewTerminalOutcome === "blocker"
+            ? { interviewOutcome: interviewTerminalOutcome }
+            : {}),
         });
         opts.io.stderr(`plan mode: interview commit pushed\n`);
       } catch (err) {

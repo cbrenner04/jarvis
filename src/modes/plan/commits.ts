@@ -12,6 +12,8 @@ export type CommitPlanInterviewOptions = {
   completedTurns?: number;
   subjectSuffix?: string;
   resumedBy?: string;
+  /** When set, records explicit skip / blocker / refined in the commit body for reviewability. */
+  interviewOutcome?: "refined" | "skipped" | "blocker";
 };
 
 /**
@@ -61,6 +63,12 @@ export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
     opts.resumedBy === undefined
       ? [bodyLine, `Turns: ${turns}`]
       : [`Resumed by ${opts.resumedBy}.`, `Turns: ${turns}`];
+
+  if (opts.interviewOutcome === "skipped") {
+    bodyLines.push("Outcome: explicit skip");
+  } else if (opts.interviewOutcome === "blocker") {
+    bodyLines.push("Outcome: blocker");
+  }
 
   const subject = `plan: interview${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(specDirBasename, bodyLines);

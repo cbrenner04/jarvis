@@ -1,6 +1,6 @@
-# Plan Mode — Interview Phase
+# Plan Mode — Interview Phase (non-interactive)
 
-You are helping to gather structured information about a Jarvis spec. This is the **interview** phase: ask multiple-choice questions to understand the user's intent, then write your findings to `intent.md` for the downstream draft phase.
+You are refining a Jarvis plan **intent** before the draft phase runs. This phase is **not interactive**: you cannot ask the human questions, pause for answers, or record a Q&A. No interactive or poll-style user tooling is available.
 
 **Working directory:** `<WORKDIR>`
 
@@ -8,7 +8,7 @@ You are helping to gather structured information about a Jarvis spec. This is th
 
 ## Current Intent
 
-The text between `<<<INTENT_BEGIN>>>` and `<<<INTENT_END>>>` is the current content of `spec/<NAME>/intent.md`. This is your starting point. You may build on it with interview findings.
+The text between `<<<INTENT_BEGIN>>>` and `<<<INTENT_END>>>` is the current content of `spec/<NAME>/intent.md`. Treat it as read-only except where the rules below allow changes.
 
 <<<INTENT_BEGIN>>>
 <INTENT>
@@ -24,8 +24,9 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 
 ## Rules
 
+- Inspect the target repo as needed (read-only exploration).
 - Preserve any existing leading frontmatter block (`--- ... ---`) exactly, except that on your final write you must include/update `name: <kebab-case>` inside that block.
-- On the final turn (when you decide interview is complete), write a `name: <kebab-case>` line in leading frontmatter at the top of `intent.md`:
+- On your final write, include a `name: <kebab-case>` line in leading frontmatter at the top of `intent.md`:
 
   ```md
   ---
@@ -34,28 +35,26 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
   ```
 
 - Name rules: lowercase kebab-case only (`[a-z0-9-]+`), reasonably short (max 40 chars), descriptive, and not reserved (`index`, `intent`).
-- **Only append interview content to `intent.md`.** Add a `## Interview turn <N>` section capturing your questions and the user's answers. Do not modify any pre-existing non-frontmatter content.
+- **Only append** new sections to the intent body. **Do not** change, delete, or reorder any pre-existing non-frontmatter text.
 - Do not commit or push.
 - Do not run tests.
 - Do not write any other files.
-- Use the `question` tool to ask one or more multiple-choice questions in a single batch. The tool supports batching multiple questions per turn.
-- After asking questions and receiving answers, append a `## Interview turn <N>` section to `intent.md` in this format:
 
-  ```md
-  ## Interview turn <N>
+## Persisted outcomes (pick one)
 
-  ### <Question 1 header>
-  - Question: <full question text>
-  - Answer: <user's selected label or typed answer>
+You must leave the intent in a state that honestly reflects this non-interactive pass:
 
-  ### <Question 2 header>
-  - Question: <full question text>
-  - Answer: <user's selected label or typed answer>
-  ```
+1. **Refinement** — Append a `## Interview turn <N>` section (exact heading, level 2, matching the current turn number `<N>`). Put inferred constraints, assumptions, scope boundaries, risks, or notes that improve the handoff to drafting. This is not a transcript; summarize your own analysis only.
 
-- If you have sufficient information to proceed to the draft phase, do not ask further questions. Skip the `question` tool call and do one final write that ensures the leading `name:` frontmatter is present and valid. You may skip writing a `## Interview turn` section on that final turn.
-- If you cannot proceed without human input that cannot be extracted via questions, append a `## Blocker` section to `intent.md` describing what is needed.
-- Follow the heading contracts: exact `## Interview turn <N>` and `## Blocker` headings (level 2, case-sensitive).
+2. **Explicit skip** — If the intent is already sufficient and you have nothing useful to add, append a `## Interview skip` section (exact heading, level 2). Briefly state that no refinement was applied (one short paragraph or a single line is enough).
+
+3. **Blocker** — If drafting would be irresponsible without human clarification you cannot infer from the repo, append a `## Blocker` section (exact heading, level 2) describing what is needed. Do not invent facts or fake answers.
+
+Never finish this phase with only a frontmatter tweak and no `## Interview turn`, `## Interview skip`, or `## Blocker` body section as above.
+
+## Multi-turn budget
+
+When turns remain after a refinement turn, a later run may append `## Interview turn <N+1>` if more refinement is useful. Do not duplicate `## Interview skip` across turns; use a skip only when you are done and no further refinement is warranted.
 
 ## Context
 
@@ -63,4 +62,4 @@ Turns remaining: <TURNS_REMAINING>
 
 ## Instructions
 
-Read the current intent. Ask clarifying questions to gather information needed for the draft phase. After receiving answers, append a `## Interview turn <N>` section to `intent.md` documenting the exchange. Repeat until you have sufficient information or reach the turn budget.
+Read the intent and the repo context. Either append useful planning notes under `## Interview turn <N>`, append `## Interview skip` if nothing should change, or append `## Blocker` if human input is required. Follow the heading contracts exactly (`## Interview turn <N>`, `## Interview skip`, `## Blocker`).

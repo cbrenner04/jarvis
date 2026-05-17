@@ -18,25 +18,25 @@ Wrong usage is worse than missing usage: it can make the run summary charge one 
   - After Codex exits, list files that are new or whose size or mtime differs from the snapshot.
   - Parse only those candidate files.
 - Correlate candidates with hard filters rather than "newest wins":
-  - The session file must contain the invocation marker in a user prompt or another stable Codex session event.
+  - The session file must contain the invocation marker in a structured prompt/input event. Use raw whole-file substring matching only as a documented compatibility fallback for known Codex JSONL shapes that do not expose prompt text in a stable field.
   - If the session file contains cwd metadata, it must match the cwd Jarvis passed to the Codex agent.
   - The session file must contain token-count events before usage can be recorded.
 - If exactly one candidate matches the invocation, use it.
 - If zero candidates match, record unavailable usage with one warning.
-- If multiple candidates match, record unavailable usage with one warning naming the candidate paths. Do not choose newest in this case.
+- If multiple candidates match, record unavailable usage with one warning naming the candidate paths. Do not choose newest in this case, and do not print the old `multiple codex session files detected; using newest` message.
 - Keep session files read-only. Do not move, truncate, or copy Codex-owned session data.
 - Preserve existing parse behavior for a uniquely correlated file: malformed non-usage lines remain non-fatal, token totals come from the final cumulative token-count event, and missing price entries produce `cost_source: "no-price"`.
-- Keep the public helper small and testable. A good shape is a single `resolveCodexSessionUsage({ sessionsDir, beforeSnapshot, invocationMarker, cwd })` helper that returns `{ usage, warnings, sessionFile }`, with lower-level snapshot and parser helpers exported only where tests need them.
+- Keep the public helper small and testable. A good shape is a single `resolveCodexSessionUsage({ sessionsDir, beforeSnapshot, invocationMarker, cwd })` helper that returns `{ usage, warnings, sessionFile }`, with lower-level snapshot and parser helpers exported only where tests need them. The return value must distinguish "no correlated session" from "correlated session with parse warnings" so caller telemetry can preserve warnings without treating all warnings as successful usage.
 
 ## Tasks
 
 - [ ] Update `src/agents/codex-session.ts` to expose a snapshot type that records path, mtime, and size for all session JSONL files.
 - [ ] Add candidate detection that returns files created or changed compared with the snapshot, not every file newer than the previous maximum mtime.
 - [ ] Add per-invocation marker generation in `src/agents/codex.ts` and append the marker to the prompt passed to `codex exec`.
-- [ ] Add marker-based correlation for Codex session JSONL files by parsing structured JSONL events instead of raw substring matching across the whole file where practical.
+- [ ] Add marker-based correlation for Codex session JSONL files by parsing structured JSONL events first, with any raw substring fallback isolated and covered by tests.
 - [ ] Add cwd-aware correlation when the Codex session JSONL contains cwd metadata, while still allowing files from older Codex versions that omit cwd metadata.
 - [ ] Change ambiguous multi-match behavior from "use newest" to "record unavailable usage with a warning".
-- [ ] Update `src/agents/codex.ts` to use the new invocation-scoped resolver and to emit at most one missing or ambiguous session warning per invocation.
+- [ ] Update `src/agents/codex.ts` to use the new invocation-scoped resolver and to emit at most one missing or ambiguous session warning per invocation, with no "using newest" fallback wording.
 - [ ] Add or update Codex session fixtures covering a matching marker, a non-matching marker from another session, omitted cwd metadata, mismatched cwd metadata, and two matching candidates.
 - [ ] Add unit tests for new/changed candidate detection, zero-match behavior, unique-match behavior, and multi-match ambiguity.
 - [ ] Add an agent-level regression test showing that concurrent unrelated Codex session files do not get charged to the current invocation.
@@ -46,6 +46,7 @@ Wrong usage is worse than missing usage: it can make the run summary charge one 
 - [ ] Jarvis records Codex usage only when exactly one changed session file correlates to the unique invocation marker for the Codex invocation it just ran.
 - [ ] If an interactive Codex session in the same repository writes a session file during `jarvis run`, Jarvis does not attribute that unrelated file's usage to the Jarvis iteration.
 - [ ] If more than one candidate file contains the same invocation marker, the affected iteration records unavailable usage instead of choosing the newest file.
+- [ ] Ambiguous or missing Codex usage does not print `multiple codex session files detected; using newest`.
 - [ ] Existing valid Codex session fixtures still produce the same token totals and computed cost as before.
 - [ ] Codex ambiguity warnings are persisted on the telemetry record so the summary can report them.
 - [ ] `bun run typecheck` passes.

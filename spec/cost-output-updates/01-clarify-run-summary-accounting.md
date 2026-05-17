@@ -24,10 +24,12 @@ This makes the output harder to trust, especially when a fallback agent complete
 - Do not report "mixes cost sources" for a combination of real cost sources and `no-usage` or `unavailable` records. Missing usage/cost belongs in explicit notes.
 - Only report mixed cost sources when the same agent has multiple meaningful cost-source strategies for records with usage, such as `agent`, `computed`, and `no-price`.
 - Make the summary model-aware where possible:
-  - Rows should identify the configured agent label or model when telemetry has it.
-  - If an agent supplies usage but no cost and the harness can compute cost for the configured model, report `computed` rather than `unavailable`.
+  - Telemetry should persist the configured agent label and configured model id from the mode's selected `agentOrder` entry at invocation time.
+  - Rows should identify the configured agent label or model when telemetry has it, while preserving the CLI name for grouping and diagnostics.
+  - If an agent supplies usage but no cost and the harness can compute cost for the configured model id, report `computed` rather than `unavailable`. Do not fall back to the bare agent name when a configured model id is available.
   - If no price exists for the configured model, report `no-price` with the existing note.
 - Preserve existing total-cost behavior: sum known costs, exclude null costs, and add a note for excluded null-cost records.
+- Preserve telemetry compatibility by adding optional fields. Existing records without the new role, mode, label, or model fields should still be readable and summarized using the old namespace, agent, iteration, kind, usage, and cost fields.
 
 ## Tasks
 
@@ -36,8 +38,10 @@ This makes the output harder to trust, especially when a fallback agent complete
 - [ ] Update `src/run-summary.ts` aggregation so quota-only records and terminal run records do not create normal cost-table iteration rows.
 - [ ] Add summary notes for quota attempts, grouped by agent, such as `<n> quota attempt(s) under <agent> were excluded from usage totals.`
 - [ ] Change mixed-cost-source notes to consider only records with usage and a meaningful cost source (`agent`, `computed`, or `no-price`).
-- [ ] Include the configured agent label or model in telemetry and summary output where that data is already available from the agent order.
+- [ ] Include the configured agent label and configured model id in telemetry and summary output where that data is available from the mode's selected agent order entry.
+- [ ] Update cost enrichment so usage-only agent results compute cost from the configured model id before falling back to legacy agent-name pricing behavior.
 - [ ] Update `src/modes/patch/run.ts` telemetry writes so successful fallback behavior produces one completed iteration for the agent that actually ran successfully.
+- [ ] Keep existing telemetry files readable by treating missing role/mode/model fields as legacy patch invocation records.
 - [ ] Add focused tests for quota fallback followed by success, terminal record exclusion, real cost plus unavailable usage, computed fallback cost, no-price records, and null-cost total notes.
 - [ ] Update any snapshots or integration tests that assert the old row labels or mixed-source wording.
 
@@ -48,6 +52,8 @@ This makes the output harder to trust, especially when a fallback agent complete
 - [ ] A completing run with one successful agent invocation and one terminal telemetry record does not double-count the successful invocation's usage, cost, or row count.
 - [ ] A Claude run with one real cost record and one unavailable/no-usage record does not print `claude mixes cost sources: agent, unavailable`.
 - [ ] Mixed-source notes still appear when an agent has multiple meaningful cost sources for records with usage.
+- [ ] A usage-only record for a configured model with a price-table entry is rendered with `source` `computed` and a known cost, even when the CLI name alone would not identify a priced model.
+- [ ] A usage-only record for a configured model without a price-table entry is rendered with `source` `no-price` and an explicit no-price note.
 - [ ] The total row includes only known costs and keeps a note for null costs excluded from the total.
 - [ ] `bun run typecheck` passes.
 - [ ] `bun test` passes.

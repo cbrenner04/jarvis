@@ -15,6 +15,7 @@ The implementation should not copy patch-mode summary logic into plan mode. The 
 - Include plan phase information in telemetry, such as `interview`, `name-only`, `draft`, or `review`, so plan summaries can explain where usage came from.
 - Plan mode has agent attempts rather than patch-mode task iterations. The plan summary should label counts as `attempts` or `phase attempts`, not implementation iterations.
 - Plan mode quota fallback should be represented the same way as patch mode after subspec 01: quota-only attempts are notes, not normal usage rows.
+- Plan mode should use the same cost enrichment path as patch mode: if an agent result includes usage but no cost, compute cost from the configured plan-mode model id when the price table has a matching entry.
 - Extract shared summary-building code so both modes can call it with mode-specific metadata:
   - shared record filtering and aggregation
   - shared cost-source and null-cost notes
@@ -26,14 +27,16 @@ The implementation should not copy patch-mode summary logic into plan mode. The 
 ## Tasks
 
 - [ ] Refactor `src/run-summary.ts` into shared aggregation/formatting helpers that can render both patch and plan summaries without duplicating cost-source logic.
-- [ ] Add plan-mode telemetry writes around every agent invocation in interview, name-only, draft, and review phases.
+- [ ] Extract shared result-to-telemetry enrichment from patch mode so patch and plan both apply the same usage, cost, warning, configured model, and configured label semantics.
+- [ ] Add plan-mode telemetry writes around every agent invocation in interview, name-only, draft, and review phases, including failed attempts that participate in fallback.
 - [ ] Persist mode, agent warnings, usage, cost, agent label/model, phase, attempt number, and result kind for plan invocations.
 - [ ] Add a plan summary renderer that uses the shared aggregation helper and labels counts as attempts or phase attempts.
-- [ ] Wire `src/commands/plan.ts` finalization paths to print the plan summary exactly once when at least one plan agent invocation wrote telemetry.
+- [ ] Wire `src/commands/plan.ts` and the phase helpers under `src/modes/plan/` so finalization paths print the plan summary exactly once when at least one plan agent invocation wrote telemetry.
 - [ ] Ensure plan quota fallback uses the same excluded-attempt note behavior as patch mode.
+- [ ] Ensure plan hard-error fallback behavior is represented accurately: failed error attempts without usage are notes, while later successful fallback attempts are counted as attempts with usage when available.
 - [ ] Ensure patch-mode summaries filter out plan-mode telemetry records and plan-mode summaries filter out patch-mode telemetry records.
 - [ ] Add unit tests for the shared summary aggregator that cover both patch-mode and plan-mode labels, mode filtering, warning notes, null-cost notes, and excluded quota attempts.
-- [ ] Add plan-mode integration tests with stubbed agents that verify summaries are printed for success, blocker, agent error, and quota fallback, and omitted for pre-agent failures.
+- [ ] Add plan-mode integration tests with stubbed agents that verify summaries are printed for success, blocker, all-agents quota, hard-error fallback, and terminal agent error, and omitted for pre-agent failures.
 
 ## Acceptance criteria
 
@@ -41,6 +44,7 @@ The implementation should not copy patch-mode summary logic into plan mode. The 
 - [ ] Plan-mode blocker or all-agents-quota exits include a summary when at least one agent invocation occurred.
 - [ ] Plan-mode preflight/configuration failures before any agent invocation do not print a summary.
 - [ ] Plan summaries label counts as attempts or phase attempts, not implementation iterations.
+- [ ] Plan summaries compute model-based cost for usage-only agent results using `modes.plan.agentOrder` model ids.
 - [ ] Patch-mode `jarvis run` summaries still render with implementation iteration language.
 - [ ] Patch-mode `jarvis run` summaries do not include plan-mode telemetry records from the same telemetry file.
 - [ ] Plan-mode summaries do not include patch-mode telemetry records from the same telemetry file.

@@ -1,0 +1,80 @@
+# 03 — Aider quota and model-config signals
+
+## Problem
+
+`src/agents/quota.ts` maps per-agent exit codes and stderr substrings to
+`quota` or `model_config` results so the harness can fall back to the next
+agent instead of crashing. Aider is a wrapper over arbitrary backends
+(local LLMs via Ollama / llama.cpp / LM Studio, or hosted OpenAI-compatible
+APIs), so its possible failure surface is broader than a single-provider
+CLI like `claude`.
+
+The harness still needs deterministic detection so fallback works. This
+subspec documents the initial signal set and wires it into `quota.ts`.
+
+## Decisions
+
+- Detection is best-effort and based on substring matching against
+  `stdout + stderr`. False negatives surface as `kind: "error"` (current
+  behavior for unknown failures); false positives are worse, so the
+  initial set is conservative.
+- Local LLMs have no per-token quota in the hosted-provider sense, but
+  they can still surface "server unreachable" / "model not loaded" errors
+  from the local runtime. Those are treated as **model_config** signals,
+  not quota signals — the right user response is "load the model or start
+  the server", not "wait for quota reset".
+- Initial **quota signals** (case-insensitive, only when exit code is
+  non-zero) — relevant when aider is pointed at a hosted backend:
+  - `"rate limit"`.
+  - `"quota exceeded"`.
+  - `"insufficient_quota"` (OpenAI-compatible error code).
+  - `"429"` appearing in an error line.
+- Initial **model_config signals** (case-insensitive, only when exit code
+  is non-zero):
+  - `"model not found"`.
+  - `"unknown model"`.
+  - `"unsupported model"`.
+  - `"invalid model"`.
+  - `"could not connect to ollama"` (Ollama runtime not running).
+  - `"connection refused"` combined with a model/host substring (catches
+    LM Studio / llama.cpp not running).
+  - `"model is not loaded"` / `"no such model"` (Ollama-specific phrasing
+    when the named model isn't pulled locally).
+- These signals are added to aider-only branches in `quota.ts`. Existing
+  per-agent signal logic for other agents is **not** touched.
+- Confirm or adjust each substring against subspec 00's verified flag /
+  error-output capture before landing. If real aider output differs,
+  update this list.
+
+## Tasks
+
+- [ ] Extend `src/agents/quota.ts` so `isQuotaSignal` and
+      `isModelConfigurationSignal` handle the `"aider"` agent name with the
+      substrings listed above.
+- [ ] Keep the implementation simple (a per-agent switch with an
+      aider-specific list is fine; do not refactor existing branches).
+- [ ] Add tests for each substring in both `isQuotaSignal` and
+      `isModelConfigurationSignal` so regressions surface immediately.
+- [ ] Add a test that ensures a `code === 0` run does not get reclassified
+      as `quota` or `model_config` even when output contains a matching
+      substring.
+- [ ] Update `docs/quota-signals.md` (or whichever file documents quota
+      signals today; create the section if the file already exists) with an
+      `## Aider` subsection listing the same substrings and a note that the
+      list is expected to grow.
+
+## Acceptance criteria
+
+- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [ ] An `AiderAgent` failure where stderr contains `"rate limit reached"`
+      returns `kind: "quota"`.
+- [ ] An `AiderAgent` failure where stderr contains
+      `"could not connect to ollama"` returns `kind: "model_config"`.
+- [ ] A successful (`code === 0`) aider run still returns `kind: "ok"`
+      even if stdout mentions one of the substrings.
+
+## Documentation updates
+
+- `docs/quota-signals.md` — append an `## Aider` section listing the
+  initial signal set. (Counted as spec-required docs, not part of
+  subspec 04.)

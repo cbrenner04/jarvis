@@ -29,7 +29,8 @@ describe("resolveAgentPriceKey", () => {
       "gpt-5.3-codex",
     );
     expect(resolveAgentPriceKey("codex", "gpt-5.5")).toBe("gpt-5.5");
-    expect(resolveAgentPriceKey("codex", "gpt-5.4")).toBeNull();
+    expect(resolveAgentPriceKey("codex", "gpt-5.4")).toBe("gpt-5.4");
+    expect(resolveAgentPriceKey("codex", "gpt-5.2")).toBeNull();
   });
 
   test("opencode and aider always return null", () => {

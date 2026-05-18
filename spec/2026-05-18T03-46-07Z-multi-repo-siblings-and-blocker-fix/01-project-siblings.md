@@ -82,7 +82,7 @@ The other four agents (`aider.ts`, `codex.ts`, `cursor.ts`, `opencode.ts`) do no
 - [ ] If a configured sibling path does not exist on disk at run time, `jarvis run` exits with a clear error naming the missing path and the project — it does not silently drop the entry or proceed without access.
 - [ ] Sibling entries that are not absolute paths are rejected during config validation with a descriptive error.
 - [ ] A project with no `siblings` field (or `"siblings": []`) behaves identically to today — no regression.
-- [ ] When siblings are configured and the active agent is not claude, a warning is printed to stderr at run start listing the sibling paths that will not be accessible.
+- [ ] When siblings are configured, a warning is printed to stderr at run start (regardless of active agent) noting that non-claude agents will not receive `--add-dir` access, and listing the configured sibling paths.
 - [ ] `src/agents/claude.ts` is confirmed unchanged (no functional diff).
 - [ ] TypeScript compiles without errors.
 - [ ] Documentation describes the `siblings` field and how to configure it.

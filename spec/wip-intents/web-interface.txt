@@ -1,0 +1,6 @@
+If I were to implement a web interface to manage jarvis, what would that look like?
+
+How would I manage multiple projects?
+What would need to change in terms of logs and the like?
+Right now I am managing ~5 terminals with jarvis interactions; ~3 repos
+

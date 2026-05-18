@@ -9,7 +9,13 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { findProjectForPath, loadConfig, resolvePlanFlags } from "../config.ts";
+import {
+  CONFIG_DIR,
+  findProjectForPath,
+  loadConfig,
+  resolvePlanFlags,
+  type ProjectMatch,
+} from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import {
@@ -40,6 +46,7 @@ import {
   validateReviewOutput,
 } from "../modes/plan/review.ts";
 import {
+  computeNoCommitSpecRoot,
   formatPlanSpecTimestamp,
   stripPlanSpecTimestampPrefix,
 } from "../modes/plan/spec-paths.ts";
@@ -1043,11 +1050,16 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       planHarnessLog(planLogClient, `plan: spec name=${planName}`);
 
       // Disk-collision guard for commit: false (worktrees are checked by ensureUniquePlanName)
+      // For commit: false, check for collision in the Jarvis-owned storage root
       if (commit === false) {
-        const specPath = join(project.root, "spec", specDirBasename);
-        if (existsSync(specPath)) {
+        const noCommitSpecRoot = computeNoCommitSpecRoot(
+          CONFIG_DIR,
+          project,
+          specDirBasename,
+        );
+        if (existsSync(noCommitSpecRoot)) {
           opts.io.stderr(
-            `spec/${specDirBasename}/ already exists. Rename or remove it before running again.\n`,
+            `${noCommitSpecRoot} already exists. Rename or remove it before running again.\n`,
           );
           cleanupNoCommitTempSpec();
           return 1;
@@ -1074,6 +1086,41 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         cleanupNoCommitTempSpec();
         summarizePlan("error", specDirBasename);
         return 1;
+      }
+
+      // For commit: false, move the spec from the target repo to Jarvis-owned storage.
+      // This keeps the target repo clean (no spec/tmp-* or spec/<name> clutter) while
+      // preserving specs for future use via jarvis run. For commit: true, the spec
+      // stays on the plan branch and is committed to the target repo.
+      let finalSpecPath: string;
+      if (commit === false) {
+        const noCommitSpecRoot = computeNoCommitSpecRoot(
+          CONFIG_DIR,
+          project,
+          specDirBasename,
+        );
+        try {
+          mkdirSync(join(noCommitSpecRoot, ".."), { recursive: true });
+          renameSync(
+            join(worktreePath, "spec", specDirBasename),
+            noCommitSpecRoot,
+          );
+          finalSpecPath = noCommitSpecRoot;
+        } catch (err) {
+          opts.io.stderr(
+            `plan: failed to move spec to Jarvis storage: ${(err as Error).message}\n`,
+          );
+          cleanupNoCommitTempSpec();
+          summarizePlan("error", specDirBasename);
+          return 1;
+        }
+      } else {
+        finalSpecPath = join(worktreePath, "spec", specDirBasename);
+      }
+
+      // Inject repo: line into index.md for no-commit specs (for portability)
+      if (commit === false) {
+        injectRepoLineIntoIndex(finalSpecPath, project);
       }
 
       // Skip git operations when commit: false
@@ -1765,9 +1812,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath: worktreePath as string,
         });
       } else {
-        // For commit: false, show the local-path message
+        // For commit: false, show the absolute path and jarvis run command
+        const noCommitSpecRoot = computeNoCommitSpecRoot(
+          CONFIG_DIR,
+          project,
+          specDirBasename,
+        );
+        const indexPath = join(noCommitSpecRoot, "index.md");
         opts.io.stdout(
-          `Spec written to spec/${specDirBasename}/index.md\nRun with: jarvis run spec/${specDirBasename}/index.md\n`,
+          `Spec written to ${indexPath}\nRun with: jarvis run ${indexPath}\n`,
         );
       }
       summarizePlan("complete", specDirBasename);
@@ -1930,4 +1983,37 @@ function countSpecFiles(worktreePath: string, name: string): number {
   // Lazy import to avoid pulling fs at module top for a single helper.
   const { readdirSync } = require("node:fs") as typeof import("node:fs");
   return readdirSync(specDir).filter((f) => /^\d{2}-.*\.md$/.test(f)).length;
+}
+
+/**
+ * Inject a `repo:` line into the index.md if not already present.
+ * Prefers origin URL if available; falls back to project key.
+ */
+function injectRepoLineIntoIndex(specDirPath: string, project: ProjectMatch): void {
+  const indexPath = join(specDirPath, "index.md");
+  if (!existsSync(indexPath)) {
+    return; // index.md not yet created
+  }
+
+  let content = readFileSync(indexPath, "utf8");
+
+  // Check if repo: line already exists
+  if (/^repo:\s*\S+/m.test(content)) {
+    return; // Already has a repo: line
+  }
+
+  // Determine the repo value: prefer origin, fall back to key
+  const repoValue = project.origin ?? project.key;
+  if (!repoValue) {
+    return; // Can't inject if no repo identifier
+  }
+
+  // Insert repo: line after the first line (which is usually a heading like # ...)
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  if (lines.length > 0) {
+    // Insert after the first line
+    lines.splice(1, 0, `repo: ${repoValue}`);
+    content = lines.join("\n");
+    writeFileSync(indexPath, content, "utf8");
+  }
 }

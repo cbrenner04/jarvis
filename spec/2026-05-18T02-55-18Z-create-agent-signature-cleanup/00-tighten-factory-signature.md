@@ -15,6 +15,7 @@ The result is per-agent branches that all do slightly different things while pre
 - **Signature becomes** `createAgent(agentName: AgentName, model: string, opts?: CreateAgentOptions): Agent`. `opts` defaults to `{}` internally (or is destructured with a default) so existing two-argument call sites keep working.
 - **Per-agent constructor option types are left alone.** `ClaudeAgentOptions.model?: string` and the equivalents on the other agents stay optional so direct-construction tests (`test/agents/claude.test.ts`, etc.) continue to compile. Only the factory call site is tightened.
 - **`outputFormat` plumbing is unchanged.** The factory keeps forwarding `opts.claude?.outputFormat` into `ClaudeAgent` when provided. Patch mode keeps reading `getClaudeOutputFormat(cfg)` and passing it in. Plan modes keep passing nothing and inheriting the `ClaudeAgent` default (`"json"`). No config schema changes.
+- **The `outputFormat` conditional spread is NOT dead and must stay.** Unlike `model`, `outputFormat` is genuinely optional in config, so the existing `opts.claude?.outputFormat ? { outputFormat: opts.claude.outputFormat } : {}` spread in the claude branch must be preserved (or refactored equivalently). The cleanup targets the `model` conditional only; the `outputFormat` conditional ensures an unset config value falls through to the `ClaudeAgent` default rather than being passed as `undefined`.
 - **No agent constructor logic changes.** Each branch becomes `new XAgent({ model, ...maybeClaudeOpts })` (or just `new XAgent({ model })` for non-claude agents).
 
 ## Tasks
@@ -31,7 +32,7 @@ The result is per-agent branches that all do slightly different things while pre
 ## Acceptance criteria
 
 - [ ] `src/agents/factory.ts` exports `createAgent(agentName: AgentName, model: string, opts?: CreateAgentOptions): Agent` with `model` typed as `string` (not `string | undefined`).
-- [ ] No branch inside `createAgent` contains a `model ? { model } : {}` spread or a `model ? ... : ...` conditional on `model`.
+- [ ] No branch inside `createAgent` contains a `model ? { model } : {}` spread or a `model ? ... : ...` conditional on `model`. (The `opts.claude?.outputFormat ? ... : ...` conditional in the claude branch is unrelated and must remain.)
 - [ ] No branch inside `createAgent` throws on `!model`; the opencode and aider branches construct directly with `{ model }`.
 - [ ] The claude branch still forwards `opts.claude?.outputFormat` to `ClaudeAgent` when provided, and omits it otherwise.
 - [ ] `CreateAgentOptions` retains its `claude.outputFormat` shape; no fields are added or removed.

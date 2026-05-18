@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { loadConfig } from "../config.ts";
+import { loadConfig, resolvePlanFlags } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import {
@@ -504,6 +504,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       `plan mode: target project=${project.key} root=${project.root}`,
     );
 
+    const { specTimestamp, commit } = resolvePlanFlags(cfg, project);
+
     if (inv.mode === "interactive" && (inv.interviewTurns ?? 3) === 0) {
       opts.io.stderr(
         "plan: --interview-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n",
@@ -992,8 +994,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         );
       }
       planName = await ensureUniquePlanName(project.root, chosenBaseName);
-      const timestampPrefix = formatPlanSpecTimestamp();
-      specDirBasename = `${timestampPrefix}-${planName}`;
+      specDirBasename = specTimestamp
+        ? `${formatPlanSpecTimestamp()}-${planName}`
+        : planName;
       planHarnessLog(planLogClient, `plan mode: spec name=${planName}`);
 
       const finalIntentBody = tempIntent.startsWith("---\n")

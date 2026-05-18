@@ -2,8 +2,8 @@
 // Permission flags: --permission-mode acceptEdits (see spec/2026-05-11-permissions/01-claude-flags.md).
 // Invokes the `claude` CLI in non-interactive print mode: `claude -p` with the
 // prompt piped on stdin. Stdin is used (instead of an argv positional) so the
-// prompt size is not bounded by the OS argv limit. Default `--output-format` with
-// `-p` is already plain text (`claude --help`); no extra verbosity flags.
+// prompt size is not bounded by the OS argv limit. JSON output is always used so
+// Claude-reported token usage and cost can be extracted.
 import { parseClaudeJsonOutput } from "./claude-json.ts";
 import { runAgent } from "./spawn.ts";
 import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
@@ -11,7 +11,6 @@ import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 export type ClaudeAgentOptions = {
   binary?: string;
   model?: string;
-  outputFormat?: "json" | "text";
 };
 
 const CLAUDE_MODEL_LABELS: Record<string, string> = {
@@ -42,12 +41,10 @@ export class ClaudeAgent implements Agent {
   readonly name = "claude" as const;
   readonly #binary: string;
   readonly #model: string | undefined;
-  readonly #outputFormat: "json" | "text";
 
   constructor(opts: ClaudeAgentOptions = {}) {
     this.#binary = opts.binary ?? "claude";
     this.#model = opts.model;
-    this.#outputFormat = opts.outputFormat ?? "json";
   }
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
@@ -64,9 +61,7 @@ export class ClaudeAgent implements Agent {
           if (this.#model !== undefined) {
             argv.push("--model", this.#model);
           }
-          if (this.#outputFormat === "json") {
-            argv.push("--output-format", "json");
-          }
+          argv.push("--output-format", "json");
           return argv;
         },
         stdio: ["pipe", "pipe", "pipe"],
@@ -80,8 +75,7 @@ export class ClaudeAgent implements Agent {
       opts,
     );
 
-    // If using JSON output format, parse the output
-    if (this.#outputFormat === "json" && result.kind === "ok") {
+    if (result.kind === "ok") {
       const parseResult = parseClaudeJsonOutput(result.stdout);
       const output: typeof result = {
         ...result,

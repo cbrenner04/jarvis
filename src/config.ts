@@ -89,15 +89,8 @@ export type AgentEntry = {
   model: string;
 };
 
-export type ClaudeAgentConfig = {
-  outputFormat?: "json" | "text";
-};
-
 export type ModeConfig = {
   agentOrder: AgentEntry[];
-  agents?: {
-    claude?: ClaudeAgentConfig;
-  };
 };
 
 export type Config = {
@@ -221,11 +214,7 @@ function validateConfig(input: unknown, file: string): Config {
     "modes.patch.agentOrder",
     file,
   );
-  const patchAgents = validateModeAgents(
-    patchModeObj.agents,
-    "modes.patch",
-    file,
-  );
+  validateNoModeAgents(patchModeObj.agents, "modes.patch", file);
 
   const planMode = modesObj.plan;
   if (
@@ -241,7 +230,7 @@ function validateConfig(input: unknown, file: string): Config {
     "modes.plan.agentOrder",
     file,
   );
-  const planAgents = validateModeAgents(planModeObj.agents, "modes.plan", file);
+  validateNoModeAgents(planModeObj.agents, "modes.plan", file);
 
   const maxIterations = validatePositiveInteger(
     obj.maxIterations ?? DEFAULT_CONFIG.maxIterations,
@@ -361,14 +350,8 @@ function validateConfig(input: unknown, file: string): Config {
   return {
     version: 2,
     modes: {
-      patch: {
-        agentOrder: patchAgentOrder,
-        ...(patchAgents !== undefined ? { agents: patchAgents } : {}),
-      },
-      plan: {
-        agentOrder: planAgentOrder,
-        ...(planAgents !== undefined ? { agents: planAgents } : {}),
-      },
+      patch: { agentOrder: patchAgentOrder },
+      plan: { agentOrder: planAgentOrder },
     },
     quotaFallback,
     weakQuotaExitCodes,
@@ -435,53 +418,19 @@ function validateAgentOrder(
   return agentOrder;
 }
 
-function validateModeAgents(
+function validateNoModeAgents(
   input: unknown,
   fieldName: string,
   file: string,
-): Record<string, unknown> | undefined {
+): void {
   if (input === undefined) {
-    return undefined;
+    return;
   }
 
-  if (input === null || typeof input !== "object" || Array.isArray(input)) {
-    fail(file, `${fieldName}.agents must be an object`);
-  }
-
-  const agents = input as Record<string, unknown>;
-  const result: Record<string, unknown> = {};
-
-  // Validate claude config if present
-  if (agents.claude !== undefined) {
-    const claudeConfig = agents.claude;
-    if (
-      claudeConfig === null ||
-      typeof claudeConfig !== "object" ||
-      Array.isArray(claudeConfig)
-    ) {
-      fail(file, `${fieldName}.agents.claude must be an object`);
-    }
-
-    const claudeObj = claudeConfig as Record<string, unknown>;
-    const validated: Record<string, unknown> = {};
-
-    if (claudeObj.outputFormat !== undefined) {
-      if (
-        claudeObj.outputFormat !== "json" &&
-        claudeObj.outputFormat !== "text"
-      ) {
-        fail(
-          file,
-          `${fieldName}.agents.claude.outputFormat must be "json" or "text"`,
-        );
-      }
-      validated.outputFormat = claudeObj.outputFormat;
-    }
-
-    result.claude = validated;
-  }
-
-  return Object.keys(result).length > 0 ? result : undefined;
+  fail(
+    file,
+    `${fieldName}.agents is no longer supported; configure agents through ${fieldName}.agentOrder`,
+  );
 }
 
 export function validatePositiveInteger(
@@ -743,10 +692,4 @@ export function openSessionLog(
   const sessionsDir = resolveSessionsDir(opts);
   mkdirSync(sessionsDir, { recursive: true });
   return openSync(join(sessionsDir, `${namespace}-${timestamp}.log`), "a");
-}
-
-export function getClaudeOutputFormat(cfg: Config): "json" | "text" {
-  const claudeConfig = cfg.modes.patch.agents?.claude;
-  const format = claudeConfig?.outputFormat;
-  return format === "text" ? "text" : "json";
 }

@@ -4,14 +4,23 @@ Reference for `jarvis plan [<intent-file|"inline text">]` semantics: how it crea
 
 ## Overview
 
-Plan mode creates a dedicated worktree and branch (`plan/<plan-name>` and `.worktree/plan-<plan-name>/`; **no UTC prefix**) to draft a new spec collaboratively with an agent. It produces:
+Plan mode creates a dedicated worktree and branch (`plan/<plan-name>` and `.worktree/plan-<plan-name>/`; **no UTC prefix**) to draft a new spec collaboratively with an agent. The location where specs are written depends on the `modes.plan.commit` config setting:
 
+**With `commit: true` (default):** Specs are written inside the target repository under `spec/<spec-dir>/`:
 - A seeded `spec/<spec-dir>/intent.md` capturing the user's initial request. New runs use **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** (`<plan-name>` is the validated kebab-case name after collisions). Older trees may still omit the timestamp (**`<spec-dir>`** = `<plan-name>` only); both layouts stay valid for resume and `jarvis run`.
 - A `plan: draft` commit with `spec/<spec-dir>/index.md` plus atomic subspec files.
 - Zero or more `plan: review <N>` commits (default 2) where agents refine the spec tree in place.
 - A draft PR titled `plan: <plan-name>` (derived from branch identity, **not** the UTC prefix) that aggregates progress across all phases.
 
-The draft PR opens after `plan: draft`. **Lifecycle:** when every phase succeeds without a blocker, **`gh pr ready` runs automatically** (same readiness transition as patch mode). **Stdout Next steps:** jarvis prints the PR URL plus exact `jarvis plan --resume …` and `jarvis run …` commands using **`spec/<spec-dir>/` paths**. That block deliberately **does not** ask you to toggle draft/readiness manually.
+**With `commit: false`:** Specs are written in Jarvis-owned storage outside the target repository:
+- Specs live at `~/.jarvis/specs/<project-safe-id>/<spec-dir>/` (where `<project-safe-id>` is the registered project key, origin-derived slug, or root basename).
+- No git branch or worktree is created; plan mode runs in the target repo root directory.
+- No commits, pushes, or draft PR are created.
+- The generated `index.md` includes a `repo:` binding so `jarvis run` can resolve the target repository.
+
+**With `commit: true`:** The draft PR opens after `plan: draft`. **Lifecycle:** when every phase succeeds without a blocker, **`gh pr ready` runs automatically** (same readiness transition as patch mode). **Stdout Next steps:** jarvis prints the PR URL plus exact `jarvis plan --resume …` and `jarvis run …` commands using **`spec/<spec-dir>/` paths**. That block deliberately **does not** ask you to toggle draft/readiness manually.
+
+**With `commit: false`:** There is no PR. **Stdout Next steps:** jarvis prints the absolute path to the external spec (e.g., `~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md`) plus exact `jarvis plan --resume …` and `jarvis run …` commands using that absolute path.
 
 Unlike `jarvis run`, which expects specs to be complete before PR readiness, plan mode drafts incomplete specs: you review/edit on the PR, then merge to `main`; after merging, **`jarvis run spec/<spec-dir>/index.md`** implements it.
 
@@ -35,7 +44,7 @@ Successful runs omit chatty setup breadcrumbs by default (inline intent echoes,
 temporary slug previews, provisional worktrees, rename chatter). Harness /
 session logs still capture those details.
 
-Typical milestone stderr lines look like **`plan: interactive session started`**
+**With `commit: true`:** Typical milestone stderr lines look like **`plan: interactive session started`**
 (TTY refine sessions when applicable), **`plan: refine commit pushed`**,
 **`plan: draft phase completed`**, **`plan: draft commit pushed`**,
 **`plan: draft PR #… opened`**, and review notifications such as
@@ -56,6 +65,18 @@ Next steps:
 Notice there is **no** third bullet telling reviewers to toggle draft/readiness —
 jarvis performs that readiness transition programmatically whenever every phase
 succeeds.
+
+**With `commit: false`:** Milestone stderr lines for refine, naming, draft, and review are similar
+(no "commit pushed" or "PR opened" steps since there is no git/GitHub integration). 
+
+Stdout ends with:
+
+```text
+Next steps:
+  1. External spec: ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md
+  2. Run implementation: jarvis run ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md
+ … `jarvis plan --resume ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md`
+```
 
 ## Input modes
 
@@ -91,7 +112,9 @@ Plan mode executes these phases in order:
 
 ### Phase 0: Intent Refinement
 
-Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). **`intent.md` inside the eventual `spec/<spec-dir>/` tree captures** full intent for file/inline modes or **`# Intent` scaffolding** for no-argument runs, before refinement prompts begin (`--refine-turns`, default `3`).
+**With `commit: true`:** Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). **`intent.md` inside the eventual `spec/<spec-dir>/` tree captures** full intent for file/inline modes or **`# Intent` scaffolding** for no-argument runs, before refinement prompts begin (`--refine-turns`, default `3`).
+
+**With `commit: false`:** Jarvis creates the spec directory in Jarvis-owned storage (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`) and runs directly against the target repo root, with **`intent.md` inside that external storage** capturing full intent or scaffolding.
 
 Each turn is one non-interactive agent invocation. The prompt asks the agent to inspect the target repo as needed and refine `intent.md` by appending useful planning context: inferred constraints, assumptions, scope boundaries, risks, or draft-shaping notes. It cannot ask the terminal user questions or record a Q&A transcript. With `quotaFallback: "lenient"`, weak-quota fallback to the next agent runs only when **`git status --porcelain`** matches before and after that invocation (no disk mutations during the attempt); see [quota-signals.md](./quota-signals.md).
 
@@ -189,6 +212,15 @@ The draft PR opens after `plan: draft` is pushed (via the same `updatePrBody` he
 
 Plan mode does not write into the narrative section itself; jarvis preserves
 whatever humans or agents add between the narrative markers across rewrites.
+
+## Configuration: `modes.plan.commit`
+
+The `modes.plan.commit` boolean (config v2) controls where plan-mode specs are written and whether git/GitHub are involved:
+
+- **`true` (default):** Plan specs are authored in a worktree on a branch under the target repo's `spec/<spec-dir>/` tree. Git commits (`plan: refine`, `plan: draft`, `plan: review N`) are made, a draft PR is opened, and `gh pr ready` runs programmatically on success. After merge to `main`, the spec is available to `jarvis run`.
+- **`false`:** Plan specs are written to Jarvis-owned storage outside the target repo (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`). No git branch, worktree, commits, or PR are created. Plan mode runs directly in the target repo root. The generated `index.md` includes a portable `repo:` binding for later `jarvis run` invocations.
+
+When `commit: false`, the spec tree must include a usable `repo:` metadata line so `jarvis run` can later resolve the target repository independently of the spec file's location.
 
 ## Flags
 
@@ -358,6 +390,8 @@ unmerged `plan/*` branch in the resolved repository.
 
 ## Cleanup
 
+### With `commit: true` (in-repo specs)
+
 Merged plan-branch PRs (and merged patch-branch PRs) can be reclaimed with:
 
 ```sh
@@ -376,6 +410,19 @@ Manual teardown without `jarvis cleanup`:
 rm -rf .worktree/plan-<plan-name>
 git branch -D plan/<plan-name>
 ```
+
+### With `commit: false` (external specs)
+
+No-commit specs in Jarvis-owned storage (`~/.jarvis/specs/…`) are **not** automatically cleaned up. They persist as local artifacts for future reference and can be re-run with `jarvis run` at any time.
+
+To remove an external no-commit spec:
+
+```sh
+# Remove the spec directory manually:
+rm -rf ~/.jarvis/specs/<project-key>/<spec-dir>/
+```
+
+The `jarvis cleanup` command does not delete Jarvis-owned external specs; it only handles git worktrees and target-repo `spec/` directories from `commit: true` runs.
 
 ## Validation rules
 

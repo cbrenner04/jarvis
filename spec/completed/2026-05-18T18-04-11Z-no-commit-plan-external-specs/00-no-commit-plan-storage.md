@@ -55,20 +55,20 @@ project key only if that is the existing resolver contract.
 
 ## Acceptance criteria
 
-- [ ] With `modes.plan.commit: false`, `jarvis plan --repo <project> intent.md`
+- [x] With `modes.plan.commit: false`, `jarvis plan --repo <project> intent.md`
       writes `index.md`, `intent.md`, and subspecs under Jarvis-owned storage,
       not under `<project.root>/spec/`.
-- [ ] A failed `commit: false` refine or naming-only run leaves no
+- [x] A failed `commit: false` refine or naming-only run leaves no
       `<project.root>/spec/tmp-*` directory behind.
-- [ ] A successful `commit: false` plan produces an `index.md` with a usable
+- [x] A successful `commit: false` plan produces an `index.md` with a usable
       `repo:` binding for the target repo.
-- [ ] The final stdout points to the external absolute `index.md` path and
+- [x] The final stdout points to the external absolute `index.md` path and
       shows a matching `jarvis run` command.
-- [ ] Running the same no-commit plan name twice fails with a clear collision
+- [x] Running the same no-commit plan name twice fails with a clear collision
       error in Jarvis-owned storage rather than overwriting the prior spec.
-- [ ] `commit: true` plan-mode tests and behavior are unchanged.
+- [x] `commit: true` plan-mode tests and behavior are unchanged.
 
 ## Documentation updates
 
-- [ ] Defer broad docs to `02-docs-and-cleanup.md`; add only code comments that
+- [x] Defer broad docs to `02-docs-and-cleanup.md`; add only code comments that
       clarify non-obvious path ownership decisions.

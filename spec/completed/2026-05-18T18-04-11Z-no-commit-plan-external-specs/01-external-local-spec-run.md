@@ -48,19 +48,19 @@ access to the whole config directory if only the spec tree is needed.
 
 ## Acceptance criteria
 
-- [ ] `jarvis run <absolute-jarvis-storage>/index.md` resolves the target repo
+- [x] `jarvis run <absolute-jarvis-storage>/index.md` resolves the target repo
       from `repo:` and invokes the agent in the target repo cwd.
-- [ ] The active subspec and index checkbox can be updated when the spec tree is
+- [x] The active subspec and index checkbox can be updated when the spec tree is
       outside the target repo.
-- [ ] With patch-mode `git: true`, implementation commits do not attempt to
+- [x] With patch-mode `git: true`, implementation commits do not attempt to
       stage or commit external spec files that live outside the target repo.
-- [ ] With patch-mode `git: false`, an external spec can be completed without
+- [x] With patch-mode `git: false`, an external spec can be completed without
       creating a worktree, branch, commit, push, or PR.
-- [ ] Existing in-repo spec behavior remains unchanged.
-- [ ] Missing or unresolvable `repo:` metadata on an external spec fails with a
+- [x] Existing in-repo spec behavior remains unchanged.
+- [x] Missing or unresolvable `repo:` metadata on an external spec fails with a
       clear error before invoking an agent.
 
 ## Documentation updates
 
-- [ ] Defer broad docs to `02-docs-and-cleanup.md`; update inline comments only
+- [x] Defer broad docs to `02-docs-and-cleanup.md`; update inline comments only
       where needed to distinguish target-repo cwd from spec-file location.

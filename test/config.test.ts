@@ -457,6 +457,26 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ dir })).toThrow(/modes\.plan/);
   });
 
+  test("rejects removed per-mode agents config", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: CLAUDE_ONLY,
+            agents: { claude: { outputFormat: "text" } },
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(
+      /modes\.patch\.agents is no longer supported/,
+    );
+  });
+
   test("rejects empty patch agentOrder", () => {
     writeFileSync(
       join(dir, "config.json"),

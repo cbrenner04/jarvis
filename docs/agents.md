@@ -10,7 +10,7 @@ and the binary each one invokes:
 
 | Agent | CLI invoked | Notes |
 | --- | --- | --- |
-| `claude` | `claude -p --permission-mode acceptEdits` | Prompt is piped on stdin (non-interactive print mode); `--permission-mode acceptEdits` auto-allows file edits and safe filesystem commands without prompting (`claude --help`). |
+| `claude` | `claude -p --permission-mode acceptEdits --output-format json` | Prompt is piped on stdin (non-interactive print mode); `--permission-mode acceptEdits` auto-allows file edits and safe filesystem commands without prompting (`claude --help`); JSON output lets jarvis extract Claude-reported token usage and cost. |
 | `codex` | `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` | Prompt is piped on stdin; `--color never` disables ANSI for log-friendly text; `--sandbox workspace-write` allows writes inside the workspace and blocks network and out-of-workspace writes; `-c approval_policy="on-request"` pins approval behavior through Codex's config override channel (`codex exec --help`). Token usage is **correlated from session JSONL** under `~/.codex/sessions/`: Jarvis appends a unique HTML comment marker to each prompt, snapshots session files before the invocation, and only records usage when exactly one changed session file matches that marker (and cwd metadata when present). Ambiguous or missing correlation is recorded as `usage_source: "unavailable"` rather than guessing. |
 | `cursor` | `cursor agent -p --output-format text --force --workspace <cwd> "<prompt>"` | Headless print mode; `--force` enables file writes in print mode; `--output-format text` matches transcript shape of other agents; prompt is the trailing positional argument (`cursor agent --help`). Although Cursor exposes JSON and stream JSON transcript formats, token usage is not currently exposed in a stable machine-readable field for jarvis extraction, so successful cursor iterations record `usage_source: "unavailable"`. |
 | `opencode` | `opencode run --dir <cwd> --model <provider/model> --format default <prompt>` | `--dir` is set to the working directory for the run; `--model` is required and read from the opencode entry's `model` field in `modes.patch.agentOrder`; `--format default` keeps the plain-text transcript shape; prompt is the trailing positional argument. This CLI version does not expose stable token usage for jarvis extraction, so telemetry records `usage_source: "unavailable"` for successful opencode iterations. Permissions are configured via `~/.config/opencode/opencode.json` rather than a CLI flag — see [Opencode setup](#opencode-setup). |
@@ -51,12 +51,13 @@ and the model strings that CLI accepts.
 Jarvis does not strip or rewrite agent transcripts; it delegates presentation
 to each upstream CLI. Current defaults:
 
-- **Claude**: `-p` only — readable enough for the harness; avoids
-  `--verbose` / `--debug` noise.
+- **Claude**: `--output-format json` with `-p` — preserves token and cost
+  metadata while jarvis displays the parsed result text; avoids `--verbose` /
+  `--debug` noise.
 - **Codex**: `--color never` — removes escape codes so logs resemble the
   other agents' plain stdout.
-- **Cursor**: `--output-format text` with `-p` — same intent as Claude's
-  default print transcript (JSON/stream modes would flood logs).
+- **Cursor**: `--output-format text` with `-p` — keeps logs readable because
+  Cursor's JSON/stream modes do not expose stable usage metadata for jarvis.
 - **Opencode**: `--format default` — keeps output in the plain-text
   transcript shape used by the other agents.
 - **Aider**: `--no-stream` — keeps output in a compact, non-streaming

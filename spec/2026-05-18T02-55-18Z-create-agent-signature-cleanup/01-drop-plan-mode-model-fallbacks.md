@@ -22,11 +22,11 @@ Once subspec `00` tightens the factory signature so `model: string` is the encod
 
 ## Acceptance criteria
 
-- [ ] `src/modes/plan/draft.ts`, `src/modes/plan/interview.ts`, `src/modes/plan/name-only.ts`, and `src/modes/plan/review.ts` contain no `entry.model ?? "default"` (or `model ?? "default"`) expression for logging an agent's configured model.
-- [ ] The log message text surrounding each removed fallback is otherwise unchanged (only the `?? "default"` tail is removed).
-- [ ] No call to `createAgent` in plan-mode files passes `undefined` for `model`; each passes `entry.model` directly.
-- [ ] Unrelated `?? "default"` expressions elsewhere in the codebase are not modified.
-- [ ] The project type-checks cleanly after this change.
+- [x] `src/modes/plan/draft.ts`, `src/modes/plan/interview.ts`, `src/modes/plan/name-only.ts`, and `src/modes/plan/review.ts` contain no `entry.model ?? "default"` (or `model ?? "default"`) expression for logging an agent's configured model.
+- [x] The log message text surrounding each removed fallback is otherwise unchanged (only the `?? "default"` tail is removed).
+- [x] No call to `createAgent` in plan-mode files passes `undefined` for `model`; each passes `entry.model` directly.
+- [x] Unrelated `?? "default"` expressions elsewhere in the codebase are not modified.
+- [x] The project type-checks cleanly after this change.
 
 ## Documentation
 

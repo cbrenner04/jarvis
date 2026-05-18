@@ -49,9 +49,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     try {
       branch = branchForWorktree(worktreePath);
     } catch {
-      opts.io.stdout(
-        `skipping ${worktreeName}: could not determine branch\n`,
-      );
+      opts.io.stdout(`skipping ${worktreeName}: could not determine branch\n`);
       continue;
     }
 

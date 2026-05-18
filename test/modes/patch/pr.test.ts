@@ -324,10 +324,7 @@ describe("maybeMarkReady", () => {
   });
 
   test("propagates errors from markReady", () => {
-    writeFileSync(
-      indexPath,
-      "# Spec\n\n- [x] [00 - one](./00-one.md)\n",
-    );
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
     expect(() =>
       maybeMarkReady({
@@ -342,10 +339,7 @@ describe("maybeMarkReady", () => {
   });
 
   test("throws when no PR exists for the branch", () => {
-    writeFileSync(
-      indexPath,
-      "# Spec\n\n- [x] [00 - one](./00-one.md)\n",
-    );
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
     expect(() =>
       maybeMarkReady({

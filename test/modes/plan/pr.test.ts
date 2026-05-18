@@ -198,7 +198,7 @@ describe("maybeMarkPlanPrReady", () => {
 
   test("calls markReady with bun run ready before gh pr ready", () => {
     let bunReadyCalled = false;
-    let ghReadyCalled = false;
+    const ghReadyCalled = false;
     let bunCalledBeforeGh = false;
 
     maybeMarkPlanPrReady({
@@ -218,7 +218,7 @@ describe("maybeMarkPlanPrReady", () => {
   });
 
   test("propagates error from bun run ready and does not call gh pr ready", () => {
-    let ghReadyCalled = false;
+    const ghReadyCalled = false;
 
     expect(() => {
       maybeMarkPlanPrReady({

@@ -769,7 +769,7 @@ describe("runCommand", () => {
 
   test("fails when a configured sibling path does not exist", async () => {
     const spec = writeNamedSpec("feature", "- [ ] todo\n");
-    const nonexistent = "/tmp/jarvis-test-nonexistent-" + Date.now();
+    const nonexistent = `/tmp/jarvis-test-nonexistent-${Date.now()}`;
 
     const cfg = loadConfig({ dir: cfgDir });
     const project = cfg.projects.project;

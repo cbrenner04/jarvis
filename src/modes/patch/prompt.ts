@@ -5,17 +5,16 @@ function jarvisRules(): string {
   return readFileSync(join(import.meta.dir, "rules.md"), "utf8").trim();
 }
 
-export function buildPrompt(
-  specPath: string,
-  siblings?: string[],
-): string {
+export function buildPrompt(specPath: string, siblings?: string[]): string {
   const lines = [
     "Inspect the target repo for guidance, conventions, and relevant docs.",
     `Read the spec at ${specPath}.`,
   ];
 
   if (siblings !== undefined && siblings.length > 0) {
-    lines.push("Additional project sibling directories are available for this run:");
+    lines.push(
+      "Additional project sibling directories are available for this run:",
+    );
     for (const sibling of siblings) {
       lines.push(`- ${sibling}`);
     }

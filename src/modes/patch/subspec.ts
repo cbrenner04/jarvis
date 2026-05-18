@@ -56,13 +56,13 @@ export function commitSubspec(
       err instanceof Error &&
       "stderr" in err &&
       Buffer.isBuffer((err as { stderr: unknown }).stderr)
-        ? ((err as { stderr: Buffer }).stderr).toString()
+        ? (err as { stderr: Buffer }).stderr.toString()
         : "";
     const stdout =
       err instanceof Error &&
       "stdout" in err &&
       Buffer.isBuffer((err as { stdout: unknown }).stdout)
-        ? ((err as { stdout: Buffer }).stdout).toString()
+        ? (err as { stdout: Buffer }).stdout.toString()
         : "";
     if (stderr) {
       errorMessage += `\nstderr: ${stderr}`;
@@ -126,13 +126,13 @@ export function commitWipProgress(
       err instanceof Error &&
       "stderr" in err &&
       Buffer.isBuffer((err as { stderr: unknown }).stderr)
-        ? ((err as { stderr: Buffer }).stderr).toString()
+        ? (err as { stderr: Buffer }).stderr.toString()
         : "";
     const stdout =
       err instanceof Error &&
       "stdout" in err &&
       Buffer.isBuffer((err as { stdout: unknown }).stdout)
-        ? ((err as { stdout: Buffer }).stdout).toString()
+        ? (err as { stdout: Buffer }).stdout.toString()
         : "";
     if (stderr) {
       errorMessage += `\nstderr: ${stderr}`;
@@ -216,13 +216,13 @@ export function commitWipProgressWithBlocker(
       err instanceof Error &&
       "stderr" in err &&
       Buffer.isBuffer((err as { stderr: unknown }).stderr)
-        ? ((err as { stderr: Buffer }).stderr).toString()
+        ? (err as { stderr: Buffer }).stderr.toString()
         : "";
     const stdout =
       err instanceof Error &&
       "stdout" in err &&
       Buffer.isBuffer((err as { stdout: unknown }).stdout)
-        ? ((err as { stdout: Buffer }).stdout).toString()
+        ? (err as { stdout: Buffer }).stdout.toString()
         : "";
     if (stderr) {
       errorMessage += `\nstderr: ${stderr}`;

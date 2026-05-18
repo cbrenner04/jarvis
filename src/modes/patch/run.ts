@@ -414,10 +414,23 @@ async function resolveModeSpecificPreflight(
     agentWorkingDir,
     specPath: initialSpecPath,
   });
-  const additionalReadDirs = specOutsideWorktreeReadDirs({
+  const specDirs = specOutsideWorktreeReadDirs({
     specPath,
     agentWorkingDir,
   });
+  const projectSiblings = cfg.projects[project.key]?.siblings ?? [];
+  for (const sibling of projectSiblings) {
+    if (!existsSync(sibling)) {
+      opts.io.stderr(
+        `error: configured sibling ${JSON.stringify(sibling)} does not exist for project ${JSON.stringify(project.key)}\n`,
+      );
+      return { kind: "error", exitCode: 1 };
+    }
+  }
+  const additionalReadDirs =
+    specDirs !== undefined || projectSiblings.length > 0
+      ? [...new Set([...(specDirs ?? []), ...projectSiblings])]
+      : undefined;
 
   let isIndexSpec = basename(specPath) === "index.md";
   if (!isIndexSpec) {
@@ -889,7 +902,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     currentTaskTotal: task.total,
     agent: agent.name,
   });
-  const prompt = buildPrompt(specPath);
+  const projectSiblings =
+    preflight.cfg.projects[preflight.project.key]?.siblings;
+  const prompt = buildPrompt(specPath, projectSiblings);
   fanout("outbound", prompt, null, {
     iteration,
     agent: agent.name,

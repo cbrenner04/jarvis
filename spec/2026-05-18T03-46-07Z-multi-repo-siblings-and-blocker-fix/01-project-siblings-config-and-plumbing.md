@@ -87,10 +87,10 @@ Do not print a warning that only Claude receives access. That was the previous d
 
 ## Acceptance criteria
 
-- [ ] A project registered with `"siblings": ["/abs/path/to/sibling"]` causes `jarvis run` to forward that path through `additionalReadDirs` for agent adapters.
-- [ ] If a configured sibling path does not exist on disk at run time, `jarvis run` exits with a clear error naming the missing path and project.
-- [ ] Sibling entries that are not absolute paths are rejected during config validation with a descriptive error.
-- [ ] A project with no `siblings` field, or `"siblings": []`, behaves identically to today.
-- [ ] The patch prompt lists configured sibling paths so all agents can reason about cross-repo work.
-- [ ] TypeScript compiles without errors.
-- [ ] `docs/config.md` has a `## Project.siblings` section describing the field, its validation rules, and how to hand-edit `~/.jarvis/config.json`.
+- [x] A project registered with `"siblings": ["/abs/path/to/sibling"]` causes `jarvis run` to forward that path through `additionalReadDirs` for agent adapters.
+- [x] If a configured sibling path does not exist on disk at run time, `jarvis run` exits with a clear error naming the missing path and project.
+- [x] Sibling entries that are not absolute paths are rejected during config validation with a descriptive error.
+- [x] A project with no `siblings` field, or `"siblings": []`, behaves identically to today.
+- [x] The patch prompt lists configured sibling paths so all agents can reason about cross-repo work.
+- [x] TypeScript compiles without errors.
+- [x] `docs/config.md` has a `## Project.siblings` section describing the field, its validation rules, and how to hand-edit `~/.jarvis/config.json`.

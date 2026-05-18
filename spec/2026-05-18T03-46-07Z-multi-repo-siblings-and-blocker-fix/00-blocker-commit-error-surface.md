@@ -25,8 +25,8 @@ A secondary failure mode: if the agent re-emits an identical blocker in a later 
 
 ## Acceptance criteria
 
-- [ ] When `git commit` fails with "nothing to commit", the error message surfaced to the user includes the git stderr (e.g. `nothing to commit, working tree clean`), not only `Command failed: git commit -F -`.
-- [ ] When `commitWipProgressWithBlocker` is called and the blocker content is identical to what is already in HEAD (nothing staged after `git add -A`), the function returns without attempting a commit and the caller proceeds to surface the blocker normally — no error is thrown.
-- [ ] When `commitSubspec` or `commitWipProgress` fail, the rethrown error message includes any non-empty git stderr and stdout output.
-- [ ] The `spawnSync` exit-null / exit->1 path throws a descriptive error rather than silently returning or swallowing the failure.
-- [ ] TypeScript compiles without errors (`npm run build` or equivalent type-check passes).
+- [x] When `git commit` fails with "nothing to commit", the error message surfaced to the user includes the git stderr (e.g. `nothing to commit, working tree clean`), not only `Command failed: git commit -F -`.
+- [x] When `commitWipProgressWithBlocker` is called and the blocker content is identical to what is already in HEAD (nothing staged after `git add -A`), the function returns without attempting a commit and the caller proceeds to surface the blocker normally — no error is thrown.
+- [x] When `commitSubspec` or `commitWipProgress` fail, the rethrown error message includes any non-empty git stderr and stdout output.
+- [x] The `spawnSync` exit-null / exit->1 path throws a descriptive error rather than silently returning or swallowing the failure.
+- [x] TypeScript compiles without errors (`npm run build` or equivalent type-check passes).

@@ -214,6 +214,29 @@ describe("CodexAgent", () => {
     expect(argv).toContain('approval_policy="on-request"');
   });
 
+  test("appends --add-dir for each additionalReadDirs entry with existing sandbox and approval flags", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new CodexAgent({ binary: bin });
+
+    await agent.run("p", {
+      cwd,
+      additionalReadDirs: ["/abs/specs/foo", "/abs/specs/bar"],
+    });
+
+    expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
+      'exec\0--color\0never\0--sandbox\0workspace-write\0-c\0approval_policy="on-request"\0--add-dir\0/abs/specs/foo\0--add-dir\0/abs/specs/bar\0',
+    );
+  });
+
+  test("omits --add-dir when additionalReadDirs is unset", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new CodexAgent({ binary: bin });
+
+    await agent.run("p", { cwd });
+
+    expect(readFileSync(join(dir, "argv"), "utf8")).not.toContain("--add-dir");
+  });
+
   test("attributionLabel returns raw string for model ID", () => {
     const agent = new CodexAgent({
       binary: "fake",

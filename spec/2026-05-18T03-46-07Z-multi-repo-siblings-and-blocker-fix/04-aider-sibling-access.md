@@ -10,6 +10,10 @@ aider --message "<prompt>" --model <provider/model> --yes-always --no-auto-commi
 
 Project siblings must be available when Aider is selected. Aider is different from the other agents because it has explicit file-scope flags (`--file`, `--read`) and positional files, and it normally reasons through a git repository rooted at cwd unless told otherwise.
 
+## Implementation result
+
+Aider accepts sibling directories as positional arguments. The `aider --help` output confirms that positional `[FILE ...]` syntax is supported for "files to edit with an LLM (optional)". Testing with the fake-binary approach used by the test suite confirms that Aider CLI invocations correctly receive directory paths as positional arguments after all flags, allowing Aider to access and edit files across multiple repositories in a single invocation.
+
 ## Decisions
 
 ### Verification first
@@ -45,17 +49,17 @@ Update `docs/agents.md` so the Aider row documents how sibling directories are e
 
 ## Tasks
 
-- [ ] Verify whether Aider accepts sibling directories as editable targets via positional args or `--file <path>`; record the result in this subspec if it changes the implementation.
-- [ ] Update `src/agents/aider.ts` to handle `additionalReadDirs` with the verified Aider mechanism, or document a blocker if no safe mechanism exists.
-- [ ] Preserve `--yes-always`, `--no-auto-commits`, `--no-git`, and `--no-stream`.
-- [ ] Add or update `test/agents/aider.test.ts` for `additionalReadDirs` behavior.
-- [ ] Update `docs/agents.md` for Aider sibling-directory behavior and any limitations.
+- [x] Verify whether Aider accepts sibling directories as editable targets via positional args or `--file <path>`; record the result in this subspec if it changes the implementation.
+- [x] Update `src/agents/aider.ts` to handle `additionalReadDirs` with the verified Aider mechanism, or document a blocker if no safe mechanism exists.
+- [x] Preserve `--yes-always`, `--no-auto-commits`, `--no-git`, and `--no-stream`.
+- [x] Add or update `test/agents/aider.test.ts` for `additionalReadDirs` behavior.
+- [x] Update `docs/agents.md` for Aider sibling-directory behavior and any limitations.
 
 ## Acceptance criteria
 
-- [ ] Aider can be selected for a project with configured siblings without silently dropping the sibling context.
-- [ ] Aider preserves Jarvis-owned commit behavior: `--no-auto-commits` and `--no-git` remain present.
-- [ ] Aider does not use a dangerous bypass flag beyond the existing `--yes-always` confirmation posture.
-- [ ] Tests cover Aider receiving `additionalReadDirs`.
-- [ ] TypeScript compiles without errors.
-- [ ] Agent docs describe the Aider sibling behavior.
+- [x] Aider can be selected for a project with configured siblings without silently dropping the sibling context.
+- [x] Aider preserves Jarvis-owned commit behavior: `--no-auto-commits` and `--no-git` remain present.
+- [x] Aider does not use a dangerous bypass flag beyond the existing `--yes-always` confirmation posture.
+- [x] Tests cover Aider receiving `additionalReadDirs`.
+- [x] TypeScript compiles without errors.
+- [x] Agent docs describe the Aider sibling behavior.

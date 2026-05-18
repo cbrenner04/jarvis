@@ -186,4 +186,22 @@ describe("OpencodeAgent", () => {
     });
     expect(agent.attributionLabel()).toBe("AirProxy/test");
   });
+
+  test("accepts additionalReadDirs without breaking --dir", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new OpencodeAgent({
+      binary: bin,
+      model: "AirProxy/test",
+    });
+
+    await agent.run("p", {
+      cwd,
+      additionalReadDirs: ["/abs/specs/foo", "/abs/specs/bar"],
+    });
+
+    const argv = readFileSync(join(dir, "argv"), "utf8");
+    expect(argv).toContain("--dir");
+    expect(argv).toContain(cwd);
+    expect(argv).not.toContain("--dangerously-skip-permissions");
+  });
 });

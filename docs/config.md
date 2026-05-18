@@ -27,6 +27,7 @@ type Project = {
   root: string; // absolute path to a target-repo root
   origin?: string; // optional git remote URL recorded by `jarvis init`
   git?: boolean; // optional per-project override of the top-level `git` toggle
+  siblings?: string[]; // optional array of absolute paths to sibling repositories
 };
 
 type AgentEntry = {
@@ -147,6 +148,74 @@ written before this field existed.
 The behavior that flips when `git` is `false` (no worktree, no commits, no
 PR, alternative completion semantics, `--cwd`) is implemented separately and
 documented alongside `jarvis run`.
+
+## `Project.siblings`
+
+The optional `siblings` field declares sibling repositories that are part of
+the same unit of work as the primary project. When a spec routed through one
+repository needs changes in another, siblings make those directories accessible
+to agents during `jarvis run`.
+
+### Validation rules
+
+- `siblings` is an optional array of absolute paths.
+- Each entry must be a non-empty string (no whitespace-only values).
+- Each entry must be an absolute path; relative paths are rejected with a
+  descriptive error.
+- All configured sibling paths must exist on disk at run time. If any sibling
+  path is missing, `jarvis run` exits with an error naming the project and the
+  missing path.
+- Empty `siblings` arrays (`[]`) are treated identically to omitting the field.
+
+### Example
+
+For a multi-repo workspace like:
+
+```text
+~/Work/groceries/
+  groceries_features/    ← primary project (registered)
+  groceries-client/      ← sibling
+  groceries-service/     ← sibling
+```
+
+Register `groceries_features` with:
+
+```json
+{
+  "projects": {
+    "groceries": {
+      "root": "/Users/you/Work/groceries/groceries_features",
+      "siblings": [
+        "/Users/you/Work/groceries/groceries-client",
+        "/Users/you/Work/groceries/groceries-service"
+      ]
+    }
+  }
+}
+```
+
+When `jarvis run` executes a spec for the `groceries` project, all agents
+receive the sibling paths in their prompt and as accessible workspace roots.
+Agents can read from and edit files in any sibling directory as if they were
+part of the primary project.
+
+### Hand-editing `~/.jarvis/config.json`
+
+To add siblings to an existing project, edit `~/.jarvis/config.json` directly:
+
+```json
+{
+  "projects": {
+    "groceries": {
+      "root": "/Users/you/Work/groceries/groceries_features",
+      "siblings": ["/Users/you/Work/groceries/groceries-client"]
+    }
+  }
+}
+```
+
+Paths must be absolute. Non-absolute paths cause validation to fail with a
+clear error message.
 
 ## `jarvis config` subcommands
 

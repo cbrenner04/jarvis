@@ -201,4 +201,57 @@ describe("AiderAgent", () => {
     });
     expect(agent.attributionLabel()).toBe("ollama/llama3");
   });
+
+  test("appends additionalReadDirs as positional arguments", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new AiderAgent({
+      binary: bin,
+      model: "ollama/llama3",
+    });
+
+    const sibling1 = join(dir, "sibling1");
+    const sibling2 = join(dir, "sibling2");
+
+    await agent.run("prompt", {
+      cwd,
+      additionalReadDirs: [sibling1, sibling2],
+    });
+
+    const argv = readFileSync(join(dir, "argv"), "utf8").split("\0");
+    // Find the index of --message to check order
+    const messageIdx = argv.indexOf("--message");
+    expect(messageIdx).toBeGreaterThan(-1);
+
+    // The sibling directories should appear after all the flags
+    const argvString = readFileSync(join(dir, "argv"), "utf8");
+    expect(argvString).toContain(sibling1);
+    expect(argvString).toContain(sibling2);
+  });
+
+  test("additionalReadDirs with multiple entries appear as distinct positional args", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new AiderAgent({
+      binary: bin,
+      model: "ollama/llama3",
+    });
+
+    const sibling1 = join(dir, "repo1");
+    const sibling2 = join(dir, "repo2");
+    const sibling3 = join(dir, "repo3");
+
+    await agent.run("prompt", {
+      cwd,
+      additionalReadDirs: [sibling1, sibling2, sibling3],
+    });
+
+    const argv = readFileSync(join(dir, "argv"), "utf8");
+    expect(argv).toContain(sibling1);
+    expect(argv).toContain(sibling2);
+    expect(argv).toContain(sibling3);
+    // Ensure all required flags are still present
+    expect(argv).toContain("--yes-always");
+    expect(argv).toContain("--no-auto-commits");
+    expect(argv).toContain("--no-git");
+    expect(argv).toContain("--no-stream");
+  });
 });

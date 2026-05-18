@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
@@ -43,12 +43,35 @@ export function commitSubspec(
   const baseMessage = `${parsed.h1}\n\n${commitBody}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd: gitRoot,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-  });
+  try {
+    execFileSync("git", ["commit", "-F", "-"], {
+      cwd: gitRoot,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      input: commitMessage,
+    });
+  } catch (err) {
+    let errorMessage = err instanceof Error ? err.message : String(err);
+    const stderr =
+      err instanceof Error &&
+      "stderr" in err &&
+      Buffer.isBuffer((err as { stderr: unknown }).stderr)
+        ? (err as { stderr: Buffer }).stderr.toString()
+        : "";
+    const stdout =
+      err instanceof Error &&
+      "stdout" in err &&
+      Buffer.isBuffer((err as { stdout: unknown }).stdout)
+        ? (err as { stdout: Buffer }).stdout.toString()
+        : "";
+    if (stderr) {
+      errorMessage += `\nstderr: ${stderr}`;
+    }
+    if (stdout) {
+      errorMessage += `\nstdout: ${stdout}`;
+    }
+    throw new Error(errorMessage);
+  }
 }
 
 export function snapshotAcceptanceCriteria(
@@ -90,12 +113,35 @@ export function commitWipProgress(
   const baseMessage = `${summary}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd: opts.cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-  });
+  try {
+    execFileSync("git", ["commit", "-F", "-"], {
+      cwd: opts.cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      input: commitMessage,
+    });
+  } catch (err) {
+    let errorMessage = err instanceof Error ? err.message : String(err);
+    const stderr =
+      err instanceof Error &&
+      "stderr" in err &&
+      Buffer.isBuffer((err as { stderr: unknown }).stderr)
+        ? (err as { stderr: Buffer }).stderr.toString()
+        : "";
+    const stdout =
+      err instanceof Error &&
+      "stdout" in err &&
+      Buffer.isBuffer((err as { stdout: unknown }).stdout)
+        ? (err as { stdout: Buffer }).stdout.toString()
+        : "";
+    if (stderr) {
+      errorMessage += `\nstderr: ${stderr}`;
+    }
+    if (stdout) {
+      errorMessage += `\nstdout: ${stdout}`;
+    }
+    throw new Error(errorMessage);
+  }
 }
 
 export function commitWipProgressWithBlocker(
@@ -117,6 +163,26 @@ export function commitWipProgressWithBlocker(
 
   execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
 
+  const diffResult = spawnSync("git", ["diff", "--cached", "--quiet"], {
+    cwd: opts.cwd,
+    stdio: "pipe",
+  });
+  if (diffResult.status === 0) {
+    return;
+  }
+  if (diffResult.status !== 1) {
+    const stderr = diffResult.stderr ? diffResult.stderr.toString() : "";
+    const stdout = diffResult.stdout ? diffResult.stdout.toString() : "";
+    let errorDetail = "";
+    if (stderr) {
+      errorDetail += `\nstderr: ${stderr}`;
+    }
+    if (stdout) {
+      errorDetail += `\nstdout: ${stdout}`;
+    }
+    throw new Error(`git diff --cached --quiet failed${errorDetail}`);
+  }
+
   const relativeSpecPath = relative(
     realpathSync(opts.cwd),
     realpathSync(subspecPath),
@@ -137,12 +203,35 @@ export function commitWipProgressWithBlocker(
   const baseMessage = `${summary}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
-  execFileSync("git", ["commit", "-F", "-"], {
-    cwd: opts.cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: commitMessage,
-  });
+  try {
+    execFileSync("git", ["commit", "-F", "-"], {
+      cwd: opts.cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      input: commitMessage,
+    });
+  } catch (err) {
+    let errorMessage = err instanceof Error ? err.message : String(err);
+    const stderr =
+      err instanceof Error &&
+      "stderr" in err &&
+      Buffer.isBuffer((err as { stderr: unknown }).stderr)
+        ? (err as { stderr: Buffer }).stderr.toString()
+        : "";
+    const stdout =
+      err instanceof Error &&
+      "stdout" in err &&
+      Buffer.isBuffer((err as { stdout: unknown }).stdout)
+        ? (err as { stdout: Buffer }).stdout.toString()
+        : "";
+    if (stderr) {
+      errorMessage += `\nstderr: ${stderr}`;
+    }
+    if (stdout) {
+      errorMessage += `\nstdout: ${stdout}`;
+    }
+    throw new Error(errorMessage);
+  }
 }
 
 function getGitRoot(subspecPath: string): string {

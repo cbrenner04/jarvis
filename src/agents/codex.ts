@@ -63,7 +63,7 @@ export class CodexAgent implements Agent {
         name: this.name,
         binary: this.#binary,
         cwd: opts.cwd,
-        buildArgv: (_prompt, _opts) => {
+        buildArgv: (_prompt, opts) => {
           const argv = [
             "exec",
             "--color",
@@ -73,6 +73,9 @@ export class CodexAgent implements Agent {
             "-c",
             'approval_policy="on-request"',
           ];
+          for (const dir of opts.additionalReadDirs ?? []) {
+            argv.push("--add-dir", dir);
+          }
           if (this.#model !== undefined) {
             argv.push("--model", this.#model);
           }

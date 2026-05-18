@@ -76,6 +76,7 @@ export type Project = {
   root: string;
   origin?: string;
   git?: boolean;
+  siblings?: string[];
 };
 
 export type ProjectMatch = {
@@ -343,6 +344,38 @@ function validateConfig(input: unknown, file: string): Config {
         fail(file, `project ${JSON.stringify(name)} git must be a boolean`);
       }
       project.git = gitRaw;
+    }
+    const siblingsRaw = (value as Record<string, unknown>).siblings;
+    if (siblingsRaw !== undefined) {
+      if (!Array.isArray(siblingsRaw)) {
+        fail(file, `project ${JSON.stringify(name)} siblings must be an array`);
+      }
+      const siblings: string[] = [];
+      for (let i = 0; i < siblingsRaw.length; i++) {
+        const sibling = siblingsRaw[i];
+        if (typeof sibling !== "string") {
+          fail(
+            file,
+            `project ${JSON.stringify(name)} siblings[${i}] must be a string`,
+          );
+        }
+        if (sibling.trim() === "") {
+          fail(
+            file,
+            `project ${JSON.stringify(name)} siblings[${i}] must be a non-empty string`,
+          );
+        }
+        if (!isAbsolute(sibling)) {
+          fail(
+            file,
+            `project ${JSON.stringify(name)} siblings[${i}] must be an absolute path (got ${JSON.stringify(sibling)})`,
+          );
+        }
+        siblings.push(sibling);
+      }
+      if (siblings.length > 0) {
+        project.siblings = siblings;
+      }
     }
     projects[name] = project;
   }

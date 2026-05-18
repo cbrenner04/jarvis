@@ -179,4 +179,19 @@ describe("CursorAgent", () => {
     const agent = new CursorAgent({ binary: "fake" });
     expect(agent.attributionLabel()).toBe("cursor (default model)");
   });
+
+  test("accepts additionalReadDirs without breaking --workspace and --force", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new CursorAgent({ binary: bin });
+
+    await agent.run("p", {
+      cwd,
+      additionalReadDirs: ["/abs/specs/foo", "/abs/specs/bar"],
+    });
+
+    const argv = readFileSync(join(dir, "argv"), "utf8");
+    expect(argv).toContain("--force");
+    expect(argv).toContain("--workspace");
+    expect(argv).toContain(cwd);
+  });
 });

@@ -40,8 +40,8 @@ export class AiderAgent implements Agent {
         name: this.name,
         binary: this.#binary,
         cwd: opts.cwd,
-        buildArgv: (prompt, _buildOpts) => {
-          return [
+        buildArgv: (prompt, buildOpts) => {
+          const argv = [
             "--message",
             prompt,
             "--model",
@@ -51,6 +51,10 @@ export class AiderAgent implements Agent {
             "--no-git",
             "--no-stream",
           ];
+          for (const dir of buildOpts.additionalReadDirs ?? []) {
+            argv.push(dir);
+          }
+          return argv;
         },
         stdio: ["ignore", "pipe", "pipe"],
         streamErrorPrefix: "aider:",

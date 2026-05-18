@@ -18,22 +18,23 @@ export type CleanupCommandOptions = {
   removeItem?: (item: { path: string; branch: string; dir: string }) => void;
 };
 
-function branchForWorktree(dir: string): string {
-  if (dir.startsWith("plan-")) {
-    return `plan/${dir.slice(5)}`;
-  }
-  return dir;
+function branchForWorktree(worktreePath: string): string {
+  return execSync("git rev-parse --abbrev-ref HEAD", {
+    cwd: worktreePath,
+    stdio: "pipe",
+    encoding: "utf8",
+  }).trim();
 }
 
-function isplanWorktree(dir: string): boolean {
-  return dir.startsWith("plan-");
+function isPlanBranch(branch: string): boolean {
+  return branch.startsWith("plan/");
 }
 
-function specNameForWorktree(dir: string): string {
-  if (isplanWorktree(dir)) {
-    return dir.slice(5);
+function specNameForBranch(branch: string): string {
+  if (isPlanBranch(branch)) {
+    return branch.slice("plan/".length);
   }
-  return dir;
+  return branch;
 }
 
 export function cleanupCommand(opts: CleanupCommandOptions): number {
@@ -44,7 +45,15 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
 
   for (const worktreeName of worktrees) {
     const worktreePath = join(worktreeDir, worktreeName);
-    const branch = branchForWorktree(worktreeName);
+    let branch: string;
+    try {
+      branch = branchForWorktree(worktreePath);
+    } catch {
+      opts.io.stdout(
+        `skipping ${worktreeName}: could not determine branch\n`,
+      );
+      continue;
+    }
 
     if (!(opts.isMergedPr ?? isMergedPr)(branch)) {
       continue;
@@ -67,7 +76,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
 
   opts.io.stdout("\nWorktrees to remove:\n");
   for (const item of toRemove) {
-    const tag = isplanWorktree(item.dir) ? " (plan)" : "";
+    const tag = isPlanBranch(item.branch) ? " (plan)" : "";
     opts.io.stdout(`  ${item.branch}${tag}\n`);
   }
 
@@ -96,10 +105,10 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
           stdio: "pipe",
         });
       }
-      const tag = isplanWorktree(item.dir) ? " (plan)" : "";
+      const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
 
-      const specName = specNameForWorktree(item.dir);
+      const specName = specNameForBranch(item.branch);
       if (specName === "completed") {
         opts.io.stderr(
           `unsafe spec archive mapping for "${item.dir}": refusing to move spec/completed/\n`,

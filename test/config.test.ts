@@ -942,6 +942,118 @@ describe("git toggle", () => {
       /not registered/,
     );
   });
+
+  test("accepts optional project siblings array", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-siblings",
+            siblings: ["/tmp/sibling1", "/tmp/sibling2"],
+          },
+        },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects.app).toEqual({
+      root: "/tmp/jarvis-siblings",
+      siblings: ["/tmp/sibling1", "/tmp/sibling2"],
+    });
+  });
+
+  test("rejects relative path in project siblings", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-siblings",
+            siblings: ["relative/path"],
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/absolute path/);
+  });
+
+  test("rejects non-string sibling entries", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-siblings",
+            siblings: ["/tmp/valid", 123],
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/must be a string/);
+  });
+
+  test("rejects non-array siblings", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-siblings",
+            siblings: "not-an-array",
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/must be an array/);
+  });
+
+  test("rejects empty string sibling entries", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-siblings",
+            siblings: ["   "],
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/non-empty string/);
+  });
 });
 
 describe("openSessionLog", () => {

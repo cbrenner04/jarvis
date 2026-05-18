@@ -687,6 +687,119 @@ describe("runCommand", () => {
     expect(claude.callOpts[0]?.additionalReadDirs).toBeUndefined();
   });
 
+  test("includes configured project siblings in additionalReadDirs", async () => {
+    const spec = writeNamedSpec("feature", "- [ ] todo\n");
+    const sibling1 = mkdtempSync(join(tmpdir(), "jarvis-test-sibling1-"));
+    const sibling2 = mkdtempSync(join(tmpdir(), "jarvis-test-sibling2-"));
+
+    try {
+      const cfg = loadConfig({ dir: cfgDir });
+      const project = cfg.projects.project;
+      if (project === undefined) {
+        throw new Error("project not registered");
+      }
+      project.siblings = [sibling1, sibling2];
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(claude.callOpts[0]?.additionalReadDirs).toContain(sibling1);
+      expect(claude.callOpts[0]?.additionalReadDirs).toContain(sibling2);
+    } finally {
+      rmSync(sibling1, { recursive: true, force: true });
+      rmSync(sibling2, { recursive: true, force: true });
+    }
+  });
+
+  test("lists configured project siblings in the prompt", async () => {
+    const spec = writeNamedSpec("feature", "- [ ] todo\n");
+    const sibling1 = mkdtempSync(join(tmpdir(), "jarvis-test-sibling1-"));
+    const sibling2 = mkdtempSync(join(tmpdir(), "jarvis-test-sibling2-"));
+
+    try {
+      const cfg = loadConfig({ dir: cfgDir });
+      const project = cfg.projects.project;
+      if (project === undefined) {
+        throw new Error("project not registered");
+      }
+      project.siblings = [sibling1, sibling2];
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(claude.calls[0]?.prompt).toContain(
+        "Additional project sibling directories are available for this run:",
+      );
+      expect(claude.calls[0]?.prompt).toContain(sibling1);
+      expect(claude.calls[0]?.prompt).toContain(sibling2);
+      expect(claude.calls[0]?.prompt).toContain(
+        "Treat these directories as part of the target project",
+      );
+    } finally {
+      rmSync(sibling1, { recursive: true, force: true });
+      rmSync(sibling2, { recursive: true, force: true });
+    }
+  });
+
+  test("fails when a configured sibling path does not exist", async () => {
+    const spec = writeNamedSpec("feature", "- [ ] todo\n");
+    const nonexistent = "/tmp/jarvis-test-nonexistent-" + Date.now();
+
+    const cfg = loadConfig({ dir: cfgDir });
+    const project = cfg.projects.project;
+    if (project === undefined) {
+      throw new Error("project not registered");
+    }
+    project.siblings = [nonexistent];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "ok",
+      stdout: "",
+      stderr: "",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain(nonexistent);
+    expect(cap.err()).toContain("does not exist");
+    expect(claude.calls).toHaveLength(0);
+  });
+
   test("specs without a repo fail clearly before agents run", async () => {
     const spec = writeSpecWithoutRepo("# Feature\n\n- [ ] todo\n");
     const cap = captureIo();

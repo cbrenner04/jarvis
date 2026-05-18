@@ -56,6 +56,55 @@ exit ${opts.exit}
   return path;
 }
 
+/** Bun fake that records argv/stdin/cwd and writes a correlatable Codex session JSONL. */
+function bunCodexFakeWithSession(
+  sessionPath: string,
+  sessionDir: string,
+): string {
+  const binPath = join(dir, "codex");
+  const script = `#!/usr/bin/env bun
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+const dir = ${JSON.stringify(dir)};
+const sessionPath = ${JSON.stringify(sessionPath)};
+const sessionDir = ${JSON.stringify(sessionDir)};
+const argv = process.argv.slice(2);
+writeFileSync(dir + "/argv", argv.map((a) => a + "\\0").join(""));
+const stdin = readFileSync(0, "utf8");
+writeFileSync(dir + "/stdin", stdin);
+writeFileSync(dir + "/cwd", process.cwd() + "\\n");
+mkdirSync(sessionDir, { recursive: true });
+const lines = [
+  JSON.stringify({
+    type: "event_msg",
+    payload: { type: "user_message", message: stdin },
+  }),
+  JSON.stringify({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        total_token_usage: {
+          input_tokens: 42,
+          cached_input_tokens: 5,
+          output_tokens: 9,
+        },
+      },
+    },
+  }),
+];
+writeFileSync(sessionPath, lines.join("\\n") + "\\n");
+console.log("ok");
+`;
+  writeFileSync(binPath, script);
+  chmodSync(binPath, 0o755);
+  return binPath;
+}
+
+function expectAugmentedPrompt(stdin: string, basePrompt: string): void {
+  expect(stdin.startsWith(`${basePrompt}\n`)).toBe(true);
+  expect(stdin).toMatch(/<!-- jarvis-codex-invocation: [0-9a-f-]{36} -->$/);
+}
+
 describe("CodexAgent", () => {
   test("name is 'codex'", () => {
     expect(new CodexAgent().name).toBe("codex");
@@ -75,7 +124,8 @@ describe("CodexAgent", () => {
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
       'exec\0--color\0never\0--sandbox\0workspace-write\0-c\0approval_policy="on-request"\0',
     );
-    expect(readFileSync(join(dir, "stdin"), "utf8")).toBe("the prompt");
+    const stdin = readFileSync(join(dir, "stdin"), "utf8");
+    expectAugmentedPrompt(stdin, "the prompt");
     const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
     const resolvedReportedCwd = realpathSync(reportedCwd);
     const resolvedCwd = realpathSync(cwd);
@@ -177,30 +227,10 @@ describe("CodexAgent", () => {
     expect(agent.attributionLabel()).toBe("codex (default model)");
   });
 
-  test("attaches usage and computed cost when a new session file is found", async () => {
-    const bin = fakeBinary({
-      exit: 0,
-      stdout: "ok",
-    });
+  test("attaches usage and computed cost when a new session file is found and correlated", async () => {
     const sessionDir = join(dir, ".codex", "sessions", "2026", "05", "16");
-    mkdirSync(sessionDir, { recursive: true });
     const sessionPath = join(sessionDir, "rollout-1.jsonl");
-    writeFileSync(
-      bin,
-      `#!/usr/bin/env bash
-: > "${dir}/argv"
-for a in "$@"; do printf '%s\\0' "$a" >> "${dir}/argv"; done
-cat > "${dir}/stdin"
-pwd > "${dir}/cwd"
-mkdir -p "${sessionDir}"
-cat > "${sessionPath}" <<'JSONL'
-{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":42,"cached_input_tokens":5,"output_tokens":9}}}}
-JSONL
-printf '%s' "ok"
-exit 0
-`,
-    );
-    chmodSync(bin, 0o755);
+    const bin = bunCodexFakeWithSession(sessionPath, sessionDir);
 
     const agent = new CodexAgent({ binary: bin, model: "gpt-5.3-codex" });
     const result = await agent.run("prompt", { cwd });
@@ -217,16 +247,103 @@ exit 0
     }
   });
 
-  test("omits usage and returns warning when no new session file exists", async () => {
+  test("records unavailable usage when no session file changes after invocation", async () => {
     const bin = fakeBinary({ exit: 0, stdout: "ok" });
     const agent = new CodexAgent({ binary: bin });
     const result = await agent.run("prompt", { cwd });
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {
       expect(result.usage).toBeUndefined();
+      expect(result.usage_source).toBe("unavailable");
+      expect(result.cost_source).toBe("no-usage");
+      expect(result.cost_usd).toBeNull();
       expect(
-        result.warnings?.some((w) => w.includes("session file not found")),
+        result.warnings?.some((w) => w.includes("no session JSONL changed")),
       ).toBe(true);
+    }
+  });
+
+  test("concurrent unrelated session file activity does not charge usage to this invocation", async () => {
+    const sessionRoot = join(dir, ".codex", "sessions");
+    const sub = join(sessionRoot, "2026", "05", "16");
+    mkdirSync(sub, { recursive: true });
+    const otherPath = join(sub, "other.jsonl");
+    writeFileSync(
+      otherPath,
+      `${[
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "user_message",
+            message: "interactive codex elsewhere",
+          },
+        }),
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            info: {
+              total_token_usage: {
+                input_tokens: 999,
+                cached_input_tokens: 0,
+                output_tokens: 999,
+              },
+            },
+          },
+        }),
+      ].join("\n")}\n`,
+    );
+
+    const sessionPath = join(sub, "jarvis.jsonl");
+    const binPath = join(dir, "codex");
+    const script = `#!/usr/bin/env bun
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
+const dir = ${JSON.stringify(dir)};
+const sessionPath = ${JSON.stringify(sessionPath)};
+const sessionDir = ${JSON.stringify(sub)};
+const otherPath = ${JSON.stringify(otherPath)};
+const argv = process.argv.slice(2);
+writeFileSync(dir + "/argv", argv.map((a) => a + "\\0").join(""));
+const stdin = readFileSync(0, "utf8");
+writeFileSync(dir + "/stdin", stdin);
+writeFileSync(dir + "/cwd", process.cwd() + "\\n");
+mkdirSync(sessionDir, { recursive: true });
+const lines = [
+  JSON.stringify({
+    type: "event_msg",
+    payload: { type: "user_message", message: stdin },
+  }),
+  JSON.stringify({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      info: {
+        total_token_usage: {
+          input_tokens: 42,
+          cached_input_tokens: 5,
+          output_tokens: 9,
+        },
+      },
+    },
+  }),
+];
+writeFileSync(sessionPath, lines.join("\\n") + "\\n");
+const cur = readFileSync(otherPath, "utf8");
+writeFileSync(
+  otherPath,
+  cur.trimEnd() + "\\n" + JSON.stringify({ type: "heartbeat" }) + "\\n",
+);
+console.log("ok");
+`;
+    writeFileSync(binPath, script);
+    chmodSync(binPath, 0o755);
+
+    const agent = new CodexAgent({ binary: binPath, model: "gpt-5.3-codex" });
+    const result = await agent.run("prompt", { cwd });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.usage?.input_tokens).toBe(42);
+      expect(result.usage_source).toBeUndefined();
     }
   });
 });

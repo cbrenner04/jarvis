@@ -1,12 +1,27 @@
-import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  type Dirent,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TelemetryUsage } from "../telemetry.ts";
 
-type SessionCandidate = { path: string; mtimeMs: number };
+/** Per-path state for all `*.jsonl` files under the Codex sessions tree. */
+export type CodexSessionPathState = {
+  mtimeMs: number;
+  size: number;
+};
 
-function listSessionFiles(dir: string): SessionCandidate[] {
-  const out: SessionCandidate[] = [];
+/** Map of absolute session file path → last observed size and mtime. */
+export type CodexSessionsSnapshot = Map<string, CodexSessionPathState>;
+
+type ListedFile = { path: string; mtimeMs: number; size: number };
+
+function listSessionFileStats(dir: string): ListedFile[] {
+  const out: ListedFile[] = [];
   const stack = [dir];
 
   while (stack.length > 0) {
@@ -33,7 +48,7 @@ function listSessionFiles(dir: string): SessionCandidate[] {
       }
       try {
         const stats = statSync(filePath);
-        out.push({ path: filePath, mtimeMs: stats.mtimeMs });
+        out.push({ path: filePath, mtimeMs: stats.mtimeMs, size: stats.size });
       } catch {
         // best-effort: ignore files we cannot stat
       }
@@ -47,35 +62,283 @@ export function getCodexSessionsDir(): string {
   return join(process.env.HOME ?? homedir(), ".codex", "sessions");
 }
 
-export function findCodexSessionFile(opts: {
-  sessionsDir: string;
-  snapshotMtime: number | null;
-}): string | null {
-  const candidates = listSessionFiles(opts.sessionsDir)
-    .filter((c) =>
-      opts.snapshotMtime === null ? true : c.mtimeMs > opts.snapshotMtime,
-    )
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
-  return candidates[0]?.path ?? null;
+export function snapshotCodexSessionFiles(
+  sessionsDir: string,
+): CodexSessionsSnapshot {
+  const map: CodexSessionsSnapshot = new Map();
+  for (const f of listSessionFileStats(sessionsDir)) {
+    map.set(f.path, { mtimeMs: f.mtimeMs, size: f.size });
+  }
+  return map;
 }
 
-export function findCodexSessionFilesSince(opts: {
+/**
+ * Session files that did not exist in `before` or whose size/mtime changed.
+ */
+export function listChangedCodexSessionFiles(opts: {
   sessionsDir: string;
-  snapshotMtime: number | null;
+  before: CodexSessionsSnapshot;
 }): string[] {
-  return listSessionFiles(opts.sessionsDir)
-    .filter((c) =>
-      opts.snapshotMtime === null ? true : c.mtimeMs > opts.snapshotMtime,
-    )
-    .sort((a, b) => b.mtimeMs - a.mtimeMs)
-    .map((c) => c.path);
+  const after = snapshotCodexSessionFiles(opts.sessionsDir);
+  const changed: string[] = [];
+  for (const [path, state] of after) {
+    const prev = opts.before.get(path);
+    if (
+      prev === undefined ||
+      prev.mtimeMs !== state.mtimeMs ||
+      prev.size !== state.size
+    ) {
+      changed.push(path);
+    }
+  }
+  return changed;
 }
 
-export function latestCodexSessionMtime(sessionsDir: string): number | null {
-  const latest = listSessionFiles(sessionsDir).sort(
-    (a, b) => b.mtimeMs - a.mtimeMs,
-  )[0];
-  return latest?.mtimeMs ?? null;
+function cwdEqual(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return a === b;
+  }
+}
+
+/**
+ * If any structured cwd field disagrees with `jarvisCwd`, the file cannot be this invocation.
+ * When no cwd metadata exists (older Codex), the file is still eligible.
+ */
+export function sessionFileCwdsCompatible(
+  content: string,
+  jarvisCwd: string,
+): boolean {
+  const lines = content.split(/\r?\n/);
+  const seenCwds: string[] = [];
+  for (const line of lines) {
+    if (line.trim() === "") {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      continue;
+    }
+    const rec = parsed as Record<string, unknown>;
+    const typ = rec.type;
+    const payload = rec.payload;
+    if (
+      payload === null ||
+      typeof payload !== "object" ||
+      Array.isArray(payload)
+    ) {
+      continue;
+    }
+    const p = payload as Record<string, unknown>;
+    if (typ === "session_meta" && typeof p.cwd === "string") {
+      seenCwds.push(p.cwd);
+    }
+    if (typ === "turn_context" && typeof p.cwd === "string") {
+      seenCwds.push(p.cwd);
+    }
+  }
+  if (seenCwds.length === 0) {
+    return true;
+  }
+  return seenCwds.every((c) => cwdEqual(c, jarvisCwd));
+}
+
+/** Structured prompt / input shapes first; whole-file substring is a compatibility fallback. */
+export function sessionContentHasInvocationMarker(
+  content: string,
+  invocationMarker: string,
+): { matched: boolean; usedRawFallback: boolean } {
+  let structured = false;
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    if (line.trim() === "") {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (lineIncludesMarkerStructured(parsed, invocationMarker)) {
+      structured = true;
+      return { matched: true, usedRawFallback: false };
+    }
+  }
+  if (content.includes(invocationMarker)) {
+    return { matched: true, usedRawFallback: !structured };
+  }
+  return { matched: false, usedRawFallback: false };
+}
+
+function lineIncludesMarkerStructured(
+  event: unknown,
+  invocationMarker: string,
+): boolean {
+  if (event === null || typeof event !== "object" || Array.isArray(event)) {
+    return false;
+  }
+  const rec = event as Record<string, unknown>;
+  const typ = rec.type;
+  const payload = rec.payload;
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return false;
+  }
+  const p = payload as Record<string, unknown>;
+
+  if (
+    typ === "event_msg" &&
+    p.type === "user_message" &&
+    typeof p.message === "string" &&
+    p.message.includes(invocationMarker)
+  ) {
+    return true;
+  }
+
+  if (
+    typ === "response_item" &&
+    p.type === "message" &&
+    p.role === "user" &&
+    Array.isArray(p.content)
+  ) {
+    for (const item of p.content) {
+      if (
+        item !== null &&
+        typeof item === "object" &&
+        !Array.isArray(item) &&
+        (item as Record<string, unknown>).type === "input_text" &&
+        typeof (item as Record<string, unknown>).text === "string" &&
+        String((item as Record<string, unknown>).text).includes(
+          invocationMarker,
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+export function sessionContentHasTokenCountEvent(content: string): boolean {
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    if (line.trim() === "") {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (extractTokenUsage(parsed) !== null) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function resolveCodexSessionUsage(opts: {
+  sessionsDir: string;
+  beforeSnapshot: CodexSessionsSnapshot;
+  invocationMarker: string;
+  cwd: string;
+}): {
+  usage: TelemetryUsage | null;
+  warnings: string[];
+  sessionFile: string | null;
+} {
+  const changed = listChangedCodexSessionFiles({
+    sessionsDir: opts.sessionsDir,
+    before: opts.beforeSnapshot,
+  });
+
+  if (changed.length === 0) {
+    return {
+      usage: null,
+      warnings: [
+        "codex usage unavailable: no session JSONL changed after this invocation",
+      ],
+      sessionFile: null,
+    };
+  }
+
+  const matched: string[] = [];
+  for (const path of changed) {
+    let content: string;
+    try {
+      content = readFileSync(path, "utf8");
+    } catch {
+      continue;
+    }
+    if (!sessionFileCwdsCompatible(content, opts.cwd)) {
+      continue;
+    }
+    const { matched: hasMarker } = sessionContentHasInvocationMarker(
+      content,
+      opts.invocationMarker,
+    );
+    if (!hasMarker) {
+      continue;
+    }
+    if (!sessionContentHasTokenCountEvent(content)) {
+      continue;
+    }
+    matched.push(path);
+  }
+
+  if (matched.length === 0) {
+    return {
+      usage: null,
+      warnings: [
+        "codex usage unavailable: no changed session file matched this invocation marker and cwd",
+      ],
+      sessionFile: null,
+    };
+  }
+
+  if (matched.length > 1) {
+    return {
+      usage: null,
+      warnings: [
+        `codex usage unavailable: multiple session files matched this invocation; refusing to guess: ${matched.sort().join(", ")}`,
+      ],
+      sessionFile: null,
+    };
+  }
+
+  const sessionFile = matched[0];
+  if (sessionFile === undefined) {
+    return {
+      usage: null,
+      warnings: [
+        "codex usage unavailable: no session file could be correlated to this invocation",
+      ],
+      sessionFile: null,
+    };
+  }
+
+  const parsed = parseCodexSessionUsage(sessionFile);
+  return {
+    usage: parsed.usage,
+    warnings: parsed.warnings,
+    sessionFile,
+  };
 }
 
 export function parseCodexSessionUsage(filePath: string): {

@@ -43,14 +43,14 @@ Wrong usage is worse than missing usage: it can make the run summary charge one 
 
 ## Acceptance criteria
 
-- [ ] Jarvis records Codex usage only when exactly one changed session file correlates to the unique invocation marker for the Codex invocation it just ran.
-- [ ] If an interactive Codex session in the same repository writes a session file during `jarvis run`, Jarvis does not attribute that unrelated file's usage to the Jarvis iteration.
-- [ ] If more than one candidate file contains the same invocation marker, the affected iteration records unavailable usage instead of choosing the newest file.
-- [ ] Ambiguous or missing Codex usage does not print `multiple codex session files detected; using newest`.
-- [ ] Existing valid Codex session fixtures still produce the same token totals and computed cost as before.
-- [ ] Codex ambiguity warnings are persisted on the telemetry record so the summary can report them.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] Jarvis records Codex usage only when exactly one changed session file correlates to the unique invocation marker for the Codex invocation it just ran.
+- [x] If an interactive Codex session in the same repository writes a session file during `jarvis run`, Jarvis does not attribute that unrelated file's usage to the Jarvis iteration.
+- [x] If more than one candidate file contains the same invocation marker, the affected iteration records unavailable usage instead of choosing the newest file.
+- [x] Ambiguous or missing Codex usage does not print `multiple codex session files detected; using newest`.
+- [x] Existing valid Codex session fixtures still produce the same token totals and computed cost as before.
+- [x] Codex ambiguity warnings are persisted on the telemetry record so the summary can report them.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

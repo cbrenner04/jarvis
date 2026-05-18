@@ -35,15 +35,20 @@ import {
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { checkPrExists, ensureDraftPr, renderAttribution } from "../../pr.ts";
-import { computeCost } from "../../prices/cost.ts";
-import { loadPrices } from "../../prices/load.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
 import { runSummary } from "../../run-summary.ts";
-import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
+import {
+  appendTelemetryLine,
+  type CostSource,
+  type TelemetryKind,
+  type TelemetryRecordRole,
+  type UsageSource,
+} from "../../telemetry.ts";
+import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import {
   createWorktreeSymlinks,
   ensureWorktree,
@@ -126,15 +131,17 @@ type WriteTelemetry = (record: {
   durationMs: number;
   kind: TelemetryKind;
   exitReason: string;
+  record_role?: TelemetryRecordRole;
+  configured_model?: string;
   usage?: {
     input_tokens: number | null;
     output_tokens: number | null;
     cache_read_input_tokens: number | null;
     cache_creation_input_tokens: number | null;
   };
-  usage_source?: "agent" | "unavailable";
+  usage_source?: UsageSource;
   cost_usd?: number | null;
-  cost_source?: "agent" | "computed" | "no-price" | "no-usage";
+  cost_source?: CostSource;
   warnings?: string[];
 }) => void;
 
@@ -167,6 +174,7 @@ type LoggingContext = {
   runNamespace: string;
   specDisplayName: string;
   hasTelemetryWrites: () => boolean;
+  patchIterationsCompletedForSummary: () => number;
 };
 
 type IterationContext = {
@@ -589,12 +597,14 @@ function setupLogging(
   const runNamespace = `${preflight.project.key}:${specDisplayName}`;
   const telemetryPath = cfg.telemetryPath ?? null;
   let telemetryWrites = false;
+  let patchIterationsCompletedForSummary = 0;
 
   const writeTelemetry: WriteTelemetry = (record) => {
     try {
       appendTelemetryLine(telemetryPath, {
         ts: new Date().toISOString(),
         namespace: runNamespace,
+        mode: "patch",
         agent: record.agent,
         iteration: record.iteration,
         duration_ms: record.durationMs,
@@ -609,8 +619,21 @@ function setupLogging(
           ? { cost_source: record.cost_source }
           : {}),
         ...(record.warnings !== undefined ? { warnings: record.warnings } : {}),
+        ...(record.record_role !== undefined
+          ? { record_role: record.record_role }
+          : {}),
+        ...(record.configured_model !== undefined
+          ? { configured_model: record.configured_model }
+          : {}),
       });
       telemetryWrites = true;
+      if (
+        record.kind === "ok" &&
+        record.agent !== "harness" &&
+        record.record_role !== "run_terminal"
+      ) {
+        patchIterationsCompletedForSummary += 1;
+      }
     } catch {
       // best-effort
     }
@@ -676,6 +699,8 @@ function setupLogging(
     runNamespace,
     specDisplayName,
     hasTelemetryWrites: () => telemetryWrites,
+    patchIterationsCompletedForSummary: () =>
+      patchIterationsCompletedForSummary,
   };
 }
 
@@ -694,7 +719,7 @@ function finalize(
       namespace: ctx.logging.runNamespace,
       startTs: runStartedAt.toISOString(),
       exitReason: runExitReason,
-      iterations: ctx.state.iteration - 1,
+      iterations: ctx.logging.patchIterationsCompletedForSummary(),
       durationMs: Date.now() - runStartedMs,
       specPath: getSpecDisplayName(ctx.preflight.specPath),
     });
@@ -750,76 +775,6 @@ function mapExitCodeToReason(exitCode: number): string {
   }
 }
 
-type UsageCostData = {
-  usage?: {
-    input_tokens: number | null;
-    output_tokens: number | null;
-    cache_read_input_tokens: number | null;
-    cache_creation_input_tokens: number | null;
-  };
-  usage_source?: "agent" | "unavailable";
-  cost_usd?: number | null;
-  cost_source?: "agent" | "computed" | "no-price" | "no-usage";
-};
-
-function extractUsageAndCost(
-  result: {
-    usage_source?: "agent" | "unavailable";
-    usage?: {
-      input_tokens: number | null;
-      output_tokens: number | null;
-      cache_read_input_tokens: number | null;
-      cache_creation_input_tokens: number | null;
-    };
-    cost_usd?: number | null;
-  },
-  agentName: string,
-): UsageCostData {
-  const output: UsageCostData = {};
-  if (result.usage_source === "unavailable") {
-    output.usage = {
-      input_tokens: null,
-      output_tokens: null,
-      cache_read_input_tokens: null,
-      cache_creation_input_tokens: null,
-    };
-    output.usage_source = "unavailable";
-    output.cost_usd = null;
-    output.cost_source = "no-usage";
-    return output;
-  }
-
-  if (result.cost_usd !== undefined && result.cost_usd !== null) {
-    // Agent provided cost directly (e.g., Claude with total_cost_usd)
-    if (result.usage !== undefined) {
-      output.usage = result.usage;
-      output.usage_source = "agent";
-    }
-    output.cost_usd = result.cost_usd;
-    output.cost_source = "agent";
-    return output;
-  }
-
-  // If there's usage data but no cost, compute it
-  if (result.usage !== undefined) {
-    output.usage = result.usage;
-    output.usage_source = "agent";
-    try {
-      const prices = loadPrices();
-      const computedCost = computeCost(result.usage, agentName, prices);
-      output.cost_usd = computedCost.cost_usd;
-      if (computedCost.cost_source !== null) {
-        output.cost_source = computedCost.cost_source;
-      }
-    } catch {
-      // If price loading fails, just return usage without cost
-    }
-    return output;
-  }
-
-  return output;
-}
-
 async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const { preflight, logging, opts, activeAgents, state } = ctx;
   const { specPath, isIndexSpec, gitEnabled, agentWorkingDir, cfg } = preflight;
@@ -872,6 +827,15 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     return { kind: "return", exitCode: 2 };
   }
 
+  const configuredPatchModelEntry = cfg.modes.patch.agentOrder.find(
+    (entry) => entry.agent === agent.name,
+  );
+  const telemetryMeta =
+    configuredPatchModelEntry?.model !== undefined
+      ? { configured_model: configuredPatchModelEntry.model }
+      : {};
+  const configuredPatchModel = configuredPatchModelEntry?.model;
+
   const task = getFirstUncheckedTask(specPath);
   const taskExcerpt = task.line.slice(0, 140);
   const activeSubspecPath = isIndexSpec
@@ -895,6 +859,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         durationMs: iterationDurationMs(),
         kind: "blocked",
         exitReason: "blocker-detected",
+        ...telemetryMeta,
       });
       return { kind: "return", exitCode: 7 };
     }
@@ -966,6 +931,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         durationMs: iterationDurationMs(),
         kind: "timeout",
         exitReason: "iteration-timeout",
+        ...telemetryMeta,
       });
       return { kind: "return", exitCode: 8 };
     }
@@ -988,6 +954,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         durationMs: iterationDurationMs(),
         kind: "timeout",
         exitReason: "run-timeout",
+        ...telemetryMeta,
       });
       return { kind: "return", exitCode: 8 };
     }
@@ -999,7 +966,11 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
 
     if (result.kind === "ok") {
       // Extract usage and cost data from the agent result
-      const usageCost = extractUsageAndCost(result, agent.name);
+      const usageCost = extractUsageAndCost(
+        result,
+        agent.name,
+        configuredPatchModel,
+      );
       const iterationWarnings =
         result.warnings !== undefined && result.warnings.length > 0
           ? result.warnings
@@ -1120,6 +1091,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
             durationMs: iterationDurationMs(),
             kind: "blocked",
             exitReason: "blocker-detected",
+            ...telemetryMeta,
           });
           return { kind: "return", exitCode: 7 };
         }
@@ -1261,6 +1233,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "ok",
           exitReason: "criteria-complete",
+          ...telemetryMeta,
           ...usageCost,
           ...(iterationWarnings !== undefined
             ? { warnings: iterationWarnings }
@@ -1276,10 +1249,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "ok",
           exitReason: "completed-spec",
-          ...usageCost,
-          ...(iterationWarnings !== undefined
-            ? { warnings: iterationWarnings }
-            : {}),
+          record_role: "run_terminal",
+          ...telemetryMeta,
         });
         return { kind: "return", exitCode: done };
       }
@@ -1295,6 +1266,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "ok",
           exitReason: "criteria-progress",
+          ...telemetryMeta,
           ...usageCost,
           ...(iterationWarnings !== undefined
             ? { warnings: iterationWarnings }
@@ -1318,6 +1290,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "ok",
           exitReason: "no-progress",
+          ...telemetryMeta,
           ...usageCost,
           ...(iterationWarnings !== undefined
             ? { warnings: iterationWarnings }
@@ -1331,6 +1304,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         durationMs: iterationDurationMs(),
         kind: "ok",
         exitReason: "criteria-progress",
+        ...telemetryMeta,
         ...usageCost,
         ...(iterationWarnings !== undefined
           ? { warnings: iterationWarnings }
@@ -1354,6 +1328,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "quota",
           exitReason: "quota-exhausted",
+          ...telemetryMeta,
         });
         return { kind: "return", exitCode: 2 };
       }
@@ -1363,6 +1338,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         durationMs: iterationDurationMs(),
         kind: "quota",
         exitReason: "quota-fallback",
+        ...telemetryMeta,
       });
       state.iteration += 1;
       return { kind: "continue" };
@@ -1385,6 +1361,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         durationMs: iterationDurationMs(),
         kind: "model_config",
         exitReason: "model-config",
+        ...telemetryMeta,
       });
       return { kind: "return", exitCode: 3 };
     }
@@ -1430,6 +1407,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           durationMs: iterationDurationMs(),
           kind: "quota",
           exitReason: "quota-exhausted",
+          ...telemetryMeta,
         });
         return { kind: "return", exitCode: 2 };
       }
@@ -1439,6 +1417,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         durationMs: iterationDurationMs(),
         kind: "quota",
         exitReason: "probable-quota-fallback",
+        ...telemetryMeta,
       });
       state.iteration += 1;
       return { kind: "continue" };
@@ -1456,6 +1435,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       durationMs: iterationDurationMs(),
       kind: "error",
       exitReason: "agent-error",
+      ...telemetryMeta,
     });
     return { kind: "return", exitCode: 3 };
   } finally {

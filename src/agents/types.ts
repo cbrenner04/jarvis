@@ -5,7 +5,7 @@ export type AgentResult =
       kind: "ok";
       stdout: string;
       stderr: string;
-      usage_source?: "agent" | "unavailable";
+      usage_source?: "agent" | "estimated" | "unavailable";
       usage?: {
         input_tokens: number | null;
         output_tokens: number | null;
@@ -13,7 +13,12 @@ export type AgentResult =
         cache_creation_input_tokens: number | null;
       };
       cost_usd?: number | null;
-      cost_source?: "agent" | "computed" | "no-price" | "no-usage";
+      cost_source?:
+        | "agent"
+        | "computed"
+        | "estimated"
+        | "no-price"
+        | "no-usage";
       warnings?: string[];
     }
   | { kind: "quota"; stderr: string }

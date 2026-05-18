@@ -21,5 +21,8 @@
     "@biomejs/biome": "2.4.15",
     "@types/bun": "latest",
     "typescript": "^5"
+  },
+  "dependencies": {
+    "js-tiktoken": "^1.0.21"
   }
 }

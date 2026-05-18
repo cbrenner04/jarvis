@@ -16,6 +16,14 @@ export type AiderAgentOptions = {
 
 const AIDER_MODEL_LABELS: Record<string, string> = {};
 
+export const AIDER_HAS_PRICED_MODELS = false;
+
+export function resolveAiderPriceKey(
+  _model: string | undefined,
+): string | null {
+  return null;
+}
+
 export class AiderAgent implements Agent {
   readonly name = "aider" as AgentName;
   readonly #binary: string;

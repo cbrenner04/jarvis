@@ -323,6 +323,53 @@ describe("runCommand", () => {
 
       expect(code).toBe(0);
     });
+
+    test("run summary excludes quota fallback row and counts one iteration", async () => {
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.git = false;
+      cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+      writeConfig(cfg, { dir: cfgDir });
+
+      const spec = writeSpec("- [ ] chip\n");
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => ({
+        kind: "quota",
+        stderr: "",
+      }));
+      const codex = new FakeAgent("codex", () => {
+        writeFileSync(spec, "- [x] chip\n");
+        return {
+          kind: "ok",
+          stdout: "",
+          stderr: "",
+          usage_source: "agent",
+          usage: {
+            input_tokens: 400,
+            output_tokens: 100,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+          cost_usd: 0.02,
+        };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      const out = cap.out();
+      expect(out).toContain("iterations: 1");
+      expect(out).toContain(
+        "1 quota attempt(s) under claude were excluded from usage totals.",
+      );
+      expect(out).toContain(`codex (${CODEX_ENTRY.model})`);
+      expect(out).not.toContain("claude (");
+    });
   });
 
   test("refuses to run when log server is unreachable", async () => {

@@ -8,6 +8,7 @@ import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
+import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 
 /** Level-2 heading for explicit no-op interview outcome (append-only). */
 export const INTERVIEW_SKIP_HEADING = "## Interview skip";
@@ -19,6 +20,7 @@ export type InterviewPhaseOptions = {
   interviewTurns?: number;
   /** When set, quota rotation emits lines aligned with patch harness wording. */
   stderr?: (s: string) => void;
+  planTelemetry?: PlanTelemetryWriter | undefined;
 };
 
 /** Outcome for default CLI reporting after the interview phase completes. */
@@ -102,6 +104,7 @@ export async function runInterviewTurn(opts: {
   turnNumber: number;
   totalTurns: number;
   stderr?: (s: string) => void;
+  planTelemetry?: PlanTelemetryWriter | undefined;
 }): Promise<{
   result: AgentResult;
   agentLabel: string | null;
@@ -158,6 +161,7 @@ export async function runInterviewTurn(opts: {
       `${entry.agent} (${entry.model ?? "default"})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
+    const invocationStartedAt = Date.now();
     const spawnResult = await agent.run(prompt, {
       cwd: opts.worktreePath,
     });
@@ -176,6 +180,14 @@ export async function runInterviewTurn(opts: {
       noDiskChangeDuringInvocation,
     );
     emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
+
+    opts.planTelemetry?.recordAgentAttempt({
+      phase: "interview",
+      agentCli: entry.agent,
+      configuredModel: entry.model,
+      durationMs: Date.now() - invocationStartedAt,
+      result,
+    });
 
     if (result.kind === "ok") {
       // Agent succeeded; validate the output
@@ -418,6 +430,9 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
       turnNumber: turn,
       totalTurns: budgetTurns,
       ...(opts.stderr !== undefined ? { stderr: opts.stderr } : {}),
+      ...(opts.planTelemetry !== undefined
+        ? { planTelemetry: opts.planTelemetry }
+        : {}),
     });
 
     // Update agent label (use the most recent non-null one)

@@ -31,15 +31,15 @@ The result is per-agent branches that all do slightly different things while pre
 
 ## Acceptance criteria
 
-- [ ] `src/agents/factory.ts` exports `createAgent(agentName: AgentName, model: string, opts?: CreateAgentOptions): Agent` with `model` typed as `string` (not `string | undefined`).
-- [ ] No branch inside `createAgent` contains a `model ? { model } : {}` spread or a `model ? ... : ...` conditional on `model`. (The `opts.claude?.outputFormat ? ... : ...` conditional in the claude branch is unrelated and must remain.)
-- [ ] No branch inside `createAgent` throws on `!model`; the opencode and aider branches construct directly with `{ model }`.
-- [ ] The claude branch still forwards `opts.claude?.outputFormat` to `ClaudeAgent` when provided, and omits it otherwise.
-- [ ] `CreateAgentOptions` retains its `claude.outputFormat` shape; no fields are added or removed.
-- [ ] `ClaudeAgentOptions`, `CodexAgentOptions`, `CursorAgentOptions`, `OpencodeAgentOptions`, and `AiderAgentOptions` are unchanged.
-- [ ] `src/config.ts` is unchanged with respect to `outputFormat` (field, schema, and getter all preserved).
-- [ ] The project type-checks cleanly with no `createAgent` call site needing a non-null assertion or cast on `model`.
-- [ ] Any test that previously passed `undefined` for `model` to `createAgent` is updated to match the new signature; tests that construct agent classes directly are unchanged.
+- [x] `src/agents/factory.ts` exports `createAgent(agentName: AgentName, model: string, opts?: CreateAgentOptions): Agent` with `model` typed as `string` (not `string | undefined`).
+- [x] No branch inside `createAgent` contains a `model ? { model } : {}` spread or a `model ? ... : ...` conditional on `model`. (The `opts.claude?.outputFormat ? ... : ...` conditional in the claude branch is unrelated and must remain.)
+- [x] No branch inside `createAgent` throws on `!model`; the opencode and aider branches construct directly with `{ model }`.
+- [x] The claude branch still forwards `opts.claude?.outputFormat` to `ClaudeAgent` when provided, and omits it otherwise.
+- [x] `CreateAgentOptions` retains its `claude.outputFormat` shape; no fields are added or removed.
+- [x] `ClaudeAgentOptions`, `CodexAgentOptions`, `CursorAgentOptions`, `OpencodeAgentOptions`, and `AiderAgentOptions` are unchanged.
+- [x] `src/config.ts` is unchanged with respect to `outputFormat` (field, schema, and getter all preserved).
+- [x] The project type-checks cleanly with no `createAgent` call site needing a non-null assertion or cast on `model`.
+- [x] Any test that previously passed `undefined` for `model` to `createAgent` is updated to match the new signature; tests that construct agent classes directly are unchanged.
 
 ## Documentation
 

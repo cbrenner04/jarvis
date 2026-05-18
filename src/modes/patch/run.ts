@@ -27,7 +27,6 @@ import {
   type ConfigOptions,
   effectiveGit,
   findProjectMatchForPath,
-  getClaudeOutputFormat,
   openSessionLog,
   type ProjectMatch,
   setProjectOrigin,
@@ -590,11 +589,7 @@ function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
       agents.push(override);
       continue;
     }
-    agents.push(
-      createAgent(entry.agent, entry.model, {
-        claude: { outputFormat: getClaudeOutputFormat(cfg) },
-      }),
-    );
+    agents.push(createAgent(entry.agent, entry.model));
   }
   return agents;
 }

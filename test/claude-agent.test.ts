@@ -2,15 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { ClaudeAgent } from "../src/agents/claude.ts";
 
 describe("ClaudeAgent", () => {
-  test("defaults to JSON output format", () => {
+  test("constructs with a configured model", () => {
     const agent = new ClaudeAgent({ model: "haiku" });
-    // We can't directly inspect the private outputFormat, so we test the behavior
-    // by checking that usage is extracted when the agent is run
-    expect(agent).toBeTruthy();
-  });
-
-  test("supports text output format option", () => {
-    const agent = new ClaudeAgent({ model: "haiku", outputFormat: "text" });
     expect(agent).toBeTruthy();
   });
 

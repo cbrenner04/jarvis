@@ -47,20 +47,28 @@ exit ${opts.exit}
   return path;
 }
 
+function claudeJson(result: string): string {
+  return JSON.stringify({ type: "result", result });
+}
+
 describe("ClaudeAgent", () => {
   test("name is 'claude'", () => {
     expect(new ClaudeAgent().name).toBe("claude");
   });
 
   test("spawns `claude -p` with prompt on stdin in cwd, mapping exit 0 → ok", async () => {
-    const bin = fakeBinary({ exit: 0, stdout: "hi-out", stderr: "hi-err" });
-    const agent = new ClaudeAgent({ binary: bin, outputFormat: "text" });
+    const bin = fakeBinary({
+      exit: 0,
+      stdout: claudeJson("hi-out"),
+      stderr: "hi-err",
+    });
+    const agent = new ClaudeAgent({ binary: bin });
 
     const result = await agent.run("the prompt", { cwd });
 
     expect(result).toEqual({ kind: "ok", stdout: "hi-out", stderr: "hi-err" });
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "-p\0--permission-mode\0acceptEdits\0",
+      "-p\0--permission-mode\0acceptEdits\0--output-format\0json\0",
     );
     expect(readFileSync(join(dir, "stdin"), "utf8")).toBe("the prompt");
     const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
@@ -74,13 +82,12 @@ describe("ClaudeAgent", () => {
     const agent = new ClaudeAgent({
       binary: bin,
       model: "haiku",
-      outputFormat: "text",
     });
 
     await agent.run("the prompt", { cwd });
 
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "-p\0--permission-mode\0acceptEdits\0--model\0haiku\0",
+      "-p\0--permission-mode\0acceptEdits\0--model\0haiku\0--output-format\0json\0",
     );
   });
 
@@ -144,7 +151,7 @@ describe("ClaudeAgent", () => {
 
   test("appends --add-dir for each additionalReadDirs entry", async () => {
     const bin = fakeBinary({ exit: 0 });
-    const agent = new ClaudeAgent({ binary: bin, outputFormat: "text" });
+    const agent = new ClaudeAgent({ binary: bin });
 
     await agent.run("p", {
       cwd,
@@ -152,7 +159,7 @@ describe("ClaudeAgent", () => {
     });
 
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "-p\0--permission-mode\0acceptEdits\0--add-dir\0/abs/specs/foo\0--add-dir\0/abs/specs/bar\0",
+      "-p\0--permission-mode\0acceptEdits\0--add-dir\0/abs/specs/foo\0--add-dir\0/abs/specs/bar\0--output-format\0json\0",
     );
   });
 

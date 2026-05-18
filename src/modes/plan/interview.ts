@@ -157,8 +157,7 @@ export async function runInterviewTurn(opts: {
   for (const entry of agentOrder) {
     const agent = createAgent(entry.agent, entry.model);
     agentLabel =
-      agent.attributionLabel?.() ??
-      `${entry.agent} (${entry.model ?? "default"})`;
+      agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();

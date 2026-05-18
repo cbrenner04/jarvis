@@ -191,14 +191,14 @@ values before pushing. The temporary branch is never pushed to origin.
 
 **Phase commits** in plan mode have special subjects:
 
-- `plan: interview` — historical subject for the intent-refinement result:
+- `plan: refine` — historical subject for the intent-refinement result:
   seeded `intent.md` from user input (file, inline, or no-argument mode), plus
   appended refinement/skip/blocker sections and the final proposed `name:` line
   after temp-slot rename.
 - `plan: draft` — commits the initial agent-drafted spec tree.
 - `plan: review N` — commits review-pass refinements to the same spec tree.
 - `plan: blocker` — records a blocker raised during draft/review.
-- `plan: interview r<n>` — records resume intent-refinement turns for resume run `n`.
+- `plan: refine r<n>` — records resume intent-refinement turns for resume run `n`.
 - `plan: review N r<n>` — records resume review pass `N` for resume run `n`.
 - `plan: blocker r<n>` — records a blocker raised during resume run `n`.
 

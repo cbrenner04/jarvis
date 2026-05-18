@@ -49,7 +49,7 @@ rotating agents after a quota-classified result:
   stay mode-tagged.
 - **Final exhaustion:** patch prints `all agents quota-exhausted`. Plan prints
   `plan: all agents quota-exhausted` and may add a phase suffix (` during
-  interview`, ` during naming-only phase`, etc.).
+  refine`, ` during naming-only phase`, etc.).
 
 Canonical string constants: `src/quota-harness-messages.ts`. Plan rotation
 lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.

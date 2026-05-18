@@ -19,14 +19,14 @@ import {
 import {
   commitPlanBlocker,
   commitPlanDraft,
-  commitPlanInterview,
+  commitPlanRefine,
   commitPlanReview,
 } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import {
-  type InterviewTerminalOutcome,
-  runInterviewPhase,
-} from "../modes/plan/interview.ts";
+  type RefineTerminalOutcome,
+  runRefinePhase,
+} from "../modes/plan/refine.ts";
 import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
 import {
   createPlanTelemetryWriter,
@@ -72,12 +72,12 @@ export type PlanCommandOptions = {
   skipGhCheck?: boolean;
 };
 
-export const PLAN_USAGE = `Usage: jarvis plan [--interview-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
+export const PLAN_USAGE = `Usage: jarvis plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
                             Run plan mode (draft specs under spec/…; see docs/plan-mode.md).
 `;
 
 const PLAN_STUB_MESSAGE =
-  "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n";
+  "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n";
 
 /** Best-effort harness log for plan setup diagnostics (mirrors patch-mode fanout style). */
 function planHarnessLog(logClient: LogClient, text: string): void {
@@ -197,7 +197,7 @@ type ResumePrep = {
   nextReviewIndex: number;
 };
 
-const RESUME_SUBJECT_RE = /^plan: (interview|review \d+|blocker)(?: r(\d+))?$/;
+const RESUME_SUBJECT_RE = /^plan: (refine|review \d+|blocker)(?: r(\d+))?$/;
 const REVIEW_SUBJECT_RE = /^plan: review (\d+)(?: r\d+)?$/;
 
 function assertResumeIndexPath(specPath: string): {
@@ -417,7 +417,7 @@ export function seedIntentFile(opts: SeedIntentFileOptions): void {
     content = `${opts.intentText}\n`;
   } else if (opts.mode === "interactive") {
     content =
-      "# Intent\n\n(Interactive session — no seed text. The interview will gather\nthe intent.)\n";
+      "# Intent\n\n(Interactive session — no seed text. The refine phase will gather\nthe intent.)\n";
   } else {
     throw new Error(`unknown mode: ${opts.mode}`);
   }
@@ -495,18 +495,18 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const planLogClient = entry.logClient;
     planHarnessLog(planLogClient, describePlanInvocation(inv));
     if (inv.mode === "interactive") {
-      opts.io.stderr("plan mode: interactive session started\n");
+      opts.io.stderr("plan: interactive session started\n");
     }
 
     const project = entry.resolution.resolved.project;
     planHarnessLog(
       planLogClient,
-      `plan mode: target project=${project.key} root=${project.root}`,
+      `plan: target project=${project.key} root=${project.root}`,
     );
 
-    if (inv.mode === "interactive" && (inv.interviewTurns ?? 3) === 0) {
+    if (inv.mode === "interactive" && (inv.refineTurns ?? 3) === 0) {
       opts.io.stderr(
-        "plan: --interview-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n",
+        "plan: --refine-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n",
       );
       return 1;
     }
@@ -521,8 +521,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
       const reviewPasses = inv.reviewPasses ?? 2;
-      const interviewTurns = inv.interviewTurns ?? 0;
-      if (reviewPasses === 0 && interviewTurns === 0) {
+      const refineTurns = inv.refineTurns ?? 0;
+      if (reviewPasses === 0 && refineTurns === 0) {
         opts.io.stderr("--resume requires at least one phase\n");
         return 1;
       }
@@ -541,7 +541,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const branch = `plan/${resume.planName}`;
       const suffix = `r${resume.nextResumeIndex}`;
       let nextReviewIndex = resume.nextReviewIndex;
-      opts.io.stderr(`plan mode: resume ${suffix} started\n`);
+      opts.io.stderr(`plan: resume ${suffix} started\n`);
 
       const cfg = loadConfig(opts.config);
       const resumePlanStartedAt = new Date();
@@ -564,36 +564,36 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           writer: resumePlanTelemetry,
         });
       };
-      if (interviewTurns > 0) {
+      if (refineTurns > 0) {
         if (interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
           summarizeResume("sigint");
           return 130;
         }
         try {
-          const interviewResult = await runInterviewPhase({
+          const refineResult = await runRefinePhase({
             worktreePath: resume.worktreePath,
             name: resume.specDirBasename,
             config: cfg,
-            interviewTurns,
+            refineTurns,
             stderr: opts.io.stderr,
             planTelemetry: resumePlanTelemetry,
           });
-          if (interviewResult.result.kind !== "ok") {
-            if (interviewResult.result.kind === "quota") {
+          if (refineResult.result.kind !== "ok") {
+            if (refineResult.result.kind === "quota") {
               opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
               summarizeResume("quota-exhausted");
               return 2;
             }
-            if (interviewResult.result.kind === "model_config") {
+            if (refineResult.result.kind === "model_config") {
               opts.io.stderr(
-                `plan mode: model configuration error\n${interviewResult.result.stderr}`,
+                `plan: model configuration error\n${refineResult.result.stderr}`,
               );
               summarizeResume("model-config");
               return 3;
             }
             opts.io.stderr(
-              `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
+              `plan: refine phase failed\n${refineResult.result.stderr}`,
             );
             summarizeResume("agent-error");
             return 1;
@@ -603,32 +603,32 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             summarizeResume("sigint");
             return 130;
           }
-          if (interviewResult.terminalOutcome !== undefined) {
+          if (refineResult.terminalOutcome !== undefined) {
             opts.io.stderr(
-              `plan: interview: ${interviewResult.terminalOutcome}\n`,
+              `plan: refine: ${refineResult.terminalOutcome}\n`,
             );
           }
           if (hasWorkingTreeChanges(resume.worktreePath)) {
-            commitPlanInterview({
+            commitPlanRefine({
               worktreePath: resume.worktreePath,
               specDirBasename: resume.specDirBasename,
               mode: "interactive",
               intentPathOrLabel: "interactive",
-              completedTurns: interviewResult.completedTurns,
+              completedTurns: refineResult.completedTurns,
               subjectSuffix: suffix,
-              resumedBy: interviewResult.agentLabel ?? "unknown",
-              ...(interviewResult.terminalOutcome === "skipped" ||
-              interviewResult.terminalOutcome === "blocker"
-                ? { interviewOutcome: interviewResult.terminalOutcome }
+              resumedBy: refineResult.agentLabel ?? "unknown",
+              ...(refineResult.terminalOutcome === "skipped" ||
+              refineResult.terminalOutcome === "blocker"
+                ? { refineOutcome: refineResult.terminalOutcome }
                 : {}),
             });
           }
-          if (interviewResult.blocker !== undefined) {
+          if (refineResult.blocker !== undefined) {
             commitPlanBlocker({
               worktreePath: resume.worktreePath,
               specDirBasename: resume.specDirBasename,
-              agentLabel: interviewResult.agentLabel ?? "unknown",
-              reason: firstNonEmptyLine(interviewResult.blocker),
+              agentLabel: refineResult.agentLabel ?? "unknown",
+              reason: firstNonEmptyLine(refineResult.blocker),
               specFilesCount: countSpecFiles(
                 resume.worktreePath,
                 resume.specDirBasename,
@@ -644,7 +644,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               specDirBasename: resume.specDirBasename,
             });
             opts.io.stderr(`plan: blocked\n`);
-            opts.io.stderr(`\n## Blocker\n\n${interviewResult.blocker}\n`);
+            opts.io.stderr(`\n## Blocker\n\n${refineResult.blocker}\n`);
             summarizeResume("blocker");
             return 1;
           }
@@ -685,13 +685,13 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
           if (result.result.kind === "model_config") {
             opts.io.stderr(
-              `plan mode: model configuration error: ${result.result.stderr}\n`,
+              `plan: model configuration error: ${result.result.stderr}\n`,
             );
             summarizeResume("model-config");
             return 3;
           }
           opts.io.stderr(
-            `plan mode: review pass ${nextReviewIndex} failed: ${result.result.stderr}\n`,
+            `plan: review pass ${nextReviewIndex} failed: ${result.result.stderr}\n`,
           );
           summarizeResume("agent-error");
           return 1;
@@ -714,7 +714,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         );
         if (!validation.valid) {
           opts.io.stderr(
-            `plan mode: review pass ${nextReviewIndex} validation failed: ${validation.error}\n`,
+            `plan: review pass ${nextReviewIndex} validation failed: ${validation.error}\n`,
           );
           summarizeResume("error");
           return 1;
@@ -788,7 +788,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     let specDirBasename = tempPlanName;
     planHarnessLog(
       planLogClient,
-      `plan mode: temporary plan name=${tempPlanName}`,
+      `plan: temporary plan name=${tempPlanName}`,
     );
 
     // Create worktree for file or inline mode (only if it's a git repo and gh is available)
@@ -808,7 +808,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         );
         planHarnessLog(
           planLogClient,
-          `plan mode: worktree created at ${worktreePath}`,
+          `plan: worktree created at ${worktreePath}`,
         );
       } catch (err) {
         const message = (err as Error).message;
@@ -856,7 +856,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
 
-      // Load config once for use in interview and draft phases
+      // Load config once for use in refine and draft phases
       const cfg = loadConfig(opts.config);
 
       const planStartedAt = new Date();
@@ -883,56 +883,56 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         });
       };
 
-      // Run interview phase
-      let interviewCompletedTurns = 0;
-      let interviewBlocker: string | undefined;
-      let interviewAgentLabel: string | null = null;
-      let interviewTerminalOutcome: InterviewTerminalOutcome | undefined;
+      // Run refine phase
+      let refineCompletedTurns = 0;
+      let refineBlocker: string | undefined;
+      let refineAgentLabel: string | null = null;
+      let refineTerminalOutcome: RefineTerminalOutcome | undefined;
 
       try {
-        const interviewBudget = inv.interviewTurns ?? 3;
+        const refineBudget = inv.refineTurns ?? 3;
 
-        if (interviewBudget > 0) {
-          const interviewResult = await runInterviewPhase({
+        if (refineBudget > 0) {
+          const refineResult = await runRefinePhase({
             worktreePath,
             name: specDirBasename,
             config: cfg,
-            interviewTurns: interviewBudget,
+            refineTurns: refineBudget,
             stderr: opts.io.stderr,
             planTelemetry: planTelemetryWriter,
           });
 
-          // Handle interview result
-          if (interviewResult.result.kind !== "ok") {
-            if (interviewResult.result.kind === "quota") {
+          // Handle refine result
+          if (refineResult.result.kind !== "ok") {
+            if (refineResult.result.kind === "quota") {
               opts.io.stderr(
-                `plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during interview\n`,
+                `plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during refine\n`,
               );
               summarizePlan("quota-exhausted", specDirBasename);
               return 2;
             }
-            if (interviewResult.result.kind === "model_config") {
+            if (refineResult.result.kind === "model_config") {
               opts.io.stderr(
-                `plan mode: model configuration error\n${interviewResult.result.stderr}`,
+                `plan: model configuration error\n${refineResult.result.stderr}`,
               );
               summarizePlan("model-config", specDirBasename);
               return 3;
             }
             // Generic error
             opts.io.stderr(
-              `plan mode: interview phase failed\n${interviewResult.result.stderr}`,
+              `plan: refine phase failed\n${refineResult.result.stderr}`,
             );
             summarizePlan("agent-error", specDirBasename);
             return 1;
           }
 
-          interviewCompletedTurns = interviewResult.completedTurns;
-          interviewAgentLabel = interviewResult.agentLabel;
-          interviewBlocker = interviewResult.blocker;
-          interviewTerminalOutcome = interviewResult.terminalOutcome;
-          if (interviewResult.terminalOutcome !== undefined) {
+          refineCompletedTurns = refineResult.completedTurns;
+          refineAgentLabel = refineResult.agentLabel;
+          refineBlocker = refineResult.blocker;
+          refineTerminalOutcome = refineResult.terminalOutcome;
+          if (refineResult.terminalOutcome !== undefined) {
             opts.io.stderr(
-              `plan: interview: ${interviewResult.terminalOutcome}\n`,
+              `plan: refine: ${refineResult.terminalOutcome}\n`,
             );
           }
         } else if (inv.mode !== "interactive") {
@@ -953,13 +953,13 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             }
             if (namingResult.result.kind === "model_config") {
               opts.io.stderr(
-                `plan mode: model configuration error\n${namingResult.result.stderr}`,
+                `plan: model configuration error\n${namingResult.result.stderr}`,
               );
               summarizePlan("model-config", specDirBasename);
               return 3;
             }
             opts.io.stderr(
-              `plan mode: naming-only phase failed\n${namingResult.result.stderr}`,
+              `plan: naming-only phase failed\n${namingResult.result.stderr}`,
             );
             summarizePlan("agent-error", specDirBasename);
             return 1;
@@ -967,7 +967,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
       } catch (err) {
         opts.io.stderr(
-          `plan mode: interview phase error: ${(err as Error).message}\n`,
+          `plan: refine phase error: ${(err as Error).message}\n`,
         );
         summarizePlan("error", specDirBasename);
         return 1;
@@ -994,7 +994,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       planName = await ensureUniquePlanName(project.root, chosenBaseName);
       const timestampPrefix = formatPlanSpecTimestamp();
       specDirBasename = `${timestampPrefix}-${planName}`;
-      planHarnessLog(planLogClient, `plan mode: spec name=${planName}`);
+      planHarnessLog(planLogClient, `plan: spec name=${planName}`);
 
       const finalIntentBody = tempIntent.startsWith("---\n")
         ? tempIntent.replace(
@@ -1011,7 +1011,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         );
       } catch (err) {
         opts.io.stderr(
-          `plan mode: failed to rename spec directory: ${(err as Error).message}\n`,
+          `plan: failed to rename spec directory: ${(err as Error).message}\n`,
         );
         summarizePlan("error", specDirBasename);
         return 1;
@@ -1058,7 +1058,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
         planHarnessLog(
           planLogClient,
-          `plan mode: renamed worktree and branch to plan/${planName}`,
+          `plan: renamed worktree and branch to plan/${planName}`,
         );
       } catch (err) {
         const message =
@@ -1080,29 +1080,29 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 130;
       }
 
-      // If a blocker was raised during interview, commit it and stop
-      if (interviewBlocker !== undefined) {
+      // If a blocker was raised during refine, commit it and stop
+      if (refineBlocker !== undefined) {
         try {
-          // Create the interview commit first (with the blocked state)
+          // Create the refine commit first (with the blocked state)
           const intentPathOrLabel =
             inv.mode === "file"
               ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
               : inv.mode === "inline"
                 ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
                 : "interactive";
-          commitPlanInterview({
+          commitPlanRefine({
             worktreePath,
             specDirBasename,
             mode: inv.mode as "file" | "inline" | "interactive",
             intentPathOrLabel,
-            completedTurns: interviewCompletedTurns,
-            interviewOutcome: "blocker",
+            completedTurns: refineCompletedTurns,
+            refineOutcome: "blocker",
           });
-          opts.io.stderr(`plan mode: interview commit pushed\n`);
+          opts.io.stderr(`plan: refine commit pushed\n`);
 
           // Then create the blocker commit
-          const agentLabel = interviewAgentLabel ?? "unknown";
-          const reason = firstNonEmptyLine(interviewBlocker);
+          const agentLabel = refineAgentLabel ?? "unknown";
+          const reason = firstNonEmptyLine(refineBlocker);
 
           commitPlanBlocker({
             worktreePath,
@@ -1111,7 +1111,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             reason,
             specFilesCount: 0,
           });
-          opts.io.stderr(`plan mode: blocker commit pushed\n`);
+          opts.io.stderr(`plan: blocker commit pushed\n`);
 
           safeUpdatePrBody({
             io: opts.io,
@@ -1128,14 +1128,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
 
         opts.io.stderr(`plan: blocked\n`);
-        if (interviewBlocker) {
-          opts.io.stderr(`\n## Blocker\n\n${interviewBlocker}\n`);
+        if (refineBlocker) {
+          opts.io.stderr(`\n## Blocker\n\n${refineBlocker}\n`);
         }
         summarizePlan("blocker", specDirBasename);
         return 1;
       }
 
-      // Create plan: interview commit and push
+      // Create plan: refine commit and push
       try {
         const intentPathOrLabel =
           inv.mode === "file"
@@ -1143,18 +1143,18 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             : inv.mode === "inline"
               ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
               : "interactive";
-        commitPlanInterview({
+        commitPlanRefine({
           worktreePath,
           specDirBasename,
           mode: inv.mode as "file" | "inline" | "interactive",
           intentPathOrLabel,
-          completedTurns: interviewCompletedTurns,
-          ...(interviewTerminalOutcome === "skipped" ||
-          interviewTerminalOutcome === "blocker"
-            ? { interviewOutcome: interviewTerminalOutcome }
+          completedTurns: refineCompletedTurns,
+          ...(refineTerminalOutcome === "skipped" ||
+          refineTerminalOutcome === "blocker"
+            ? { refineOutcome: refineTerminalOutcome }
             : {}),
         });
-        opts.io.stderr(`plan mode: interview commit pushed\n`);
+        opts.io.stderr(`plan: refine commit pushed\n`);
       } catch (err) {
         opts.io.stderr(`${(err as Error).message}\n`);
         summarizePlan("error", specDirBasename);
@@ -1193,14 +1193,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
           if (draftResult.result.kind === "model_config") {
             opts.io.stderr(
-              `plan mode: model configuration error\n${draftResult.result.stderr}`,
+              `plan: model configuration error\n${draftResult.result.stderr}`,
             );
             summarizePlan("model-config", specDirBasename);
             return 3;
           }
           // Generic error
           opts.io.stderr(
-            `plan mode: draft phase failed\n${draftResult.result.stderr}`,
+            `plan: draft phase failed\n${draftResult.result.stderr}`,
           );
           summarizePlan("agent-error", specDirBasename);
           return 1;
@@ -1221,7 +1221,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         );
         if (!validation.valid) {
           opts.io.stderr(
-            `plan mode: draft validation failed: ${validation.error}\n`,
+            `plan: draft validation failed: ${validation.error}\n`,
           );
           summarizePlan("error", specDirBasename);
           return 1;
@@ -1234,15 +1234,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
         draftSpecFilesCount = draftResult.subspecCount ?? 0;
         if (draftBlocker === undefined && draftResult.subspecCount === null) {
-          opts.io.stderr(`plan mode: could not count subspecs\n`);
+          opts.io.stderr(`plan: could not count subspecs\n`);
           summarizePlan("error", specDirBasename);
           return 1;
         }
 
-        opts.io.stderr(`plan mode: draft phase completed\n`);
+        opts.io.stderr(`plan: draft phase completed\n`);
       } catch (err) {
         opts.io.stderr(
-          `plan mode: draft phase error: ${(err as Error).message}\n`,
+          `plan: draft phase error: ${(err as Error).message}\n`,
         );
         summarizePlan("error", specDirBasename);
         return 1;
@@ -1280,7 +1280,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             reason: "write boundary violation",
             specFilesCount: draftSpecFilesCount,
           });
-          opts.io.stderr(`plan mode: blocker commit pushed\n`);
+          opts.io.stderr(`plan: blocker commit pushed\n`);
 
           safeUpdatePrBody({
             io: opts.io,
@@ -1314,7 +1314,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           agentLabel,
           subspecCount: draftSpecFilesCount,
         });
-        opts.io.stderr(`plan mode: draft commit pushed\n`);
+        opts.io.stderr(`plan: draft commit pushed\n`);
       } catch (err) {
         opts.io.stderr(`${(err as Error).message}\n`);
         summarizePlan("error", specDirBasename);
@@ -1342,7 +1342,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         });
         const prUrl = getPrUrl(worktreePath, planBranch);
         opts.io.stdout(`${prUrl}\n`);
-        opts.io.stderr(`plan mode: draft PR #${prResult.number} opened\n`);
+        opts.io.stderr(`plan: draft PR #${prResult.number} opened\n`);
       } catch (err) {
         opts.io.stderr(
           `warning: could not open draft PR: ${(err as Error).message}\n`,
@@ -1365,7 +1365,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             reason,
             specFilesCount: draftSpecFilesCount,
           });
-          opts.io.stderr(`plan mode: blocker commit pushed\n`);
+          opts.io.stderr(`plan: blocker commit pushed\n`);
 
           safeUpdatePrBody({
             io: opts.io,
@@ -1410,7 +1410,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
 
         opts.io.stderr(
-          `plan mode: review pass ${pass}/${reviewPasses} starting\n`,
+          `plan: review pass ${pass}/${reviewPasses} starting\n`,
         );
 
         try {
@@ -1437,7 +1437,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           // Handle agent errors
           if (reviewResult.result.kind === "error") {
             opts.io.stderr(
-              `plan mode: review pass ${pass} failed: ${reviewResult.result.stderr}\n`,
+              `plan: review pass ${pass} failed: ${reviewResult.result.stderr}\n`,
             );
             summarizePlan("agent-error", specDirBasename);
             return 1;
@@ -1445,7 +1445,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
           if (reviewResult.result.kind === "model_config") {
             opts.io.stderr(
-              `plan mode: model configuration error: ${reviewResult.result.stderr}\n`,
+              `plan: model configuration error: ${reviewResult.result.stderr}\n`,
             );
             summarizePlan("model-config", specDirBasename);
             // Match patch mode (src/modes/patch/run.ts:1080) which exits 3 for
@@ -1471,7 +1471,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           // Check if the pass produced changes
           if (!hasWorkingTreeChanges(worktreePath)) {
             opts.io.stderr(
-              `plan mode: review pass ${pass} made no changes; skipping commit\n`,
+              `plan: review pass ${pass} made no changes; skipping commit\n`,
             );
             continue;
           }
@@ -1484,7 +1484,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           );
           if (!validation.valid) {
             opts.io.stderr(
-              `plan mode: review pass ${pass} validation failed: ${validation.error}\n`,
+              `plan: review pass ${pass} validation failed: ${validation.error}\n`,
             );
             summarizePlan("error", specDirBasename);
             return 1;
@@ -1520,7 +1520,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   reason: "write boundary violation",
                   specFilesCount: countSpecFiles(worktreePath, specDirBasename),
                 });
-                opts.io.stderr(`plan mode: blocker commit pushed\n`);
+                opts.io.stderr(`plan: blocker commit pushed\n`);
 
                 safeUpdatePrBody({
                   io: opts.io,
@@ -1556,7 +1556,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 reason,
                 specFilesCount,
               });
-              opts.io.stderr(`plan mode: blocker commit pushed\n`);
+              opts.io.stderr(`plan: blocker commit pushed\n`);
 
               safeUpdatePrBody({
                 io: opts.io,
@@ -1608,7 +1608,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 reason: "write boundary violation",
                 specFilesCount: countSpecFiles(worktreePath, specDirBasename),
               });
-              opts.io.stderr(`plan mode: blocker commit pushed\n`);
+              opts.io.stderr(`plan: blocker commit pushed\n`);
 
               safeUpdatePrBody({
                 io: opts.io,
@@ -1640,7 +1640,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               agentLabel,
             });
             opts.io.stderr(
-              `plan mode: review pass ${pass} committed and pushed\n`,
+              `plan: review pass ${pass} committed and pushed\n`,
             );
 
             safeUpdatePrBody({
@@ -1658,7 +1658,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
         } catch (err) {
           opts.io.stderr(
-            `plan mode: review pass ${pass} error: ${(err as Error).message}\n`,
+            `plan: review pass ${pass} error: ${(err as Error).message}\n`,
           );
           summarizePlan("error", specDirBasename);
           return 1;

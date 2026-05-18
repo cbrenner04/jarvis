@@ -151,7 +151,7 @@ describe("run", () => {
     expect(out).toContain("init");
     expect(out).toContain("config");
     expect(out).toContain("log-server");
-    expect(out).toContain("plan [--interview-turns <n>]");
+    expect(out).toContain("plan [--refine-turns <n>]");
     expect(out).toContain("Draft specs via plan mode");
     expect(out).toContain("help");
   });
@@ -291,7 +291,7 @@ describe("run", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    expect(cap.out()).toContain("--interview-turns");
+    expect(cap.out()).toContain("--refine-turns");
     expect(cap.out()).toContain("docs/plan-mode.md");
   });
 

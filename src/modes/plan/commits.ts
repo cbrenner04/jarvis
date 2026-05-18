@@ -3,7 +3,7 @@ import { relative, resolve } from "node:path";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { pushCurrent } from "../../worktree.ts";
 
-export type CommitPlanInterviewOptions = {
+export type CommitPlanRefineOptions = {
   worktreePath: string;
   specDirBasename?: string;
   name?: string;
@@ -13,7 +13,7 @@ export type CommitPlanInterviewOptions = {
   subjectSuffix?: string;
   resumedBy?: string;
   /** When set, records explicit skip / blocker / refined in the commit body for reviewability. */
-  interviewOutcome?: "refined" | "skipped" | "blocker";
+  refineOutcome?: "refined" | "skipped" | "blocker";
 };
 
 /**
@@ -27,7 +27,7 @@ function buildPlanBody(specDirBasename: string, lines: string[]): string {
   return [specLine, "", ...lines].join("\n");
 }
 
-export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
+export function commitPlanRefine(opts: CommitPlanRefineOptions): void {
   const specDirBasename = opts.specDirBasename ?? opts.name;
   if (specDirBasename === undefined) {
     throw new Error("specDirBasename is required");
@@ -64,16 +64,16 @@ export function commitPlanInterview(opts: CommitPlanInterviewOptions): void {
       ? [bodyLine, `Turns: ${turns}`]
       : [`Resumed by ${opts.resumedBy}.`, `Turns: ${turns}`];
 
-  if (opts.interviewOutcome === "skipped") {
+  if (opts.refineOutcome === "skipped") {
     bodyLines.push("Outcome: explicit skip");
-  } else if (opts.interviewOutcome === "blocker") {
+  } else if (opts.refineOutcome === "blocker") {
     bodyLines.push("Outcome: blocker");
   }
 
-  const subject = `plan: interview${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
+  const subject = `plan: refine${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(specDirBasename, bodyLines);
   const baseMessage = `${subject}\n\n${body}`;
-  // No agent attribution for the interview commit (no agent involved yet).
+  // No agent attribution for the refine commit (no agent involved yet).
   const commitMessage = appendAgentTrailer(baseMessage, "");
 
   execFileSync("git", ["commit", "-F", "-"], {

@@ -5,13 +5,13 @@ import { join } from "node:path";
 import {
   commitPlanBlocker,
   commitPlanDraft,
-  commitPlanInterview,
+  commitPlanRefine,
   commitPlanReview,
 } from "../../../src/modes/plan/commits.ts";
 import { setupPlanRemote } from "../../helpers/plan-fixtures.ts";
 
-describe("commitPlanInterview", () => {
-  test("creates interview commit with correct message for file mode", () => {
+describe("commitPlanRefine", () => {
+  test("creates refine commit with correct message for file mode", () => {
     const { origin, worktreeRoot, cleanup } = setupPlanRemote();
     try {
       // Create a new branch for plan
@@ -35,7 +35,7 @@ describe("commitPlanInterview", () => {
       );
 
       // Test file mode
-      commitPlanInterview({
+      commitPlanRefine({
         worktreePath,
         name: "test-spec",
         mode: "file",
@@ -48,7 +48,7 @@ describe("commitPlanInterview", () => {
         encoding: "utf8",
       }).trim();
       expect(commitMsg).toBe(
-        "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from test-intent.md\nTurns: 0",
+        "plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from test-intent.md\nTurns: 0",
       );
 
       // Verify commit was pushed
@@ -64,7 +64,7 @@ describe("commitPlanInterview", () => {
     }
   });
 
-  test("creates interview commit with correct message for inline mode", () => {
+  test("creates refine commit with correct message for inline mode", () => {
     const { origin, worktreeRoot, cleanup } = setupPlanRemote();
     try {
       // Create a new branch for plan
@@ -88,7 +88,7 @@ describe("commitPlanInterview", () => {
       );
 
       // Test inline mode
-      commitPlanInterview({
+      commitPlanRefine({
         worktreePath,
         name: "test-spec",
         mode: "inline",
@@ -101,7 +101,7 @@ describe("commitPlanInterview", () => {
         encoding: "utf8",
       }).trim();
       expect(commitMsg).toBe(
-        "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from inline\nTurns: 0",
+        "plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from inline\nTurns: 0",
       );
 
       // Verify commit was pushed
@@ -117,7 +117,7 @@ describe("commitPlanInterview", () => {
     }
   });
 
-  test("creates interview commit with correct message for interactive mode", () => {
+  test("creates refine commit with correct message for interactive mode", () => {
     const { origin, worktreeRoot, cleanup } = setupPlanRemote();
     try {
       execSync("git branch plan/test-spec", { cwd: worktreeRoot });
@@ -136,7 +136,7 @@ describe("commitPlanInterview", () => {
         "test intent",
       );
 
-      commitPlanInterview({
+      commitPlanRefine({
         worktreePath,
         name: "test-spec",
         mode: "interactive",
@@ -148,7 +148,7 @@ describe("commitPlanInterview", () => {
         encoding: "utf8",
       }).trim();
       expect(commitMsg).toBe(
-        "plan: interview\n\nSpec: spec/test-spec/intent.md\n\nSeeded from interactive\nTurns: 0",
+        "plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from interactive\nTurns: 0",
       );
 
       const remoteCommits = execSync("git log --oneline", {
@@ -179,7 +179,7 @@ describe("commitPlanDraft", () => {
       });
       execSync("git checkout plan/test-spec", { cwd: worktreePath });
 
-      // Create spec directory and intent file for interview commit
+      // Create spec directory and intent file for refine commit
       mkdirSync(join(worktreePath, "spec", "test-spec"), {
         recursive: true,
       });
@@ -188,8 +188,8 @@ describe("commitPlanDraft", () => {
         "test intent",
       );
 
-      // Create interview commit first (this sets up the upstream branch)
-      commitPlanInterview({
+      // Create refine commit first (this sets up the upstream branch)
+      commitPlanRefine({
         worktreePath,
         name: "test-spec",
         mode: "inline",
@@ -227,7 +227,7 @@ describe("commitPlanDraft", () => {
       expect(commitMsg).toContain("Drafted by Claude Haiku");
       expect(commitMsg).toContain("Subspecs: 2");
 
-      // Verify both commits were pushed (should have initial + interview + draft)
+      // Verify both commits were pushed (should have initial + refine + draft)
       const remoteCommits = execSync("git log --oneline plan/test-spec", {
         cwd: origin,
         encoding: "utf8",
@@ -235,9 +235,9 @@ describe("commitPlanDraft", () => {
         .trim()
         .split("\n");
       expect(remoteCommits.length).toBe(3);
-      // Verify the last two are interview and draft
+      // Verify the last two are refine and draft
       expect(remoteCommits[0]).toContain("plan: draft");
-      expect(remoteCommits[1]).toContain("plan: interview");
+      expect(remoteCommits[1]).toContain("plan: refine");
     } finally {
       cleanup();
     }
@@ -261,7 +261,7 @@ describe("commitPlanDraft", () => {
         join(worktreePath, "spec", "test-spec", "intent.md"),
         "intent",
       );
-      commitPlanInterview({
+      commitPlanRefine({
         worktreePath,
         name: "test-spec",
         mode: "inline",
@@ -314,7 +314,7 @@ describe("commitPlanReview", () => {
         join(worktreePath, "spec", "test-spec", "intent.md"),
         "intent",
       );
-      commitPlanInterview({
+      commitPlanRefine({
         worktreePath,
         name: "test-spec",
         mode: "inline",
@@ -363,7 +363,7 @@ describe("commitPlanReview", () => {
       execSync("git checkout plan/test-spec", { cwd: worktreePath });
       mkdirSync(join(worktreePath, "spec", "test-spec"), { recursive: true });
       writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "x");
-      commitPlanInterview({
+      commitPlanRefine({
         worktreePath,
         name: "test-spec",
         mode: "inline",
@@ -407,7 +407,7 @@ describe("commitPlanBlocker", () => {
         join(worktreePath, "spec", "test-spec", "intent.md"),
         "intent\n\n## Blocker\nNeed clarification on X.\n",
       );
-      commitPlanInterview({
+      commitPlanRefine({
         worktreePath,
         name: "test-spec",
         mode: "inline",

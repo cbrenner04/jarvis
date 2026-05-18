@@ -31,7 +31,7 @@ export type TelemetryRecordRole = "invocation" | "run_terminal";
 export type TelemetryMode = "patch" | "plan";
 
 /**Present on plan-mode invocation rows so summaries can attribute usage to a phase.*/
-export type PlanTelemetryPhase = "interview" | "name-only" | "draft" | "review";
+export type PlanTelemetryPhase = "refine" | "name-only" | "draft" | "review";
 
 export type TelemetryRecord = {
   ts: string;

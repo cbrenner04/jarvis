@@ -180,7 +180,7 @@ export function renderPlanAttribution(opts: {
       const agents = Array.from(agentSet);
       const agentLabel = agents.length === 0 ? "Jarvis" : agents.join(", ");
       bullets.push(
-        `- ${metaCommits.length} spec commits (interview, draft, review) — ${agentLabel}`,
+        `- ${metaCommits.length} spec commits (refine, draft, review) — ${agentLabel}`,
       );
       for (const agent of agents) {
         if (agent !== "" && !seenLabels.has(agent)) {
@@ -200,7 +200,7 @@ export function renderPlanAttribution(opts: {
         const agents = Array.from(agentSet);
         const agentLabel = agents.length === 0 ? "Jarvis" : agents.join(", ");
         bullets.push(
-          `- 1 spec commits (interview, draft, review) — ${agentLabel}`,
+          `- 1 spec commits (refine, draft, review) — ${agentLabel}`,
         );
         for (const agent of agents) {
           if (agent !== "" && !seenLabels.has(agent)) {

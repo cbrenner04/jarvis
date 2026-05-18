@@ -62,7 +62,7 @@ Commands:
                     Remove merged worktrees.
   triage [worktree-name]
                     Inspect a dirty or orphaned worktree.
-  plan [--interview-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
+  plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md).
   prices            View or edit pricing data for cost tracking.
   help              Show this message.

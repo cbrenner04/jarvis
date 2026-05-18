@@ -143,7 +143,7 @@ any agent.
 
 ## Plan mode
 
-Plan mode (`jarvis plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis run` implements existing specs. Interview → draft → self-review runs inside **`.worktree/plan-<plan-name>/`** on branch **`plan/<plan-name>`** (branch/worktree names intentionally **omit** the UTC prefix even when authoring files live under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`**). **Legacy trees** capped at **`spec/<plan-name>/`** remain **`jarvis plan --resume` capable**. A GitHub draft PR opens after **`plan: draft`**; **`gh pr ready`** runs programmatically whenever blockers absent, stderr defaults stay quiet besides milestone chatter ([quieter-output section in plan-mode docs](./plan-mode.md#default-terminal-output)), and stdout **Next steps** recap merge/`jarvis run` without instructing reviewers to toggle readiness manually.
+Plan mode (`jarvis plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis run` implements existing specs. Refine → draft → self-review runs inside **`.worktree/plan-<plan-name>/`** on branch **`plan/<plan-name>`** (branch/worktree names intentionally **omit** the UTC prefix even when authoring files live under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`**). **Legacy trees** capped at **`spec/<plan-name>/`** remain **`jarvis plan --resume` capable**. A GitHub draft PR opens after **`plan: draft`**; **`gh pr ready`** runs programmatically whenever blockers absent, stderr defaults stay quiet besides milestone chatter ([quieter-output section in plan-mode docs](./plan-mode.md#default-terminal-output)), and stdout **Next steps** recap merge/`jarvis run` without instructing reviewers to toggle readiness manually.
 
 Full details — phases, flags, stop conditions, PR lifecycle, and cleanup — appear in
 [docs/plan-mode.md](./plan-mode.md).
@@ -229,7 +229,7 @@ purposes:
 - **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or
   `telemetryPath` from config). Patch mode emits one invocation line per agent outcome
   (for example each `criteria-progress`, `criteria-complete`, or `quota`). Plan mode
-  emits analogous rows with **`mode: "plan"`** and **`plan_phase`** (`interview`,
+  emits analogous rows with **`mode: "plan"`** and **`plan_phase`** (`refine`,
   `name-only`, `draft`, or `review`) so patch and plan summaries can filter a shared
   file safely. When an iteration finishes the checklist, Jarvis emits `criteria-complete` with tokens
   and cost, followed by a short `completed-spec` line marked

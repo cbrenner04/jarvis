@@ -189,24 +189,24 @@ describe("planCommand", () => {
     }
   });
 
-  test("interactive mode + --interview-turns 0 rejects before worktree creation", async () => {
+  test("interactive mode + --refine-turns 0 rejects before worktree creation", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {
       execSync("git init -b main", { cwd: project });
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: ["--interview-turns", "0"],
+        args: ["--refine-turns", "0"],
         cwd: project,
         config: { dir: cfgDir },
         logClient: okLogClient,
       });
       expect(code).toBe(1);
       expect(cap.err()).toContain(
-        "plan: --interview-turns 0 is incompatible with interactive mode",
+        "plan: --refine-turns 0 is incompatible with interactive mode",
       );
       expect(cap.err()).not.toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
       expect(existsSync(join(project, ".worktree"))).toBe(false);
     } finally {
@@ -226,9 +226,9 @@ describe("planCommand", () => {
         skipGhCheck: true,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain("plan mode: interactive");
+      expect(cap.err()).toContain("plan: interactive");
       expect(cap.err()).toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
       expect(cap.out()).toBe("");
     } finally {
@@ -253,7 +253,7 @@ describe("planCommand", () => {
   });
 
   test("usage advertises full surface", () => {
-    expect(PLAN_USAGE).toContain("--interview-turns");
+    expect(PLAN_USAGE).toContain("--refine-turns");
     expect(PLAN_USAGE).toContain("--review-passes");
     expect(PLAN_USAGE).toContain("--repo");
     expect(PLAN_USAGE).toContain("--cwd");
@@ -281,13 +281,13 @@ describe("planCommand", () => {
         resume: false,
       };
       expect(cap.err()).not.toContain(describePlanInvocation(inlineInv));
-      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(describePlanInvocation(inlineInv));
       expect(
-        harnessTexts.some((t) => t.startsWith("plan mode: target project=")),
+        harnessTexts.some((t) => t.startsWith("plan: target project=")),
       ).toBe(true);
       expect(cap.err()).toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -310,9 +310,9 @@ describe("planCommand", () => {
 
       expect(code).toBe(2);
       expect(cap.err()).toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
-      expect(cap.err()).toContain("plan mode: interactive");
+      expect(cap.err()).toContain("plan: interactive");
       const worktreePath = join(project, ".worktree");
       expect(existsSync(worktreePath)).toBe(false);
     } finally {
@@ -358,13 +358,13 @@ describe("planCommand target-repo resolution", () => {
         resume: false,
       };
       expect(cap.err()).not.toContain(describePlanInvocation(fileInv));
-      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(describePlanInvocation(fileInv));
       expect(harnessTexts).toContain(
-        `plan mode: target project=project-a root=${projectA}`,
+        `plan: target project=project-a root=${projectA}`,
       );
       expect(cap.err()).toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -389,9 +389,9 @@ describe("planCommand target-repo resolution", () => {
         skipGhCheck: true,
       });
       expect(code).toBe(2);
-      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(
-        `plan mode: target project=project-b root=${projectB}`,
+        `plan: target project=project-b root=${projectB}`,
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -420,13 +420,13 @@ describe("planCommand target-repo resolution", () => {
         resume: false,
       };
       expect(cap.err()).not.toContain(describePlanInvocation(inlineInv));
-      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(describePlanInvocation(inlineInv));
       expect(harnessTexts).toContain(
-        `plan mode: target project=project-a root=${projectA}`,
+        `plan: target project=project-a root=${projectA}`,
       );
       expect(cap.err()).toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -448,8 +448,8 @@ describe("planCommand target-repo resolution", () => {
         logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain("plan mode: interactive session started");
-      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(cap.err()).toContain("plan: interactive session started");
+      expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(
         describePlanInvocation({
           mode: "interactive",
@@ -458,7 +458,7 @@ describe("planCommand target-repo resolution", () => {
         }),
       );
       expect(harnessTexts).toContain(
-        `plan mode: target project=project-a root=${projectA}`,
+        `plan: target project=project-a root=${projectA}`,
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -483,9 +483,9 @@ describe("planCommand target-repo resolution", () => {
         logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(
-        `plan mode: target project=project-a root=${projectA}`,
+        `plan: target project=project-a root=${projectA}`,
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -507,9 +507,9 @@ describe("planCommand target-repo resolution", () => {
         logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(
-        `plan mode: target project=project-a root=${projectA}`,
+        `plan: target project=project-a root=${projectA}`,
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -531,10 +531,10 @@ describe("planCommand target-repo resolution", () => {
         logClient,
       });
       expect(code).toBe(2);
-      expect(cap.err()).toContain("plan mode: interactive session started");
-      expect(cap.err()).not.toContain("plan mode: target project=");
+      expect(cap.err()).toContain("plan: interactive session started");
+      expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(
-        `plan mode: target project=project-a root=${projectA}`,
+        `plan: target project=project-a root=${projectA}`,
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -558,7 +558,7 @@ describe("planCommand target-repo resolution", () => {
       // Same wording as run mode's resolveProject error.
       expect(cap.err()).toContain('--repo: no project matches "nope"');
       expect(cap.err()).not.toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -580,7 +580,7 @@ describe("planCommand target-repo resolution", () => {
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -614,7 +614,7 @@ describe("planCommand log-server preflight", () => {
       expect(cap.err()).toContain("log server unreachable");
       expect(cap.err()).toContain("jarvis log-server");
       expect(cap.err()).not.toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -636,7 +636,7 @@ describe("planCommand log-server preflight", () => {
       });
       expect(code).toBe(2);
       expect(cap.err()).toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -662,7 +662,7 @@ describe("planCommand log-server preflight", () => {
       expect(cap.err()).toContain('--repo: no project matches "nope"');
       expect(cap.err()).not.toContain("log server unreachable");
       expect(cap.err()).not.toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -686,7 +686,7 @@ describe("planCommand log-server preflight", () => {
       expect(cap.err()).toContain("--bogus");
       expect(cap.err()).not.toContain("log server unreachable");
       expect(cap.err()).not.toContain(
-        "jarvis plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
+        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -762,26 +762,26 @@ describe("parsePlanArgs", () => {
     }
   });
 
-  test("--interview-turns valid", () => {
+  test("--refine-turns valid", () => {
     setup();
     try {
-      const res = parsePlanArgs(["--interview-turns", "3"], tmp);
+      const res = parsePlanArgs(["--refine-turns", "3"], tmp);
       expect(res.ok).toBe(true);
       if (!res.ok) return;
-      expect(res.invocation.interviewTurns).toBe(3);
+      expect(res.invocation.refineTurns).toBe(3);
     } finally {
       teardown();
     }
   });
 
-  test("--interview-turns negative → exit 1", () => {
+  test("--refine-turns negative → exit 1", () => {
     setup();
     try {
-      const res = parsePlanArgs(["--interview-turns", "-1"], tmp);
+      const res = parsePlanArgs(["--refine-turns", "-1"], tmp);
       expect(res.ok).toBe(false);
       if (res.ok) return;
       expect(res.exitCode).toBe(1);
-      expect(res.message).toContain("--interview-turns");
+      expect(res.message).toContain("--refine-turns");
     } finally {
       teardown();
     }
@@ -1237,7 +1237,7 @@ describe("seedIntentFile", () => {
       expect(existsSync(writtenPath)).toBe(true);
       const written = readFileSync(writtenPath, "utf8");
       expect(written).toBe(
-        "# Intent\n\n(Interactive session — no seed text. The interview will gather\nthe intent.)\n",
+        "# Intent\n\n(Interactive session — no seed text. The refine phase will gather\nthe intent.)\n",
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });

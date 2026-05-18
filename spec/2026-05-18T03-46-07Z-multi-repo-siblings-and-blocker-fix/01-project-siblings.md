@@ -24,7 +24,7 @@ Validation (mirroring the `root` pattern at lines 313–358 of `src/config.ts`):
 - Each entry must be an absolute path (`path.isAbsolute`).
 - No cross-check against `root` is needed (siblings are not project roots).
 - The field is optional; absent configs behave exactly as today.
-- Add validation after the `gitRaw` check at line 351.
+- Add validation after the `gitRaw` block (line 351 declares `gitRaw`, the block ends at line 357 with `project.git = gitRaw`; insert siblings validation before `projects[name] = project` at line 358).
 
 No config migration: the field is additive and optional.
 
@@ -56,7 +56,15 @@ After computing `projectSiblings`, iterate and call `existsSync` on each entry. 
 
 ### Non-claude agent warning
 
-`resolveModeSpecificPreflight` does not have the active agent identity (agent selection via `buildActiveAgents` happens at line 249, before this function). Emit the warning at preflight time unconditionally when siblings are configured: use `opts.io.stderr(...)` (in scope in the closure) to note that non-claude agents will not receive `--add-dir` access to configured siblings. The message should list the sibling paths so the user knows what might be dropped. This fires once at run start and is imprecise only in the sense that it fires even when the active agent is claude — acceptable trade-off for simplicity.
+`resolveModeSpecificPreflight` does not have the active agent identity (agent selection via `buildActiveAgents` happens at line 249, before this function). Emit an informational note at preflight time when siblings are configured: use `opts.io.stderr(...)` (in scope in the closure) to list the configured sibling paths and note that only the claude agent passes them as `--add-dir` flags — other agents will not have access.
+
+Suggested message format:
+```
+Sibling directories configured for project "<key>": <path1>, <path2>
+Note: only the claude agent receives --add-dir access to these paths; other agents will not.
+```
+
+This fires once at run start regardless of the active agent. When claude is active the note is informational; when another agent is active it is a genuine warning. This is the correct trade-off given the agent identity is unavailable at this layer.
 
 The other four agents (`aider.ts`, `codex.ts`, `cursor.ts`, `opencode.ts`) do not read `additionalReadDirs` at all; do not add sibling handling to them in this change.
 
@@ -74,7 +82,7 @@ The other four agents (`aider.ts`, `codex.ts`, `cursor.ts`, `opencode.ts`) do no
 - [ ] In `src/modes/patch/run.ts`, inside `resolveModeSpecificPreflight`, replace the `additionalReadDirs` const at line 418 with the two-step computation (specDirs + projectSiblings), including the existence check loop that throws on any missing sibling path.
 - [ ] In `src/modes/patch/run.ts`, emit a `opts.io.stderr(...)` warning when `projectSiblings.length > 0`, noting that non-claude agents will not receive access to the listed sibling paths.
 - [ ] Confirm `src/agents/claude.ts` requires no changes (it already iterates `additionalReadDirs` and appends `--add-dir`).
-- [ ] Update `README.md` or project config documentation to describe the `siblings` field, its validation rules, and how to add entries by hand-editing `~/.jarvis/config.json`.
+- [ ] Add a `## Project.siblings` section to `docs/config.md` (the existing file that documents `Project.origin`, `Project.git`, and `worktreeSymlinks`) describing the field, its validation rules (non-empty strings, absolute paths), and how to add entries by hand-editing `~/.jarvis/config.json`.
 
 ## Acceptance criteria
 
@@ -82,7 +90,7 @@ The other four agents (`aider.ts`, `codex.ts`, `cursor.ts`, `opencode.ts`) do no
 - [ ] If a configured sibling path does not exist on disk at run time, `jarvis run` exits with a clear error naming the missing path and the project — it does not silently drop the entry or proceed without access.
 - [ ] Sibling entries that are not absolute paths are rejected during config validation with a descriptive error.
 - [ ] A project with no `siblings` field (or `"siblings": []`) behaves identically to today — no regression.
-- [ ] When siblings are configured, a warning is printed to stderr at run start (regardless of active agent) noting that non-claude agents will not receive `--add-dir` access, and listing the configured sibling paths.
+- [ ] When siblings are configured, a note is printed to stderr at run start listing the sibling paths and stating that only the claude agent passes them as `--add-dir` flags; other agents will not have access.
 - [ ] `src/agents/claude.ts` is confirmed unchanged (no functional diff).
 - [ ] TypeScript compiles without errors.
-- [ ] Documentation describes the `siblings` field and how to configure it.
+- [ ] `docs/config.md` has a `## Project.siblings` section describing the field, its validation rules, and how to hand-edit `~/.jarvis/config.json`.

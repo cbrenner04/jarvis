@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { loadConfig, resolvePlanFlags } from "../config.ts";
+import { loadConfig, resolvePlanFlags, findProjectForPath } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import {
@@ -274,6 +274,15 @@ function prepareResume(args: {
   projectRoot: string;
   specPath: string;
 }): ResumePrep {
+  const cfg = loadConfig();
+  const project = findProjectForPath(args.specPath);
+  const { commit } = resolvePlanFlags(cfg, project);
+  if (!commit) {
+    throw new Error(
+      `This spec was created with commit: false. Use \`jarvis run ${args.specPath}\` to continue working on it.`,
+    );
+  }
+
   const { planName, specDirBasename } = assertResumeIndexPath(args.specPath);
   const worktreePath = join(args.projectRoot, ".worktree", `plan-${planName}`);
   if (!existsSync(worktreePath)) {

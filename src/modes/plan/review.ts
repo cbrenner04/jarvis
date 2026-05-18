@@ -183,8 +183,7 @@ export async function runReviewPass(
   for (const entry of agentOrder) {
     const agent = createAgent(entry.agent, entry.model);
     agentLabel =
-      agent.attributionLabel?.() ??
-      `${entry.agent} (${entry.model})`;
+      agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();

@@ -46,8 +46,7 @@ export async function runNameOnlyPhase(opts: {
   for (const entry of agentOrder) {
     const agent = createAgent(entry.agent, entry.model);
     agentLabel =
-      agent.attributionLabel?.() ??
-      `${entry.agent} (${entry.model})`;
+      agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();
     const spawnResult = await agent.run(prompt, { cwd: opts.worktreePath });

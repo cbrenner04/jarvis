@@ -10,12 +10,15 @@ The existing `skipGhCheck` test option already proves this structural shape is s
 
 ### Structural approach
 
+`worktreePath` is the variable all downstream write calls use (e.g. `seedIntentFile`, draft output, review output). In the normal flow, `createPlanWorktree` sets `worktreePath` to the newly created worktree path. The no-commit flow short-circuits this: set `worktreePath = project.root` before reaching the worktree block, then skip the block entirely. Nothing else in the write path needs to change — all writes already use `worktreePath`.
+
 `plan.ts:799` calls `createPlanWorktree` inside `if (!opts.skipGhCheck && isGitRepo)`. When `commit` is `false`:
 
-- Skip the entire `createPlanWorktree` block.
-- Set `worktreePath = project.root` so downstream writes (e.g. `seedIntentFile`, draft output) land in the main checkout.
+- Set `worktreePath = project.root` (the main checkout) and skip the entire `createPlanWorktree` block.
 - Guard every `commitPlan*` and `ensureDraftPr` / `updatePrBody` call with the resolved `commit` flag; skip them when `false`.
 - Skip the early `gh auth status` check (currently paired with the `createPlanWorktree` block via `skipGhCheck`); gate it on `commit` for the same reason.
+
+`ensureUniquePlanName` still runs when `commit` is `false` — it checks branches and worktrees, which is harmlessly conservative (no branch is created, so the suffix logic may produce a slightly different name than strictly necessary, but will not fail). The disk-collision guard (below) is separate and handles the case `ensureUniquePlanName` does not cover.
 
 ### Disk-collision guard
 
@@ -36,7 +39,7 @@ Replace the PR URL summary with a local-path message:
 
 ## Tasks
 
-- [ ] Call `resolvePlanFlags(cfg, project)` and destructure `{ commit }` (may be combined with the `specTimestamp` call from subspec 01)
+- [ ] Call `resolvePlanFlags(cfg, project)` and destructure `{ commit }` — the same call should also destructure `specTimestamp` (see subspec 01); there must be exactly one `resolvePlanFlags` call in the plan flow, not one per flag
 - [ ] Gate the early `gh auth status` / availability check on `commit` (skip when `false`)
 - [ ] When `commit` is `false`, skip `createPlanWorktree` and set `worktreePath = project.root`
 - [ ] After `specDirBasename` is computed and `commit` is `false`, check for an existing `project.root/spec/<specDirBasename>/` directory and exit with a descriptive error if found

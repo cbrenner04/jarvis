@@ -18,6 +18,8 @@ When `prepareResume` is entered:
 
 Use the config-flag check as the sole detection mechanism. It is authoritative: if the current config says `commit: false` for this project, the spec was never committed and a resume is impossible. Structural checks (missing worktree / branch) would fire too broadly and fail to give a useful message when the config flag is absent.
 
+**Edge case — config changed after spec creation**: If a user creates a no-commit spec, then later changes their config to `commit: true`, the guard will not fire and `prepareResume` will proceed, failing on the missing worktree or branch. This is an accepted limitation: the error the user sees in that case (missing worktree) is reasonably self-explanatory, and designing detection logic around a mutable config/spec history mismatch is out of scope.
+
 ## Tasks
 
 - [ ] In `prepareResume` (`plan.ts:275`), resolve the project for the spec path and call `resolvePlanFlags`

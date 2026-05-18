@@ -3,14 +3,14 @@ import {
   buildDraftPrompt,
   PlaceholderCollisionError,
 } from "../../../src/modes/plan/draft.ts";
+import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
 import {
   buildRefinePrompt,
   classifyRefineIntentOutcome,
-  REFINE_SKIP_HEADING,
   isValidRefineSkipAddition,
   isValidRefineTurnAddition,
+  REFINE_SKIP_HEADING,
 } from "../../../src/modes/plan/refine.ts";
-import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
 import { buildReviewPrompt } from "../../../src/modes/plan/review.ts";
 
 describe("buildDraftPrompt", () => {
@@ -223,9 +223,7 @@ changed intent
 
   test("classifyRefineIntentOutcome detects explicit skip", () => {
     expect(
-      classifyRefineIntentOutcome(
-        `# I\n\n${REFINE_SKIP_HEADING}\n\nok\n`,
-      ),
+      classifyRefineIntentOutcome(`# I\n\n${REFINE_SKIP_HEADING}\n\nok\n`),
     ).toBe("skipped");
   });
 

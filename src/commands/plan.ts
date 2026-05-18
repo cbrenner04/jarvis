@@ -23,16 +23,16 @@ import {
   commitPlanReview,
 } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
-import {
-  type RefineTerminalOutcome,
-  runRefinePhase,
-} from "../modes/plan/refine.ts";
 import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
 import {
   createPlanTelemetryWriter,
   type PlanTelemetryWriter,
 } from "../modes/plan/plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
+import {
+  type RefineTerminalOutcome,
+  runRefinePhase,
+} from "../modes/plan/refine.ts";
 import {
   hasWorkingTreeChanges,
   runReviewPass,
@@ -604,9 +604,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             return 130;
           }
           if (refineResult.terminalOutcome !== undefined) {
-            opts.io.stderr(
-              `plan: refine: ${refineResult.terminalOutcome}\n`,
-            );
+            opts.io.stderr(`plan: refine: ${refineResult.terminalOutcome}\n`);
           }
           if (hasWorkingTreeChanges(resume.worktreePath)) {
             commitPlanRefine({
@@ -786,10 +784,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const tempPlanName = `${TEMP_PLAN_PREFIX}${tempId}`;
     let planName = tempPlanName;
     let specDirBasename = tempPlanName;
-    planHarnessLog(
-      planLogClient,
-      `plan: temporary plan name=${tempPlanName}`,
-    );
+    planHarnessLog(planLogClient, `plan: temporary plan name=${tempPlanName}`);
 
     // Create worktree for file or inline mode (only if it's a git repo and gh is available)
     const isGitRepo = existsSync(join(project.root, ".git"));
@@ -931,9 +926,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           refineBlocker = refineResult.blocker;
           refineTerminalOutcome = refineResult.terminalOutcome;
           if (refineResult.terminalOutcome !== undefined) {
-            opts.io.stderr(
-              `plan: refine: ${refineResult.terminalOutcome}\n`,
-            );
+            opts.io.stderr(`plan: refine: ${refineResult.terminalOutcome}\n`);
           }
         } else if (inv.mode !== "interactive") {
           const namingResult = await runNameOnlyPhase({
@@ -966,9 +959,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
         }
       } catch (err) {
-        opts.io.stderr(
-          `plan: refine phase error: ${(err as Error).message}\n`,
-        );
+        opts.io.stderr(`plan: refine phase error: ${(err as Error).message}\n`);
         summarizePlan("error", specDirBasename);
         return 1;
       }
@@ -1241,9 +1232,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
         opts.io.stderr(`plan: draft phase completed\n`);
       } catch (err) {
-        opts.io.stderr(
-          `plan: draft phase error: ${(err as Error).message}\n`,
-        );
+        opts.io.stderr(`plan: draft phase error: ${(err as Error).message}\n`);
         summarizePlan("error", specDirBasename);
         return 1;
       }
@@ -1409,9 +1398,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           return 130;
         }
 
-        opts.io.stderr(
-          `plan: review pass ${pass}/${reviewPasses} starting\n`,
-        );
+        opts.io.stderr(`plan: review pass ${pass}/${reviewPasses} starting\n`);
 
         try {
           // Read intent.md before the pass so we can validate it wasn't modified
@@ -1639,9 +1626,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               passNumber: pass,
               agentLabel,
             });
-            opts.io.stderr(
-              `plan: review pass ${pass} committed and pushed\n`,
-            );
+            opts.io.stderr(`plan: review pass ${pass} committed and pushed\n`);
 
             safeUpdatePrBody({
               io: opts.io,

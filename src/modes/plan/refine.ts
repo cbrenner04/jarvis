@@ -258,11 +258,7 @@ export async function runRefineTurn(opts: {
       if (wasModified) {
         // Check if the modification is valid: only new turn section added, nothing else modified
         if (
-          !isValidRefineTurnAddition(
-            intentBefore,
-            intentAfter,
-            opts.turnNumber,
-          )
+          !isValidRefineTurnAddition(intentBefore, intentAfter, opts.turnNumber)
         ) {
           return {
             result: {

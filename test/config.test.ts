@@ -18,6 +18,7 @@ import {
   loadConfig,
   openSessionLog,
   registerProject,
+  resolvePlanFlags,
   setGit,
   setProjectGit,
   setProjectOrigin,
@@ -1117,5 +1118,375 @@ describe("atomic writes", () => {
     // Verify the write was successful
     const loaded = loadConfig({ dir });
     expect(loaded.projects.test).toBeDefined();
+  });
+});
+
+describe("plan flags", () => {
+  test("accepts optional plan.specTimestamp and plan.commit on a project", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        maxIterations: 10,
+        projects: {
+          "app-a": {
+            root: "/tmp/jarvis-plan-flags",
+            plan: {
+              specTimestamp: false,
+              commit: false,
+            },
+          },
+        },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects["app-a"]).toEqual({
+      root: "/tmp/jarvis-plan-flags",
+      plan: {
+        specTimestamp: false,
+        commit: false,
+      },
+    });
+  });
+
+  test("accepts global plan.specTimestamp and plan.commit", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: {
+            agentOrder: CLAUDE_ONLY,
+            specTimestamp: true,
+            commit: false,
+          },
+        },
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.plan.specTimestamp).toBe(true);
+    expect(cfg.modes.plan.commit).toBe(false);
+  });
+
+  test("loads configs without plan flags", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: { app: { root: "/tmp/jarvis-no-flags" } },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects.app).toEqual({ root: "/tmp/jarvis-no-flags" });
+  });
+
+  test("rejects non-boolean project plan.specTimestamp", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-bad-spec-timestamp",
+            plan: { specTimestamp: "yes" },
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/plan\.specTimestamp must be a boolean/);
+  });
+
+  test("rejects non-boolean project plan.commit", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-bad-commit",
+            plan: { commit: 1 },
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/plan\.commit must be a boolean/);
+  });
+
+  test("rejects non-object project plan", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-bad-plan-type",
+            plan: "not-an-object",
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/plan must be an object/);
+  });
+
+  test("accepts partial plan object (only specTimestamp)", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-partial-plan",
+            plan: { specTimestamp: false },
+          },
+        },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects["app"]?.plan).toEqual({ specTimestamp: false });
+  });
+
+  test("accepts partial plan object (only commit)", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-partial-plan-commit",
+            plan: { commit: true },
+          },
+        },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects["app"]?.plan).toEqual({ commit: true });
+  });
+});
+
+describe("resolvePlanFlags", () => {
+  test("returns defaults when no config overrides are present", () => {
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: { agentOrder: CLAUDE_ONLY },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {},
+    };
+    expect(resolvePlanFlags(cfg, undefined)).toEqual({
+      specTimestamp: true,
+      commit: true,
+    });
+  });
+
+  test("returns project-level values when set, regardless of global", () => {
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: {
+          agentOrder: CLAUDE_ONLY,
+          specTimestamp: true,
+          commit: true,
+        },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {
+        app: {
+          root: "/tmp/a",
+          plan: { specTimestamp: false, commit: false },
+        },
+      },
+    };
+    const project = cfg.projects.app;
+    expect(resolvePlanFlags(cfg, project)).toEqual({
+      specTimestamp: false,
+      commit: false,
+    });
+  });
+
+  test("returns global plan values when no project override is set", () => {
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: {
+          agentOrder: CLAUDE_ONLY,
+          specTimestamp: false,
+          commit: true,
+        },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: { app: { root: "/tmp/a" } },
+    };
+    const project = cfg.projects.app;
+    expect(resolvePlanFlags(cfg, project)).toEqual({
+      specTimestamp: false,
+      commit: true,
+    });
+  });
+
+  test("uses project value for specTimestamp when global is different", () => {
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: {
+          agentOrder: CLAUDE_ONLY,
+          specTimestamp: true,
+          commit: true,
+        },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {
+        app: {
+          root: "/tmp/a",
+          plan: { specTimestamp: false },
+        },
+      },
+    };
+    const project = cfg.projects["app"]!;
+    expect(resolvePlanFlags(cfg, project)).toEqual({
+      specTimestamp: false,
+      commit: true,
+    });
+  });
+
+  test("uses project value for commit when global is different", () => {
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: {
+          agentOrder: CLAUDE_ONLY,
+          specTimestamp: false,
+          commit: true,
+        },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {
+        app: {
+          root: "/tmp/a",
+          plan: { commit: false },
+        },
+      },
+    };
+    const project = cfg.projects["app"]!;
+    expect(resolvePlanFlags(cfg, project)).toEqual({
+      specTimestamp: false,
+      commit: false,
+    });
+  });
+
+  test("falls back to hardcoded defaults for both when undefined everywhere", () => {
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: { agentOrder: CLAUDE_ONLY },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: { app: { root: "/tmp/a" } },
+    };
+    const project = cfg.projects.app;
+    expect(resolvePlanFlags(cfg, project)).toEqual({
+      specTimestamp: true,
+      commit: true,
+    });
+  });
+
+  test("accepts undefined project and falls through to defaults", () => {
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: { agentOrder: CLAUDE_ONLY },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {},
+    };
+    expect(resolvePlanFlags(cfg, undefined)).toEqual({
+      specTimestamp: true,
+      commit: true,
+    });
   });
 });

@@ -2,7 +2,7 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Config types, validation, and `resolvePlanFlags`](./00-config-types-and-resolve.md)
+- [x] [00 - Config types, validation, and `resolvePlanFlags`](./00-config-types-and-resolve.md)
 - [ ] [01 - Wire `specTimestamp` flag into plan directory naming](./01-spec-timestamp-flag.md)
 - [ ] [02 - `commit: false` plan flow](./02-no-commit-plan-flow.md)
 - [ ] [03 - `--resume` guard for no-commit specs](./03-resume-guard.md)

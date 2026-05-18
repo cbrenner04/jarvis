@@ -49,6 +49,7 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 - If a spec already exists for the intended change, run it through `jarvis` instead of implementing it directly.
 - Read the index to choose the next unchecked subspec, then read that subspec before editing.
 - Run `bun run typecheck` and `bun test` before ticking the acceptance criteria they cover.
+- To flip a PR from draft to ready, run `bun run ready` instead—this is the draft→ready gate distinct from the per-iteration `typecheck`/`test` loop.
 - Tick `- [ ]` items inside the subspec's `## Acceptance criteria` section as you actually satisfy them. Do not tick speculatively. The other checklist sections (`## Task Checklist`, etc.) are informational; Jarvis does not consult them.
 - Do not edit `index.md`. Do not run `git commit`. Jarvis flips the index checkbox and creates the commit itself when all acceptance criteria in the active subspec are checked; partial iterations get a `WIP:` commit. Manual edits or commits will be staged into Jarvis's commit by `git add -A` in unexpected ways.
 - If blocked or ambiguous, append a `## Blocker` section to the subspec and stop rather than guessing.

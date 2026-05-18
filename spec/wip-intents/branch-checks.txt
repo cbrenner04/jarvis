@@ -1,6 +1,4 @@
-we need to update branch checks.
-
-we are often getting PRs moved from draft and yet checks are failing. We should use .github/workflows/ci.yml as source of truth for our checks before marking a PR ready for review. All of those checks should pass. Additionally, lets add some scripts to make that easiest.
+we need to update branch checks. we are often getting PRs moved from draft and yet checks are failing. We should use .github/workflows/ci.yml as source of truth for our checks before marking a PR ready for review. All of those checks should pass. Additionally, lets add some scripts to make that easiest.
 
     "check": "bun node_modules/@biomejs/biome/bin/biome check .",
     "check:fix": "bun node_modules/@biomejs/biome/bin/biome check --write .",

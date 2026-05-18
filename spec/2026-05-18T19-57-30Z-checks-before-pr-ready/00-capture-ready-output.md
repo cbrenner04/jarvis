@@ -24,7 +24,7 @@ users see only a generic wrapper message with no indication of which check faile
 
 ## Tasks
 
-- [ ] In `src/modes/patch/pr.ts`, wrap the `execFileSync("bun", ["run", "ready"], ...)` call
+- [x] In `src/modes/patch/pr.ts`, wrap the `execFileSync("bun", ["run", "ready"], ...)` call
   in the default `markReady` implementation with a try/catch that extracts `.stdout` / `.stderr`
   from the error and rethrows an enriched `Error`:
 
@@ -43,21 +43,21 @@ users see only a generic wrapper message with no indication of which check faile
   }
   ```
 
-- [ ] Apply the identical change to `src/modes/plan/pr.ts` in `maybeMarkPlanPrReady`'s default
+- [x] Apply the identical change to `src/modes/plan/pr.ts` in `maybeMarkPlanPrReady`'s default
   `markReady` implementation.
 
-- [ ] Run `bun run typecheck` and `bun run test` to verify no regressions.
+- [x] Run `bun run typecheck` and `bun run test` to verify no regressions.
 
 ## Acceptance criteria
 
-- [ ] When `bun run ready` exits non-zero in patch mode, the error message surfaced via `fanout`
+- [x] When `bun run ready` exits non-zero in patch mode, the error message surfaced via `fanout`
   in `run.ts` includes the captured stdout/stderr from the failed command (e.g. TypeScript
   diagnostics, test failure output, lint violations).
-- [ ] When `bun run ready` exits non-zero in plan mode, the warning emitted by
+- [x] When `bun run ready` exits non-zero in plan mode, the warning emitted by
   `safeMarkPlanPrReady` via `io.stderr` includes the captured stdout/stderr from the failed
   command.
-- [ ] When `bun run ready` succeeds, behaviour is unchanged in both modes.
-- [ ] When `bun run ready` fails but produces no output (empty stdout and stderr), the error
+- [x] When `bun run ready` succeeds, behaviour is unchanged in both modes.
+- [x] When `bun run ready` fails but produces no output (empty stdout and stderr), the error
   message is `bun run ready failed` with no trailing newline noise.
-- [ ] `bun run typecheck` passes with no new errors.
-- [ ] `bun run test` passes with no new failures.
+- [x] `bun run typecheck` passes with no new errors.
+- [x] `bun run test` passes with no new failures.

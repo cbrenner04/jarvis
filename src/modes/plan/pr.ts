@@ -262,11 +262,22 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
   const mark =
     opts.markReady ??
     ((branch, cwd) => {
-      execFileSync("bun", ["run", "ready"], {
-        cwd,
-        env: process.env,
-        stdio: "pipe",
-      });
+      try {
+        execFileSync("bun", ["run", "ready"], {
+          cwd,
+          env: process.env,
+          stdio: "pipe",
+        });
+      } catch (err) {
+        const out = err as NodeJS.ErrnoException & { stdout?: Buffer; stderr?: Buffer };
+        const captured = [out.stdout?.toString(), out.stderr?.toString()]
+          .filter(Boolean)
+          .join("\n")
+          .trim();
+        throw new Error(
+          captured ? `bun run ready failed:\n${captured}` : `bun run ready failed`,
+        );
+      }
       execFileSync("gh", ["pr", "ready", branch], {
         cwd,
         env: process.env,

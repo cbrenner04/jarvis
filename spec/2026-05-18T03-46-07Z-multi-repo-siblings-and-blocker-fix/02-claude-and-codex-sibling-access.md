@@ -52,9 +52,9 @@ Update `docs/agents.md` so the Claude and Codex rows mention that Jarvis repeats
 
 ## Acceptance criteria
 
-- [ ] Claude receives every configured sibling directory as `--add-dir <path>`.
-- [ ] Codex receives every configured sibling directory as `--add-dir <path>`.
-- [ ] Codex keeps `--sandbox workspace-write` and `-c approval_policy="on-request"`.
-- [ ] Neither adapter uses a dangerous bypass flag.
-- [ ] TypeScript compiles without errors.
-- [ ] Agent docs mention sibling directory forwarding for Claude and Codex.
+- [x] Claude receives every configured sibling directory as `--add-dir <path>`.
+- [x] Codex receives every configured sibling directory as `--add-dir <path>`.
+- [x] Codex keeps `--sandbox workspace-write` and `-c approval_policy="on-request"`.
+- [x] Neither adapter uses a dangerous bypass flag.
+- [x] TypeScript compiles without errors.
+- [x] Agent docs mention sibling directory forwarding for Claude and Codex.

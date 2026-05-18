@@ -31,6 +31,7 @@ const CODEX_MODEL_LABELS: Record<string, string> = {};
 const CODEX_PRICE_KEYS: Record<string, string> = {
   "gpt-5.3-codex": "gpt-5.3-codex",
   "gpt-5.5": "gpt-5.5",
+  "gpt-5.4": "gpt-5.4",
 };
 
 export const CODEX_HAS_PRICED_MODELS = true;

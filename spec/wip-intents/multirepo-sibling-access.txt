@@ -1,0 +1,115 @@
+Multi-repo support: let a project declare sibling repos the agent may edit, and surface the silent commit-blocker error path that hides why a blocker commit failed.
+
+# Context
+
+First real multi-repo run uncovered two issues. The project layout is:
+
+    ~/Work/groceries/
+      groceries_features/   (Ruby feature/spec runner — where jarvis specs live, where the worktree is created)
+      groceries-client/     (React app — most fixes need to land here)
+      groceries-service/    (Rails API)
+      AGENTS.md             (shared multi-repo guide)
+
+Run that exposed both bugs:
+
+    $ jarvis run groceries_features/spec/2026-05-17T21-05-08Z-fix-list-delete-and-merge-failures/index.md
+
+The agent correctly identified that the fix for cluster A had to be applied to `groceries-client/src/components/domain/ListCard.tsx`, but it has no write (or read) access to that directory from inside the `groceries_features` worktree. It parked a blocker asking the user to grant access. On a later iteration, attempting to commit the (re-emitted) blocker failed with no useful detail:
+
+    failed to commit blocker for .../01-fix-cluster-a-confirm-dialog.md: Command failed: git commit -F -
+
+# Issue 1: no way to declare sibling repos in a multi-repo project
+
+## Where the access boundary is set today
+
+- `src/agents/claude.ts:60-63` builds claude argv as `["-p", "--permission-mode", "acceptEdits"]` and then appends `--add-dir <dir>` for every entry in `opts.additionalReadDirs`. Important: with `--permission-mode acceptEdits`, `--add-dir` actually grants both read and write access to that directory — the field name is misleading.
+- `src/modes/patch/run.ts:418-421` is the only producer of `additionalReadDirs`:
+      const additionalReadDirs = specOutsideWorktreeReadDirs({ specPath, agentWorkingDir });
+- `specOutsideWorktreeReadDirs` (`src/modes/patch/run.ts:1600-1611`) returns just `dirname(specPath)` when the spec sits outside the worktree, otherwise `undefined`.
+
+So the *only* directory outside the worktree the agent can touch is the spec dir. There is no concept of "this project has sibling repositories that are part of the same work."
+
+## Where the project model lives
+
+`Project` in `src/config.ts:75-79`:
+
+    export type Project = {
+      root: string;
+      origin?: string;
+      git?: boolean;
+    };
+
+Registered in `~/.jarvis/config.json` under `projects`. Validation, defaults, and round-trip handling are in `src/config.ts` (`validateConfig`, `registerProject`, `findProjectMatchForPath`, etc.). The shape is what we'd extend.
+
+## Proposed shape
+
+Add an optional list of sibling directories to `Project`:
+
+    export type Project = {
+      root: string;
+      origin?: string;
+      git?: boolean;
+      siblings?: string[];   // absolute paths the agent gets --add-dir access to
+    };
+
+Name TBD — candidates: `siblings`, `additionalDirs`, `linkedRepos`. I lean toward `siblings` because in this layout they really are sibling repos under a shared parent. We're not trying to model a full monorepo graph; this is a flat allowlist of paths to expose to the agent.
+
+In `prepareRun` (`src/modes/patch/run.ts` around 418), concat the project's siblings onto `additionalReadDirs` before returning. Resolution rules:
+
+- Entries must be absolute paths (mirror the `root` validation).
+- Entries must exist at run time; if a sibling has been deleted/moved, fail fast with a clear error rather than silently dropping it.
+- De-dup against the spec-derived entry and the worktree path itself.
+
+Validation in `src/config.ts` mirrors how `root` is checked. No migration needed because the field is optional and absent configs behave as today.
+
+## Things to think through, not decisions
+
+- Should siblings be per-project only, or also settable globally? Per-project is simpler and matches how this layout works; defer global.
+- Do we want to record *what kind* of access (read vs read-write)? Today the underlying `--add-dir` is read-write under acceptEdits, so a separate read-only mode would need a different mechanism (different permission mode or per-dir scoping that claude doesn't currently expose). Out of scope unless we hit a concrete need.
+- Other agents (`codex`, `cursor`, `opencode`, `aider`) — does `additionalReadDirs` propagate to them, and what's the equivalent flag for each? Audit `src/agents/*.ts` and either wire each one or document that multi-repo is claude-only for now. Don't silently drop the dirs for non-claude agents.
+- Worktree creation: today only the project root gets a worktree (`src/worktree.ts`). With siblings, the agent is editing live sibling repos directly — no isolation, branches advance in place. Is that what we want? For the immediate need yes; longer term we may want per-sibling worktrees, but that's a much bigger change.
+- AGENTS.md: the user's multi-repo guide (`~/Work/groceries/AGENTS.md`) explicitly tells the agent not to operate across multiple repositories in a single step. Granting access doesn't change that guidance; it just unblocks the agent when the spec legitimately needs cross-repo edits. Worth a note in jarvis docs (not in this change) that sibling access is opt-in per project.
+- Config UX: a `jarvis config project <name> --add-sibling <path>` command would be nicer than hand-editing JSON. Plumb through `src/commands/config.ts` if cheap; otherwise document the JSON shape and defer the CLI.
+
+# Issue 2: blocker-commit failure swallows the real git error
+
+## Where the error is lost
+
+- `commitWipProgressWithBlocker` in `src/modes/patch/subspec.ts:101-146` calls:
+      execFileSync("git", ["commit", "-F", "-"], { cwd, stdio: ["pipe", "pipe", "pipe"], input: commitMessage });
+- On failure, the thrown error's `.message` is just `Command failed: git commit -F -`. Real stderr lives on `err.stderr` but is never read.
+- `src/modes/patch/run.ts:1059-1067` catches it and emits `failed to commit blocker for ${path}: ${err.message}` — that's what the user saw. No git output.
+
+## Likely root cause in this run
+
+Git log on the worktree shows two blocker WIPs already committed (`74e0514`, `71af3ae`) and a clean working tree. The agent re-emitted essentially the same blocker text on a later iteration, so `git add -A` staged nothing and `git commit` aborted with "nothing to commit." The detection logic at `src/modes/patch/run.ts:1041` (`hasBlockerNow && !hasBlockerBefore`) does gate on a new blocker appearing, but it's looking at the *parsed spec content* per iteration — if the agent rewrites the same blocker fresh each loop, the harness keeps thinking it's "new."
+
+## Proposed shape
+
+Two small fixes, independent:
+
+1. **Surface the real git error.** In `subspec.ts`, both `commitSubspec` and `commitWipProgressWithBlocker`: catch the execFileSync throw, append `err.stderr?.toString()` (and `err.stdout` if non-empty) to the thrown message, then re-throw. Apply to anywhere we shell out to git in this module — `commitSubspec` at line 93 has the same blind spot.
+
+2. **No-op when there's nothing to commit.** Before `git commit`, run `git diff --cached --quiet` (exit 0 = clean, 1 = has staged changes). If clean, skip the commit but still let the caller proceed to the "emit blocker text + return exitCode 7" path. The blocker is already in HEAD from a prior iteration; that's fine, the user just needs to see the blocker surfaced.
+
+   Open question: do we also want to detect "this blocker is identical to the one in the last commit" to avoid even attempting? Probably not — the `git diff --cached --quiet` check catches it naturally and is simpler than diffing blocker bodies.
+
+## Things to think through, not decisions
+
+- Should the "blocker repeated" case also short-circuit the iteration earlier (don't re-run the agent if the same blocker is still active and we have no signal it's resolved)? That's a separate behavior question. Today the harness re-runs because it has no notion of "blocker is still blocking"; the spec contract is that the user removes the blocker section to unblock. Worth tracking separately.
+- `hasBlockerBefore` vs "blocker text unchanged from HEAD": consider whether the iteration loop should treat a blocker that exists *and equals* the prior committed blocker as a no-progress signal and exit, rather than spinning. Out of scope here, but related.
+
+# Files most likely to touch
+
+- `src/config.ts` — extend `Project` type, validate `siblings` array.
+- `src/modes/patch/run.ts` — merge project siblings into `additionalReadDirs` in `prepareRun`; possibly tighten blocker re-emit handling around line 1041.
+- `src/modes/patch/subspec.ts` — surface stderr from `execFileSync` failures; skip empty commits.
+- `src/agents/claude.ts` — likely no change (already consumes `additionalReadDirs`); confirm.
+- `src/agents/{codex,cursor,opencode,aider}.ts` — audit whether `additionalReadDirs` is honored.
+- `src/commands/config.ts` — optional sibling-management subcommand.
+
+# Out of scope
+
+- Per-sibling worktrees or branch isolation across repos.
+- A general dependency graph between repos.
+- Anything in the groceries repos themselves — the fix demonstrated by the failing run lives in `groceries-client`, not here.

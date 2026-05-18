@@ -20,6 +20,7 @@ export type CursorAgentOptions = {
 // known cursor models to config validation.
 const CURSOR_KNOWN_MODELS: readonly string[] = [
   "Composer 2",
+  "Composer 2.5",
   "Claude 4 Sonnet",
   "Claude 4.5 Haiku",
   "Claude 4.6 Sonnet",

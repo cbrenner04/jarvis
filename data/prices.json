@@ -55,6 +55,15 @@
       "manual": true,
       "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
     },
+    "Composer 2.5": {
+      "input_per_mtok": 0.5,
+      "output_per_mtok": 2.5,
+      "cache_read_per_mtok": 0.2,
+      "source_url": "https://cursor.com/docs/models-and-pricing",
+      "as_of": "2026-05-17",
+      "manual": true,
+      "manual_note": "Cursor pricing sourced from https://cursor.com/docs/models-and-pricing; reflects cursor's published per-token rate, not your invoice. Fill rates via 'jarvis prices edit'."
+    },
     "Claude 4.5 Haiku": {
       "input_per_mtok": 1,
       "output_per_mtok": 5,

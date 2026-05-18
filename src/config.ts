@@ -77,6 +77,7 @@ export type Project = {
   origin?: string;
   git?: boolean;
   siblings?: string[];
+  plan?: { specTimestamp?: boolean; commit?: boolean };
 };
 
 export type ProjectMatch = {
@@ -92,6 +93,8 @@ export type AgentEntry = {
 
 export type ModeConfig = {
   agentOrder: AgentEntry[];
+  specTimestamp?: boolean;
+  commit?: boolean;
 };
 
 export type Config = {
@@ -232,6 +235,22 @@ function validateConfig(input: unknown, file: string): Config {
     file,
   );
   validateNoModeAgents(planModeObj.agents, "modes.plan", file);
+
+  let planSpecTimestamp: boolean | undefined;
+  if (planModeObj.specTimestamp !== undefined) {
+    if (typeof planModeObj.specTimestamp !== "boolean") {
+      fail(file, "modes.plan.specTimestamp must be a boolean");
+    }
+    planSpecTimestamp = planModeObj.specTimestamp;
+  }
+
+  let planCommit: boolean | undefined;
+  if (planModeObj.commit !== undefined) {
+    if (typeof planModeObj.commit !== "boolean") {
+      fail(file, "modes.plan.commit must be a boolean");
+    }
+    planCommit = planModeObj.commit;
+  }
 
   const maxIterations = validatePositiveInteger(
     obj.maxIterations ?? DEFAULT_CONFIG.maxIterations,
@@ -377,6 +396,41 @@ function validateConfig(input: unknown, file: string): Config {
         project.siblings = siblings;
       }
     }
+    const planRaw = (value as Record<string, unknown>).plan;
+    if (planRaw !== undefined) {
+      if (
+        planRaw === null ||
+        typeof planRaw !== "object" ||
+        Array.isArray(planRaw)
+      ) {
+        fail(file, `project ${JSON.stringify(name)} plan must be an object`);
+      }
+      const planObj = planRaw as Record<string, unknown>;
+      const plan: { specTimestamp?: boolean; commit?: boolean } = {};
+      const specTimestampRaw = planObj.specTimestamp;
+      if (specTimestampRaw !== undefined) {
+        if (typeof specTimestampRaw !== "boolean") {
+          fail(
+            file,
+            `project ${JSON.stringify(name)} plan.specTimestamp must be a boolean`,
+          );
+        }
+        plan.specTimestamp = specTimestampRaw;
+      }
+      const commitRaw = planObj.commit;
+      if (commitRaw !== undefined) {
+        if (typeof commitRaw !== "boolean") {
+          fail(
+            file,
+            `project ${JSON.stringify(name)} plan.commit must be a boolean`,
+          );
+        }
+        plan.commit = commitRaw;
+      }
+      if (Object.keys(plan).length > 0) {
+        project.plan = plan;
+      }
+    }
     projects[name] = project;
   }
 
@@ -384,7 +438,13 @@ function validateConfig(input: unknown, file: string): Config {
     version: 2,
     modes: {
       patch: { agentOrder: patchAgentOrder },
-      plan: { agentOrder: planAgentOrder },
+      plan: {
+        agentOrder: planAgentOrder,
+        ...(planSpecTimestamp !== undefined
+          ? { specTimestamp: planSpecTimestamp }
+          : {}),
+        ...(planCommit !== undefined ? { commit: planCommit } : {}),
+      },
     },
     quotaFallback,
     weakQuotaExitCodes,
@@ -675,6 +735,19 @@ export function effectiveGit(cfg: Config, projectName?: string): boolean {
     }
   }
   return cfg.git;
+}
+
+export function resolvePlanFlags(
+  cfg: Config,
+  project: Project | undefined,
+): { specTimestamp: boolean; commit: boolean } {
+  const globalPlan = cfg.modes?.plan;
+  const projectPlan = project?.plan;
+  return {
+    specTimestamp:
+      projectPlan?.specTimestamp ?? globalPlan?.specTimestamp ?? true,
+    commit: projectPlan?.commit ?? globalPlan?.commit ?? true,
+  };
 }
 
 export function findProjectForPath(

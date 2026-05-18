@@ -39,22 +39,22 @@ Replace the PR URL summary with a local-path message:
 
 ## Tasks
 
-- [ ] Call `resolvePlanFlags(cfg, project)` and destructure `{ commit }` — the same call should also destructure `specTimestamp` (see subspec 01); there must be exactly one `resolvePlanFlags` call in the plan flow, not one per flag
-- [ ] Gate the early `gh auth status` / availability check on `commit` (skip when `false`)
-- [ ] When `commit` is `false`, skip `createPlanWorktree` and set `worktreePath = project.root`
-- [ ] After `specDirBasename` is computed and `commit` is `false`, check for an existing `project.root/spec/<specDirBasename>/` directory and exit with a descriptive error if found
-- [ ] Guard every `commitPlanInterview`, `commitPlanDraft`, `commitPlanReview`, `commitPlanBlocker` (and any other `commit*`) call with the `commit` flag
-- [ ] Guard every `ensureDraftPr` and `updatePrBody` call with the `commit` flag
-- [ ] When `commit` is `false`, print the local-path summary instead of the PR URL at the end of the flow
-- [ ] Verify that interview, draft, and review phases still run and produce files under `project.root/spec/<specDirBasename>/` when `commit` is `false`
+- [x] Call `resolvePlanFlags(cfg, project)` and destructure `{ commit }` — the same call should also destructure `specTimestamp` (see subspec 01); there must be exactly one `resolvePlanFlags` call in the plan flow, not one per flag
+- [x] Gate the early `gh auth status` / availability check on `commit` (skip when `false`)
+- [x] When `commit` is `false`, skip `createPlanWorktree` and set `worktreePath = project.root`
+- [x] After `specDirBasename` is computed and `commit` is `false`, check for an existing `project.root/spec/<specDirBasename>/` directory and exit with a descriptive error if found
+- [x] Guard every `commitPlanInterview`, `commitPlanDraft`, `commitPlanReview`, `commitPlanBlocker` (and any other `commit*`) call with the `commit` flag
+- [x] Guard every `ensureDraftPr` and `updatePrBody` call with the `commit` flag
+- [x] When `commit` is `false`, print the local-path summary instead of the PR URL at the end of the flow
+- [x] Verify that interview, draft, and review phases still run and produce files under `project.root/spec/<specDirBasename>/` when `commit` is `false`
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan` with `commit: false` in config completes without touching git (no new commits, no new branch, no worktree, no PR)
-- [ ] The spec tree is written to `project.root/spec/<specDirBasename>/` and `index.md` is present and valid
-- [ ] The final output points the user to `spec/<specDirBasename>/index.md` with a `jarvis run` command
-- [ ] Running `jarvis plan` a second time with the same name and `commit: false` exits with the disk-collision error rather than silently overwriting
-- [ ] The `gh` CLI is never invoked when `commit: false` (no auth check, no PR creation, no push)
-- [ ] All three phases (interview, draft, review) still execute and produce output files
-- [ ] `jarvis run spec/<specDirBasename>/index.md` works correctly against the locally written spec
-- [ ] The `commit: false` path requires the directory to be a git repo (`isGitRepo` is `true`); `commit: false` does not enable running `jarvis plan` in non-git directories — that use case is out of scope
+- [x] `jarvis plan` with `commit: false` in config completes without touching git (no new commits, no new branch, no worktree, no PR)
+- [x] The spec tree is written to `project.root/spec/<specDirBasename>/` and `index.md` is present and valid
+- [x] The final output points the user to `spec/<specDirBasename>/index.md` with a `jarvis run` command
+- [x] Running `jarvis plan` a second time with the same name and `commit: false` exits with the disk-collision error rather than silently overwriting
+- [x] The `gh` CLI is never invoked when `commit: false` (no auth check, no PR creation, no push)
+- [x] All three phases (interview, draft, review) still execute and produce output files
+- [x] `jarvis run spec/<specDirBasename>/index.md` works correctly against the locally written spec
+- [x] The `commit: false` path requires the directory to be a git repo (`isGitRepo` is `true`); `commit: false` does not enable running `jarvis plan` in non-git directories — that use case is out of scope

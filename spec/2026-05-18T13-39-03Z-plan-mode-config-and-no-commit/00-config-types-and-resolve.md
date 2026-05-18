@@ -69,10 +69,10 @@ export function resolvePlanFlags(
 
 ## Acceptance criteria
 
-- [ ] `ModeConfig`, `Project`, and the validator all compile cleanly with the new optional fields
-- [ ] `resolvePlanFlags` returns `{ specTimestamp: true, commit: true }` when no config overrides are present
-- [ ] `resolvePlanFlags` returns the project-level value when set, regardless of the global value
-- [ ] `resolvePlanFlags` returns the global `modes.plan` value when no project-level override is set
-- [ ] The config validator rejects a non-boolean value for `project.plan.specTimestamp` or `project.plan.commit` with a descriptive error
-- [ ] `resolvePlanFlags` accepts `undefined` for the `project` argument and falls through to global/hardcoded defaults
-- [ ] Running `jarvis config show` on a config that sets `specTimestamp: false` and `commit: false` at either level outputs those values in the JSON dump (no display-code change is needed; this verifies the new fields round-trip through the serializer)
+- [x] `ModeConfig`, `Project`, and the validator all compile cleanly with the new optional fields
+- [x] `resolvePlanFlags` returns `{ specTimestamp: true, commit: true }` when no config overrides are present
+- [x] `resolvePlanFlags` returns the project-level value when set, regardless of the global value
+- [x] `resolvePlanFlags` returns the global `modes.plan` value when no project-level override is set
+- [x] The config validator rejects a non-boolean value for `project.plan.specTimestamp` or `project.plan.commit` with a descriptive error
+- [x] `resolvePlanFlags` accepts `undefined` for the `project` argument and falls through to global/hardcoded defaults
+- [x] Running `jarvis config show` on a config that sets `specTimestamp: false` and `commit: false` at either level outputs those values in the JSON dump (no display-code change is needed; this verifies the new fields round-trip through the serializer)

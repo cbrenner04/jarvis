@@ -36,7 +36,7 @@ There is no local script that mirrors this exactly. The existing `test:full` cha
 - [ ] `package.json` contains a `ready` script with value `bun install --frozen-lockfile && bun run typecheck && bun run test && bun run check`.
 - [ ] `package.json` no longer contains a `test:full` script.
 - [ ] Existing scripts (`check`, `format`, `format:check`, `lint`, `typecheck`, `test`, `install-opencode-permissions`, `start`) are unchanged.
-- [ ] `bun run ready` succeeds on a clean worktree (install runs, then typecheck, test, and check all pass).
+- [ ] `bun run ready` invokes the four steps in CI order (install → typecheck → test → check) and short-circuits on the first failure via `&&` chaining. On a branch whose CI is green at HEAD, the local run completes end-to-end. Failures attributable to the branch's own code (not the script wiring) are out of scope for this subspec.
 - [ ] A repo-wide search for `test:full` returns no remaining references in tracked files.
 
 ## Out of scope

@@ -16,7 +16,7 @@
 - README rewrite of the Development section (currently around `README.md:277-289`) is the primary documentation deliverable.
 - Call out the existing Biome script naming asymmetry in the README so readers are not surprised: `format` writes by default; `check` and `lint` are read-only and have `:fix` (and `:fix:unsafe`) variants.
 - Describe `:unsafe` variants explicitly as developer convenience: run after the corresponding `--write` variant, inspect the resulting diff, and only keep changes that are acceptable.
-- Add a short note distinguishing the per-iteration gate (`typecheck` + `test`) from the draft→ready gate (`bun run ready`). Put this in AGENTS.md only if it can be done in one or two added sentences without rewriting line 51's per-iteration guidance.
+- AGENTS.md gets exactly one added sentence near line 51 distinguishing the per-iteration gate (`typecheck` + `test`) from the draft→ready gate (`bun run ready`). Line 51's existing wording is preserved verbatim.
 
 ## Tasks
 
@@ -26,7 +26,7 @@
   - [ ] Fix the `check` description so it accurately says lint + format + import sort (not "the full non-writing Biome code-quality check").
   - [ ] Replace "Run `bun run check` before marking specs complete" with guidance pointing to `bun run ready` as the draft→ready gate.
   - [ ] Add a short note on the `format` vs `check`/`lint` naming asymmetry, and on inspecting `:unsafe` diffs before committing.
-- [ ] In `AGENTS.md`, add (do not replace line 51) a brief note that flipping a PR from draft to ready is gated by `bun run ready`, distinct from the per-iteration `typecheck`/`test` loop. One or two sentences max.
+- [ ] In `AGENTS.md`, add a single sentence immediately after the existing line 51 (do not modify line 51 itself) stating that flipping a PR from draft to ready is gated by `bun run ready`, distinct from the per-iteration `typecheck`/`test` loop.
 
 ## Acceptance criteria
 
@@ -35,7 +35,7 @@
 - [ ] `README.md`'s description of `check` no longer claims it is "the full non-writing Biome code-quality check"; it accurately names lint + format + import sort.
 - [ ] `README.md` directs readers to run `bun run ready` before flipping a PR out of draft (not `bun run check`).
 - [ ] `README.md` notes that `:unsafe` variants should be run after the `--write` variant and their diffs inspected before commit.
-- [ ] `AGENTS.md:51`'s per-iteration guidance is preserved; any added text clearly distinguishes the draft→ready gate from the per-iteration gate.
+- [ ] `AGENTS.md` line 51's existing wording is unchanged; exactly one new sentence follows it distinguishing the draft→ready gate (`bun run ready`) from the per-iteration `typecheck`/`test` gate.
 - [ ] All script names referenced in updated docs exist in `package.json` after subspec 00 lands.
 
 ## Out of scope

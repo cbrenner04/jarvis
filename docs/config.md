@@ -42,7 +42,7 @@ type Config = {
   version: 2;
   modes: {
     patch: ModeConfig; // agent order + per-agent models for `jarvis run` (patch mode)
-    plan: ModeConfig; // agent order + per-agent models for `jarvis plan` interview, draft, and review phases (including resume)
+    plan: ModeConfig; // agent order + per-agent models for `jarvis plan` intent-refinement, draft, and review phases (including resume)
   };
   quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
   weakQuotaExitCodes: number[]; // exit codes treated as probable-quota under lenient mode; default []

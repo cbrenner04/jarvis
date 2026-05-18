@@ -1,4 +1,4 @@
-# Plan Mode — Interview Phase (non-interactive)
+# Plan Mode — Intent Refinement Phase
 
 You are refining a Jarvis plan **intent** before the draft phase runs. This phase is **not interactive**: you cannot ask the human questions, pause for answers, or record a Q&A. No interactive or poll-style user tooling is available.
 

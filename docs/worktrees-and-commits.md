@@ -183,7 +183,7 @@ Plan mode creates dedicated worktrees under `.worktree/plan-<plan-name>/` on a
 patch-mode worktrees (`.worktree/<name>/`) to prevent collision when both modes
 target the same spec name.
 
-During the interview phase, jarvis first uses a temporary slot:
+During the intent-refinement phase, jarvis first uses a temporary slot:
 `.worktree/plan-tmp-<short-uuid>/` on branch `plan/tmp-<short-uuid>`. After
 the agent proposes a spec name and jarvis applies collision suffixing, jarvis
 renames the worktree and branch to the final `plan-<plan-name>` / `plan/<plan-name>`
@@ -191,13 +191,14 @@ values before pushing. The temporary branch is never pushed to origin.
 
 **Phase commits** in plan mode have special subjects:
 
-- `plan: interview` — captures the seeded `intent.md` from user input (file or
-  inline), plus interview turn append sections and the final proposed `name:`
-  line after temp-slot rename.
+- `plan: interview` — historical subject for the intent-refinement result:
+  seeded `intent.md` from user input (file, inline, or no-argument mode), plus
+  appended refinement/skip/blocker sections and the final proposed `name:` line
+  after temp-slot rename.
 - `plan: draft` — commits the initial agent-drafted spec tree.
 - `plan: review N` — commits review-pass refinements to the same spec tree.
 - `plan: blocker` — records a blocker raised during draft/review.
-- `plan: interview r<n>` — records resume interview turns for resume run `n`.
+- `plan: interview r<n>` — records resume intent-refinement turns for resume run `n`.
 - `plan: review N r<n>` — records resume review pass `N` for resume run `n`.
 - `plan: blocker r<n>` — records a blocker raised during resume run `n`.
 

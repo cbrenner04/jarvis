@@ -92,9 +92,9 @@ For multi-file specs and the recommended `index.md` shape, see
 jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                            Run the loop against a spec file in a registered project.
 jarvis plan [<intent-file|"inline text">]
-                           Create a draft PR with an agent-drafted, self-reviewed spec tree from file, inline, or interactive intent.
+                           Create a draft PR with an agent-drafted, self-reviewed spec tree from file, inline, or no-argument intent.
 jarvis plan --resume <spec-path>
-                           Resume an existing plan branch/worktree for additional interview/review passes.
+                           Resume an existing plan branch/worktree for additional refinement/review passes.
 jarvis init                Register the current target repo.
 jarvis config              View or edit the jarvis config.
 jarvis prices              View or edit pricing data for cost tracking.
@@ -190,15 +190,15 @@ switch to a sibling `index.md` (when one exists) or exit.
 `jarvis plan [<intent-file|"inline text">]` creates a dedicated `.worktree/plan-<plan-name>/`
 worktree and `plan/<plan-name>` branch (timestamp-free) to draft a new spec with an agent.
 New runs author files under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** by default; legacy
-**`spec/<plan-name>/`** trees still resume. It supports file/inline/interactive entry points,
-runs interview → draft → self-review, opens a draft PR after `plan: draft`, and calls
+**`spec/<plan-name>/`** trees still resume. It supports file/inline/no-argument entry points,
+runs intent refinement → draft → self-review, opens a draft PR after `plan: draft`, and calls
 **`gh pr ready`** automatically when every scripted phase succeeds (blockers keep the PR draft).
 Stdout **Next steps** focus on review/merge/`jarvis run` without asking you to toggle readiness
 manually. After merge, run **`jarvis run spec/<spec-dir>/index.md`** (with whatever directory
 basename you authored).
 
 Use **`jarvis plan --resume spec/<spec-dir>/index.md`** (timestamped or legacy basenames both
-work) to iterate on an existing plan branch with more interview turns and/or review passes.
+work) to iterate on an existing plan branch with more intent-refinement turns and/or review passes.
 
 For full details — phases, flags, stop conditions, PR lifecycle, cleanup, and quieter default
 output — see [docs/plan-mode.md](docs/plan-mode.md).

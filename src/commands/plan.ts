@@ -1920,15 +1920,19 @@ function safeUpdatePrBody(args: {
 /**
  * Wrap `maybeMarkPlanPrReady` with the warn-and-continue pattern.
  */
-function safeMarkPlanPrReady(args: {
+export function safeMarkPlanPrReady(args: {
   io: PlanIo;
   branch: string;
   worktreePath: string;
+  markReady?: (branch: string, cwd: string) => void;
+  checkPrExists?: (branch: string, cwd: string) => number | null;
 }): void {
   try {
     maybeMarkPlanPrReady({
       branch: args.branch,
       cwd: args.worktreePath,
+      markReady: args.markReady,
+      checkPrExists: args.checkPrExists,
     });
   } catch (err) {
     args.io.stderr(

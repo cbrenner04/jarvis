@@ -20,23 +20,23 @@
 
 ## Tasks
 
-- [ ] In `README.md`'s Development section:
-  - [ ] List all five new scripts (`check:fix`, `check:fix:unsafe`, `format:unsafe`, `lint:fix`, `lint:fix:unsafe`) with one-line descriptions.
-  - [ ] Replace the `test:full` bullet with a `ready` bullet described as "mirrors CI: install (frozen lockfile), typecheck, test, check. Run before flipping a PR out of draft."
-  - [ ] Fix the `check` description so it accurately says lint + format + import sort (not "the full non-writing Biome code-quality check").
-  - [ ] Replace "Run `bun run check` before marking specs complete" with guidance pointing to `bun run ready` as the draft→ready gate.
-  - [ ] Add a short note on the `format` vs `check`/`lint` naming asymmetry, and on inspecting `:unsafe` diffs before committing.
-- [ ] In `AGENTS.md`, add a single sentence (or short bullet) immediately after the existing "Run `bun run typecheck` and `bun test` before ticking the acceptance criteria they cover." bullet, without modifying that bullet's wording, stating that flipping a PR from draft to ready is gated by `bun run ready`, distinct from the per-iteration `typecheck`/`test` loop.
+- [x] In `README.md`'s Development section:
+  - [x] List all five new scripts (`check:fix`, `check:fix:unsafe`, `format:unsafe`, `lint:fix`, `lint:fix:unsafe`) with one-line descriptions.
+  - [x] Replace the `test:full` bullet with a `ready` bullet described as "mirrors CI: install (frozen lockfile), typecheck, test, check. Run before flipping a PR out of draft."
+  - [x] Fix the `check` description so it accurately says lint + format + import sort (not "the full non-writing Biome code-quality check").
+  - [x] Replace "Run `bun run check` before marking specs complete" with guidance pointing to `bun run ready` as the draft→ready gate.
+  - [x] Add a short note on the `format` vs `check`/`lint` naming asymmetry, and on inspecting `:unsafe` diffs before committing.
+- [x] In `AGENTS.md`, add a single sentence (or short bullet) immediately after the existing "Run `bun run typecheck` and `bun test` before ticking the acceptance criteria they cover." bullet, without modifying that bullet's wording, stating that flipping a PR from draft to ready is gated by `bun run ready`, distinct from the per-iteration `typecheck`/`test` loop.
 
 ## Acceptance criteria
 
-- [ ] `README.md` Development section lists the five new Biome scripts and the new `ready` script with accurate one-line descriptions.
-- [ ] `README.md` no longer references `test:full`.
-- [ ] `README.md`'s description of `check` no longer claims it is "the full non-writing Biome code-quality check"; it accurately names lint + format + import sort.
-- [ ] `README.md` directs readers to run `bun run ready` before flipping a PR out of draft (not `bun run check`).
-- [ ] `README.md` notes that `:unsafe` variants should be run after the `--write` variant and their diffs inspected before commit.
-- [ ] In `AGENTS.md`, the existing "Run `bun run typecheck` and `bun test` before ticking the acceptance criteria they cover." bullet is unchanged in wording; exactly one new sentence or bullet follows it distinguishing the draft→ready gate (`bun run ready`) from the per-iteration `typecheck`/`test` gate.
-- [ ] All script names referenced in updated docs exist in `package.json` after subspec 00 lands.
+- [x] `README.md` Development section lists the five new Biome scripts and the new `ready` script with accurate one-line descriptions.
+- [x] `README.md` no longer references `test:full`.
+- [x] `README.md`'s description of `check` no longer claims it is "the full non-writing Biome code-quality check"; it accurately names lint + format + import sort.
+- [x] `README.md` directs readers to run `bun run ready` before flipping a PR out of draft (not `bun run check`).
+- [x] `README.md` notes that `:unsafe` variants should be run after the `--write` variant and their diffs inspected before commit.
+- [x] In `AGENTS.md`, the existing "Run `bun run typecheck` and `bun test` before ticking the acceptance criteria they cover." bullet is unchanged in wording; exactly one new sentence or bullet follows it distinguishing the draft→ready gate (`bun run ready`) from the per-iteration `typecheck`/`test` gate.
+- [x] All script names referenced in updated docs exist in `package.json` after subspec 00 lands.
 
 ## Out of scope
 

@@ -262,6 +262,11 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
   const mark =
     opts.markReady ??
     ((branch, cwd) => {
+      execFileSync("bun", ["run", "ready"], {
+        cwd,
+        env: process.env,
+        stdio: "pipe",
+      });
       execFileSync("gh", ["pr", "ready", branch], {
         cwd,
         env: process.env,

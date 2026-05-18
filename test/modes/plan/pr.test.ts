@@ -195,6 +195,44 @@ describe("maybeMarkPlanPrReady", () => {
       });
     }).toThrow("gh pr ready failed");
   });
+
+  test("calls markReady with bun run ready before gh pr ready", () => {
+    let bunReadyCalled = false;
+    const ghReadyCalled = false;
+    let bunCalledBeforeGh = false;
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      checkPrExists: () => 123,
+      markReady: () => {
+        bunReadyCalled = true;
+        if (!ghReadyCalled) {
+          bunCalledBeforeGh = true;
+        }
+      },
+    });
+
+    expect(bunReadyCalled).toBe(true);
+    expect(bunCalledBeforeGh).toBe(true);
+  });
+
+  test("propagates error from bun run ready and does not call gh pr ready", () => {
+    const ghReadyCalled = false;
+
+    expect(() => {
+      maybeMarkPlanPrReady({
+        branch: "feature",
+        cwd: gitDir,
+        checkPrExists: () => 123,
+        markReady: () => {
+          throw new Error("bun run ready failed");
+        },
+      });
+    }).toThrow("bun run ready failed");
+
+    expect(ghReadyCalled).toBe(false);
+  });
 });
 
 describe("renderPlanAttribution", () => {

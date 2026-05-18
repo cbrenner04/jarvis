@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -189,6 +190,13 @@ function remoteSpecBranchExists(
   }
 }
 
+function removeSpecDirIfPresent(worktreePath: string, specDirBasename: string) {
+  const specDir = join(worktreePath, "spec", specDirBasename);
+  if (existsSync(specDir)) {
+    rmSync(specDir, { recursive: true, force: true });
+  }
+}
+
 type ResumePrep = {
   planName: string;
   specDirBasename: string;
@@ -273,8 +281,9 @@ function computeResumeCounters(worktreePath: string): {
 function prepareResume(args: {
   projectRoot: string;
   specPath: string;
+  config?: PlanCommandOptions["config"];
 }): ResumePrep {
-  const cfg = loadConfig();
+  const cfg = loadConfig(args.config);
   const project = findProjectForPath(args.specPath);
   const { commit } = resolvePlanFlags(cfg, project);
   if (!commit) {
@@ -543,6 +552,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         resume = prepareResume({
           projectRoot: project.root,
           specPath: inv.intentPath,
+          ...(opts.config !== undefined ? { config: opts.config } : {}),
         });
       } catch (err) {
         opts.io.stderr(`${(err as Error).message}\n`);
@@ -852,6 +862,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr("internal error: worktreePath is null\n");
         return 1;
       }
+      const cleanupNoCommitTempSpec = (): void => {
+        if (commit === false) {
+          removeSpecDirIfPresent(worktreePath as string, tempPlanName);
+        }
+      };
 
       // Seed the intent.md file into the worktree
       try {
@@ -935,6 +950,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               opts.io.stderr(
                 `plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during refine\n`,
               );
+              cleanupNoCommitTempSpec();
               summarizePlan("quota-exhausted", specDirBasename);
               return 2;
             }
@@ -942,6 +958,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               opts.io.stderr(
                 `plan: model configuration error\n${refineResult.result.stderr}`,
               );
+              cleanupNoCommitTempSpec();
               summarizePlan("model-config", specDirBasename);
               return 3;
             }
@@ -949,6 +966,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             opts.io.stderr(
               `plan: refine phase failed\n${refineResult.result.stderr}`,
             );
+            cleanupNoCommitTempSpec();
             summarizePlan("agent-error", specDirBasename);
             return 1;
           }
@@ -973,6 +991,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               opts.io.stderr(
                 `plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during naming-only phase\n`,
               );
+              cleanupNoCommitTempSpec();
               summarizePlan("quota-exhausted", specDirBasename);
               return 2;
             }
@@ -980,18 +999,21 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               opts.io.stderr(
                 `plan: model configuration error\n${namingResult.result.stderr}`,
               );
+              cleanupNoCommitTempSpec();
               summarizePlan("model-config", specDirBasename);
               return 3;
             }
             opts.io.stderr(
               `plan: naming-only phase failed\n${namingResult.result.stderr}`,
             );
+            cleanupNoCommitTempSpec();
             summarizePlan("agent-error", specDirBasename);
             return 1;
           }
         }
       } catch (err) {
         opts.io.stderr(`plan: refine phase error: ${(err as Error).message}\n`);
+        cleanupNoCommitTempSpec();
         summarizePlan("error", specDirBasename);
         return 1;
       }
@@ -1027,6 +1049,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           opts.io.stderr(
             `spec/${specDirBasename}/ already exists. Rename or remove it before running again.\n`,
           );
+          cleanupNoCommitTempSpec();
           return 1;
         }
       }
@@ -1048,6 +1071,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr(
           `plan: failed to rename spec directory: ${(err as Error).message}\n`,
         );
+        cleanupNoCommitTempSpec();
         summarizePlan("error", specDirBasename);
         return 1;
       }

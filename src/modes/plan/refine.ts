@@ -264,7 +264,7 @@ export async function runRefineTurn(opts: {
             result: {
               kind: "error",
               exitCode: 1,
-              stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; only appending ## Refine turn N section is allowed`,
+              stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; preserve the existing intent body exactly, optionally update only the leading name frontmatter, and append ## Refine turn ${opts.turnNumber}, ${REFINE_SKIP_HEADING}, or ## Blocker`,
             },
             agentLabel,
             continueRefine: false,

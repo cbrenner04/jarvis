@@ -40,15 +40,15 @@ Jarvis also marks draft PRs ready for review automatically when patch-mode subsp
 
 ## Acceptance criteria
 
-- [ ] `package.json` contains the five new Biome scripts with the exact command strings above.
-- [ ] `package.json` contains a `ready` script with value `bun install --frozen-lockfile && bun run typecheck && bun run test && bun run check`.
-- [ ] `package.json` no longer contains a `test:full` script.
-- [ ] Existing scripts (`check`, `format`, `format:check`, `lint`, `typecheck`, `test`, `install-opencode-permissions`, `start`) are unchanged.
-- [ ] `bun run ready` invokes the four steps in CI order (install → typecheck → test → check) and short-circuits on the first failure via `&&` chaining. On a branch whose CI is green at HEAD, the local run completes end-to-end. Failures attributable to the branch's own code (not the script wiring) are out of scope for this subspec.
-- [ ] Patch mode runs `bun run ready` from the PR worktree before calling `gh pr ready`; when `bun run ready` fails, patch mode reports the failed gate and leaves the PR in draft.
-- [ ] Plan mode runs `bun run ready` from the plan worktree before calling `gh pr ready`; when `bun run ready` fails, plan mode reports the failed gate and leaves the PR in draft.
-- [ ] Focused tests cover the successful and failing `bun run ready` branches for both patch and plan readiness helpers.
-- [ ] A repo-wide search for `test:full` returns no remaining references in tracked files.
+- [x] `package.json` contains the five new Biome scripts with the exact command strings above.
+- [x] `package.json` contains a `ready` script with value `bun install --frozen-lockfile && bun run typecheck && bun run test && bun run check`.
+- [x] `package.json` no longer contains a `test:full` script.
+- [x] Existing scripts (`check`, `format`, `format:check`, `lint`, `typecheck`, `test`, `install-opencode-permissions`, `start`) are unchanged.
+- [x] `bun run ready` invokes the four steps in CI order (install → typecheck → test → check) and short-circuits on the first failure via `&&` chaining. On a branch whose CI is green at HEAD, the local run completes end-to-end. Failures attributable to the branch's own code (not the script wiring) are out of scope for this subspec.
+- [x] Patch mode runs `bun run ready` from the PR worktree before calling `gh pr ready`; when `bun run ready` fails, patch mode reports the failed gate and leaves the PR in draft.
+- [x] Plan mode runs `bun run ready` from the plan worktree before calling `gh pr ready`; when `bun run ready` fails, plan mode reports the failed gate and leaves the PR in draft.
+- [x] Focused tests cover the successful and failing `bun run ready` branches for both patch and plan readiness helpers.
+- [x] A repo-wide search for `test:full` returns no remaining references in tracked files.
 
 ## Out of scope
 

@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildPrBody,
   extractNarrative,
+  maybeMarkReady,
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
   updatePrBody,
@@ -13,9 +15,27 @@ import {
 let dir: string;
 let indexPath: string;
 
+function gitSetup(): void {
+  execSync("git init -q", { cwd: dir, stdio: "pipe" });
+  execSync("git config user.email 'test@example.com'", {
+    cwd: dir,
+    stdio: "pipe",
+  });
+  execSync("git config user.name 'Test User'", { cwd: dir, stdio: "pipe" });
+  execSync("git config commit.gpgsign false", { cwd: dir, stdio: "pipe" });
+  execSync("git checkout -q -b main", { cwd: dir, stdio: "pipe" });
+  writeFileSync(join(dir, "seed.txt"), "seed\n");
+  execSync("git add -A", { cwd: dir, stdio: "pipe" });
+  execSync("git commit -q -m 'seed'", { cwd: dir, stdio: "pipe" });
+  execSync("git checkout -q -b feature", { cwd: dir, stdio: "pipe" });
+}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "jarvis-pr-test-"));
-  indexPath = join(dir, "index.md");
+  indexPath = join(dir, "spec", "index.md");
+  // Create spec directory
+  execSync("mkdir -p spec", { cwd: dir, stdio: "pipe" });
+  gitSetup();
 });
 
 afterEach(() => {
@@ -259,5 +279,80 @@ describe("updatePrBody", () => {
         renderFooter: () => "",
       }),
     ).toThrow("gh pr edit failed");
+  });
+});
+
+describe("maybeMarkReady", () => {
+  test("returns early when subspecs are not complete", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    expect(() =>
+      maybeMarkReady({
+        indexPath,
+        cwd: dir,
+        checkPrExists: () => true,
+      }),
+    ).not.toThrow();
+  });
+
+  test("calls markReady when all subspecs complete", () => {
+    writeFileSync(
+      indexPath,
+      "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n",
+    );
+
+    let markReadyCalled = false;
+    let markReadyBranch = "";
+    let markReadyCwd = "";
+
+    expect(() => {
+      maybeMarkReady({
+        indexPath,
+        cwd: dir,
+        checkPrExists: () => true,
+        markReady: (branch, cwd) => {
+          markReadyCalled = true;
+          markReadyBranch = branch;
+          markReadyCwd = cwd;
+        },
+      });
+    }).not.toThrow();
+
+    expect(markReadyCalled).toBe(true);
+    expect(markReadyBranch).toBe("feature");
+    expect(markReadyCwd).toBe(dir);
+  });
+
+  test("propagates errors from markReady", () => {
+    writeFileSync(
+      indexPath,
+      "# Spec\n\n- [x] [00 - one](./00-one.md)\n",
+    );
+
+    expect(() =>
+      maybeMarkReady({
+        indexPath,
+        cwd: dir,
+        checkPrExists: () => true,
+        markReady: () => {
+          throw new Error("ready gate failed");
+        },
+      }),
+    ).toThrow("ready gate failed");
+  });
+
+  test("throws when no PR exists for the branch", () => {
+    writeFileSync(
+      indexPath,
+      "# Spec\n\n- [x] [00 - one](./00-one.md)\n",
+    );
+
+    expect(() =>
+      maybeMarkReady({
+        indexPath,
+        cwd: dir,
+        checkPrExists: () => false,
+      }),
+    ).toThrow("cannot mark PR ready: no PR found");
   });
 });

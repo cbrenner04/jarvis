@@ -5,10 +5,7 @@ import { CursorAgent } from "./cursor.ts";
 import { OpencodeAgent } from "./opencode.ts";
 import type { Agent, AgentName } from "./types.ts";
 
-export function createAgent(
-  agentName: AgentName,
-  model: string,
-): Agent {
+export function createAgent(agentName: AgentName, model: string): Agent {
   switch (agentName) {
     case "claude":
       return new ClaudeAgent({ model });

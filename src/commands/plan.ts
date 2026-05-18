@@ -13,8 +13,8 @@ import {
   CONFIG_DIR,
   findProjectForPath,
   loadConfig,
-  resolvePlanFlags,
   type ProjectMatch,
+  resolvePlanFlags,
 } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
@@ -1989,7 +1989,10 @@ function countSpecFiles(worktreePath: string, name: string): number {
  * Inject a `repo:` line into the index.md if not already present.
  * Prefers origin URL if available; falls back to project key.
  */
-function injectRepoLineIntoIndex(specDirPath: string, project: ProjectMatch): void {
+function injectRepoLineIntoIndex(
+  specDirPath: string,
+  project: ProjectMatch,
+): void {
   const indexPath = join(specDirPath, "index.md");
   if (!existsSync(indexPath)) {
     return; // index.md not yet created

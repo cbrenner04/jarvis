@@ -31,7 +31,7 @@ export function computeProjectSafeId(project: ProjectMatch): string {
     const slug = project.origin
       .toLowerCase()
       .replace(/^(?:https?:\/\/|ssh:\/\/|git:\/\/|git@)/, "") // Strip protocols and git@
-      .replace(/[:.\/]+/g, "_") // Replace separators with underscores
+      .replace(/[:./]+/g, "_") // Replace separators with underscores
       .replace(/\.git$/, "") // Strip .git suffix
       .replace(/[^a-z0-9_-]/g, "") // Keep only safe chars
       .replace(/^_+|_+$/g, ""); // Trim underscores
@@ -41,7 +41,7 @@ export function computeProjectSafeId(project: ProjectMatch): string {
   }
 
   // Last resort: basename of root
-  return project.root.split(/[\/\\]/).pop() || "project";
+  return project.root.split(/[/\\]/).pop() || "project";
 }
 
 /**

@@ -16,7 +16,7 @@ When `prepareResume` is entered:
 3. If `commit` is `false`, exit immediately with:
    > `This spec was created with commit: false. Use \`jarvis run <specPath>\` to continue working on it.`
 
-Alternatively (or additionally), detect the structural absence: if neither the expected worktree directory nor the `plan/<planName>` branch exists, and `commit` is `false` for the resolved project, emit the same message. This avoids a false positive if someone passes a spec path from a different project where `commit` happens to be `false`.
+Use the config-flag check as the sole detection mechanism. It is authoritative: if the current config says `commit: false` for this project, the spec was never committed and a resume is impossible. Structural checks (missing worktree / branch) would fire too broadly and fail to give a useful message when the config flag is absent.
 
 ## Tasks
 

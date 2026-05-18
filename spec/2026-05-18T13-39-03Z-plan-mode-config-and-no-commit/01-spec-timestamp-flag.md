@@ -10,7 +10,7 @@ Currently `plan.ts:995` unconditionally produces a `YYYY-MM-DDTHH-mm-ssZ-<name>`
 
 ## Tasks
 
-- [ ] Call `resolvePlanFlags(cfg, project)` early in the plan flow (after the project is resolved, before `specDirBasename` is computed) and destructure `{ specTimestamp, commit }`
+- [ ] Call `resolvePlanFlags(cfg, project)` early in the plan flow (after the project is resolved, before `specDirBasename` is computed) and destructure `{ specTimestamp }` — this call may be combined with subspec 02's `commit` destructure into a single `resolvePlanFlags` call
 - [ ] At `plan.ts:995`, replace the unconditional `formatPlanSpecTimestamp()` call with:
   ```typescript
   const specDirBasename = specTimestamp

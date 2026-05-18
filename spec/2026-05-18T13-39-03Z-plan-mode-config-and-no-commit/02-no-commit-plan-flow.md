@@ -30,6 +30,10 @@ Replace the PR URL summary with a local-path message:
 > `Spec written to spec/<specDirBasename>/index.md`  
 > `Run with: jarvis run spec/<specDirBasename>/index.md`
 
+### `jarvis run` compatibility
+
+`jarvis run` reads spec files directly from disk, so it works against a locally written spec without the spec being committed or merged. The merge-first rule in spec-guidance.md explicitly does not apply to no-commit specs.
+
 ## Tasks
 
 - [ ] Call `resolvePlanFlags(cfg, project)` and destructure `{ commit }` (may be combined with the `specTimestamp` call from subspec 01)
@@ -50,4 +54,4 @@ Replace the PR URL summary with a local-path message:
 - [ ] The `gh` CLI is never invoked when `commit: false` (no auth check, no PR creation, no push)
 - [ ] All three phases (interview, draft, review) still execute and produce output files
 - [ ] `jarvis run spec/<specDirBasename>/index.md` works correctly against the locally written spec
-- [ ] The `commit: false` path requires the directory to be a git repo (`isGitRepo` is `true`); behavior in a non-git directory is unchanged
+- [ ] The `commit: false` path requires the directory to be a git repo (`isGitRepo` is `true`); `commit: false` does not enable running `jarvis plan` in non-git directories — that use case is out of scope

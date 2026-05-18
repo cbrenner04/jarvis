@@ -66,7 +66,6 @@ export function resolvePlanFlags(
 - [ ] Add `plan?: { specTimestamp?: boolean; commit?: boolean }` to the `Project` type in `src/config.ts`
 - [ ] Update the config validator to parse and validate the new `plan` block on project entries (both fields are optional booleans; reject non-boolean values)
 - [ ] Implement `resolvePlanFlags(cfg: Config, project: Project | undefined)` in `src/config.ts` and export it
-- [ ] Verify that `jarvis config` (the `show` subcommand) surfaces the new fields correctly when set — since it dumps the full config as JSON, no display code change is needed beyond confirming the fields serialize
 
 ## Acceptance criteria
 
@@ -76,3 +75,4 @@ export function resolvePlanFlags(
 - [ ] `resolvePlanFlags` returns the global `modes.plan` value when no project-level override is set
 - [ ] The config validator rejects a non-boolean value for `project.plan.specTimestamp` or `project.plan.commit` with a descriptive error
 - [ ] `resolvePlanFlags` accepts `undefined` for the `project` argument and falls through to global/hardcoded defaults
+- [ ] `jarvis config show` surfaces `specTimestamp` and `commit` correctly when set (the `show` subcommand dumps full config as JSON; no display code change is needed, but confirm the fields serialize)

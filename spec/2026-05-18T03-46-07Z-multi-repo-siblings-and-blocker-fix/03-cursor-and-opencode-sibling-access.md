@@ -36,6 +36,8 @@ Implement Opencode support by doing the least permissive verified thing that let
 
 If Opencode cannot support sibling edits without a broad unsafe permission bypass, append a `## Blocker` section explaining the exact verified limitation and stop. Do not add `--dangerously-skip-permissions`.
 
+**Verification result**: Attempted to verify Opencode CLI help output but encountered permission restrictions when running `opencode run --help` (failed to create local state directories). No additional-directory flags found in the documented Opencode CLI interface. Implementation follows the fallback approach: preserve `--dir <cwd>` and rely on the shared prompt text from subspec 01 to expose sibling directories.
+
 ### Documentation
 
 Update `docs/agents.md` so Cursor and Opencode describe how sibling directories are exposed. If support is prompt-plus-existing-permissions rather than a CLI flag, say that directly.
@@ -58,10 +60,10 @@ Update `docs/agents.md` so Cursor and Opencode describe how sibling directories 
 
 ## Acceptance criteria
 
-- [ ] Cursor can be selected for a project with configured siblings without silently dropping the sibling context.
-- [ ] Opencode can be selected for a project with configured siblings without silently dropping the sibling context.
-- [ ] Cursor keeps `--force` and `--workspace <cwd>` unless a documented, tested replacement is added.
-- [ ] Opencode keeps `--dir <cwd>` and does not use `--dangerously-skip-permissions`.
-- [ ] Tests cover both adapters receiving `additionalReadDirs`.
-- [ ] TypeScript compiles without errors.
-- [ ] Agent docs describe the Cursor and Opencode sibling behavior.
+- [x] Cursor can be selected for a project with configured siblings without silently dropping the sibling context.
+- [x] Opencode can be selected for a project with configured siblings without silently dropping the sibling context.
+- [x] Cursor keeps `--force` and `--workspace <cwd>` unless a documented, tested replacement is added.
+- [x] Opencode keeps `--dir <cwd>` and does not use `--dangerously-skip-permissions`.
+- [x] Tests cover both adapters receiving `additionalReadDirs`.
+- [x] TypeScript compiles without errors.
+- [x] Agent docs describe the Cursor and Opencode sibling behavior.

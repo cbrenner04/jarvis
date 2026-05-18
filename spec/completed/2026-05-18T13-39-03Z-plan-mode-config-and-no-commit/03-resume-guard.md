@@ -22,13 +22,13 @@ Use the config-flag check as the sole detection mechanism. It is authoritative: 
 
 ## Tasks
 
-- [ ] In `prepareResume` (`plan.ts:275`), resolve the project for the spec path and call `resolvePlanFlags`
-- [ ] If `commit` resolves to `false`, exit with the descriptive error message before any worktree or branch checks
-- [ ] Confirm the error message names the `jarvis run` alternative so the user knows what to do next
+- [x] In `prepareResume` (`plan.ts:275`), resolve the project for the spec path and call `resolvePlanFlags`
+- [x] If `commit` resolves to `false`, exit with the descriptive error message before any worktree or branch checks
+- [x] Confirm the error message names the `jarvis run` alternative so the user knows what to do next
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan --resume spec/<name>/index.md` where `<name>` belongs to a project with `commit: false` exits immediately with the descriptive error
-- [ ] The error message explicitly mentions `commit: false` and suggests `jarvis run`
-- [ ] `jarvis plan --resume` against a normal (commit-enabled) spec is unaffected
-- [ ] The guard fires before any git operations (no worktree lookup, no branch check, no remote check)
+- [x] `jarvis plan --resume spec/<name>/index.md` where `<name>` belongs to a project with `commit: false` exits immediately with the descriptive error
+- [x] The error message explicitly mentions `commit: false` and suggests `jarvis run`
+- [x] `jarvis plan --resume` against a normal (commit-enabled) spec is unaffected
+- [x] The guard fires before any git operations (no worktree lookup, no branch check, no remote check)

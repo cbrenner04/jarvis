@@ -21,7 +21,7 @@ Currently `plan.ts:995` unconditionally produces a `YYYY-MM-DDTHH-mm-ssZ-<name>`
 
 ## Acceptance criteria
 
-- [ ] When `specTimestamp` resolves to `true` (default), the spec directory is created with the `YYYY-MM-DDTHH-mm-ssZ-<name>` prefix as before
-- [ ] When `specTimestamp` resolves to `false`, the spec directory is created with only `<name>` as the basename (no timestamp prefix)
-- [ ] Branch and worktree names are unaffected by `specTimestamp` in both cases
-- [ ] A project with `"plan": { "specTimestamp": false }` in config produces an untimestamped spec dir for that project and a timestamped one for projects without the override
+- [x] When `specTimestamp` resolves to `true` (default), the spec directory is created with the `YYYY-MM-DDTHH-mm-ssZ-<name>` prefix as before
+- [x] When `specTimestamp` resolves to `false`, the spec directory is created with only `<name>` as the basename (no timestamp prefix)
+- [x] Branch and worktree names are unaffected by `specTimestamp` in both cases
+- [x] A project with `"plan": { "specTimestamp": false }` in config produces an untimestamped spec dir for that project and a timestamped one for projects without the override

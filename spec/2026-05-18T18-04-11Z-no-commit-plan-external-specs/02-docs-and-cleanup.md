@@ -34,16 +34,16 @@ local-spec cleanup rule.
 
 ## Acceptance criteria
 
-- [ ] Documentation consistently states that `modes.plan.commit: false` writes
+- [x] Documentation consistently states that `modes.plan.commit: false` writes
       specs to Jarvis-owned storage outside the target repo.
-- [ ] Documentation shows a working `jarvis run <external-index-path>` example
+- [x] Documentation shows a working `jarvis run <external-index-path>` example
       for a no-commit plan spec.
-- [ ] Documentation states that these specs require usable `repo:` metadata.
-- [ ] Cleanup docs explain whether Jarvis-owned local specs are retained or how
+- [x] Documentation states that these specs require usable `repo:` metadata.
+- [x] Cleanup docs explain whether Jarvis-owned local specs are retained or how
       they are explicitly removed.
-- [ ] No docs continue to describe `commit: false` as writing generated specs
+- [x] No docs continue to describe `commit: false` as writing generated specs
       into the target repo's tracked `spec/` tree.
 
 ## Documentation updates
 
-- [ ] This subspec is the documentation update for the feature.
+- [x] This subspec is the documentation update for the feature.

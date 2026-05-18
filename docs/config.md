@@ -37,6 +37,7 @@ type AgentEntry = {
 
 type ModeConfig = {
   agentOrder: AgentEntry[];
+  commit?: boolean; // plan mode only: whether to commit specs to the target repo (default true)
 };
 
 type Config = {
@@ -61,6 +62,14 @@ type Config = {
 
 All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid
 configs are rejected with an error that names the offending file.
+
+## `modes.plan.commit`
+
+The optional `modes.plan.commit` boolean (default `true`) controls where plan-mode specs are authored and whether git/GitHub participation is enabled:
+
+**`true` (default):** Plan specs are authored inside the target repository under `spec/<spec-dir>/` on a git branch. A draft PR is opened and `gh pr ready` runs programmatically on success. This is the normal collaborative spec-authoring workflow.
+
+**`false`:** Plan specs are authored in Jarvis-owned storage at `~/.jarvis/specs/<project-safe-id>/<spec-dir>/` outside the target repository. No git worktree, branch, commits, or PR are created. Plan mode runs directly in the target repo root. The generated spec includes a `repo:` binding so `jarvis run` can resolve the target repository later. Use this mode when specs should not be committed to the repo or when you want to generate and immediately execute a spec without the PR review cycle.
 
 ## `Project.origin`
 

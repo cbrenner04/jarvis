@@ -3,8 +3,11 @@
 This file is stable guidance for agents that need to create or work from
 Jarvis specs.
 
-New Jarvis specs should live under directories whose **basename** includes
-a filesystem-safe UTC timestamp prefix and a descriptive slug:
+## Spec location conventions
+
+### In-repo specs (committed)
+
+Specs authored with `jarvis plan` under `modes.plan.commit: true` (the default) live inside the target repository under directories whose **basename** includes a filesystem-safe UTC timestamp prefix and a descriptive slug:
 
 `spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
 
@@ -14,10 +17,28 @@ trees and remains valid on disk — jarvis reads whatever path you pass (`jarvis
 run`, resume, cleanup) — but **new specs should adopt the prefixed form so same-day
 trees sort and collide predictably.**
 
-Plan-generated specs already use `spec/<timestamp>-<validated-plan-name>/`. The
+Plan-generated specs under `commit: true` already use `spec/<timestamp>-<validated-plan-name>/`. The
 **plan branch and worktree** stay untimestamped: `plan/<plan-name>` with
 `.worktree/plan-<plan-name>/` even when files live under
 `spec/2026-05-17T22-14-03Z-<plan-name>/`.
+
+### External specs (no-commit)
+
+Specs authored with `jarvis plan` under `modes.plan.commit: false` live in Jarvis-owned storage outside the target repository:
+
+`~/.jarvis/specs/<project-safe-id>/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
+
+The `<project-safe-id>` is the registered project key (e.g., `groceries`), a derived slug from the origin URL, or the repo root basename. For example:
+
+```text
+~/.jarvis/specs/groceries/2026-05-17T22-14-03Z-my-feature/index.md
+~/.jarvis/specs/groceries/2026-05-17T22-14-03Z-my-feature/intent.md
+~/.jarvis/specs/groceries/2026-05-17T22-14-03Z-my-feature/00-first-task.md
+```
+
+These specs are **not committed to the target repository**. They are Jarvis-owned artifacts that include a `repo:` binding to their target repository so `jarvis run` can later resolve the correct checkout.
+
+**Key difference:** In-repo specs are typically created as part of the work (authored collaboratively, merged to `main`, then implemented). External no-commit specs are generated and ready to run immediately — they live in Jarvis storage and remain there for reference and re-runs.
 
 Jarvis specs should use an index-routed shape:
 
@@ -45,8 +66,7 @@ Run Jarvis against the index:
 jarvis run spec/2026-05-17T22-14-03Z-my-feature/index.md
 ```
 
-Specs may live anywhere. The `repo:` line is **optional**; when present, it
-identifies the target repository in a portable way. Accepted forms:
+Specs may live anywhere. The `repo:` line is **optional** for in-repo specs (since the spec location implies the target repo), but **required** for external specs authored with `modes.plan.commit: false` (since the spec path no longer resides inside the target repo). When present, `repo:` identifies the target repository in a portable way. Accepted forms:
 
 - HTTPS URL: `https://github.com/owner/repo[.git]`
 - SSH URL: `git@github.com:owner/repo[.git]`

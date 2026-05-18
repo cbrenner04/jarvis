@@ -156,7 +156,7 @@ The `specOutsideWorktreeReadDirs` function returns `string[] | undefined`. When 
 
 **Existence check placement:** The intent proposes checking siblings existence in `prepareRun`. Confirm: `existsSync` is already imported at the top of `run.ts` (confirmed by the `existsSync(siblingIndex)` call at line 427), so no new import needed there.
 
-**Warning for non-claude agents:** Emit via `opts.io.stderr(...)` immediately before the `additionalReadDirs` assembly — `opts.io` is in scope in the `prepareRun` closure. The warning message should name the active agent and list the configured siblings so the user knows what was dropped.
+**Agent support update:** Do not implement siblings as a Claude-only feature with a warning for other agents. The specs now require shared run-loop forwarding plus explicit support work for every patch agent (`claude`, `codex`, `cursor`, `opencode`, and `aider`). If an agent cannot safely support sibling edits, its agent-specific subspec must record a blocker rather than silently continuing without access.
 
 ### Issue 2 — blocker commit: import and error-extraction details
 
@@ -170,11 +170,14 @@ The `specOutsideWorktreeReadDirs` function returns `string[] | undefined`. When 
 
 ### Subspec file naming
 
-Confirmed decomposition: two subspecs.
+Updated decomposition: five subspecs.
 - `00-blocker-commit-error-surface.md` — Issue 2 fixes (`subspec.ts` only, plus `run.ts` catch-site message improvement).
-- `01-project-siblings.md` — Issue 1 (`config.ts` type + validation, `run.ts` merge point, non-claude agent warning).
+- `01-project-siblings-config-and-plumbing.md` — shared Issue 1 config, validation, run-loop forwarding, prompt visibility, and docs.
+- `02-claude-and-codex-sibling-access.md` — `--add-dir` support for both agents.
+- `03-cursor-and-opencode-sibling-access.md` — verified sibling behavior for Cursor and Opencode without unsafe bypass flags.
+- `04-aider-sibling-access.md` — verified sibling behavior for Aider while preserving Jarvis-owned commits.
 
-No other subspecs needed. `src/commands/config.ts` sibling-management CLI is explicitly out of scope per the intent.
+`src/commands/config.ts` sibling-management CLI is explicitly out of scope per the intent.
 
 ## Interview turn 3
 

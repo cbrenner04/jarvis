@@ -440,7 +440,9 @@ function validateConfig(input: unknown, file: string): Config {
       patch: { agentOrder: patchAgentOrder },
       plan: {
         agentOrder: planAgentOrder,
-        ...(planSpecTimestamp !== undefined ? { specTimestamp: planSpecTimestamp } : {}),
+        ...(planSpecTimestamp !== undefined
+          ? { specTimestamp: planSpecTimestamp }
+          : {}),
         ...(planCommit !== undefined ? { commit: planCommit } : {}),
       },
     },
@@ -742,7 +744,8 @@ export function resolvePlanFlags(
   const globalPlan = cfg.modes?.plan;
   const projectPlan = project?.plan;
   return {
-    specTimestamp: projectPlan?.specTimestamp ?? globalPlan?.specTimestamp ?? true,
+    specTimestamp:
+      projectPlan?.specTimestamp ?? globalPlan?.specTimestamp ?? true,
     commit: projectPlan?.commit ?? globalPlan?.commit ?? true,
   };
 }

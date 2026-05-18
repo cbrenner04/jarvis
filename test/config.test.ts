@@ -1209,7 +1209,9 @@ describe("plan flags", () => {
       }),
     );
     expect(() => loadConfig({ dir })).toThrow(file);
-    expect(() => loadConfig({ dir })).toThrow(/plan\.specTimestamp must be a boolean/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /plan\.specTimestamp must be a boolean/,
+    );
   });
 
   test("rejects non-boolean project plan.commit", () => {
@@ -1274,7 +1276,7 @@ describe("plan flags", () => {
       }),
     );
     const cfg = loadConfig({ dir });
-    expect(cfg.projects["app"]?.plan).toEqual({ specTimestamp: false });
+    expect(cfg.projects.app?.plan).toEqual({ specTimestamp: false });
   });
 
   test("accepts partial plan object (only commit)", () => {
@@ -1295,7 +1297,7 @@ describe("plan flags", () => {
       }),
     );
     const cfg = loadConfig({ dir });
-    expect(cfg.projects["app"]?.plan).toEqual({ commit: true });
+    expect(cfg.projects.app?.plan).toEqual({ commit: true });
   });
 });
 
@@ -1406,7 +1408,7 @@ describe("resolvePlanFlags", () => {
         },
       },
     };
-    const project = cfg.projects["app"]!;
+    const project = cfg.projects.app;
     expect(resolvePlanFlags(cfg, project)).toEqual({
       specTimestamp: false,
       commit: true,
@@ -1438,7 +1440,7 @@ describe("resolvePlanFlags", () => {
         },
       },
     };
-    const project = cfg.projects["app"]!;
+    const project = cfg.projects.app;
     expect(resolvePlanFlags(cfg, project)).toEqual({
       specTimestamp: false,
       commit: false,

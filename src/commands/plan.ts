@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { loadConfig, resolvePlanFlags, findProjectForPath } from "../config.ts";
+import { findProjectForPath, loadConfig, resolvePlanFlags } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import {
@@ -1578,7 +1578,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                     specDirBasename,
                     agentLabel,
                     reason: "write boundary violation",
-                    specFilesCount: countSpecFiles(worktreePath as string, specDirBasename),
+                    specFilesCount: countSpecFiles(
+                      worktreePath as string,
+                      specDirBasename,
+                    ),
                   });
                   opts.io.stderr(`plan mode: blocker commit pushed\n`);
 
@@ -1670,7 +1673,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   specDirBasename,
                   agentLabel,
                   reason: "write boundary violation",
-                  specFilesCount: countSpecFiles(worktreePath as string, specDirBasename),
+                  specFilesCount: countSpecFiles(
+                    worktreePath as string,
+                    specDirBasename,
+                  ),
                 });
                 opts.io.stderr(`plan mode: blocker commit pushed\n`);
 

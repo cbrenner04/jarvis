@@ -1160,12 +1160,14 @@ describe("runCommand", () => {
     const binDir = join(dir, "bin");
     mkdirSync(binDir);
     const realGit = execSync("command -v git", { encoding: "utf8" }).trim();
+    const bun = join(binDir, "bun");
     const git = join(binDir, "git");
     const gh = join(binDir, "gh");
     const pushLog = join(dir, "push-log");
     const prState = join(dir, "pr-state");
     const prLog = join(dir, "pr-log");
     const prViewLog = join(dir, "pr-view-log");
+    const readyGateLog = join(dir, "ready-gate-log");
     const readyLog = join(dir, "ready-log");
     const readyState = join(dir, "ready-state");
     const prTitle = join(dir, "pr-title");
@@ -1184,6 +1186,18 @@ exec "${realGit}" "$@"
 `,
     );
     chmodSync(git, 0o755);
+    writeFileSync(
+      bun,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "run ready" ]]; then
+  printf 'ready-gate\\n' >> "${readyGateLog}"
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(bun, 0o755);
     writeFileSync(
       gh,
       `#!/usr/bin/env bash
@@ -1314,6 +1328,9 @@ exit 1
     expect(readFileSync(prEditLog, "utf8").trim().split("\n")).toEqual([
       "edit",
     ]);
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual([
+      "ready-gate",
+    ]);
     expect(readFileSync(readyLog, "utf8").trim().split("\n")).toEqual([
       "ready",
     ]);
@@ -1390,10 +1407,12 @@ exit 1
     const binDir = join(dir, "bin");
     mkdirSync(binDir);
     const realGit = execSync("command -v git", { encoding: "utf8" }).trim();
+    const bun = join(binDir, "bun");
     const git = join(binDir, "git");
     const gh = join(binDir, "gh");
     const prState = join(dir, "pr-state");
     const prBody = join(dir, "pr-body");
+    const readyGateLog = join(dir, "ready-gate-log");
     writeFileSync(
       git,
       `#!/usr/bin/env bash
@@ -1402,6 +1421,18 @@ exec "${realGit}" "$@"
 `,
     );
     chmodSync(git, 0o755);
+    writeFileSync(
+      bun,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "run ready" ]]; then
+  printf 'ready-gate\\n' >> "${readyGateLog}"
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(bun, 0o755);
     writeFileSync(
       gh,
       `#!/usr/bin/env bash
@@ -1470,6 +1501,9 @@ exit 1
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(1);
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual([
+      "ready-gate",
+    ]);
     const expectedDegenerateBody = [
       "## Progress",
       "",

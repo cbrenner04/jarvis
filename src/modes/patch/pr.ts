@@ -105,24 +105,44 @@ export function updatePrBody(opts: UpdatePrBodyOpts): void {
   sharedUpdatePrBody(sharedOpts);
 }
 
-export function maybeMarkReady(opts: { indexPath: string; cwd: string }): void {
+export type MaybeMarkReadyOpts = {
+  indexPath: string;
+  cwd: string;
+  /** Test seam: check if PR exists. Defaults to `checkPrExists`. */
+  checkPrExists?: (branch: string, cwd: string) => boolean;
+  /** Test seam: invoke `bun run ready` and `gh pr ready`. Defaults to execFileSync calls. */
+  markReady?: (branch: string, cwd: string) => void;
+};
+
+export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   if (!linkedSubspecsAreComplete(readFileSync(opts.indexPath, "utf8"))) {
     return;
   }
 
   const branch = getCurrentBranch(opts.cwd);
-  const prExists = checkPrExists(branch, opts.cwd);
+  const checkPr = opts.checkPrExists ?? checkPrExists;
+  const prExists = checkPr(branch, opts.cwd);
   if (!prExists) {
     throw new Error(
       `cannot mark PR ready: no PR found for branch ${branch}. This should not happen after opening a draft PR.`,
     );
   }
 
-  execFileSync("gh", ["pr", "ready", branch], {
-    cwd: opts.cwd,
-    env: process.env,
-    stdio: "pipe",
-  });
+  const mark =
+    opts.markReady ??
+    ((branch, cwd) => {
+      execFileSync("bun", ["run", "ready"], {
+        cwd,
+        env: process.env,
+        stdio: "pipe",
+      });
+      execFileSync("gh", ["pr", "ready", branch], {
+        cwd,
+        env: process.env,
+        stdio: "pipe",
+      });
+    });
+  mark(branch, opts.cwd);
 }
 
 export function generatePrBodyFromSpec(specIndexPath: string): string {

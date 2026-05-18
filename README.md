@@ -276,16 +276,34 @@ bypass** rules when you need to merge without waiting on checks.
 
 ## Development
 
-- Biome is the repo's formatter and linter. Run `bun run check` before
-  marking specs complete.
+Biome is the repo's formatter and linter. Before flipping a PR out of draft,
+run `bun run ready` to verify all CI gates will pass.
+
+Read-only checks:
 - `bun run typecheck` — type-check the project with `tsc --noEmit`.
 - `bun run lint` — check Biome lint rules without writing files.
-- `bun run format` — write Biome formatting fixes.
 - `bun run format:check` — verify Biome formatting without writing files.
-- `bun run check` — run the full non-writing Biome code-quality check.
+- `bun run check` — check Biome lint, format, and import sort without writing files.
+
+Write-enabled fixes:
+- `bun run format` — write Biome formatting fixes.
+- `bun run lint:fix` — write Biome lint fixes.
+- `bun run check:fix` — write Biome lint, format, and import sort fixes.
+
+Unsafe variants (use with caution):
+- `bun run format:unsafe` — write formatting fixes including format-disables.
+- `bun run lint:fix:unsafe` — write lint fixes including rule-disables.
+- `bun run check:fix:unsafe` — write all fixes including rule/format-disables.
+
+Note: `format` writes by default; `check` and `lint` are read-only and have
+`:fix` (and `:fix:unsafe`) variants. The `:unsafe` variants should be run
+after inspecting the diff from the corresponding `--write` variant—only keep
+changes that are acceptable.
+
+Other:
 - `bun test` — run the test suite.
-- `bun run test:full` — format, check, format-check, lint, typecheck, and
-  test in one go.
+- `bun run ready` — mirrors CI: install with frozen lockfile, typecheck,
+  test, and check. Run before flipping a PR out of draft.
 - `bun run start` — run `src/index.ts`.
 
 Spec authoring guidance for agents lives in

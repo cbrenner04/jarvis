@@ -139,7 +139,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
     const agent = resolveAgent(entry.agent, entry.model);
     agentLabel =
       agent.attributionLabel?.() ??
-      `${entry.agent} (${entry.model ?? "default"})`;
+      `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();

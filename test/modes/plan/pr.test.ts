@@ -243,7 +243,7 @@ describe("renderPlanAttribution", () => {
   test("collapses only meta-commits into a single summary line", () => {
     commitWithPlanMeta(
       "a.txt",
-      "plan: interview",
+      "plan: refine",
       ["Spec: spec/my-plan/intent.md", "", "Seeded from inline"],
       "",
     );
@@ -260,7 +260,7 @@ describe("renderPlanAttribution", () => {
     );
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
     expect(out).toContain(
-      "2 spec commits (interview, draft, review) — Claude Opus 4.7",
+      "2 spec commits (refine, draft, review) — Claude Opus 4.7",
     );
     expect(out).toContain("Written by Claude Opus 4.7 through Jarvis.");
   });
@@ -278,14 +278,14 @@ describe("renderPlanAttribution", () => {
       "Claude Opus 4.7",
     );
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
-    expect(out).toContain("1 spec commits (interview, draft, review)");
+    expect(out).toContain("1 spec commits (refine, draft, review)");
     expect(out).toContain("Claude Opus 4.7");
   });
 
   test("mixes collapsed meta-commits with individual subspec commits", () => {
     commitWithPlanMeta(
       "a.txt",
-      "plan: interview",
+      "plan: refine",
       ["Spec: spec/my-plan/intent.md", "", "Seeded from inline"],
       "",
     );
@@ -307,7 +307,7 @@ describe("renderPlanAttribution", () => {
       "Claude Opus 4.7",
     );
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
-    expect(out).toContain("2 spec commits (interview, draft, review)");
+    expect(out).toContain("2 spec commits (refine, draft, review)");
     const sha = shortSha("HEAD");
     expect(out).toContain(`- ${sha} Implement feature`);
     expect(out).toContain("Written by Claude Opus 4.7 through Jarvis.");
@@ -316,7 +316,7 @@ describe("renderPlanAttribution", () => {
   test("handles multiple agents in meta-commits", () => {
     commitWithPlanMeta(
       "a.txt",
-      "plan: interview",
+      "plan: refine",
       ["Spec: spec/my-plan/intent.md", "", "Seeded from inline"],
       "",
     );
@@ -338,7 +338,7 @@ describe("renderPlanAttribution", () => {
       "Claude Sonnet 4.6",
     );
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
-    expect(out).toContain("3 spec commits (interview, draft, review)");
+    expect(out).toContain("3 spec commits (refine, draft, review)");
     expect(out).toContain("Claude Opus 4.7, Claude Sonnet 4.6");
   });
 });

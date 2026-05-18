@@ -34,8 +34,8 @@ function exitReasonForPlanAttempt(
       break;
   }
   switch (phase) {
-    case "interview":
-      return "plan-interview-ok";
+    case "refine":
+      return "plan-refine-ok";
     case "name-only":
       return "plan-name-only-ok";
     case "draft":

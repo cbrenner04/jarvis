@@ -2,7 +2,7 @@ import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 
 export type PlanInvocationCommon = {
-  interviewTurns?: number;
+  refineTurns?: number;
   reviewPasses?: number;
   repo?: string;
   cwd: string;
@@ -19,7 +19,7 @@ export type PlanParseResult =
   | { ok: false; exitCode: number; message: string };
 
 const FLAGS_WITH_VALUE = new Set([
-  "--interview-turns",
+  "--refine-turns",
   "--review-passes",
   "--repo",
   "--cwd",
@@ -32,14 +32,14 @@ function parseNonNegativeInteger(
   if (!/^\d+$/.test(raw)) {
     return {
       ok: false,
-      message: `jarvis plan: invalid value for ${flag}: ${JSON.stringify(raw)} (expected non-negative integer)`,
+      message: `plan: invalid value for ${flag}: ${JSON.stringify(raw)} (expected non-negative integer)`,
     };
   }
   const n = Number(raw);
   if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
     return {
       ok: false,
-      message: `jarvis plan: invalid value for ${flag}: ${JSON.stringify(raw)} (expected non-negative integer)`,
+      message: `plan: invalid value for ${flag}: ${JSON.stringify(raw)} (expected non-negative integer)`,
     };
   }
   return { ok: true, value: n };
@@ -57,7 +57,7 @@ export function parsePlanArgs(
   argv: readonly string[],
   processCwd: string,
 ): PlanParseResult {
-  let interviewTurns: number | undefined;
+  let refineTurns: number | undefined;
   let reviewPasses: number | undefined;
   let repo: string | undefined;
   let cwdFlag: string | undefined;
@@ -76,17 +76,17 @@ export function parsePlanArgs(
         return {
           ok: false,
           exitCode: 1,
-          message: `jarvis plan: missing value for ${arg}`,
+          message: `plan: missing value for ${arg}`,
         };
       }
       i += 1;
       switch (arg) {
-        case "--interview-turns": {
+        case "--refine-turns": {
           const parsed = parseNonNegativeInteger(value, arg);
           if (!parsed.ok) {
             return { ok: false, exitCode: 1, message: parsed.message };
           }
-          interviewTurns = parsed.value;
+          refineTurns = parsed.value;
           break;
         }
         case "--review-passes": {
@@ -110,7 +110,7 @@ export function parsePlanArgs(
       return {
         ok: false,
         exitCode: 1,
-        message: `jarvis plan: unknown flag ${arg}`,
+        message: `plan: unknown flag ${arg}`,
       };
     }
     positional.push(arg);
@@ -120,7 +120,7 @@ export function parsePlanArgs(
     return {
       ok: false,
       exitCode: 1,
-      message: "jarvis plan: too many arguments",
+      message: "plan: too many arguments",
     };
   }
 
@@ -132,7 +132,7 @@ export function parsePlanArgs(
       : processCwd;
 
   const common: PlanInvocationCommon = { cwd, resume };
-  if (interviewTurns !== undefined) common.interviewTurns = interviewTurns;
+  if (refineTurns !== undefined) common.refineTurns = refineTurns;
   if (reviewPasses !== undefined) common.reviewPasses = reviewPasses;
   if (repo !== undefined) common.repo = repo;
 
@@ -159,10 +159,10 @@ export function parsePlanArgs(
 export function describePlanInvocation(inv: PlanInvocation): string {
   switch (inv.mode) {
     case "file":
-      return `plan mode: file intent=${inv.intentPath}`;
+      return `plan: file intent=${inv.intentPath}`;
     case "inline":
-      return `plan mode: inline intent=${JSON.stringify(inv.intentText)}`;
+      return `plan: inline intent=${JSON.stringify(inv.intentText)}`;
     case "interactive":
-      return "plan mode: interactive";
+      return "plan: interactive";
   }
 }

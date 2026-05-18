@@ -44,17 +44,17 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 
 You must leave the intent in a state that honestly reflects this non-interactive pass:
 
-1. **Refinement** — Append a `## Interview turn <N>` section (exact heading, level 2, matching the current turn number `<N>`). Put inferred constraints, assumptions, scope boundaries, risks, or notes that improve the handoff to drafting. This is not a transcript; summarize your own analysis only.
+1. **Refinement** — Append a `## Refine turn <N>` section (exact heading, level 2, matching the current turn number `<N>`). Put inferred constraints, assumptions, scope boundaries, risks, or notes that improve the handoff to drafting. This is not a transcript; summarize your own analysis only.
 
-2. **Explicit skip** — If the intent is already sufficient and you have nothing useful to add, append a `## Interview skip` section (exact heading, level 2). Briefly state that no refinement was applied (one short paragraph or a single line is enough).
+2. **Explicit skip** — If the intent is already sufficient and you have nothing useful to add, append a `## Refine skip` section (exact heading, level 2). Briefly state that no refinement was applied (one short paragraph or a single line is enough).
 
 3. **Blocker** — If drafting would be irresponsible without human clarification you cannot infer from the repo, append a `## Blocker` section (exact heading, level 2) describing what is needed. Do not invent facts or fake answers.
 
-Never finish this phase with only a frontmatter tweak and no `## Interview turn`, `## Interview skip`, or `## Blocker` body section as above.
+Never finish this phase with only a frontmatter tweak and no `## Refine turn`, `## Refine skip`, or `## Blocker` body section as above.
 
 ## Multi-turn budget
 
-When turns remain after a refinement turn, a later run may append `## Interview turn <N+1>` if more refinement is useful. Do not duplicate `## Interview skip` across turns; use a skip only when you are done and no further refinement is warranted.
+When turns remain after a refinement turn, a later run may append `## Refine turn <N+1>` if more refinement is useful. Do not duplicate `## Refine skip` across turns; use a skip only when you are done and no further refinement is warranted.
 
 ## Context
 
@@ -62,4 +62,4 @@ Turns remaining: <TURNS_REMAINING>
 
 ## Instructions
 
-Read the intent and the repo context. Either append useful planning notes under `## Interview turn <N>`, append `## Interview skip` if nothing should change, or append `## Blocker` if human input is required. Follow the heading contracts exactly (`## Interview turn <N>`, `## Interview skip`, `## Blocker`).
+Read the intent and the repo context. Either append useful planning notes under `## Refine turn <N>`, append `## Refine skip` if nothing should change, or append `## Blocker` if human input is required. Follow the heading contracts exactly (`## Refine turn <N>`, `## Refine skip`, `## Blocker`).

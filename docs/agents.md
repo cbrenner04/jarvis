@@ -168,11 +168,11 @@ llama.cpp and LM Studio; see <https://aider.chat/docs/llms.html>.
 ## Plan-mode prompts
 
 Plan mode (`jarvis plan`) uses the same agent contract as patch mode. Plan-mode
-prompts live in `src/modes/plan/prompts/` (`interview.md`, `name-only.md`,
+prompts live in `src/modes/plan/prompts/` (`refine.md`, `name-only.md`,
 `draft.md`, `review.md`) and are short, focused prompts that inject intent and
 guidance without requiring any non-default permission-posture changes. The
-`interview.md` prompt name is historical; that phase is non-interactive intent
-refinement. The agent may inspect the target repo and append planning notes, an
+refine phase is non-interactive intent refinement. The agent may inspect the
+target repo and append planning notes, an
 explicit skip, or a `## Blocker` to `intent.md`, but it cannot pause to ask the
 terminal user questions. The same agents configured in `modes.plan.agentOrder`
 can serve both patch and plan work.

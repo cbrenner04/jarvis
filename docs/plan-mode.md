@@ -35,11 +35,11 @@ Successful runs omit chatty setup breadcrumbs by default (inline intent echoes,
 temporary slug previews, provisional worktrees, rename chatter). Harness /
 session logs still capture those details.
 
-Typical milestone stderr lines look like **`plan mode: interactive session started`**
-(TTY interview sessions when applicable), **`plan mode: interview commit pushed`**,
-**`plan mode: draft phase completed`**, **`plan mode: draft commit pushed`**,
-**`plan mode: draft PR #… opened`**, and review notifications such as
-**`plan mode: review pass k/n starting`** then **`plan mode: review pass k committed
+Typical milestone stderr lines look like **`plan: interactive session started`**
+(TTY refine sessions when applicable), **`plan: refine commit pushed`**,
+**`plan: draft phase completed`**, **`plan: draft commit pushed`**,
+**`plan: draft PR #… opened`**, and review notifications such as
+**`plan: review pass k/n starting`** then **`plan: review pass k committed
 and pushed`**. Blockers, validation failures, quota/model errors, and agent stderr
 stay visible untouched.
 
@@ -83,7 +83,7 @@ Jarvis uses the supplied text directly as intent. Useful for quick one-liners wi
 jarvis plan
 ```
 
-Jarvis starts with an empty seed (`# Intent` only) and runs intent refinement immediately. This mode requires at least one refinement turn; `--interview-turns 0` is rejected because there is no initial intent text to plan from. Despite the historical flag name, this is not a live interview.
+Jarvis starts with an empty seed (`# Intent` only) and runs intent refinement immediately. This mode requires at least one refinement turn; `--refine-turns 0` is rejected because there is no initial intent text to plan from. This is not a live interview — the refine phase is non-interactive.
 
 ## Phases
 
@@ -91,24 +91,24 @@ Plan mode executes these phases in order:
 
 ### Phase 0: Intent Refinement
 
-Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). **`intent.md` inside the eventual `spec/<spec-dir>/` tree captures** full intent for file/inline modes or **`# Intent` scaffolding** for no-argument runs, before refinement prompts begin (`--interview-turns`, default `3`).
+Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). **`intent.md` inside the eventual `spec/<spec-dir>/` tree captures** full intent for file/inline modes or **`# Intent` scaffolding** for no-argument runs, before refinement prompts begin (`--refine-turns`, default `3`).
 
 Each turn is one non-interactive agent invocation. The prompt asks the agent to inspect the target repo as needed and refine `intent.md` by appending useful planning context: inferred constraints, assumptions, scope boundaries, risks, or draft-shaping notes. It cannot ask the terminal user questions or record a Q&A transcript. With `quotaFallback: "lenient"`, weak-quota fallback to the next agent runs only when **`git status --porcelain`** matches before and after that invocation (no disk mutations during the attempt); see [quota-signals.md](./quota-signals.md).
 
-After each turn, jarvis validates that `intent.md` preserves existing non-frontmatter content and appends one permitted outcome: `## Interview turn N` for refinement notes, `## Interview skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification. The `Interview` heading names are historical and remain part of the file contract.
+After each turn, jarvis validates that `intent.md` preserves existing non-frontmatter content and appends one permitted outcome: `## Refine turn N` for refinement notes, `## Refine skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification.
 
 Intent refinement also requires the agent to propose a kebab-case spec name by writing `name: <kebab-case>` in a leading frontmatter-ish block in `intent.md`. If the budget is `0` in file/inline modes, jarvis still runs one naming-only agent invocation; if no name is proposed, jarvis falls back to deterministic derivation and logs a stderr note.
 
-Once a name is chosen (with collision suffixing if needed), jarvis stamps the filesystem-safe UTC prefix, renames the temporary worktree and branch to final identities (`.worktree/plan-<plan-name>/`, `plan/<plan-name>` — **still no timestamp**), commits, and pushes `plan: interview`. The commit subject is historical; it captures the intent-refinement result. The temporary branch is never pushed.
+Once a name is chosen (with collision suffixing if needed), jarvis stamps the filesystem-safe UTC prefix, renames the temporary worktree and branch to final identities (`.worktree/plan-<plan-name>/`, `plan/<plan-name>` — **still no timestamp**), commits, and pushes `plan: refine`. The commit subject is historical; it captures the intent-refinement result. The temporary branch is never pushed.
 
 **Commit shape:**
-- Subject: `plan: interview`
+- Subject: `plan: refine`
 - Body: starts with **`Spec: spec/<spec-dir>/intent.md`** (example: `Spec: spec/2026-05-17T22-14-03Z-my-plan/intent.md`, or `Spec: spec/my-plan/intent.md` for legacy dirs) so the attribution renderer in `src/pr.ts` recognises it as a meta commit; followed by `Seeded from <intent path or "inline">`.
 - Pushed: immediately after commit.
 
 ### Phase 1: Draft
 
-After `plan: interview` is pushed, jarvis invokes an agent with a focused prompt (`src/modes/plan/prompts/draft.md`) that:
+After `plan: refine` is pushed, jarvis invokes an agent with a focused prompt (`src/modes/plan/prompts/draft.md`) that:
 
 - Inlines `intent.md` and `docs/spec-guidance.md`.
 - Asks the agent to read the target repo for context.
@@ -159,7 +159,7 @@ Each pass is a single agent invocation; the agent does not decide when to stop o
 
 **Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during a review pass, that pass's edits are committed as `plan: review <N>` and plan mode stops (see [Stop conditions](#stop-conditions)).
 
-**`--review-passes 0`:** Skips all review passes entirely; only the draft phase and `plan: interview` commit exist. Useful for fast feedback or when self-review is not desired.
+**`--review-passes 0`:** Skips all review passes entirely; only the draft phase and `plan: refine` commit exist. Useful for fast feedback or when self-review is not desired.
 
 ## Usage summaries
 
@@ -167,9 +167,9 @@ When at least one plan-phase agent invocation writes telemetry, Jarvis appends a
 
 Coverage:
 
-- **Phases**: intent-refinement turns, naming-only (`--interview-turns 0` on non-interactive intents), draft, and each review pass—all agent attempts participate in the same telemetry stream.
+- **Phases**: intent-refinement turns, naming-only (`--refine-turns 0` on non-interactive intents), draft, and each review pass—all agent attempts participate in the same telemetry stream.
 
-- **Telemetry**: Rows use the configured `telemetryPath` JSONL file (same file as `jarvis run`), with **`mode: "plan"`** and **`plan_phase`** set to `interview`, `name-only`, `draft`, or `review`. Patch summaries ignore these rows; plan summaries ignore patch rows, so both modes can coexist in one file.
+- **Telemetry**: Rows use the configured `telemetryPath` JSONL file (same file as `jarvis run`), with **`mode: "plan"`** and **`plan_phase`** set to `refine`, `name-only`, `draft`, or `review`. Patch summaries ignore these rows; plan summaries ignore patch rows, so both modes can coexist in one file.
 
 - **Labels**: The summary header reports **`phase attempts`** (count of non-`harness`, non-`run_terminal` invocation rows), not patch-style implementation iterations. Table rows use **`N attempt(s)`** per agent instead of **`N iteration(s)`**.
 
@@ -184,7 +184,7 @@ No summary is printed for configuration or project-resolution failures that occu
 The draft PR opens after `plan: draft` is pushed (via the same `updatePrBody` helper patch mode uses). Each subsequent `plan: ...` commit triggers a PR-body rewrite that:
 
 1. Rebuilds the deterministic header (spec title and file references).
-2. Rebuilds the attribution footer from `Jarvis-Agent` trailers on all plan commits on the branch (including `plan: interview`, `plan: draft`, and `plan: review N`).
+2. Rebuilds the attribution footer from `Jarvis-Agent` trailers on all plan commits on the branch (including `plan: refine`, `plan: draft`, and `plan: review N`).
 3. Preserves the narrative section between `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers unchanged.
 
 Plan mode does not write into the narrative section itself; jarvis preserves
@@ -192,9 +192,9 @@ whatever humans or agents add between the narrative markers across rewrites.
 
 ## Flags
 
-### `--interview-turns <n>`
+### `--refine-turns <n>`
 
-Controls the intent-refinement budget. Default: `3`. `0` skips refinement turns for file/inline modes but still runs a naming-only agent pass. In no-argument mode, `0` is invalid and exits with: `plan: --interview-turns 0 is incompatible with interactive mode (no intent provided)`. The flag and error text use the older "interview" wording for CLI compatibility.
+Controls the intent-refinement budget. Default: `3`. `0` skips refinement turns for file/inline modes but still runs a naming-only agent pass. In no-argument mode, `0` is invalid and exits with: `plan: --refine-turns 0 is incompatible with interactive mode (no intent provided)`.
 
 ### `--review-passes <n>`
 
@@ -236,14 +236,14 @@ Resume runs additional phases against an existing plan branch:
 - Runs `--review-passes <n>` additional review passes (default `2`), same as
   initial invocation.
 - Runs no intent-refinement turns by default.
-- If `--interview-turns <n>` is passed with `n > 0`, runs intent refinement first and
-  appends new sections to `intent.md` as `## Interview turn <N>` continuing
+- If `--refine-turns <n>` is passed with `n > 0`, runs intent refinement first and
+  appends new sections to `intent.md` as `## Refine turn <N>` continuing
   prior numbering.
 
 Resume commit subjects carry an `r<n>` suffix where `<n>` is the resume
 invocation number for that plan branch:
 
-- `plan: interview r<n>` (only when resume intent-refinement turns run)
+- `plan: refine r<n>` (only when resume intent-refinement turns run)
 - `plan: review <N> r<n>`
 - `plan: blocker r<n>`
 
@@ -257,7 +257,7 @@ Plan mode uses an agent-proposed spec name instead of deterministic naming by de
 - During intent refinement, the agent writes `name: <kebab-case>` in `intent.md`.
 - Jarvis reads that proposal, validates/sanitizes it, and applies the uniqueness suffix loop on collisions (`-2`, `-3`, ...).
 - If no valid proposal is produced in the naming step, jarvis falls back to deterministic derivation and emits a stderr note.
-- Because naming happens after initial refinement setup, jarvis uses a temporary worktree/branch first, then renames both to final values before the `plan: interview` push.
+- Because naming happens after initial refinement setup, jarvis uses a temporary worktree/branch first, then renames both to final values before the `plan: refine` push.
 
 ## Stop conditions
 
@@ -304,13 +304,13 @@ user can return to the worktree and continue manually or with
 
 ### 4. Agent quota exhausted
 
-If the selected agent (from `modes.plan.agentOrder`) reports a quota signal, jarvis advances to the next agent in the fallback chain. While rotating, stderr lines use the same core phrases as patch mode (`quota exhausted; falling back` and `probable quota-like error (exit N); falling back`), each prefixed with `plan: <agent>: ` for grep in mixed logs. If all agents are exhausted, jarvis exits `2` and prints `plan: all agents quota-exhausted` to stderr (optionally with a phase suffix such as ` during interview`), matching patch mode's quota exit code; see [docs/quota-signals.md](./quota-signals.md) and the [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
+If the selected agent (from `modes.plan.agentOrder`) reports a quota signal, jarvis advances to the next agent in the fallback chain. While rotating, stderr lines use the same core phrases as patch mode (`quota exhausted; falling back` and `probable quota-like error (exit N); falling back`), each prefixed with `plan: <agent>: ` for grep in mixed logs. If all agents are exhausted, jarvis exits `2` and prints `plan: all agents quota-exhausted` to stderr (optionally with a phase suffix such as ` during refine`), matching patch mode's quota exit code; see [docs/quota-signals.md](./quota-signals.md) and the [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
 
-If an agent reports a `model_config` signal (the configured model is not supported by that CLI/account), jarvis exits `3` and prints `plan mode: model configuration error` plus the agent's stderr. This matches patch mode's `model_config` exit code (see `src/modes/patch/run.ts`).
+If an agent reports a `model_config` signal (the configured model is not supported by that CLI/account), jarvis exits `3` and prints `plan: model configuration error` plus the agent's stderr. This matches patch mode's `model_config` exit code (see `src/modes/patch/run.ts`).
 
 ### 5. Hard generic errors (excluding quota and model configuration)
 
-**Policy (status quo):** After spawn-time classification and any lenient weak-quota upgrade (`quotaFallback: "lenient"`), a remaining classified `error` does **not** exit the inner `modes.plan.agentOrder` loop. Jarvis tries the next configured agent for the same phase invocation (interview turn, name-only pass, draft, or review). Rationale: plan mode favors completing an authoring run when one vendor CLI glitches while another may work.
+**Policy (status quo):** After spawn-time classification and any lenient weak-quota upgrade (`quotaFallback: "lenient"`), a remaining classified `error` does **not** exit the inner `modes.plan.agentOrder` loop. Jarvis tries the next configured agent for the same phase invocation (refine turn, name-only pass, draft, or review). Rationale: plan mode favors completing an authoring run when one vendor CLI glitches while another may work.
 
 **Difference from patch:** `jarvis run` stops the current iteration on the same classified `error` (typically harness exit `1`). The operator fixes the CLI or config and re-runs jarvis; only **quota** results rotate to the next agent within a single patch iteration. See [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
 
@@ -330,7 +330,7 @@ After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the 
 
 1. **Deterministic header**: the H1 from `spec/<spec-dir>/index.md` (or `# Plan: <plan-name>` when the index does not yet exist), followed by bullets that cite **`spec/<spec-dir>/intent.md`** and **`spec/<spec-dir>/index.md`**.
 2. **Narrative section**: currently empty, preserved for future edits (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers).
-3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch. Plan-mode meta-commits (`plan: interview`, `plan: draft`, `plan: review N`, `plan: blocker`) are collapsed into a single summary line listing the count of collapsed commits and the deduped set of agents involved. Subspec commits are rendered individually, one bullet per commit, with a deduped summary line of all contributing agents.
+3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch. Plan-mode meta-commits (`plan: refine`, `plan: draft`, `plan: review N`, `plan: blocker`) are collapsed into a single summary line listing the count of collapsed commits and the deduped set of agents involved. Subspec commits are rendered individually, one bullet per commit, with a deduped summary line of all contributing agents.
 
 ### Auto-mark ready on success
 
@@ -405,10 +405,10 @@ The intent of this enforcement is to prevent accidental or malicious modificatio
 
 Plan-mode commit subjects:
 
-- `plan: interview`
+- `plan: refine`
 - `plan: draft`
 - `plan: review <N>`
 - `plan: blocker`
-- `plan: interview r<n>`
+- `plan: refine r<n>`
 - `plan: review <N> r<n>`
 - `plan: blocker r<n>`

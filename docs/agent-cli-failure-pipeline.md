@@ -32,8 +32,8 @@ rg '\bagent\.run\(' src --glob '*.ts' -l
 | Module | Role |
 | --- | --- |
 | `src/modes/patch/run.ts` | Single-agent patch iteration: timeouts/SIGINT handling on **`error`**; **`ok`** → progress/completion logic; spawn **`quota`** → rotate `activeAgents`; **`model_config`** → fatal; spawn **`error`** → **`applyQuotaFallbackWhenAllowed`** then quota rotation or fatal **`error`**. |
-| `src/modes/plan/interview.ts` | **`runInterviewTurn`**: inner loop over **`modes.plan.agentOrder`**; porcelain guard + **`applyQuotaFallbackWhenAllowed`** + **`emitPlanAgentQuotaFallback`**; **`ok`** → intent validation / continue-or-stop; **`quota`** → next agent; **`model_config`** → fatal; remaining **`error`** → next agent (hard error does not stop the inner loop). |
-| `src/modes/plan/draft.ts` | Draft phase inner loop: same porcelain + quota fallback pipe as interview; **`ok`** → subspec count success; **`quota`** → next agent; **`model_config`** → fatal; **`error`** → next agent; exhaustion returns last result. |
+| `src/modes/plan/refine.ts` | **`runRefineTurn`**: inner loop over **`modes.plan.agentOrder`**; porcelain guard + **`applyQuotaFallbackWhenAllowed`** + **`emitPlanAgentQuotaFallback`**; **`ok`** → intent validation / continue-or-stop; **`quota`** → next agent; **`model_config`** → fatal; remaining **`error`** → next agent (hard error does not stop the inner loop). |
+| `src/modes/plan/draft.ts` | Draft phase inner loop: same porcelain + quota fallback pipe as refine; **`ok`** → subspec count success; **`quota`** → next agent; **`model_config`** → fatal; **`error`** → next agent; exhaustion returns last result. |
 | `src/modes/plan/review.ts` | Review phase inner loop: same pattern as draft ( **`ok`** / **`quota`** / **`model_config`** / **`error`** branches). |
 | `src/modes/plan/name-only.ts` | Naming-only phase inner loop: porcelain + quota fallback; **`ok`** → return; **`quota`** → next agent; **`model_config`** → fatal; **`error`** → next agent. |
 

@@ -10,21 +10,21 @@ import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 
-/** Level-2 heading for explicit no-op interview outcome (append-only). */
-export const INTERVIEW_SKIP_HEADING = "## Interview skip";
+/** Level-2 heading for explicit no-op refine outcome (append-only). */
+export const REFINE_SKIP_HEADING = "## Refine skip";
 
-export type InterviewPhaseOptions = {
+export type RefinePhaseOptions = {
   worktreePath: string;
   name: string;
   config: Config;
-  interviewTurns?: number;
+  refineTurns?: number;
   /** When set, quota rotation emits lines aligned with patch harness wording. */
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
 };
 
-/** Outcome for default CLI reporting after the interview phase completes. */
-export type InterviewTerminalOutcome =
+/** Outcome for default CLI reporting after the refine phase completes. */
+export type RefineTerminalOutcome =
   | "refined"
   | "skipped"
   | "blocker"
@@ -64,9 +64,9 @@ function validatePlaceholders(
 }
 
 /**
- * Build the interview phase prompt by injecting intent.md, spec guidance, and rules.
+ * Build the refine phase prompt by injecting intent.md, spec guidance, and rules.
  */
-export function buildInterviewPrompt(opts: {
+export function buildRefinePrompt(opts: {
   name: string;
   intent: string;
   specGuidance: string;
@@ -82,7 +82,7 @@ export function buildInterviewPrompt(opts: {
     throw collisionError;
   }
 
-  const promptFile = join(import.meta.dir, "prompts", "interview.md");
+  const promptFile = join(import.meta.dir, "prompts", "refine.md");
   let template = readFileSync(promptFile, "utf8");
 
   template = template.replaceAll("<WORKDIR>", opts.name);
@@ -97,7 +97,7 @@ export function buildInterviewPrompt(opts: {
   return template;
 }
 
-export async function runInterviewTurn(opts: {
+export async function runRefineTurn(opts: {
   worktreePath: string;
   name: string;
   config: Config;
@@ -108,7 +108,7 @@ export async function runInterviewTurn(opts: {
 }): Promise<{
   result: AgentResult;
   agentLabel: string | null;
-  continueInterview: boolean;
+  continueRefine: boolean;
   blocker?: string | undefined;
 }> {
   // Read current intent.md
@@ -129,7 +129,7 @@ export async function runInterviewTurn(opts: {
   // Build the prompt
   let prompt: string;
   try {
-    prompt = buildInterviewPrompt({
+    prompt = buildRefinePrompt({
       name: opts.name,
       intent: intentBefore,
       specGuidance,
@@ -143,7 +143,7 @@ export async function runInterviewTurn(opts: {
           stderr: err.message,
         },
         agentLabel: null,
-        continueInterview: false,
+        continueRefine: false,
       };
     }
     throw err;
@@ -181,7 +181,7 @@ export async function runInterviewTurn(opts: {
     emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
 
     opts.planTelemetry?.recordAgentAttempt({
-      phase: "interview",
+      phase: "refine",
       agentCli: entry.agent,
       configuredModel: entry.model,
       durationMs: Date.now() - invocationStartedAt,
@@ -198,25 +198,25 @@ export async function runInterviewTurn(opts: {
         return {
           result,
           agentLabel,
-          continueInterview: false,
+          continueRefine: false,
           blocker: blockerDetection.body,
         };
       }
 
-      // Explicit non-interactive skip (append-only ## Interview skip)
-      if (isValidInterviewSkipAddition(intentBefore, intentAfter)) {
+      // Explicit non-interactive skip (append-only ## Refine skip)
+      if (isValidRefineSkipAddition(intentBefore, intentAfter)) {
         return {
           result,
           agentLabel,
-          continueInterview: false,
+          continueRefine: false,
         };
       }
 
       // Check if intent.md was modified
       const wasModified = intentBefore !== intentAfter;
 
-      // Check if the expected interview turn section was added
-      const expectedTurnHeader = `## Interview turn ${opts.turnNumber}`;
+      // Check if the expected refine turn section was added
+      const expectedTurnHeader = `## Refine turn ${opts.turnNumber}`;
       const hasNewTurnSection = intentAfter.includes(expectedTurnHeader);
 
       if (!wasModified) {
@@ -224,10 +224,10 @@ export async function runInterviewTurn(opts: {
           result: {
             kind: "error",
             exitCode: 1,
-            stderr: `interview: intent.md unchanged on turn ${opts.turnNumber}; append ${INTERVIEW_SKIP_HEADING}, ## Interview turn ${opts.turnNumber}, or ## Blocker`,
+            stderr: `refine: intent.md unchanged on turn ${opts.turnNumber}; append ${REFINE_SKIP_HEADING}, ## Refine turn ${opts.turnNumber}, or ## Blocker`,
           },
           agentLabel,
-          continueInterview: false,
+          continueRefine: false,
         };
       }
 
@@ -237,20 +237,20 @@ export async function runInterviewTurn(opts: {
             result: {
               kind: "error",
               exitCode: 1,
-              stderr: `interview: intent.md only changed frontmatter on turn ${opts.turnNumber}; append ${INTERVIEW_SKIP_HEADING} or ## Interview turn ${opts.turnNumber} to the body`,
+              stderr: `refine: intent.md only changed frontmatter on turn ${opts.turnNumber}; append ${REFINE_SKIP_HEADING} or ## Refine turn ${opts.turnNumber} to the body`,
             },
             agentLabel,
-            continueInterview: false,
+            continueRefine: false,
           };
         }
         return {
           result: {
             kind: "error",
             exitCode: 1,
-            stderr: `interview: invalid intent.md modification on turn ${opts.turnNumber}; expected append-only ## Interview turn ${opts.turnNumber} or ${INTERVIEW_SKIP_HEADING}`,
+            stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; expected append-only ## Refine turn ${opts.turnNumber} or ${REFINE_SKIP_HEADING}`,
           },
           agentLabel,
-          continueInterview: false,
+          continueRefine: false,
         };
       }
 
@@ -258,29 +258,25 @@ export async function runInterviewTurn(opts: {
       if (wasModified) {
         // Check if the modification is valid: only new turn section added, nothing else modified
         if (
-          !isValidInterviewTurnAddition(
-            intentBefore,
-            intentAfter,
-            opts.turnNumber,
-          )
+          !isValidRefineTurnAddition(intentBefore, intentAfter, opts.turnNumber)
         ) {
           return {
             result: {
               kind: "error",
               exitCode: 1,
-              stderr: `interview: invalid intent.md modification on turn ${opts.turnNumber}; only appending ## Interview turn N section is allowed`,
+              stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; only appending ## Refine turn N section is allowed`,
             },
             agentLabel,
-            continueInterview: false,
+            continueRefine: false,
           };
         }
       }
 
-      // Continue the interview
+      // Continue the refine phase
       return {
         result,
         agentLabel,
-        continueInterview: true,
+        continueRefine: true,
       };
     }
 
@@ -290,7 +286,7 @@ export async function runInterviewTurn(opts: {
 
     if (result.kind === "model_config") {
       // Model config error is fatal
-      return { result, agentLabel, continueInterview: false };
+      return { result, agentLabel, continueRefine: false };
     }
   }
 
@@ -303,12 +299,12 @@ export async function runInterviewTurn(opts: {
         stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
       },
       agentLabel: null,
-      continueInterview: false,
+      continueRefine: false,
     };
   }
 
   // Last result (could be quota, error, or model_config)
-  return { result, agentLabel, continueInterview: false };
+  return { result, agentLabel, continueRefine: false };
 }
 
 function stripFrontmatter(text: string): string {
@@ -331,14 +327,14 @@ function isFrontmatterOnlyChange(before: string, after: string): boolean {
 }
 
 /**
- * Validate that the only change to intent.md is appending a new interview turn section.
+ * Validate that the only change to intent.md is appending a new refine turn section.
  */
-export function isValidInterviewTurnAddition(
+export function isValidRefineTurnAddition(
   before: string,
   after: string,
   turnNumber: number,
 ): boolean {
-  const expectedTurnHeader = `## Interview turn ${turnNumber}`;
+  const expectedTurnHeader = `## Refine turn ${turnNumber}`;
 
   // Find the appended turn header in the after version. Use the last
   // occurrence so user-supplied seed text can mention the heading literally.
@@ -351,7 +347,7 @@ export function isValidInterviewTurnAddition(
   const afterWithoutNewTurn = after.substring(0, turnHeaderIndex).trimEnd();
 
   // This should match the previous content, allowing only the leading
-  // frontmatter naming update that the interview prompt permits.
+  // frontmatter naming update that the refine prompt permits.
   return (
     stripFrontmatter(afterWithoutNewTurn).trimEnd() ===
     stripFrontmatter(before).trimEnd()
@@ -359,13 +355,13 @@ export function isValidInterviewTurnAddition(
 }
 
 /**
- * Validate that the only body change is an append-only `## Interview skip` section.
+ * Validate that the only body change is an append-only `## Refine skip` section.
  */
-export function isValidInterviewSkipAddition(
+export function isValidRefineSkipAddition(
   before: string,
   after: string,
 ): boolean {
-  const skipHeaderIndex = after.lastIndexOf(INTERVIEW_SKIP_HEADING);
+  const skipHeaderIndex = after.lastIndexOf(REFINE_SKIP_HEADING);
   if (skipHeaderIndex === -1) {
     return false;
   }
@@ -379,7 +375,7 @@ export function isValidInterviewSkipAddition(
 /**
  * Classify persisted intent for reporting and plan commits (blocker wins over skip).
  */
-export function classifyInterviewIntentOutcome(
+export function classifyRefineIntentOutcome(
   intent: string,
 ): "refined" | "skipped" | "blocker" {
   const blocker = detectBlocker(intent);
@@ -387,7 +383,7 @@ export function classifyInterviewIntentOutcome(
     return "blocker";
   }
   for (const line of intent.replace(/\r\n/g, "\n").split("\n")) {
-    if (line === INTERVIEW_SKIP_HEADING) {
+    if (line === REFINE_SKIP_HEADING) {
       return "skipped";
     }
   }
@@ -395,16 +391,16 @@ export function classifyInterviewIntentOutcome(
 }
 
 /**
- * Run the complete interview phase.
+ * Run the complete refine phase.
  */
-export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
+export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
   result: AgentResult;
   completedTurns: number;
   agentLabel: string | null;
   blocker?: string | undefined;
-  terminalOutcome?: InterviewTerminalOutcome | undefined;
+  terminalOutcome?: RefineTerminalOutcome | undefined;
 }> {
-  const budgetTurns = opts.interviewTurns ?? 3;
+  const budgetTurns = opts.refineTurns ?? 3;
 
   // If budget is 0, skip entirely
   if (budgetTurns === 0) {
@@ -416,13 +412,13 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
     };
   }
 
-  opts.stderr?.("plan: interview phase started\n");
+  opts.stderr?.("plan: refine phase started\n");
 
   let completedTurns = 0;
   let agentLabel: string | null = null;
 
   for (let turn = 1; turn <= budgetTurns; turn += 1) {
-    const turnResult = await runInterviewTurn({
+    const turnResult = await runRefineTurn({
       worktreePath: opts.worktreePath,
       name: opts.name,
       config: opts.config,
@@ -461,7 +457,7 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
     }
 
     // If agent decided to stop, break
-    if (!turnResult.continueInterview) {
+    if (!turnResult.continueRefine) {
       break;
     }
 
@@ -475,7 +471,7 @@ export async function runInterviewPhase(opts: InterviewPhaseOptions): Promise<{
     "intent.md",
   );
   const finalIntent = readFileSync(finalIntentPath, "utf8");
-  const terminalOutcome = classifyInterviewIntentOutcome(finalIntent);
+  const terminalOutcome = classifyRefineIntentOutcome(finalIntent);
 
   return {
     result: { kind: "ok", stdout: "", stderr: "" },

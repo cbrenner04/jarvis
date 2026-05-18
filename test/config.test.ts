@@ -784,6 +784,23 @@ describe("registerProject / findProjectForPath", () => {
       origin: "https://github.com/you/lazy.git",
     });
   });
+
+  test("findProjectForPath returns plan field from registered project", () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-plan-field-"));
+    try {
+      // Register a project with a plan override via writeConfig, since
+      // registerProject only takes root + origin.
+      registerProject("planproj", root, { dir });
+      const cfg = loadConfig({ dir });
+      cfg.projects.planproj!.plan = { specTimestamp: false, commit: false };
+      writeConfig(cfg, { dir });
+
+      const result = findProjectForPath(root, { dir });
+      expect(result?.plan).toEqual({ specTimestamp: false, commit: false });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("git toggle", () => {

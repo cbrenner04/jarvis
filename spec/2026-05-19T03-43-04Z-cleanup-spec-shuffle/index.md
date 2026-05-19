@@ -1,8 +1,7 @@
 # Cleanup spec shuffle
 
-Implement the narrow cleanup source-resolution change first, then update the
-cleanup docs to match the final zero/one/many behavior for committed plan
-specs, including timestamped directories.
+Make `jarvis cleanup` commit the spec-directory archive move it already
+performs. The implementation should track the exact source and destination that
+were moved into `spec/completed/` and commit only that path change.
 
-- [ ] [00 - Resolve in-repo cleanup archive sources](./00-resolve-in-repo-cleanup-archive-sources.md)
-- [ ] [01 - Document automatic timestamped spec archival](./01-document-automatic-timestamped-spec-archival.md)
+- [ ] [00 - Commit cleanup spec archive move](./00-commit-cleanup-spec-archive-move.md)

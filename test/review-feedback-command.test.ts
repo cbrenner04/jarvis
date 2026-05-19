@@ -91,7 +91,7 @@ function fakeAgent(
   };
 }
 
-describe("reviewCommand", () => {
+describe("review-feedback command", () => {
   test("missing worktree exits non-zero with clear name", async () => {
     const cap = captureIo();
     const code = await reviewFeedbackCommand({

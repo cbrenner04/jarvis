@@ -183,17 +183,19 @@ describe("maybeMarkPlanPrReady", () => {
     expect(markReadyCwd).toBe(gitDir);
   });
 
-  test("does not throw when markReady throws", () => {
+  test("propagates errors from markReady", () => {
+    const multilineError =
+      "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
     expect(() => {
       maybeMarkPlanPrReady({
         branch: "feature",
         cwd: gitDir,
         checkPrExists: () => 123,
         markReady: () => {
-          throw new Error("gh pr ready failed");
+          throw new Error(multilineError);
         },
       });
-    }).toThrow("gh pr ready failed");
+    }).toThrow(multilineError);
   });
 
   test("calls markReady with bun run ready before gh pr ready", () => {

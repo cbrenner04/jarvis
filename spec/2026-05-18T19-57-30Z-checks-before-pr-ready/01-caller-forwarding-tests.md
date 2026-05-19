@@ -75,14 +75,14 @@ harness exists for the run loop at unit-test level; caller tests for that path a
 
 ## Acceptance criteria
 
-- [ ] A test in `test/modes/patch/pr.test.ts` asserts that a multi-line error message thrown by
+- [x] A test in `test/modes/patch/pr.test.ts` asserts that a multi-line error message thrown by
   the `markReady` seam propagates out of `maybeMarkReady` with its full message intact.
-- [ ] The test in `test/modes/plan/pr.test.ts` is renamed to `"propagates errors from markReady"`
+- [x] The test in `test/modes/plan/pr.test.ts` is renamed to `"propagates errors from markReady"`
   and asserts that a multi-line error message thrown by the `markReady` seam propagates out of
   `maybeMarkPlanPrReady` with its full message intact.
-- [ ] `safeMarkPlanPrReady` is exported from `src/commands/plan.ts` and accepts an optional
+- [x] `safeMarkPlanPrReady` is exported from `src/commands/plan.ts` and accepts an optional
   `markReady` seam parameter.
-- [ ] A test in `test/plan-command.test.ts` asserts that when `markReady` throws an error with
+- [x] A test in `test/plan-command.test.ts` asserts that when `markReady` throws an error with
   embedded multi-line check output, `io.stderr` receives the complete warning string including all
   embedded lines.
-- [ ] `bun run test` passes with no failures.
+- [x] `bun run test` passes with no failures.

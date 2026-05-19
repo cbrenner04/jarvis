@@ -17,6 +17,7 @@ import {
   parseIntentFrontmatter,
   planCommand,
   renderPlanNextSteps,
+  safeMarkPlanPrReady,
   seedIntentFile,
   validateProposedName,
 } from "../src/commands/plan.ts";
@@ -260,7 +261,30 @@ describe("planCommand", () => {
     expect(PLAN_USAGE).toContain("--resume");
     expect(PLAN_USAGE).toContain('intent-file|"inline text"');
   });
+});
 
+describe("safeMarkPlanPrReady", () => {
+  test("forwards multi-line error messages to stderr with warning prefix", () => {
+    const cap = captureIo();
+    const multilineError =
+      "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
+
+    safeMarkPlanPrReady({
+      io: cap.io,
+      branch: "feature",
+      worktreePath: "/fake/path",
+      checkPrExists: () => 123, // Mock PR exists
+      markReady: () => {
+        throw new Error(multilineError);
+      },
+    });
+
+    expect(cap.err()).toContain("warning: could not mark PR ready for review:");
+    expect(cap.err()).toContain(multilineError);
+  });
+});
+
+describe("planCommand", () => {
   test("inline mode: positional that is not a file", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {

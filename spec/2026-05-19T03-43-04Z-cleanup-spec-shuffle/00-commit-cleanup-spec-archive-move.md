@@ -34,20 +34,20 @@ that was moved to `completed` without staging unrelated files in the repo.
 
 ## Acceptance criteria
 
-- [ ] When `jarvis cleanup` successfully moves `spec/<archive>/` to
+- [x] When `jarvis cleanup` successfully moves `spec/<archive>/` to
       `spec/completed/<archive>/`, the project repository receives a commit that
       records that exact move.
-- [ ] The cleanup commit contains only the archived spec path change; unrelated
+- [x] The cleanup commit contains only the archived spec path change; unrelated
       modified or untracked files in the main checkout are not staged or
       committed.
-- [ ] Cleanup does not create a spec-archive commit for dry runs, cancelled
+- [x] Cleanup does not create a spec-archive commit for dry runs, cancelled
       runs, missing source specs, destination collisions, failed removals, or
       failed archive renames.
-- [ ] Existing cleanup removal/archive behavior is otherwise unchanged.
-- [ ] `test/cleanup-command.test.ts` covers the cleanup-owned archive commit and
+- [x] Existing cleanup removal/archive behavior is otherwise unchanged.
+- [x] `test/cleanup-command.test.ts` covers the cleanup-owned archive commit and
       the scoped-staging behavior.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

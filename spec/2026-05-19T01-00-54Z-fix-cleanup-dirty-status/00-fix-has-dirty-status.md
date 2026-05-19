@@ -20,12 +20,12 @@ to be skipped instead of cleaned up.
 
 ## Tasks
 
-- [ ] In `src/commands/cleanup.ts`, split `hasDirtyStatus` into two independent
+- [x] In `src/commands/cleanup.ts`, split `hasDirtyStatus` into two independent
   try/catch blocks:
   1. Outer block runs `git status --porcelain`; any exception returns `true`.
   2. Inner block runs `git log @{u}..`; any exception returns `false` (no
      upstream = no unpushed commits); success with output returns `true`.
-- [ ] In `test/cleanup-command.test.ts`, add a test that:
+- [x] In `test/cleanup-command.test.ts`, add a test that:
   1. Calls `createTrackedWorktree(specName)` to create a worktree with an
      upstream tracking ref.
   2. Deletes the remote branch: `git push origin --delete <specName>` run from
@@ -36,13 +36,13 @@ to be skipped instead of cleaned up.
 
 ## Acceptance criteria
 
-- [ ] `hasDirtyStatus` returns `false` for a worktree whose remote tracking
+- [x] `hasDirtyStatus` returns `false` for a worktree whose remote tracking
   branch has been deleted (upstream ref gone), allowing cleanup to proceed.
-- [ ] `hasDirtyStatus` still returns `true` for a worktree with uncommitted
+- [x] `hasDirtyStatus` still returns `true` for a worktree with uncommitted
   changes (existing `git status --porcelain` behaviour unchanged).
-- [ ] `hasDirtyStatus` still returns `true` for a worktree with commits not yet
+- [x] `hasDirtyStatus` still returns `true` for a worktree with commits not yet
   pushed (existing `git log @{u}..` behaviour when upstream exists unchanged).
-- [ ] The new test passes: a worktree whose upstream has been deleted is cleaned
+- [x] The new test passes: a worktree whose upstream has been deleted is cleaned
   up (path removed) and the output does not mention "uncommitted or unpushed
   changes".
-- [ ] All existing tests in `test/cleanup-command.test.ts` continue to pass.
+- [x] All existing tests in `test/cleanup-command.test.ts` continue to pass.

@@ -177,7 +177,11 @@ function hasDirtyStatus(worktreePath: string, _projectRoot: string): boolean {
     if (porcelain.trim().length > 0) {
       return true;
     }
+  } catch {
+    return true;
+  }
 
+  try {
     const unpushed = execSync("git log @{u}..", {
       cwd: worktreePath,
       stdio: "pipe",
@@ -185,6 +189,6 @@ function hasDirtyStatus(worktreePath: string, _projectRoot: string): boolean {
     });
     return unpushed.trim().length > 0;
   } catch {
-    return true;
+    return false;
   }
 }

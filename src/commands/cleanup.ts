@@ -37,6 +37,20 @@ function specNameForBranch(branch: string): string {
   return branch;
 }
 
+function deleteMergedBranch(projectRoot: string, branch: string): void {
+  try {
+    execSync(`git branch -d "${branch}"`, {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+  } catch {
+    execSync(`git branch -D "${branch}"`, {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+  }
+}
+
 export function cleanupCommand(opts: CleanupCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
   const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
@@ -98,10 +112,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
           cwd: opts.projectRoot,
           stdio: "pipe",
         });
-        execSync(`git branch -d "${item.branch}"`, {
-          cwd: opts.projectRoot,
-          stdio: "pipe",
-        });
+        deleteMergedBranch(opts.projectRoot, item.branch);
       }
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);

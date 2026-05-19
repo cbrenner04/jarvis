@@ -222,7 +222,11 @@ Behavior:
 - Lists all worktrees whose corresponding PR has `state: MERGED`.
 - Skips worktrees with uncommitted changes or unpushed commits.
 - Prompts for confirmation before removal (use `--dry-run` to preview with `(patch)` or `(plan)` tags).
-- Removes the git worktrees and deletes the matching local branches.
+- Removes the git worktrees and deletes the matching local branches. Branch
+  deletion tries Git's safe `-d` path first, then force-deletes the local branch
+  if Git rejects it as not fully merged. This handles squash-merged and
+  rebase-merged PRs after the merged-PR, clean-worktree, unpushed-commit, and
+  confirmation gates have already passed.
 
 - Afterwards tries **`spec/<archive>/ → spec/completed/<archive>/`** using a filesystem `rename()` when **`spec/<archive>/`** exists, letting **`<archive>`** be the `.worktree/<archive>/` directory name verbatim for patch layouts and stripping the **`plan-`** prefix for plan layouts (**`<archive> = plan-name`**). Timestamped authoring directories (**`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**) **do not** automatically match `<archive>`; archive them manually after cleanup if desired (cross-check **[plan-mode cleanup](./plan-mode.md#cleanup)**).
 

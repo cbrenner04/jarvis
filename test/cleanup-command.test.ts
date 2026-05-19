@@ -287,4 +287,39 @@ describe("cleanupCommand", () => {
     expect(existsSync(destination)).toBe(true);
     expect(out()).not.toContain("uncommitted or unpushed changes");
   });
+
+  test("removes pushed merged branch even when not reachable from local main", () => {
+    const { io } = captureIo(["y"]);
+
+    const specName = "squash-merged-spec";
+    const worktreePath = createTrackedWorktree(specName);
+    const source = join(projectRoot, "spec", specName);
+    const destination = join(projectRoot, "spec", "completed", specName);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# spec\n");
+
+    writeFileSync(join(worktreePath, "feature.txt"), "feature\n");
+    execSync("git add feature.txt", { cwd: worktreePath, stdio: "pipe" });
+    execSync("git commit -m 'feature'", {
+      cwd: worktreePath,
+      stdio: "pipe",
+    });
+    execSync(`git push origin ${specName}`, {
+      cwd: worktreePath,
+      stdio: "pipe",
+    });
+
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(() =>
+      execSync(`git rev-parse --verify ${specName}`, {
+        cwd: projectRoot,
+        stdio: "pipe",
+      }),
+    ).toThrow();
+  });
 });

@@ -3,6 +3,13 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ConfigOptions } from "../config.ts";
 import { assertGhReady } from "../gh.ts";
+import { checkPrExists } from "../pr.ts";
+import {
+  collectActionableReviewFeedback,
+  readPatchRulesText,
+  renderReviewPrompt,
+  type ActionableReviewFeedback,
+} from "../review-feedback.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../worktree-lock.ts";
 
 export type ReviewIo = {
@@ -16,6 +23,12 @@ export type ReviewCommandOptions = {
   io: ReviewIo;
   config?: ConfigOptions;
   assertGhReadyFn?: () => Promise<void>;
+  checkPrExistsFn?: (branch: string, cwd: string) => number | null;
+  collectReviewFeedbackFn?: (args: {
+    prNumber: number;
+    cwd: string;
+  }) => Promise<ActionableReviewFeedback>;
+  readPatchRulesFn?: () => string;
 };
 
 export async function reviewCommand(opts: ReviewCommandOptions): Promise<number> {
@@ -72,6 +85,35 @@ export async function reviewCommand(opts: ReviewCommandOptions): Promise<number>
       return 1;
     }
 
+    const prNumber = (opts.checkPrExistsFn ?? checkPrExists)(branch, worktreePath);
+    if (prNumber === null) {
+      opts.io.stderr(
+        `jarvis review: no open PR found for branch ${JSON.stringify(branch)}\n`,
+      );
+      return 1;
+    }
+    const feedback = await (opts.collectReviewFeedbackFn ??
+      collectActionableReviewFeedback)({
+      prNumber,
+      cwd: worktreePath,
+    });
+    if (
+      feedback.inlineThreads.length === 0 &&
+      feedback.topLevelComments.length === 0
+    ) {
+      opts.io.stdout("jarvis review: no open review comments\n");
+      return 0;
+    }
+    const prompt = renderReviewPrompt({
+      branch,
+      prNumber,
+      feedback,
+      patchRulesText: (opts.readPatchRulesFn ?? readPatchRulesText)(),
+    });
+    opts.io.stdout(
+      `jarvis review: collected ${feedback.inlineThreads.length} unresolved inline threads and ${feedback.topLevelComments.length} top-level comments for PR #${prNumber}\n`,
+    );
+    opts.io.stdout(`jarvis review: review prompt prepared (${prompt.length} chars)\n`);
     return 0;
   } finally {
     releaseWorktreeLock(worktreePath);

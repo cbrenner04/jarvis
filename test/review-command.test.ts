@@ -171,4 +171,42 @@ describe("reviewCommand", () => {
     });
     expect(existsSync(getWorktreeLockPath(worktreePath))).toBe(false);
   });
+
+  test("missing open PR exits non-zero and does not collect feedback", async () => {
+    createGitWorktree("no-pr");
+    let collectCalled = false;
+    const cap = captureIo();
+    const code = await reviewCommand({
+      projectRoot,
+      worktreeName: "no-pr",
+      io: cap.io,
+      assertGhReadyFn: async () => {},
+      checkPrExistsFn: () => null,
+      collectReviewFeedbackFn: async () => {
+        collectCalled = true;
+        return { inlineThreads: [], topLevelComments: [] };
+      },
+    });
+    expect(code).toBe(1);
+    expect(collectCalled).toBe(false);
+    expect(cap.err()).toContain("no open PR");
+  });
+
+  test("no actionable comments exits 0 with no-open-comments message", async () => {
+    createGitWorktree("no-comments");
+    const cap = captureIo();
+    const code = await reviewCommand({
+      projectRoot,
+      worktreeName: "no-comments",
+      io: cap.io,
+      assertGhReadyFn: async () => {},
+      checkPrExistsFn: () => 123,
+      collectReviewFeedbackFn: async () => ({
+        inlineThreads: [],
+        topLevelComments: [],
+      }),
+    });
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("no open review comments");
+  });
 });

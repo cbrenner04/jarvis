@@ -7,6 +7,10 @@ calls, and shows where the harness loops vs. takes distinct paths.
 Authoritative behavior lives in [plan-mode.md](./plan-mode.md) and
 [run-loop.md](./run-loop.md); this document only summarises control flow.
 
+`jarvis review <worktree-name>` runs one patch-mode agent pass against
+actionable open PR feedback (unresolved inline review threads plus top-level
+review-round comments), then returns control to the harness for commit/push.
+
 ## Legend
 
 ```mermaid

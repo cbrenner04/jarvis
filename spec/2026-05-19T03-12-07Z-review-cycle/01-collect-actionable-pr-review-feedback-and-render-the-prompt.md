@@ -64,24 +64,24 @@ distinguish resolved from unresolved inline threads.
 
 ## Acceptance criteria
 
-- [ ] When the branch has no open PR, `jarvis review <worktree-name>` exits
+- [x] When the branch has no open PR, `jarvis review <worktree-name>` exits
   non-zero with a clear message and does not spawn an agent.
-- [ ] Inline comments from resolved review threads are excluded from the agent
+- [x] Inline comments from resolved review threads are excluded from the agent
   prompt.
-- [ ] Comments from unresolved inline threads are rendered with enough thread
+- [x] Comments from unresolved inline threads are rendered with enough thread
   context for the agent to understand the final request, not just the last body
   in isolation.
-- [ ] Bot-authored inline and top-level comments are excluded from the agent
+- [x] Bot-authored inline and top-level comments are excluded from the agent
   prompt.
-- [ ] Top-level PR comments older than the latest submitted review are excluded
+- [x] Top-level PR comments older than the latest submitted review are excluded
   from the agent prompt; if the PR has no submitted review, non-bot top-level
   comments remain eligible.
-- [ ] If no actionable comments remain after filtering, the command exits `0`
+- [x] If no actionable comments remain after filtering, the command exits `0`
   with a "no open review comments" style message and does not spawn an agent.
-- [ ] The rendered prompt includes branch/PR identity, actionable comment
+- [x] The rendered prompt includes branch/PR identity, actionable comment
   content, and the patch-mode rules while explicitly telling the agent not to
   commit and to surface anything it cannot safely address.
-- [ ] `bun run typecheck` and `bun test` pass after this slice lands.
+- [x] `bun run typecheck` and `bun test` pass after this slice lands.
 
 ## Documentation updates
 

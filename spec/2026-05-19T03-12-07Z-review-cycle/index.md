@@ -61,5 +61,5 @@ the existing patch flow.
 ## Subspecs
 
 - [x] [00 - CLI entry and worktree safety gates](./00-cli-entry-and-worktree-safety-gates.md)
-- [ ] [01 - Collect actionable PR review feedback and render the prompt](./01-collect-actionable-pr-review-feedback-and-render-the-prompt.md)
+- [x] [01 - Collect actionable PR review feedback and render the prompt](./01-collect-actionable-pr-review-feedback-and-render-the-prompt.md)
 - [ ] [02 - Run the agent, commit, push, and document the workflow](./02-run-the-agent-commit-push-and-document-the-workflow.md)

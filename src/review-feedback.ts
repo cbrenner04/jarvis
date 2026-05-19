@@ -73,7 +73,10 @@ async function fetchUnresolvedInlineThreads(args: {
     }
   }
 }`;
-  const { owner, name } = await resolveRepoOwnerAndName(args.cwd, args.ghRunner);
+  const { owner, name } = await resolveRepoOwnerAndName(
+    args.cwd,
+    args.ghRunner,
+  );
   const result = await args.ghRunner(
     [
       "api",
@@ -90,7 +93,9 @@ async function fetchUnresolvedInlineThreads(args: {
     args.cwd,
   );
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr || result.stdout || "failed to fetch review threads");
+    throw new Error(
+      result.stderr || result.stdout || "failed to fetch review threads",
+    );
   }
   const parsed = JSON.parse(result.stdout) as {
     data?: {
@@ -152,17 +157,13 @@ async function fetchEligibleTopLevelComments(args: {
   ghRunner: GhRunner;
 }): Promise<TopLevelReviewComment[]> {
   const prView = await args.ghRunner(
-    [
-      "pr",
-      "view",
-      String(args.prNumber),
-      "--json",
-      "reviews,comments",
-    ],
+    ["pr", "view", String(args.prNumber), "--json", "reviews,comments"],
     args.cwd,
   );
   if (prView.exitCode !== 0) {
-    throw new Error(prView.stderr || prView.stdout || "failed to fetch PR comments");
+    throw new Error(
+      prView.stderr || prView.stdout || "failed to fetch PR comments",
+    );
   }
   const parsed = JSON.parse(prView.stdout) as {
     reviews?: Array<{ submittedAt?: string | null }>;
@@ -222,7 +223,9 @@ async function resolveRepoOwnerAndName(
     cwd,
   );
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr || result.stdout || "failed to resolve repository");
+    throw new Error(
+      result.stderr || result.stdout || "failed to resolve repository",
+    );
   }
   const value = result.stdout.trim();
   const slash = value.indexOf("/");
@@ -236,7 +239,10 @@ async function resolveRepoOwnerAndName(
 }
 
 export function readPatchRulesText(): string {
-  return readFileSync(join(import.meta.dir, "modes", "patch", "rules.md"), "utf8");
+  return readFileSync(
+    join(import.meta.dir, "modes", "patch", "rules.md"),
+    "utf8",
+  );
 }
 
 export function renderReviewPrompt(args: {

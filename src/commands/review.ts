@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createAgent } from "../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../agents/quota.ts";
 import type { Agent, AgentName, AgentResult } from "../agents/types.ts";
-import { loadConfig, type Config, type ConfigOptions } from "../config.ts";
+import { type Config, type ConfigOptions, loadConfig } from "../config.ts";
 import { assertGhReady } from "../gh.ts";
 import { checkPrExists } from "../pr.ts";
 import {
@@ -13,10 +13,10 @@ import {
   harnessQuotaFallbackLenientLine,
 } from "../quota-harness-messages.ts";
 import {
+  type ActionableReviewFeedback,
   collectActionableReviewFeedback,
   readPatchRulesText,
   renderReviewPrompt,
-  type ActionableReviewFeedback,
 } from "../review-feedback.ts";
 import { hasUpstream, pushCurrent } from "../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../worktree-lock.ts";
@@ -44,7 +44,9 @@ export type ReviewCommandOptions = {
   pushCurrentFn?: (opts: { cwd: string; firstPush: boolean }) => void;
 };
 
-export async function reviewCommand(opts: ReviewCommandOptions): Promise<number> {
+export async function reviewCommand(
+  opts: ReviewCommandOptions,
+): Promise<number> {
   const worktreePath = join(opts.projectRoot, ".worktree", opts.worktreeName);
   if (!existsSync(worktreePath)) {
     opts.io.stderr(
@@ -98,15 +100,19 @@ export async function reviewCommand(opts: ReviewCommandOptions): Promise<number>
       return 1;
     }
 
-    const prNumber = (opts.checkPrExistsFn ?? checkPrExists)(branch, worktreePath);
+    const prNumber = (opts.checkPrExistsFn ?? checkPrExists)(
+      branch,
+      worktreePath,
+    );
     if (prNumber === null) {
       opts.io.stderr(
         `jarvis review: no open PR found for branch ${JSON.stringify(branch)}\n`,
       );
       return 1;
     }
-    const feedback = await (opts.collectReviewFeedbackFn ??
-      collectActionableReviewFeedback)({
+    const feedback = await (
+      opts.collectReviewFeedbackFn ?? collectActionableReviewFeedback
+    )({
       prNumber,
       cwd: worktreePath,
     });
@@ -126,11 +132,16 @@ export async function reviewCommand(opts: ReviewCommandOptions): Promise<number>
     opts.io.stdout(
       `jarvis review: collected ${feedback.inlineThreads.length} unresolved inline threads and ${feedback.topLevelComments.length} top-level comments for PR #${prNumber}\n`,
     );
-    opts.io.stdout(`jarvis review: review prompt prepared (${prompt.length} chars)\n`);
+    opts.io.stdout(
+      `jarvis review: review prompt prepared (${prompt.length} chars)\n`,
+    );
 
     const config = (opts.loadConfigFn ?? loadConfig)(opts.config);
     const resolveAgent = opts.createAgentFn ?? createAgent;
-    let success: { entry: (typeof config.modes.patch.agentOrder)[number]; result: AgentResult } | null = null;
+    let success: {
+      entry: (typeof config.modes.patch.agentOrder)[number];
+      result: AgentResult;
+    } | null = null;
 
     for (const entry of config.modes.patch.agentOrder) {
       const agent = resolveAgent(entry.agent, entry.model);

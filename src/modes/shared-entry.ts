@@ -138,7 +138,9 @@ export async function runSharedProjectPreflight(
     return { kind: "error", exitCode: 1 };
   }
 
-  const projectRootCheck = checkProjectRootExists(projectResolution.project.root);
+  const projectRootCheck = checkProjectRootExists(
+    projectResolution.project.root,
+  );
   if (!projectRootCheck.ok) {
     opts.io.stderr(
       `${formatMissingProjectRootError({

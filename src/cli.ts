@@ -14,8 +14,8 @@ import {
   findProjectMatchForPath,
   validatePositiveInteger,
 } from "./config.ts";
-import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
+import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
 
 export type Subcommand =
   | "run"
@@ -338,20 +338,22 @@ export function run(
       if (opts.config !== undefined) {
         projectPreflightOpts.config = opts.config;
       }
-      return runSharedProjectPreflight(projectPreflightOpts).then((preflight) => {
-        if (preflight.kind === "error") {
-          return preflight.exitCode;
-        }
-        const reviewOpts: Parameters<typeof reviewCommand>[0] = {
-          projectRoot: preflight.project.root,
-          worktreeName,
-          io,
-        };
-        if (opts.config !== undefined) {
-          reviewOpts.config = opts.config;
-        }
-        return reviewCommand(reviewOpts);
-      });
+      return runSharedProjectPreflight(projectPreflightOpts).then(
+        (preflight) => {
+          if (preflight.kind === "error") {
+            return preflight.exitCode;
+          }
+          const reviewOpts: Parameters<typeof reviewCommand>[0] = {
+            projectRoot: preflight.project.root,
+            worktreeName,
+            io,
+          };
+          if (opts.config !== undefined) {
+            reviewOpts.config = opts.config;
+          }
+          return reviewCommand(reviewOpts);
+        },
+      );
     }
     case "plan": {
       const planOpts: Parameters<typeof planCommand>[0] = {

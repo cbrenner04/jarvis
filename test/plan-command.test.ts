@@ -345,11 +345,15 @@ describe("planCommand", () => {
   });
 
   test("project-level specTimestamp and commit override global defaults", async () => {
-    const { dir, cfgDir, project } = setupRegisteredProject();
+    const { cfgDir, project } = setupRegisteredProject();
     // Set global defaults to true, project overrides to false
     const cfg = loadConfig({ dir: cfgDir });
     cfg.modes.plan = { ...cfg.modes.plan, specTimestamp: true, commit: true };
-    cfg.projects.project!.plan = { specTimestamp: false, commit: false };
+    const projectConfig = cfg.projects.project;
+    if (!projectConfig) {
+      throw new Error("expected registered project");
+    }
+    projectConfig.plan = { specTimestamp: false, commit: false };
     writeConfig(cfg, { dir: cfgDir });
 
     // Run plan with a minimal mock agent that captures harness log lines
@@ -358,7 +362,7 @@ describe("planCommand", () => {
     const specPath = join(project, "intent.md");
     writeFileSync(specPath, "---\nname: test-plan\n---\ntest intent\n");
 
-    const code = await planCommand({
+    const _code = await planCommand({
       io,
       args: [specPath],
       cwd: project,

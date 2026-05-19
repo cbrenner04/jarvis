@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult } from "../src/agents/types.ts";
-import { reviewCommand, type ReviewIo } from "../src/commands/review.ts";
+import { type ReviewIo, reviewCommand } from "../src/commands/review.ts";
 import type { Config } from "../src/config.ts";
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 
@@ -295,7 +295,8 @@ describe("reviewCommand", () => {
       }),
       readPatchRulesFn: () => "rules",
       loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
-      createAgentFn: () => fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" })),
+      createAgentFn: () =>
+        fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" })),
       commitAllFn: () => {
         committed = true;
       },

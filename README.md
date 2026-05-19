@@ -1,8 +1,8 @@
 # jarvis
 
-Coding agent harness — a minimal "ralph loop" that drives an underlying agent
-CLI (`claude`, `codex`, `cursor`, `opencode`, or `aider`) against a Markdown spec
-until every task checkbox is checked.
+Treat English as code, where a combination of words produces a behavior. To
+make that behavior predictable, compose the words carefully and repeatably.
+Jarvis is that idea, applied.
 
 ## Installation
 

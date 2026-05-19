@@ -1,0 +1,28 @@
+Split the repo into top-level `v1/` and `v2/` directories so that v1 keeps running unchanged while v2 is built alongside it. This is step 1 of the v2 rewrite — see `v2-vision.md` (sibling of this file; will live at `v2/spec/wip-intents/v2-vision.md` after this change) for the broader context, principles, and architectural constraints. Do not re-derive that here.
+
+Goal: after this change, running `jarvis` (and every CLI subcommand) behaves identically to today, but all of v1's source, tests, specs, and tooling live under `v1/`. A sibling `v2/` directory exists with its own `spec/` (containing this intent and the vision doc, migrated as part of this change) and room for src/test to land later. The repo root contains only repo-wide config — CI workflows, root README, root `.gitignore`, and whatever top-level glue is needed for `jarvis` the binary to still resolve. Once v2 reaches parity, deleting `v1/` is one move.
+
+What needs to happen, at a high level:
+
+- Move `src/`, `test/`, `spec/`, and any other v1-only directories/files into `v1/`.
+- Create `v2/` with at least `v2/spec/wip-intents/` populated by migrating this file and `v2-vision.md` into it. No v2 source code yet.
+- Keep the `jarvis` CLI entrypoint working from the repo root unchanged — binary name, subcommands, flags, stdout/stderr, exit codes all identical.
+- Decide and document how tooling config (`package.json`, `tsconfig.json`, `biome.json`, `bunfig.toml` if present, lockfile, `node_modules`, and scripts like `typecheck` / `test` / `check` / `ready`) is split between repo-root, `v1/`, and `v2/`. Root-level `bun run ready` should still validate v1 so PRs touching v1 are gated the same way.
+- CI and GitHub workflows continue to pass against v1 from its new location.
+- Update any cross-references in v1's existing specs that point at old paths (e.g. `src/modes/patch/pr.ts` → `v1/src/modes/patch/pr.ts`), or explicitly grandfather them if updating them is risky.
+- This change is purely structural. No behavior changes, no deletions of "probably unused" code, no renames.
+
+Out of scope:
+- Any v2 source code or scaffolding beyond an empty `v2/spec/`.
+- Cataloging v1 behaviors (next intent — see `v2-catalog.txt`).
+- Dropping unused v1 code.
+- Renaming `run`/`patch` to `implement` (v2-only concern).
+- Touching agent adapters' external contracts.
+
+Open questions the refine turns should resolve:
+- Single big-bang relocation commit, or staged moves per top-level dir?
+- Workspace shape: does the root `package.json` become a workspace pointing at `v1/` and `v2/`, or does it keep being v1's package.json (with v2 standing up its own later)?
+- How does the published binary entry (`bin` field) resolve into `v1/`?
+- Do `node_modules` and the bun lockfile stay at root (shared workspace) or move under `v1/`?
+- What's the test-and-verify checklist that proves "v1 still works identically" before this is merged?
+- Does CI need workflow-file changes, or just path updates inside the existing workflows?

@@ -1,0 +1,21 @@
+Rename the v1 binary from `jarvis` to `jarvis1`, and reserve `jarvis` for v2. After this intent lands, v1 continues to run exactly as today but is invoked as `jarvis1`; the name `jarvis` is unowned (or stubbed) until v2 starts implementing behaviors against it. This is step 2 of the v2 rollout — see `v2-vision.md`. Depends on the v1/v2 repo split (`v2.txt`) having landed first.
+
+Goal: a user with both versions installed can type `jarvis1 plan ...` and get today's reliable behavior, while `jarvis` is free for the v2 binary to take over as it gets built. The rename is the deliberate user-facing moment where v1 stops owning the bare `jarvis` name; everything else about v1 stays identical.
+
+What needs to happen, at a high level:
+- The v1 binary entry resolves as `jarvis1`, not `jarvis`.
+- Internal v1 code that refers to the binary name by string (help text, error messages, log lines, generated configs, install instructions) updates to `jarvis1`.
+- README and install docs document the rename and the rationale (coexistence with v2). Install is symlink-based on the two machines that run jarvis; no package-manager release work is involved.
+- The name `jarvis` is reserved for v2 and left unowned until v2 ships a real binary. No stub.
+- CI adjusts to the new binary name where needed.
+- No behavior changes inside v1 beyond the name.
+
+Out of scope:
+- Any v2 implementation. v2 may not have a binary at all yet when this lands.
+- Cataloging v1 behaviors (separate intent).
+- Renaming `run`/`patch` → `implement` (v2-only concern, never happens in v1).
+- Changes to v1's CLI command structure, subcommands, or flags.
+
+Open questions the refine turns should resolve:
+- Are there config files, lockfile entries, generated artifacts, or in-tree references that bake the binary name in and need to be regenerated/updated as part of this change?
+- Does any v1 code introspect its own invocation name (`argv[0]`) and behave differently based on it? If so, those branches need auditing.

@@ -12,10 +12,19 @@ true` specs. Patch-mode worktrees should keep their current direct mapping.
 Plan-mode worktrees should still derive the logical plan name from `plan/<name>`,
 then resolve the archive source by scanning only the direct children of the
 repo-local `spec/` directory and selecting the single directory whose basename
-collapses to `<name>` under the canonical plan timestamp parser. Zero matches
-should remain the current non-fatal "no spec directory moved" case. More than
-one match should become a descriptive ambiguity failure that leaves all source
-directories in place after the worktree/branch removal succeeds.
+collapses to `<name>` under the canonical plan timestamp parser. Treat the
+result as a narrow three-way decision:
+
+- zero matching directories: keep the current non-fatal "no spec directory
+  moved" outcome
+- exactly one matching directory: archive that exact directory
+- more than one matching directory: report a descriptive ambiguity failure and
+  leave all candidate sources in place after the worktree/branch removal
+  succeeds
+
+Ambiguity includes both of the cases called out in the intent: `spec/<name>/`
+coexisting with one or more `spec/<timestamp>-<name>/` directories, and
+multiple timestamped directories that collapse to the same logical plan name.
 
 Destination naming should preserve the resolved source basename. If cleanup
 archives `spec/2026-05-17T22-14-03Z-foo/`, the destination should be
@@ -38,6 +47,10 @@ external `commit: false` specs, and do not redesign patch-mode naming.
       `spec/` directory, ignore `spec/completed/` as a source candidate, and
       consider only directory basenames that collapse to the logical plan name
       under the shared timestamp-prefix parser.
+- [ ] Resolve plan-mode candidates mechanically: zero matches stays a non-fatal
+      no-op, exactly one match becomes the archive source, and more than one
+      match becomes an ambiguity failure recorded after the worktree/branch
+      removal succeeds.
 - [ ] Preserve the existing cleanup ordering and failure posture: remove the
       worktree/branch first, treat zero source matches as non-fatal, accumulate
       archive failures without aborting later removals, and return non-zero only
@@ -64,9 +77,11 @@ external `commit: false` specs, and do not redesign patch-mode naming.
       not treat `spec/completed/` contents as source candidates, and treats zero
       matches as the existing non-fatal "no spec directory moved" outcome.
 - [ ] If more than one direct child of `spec/` maps to the same logical plan
-      name, cleanup reports a descriptive ambiguity failure after the worktree
-      and branch are removed, leaves every candidate source in place, continues
-      processing other removable worktrees, and exits non-zero at the end.
+      name, including a mix of `spec/<name>/` and timestamped variants or
+      multiple timestamped variants, cleanup reports a descriptive ambiguity
+      failure after the worktree and branch are removed, leaves every candidate
+      source in place, continues processing other removable worktrees, and exits
+      non-zero at the end.
 - [ ] Existing destination-collision handling remains based on the resolved
       source basename, so a timestamped source collides only with the matching
       timestamped destination path under `spec/completed/`.

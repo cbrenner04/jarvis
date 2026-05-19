@@ -12,6 +12,14 @@ specs under `spec/`, still archives after successful worktree/branch removal,
 still leaves missing sources as non-fatal, and still does not touch external
 Jarvis-owned `commit: false` specs under `~/.jarvis/specs/...`.
 
+Document the same narrow zero/one/many lookup contract that implementation
+adopts for merged `plan/<name>` worktrees: scan only direct children of the
+repo-local `spec/` directory, collapse candidate basenames with the shared
+timestamp-prefix parser, archive the lone match when there is exactly one, keep
+zero matches as a non-fatal no-op, and treat more than one match as an
+ambiguity failure that does not roll back the successful worktree/branch
+removal.
+
 ## Task checklist
 
 - [ ] Update `docs/plan-mode.md` so the cleanup section describes automatic
@@ -39,6 +47,9 @@ Jarvis-owned `commit: false` specs under `~/.jarvis/specs/...`.
       with the shared timestamp-prefix parser, archive zero matches as a
       non-fatal no-op, and report multi-match ambiguity as a non-fatal-per-item
       failure that still yields a non-zero overall exit.
+- [ ] The docs make the ambiguity cases concrete by covering both
+      `spec/<name>/` plus timestamped variants and multiple timestamped
+      directories collapsing to the same logical plan name.
 - [ ] Documentation examples preserve spec-tree identity by showing timestamped
       sources landing at matching timestamped destinations under
       `spec/completed/`.

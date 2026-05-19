@@ -212,6 +212,22 @@ export function pushCurrent(opts: { cwd: string; firstPush: boolean }): void {
   }
 }
 
+export function hasUpstream(cwd: string): boolean {
+  try {
+    execFileSync(
+      "git",
+      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+      {
+        cwd,
+        stdio: "pipe",
+      },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getCurrentBranch(cwd: string): string {
   return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
     cwd,

@@ -143,12 +143,31 @@ jarvis cleanup [--dry-run]
 jarvis triage [worktree-name]
     Inspect dirty or orphaned worktrees and print suggested next moves.
 
+jarvis review-feedback <worktree-name>
+    Address PR review feedback on an existing patch worktree.
+
 jarvis help
     Show CLI usage.
 ```
 
 Unknown subcommands print usage and exit non-zero. Every invocation bootstraps
 `~/.jarvis/config.json` if needed.
+
+### `jarvis review-feedback` workflow
+
+`jarvis review-feedback <worktree-name>` runs inside an existing patch worktree at
+`.worktree/<worktree-name>/` and performs one harness-controlled pass:
+
+1. Require a clean starting worktree and an open PR for the current branch.
+2. Collect actionable open feedback (unresolved inline threads + eligible
+   top-level PR comments for the current review round).
+3. Build a review prompt and run agents in `modes.patch.agentOrder` fallback
+   order.
+4. If an agent succeeds and files changed, create one harness commit with the
+   fixed message `address PR review comments` and push it.
+
+Current non-goals in v1: auto-resolving review threads, posting GitHub replies,
+or editing PR metadata.
 
 ## Configuration
 

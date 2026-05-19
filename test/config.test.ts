@@ -792,7 +792,11 @@ describe("registerProject / findProjectForPath", () => {
       // registerProject only takes root + origin.
       registerProject("planproj", root, { dir });
       const cfg = loadConfig({ dir });
-      cfg.projects.planproj!.plan = { specTimestamp: false, commit: false };
+      const project = cfg.projects.planproj;
+      if (!project) {
+        throw new Error("expected registered project");
+      }
+      project.plan = { specTimestamp: false, commit: false };
       writeConfig(cfg, { dir });
 
       const result = findProjectForPath(root, { dir });

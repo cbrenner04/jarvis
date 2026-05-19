@@ -41,6 +41,14 @@ When re-running a spec:
 - **Neither exist**: create new branch off the detected base branch and new
   worktree.
 
+## Review-feedback worktrees
+
+`jarvis review-feedback <worktree-name>` operates on an existing patch worktree at
+`.worktree/<worktree-name>/`. In v1 it does not infer the target worktree from
+the current working directory and does not support plan worktrees
+(`plan-*` / `plan/<name>`). The target worktree must start clean (empty
+`git status --porcelain`) before the review-feedback command proceeds.
+
 ## Commit shape
 
 Each completed subspec produces exactly one commit. Jarvis creates the commit

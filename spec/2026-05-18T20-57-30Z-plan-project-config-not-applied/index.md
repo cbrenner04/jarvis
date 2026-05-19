@@ -2,5 +2,5 @@
 
 repo: cbrenner04/jarvis
 
-- [ ] [00 - Fix plan.ts and config.ts to pass full project to resolvePlanFlags](./00-fix-resolve-plan-flags.md)
-- [ ] [01 - Add regression tests for both fix paths](./01-tests.md)
+- [x] [00 - Fix plan.ts and config.ts to pass full project to resolvePlanFlags](./00-fix-resolve-plan-flags.md)
+- [x] [01 - Add regression tests for both fix paths](./01-tests.md)

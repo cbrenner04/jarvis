@@ -59,7 +59,7 @@ export function findProjectForPath(
 
 ## Acceptance criteria
 
-- [ ] `src/commands/plan.ts`: line 525 uses `cfg.projects[project.key]` (a `Project | undefined`) rather than the raw `ProjectMatch` when calling `resolvePlanFlags`.
-- [ ] `src/config.ts`: `findProjectForPath` calls `loadConfig(opts)` after `findProjectMatchForPath`, looks up the full project entry, and copies `plan` to the returned `Project` when present.
-- [ ] No type changes are required — `Project` already has `plan?: { specTimestamp?: boolean; commit?: boolean }`.
-- [ ] `bun run typecheck` passes with no new errors.
+- [x] `src/commands/plan.ts`: line 525 uses `cfg.projects[project.key]` (a `Project | undefined`) rather than the raw `ProjectMatch` when calling `resolvePlanFlags`.
+- [x] `src/config.ts`: `findProjectForPath` calls `loadConfig(opts)` after `findProjectMatchForPath`, looks up the full project entry, and copies `plan` to the returned `Project` when present.
+- [x] No type changes are required — `Project` already has `plan?: { specTimestamp?: boolean; commit?: boolean }`.
+- [x] `bun run typecheck` passes with no new errors.

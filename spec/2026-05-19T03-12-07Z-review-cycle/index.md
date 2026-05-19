@@ -4,22 +4,26 @@ repo: git@github.com:cbrenner04/jarvis.git
 
 Jarvis can create and update implementation PRs, but once a reviewer leaves
 comments the handoff back into the harness is manual: pull the worktree, read
-GitHub comments, restate them to an agent, then commit and push the result. The
-review cycle belongs in the harness so the same safety rails, agent fallback
-order, and worktree conventions used by `jarvis run` also apply after review.
+GitHub comments, restate them to an agent, then commit and push the result.
+That review cycle belongs in the harness so the same safety rails, agent
+fallback order, and worktree conventions used by `jarvis run` also apply after
+review.
 
 This spec adds a v1 `jarvis review` command for normal patch worktrees. The
 command inspects one existing `.worktree/<name>/` checkout, gathers actionable
 open PR review feedback, asks the configured patch-mode agents to address it in
 a single pass, and then commits and pushes the resulting changes. It does not
-attempt to mutate GitHub review state beyond updating the branch.
+attempt to mutate GitHub review state beyond updating the branch, and it does
+not introduce a second worktree-discovery or agent-selection lifecycle beside
+the existing patch flow.
 
 ## Decisions
 
 - **v1 stays in the current harness.** This is a new CLI command in the v1
   codebase, not a v2 rewrite prerequisite. It should reuse existing helpers
   where they already exist (`assertGhReady`, `checkPrExists`, `pushCurrent`,
-  patch-mode agent order) rather than adding a parallel lifecycle.
+  patch-mode agent order, normal worktree locking) rather than adding a
+  parallel lifecycle.
   - Because current shared preflight is spec-path-centric, this work may first
     extract a smaller project/log preflight helper instead of pretending review
     mode can call the existing entrypoint unchanged.
@@ -36,10 +40,16 @@ attempt to mutate GitHub review state beyond updating the branch.
   user to inspect or clean the tree first. This prevents the fixed harness
   commit message from absorbing unrelated local edits.
 - **Only actionable open feedback goes to the agent.** Inline review feedback
-  is sourced from unresolved review threads. Top-level PR comments are narrowed
-  to the current review round by including only non-bot PR comments at or after
-  the latest submitted review timestamp on the PR. If no submitted review
-  exists, all non-bot top-level PR comments are eligible.
+  is sourced from unresolved review threads, with thread resolution taken from
+  GitHub's review-thread state rather than inferred from individual comments.
+  Top-level PR comments are narrowed to the current review round by including
+  only non-bot PR comments at or after the latest submitted review timestamp on
+  the PR. If the PR has no submitted review yet, all non-bot top-level PR
+  comments are eligible.
+- **GitHub access stays behind helpers.** The command flow should call named
+  helpers for PR lookup, unresolved-thread retrieval, top-level comment
+  filtering, and prompt rendering instead of scattering raw `gh` shell strings
+  through `src/commands/review.ts`.
 - **One review pass, one harness-authored commit.** The harness runs the same
   patch-mode fallback agent order once, commits only if the agent exits cleanly
   and the worktree changed, and then pushes via the existing upstream-aware

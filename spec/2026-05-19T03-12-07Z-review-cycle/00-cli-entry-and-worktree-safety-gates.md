@@ -21,9 +21,13 @@ dirty-worktree handling.
 - Support only patch worktrees under `<projectRoot>/.worktree/<worktree-name>`.
   Reject missing worktrees and plan worktrees with explicit usage errors rather
   than guessing from the current working directory.
+- Keep no-argument worktree inference out of scope for this spec. If Jarvis
+  later adds a shared "resolve current worktree from cwd" helper, that can be a
+  separate follow-up instead of incidental logic inside `review`.
 - Acquire the normal worktree lock for the target patch worktree before any
-  git mutation or agent spawn, and release it on every exit path. Review mode
-  should not create a second lifecycle that can race `jarvis run`.
+  git mutation, comment retrieval, or agent spawn, and release it on every exit
+  path. Review mode should not create a second lifecycle that can race
+  `jarvis run`.
 - Run `assertGhReady` before attempting PR lookup so missing `gh` binaries or
   auth failures surface through the existing GitHub preflight path.
 - Require the target worktree to start clean:
@@ -35,6 +39,9 @@ dirty-worktree handling.
   (`git rev-parse --abbrev-ref HEAD`). `.active-spec-path` may be read later
   for prompt context if desired, but it is not the source of truth for branch
   selection.
+- Keep the worktree lifecycle bounded to normal patch branches. Detached HEAD
+  states or branches that resolve to plan worktrees should fail with clear
+  usage errors instead of being guessed through.
 
 ## Task Checklist
 
@@ -44,13 +51,14 @@ dirty-worktree handling.
 - [ ] Reuse or extract the shared project/log-server preflight path and call
   `assertGhReady`.
 - [ ] Resolve `<projectRoot>/.worktree/<worktree-name>` and reject unsupported
-  targets such as missing directories or `plan-*` worktrees.
+  targets such as missing directories, detached states, or `plan-*`
+  worktrees.
 - [ ] Acquire and release the normal worktree lock around review-mode work in
   the target worktree.
 - [ ] Add the clean-start gate before any PR comment retrieval or agent spawn.
 - [ ] Add focused tests for CLI parsing, unknown worktree handling, plan
-  worktree rejection, lock contention, GitHub preflight propagation, and
-  dirty-start refusal.
+  worktree rejection, detached-HEAD rejection, lock contention, GitHub
+  preflight propagation, and dirty-start refusal.
 
 ## Acceptance criteria
 
@@ -63,6 +71,8 @@ dirty-worktree handling.
   `<worktree-name>`.
 - [ ] A `plan-*` worktree exits non-zero with a message that review mode only
   supports patch worktrees in v1.
+- [ ] A detached or otherwise non-branch worktree exits non-zero before GitHub
+  lookup with a message that names the unsupported git state.
 - [ ] If another Jarvis process already holds the target worktree lock, review
   mode exits through the normal lock-failure path instead of continuing
   unsafely.
@@ -77,4 +87,5 @@ dirty-worktree handling.
 - `README.md`: add `jarvis review <worktree-name>` to the command list with a
   one-line description.
 - `docs/worktrees-and-commits.md`: note that review mode operates on existing
-  patch worktrees and requires them to start clean.
+  patch worktrees, requires them to start clean, and does not yet infer the
+  target from the current working directory.

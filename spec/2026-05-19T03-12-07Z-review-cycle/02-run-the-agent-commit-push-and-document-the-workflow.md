@@ -22,6 +22,12 @@ workflow.
   to the clean-start baseline. A clean worktree after the run is a failure:
   print a warning that the agent made no changes and exit non-zero without
   committing.
+- Review mode should preserve patch-mode failure semantics where they already
+  exist:
+  - quota exhaustion should follow the same ordered fallback behavior and user
+    messaging as patch mode rather than inventing a review-specific outcome
+  - agent stderr or summarized failure output should still be surfaced when the
+    run ends unsuccessfully
 - Reuse the same upstream-detection behavior patch mode uses before calling
   `pushCurrent`.
   - If the current helper is private to patch mode, extract a shared helper
@@ -53,8 +59,8 @@ workflow.
 - [ ] Push the commit with `pushCurrent`, handling first-push cases through the
   same upstream-detection rule patch mode already uses.
 - [ ] Add tests covering: successful run with commit/push, agent no-op failure,
-  ordered fallback across agents, agent failure without commit, and push
-  failure after a created commit.
+  ordered fallback across agents, quota exhaustion without commit, agent
+  failure without commit, and push failure after a created commit.
 - [ ] Update user-facing docs for the full review workflow and its current
   non-goals.
 
@@ -68,6 +74,9 @@ workflow.
   non-zero, prints a no-op warning, and does not create a commit.
 - [ ] When all configured agents fail or exhaust quota, the command exits
   non-zero and does not create a commit.
+- [ ] When earlier agents fail or exhaust quota but a later configured agent
+  succeeds, review mode still produces one commit and one push from the
+  successful pass.
 - [ ] Push failures surface as non-zero command failures rather than being
   silently ignored; a failed push after commit creation is reported without
   attempting rollback.

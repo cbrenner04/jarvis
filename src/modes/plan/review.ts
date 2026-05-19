@@ -91,10 +91,7 @@ export function buildReviewPrompt(opts: {
   template = template.replaceAll("<REVIEW_PASS_CONTEXT>", reviewPassContext);
 
   if (opts.flatSpecLayout) {
-    template = template.replaceAll(
-      "spec/<NAME>/intent.md",
-      "intent.md",
-    );
+    template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
   }
 
   return template;

@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { ConfigOptions } from "../config.ts";
 
 export type CleanupIo = {
@@ -49,6 +49,54 @@ function deleteMergedBranch(projectRoot: string, branch: string): void {
       stdio: "pipe",
     });
   }
+}
+
+function quotePathForGit(path: string): string {
+  return path.replaceAll('"', '\\"');
+}
+
+function commitArchivedSpecMove(
+  projectRoot: string,
+  source: string,
+  destination: string,
+  specName: string,
+): void {
+  const sourceRelativePath = relative(projectRoot, source);
+  const destinationRelativePath = relative(projectRoot, destination);
+  const quotedSource = quotePathForGit(sourceRelativePath);
+  const quotedDestination = quotePathForGit(destinationRelativePath);
+
+  execSync(`git add -A -- "${quotedDestination}"`, {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  const trackedSourcePaths = execSync(`git ls-files -- "${quotedSource}"`, {
+    cwd: projectRoot,
+    stdio: "pipe",
+    encoding: "utf8",
+  })
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0);
+
+  for (const trackedSourcePath of trackedSourcePaths) {
+    const quotedTrackedSourcePath = quotePathForGit(trackedSourcePath);
+    execSync(
+      `git rm --cached --ignore-unmatch -- "${quotedTrackedSourcePath}"`,
+      {
+        cwd: projectRoot,
+        stdio: "pipe",
+      },
+    );
+  }
+  execSync(`git commit -m "cleanup: archive spec ${specName}"`, {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
+  execSync("git push", {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
 }
 
 export function cleanupCommand(opts: CleanupCommandOptions): number {
@@ -148,6 +196,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       try {
         mkdirSync(completedRoot, { recursive: true });
         renameSync(source, destination);
+        commitArchivedSpecMove(opts.projectRoot, source, destination, specName);
         opts.io.stdout(`moved spec directory ${source} -> ${destination}\n`);
       } catch (err) {
         opts.io.stderr(

@@ -88,10 +88,7 @@ export function buildDraftPrompt(opts: {
       "- **Only write files under `spec/<NAME>/`.**",
       "- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths.",
     );
-    template = template.replaceAll(
-      "spec/<NAME>/intent.md",
-      "intent.md",
-    );
+    template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
   }
   template = template.replaceAll("<WORKDIR>", workDir);
   template = template.replaceAll("<NAME>", opts.name);
@@ -120,8 +117,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
 
   // Read intent.md
   const intentPath = join(specDirPath, "intent.md");
-  const intent =
-    opts.intentBefore ?? readFileSync(intentPath, "utf8");
+  const intent = opts.intentBefore ?? readFileSync(intentPath, "utf8");
 
   // Read spec guidance from the main checkout
   // Note: using import.meta.dir to find our location, then navigate back to docs/

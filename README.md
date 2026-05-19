@@ -138,7 +138,8 @@ jarvis log-server
 
 jarvis cleanup [--dry-run]
     Remove merged local worktrees and matching branches, then try to archive
-    matching spec directories under `spec/completed/`.
+    matching spec directories under `spec/completed/`, commit that archive
+    move, and push the cleanup commit.
 
 jarvis triage [worktree-name]
     Inspect dirty or orphaned worktrees and print suggested next moves.

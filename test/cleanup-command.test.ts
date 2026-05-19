@@ -135,6 +135,30 @@ describe("cleanupCommand", () => {
     expect(readFileSync(join(destination, "index.md"), "utf8")).toBe(
       "# patch\n",
     );
+    expect(
+      execSync("git show --name-status --pretty=format:%s HEAD", {
+        cwd: projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      }),
+    ).toContain("cleanup: archive spec patch-spec");
+    expect(
+      execSync("git rev-parse HEAD origin/main", {
+        cwd: projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      }).trim(),
+    ).toMatch(/^(.*?)\n\1$/);
+    const committedRename = execSync(
+      "git show --name-status --pretty=format: HEAD",
+      {
+        cwd: projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      },
+    );
+    expect(committedRename).toContain("A\tspec/completed/patch-spec/index.md");
+    expect(committedRename).not.toContain("README.md");
   });
 
   test("archives plan-mode spec from spec/<name>", () => {
@@ -321,5 +345,47 @@ describe("cleanupCommand", () => {
         stdio: "pipe",
       }),
     ).toThrow();
+  });
+
+  test("cleanup commit does not stage or commit unrelated main-checkout changes", () => {
+    const { io } = captureIo(["y"]);
+
+    const specName = "scoped-stage-spec";
+    createTrackedWorktree(specName);
+    const source = join(projectRoot, "spec", specName);
+    const destination = join(projectRoot, "spec", "completed", specName);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# scoped\n");
+
+    writeFileSync(join(projectRoot, "README.md"), "modified main checkout\n");
+    writeFileSync(join(projectRoot, "scratch.txt"), "untracked\n");
+
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+
+    const committedRename = execSync(
+      "git show --name-status --pretty=format: HEAD",
+      {
+        cwd: projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      },
+    );
+    expect(committedRename).toContain(
+      "A\tspec/completed/scoped-stage-spec/index.md",
+    );
+    expect(committedRename).not.toContain("README.md");
+    expect(committedRename).not.toContain("scratch.txt");
+
+    const status = execSync("git status --short", {
+      cwd: projectRoot,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    expect(status).toContain(" M README.md");
+    expect(status).toContain("?? scratch.txt");
   });
 });

@@ -1,20 +1,19 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { afterEach, describe, expect, test } from "bun:test";
-
-import { buildDraftPrompt } from "../../../src/modes/plan/draft.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { AgentName, AgentResult } from "../../../src/agents/types.ts";
+import type { Config } from "../../../src/config.ts";
+import {
+  buildDraftPrompt,
+  runDraftPhase,
+  validateDraftOutput,
+} from "../../../src/modes/plan/draft.ts";
 import {
   hasSpecDirChanges,
   resolvePlanSpecDirPath,
   snapshotSpecDirFiles,
 } from "../../../src/modes/plan/spec-dir.ts";
-import {
-  runDraftPhase,
-  validateDraftOutput,
-} from "../../../src/modes/plan/draft.ts";
-import type { AgentName, AgentResult } from "../../../src/agents/types.ts";
-import type { Config } from "../../../src/config.ts";
 
 class FakeAgent {
   readonly name: AgentName = "claude";
@@ -94,7 +93,11 @@ describe("runDraftPhase external spec dir", () => {
     repoDir = mkdtempSync(join(tmpdir(), "jarvis-plan-ext-"));
     specDir = join(repoDir, "external-spec");
     mkdirSync(specDir, { recursive: true });
-    writeFileSync(join(specDir, "intent.md"), "---\nname: my-plan\n---\n", "utf8");
+    writeFileSync(
+      join(specDir, "intent.md"),
+      "---\nname: my-plan\n---\n",
+      "utf8",
+    );
 
     const config = {
       modes: {
@@ -116,7 +119,12 @@ describe("runDraftPhase external spec dir", () => {
     expect(out.result.kind).toBe("ok");
     expect(out.subspecCount).toBe(1);
 
-    const validation = validateDraftOutput(repoDir, "my-plan", "---\nname: my-plan\n---\n", specDir);
+    const validation = validateDraftOutput(
+      repoDir,
+      "my-plan",
+      "---\nname: my-plan\n---\n",
+      specDir,
+    );
     expect(validation.valid).toBe(true);
   });
 });

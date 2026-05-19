@@ -211,7 +211,11 @@ describe("boundary", () => {
     const intentPath = join(repoDir, "spec", specName, "intent.md");
     const offendingPaths = ["src/main.ts", "README.md"];
 
-    appendBoundaryBlocker(join(repoDir, "spec", specName), specName, offendingPaths);
+    appendBoundaryBlocker(
+      join(repoDir, "spec", specName),
+      specName,
+      offendingPaths,
+    );
 
     const content = readFileSync(intentPath, "utf8");
     expect(content).toContain("## Blocker");
@@ -226,7 +230,11 @@ describe("boundary", () => {
     writeFileSync(intentPath, `# Intent\n\n${oldBlocker}`, "utf8");
 
     const offendingPaths = ["src/main.ts"];
-    appendBoundaryBlocker(join(repoDir, "spec", specName), specName, offendingPaths);
+    appendBoundaryBlocker(
+      join(repoDir, "spec", specName),
+      specName,
+      offendingPaths,
+    );
 
     const content = readFileSync(intentPath, "utf8");
     expect(content).not.toContain("Old blocker content");

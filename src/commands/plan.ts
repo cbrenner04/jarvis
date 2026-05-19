@@ -47,14 +47,14 @@ import {
   validateReviewOutput,
 } from "../modes/plan/review.ts";
 import {
+  hasSpecDirChanges,
+  snapshotSpecDirFiles,
+} from "../modes/plan/spec-dir.ts";
+import {
   computeNoCommitSpecRoot,
   formatPlanSpecTimestamp,
   stripPlanSpecTimestampPrefix,
 } from "../modes/plan/spec-paths.ts";
-import {
-  hasSpecDirChanges,
-  snapshotSpecDirFiles,
-} from "../modes/plan/spec-dir.ts";
 import { ensureDraftPr, renderAttribution, updatePrBody } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import type { resolveTargetRepo } from "../repo.ts";
@@ -666,11 +666,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               agentLabel: refineResult.agentLabel ?? "unknown",
               reason: firstNonEmptyLine(refineResult.blocker),
               specFilesCount: countSpecFiles(
-                join(
-                  resume.worktreePath,
-                  "spec",
-                  resume.specDirBasename,
-                ),
+                join(resume.worktreePath, "spec", resume.specDirBasename),
               ),
               subjectSuffix: suffix,
             });
@@ -1998,7 +1994,8 @@ function countSpecFiles(specDirPath: string): number {
     return 0;
   }
   const { readdirSync } = require("node:fs") as typeof import("node:fs");
-  return readdirSync(specDirPath).filter((f) => /^\d{2}-.*\.md$/.test(f)).length;
+  return readdirSync(specDirPath).filter((f) => /^\d{2}-.*\.md$/.test(f))
+    .length;
 }
 
 /**

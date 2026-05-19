@@ -66,7 +66,7 @@ test("project-level specTimestamp and commit override global defaults", async ()
 
 ## Acceptance criteria
 
-- [ ] `test/config.test.ts`: a new test within the `registerProject / findProjectForPath` describe block asserts that `findProjectForPath` returns a `Project` with the `plan` field populated when the registered project has one.
-- [ ] `test/plan-command.test.ts`: a new test asserts that when a project's config has `plan.specTimestamp: false` and `plan.commit: false` and the global `modes.plan` has both as `true`, `planCommand` resolves to the project-level values.
-- [ ] Both new tests pass (`bun test test/config.test.ts test/plan-command.test.ts`).
-- [ ] No existing tests are broken.
+- [x] `test/config.test.ts`: a new test within the `registerProject / findProjectForPath` describe block asserts that `findProjectForPath` returns a `Project` with the `plan` field populated when the registered project has one.
+- [x] `test/plan-command.test.ts`: a new test asserts that when a project's config has `plan.specTimestamp: false` and `plan.commit: false` and the global `modes.plan` has both as `true`, `planCommand` resolves to the project-level values.
+- [x] Both new tests pass (`bun test test/config.test.ts test/plan-command.test.ts`).
+- [x] No existing tests are broken.

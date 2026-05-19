@@ -26,7 +26,7 @@ import {
   describePlanInvocation,
   parsePlanArgs,
 } from "../src/commands/plan-args.ts";
-import { registerProject } from "../src/config.ts";
+import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 
 function captureIo() {
@@ -342,6 +342,34 @@ describe("planCommand", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("project-level specTimestamp and commit override global defaults", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    // Set global defaults to true, project overrides to false
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.plan = { ...cfg.modes.plan, specTimestamp: true, commit: true };
+    cfg.projects.project!.plan = { specTimestamp: false, commit: false };
+    writeConfig(cfg, { dir: cfgDir });
+
+    // Run plan with a minimal mock agent that captures harness log lines
+    const { client, harnessTexts } = capturingLogClient();
+    const { io } = captureIo();
+    const specPath = join(project, "intent.md");
+    writeFileSync(specPath, "---\nname: test-plan\n---\ntest intent\n");
+
+    const code = await planCommand({
+      io,
+      args: [specPath],
+      cwd: project,
+      config: { dir: cfgDir },
+      logClient: client,
+    });
+
+    // The harness log should record commit=false and specTimestamp=false
+    const flagLine = harnessTexts.find((t) => t.includes("commit="));
+    expect(flagLine).toMatch(/commit=false/);
+    expect(flagLine).toMatch(/specTimestamp=false/);
   });
 });
 

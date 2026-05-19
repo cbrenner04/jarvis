@@ -529,7 +529,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       `plan: target project=${project.key} root=${project.root}`,
     );
 
-    const { specTimestamp, commit } = resolvePlanFlags(cfg, project);
+    const fullProject = cfg.projects[project.key];
+    const { specTimestamp, commit } = resolvePlanFlags(cfg, fullProject);
+    planHarnessLog(
+      planLogClient,
+      `plan: resolved flags specTimestamp=${specTimestamp} commit=${commit}`,
+    );
 
     if (inv.mode === "interactive" && (inv.refineTurns ?? 3) === 0) {
       opts.io.stderr(

@@ -758,9 +758,14 @@ export function findProjectForPath(
   if (match === undefined) {
     return undefined;
   }
+  const cfg = loadConfig(opts);
   const project: Project = { root: match.root };
   if (match.origin !== undefined) {
     project.origin = match.origin;
+  }
+  const full = cfg.projects[match.key];
+  if (full?.plan !== undefined) {
+    project.plan = full.plan;
   }
   return project;
 }

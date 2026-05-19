@@ -22,6 +22,10 @@ archives `spec/2026-05-17T22-14-03Z-foo/`, the destination should be
 `spec/completed/2026-05-17T22-14-03Z-foo/`; legacy `spec/foo/` should still land
 at `spec/completed/foo/`.
 
+Non-goals for this slice: do not change cleanup's merged/clean/pushed gates,
+do not change its post-removal archive ordering, do not broaden cleanup to
+external `commit: false` specs, and do not redesign patch-mode naming.
+
 ## Task checklist
 
 - [ ] Reuse `stripPlanSpecTimestampPrefix()` from `src/modes/plan/spec-paths.ts`,
@@ -38,6 +42,10 @@ at `spec/completed/foo/`.
       worktree/branch first, treat zero source matches as non-fatal, accumulate
       archive failures without aborting later removals, and return non-zero only
       after processing the full queue.
+- [ ] Preserve the current destination-collision behavior on the resolved
+      source basename rather than on the flattened logical plan name, so
+      `spec/completed/<resolved-basename>/` remains the only archive target
+      checked for collisions.
 - [ ] Add regression coverage in `test/cleanup-command.test.ts` for:
       one timestamped plan spec being archived automatically, multiple matching
       source candidates producing an ambiguity failure while leaving sources in

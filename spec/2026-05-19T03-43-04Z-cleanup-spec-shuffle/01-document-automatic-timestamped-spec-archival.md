@@ -23,11 +23,12 @@ Jarvis-owned `commit: false` specs under `~/.jarvis/specs/...`.
       non-fatal handling, ambiguity failures when multiple `spec/` children map
       to the same logical plan name, and destination naming based on the
       resolved source basename.
-- [ ] Update any cross-references in `docs/spec-guidance.md` or nearby cleanup
-      documentation whose examples still imply that timestamped in-repo plan
-      specs are a manual post-cleanup case.
 - [ ] Keep the no-commit/external-spec story explicit: `jarvis cleanup` does not
       delete or archive Jarvis-owned specs outside the target repo.
+- [ ] Keep examples and terminology aligned with the implementation contract:
+      plan worktrees still resolve from logical `plan/<name>`, but archival
+      preserves the resolved source basename such as
+      `spec/2026-05-17T22-14-03Z-foo/ -> spec/completed/2026-05-17T22-14-03Z-foo/`.
 
 ## Acceptance criteria
 

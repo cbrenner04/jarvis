@@ -7,12 +7,14 @@ import { init as runInit } from "./commands/init.ts";
 import { logServerCommand } from "./commands/log-server.ts";
 import { planCommand } from "./commands/plan.ts";
 import { pricesCommand } from "./commands/prices.ts";
+import { reviewCommand } from "./commands/review.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
   type ConfigOptions,
   findProjectMatchForPath,
   validatePositiveInteger,
 } from "./config.ts";
+import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
 
 export type Subcommand =
@@ -22,6 +24,7 @@ export type Subcommand =
   | "log-server"
   | "cleanup"
   | "triage"
+  | "review"
   | "plan"
   | "prices"
   | "help";
@@ -40,6 +43,7 @@ export type ParsedArgs =
   | { kind: "log-server" }
   | { kind: "cleanup"; dryRun?: boolean }
   | { kind: "triage"; worktreeName?: string }
+  | { kind: "review"; worktreeName?: string }
   | { kind: "plan"; rest: string[] }
   | { kind: "prices"; rest: string[] }
   | { kind: "unknown"; name: string }
@@ -62,6 +66,8 @@ Commands:
                     Remove merged worktrees.
   triage [worktree-name]
                     Inspect a dirty or orphaned worktree.
+  review <worktree-name>
+                    Run one review pass against an existing patch worktree.
   plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md).
   prices            View or edit pricing data for cost tracking.
@@ -154,6 +160,16 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       const worktreeName = rest[0];
       const result: { kind: "triage"; worktreeName?: string } = {
         kind: "triage",
+      };
+      if (worktreeName !== undefined) {
+        result.worktreeName = worktreeName;
+      }
+      return result;
+    }
+    case "review": {
+      const worktreeName = rest[0];
+      const result: { kind: "review"; worktreeName?: string } = {
+        kind: "review",
       };
       if (worktreeName !== undefined) {
         result.worktreeName = worktreeName;
@@ -304,6 +320,38 @@ export function run(
         triageOpts.worktreeName = parsed.worktreeName;
       }
       return triageCommand(triageOpts);
+    }
+    case "review": {
+      const worktreeName = parsed.worktreeName;
+      if (worktreeName === undefined || worktreeName.trim() === "") {
+        io.stderr("jarvis: review: missing <worktree-name>\n");
+        io.stderr(USAGE);
+        return 1;
+      }
+      const cwd = opts.cwd ?? process.cwd();
+      const projectPreflightOpts: Parameters<
+        typeof runSharedProjectPreflight
+      >[0] = {
+        projectPath: cwd,
+        io,
+      };
+      if (opts.config !== undefined) {
+        projectPreflightOpts.config = opts.config;
+      }
+      return runSharedProjectPreflight(projectPreflightOpts).then((preflight) => {
+        if (preflight.kind === "error") {
+          return preflight.exitCode;
+        }
+        const reviewOpts: Parameters<typeof reviewCommand>[0] = {
+          projectRoot: preflight.project.root,
+          worktreeName,
+          io,
+        };
+        if (opts.config !== undefined) {
+          reviewOpts.config = opts.config;
+        }
+        return reviewCommand(reviewOpts);
+      });
     }
     case "plan": {
       const planOpts: Parameters<typeof planCommand>[0] = {

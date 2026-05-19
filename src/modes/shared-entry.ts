@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { Io } from "../cli.ts";
 import type { Config, ProjectMatch } from "../config.ts";
 import { type ConfigOptions, loadConfig } from "../config.ts";
@@ -26,6 +26,16 @@ export type SharedPreflightOpts = {
   logClient?: LogClient;
 };
 
+export type SharedProjectPreflightOpts = {
+  projectPath: string;
+  repoFlag?: string;
+  config?: ConfigOptions;
+  io: Io;
+  disambiguate?: DisambiguateFn;
+  logServerUrl?: string;
+  logClient?: LogClient;
+};
+
 export type SharedPreflightResult =
   | {
       kind: "ok";
@@ -35,6 +45,8 @@ export type SharedPreflightResult =
       logClient: LogClient;
     }
   | { kind: "error"; exitCode: number };
+
+export type SharedProjectPreflightResult = SharedPreflightResult;
 
 export async function runSharedPreflight(
   opts: SharedPreflightOpts,
@@ -100,6 +112,68 @@ export async function runSharedPreflight(
     kind: "ok",
     project,
     projectMode,
+    cfg,
+    logClient,
+  };
+}
+
+export async function runSharedProjectPreflight(
+  opts: SharedProjectPreflightOpts,
+): Promise<SharedProjectPreflightResult> {
+  const specAnchorPath = join(
+    resolve(opts.projectPath),
+    ".jarvis-project-resolution-anchor.md",
+  );
+
+  const projectResolution = await resolveProjectFromSpec({
+    specPath: specAnchorPath,
+    repoFlag: opts.repoFlag,
+    config: opts.config,
+    io: opts.io,
+    disambiguate: opts.disambiguate,
+  });
+
+  if (projectResolution.error !== undefined) {
+    opts.io.stderr(`${projectResolution.error}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  const projectRootCheck = checkProjectRootExists(projectResolution.project.root);
+  if (!projectRootCheck.ok) {
+    opts.io.stderr(
+      `${formatMissingProjectRootError({
+        path: projectResolution.project.root,
+        projectKey: projectResolution.project.key,
+        source: projectResolution.source,
+        repoFlag: opts.repoFlag,
+        reason: projectRootCheck.reason,
+      })}\n`,
+    );
+    return { kind: "error", exitCode: 1 };
+  }
+
+  const cfg = loadConfig(opts.config);
+  const logClient =
+    opts.logClient ??
+    createLogClient(
+      opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs",
+    );
+  try {
+    await logClient.assertReachable();
+  } catch (err) {
+    const logServerUrl =
+      opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
+    opts.io.stderr(
+      `jarvis: log server unreachable at ${logServerUrl}. Start it with \`jarvis log-server\` or update config.\n`,
+    );
+    opts.io.stderr(`jarvis: ${(err as Error).message}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
+  return {
+    kind: "ok",
+    project: projectResolution.project,
+    projectMode: projectResolution.mode,
     cfg,
     logClient,
   };

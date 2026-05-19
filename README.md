@@ -143,6 +143,9 @@ jarvis cleanup [--dry-run]
 jarvis triage [worktree-name]
     Inspect dirty or orphaned worktrees and print suggested next moves.
 
+jarvis review <worktree-name>
+    Run one review pass against an existing patch worktree.
+
 jarvis help
     Show CLI usage.
 ```

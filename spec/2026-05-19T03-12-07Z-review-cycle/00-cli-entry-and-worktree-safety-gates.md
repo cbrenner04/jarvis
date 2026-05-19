@@ -62,25 +62,25 @@ dirty-worktree handling.
 
 ## Acceptance criteria
 
-- [ ] `jarvis review <worktree-name>` is listed in CLI help and dispatches to a
+- [x] `jarvis review <worktree-name>` is listed in CLI help and dispatches to a
   dedicated command implementation.
-- [ ] The command reuses the same project/log-server resolution path as
+- [x] The command reuses the same project/log-server resolution path as
   `jarvis run`; project resolution and log-server failures surface with the
   existing messages.
-- [ ] A missing worktree exits non-zero with a clear error naming the requested
+- [x] A missing worktree exits non-zero with a clear error naming the requested
   `<worktree-name>`.
-- [ ] A `plan-*` worktree exits non-zero with a message that review mode only
+- [x] A `plan-*` worktree exits non-zero with a message that review mode only
   supports patch worktrees in v1.
-- [ ] A detached or otherwise non-branch worktree exits non-zero before GitHub
+- [x] A detached or otherwise non-branch worktree exits non-zero before GitHub
   lookup with a message that names the unsupported git state.
-- [ ] If another Jarvis process already holds the target worktree lock, review
+- [x] If another Jarvis process already holds the target worktree lock, review
   mode exits through the normal lock-failure path instead of continuing
   unsafely.
-- [ ] If the target worktree has pre-existing local changes, the command exits
+- [x] If the target worktree has pre-existing local changes, the command exits
   non-zero before contacting GitHub or spawning an agent.
-- [ ] `gh` readiness failures surface through the existing `assertGhReady`
+- [x] `gh` readiness failures surface through the existing `assertGhReady`
   behavior rather than custom shell errors.
-- [ ] `bun run typecheck` and `bun test` pass after this slice lands.
+- [x] `bun run typecheck` and `bun test` pass after this slice lands.
 
 ## Documentation updates
 

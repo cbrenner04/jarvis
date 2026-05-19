@@ -7,7 +7,7 @@ import { init as runInit } from "./commands/init.ts";
 import { logServerCommand } from "./commands/log-server.ts";
 import { planCommand } from "./commands/plan.ts";
 import { pricesCommand } from "./commands/prices.ts";
-import { reviewCommand } from "./commands/review.ts";
+import { reviewFeedbackCommand } from "./commands/review-feedback.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
   type ConfigOptions,
@@ -343,7 +343,7 @@ export function run(
           if (preflight.kind === "error") {
             return preflight.exitCode;
           }
-          const reviewOpts: Parameters<typeof reviewCommand>[0] = {
+          const reviewOpts: Parameters<typeof reviewFeedbackCommand>[0] = {
             projectRoot: preflight.project.root,
             worktreeName,
             io,
@@ -351,7 +351,7 @@ export function run(
           if (opts.config !== undefined) {
             reviewOpts.config = opts.config;
           }
-          return reviewCommand(reviewOpts);
+          return reviewFeedbackCommand(reviewOpts);
         },
       );
     }

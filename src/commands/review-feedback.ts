@@ -44,7 +44,7 @@ export type ReviewCommandOptions = {
   pushCurrentFn?: (opts: { cwd: string; firstPush: boolean }) => void;
 };
 
-export async function reviewCommand(
+export async function reviewFeedbackCommand(
   opts: ReviewCommandOptions,
 ): Promise<number> {
   const worktreePath = join(opts.projectRoot, ".worktree", opts.worktreeName);

@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult } from "../src/agents/types.ts";
-import { type ReviewIo, reviewCommand } from "../src/commands/review.ts";
+import { type ReviewIo, reviewFeedbackCommand } from "../src/commands/review-feedback.ts";
 import type { Config } from "../src/config.ts";
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 
@@ -94,7 +94,7 @@ function fakeAgent(
 describe("reviewCommand", () => {
   test("missing worktree exits non-zero with clear name", async () => {
     const cap = captureIo();
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "missing-one",
       io: cap.io,
@@ -107,7 +107,7 @@ describe("reviewCommand", () => {
   test("plan-* worktree is rejected in v1", async () => {
     createGitWorktree("plan-my-worktree");
     const cap = captureIo();
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "plan-my-worktree",
       io: cap.io,
@@ -122,7 +122,7 @@ describe("reviewCommand", () => {
 
     let ghCalled = false;
     const cap = captureIo();
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "detached",
       io: cap.io,
@@ -148,7 +148,7 @@ describe("reviewCommand", () => {
     );
 
     const cap = captureIo();
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "locked",
       io: cap.io,
@@ -163,7 +163,7 @@ describe("reviewCommand", () => {
 
     let ghCalled = false;
     const cap = captureIo();
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "dirty",
       io: cap.io,
@@ -179,7 +179,7 @@ describe("reviewCommand", () => {
   test("gh readiness failures are surfaced unchanged", async () => {
     const worktreePath = createGitWorktree("gh-failure");
     const cap = captureIo();
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "gh-failure",
       io: cap.io,
@@ -196,7 +196,7 @@ describe("reviewCommand", () => {
     const worktreePath = createGitWorktree("detached-release");
     execSync("git checkout --detach", { cwd: worktreePath, stdio: "pipe" });
     const cap = captureIo();
-    await reviewCommand({
+    await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "detached-release",
       io: cap.io,
@@ -208,7 +208,7 @@ describe("reviewCommand", () => {
     createGitWorktree("no-pr");
     let collectCalled = false;
     const cap = captureIo();
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "no-pr",
       io: cap.io,
@@ -227,7 +227,7 @@ describe("reviewCommand", () => {
   test("no actionable comments exits 0 with no-open-comments message", async () => {
     createGitWorktree("no-comments");
     const cap = captureIo();
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "no-comments",
       io: cap.io,
@@ -247,7 +247,7 @@ describe("reviewCommand", () => {
     const cap = captureIo();
     let commitCount = 0;
     const pushes: Array<{ cwd: string; firstPush: boolean }> = [];
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "success",
       io: cap.io,
@@ -283,7 +283,7 @@ describe("reviewCommand", () => {
     createGitWorktree("noop");
     const cap = captureIo();
     let committed = false;
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "noop",
       io: cap.io,
@@ -311,7 +311,7 @@ describe("reviewCommand", () => {
     const cap = captureIo();
     let commitCount = 0;
     let call = 0;
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "fallback-success",
       io: cap.io,
@@ -356,7 +356,7 @@ describe("reviewCommand", () => {
     createGitWorktree("all-quota");
     const cap = captureIo();
     let committed = false;
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "all-quota",
       io: cap.io,
@@ -390,7 +390,7 @@ describe("reviewCommand", () => {
     createGitWorktree("agent-fail");
     const cap = captureIo();
     let committed = false;
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "agent-fail",
       io: cap.io,
@@ -421,7 +421,7 @@ describe("reviewCommand", () => {
     const worktreePath = createGitWorktree("push-fail");
     const cap = captureIo();
     let commitCount = 0;
-    const code = await reviewCommand({
+    const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "push-fail",
       io: cap.io,

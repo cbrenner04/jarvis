@@ -326,7 +326,8 @@ describe("maybeMarkReady", () => {
   test("propagates errors from markReady", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
-    const multilineError = "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
+    const multilineError =
+      "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
     expect(() =>
       maybeMarkReady({
         indexPath,

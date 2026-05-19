@@ -184,7 +184,8 @@ describe("maybeMarkPlanPrReady", () => {
   });
 
   test("propagates errors from markReady", () => {
-    const multilineError = "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
+    const multilineError =
+      "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
     expect(() => {
       maybeMarkPlanPrReady({
         branch: "feature",

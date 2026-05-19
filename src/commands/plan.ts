@@ -1810,6 +1810,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           io: opts.io,
           branch: planBranch,
           worktreePath: worktreePath as string,
+          markReady: () => {},
+          checkPrExists: () => null,
         });
       } else {
         // For commit: false, show the absolute path and jarvis run command
@@ -1924,8 +1926,8 @@ export function safeMarkPlanPrReady(args: {
   io: PlanIo;
   branch: string;
   worktreePath: string;
-  markReady?: (branch: string, cwd: string) => void;
-  checkPrExists?: (branch: string, cwd: string) => number | null;
+  markReady: (branch: string, cwd: string) => void;
+  checkPrExists: (branch: string, cwd: string) => number | null;
 }): void {
   try {
     maybeMarkPlanPrReady({

@@ -138,13 +138,18 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
           stdio: "pipe",
         });
       } catch (err) {
-        const out = err as NodeJS.ErrnoException & { stdout?: Buffer; stderr?: Buffer };
+        const out = err as NodeJS.ErrnoException & {
+          stdout?: Buffer;
+          stderr?: Buffer;
+        };
         const captured = [out.stdout?.toString(), out.stderr?.toString()]
           .filter(Boolean)
           .join("\n")
           .trim();
         throw new Error(
-          captured ? `bun run ready failed:\n${captured}` : `bun run ready failed`,
+          captured
+            ? `bun run ready failed:\n${captured}`
+            : `bun run ready failed`,
         );
       }
       execFileSync("gh", ["pr", "ready", branch], {

@@ -266,7 +266,8 @@ describe("planCommand", () => {
 describe("safeMarkPlanPrReady", () => {
   test("forwards multi-line error messages to stderr with warning prefix", () => {
     const cap = captureIo();
-    const multilineError = "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
+    const multilineError =
+      "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
 
     safeMarkPlanPrReady({
       io: cap.io,

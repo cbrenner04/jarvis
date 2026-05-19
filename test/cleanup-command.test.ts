@@ -263,4 +263,28 @@ describe("cleanupCommand", () => {
     expect(existsSync(destination)).toBe(false);
     expect(err()).toContain("failed to remove");
   });
+
+  test("cleans up worktree after remote branch is deleted", () => {
+    const { io, out } = captureIo(["y"]);
+
+    const specName = "deleted-remote-spec";
+    const worktreePath = createTrackedWorktree(specName);
+    const source = join(projectRoot, "spec", specName);
+    const destination = join(projectRoot, "spec", "completed", specName);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# spec\n");
+
+    execSync(`git push origin --delete ${specName}`, {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(out()).not.toContain("uncommitted or unpushed changes");
+  });
 });

@@ -153,6 +153,22 @@ jarvis help
 Unknown subcommands print usage and exit non-zero. Every invocation bootstraps
 `~/.jarvis/config.json` if needed.
 
+### `jarvis review` workflow
+
+`jarvis review <worktree-name>` runs inside an existing patch worktree at
+`.worktree/<worktree-name>/` and performs one harness-controlled pass:
+
+1. Require a clean starting worktree and an open PR for the current branch.
+2. Collect actionable open feedback (unresolved inline threads + eligible
+   top-level PR comments for the current review round).
+3. Build a review prompt and run agents in `modes.patch.agentOrder` fallback
+   order.
+4. If an agent succeeds and files changed, create one harness commit with the
+   fixed message `address PR review comments` and push it.
+
+Current non-goals in v1: auto-resolving review threads, posting GitHub replies,
+or editing PR metadata.
+
 ## Configuration
 
 Jarvis state lives under `~/.jarvis/`:

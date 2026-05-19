@@ -9,7 +9,9 @@ Authoritative behavior lives in [plan-mode.md](./plan-mode.md) and
 
 `jarvis review <worktree-name>` runs one patch-mode agent pass against
 actionable open PR feedback (unresolved inline review threads plus top-level
-review-round comments), then returns control to the harness for commit/push.
+review-round comments). The target patch worktree must start clean; on success
+the harness creates one commit (`address PR review comments`) and pushes it.
+v1 does not auto-resolve threads, post replies, or edit PR metadata.
 
 ## Legend
 

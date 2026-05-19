@@ -13,6 +13,7 @@ import { join } from "node:path";
 import {
   appendBoundaryBlocker,
   assertPlanWriteBoundary,
+  assertTargetRepoPlanBoundary,
   revertPaths,
 } from "../../../src/modes/plan/boundary.ts";
 
@@ -194,11 +195,23 @@ describe("boundary", () => {
     expect(content).toBe("old content\n");
   });
 
+  test("assertTargetRepoPlanBoundary flags changes under spec/", () => {
+    mkdirSync(join(repoDir, "spec", "other"), { recursive: true });
+    writeFileSync(join(repoDir, "spec", "other", "intent.md"), "x\n", "utf8");
+    const result = assertTargetRepoPlanBoundary(repoDir);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.offendingPaths.some((p) => p.startsWith("spec/"))).toBe(
+        true,
+      );
+    }
+  });
+
   test("appendBoundaryBlocker adds blocker section to intent.md", () => {
     const intentPath = join(repoDir, "spec", specName, "intent.md");
     const offendingPaths = ["src/main.ts", "README.md"];
 
-    appendBoundaryBlocker(repoDir, specName, offendingPaths);
+    appendBoundaryBlocker(join(repoDir, "spec", specName), specName, offendingPaths);
 
     const content = readFileSync(intentPath, "utf8");
     expect(content).toContain("## Blocker");
@@ -213,7 +226,7 @@ describe("boundary", () => {
     writeFileSync(intentPath, `# Intent\n\n${oldBlocker}`, "utf8");
 
     const offendingPaths = ["src/main.ts"];
-    appendBoundaryBlocker(repoDir, specName, offendingPaths);
+    appendBoundaryBlocker(join(repoDir, "spec", specName), specName, offendingPaths);
 
     const content = readFileSync(intentPath, "utf8");
     expect(content).not.toContain("Old blocker content");

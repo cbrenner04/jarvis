@@ -59,6 +59,45 @@ export function assertPlanWriteBoundary(
 }
 
 /**
+ * For no-commit plan runs: ensure the target repo checkout was not modified
+ * under `spec/` while the agent worked in Jarvis-owned external storage.
+ */
+export function assertTargetRepoPlanBoundary(
+  projectRoot: string,
+): BoundaryCheckResult {
+  let output: string;
+  try {
+    output = execFileSync("git", ["status", "--porcelain=v1", "-z"], {
+      cwd: projectRoot,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+  } catch (_err) {
+    return { ok: false, offendingPaths: ["(git status failed)"] };
+  }
+
+  if (!output) {
+    return { ok: true };
+  }
+
+  const records = output.split("\0").filter((r) => r.length > 0);
+  const offendingPaths: string[] = [];
+
+  for (const record of records) {
+    const path = record.slice(3);
+    if (path.startsWith("spec/")) {
+      offendingPaths.push(path);
+    }
+  }
+
+  if (offendingPaths.length === 0) {
+    return { ok: true };
+  }
+
+  return { ok: false, offendingPaths };
+}
+
+/**
  * Revert modified files by path using `git checkout --`.
  */
 export function revertPaths(worktreePath: string, paths: string[]): void {
@@ -83,11 +122,11 @@ export function revertPaths(worktreePath: string, paths: string[]): void {
  * Append a blocker section to intent.md describing the out-of-bounds write violation.
  */
 export function appendBoundaryBlocker(
-  worktreePath: string,
+  specDirPath: string,
   specDirBasename: string,
   offendingPaths: string[],
 ): void {
-  const intentPath = join(worktreePath, "spec", specDirBasename, "intent.md");
+  const intentPath = join(specDirPath, "intent.md");
 
   const pathList = offendingPaths.map((p) => `  - \`${p}\``).join("\n");
   const blockerSection = `## Blocker

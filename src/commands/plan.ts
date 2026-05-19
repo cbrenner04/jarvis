@@ -21,6 +21,7 @@ import { enterMode } from "../mode-entry.ts";
 import {
   appendBoundaryBlocker,
   assertPlanWriteBoundary,
+  assertTargetRepoPlanBoundary,
   revertPaths,
 } from "../modes/plan/boundary.ts";
 import {
@@ -50,6 +51,10 @@ import {
   formatPlanSpecTimestamp,
   stripPlanSpecTimestampPrefix,
 } from "../modes/plan/spec-paths.ts";
+import {
+  hasSpecDirChanges,
+  snapshotSpecDirFiles,
+} from "../modes/plan/spec-dir.ts";
 import { ensureDraftPr, renderAttribution, updatePrBody } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import type { resolveTargetRepo } from "../repo.ts";
@@ -661,8 +666,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               agentLabel: refineResult.agentLabel ?? "unknown",
               reason: firstNonEmptyLine(refineResult.blocker),
               specFilesCount: countSpecFiles(
-                resume.worktreePath,
-                resume.specDirBasename,
+                join(
+                  resume.worktreePath,
+                  "spec",
+                  resume.specDirBasename,
+                ),
               ),
               subjectSuffix: suffix,
             });
@@ -757,8 +765,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             agentLabel: result.agentLabel ?? "unknown",
             reason: firstNonEmptyLine(validation.blocker),
             specFilesCount: countSpecFiles(
-              resume.worktreePath,
-              resume.specDirBasename,
+              join(resume.worktreePath, "spec", resume.specDirBasename),
             ),
             subjectSuffix: suffix,
           });
@@ -1285,17 +1292,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       let draftSpecFilesCount = 0;
       try {
         // Read intent.md before the draft phase
-        const intentPath = join(
-          worktreePath,
-          "spec",
-          specDirBasename,
-          "intent.md",
-        );
+        const intentPath = join(finalSpecPath, "intent.md");
         const intentBefore = readFileSync(intentPath, "utf8");
 
         draftResult = await runDraftPhase({
           worktreePath,
           name: specDirBasename,
+          ...(commit
+            ? {}
+            : { specDirPath: finalSpecPath, agentCwd: finalSpecPath }),
           config: cfg,
           intentBefore,
           stderr: opts.io.stderr,
@@ -1336,6 +1341,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath,
           specDirBasename,
           intentBefore,
+          finalSpecPath,
         );
         if (!validation.valid) {
           opts.io.stderr(
@@ -1358,6 +1364,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
 
         opts.io.stderr(`plan: draft phase completed\n`);
+        if (commit === false) {
+          injectRepoLineIntoIndex(finalSpecPath, project);
+        }
       } catch (err) {
         opts.io.stderr(`plan: draft phase error: ${(err as Error).message}\n`);
         summarizePlan("error", specDirBasename);
@@ -1369,17 +1378,18 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const planBranch = `plan/${planName}`;
 
       // Check boundary before draft commit
-      const boundaryCheck = assertPlanWriteBoundary(
-        worktreePath,
-        specDirBasename,
-      );
+      const boundaryCheck = commit
+        ? assertPlanWriteBoundary(worktreePath, specDirBasename)
+        : assertTargetRepoPlanBoundary(project.root);
       if (!boundaryCheck.ok) {
         opts.io.stderr(
           `plan: boundary violation detected before draft commit\n`,
         );
-        revertPaths(worktreePath, boundaryCheck.offendingPaths);
+        if (commit) {
+          revertPaths(worktreePath, boundaryCheck.offendingPaths);
+        }
         appendBoundaryBlocker(
-          worktreePath,
+          finalSpecPath,
           specDirBasename,
           boundaryCheck.offendingPaths,
         );
@@ -1537,18 +1547,19 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
         try {
           // Read intent.md before the pass so we can validate it wasn't modified
-          const intentPath = join(
-            worktreePath,
-            "spec",
-            specDirBasename,
-            "intent.md",
-          );
+          const intentPath = join(finalSpecPath, "intent.md");
           const intentBefore = readFileSync(intentPath, "utf8");
+          const specSnapshotBefore = commit
+            ? null
+            : snapshotSpecDirFiles(finalSpecPath);
 
           // Run the review pass
           const reviewResult = await runReviewPass({
             worktreePath,
             name: specDirBasename,
+            ...(commit
+              ? {}
+              : { specDirPath: finalSpecPath, agentCwd: finalSpecPath }),
             config: cfg,
             passNumber: pass,
             totalPasses: reviewPasses,
@@ -1591,7 +1602,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
 
           // Check if the pass produced changes
-          if (!hasWorkingTreeChanges(worktreePath)) {
+          const passHasChanges = commit
+            ? hasWorkingTreeChanges(worktreePath)
+            : specSnapshotBefore !== null &&
+              hasSpecDirChanges(finalSpecPath, specSnapshotBefore);
+          if (!passHasChanges) {
             opts.io.stderr(
               `plan: review pass ${pass} made no changes; skipping commit\n`,
             );
@@ -1603,6 +1618,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             worktreePath,
             specDirBasename,
             intentBefore,
+            finalSpecPath,
           );
           if (!validation.valid) {
             opts.io.stderr(
@@ -1615,17 +1631,18 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           // Check if a blocker was raised
           if (validation.blocker !== undefined) {
             // Check boundary before blocker commit
-            const boundaryCheck = assertPlanWriteBoundary(
-              worktreePath,
-              specDirBasename,
-            );
+            const boundaryCheck = commit
+              ? assertPlanWriteBoundary(worktreePath, specDirBasename)
+              : assertTargetRepoPlanBoundary(project.root);
             if (!boundaryCheck.ok) {
               opts.io.stderr(
                 `plan: boundary violation detected before review blocker commit\n`,
               );
-              revertPaths(worktreePath, boundaryCheck.offendingPaths);
+              if (commit) {
+                revertPaths(worktreePath, boundaryCheck.offendingPaths);
+              }
               appendBoundaryBlocker(
-                worktreePath,
+                finalSpecPath,
                 specDirBasename,
                 boundaryCheck.offendingPaths,
               );
@@ -1641,10 +1658,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                     specDirBasename,
                     agentLabel,
                     reason: "write boundary violation",
-                    specFilesCount: countSpecFiles(
-                      worktreePath as string,
-                      specDirBasename,
-                    ),
+                    specFilesCount: countSpecFiles(finalSpecPath),
                   });
                   opts.io.stderr(`plan: blocker commit pushed\n`);
 
@@ -1672,10 +1686,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               try {
                 const agentLabel = reviewResult.agentLabel ?? "unknown";
                 const reason = firstNonEmptyLine(validation.blocker);
-                const specFilesCount = countSpecFiles(
-                  worktreePath as string,
-                  specDirBasename,
-                );
+                const specFilesCount = countSpecFiles(finalSpecPath);
 
                 commitPlanBlocker({
                   worktreePath: worktreePath as string,
@@ -1710,17 +1721,18 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
 
           // Check boundary before review commit
-          const boundaryCheck = assertPlanWriteBoundary(
-            worktreePath,
-            specDirBasename,
-          );
+          const boundaryCheck = commit
+            ? assertPlanWriteBoundary(worktreePath, specDirBasename)
+            : assertTargetRepoPlanBoundary(project.root);
           if (!boundaryCheck.ok) {
             opts.io.stderr(
               `plan: boundary violation detected before review commit\n`,
             );
-            revertPaths(worktreePath, boundaryCheck.offendingPaths);
+            if (commit) {
+              revertPaths(worktreePath, boundaryCheck.offendingPaths);
+            }
             appendBoundaryBlocker(
-              worktreePath,
+              finalSpecPath,
               specDirBasename,
               boundaryCheck.offendingPaths,
             );
@@ -1736,10 +1748,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   specDirBasename,
                   agentLabel,
                   reason: "write boundary violation",
-                  specFilesCount: countSpecFiles(
-                    worktreePath as string,
-                    specDirBasename,
-                  ),
+                  specFilesCount: countSpecFiles(finalSpecPath),
                 });
                 opts.io.stderr(`plan: blocker commit pushed\n`);
 
@@ -1983,15 +1992,13 @@ function firstNonEmptyLine(text: string): string {
   return "";
 }
 
-/** Count subspec files under `spec/<name>/` matching the `NN-*.md` shape. */
-function countSpecFiles(worktreePath: string, name: string): number {
-  const specDir = join(worktreePath, "spec", name);
-  if (!existsSync(specDir)) {
+/** Count subspec files under a spec directory matching the `NN-*.md` shape. */
+function countSpecFiles(specDirPath: string): number {
+  if (!existsSync(specDirPath)) {
     return 0;
   }
-  // Lazy import to avoid pulling fs at module top for a single helper.
   const { readdirSync } = require("node:fs") as typeof import("node:fs");
-  return readdirSync(specDir).filter((f) => /^\d{2}-.*\.md$/.test(f)).length;
+  return readdirSync(specDirPath).filter((f) => /^\d{2}-.*\.md$/.test(f)).length;
 }
 
 /**

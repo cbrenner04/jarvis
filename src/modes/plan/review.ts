@@ -11,6 +11,7 @@ import { PlaceholderCollisionError } from "./draft.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
+import { resolvePlanSpecDirPath } from "./spec-dir.ts";
 
 const PLACEHOLDER_TOKENS = [
   "<INTENT>",
@@ -37,6 +38,8 @@ function validatePlaceholders(
 export type ReviewPhaseOptions = {
   worktreePath: string;
   name: string;
+  specDirPath?: string;
+  agentCwd?: string;
   config: Config;
   passNumber?: number;
   totalPasses?: number;
@@ -54,6 +57,8 @@ export function buildReviewPrompt(opts: {
   currentSpec: string;
   passNumber?: number;
   totalPasses?: number;
+  flatSpecLayout?: boolean;
+  workDirLabel?: string;
 }): string {
   const passNumber = opts.passNumber ?? 1;
   const totalPasses = opts.totalPasses ?? 1;
@@ -77,12 +82,20 @@ export function buildReviewPrompt(opts: {
   const promptFile = join(import.meta.dir, "prompts", "review.md");
   let template = readFileSync(promptFile, "utf8");
 
-  template = template.replaceAll("<WORKDIR>", opts.name);
+  const workDir = opts.workDirLabel ?? opts.name;
+  template = template.replaceAll("<WORKDIR>", workDir);
   template = template.replaceAll("<NAME>", opts.name);
   template = template.replaceAll("<INTENT>", opts.intent);
   template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
   template = template.replaceAll("<CURRENT_SPEC>", opts.currentSpec);
   template = template.replaceAll("<REVIEW_PASS_CONTEXT>", reviewPassContext);
+
+  if (opts.flatSpecLayout) {
+    template = template.replaceAll(
+      "spec/<NAME>/intent.md",
+      "intent.md",
+    );
+  }
 
   return template;
 }
@@ -90,8 +103,12 @@ export function buildReviewPrompt(opts: {
 /**
  * Snapshot all current spec files into a string for prompt injection.
  */
-export function snapshotSpecFiles(worktreePath: string, name: string): string {
-  const specDir = join(worktreePath, "spec", name);
+export function snapshotSpecFiles(
+  worktreePath: string,
+  name: string,
+  specDirPath?: string,
+): string {
+  const specDir = resolvePlanSpecDirPath(worktreePath, name, specDirPath);
   if (!existsSync(specDir)) {
     return "(spec directory does not exist)";
   }
@@ -121,8 +138,16 @@ export function snapshotSpecFiles(worktreePath: string, name: string): string {
 export async function runReviewPass(
   opts: ReviewPhaseOptions,
 ): Promise<{ result: AgentResult; agentLabel: string | null }> {
+  const specDirPath = resolvePlanSpecDirPath(
+    opts.worktreePath,
+    opts.name,
+    opts.specDirPath,
+  );
+  const flatSpecLayout = opts.specDirPath !== undefined;
+  const agentCwd = opts.agentCwd ?? opts.worktreePath;
+
   // Read intent.md
-  const intentPath = join(opts.worktreePath, "spec", opts.name, "intent.md");
+  const intentPath = join(specDirPath, "intent.md");
   const intent = readFileSync(intentPath, "utf8");
 
   // Read spec guidance from the main checkout
@@ -137,7 +162,11 @@ export async function runReviewPass(
   const specGuidance = readFileSync(docsPath, "utf8");
 
   // Snapshot all current spec files
-  const currentSpec = snapshotSpecFiles(opts.worktreePath, opts.name);
+  const currentSpec = snapshotSpecFiles(
+    opts.worktreePath,
+    opts.name,
+    opts.specDirPath,
+  );
 
   // Build the prompt
   let prompt: string;
@@ -149,11 +178,16 @@ export async function runReviewPass(
       currentSpec: string;
       passNumber?: number;
       totalPasses?: number;
+      flatSpecLayout?: boolean;
+      workDirLabel?: string;
     } = {
       name: opts.name,
       intent,
       specGuidance,
       currentSpec,
+      ...(flatSpecLayout
+        ? { flatSpecLayout: true, workDirLabel: specDirPath }
+        : {}),
     };
     if (opts.passNumber !== undefined) {
       promptOpts.passNumber = opts.passNumber;
@@ -188,7 +222,7 @@ export async function runReviewPass(
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();
     const spawnResult = await agent.run(prompt, {
-      cwd: opts.worktreePath,
+      cwd: agentCwd,
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
@@ -314,8 +348,9 @@ export function validateReviewOutput(
   worktreePath: string,
   name: string,
   intentBefore: string,
+  specDirPath?: string,
 ): { valid: boolean; error: string | null; blocker?: string | undefined } {
-  const specDir = join(worktreePath, "spec", name);
+  const specDir = resolvePlanSpecDirPath(worktreePath, name, specDirPath);
   const indexPath = join(specDir, "index.md");
   const intentPath = join(specDir, "intent.md");
 

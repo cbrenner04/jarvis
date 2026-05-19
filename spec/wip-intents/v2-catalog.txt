@@ -6,6 +6,7 @@ How the catalog is produced:
 - Read v1 source exhaustively — every CLI entrypoint, every command/mode, every config path, every agent adapter, every workflow. Do not rely on `--help` output or the README; those will miss undocumented behaviors. Source is the source of truth.
 - Produce a first draft as one document. Split into multiple files only if it gets unwieldy (rough threshold: ~500 lines or harder to navigate than to read top-to-bottom).
 - When ambiguity comes up (something surprising, possibly unintentional, or where source alone can't tell you whether a behavior is wanted), accumulate the question rather than guessing. Don't dump every question at once. Group a handful, ask, apply the answers, move on. The drafting process is a slow back-and-forth, not a write-then-review.
+- Open the catalog as a draft PR and use PR review comments as the iteration cycle. The first draft does not need to be perfect; it needs to be reviewable and structured so line comments can refine behavior descriptions, mark unclear/vestigial behaviors, and add missing workflows.
 
 What "behavior" means for this catalog:
 - Every CLI command and meaningful subcommand / flag.
@@ -14,6 +15,7 @@ What "behavior" means for this catalog:
 - Every config knob that observably changes behavior.
 - Every implicit behavior worth calling out (default model selection, quota detection, completion detection, ready-check gating, dirty-status handling, etc.).
 - The shape of `jarvis plan` itself: refine for N rounds, draft, review for N rounds. The *behavior* of the planning loop is in scope and v2 must preserve it; the *implementation* of that loop is expected to change. Catalog the behavior, not the implementation.
+- Prompt effects are in scope only at the behavior level. For example, catalog that patch mode asks an agent to inspect repo guidance, read the spec, follow Jarvis rules, and complete one task. Do not catalog the exact prompt strings here.
 
 What the doc should look like (rough shape, to be refined):
 - Grouped by area (commands / modes / config / agents / workflows / side effects), not flat.
@@ -25,9 +27,9 @@ Out of scope:
 - Deep technical specs per behavior (those happen later, per v2 build intent).
 - Deciding what to keep vs. drop — the catalog only flags candidates; review is a separate pass we'll do together.
 - Implementation references (file paths, function names). The catalog is about user-observable behavior, not v1's code structure.
+- Exact prompt inventory, prompt extraction, or prompt reuse design. That needs its own intent because prompts are part of the "English is code" architecture question, not just behavior cataloging. See `v2-prompts.txt`.
 - Any v2 design decisions.
 
-Open questions the refine turns should resolve:
-- What's the review handoff — does the catalog get a PR for line-by-line comment, or a working session, or both?
-- How do we keep the catalog in sync if v1 gets a bug fix during v2 development?
-- Should prompts (the actual prompt strings v1 builds and sends) be cataloged here, or treated separately given the "English is code" framing and the open question about extracting prompts to a shared location? (See `v2-vision.md` → Open questions (prompts).)
+Maintenance requirement:
+
+- While v1 remains active during v2 development, any v1 bug fix or behavior change should update `v2/spec/v1-behaviors.md` when the user-observable behavior changes. Treat that as a top-level requirement for future v1 work. If the work is being run through Jarvis, this requirement should live in the relevant Jarvis prompt/rules so the implementing agent sees it automatically; if the work is manual, the PR author owns the catalog update.

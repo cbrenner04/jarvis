@@ -1,15 +1,27 @@
-Rename the v1 binary from `jarvis` to `jarvis1`, and reserve `jarvis` for v2. After this intent lands, v1 continues to run exactly as today but is invoked as `jarvis1`; the name `jarvis` is unowned (or stubbed) until v2 starts implementing behaviors against it. This is step 2 of the v2 rollout — see `v2-vision.md`. Depends on the v1/v2 repo split (`v2.txt`) having landed first.
+Rename the v1 command from `jarvis` to `jarvis1`, and reserve the bare `jarvis` command for v2. After this intent lands, v1 continues to run exactly as today but is invoked as `jarvis1`; the name `jarvis` is unowned until v2 starts implementing behaviors against it. This is step 2 of the v2 rollout — see `v2-vision.md`. Depends on the v1/v2 repo split (`v2.txt`) having landed first.
 
-Goal: a user with both versions installed can type `jarvis1 plan ...` and get today's reliable behavior, while `jarvis` is free for the v2 binary to take over as it gets built. The rename is the deliberate user-facing moment where v1 stops owning the bare `jarvis` name; everything else about v1 stays identical.
+Goal: a user with both versions installed can type `jarvis1 plan ...` and get today's reliable behavior, while `jarvis` is free for the v2 command to take over as it gets built. The rename is the deliberate user-facing moment where v1 stops owning the bare `jarvis` command name; everything else about v1 stays identical.
 
 What needs to happen, at a high level:
-- The v1 binary entry resolves as `jarvis1`, not `jarvis`.
-- Internal v1 code that refers to the binary name by string (help text, error messages, log lines, generated configs, install instructions) updates to `jarvis1`.
+- The v1 binary entry resolves as `jarvis1`, not `jarvis`. After the split, this means the relevant package `bin` entry maps `"jarvis1"` to the v1 shim, and the root/v1 shim path is named or linked so symlink-based installs can target it directly.
+- Remove the old v1-owned `jarvis` binary entry. Do not leave a compatibility alias from `jarvis` to v1.
+- Internal v1 code that refers to the command name by string updates to `jarvis1`: help text, error prefixes, actionable command suggestions, log-server startup text, generated next-step output, tests that assert command text, and install instructions.
 - README and install docs document the rename and the rationale (coexistence with v2). Install is symlink-based on the two machines that run jarvis; no package-manager release work is involved.
 - The name `jarvis` is reserved for v2 and left unowned until v2 ships a real binary. No stub.
 - CI adjusts to the new binary name where needed.
 - No behavior changes inside v1 beyond the name.
 
-Open questions the refine turns should resolve:
-- Are there config files, lockfile entries, generated artifacts, or in-tree references that bake the binary name in and need to be regenerated/updated as part of this change?
-- Does any v1 code introspect its own invocation name (`argv[0]`) and behave differently based on it? If so, those branches need auditing.
+Audit findings and decisions:
+
+- The package metadata currently bakes in the binary name through `package.json` (`bin: { "jarvis": "bin/jarvis" }`) and `bun.lock` mirrors the package name. This change must update package metadata and refresh the lockfile if Bun changes it.
+- The repository contains many in-tree command references in README/docs/tests/source strings. Update user-facing command invocations from `jarvis ...` to `jarvis1 ...` for v1 behavior. Keep product/name references as "Jarvis" where they describe the project rather than the executable.
+- The current CLI does not meaningfully introspect its executable name. `src/cli.ts` uses `process.argv.slice(2)` only; test fake binaries use `process.argv.slice(2)` to capture adapter argv. There is no known branch on `argv[0]` that changes behavior by invocation name. The implementation should still run a final `process.argv`, `argv[0]`, `argv0`, and `BASH_SOURCE` audit after the split because paths will have moved.
+- Keep stable data namespaces unchanged unless a later v2 intent explicitly changes them. This rename should not move `~/.jarvis`, telemetry paths, session paths, PR narrative markers, git trailers, config keys, or internal protocol markers just because they include the word `jarvis`.
+- Keep repository identity unchanged. Do not rename the git repo, GitHub slug, root project name in prose, or the product title as part of this intent.
+- Generated examples and next-step output are in scope when they tell the user what command to run. For example, plan-mode handoff output should say `jarvis1 run ...` after this change.
+
+Verification:
+
+- Existing v1 gates still pass from the root workspace after the split: `bun run typecheck`, `bun test`, `bun run check`, and `bun run ready`.
+- Manual smoke tests should prove the command boundary: `bin/jarvis1 help` works, `bin/jarvis1 plan --help`/equivalent usage output names `jarvis1`, and `bin/jarvis` is absent or fails because no v2 command exists yet.
+- Include focused tests where practical for the renamed shim/package bin and for generated command suggestions that previously asserted `jarvis ...`.

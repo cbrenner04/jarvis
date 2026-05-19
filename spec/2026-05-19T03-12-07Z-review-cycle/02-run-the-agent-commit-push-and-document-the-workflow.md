@@ -22,6 +22,10 @@ workflow.
   to the clean-start baseline. A clean worktree after the run is a failure:
   print a warning that the agent made no changes and exit non-zero without
   committing.
+- Reuse the same upstream-detection behavior patch mode uses before calling
+  `pushCurrent`.
+  - If the current helper is private to patch mode, extract a shared helper
+    rather than duplicating branch-tracking checks inside review mode.
 - Commit all resulting changes with a fixed harness-authored message:
   `address PR review comments`
   Appending `(PR #<number>)` is optional but the spec does not require it.
@@ -34,6 +38,8 @@ workflow.
   - clean worktree after agent completion
   - commit failure
   - push failure
+- If commit succeeds but push fails, report the failure and stop. Do not try to
+  rewrite or roll back the local commit.
 - Leave thread resolution, comment replies, PR body edits, and any GitHub-side
   acknowledgement out of scope for v1.
 
@@ -44,7 +50,8 @@ workflow.
 - [ ] Track before/after worktree state so review mode can distinguish a
   successful edit from a no-op run.
 - [ ] Stage and commit changed files with the fixed review commit message.
-- [ ] Push the commit with `pushCurrent`, handling first-push cases safely.
+- [ ] Push the commit with `pushCurrent`, handling first-push cases through the
+  same upstream-detection rule patch mode already uses.
 - [ ] Add tests covering: successful run with commit/push, agent no-op failure,
   ordered fallback across agents, agent failure without commit, and push
   failure after a created commit.
@@ -62,7 +69,8 @@ workflow.
 - [ ] When all configured agents fail or exhaust quota, the command exits
   non-zero and does not create a commit.
 - [ ] Push failures surface as non-zero command failures rather than being
-  silently ignored.
+  silently ignored; a failed push after commit creation is reported without
+  attempting rollback.
 - [ ] The command does not resolve review threads, post PR replies, or modify
   PR metadata in v1.
 - [ ] `bun run typecheck` and `bun test` pass after this slice lands.

@@ -6,8 +6,9 @@ repo-local spec directory exists, renames it from `spec/<archive>/` to
 as an uncommitted working-tree change in the main checkout.
 
 Keep this change narrow: after cleanup successfully moves a spec directory,
-commit exactly that move. Do not redesign how cleanup resolves the spec source.
-Do not add timestamped plan-spec lookup or ambiguity handling in this slice.
+commit and push exactly that move. Do not redesign how cleanup resolves the
+spec source. Do not add timestamped plan-spec lookup or ambiguity handling in
+this slice.
 
 The implementation should use the concrete paths from the successful rename as
 the source and destination for staging. That lets cleanup commit the exact spec
@@ -18,7 +19,7 @@ that was moved to `completed` without staging unrelated files in the repo.
 - [ ] After a successful spec archive rename, stage only the moved source and
       destination paths needed to record that rename.
 - [ ] Create a cleanup-owned git commit in the project root for the archived
-      spec move.
+      spec move and push it to the configured remote.
 - [ ] Do not create a commit when no spec directory was moved, the run is
       cancelled, `--dry-run` is used, removal fails, the archive destination
       already exists, or the rename itself fails.
@@ -35,8 +36,8 @@ that was moved to `completed` without staging unrelated files in the repo.
 ## Acceptance criteria
 
 - [x] When `jarvis cleanup` successfully moves `spec/<archive>/` to
-      `spec/completed/<archive>/`, the project repository receives a commit that
-      records that exact move.
+      `spec/completed/<archive>/`, the project repository receives a commit and
+      push that record that exact move.
 - [x] The cleanup commit contains only the archived spec path change; unrelated
       modified or untracked files in the main checkout are not staged or
       committed.
@@ -52,5 +53,5 @@ that was moved to `completed` without staging unrelated files in the repo.
 ## Documentation updates
 
 - [ ] Update cleanup documentation to say that successful in-repo spec archive
-      moves are committed automatically and that the commit is scoped to the
-      moved spec paths.
+      moves are committed and pushed automatically and that the commit is
+      scoped to the moved spec paths.

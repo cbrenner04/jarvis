@@ -93,6 +93,10 @@ function commitArchivedSpecMove(
     cwd: projectRoot,
     stdio: "pipe",
   });
+  execSync("git push", {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
 }
 
 export function cleanupCommand(opts: CleanupCommandOptions): number {

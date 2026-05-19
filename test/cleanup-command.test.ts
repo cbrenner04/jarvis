@@ -142,6 +142,13 @@ describe("cleanupCommand", () => {
         encoding: "utf8",
       }),
     ).toContain("cleanup: archive spec patch-spec");
+    expect(
+      execSync("git rev-parse HEAD origin/main", {
+        cwd: projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      }).trim(),
+    ).toMatch(/^(.*?)\n\1$/);
     const committedRename = execSync(
       "git show --name-status --pretty=format: HEAD",
       {

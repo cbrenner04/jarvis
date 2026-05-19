@@ -1,8 +1,8 @@
 # jarvis
 
-Treat English as code, where a combination of words produces a behavior. To
-make that behavior predictable, compose the words carefully and repeatably.
-Jarvis is that idea, applied.
+_If you treat English as code, where combinations of words produce behavior,
+then predictable behavior depends on composing those words carefully and
+repeatably. Jarvis is that idea applied._
 
 ## Installation
 

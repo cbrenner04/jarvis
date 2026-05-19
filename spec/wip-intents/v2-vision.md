@@ -12,7 +12,7 @@ Jarvis v1 was built rapidly without a plan. It works, but the codebase is out of
 
 ## Core premise
 
-Treat English as code, where a combination of words produces a behavior. To make that behavior predictable, compose the words carefully and repeatably. Jarvis is that idea, applied.
+Jarvis starts from the ethos stated in the [README](../../README.md).
 
 v2 takes the same idea one level up. Instead of just composing prompts, it composes operations (plan, implement, review, and so on) into reliable orchestrations.
 

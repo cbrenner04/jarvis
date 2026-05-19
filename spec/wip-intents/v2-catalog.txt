@@ -29,5 +29,5 @@ Out of scope:
 
 Open questions the refine turns should resolve:
 - What's the review handoff — does the catalog get a PR for line-by-line comment, or a working session, or both?
-- How do we keep the catalog in sync if v1 gets a (rare) bug fix during v2 development?
+- How do we keep the catalog in sync if v1 gets a bug fix during v2 development?
 - Should prompts (the actual prompt strings v1 builds and sends) be cataloged here, or treated separately given the "English is code" framing and the open question about extracting prompts to a shared location? (See `v2-vision.md` → Open questions (prompts).)

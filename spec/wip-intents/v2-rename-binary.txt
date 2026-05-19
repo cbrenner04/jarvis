@@ -10,12 +10,6 @@ What needs to happen, at a high level:
 - CI adjusts to the new binary name where needed.
 - No behavior changes inside v1 beyond the name.
 
-Out of scope:
-- Any v2 implementation. v2 may not have a binary at all yet when this lands.
-- Cataloging v1 behaviors (separate intent).
-- Renaming `run`/`patch` → `implement` (v2-only concern, never happens in v1).
-- Changes to v1's CLI command structure, subcommands, or flags.
-
 Open questions the refine turns should resolve:
 - Are there config files, lockfile entries, generated artifacts, or in-tree references that bake the binary name in and need to be regenerated/updated as part of this change?
 - Does any v1 code introspect its own invocation name (`argv[0]`) and behave differently based on it? If so, those branches need auditing.

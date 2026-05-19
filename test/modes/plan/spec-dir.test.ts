@@ -1,0 +1,122 @@
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { afterEach, describe, expect, test } from "bun:test";
+
+import { buildDraftPrompt } from "../../../src/modes/plan/draft.ts";
+import {
+  hasSpecDirChanges,
+  resolvePlanSpecDirPath,
+  snapshotSpecDirFiles,
+} from "../../../src/modes/plan/spec-dir.ts";
+import {
+  runDraftPhase,
+  validateDraftOutput,
+} from "../../../src/modes/plan/draft.ts";
+import type { AgentName, AgentResult } from "../../../src/agents/types.ts";
+import type { Config } from "../../../src/config.ts";
+
+class FakeAgent {
+  readonly name: AgentName = "claude";
+  constructor(private readonly specDir: string) {}
+  async run(): Promise<AgentResult> {
+    writeFileSync(join(this.specDir, "index.md"), "# Plan\n", "utf8");
+    writeFileSync(
+      join(this.specDir, "00-task.md"),
+      "## Acceptance criteria\n- [ ] x\n",
+      "utf8",
+    );
+    return { kind: "ok", stdout: "", stderr: "" };
+  }
+  attributionLabel(): string {
+    return "fake-claude";
+  }
+}
+
+describe("resolvePlanSpecDirPath", () => {
+  test("defaults to worktree spec layout", () => {
+    expect(resolvePlanSpecDirPath("/repo", "my-plan")).toBe(
+      "/repo/spec/my-plan",
+    );
+  });
+
+  test("uses explicit external path", () => {
+    expect(
+      resolvePlanSpecDirPath("/repo", "my-plan", "/jarvis/specs/my-plan"),
+    ).toBe("/jarvis/specs/my-plan");
+  });
+});
+
+describe("snapshotSpecDirFiles", () => {
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("detects new files in external spec dir", () => {
+    dir = mkdtempSync(join(tmpdir(), "jarvis-spec-dir-"));
+    writeFileSync(join(dir, "intent.md"), "intent\n", "utf8");
+    const before = snapshotSpecDirFiles(dir);
+    writeFileSync(join(dir, "index.md"), "# Plan\n", "utf8");
+    expect(hasSpecDirChanges(dir, before)).toBe(true);
+  });
+});
+
+describe("buildDraftPrompt flat layout", () => {
+  test("uses working-directory write rule for external specs", () => {
+    const prompt = buildDraftPrompt({
+      name: "my-plan",
+      intent: "do thing",
+      specGuidance: "guidance",
+      flatSpecLayout: true,
+      workDirLabel: "/tmp/spec",
+    });
+    expect(prompt).toContain("Only write files in the working directory");
+    expect(prompt).not.toContain("Only write files under `spec/<NAME>/`");
+    expect(prompt).toContain("/tmp/spec");
+  });
+});
+
+describe("runDraftPhase external spec dir", () => {
+  let repoDir: string;
+  let specDir: string;
+
+  afterEach(() => {
+    if (repoDir) {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  test("reads intent and validates output from Jarvis-owned storage", async () => {
+    repoDir = mkdtempSync(join(tmpdir(), "jarvis-plan-ext-"));
+    specDir = join(repoDir, "external-spec");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "intent.md"), "---\nname: my-plan\n---\n", "utf8");
+
+    const config = {
+      modes: {
+        plan: {
+          agentOrder: [{ agent: "claude", model: "sonnet" }],
+        },
+      },
+    } as Config;
+
+    const out = await runDraftPhase({
+      worktreePath: repoDir,
+      name: "my-plan",
+      specDirPath: specDir,
+      agentCwd: specDir,
+      config,
+      createAgent: () => new FakeAgent(specDir),
+    });
+
+    expect(out.result.kind).toBe("ok");
+    expect(out.subspecCount).toBe(1);
+
+    const validation = validateDraftOutput(repoDir, "my-plan", "---\nname: my-plan\n---\n", specDir);
+    expect(validation.valid).toBe(true);
+  });
+});

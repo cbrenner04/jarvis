@@ -9,10 +9,15 @@ import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
+import { resolvePlanSpecDirPath } from "./spec-dir.ts";
 
 export type DraftPhaseOptions = {
   worktreePath: string;
   name: string;
+  /** When set (no-commit external storage), spec files live here instead of `spec/<name>/`. */
+  specDirPath?: string;
+  /** Agent working directory; defaults to `worktreePath`. */
+  agentCwd?: string;
   config: Config;
   intentBefore?: string;
   stderr?: (s: string) => void;
@@ -61,6 +66,9 @@ export function buildDraftPrompt(opts: {
   name: string;
   intent: string;
   specGuidance: string;
+  /** External no-commit layout: files live in the working directory, not `spec/<name>/`. */
+  flatSpecLayout?: boolean;
+  workDirLabel?: string;
 }): string {
   const collisionError = validatePlaceholders({
     name: opts.name,
@@ -74,7 +82,18 @@ export function buildDraftPrompt(opts: {
   const promptFile = join(import.meta.dir, "prompts", "draft.md");
   let template = readFileSync(promptFile, "utf8");
 
-  template = template.replaceAll("<WORKDIR>", opts.name);
+  const workDir = opts.workDirLabel ?? opts.name;
+  if (opts.flatSpecLayout) {
+    template = template.replace(
+      "- **Only write files under `spec/<NAME>/`.**",
+      "- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths.",
+    );
+    template = template.replaceAll(
+      "spec/<NAME>/intent.md",
+      "intent.md",
+    );
+  }
+  template = template.replaceAll("<WORKDIR>", workDir);
   template = template.replaceAll("<NAME>", opts.name);
   template = template.replaceAll("<INTENT>", opts.intent);
   template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
@@ -91,9 +110,18 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
   subspecCount: number | null;
   agentLabel: string | null;
 }> {
+  const specDirPath = resolvePlanSpecDirPath(
+    opts.worktreePath,
+    opts.name,
+    opts.specDirPath,
+  );
+  const flatSpecLayout = opts.specDirPath !== undefined;
+  const agentCwd = opts.agentCwd ?? opts.worktreePath;
+
   // Read intent.md
-  const intentPath = join(opts.worktreePath, "spec", opts.name, "intent.md");
-  const intent = readFileSync(intentPath, "utf8");
+  const intentPath = join(specDirPath, "intent.md");
+  const intent =
+    opts.intentBefore ?? readFileSync(intentPath, "utf8");
 
   // Read spec guidance from the main checkout
   // Note: using import.meta.dir to find our location, then navigate back to docs/
@@ -114,6 +142,9 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       name: opts.name,
       intent,
       specGuidance,
+      ...(flatSpecLayout
+        ? { flatSpecLayout: true, workDirLabel: specDirPath }
+        : {}),
     });
   } catch (err) {
     if (err instanceof PlaceholderCollisionError) {
@@ -143,7 +174,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();
     const spawnResult = await agent.run(prompt, {
-      cwd: opts.worktreePath,
+      cwd: agentCwd,
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
@@ -171,7 +202,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
 
     if (result.kind === "ok") {
       // Success! Count subspecs and return
-      const subspecCount = countSubspecs(opts.worktreePath, opts.name);
+      const subspecCount = countSubspecs(specDirPath);
       return { result, subspecCount, agentLabel };
     }
 
@@ -206,13 +237,12 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
 /**
  * Count the number of subspecs (files matching spec/<name>/NN-*.md).
  */
-function countSubspecs(worktreePath: string, name: string): number {
-  const specDir = join(worktreePath, "spec", name);
-  if (!existsSync(specDir)) {
+function countSubspecs(specDirPath: string): number {
+  if (!existsSync(specDirPath)) {
     return 0;
   }
 
-  const files = readdirSync(specDir);
+  const files = readdirSync(specDirPath);
   return files.filter((f: string) => /^\d{2}-.*\.md$/.test(f)).length;
 }
 
@@ -270,8 +300,9 @@ export function validateDraftOutput(
   worktreePath: string,
   name: string,
   intentBefore?: string,
+  specDirPath?: string,
 ): { valid: boolean; error: string | null; blocker?: string | undefined } {
-  const specDir = join(worktreePath, "spec", name);
+  const specDir = resolvePlanSpecDirPath(worktreePath, name, specDirPath);
 
   // Check index.md exists
   const indexPath = join(specDir, "index.md");

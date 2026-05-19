@@ -1,0 +1,3 @@
+need to add a review cycle to jarvis
+
+pulls the branches PR, addresses comments, commits and pushes - should this be a v2 spec? I could use this today. 

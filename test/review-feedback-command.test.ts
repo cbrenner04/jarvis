@@ -10,7 +10,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult } from "../src/agents/types.ts";
-import { type ReviewIo, reviewFeedbackCommand } from "../src/commands/review-feedback.ts";
+import {
+  type ReviewIo,
+  reviewFeedbackCommand,
+} from "../src/commands/review-feedback.ts";
 import type { Config } from "../src/config.ts";
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 

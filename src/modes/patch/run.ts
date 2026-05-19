@@ -51,6 +51,7 @@ import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import {
   createWorktreeSymlinks,
   ensureWorktree,
+  hasUpstream,
   pushCurrent,
   worktreeCompletionBlocker,
 } from "../../worktree.ts";
@@ -1560,22 +1561,6 @@ function diffAcceptanceCriteria(
     }
   }
   return newlyChecked;
-}
-
-function hasUpstream(cwd: string): boolean {
-  try {
-    execFileSync(
-      "git",
-      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-      {
-        cwd,
-        stdio: "pipe",
-      },
-    );
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function getCurrentBranch(cwd: string): string {

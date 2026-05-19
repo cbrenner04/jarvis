@@ -66,23 +66,23 @@ workflow.
 
 ## Acceptance criteria
 
-- [ ] `jarvis review <worktree-name>` uses `modes.patch.agentOrder` for review
+- [x] `jarvis review <worktree-name>` uses `modes.patch.agentOrder` for review
   execution and preserves ordered fallback semantics.
-- [ ] When an agent succeeds and changes files, Jarvis creates exactly one
+- [x] When an agent succeeds and changes files, Jarvis creates exactly one
   harness-authored commit with the fixed review message and pushes it.
-- [ ] When no file changes exist after the agent run, the command exits
+- [x] When no file changes exist after the agent run, the command exits
   non-zero, prints a no-op warning, and does not create a commit.
-- [ ] When all configured agents fail or exhaust quota, the command exits
+- [x] When all configured agents fail or exhaust quota, the command exits
   non-zero and does not create a commit.
-- [ ] When earlier agents fail or exhaust quota but a later configured agent
+- [x] When earlier agents fail or exhaust quota but a later configured agent
   succeeds, review mode still produces one commit and one push from the
   successful pass.
-- [ ] Push failures surface as non-zero command failures rather than being
+- [x] Push failures surface as non-zero command failures rather than being
   silently ignored; a failed push after commit creation is reported without
   attempting rollback.
-- [ ] The command does not resolve review threads, post PR replies, or modify
+- [x] The command does not resolve review threads, post PR replies, or modify
   PR metadata in v1.
-- [ ] `bun run typecheck` and `bun test` pass after this slice lands.
+- [x] `bun run typecheck` and `bun test` pass after this slice lands.
 
 ## Documentation updates
 

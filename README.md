@@ -143,8 +143,8 @@ jarvis cleanup [--dry-run]
 jarvis triage [worktree-name]
     Inspect dirty or orphaned worktrees and print suggested next moves.
 
-jarvis review <worktree-name>
-    Run one review pass against an existing patch worktree.
+jarvis review-feedback <worktree-name>
+    Address PR review feedback on an existing patch worktree.
 
 jarvis help
     Show CLI usage.
@@ -153,9 +153,9 @@ jarvis help
 Unknown subcommands print usage and exit non-zero. Every invocation bootstraps
 `~/.jarvis/config.json` if needed.
 
-### `jarvis review` workflow
+### `jarvis review-feedback` workflow
 
-`jarvis review <worktree-name>` runs inside an existing patch worktree at
+`jarvis review-feedback <worktree-name>` runs inside an existing patch worktree at
 `.worktree/<worktree-name>/` and performs one harness-controlled pass:
 
 1. Require a clean starting worktree and an open PR for the current branch.

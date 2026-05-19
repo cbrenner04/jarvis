@@ -127,9 +127,9 @@ describe("parseArgs", () => {
     expect(parseArgs(["bogus"])).toEqual({ kind: "unknown", name: "bogus" });
   });
 
-  test("review with worktree name", () => {
-    expect(parseArgs(["review", "my-worktree"])).toEqual({
-      kind: "review",
+  test("review-feedback with worktree name", () => {
+    expect(parseArgs(["review-feedback", "my-worktree"])).toEqual({
+      kind: "review-feedback",
       worktreeName: "my-worktree",
     });
   });
@@ -158,7 +158,7 @@ describe("run", () => {
     expect(out).toContain("init");
     expect(out).toContain("config");
     expect(out).toContain("log-server");
-    expect(out).toContain("review <worktree-name>");
+    expect(out).toContain("review-feedback <worktree-name>");
     expect(out).toContain("plan [--refine-turns <n>]");
     expect(out).toContain("Draft specs via plan mode");
     expect(out).toContain("help");

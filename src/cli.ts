@@ -24,7 +24,7 @@ export type Subcommand =
   | "log-server"
   | "cleanup"
   | "triage"
-  | "review"
+  | "review-feedback"
   | "plan"
   | "prices"
   | "help";
@@ -43,7 +43,7 @@ export type ParsedArgs =
   | { kind: "log-server" }
   | { kind: "cleanup"; dryRun?: boolean }
   | { kind: "triage"; worktreeName?: string }
-  | { kind: "review"; worktreeName?: string }
+  | { kind: "review-feedback"; worktreeName?: string }
   | { kind: "plan"; rest: string[] }
   | { kind: "prices"; rest: string[] }
   | { kind: "unknown"; name: string }
@@ -66,8 +66,8 @@ Commands:
                     Remove merged worktrees.
   triage [worktree-name]
                     Inspect a dirty or orphaned worktree.
-  review <worktree-name>
-                    Run one review pass against an existing patch worktree.
+  review-feedback <worktree-name>
+                    Address PR review feedback on an existing patch worktree.
   plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md).
   prices            View or edit pricing data for cost tracking.
@@ -166,10 +166,10 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       return result;
     }
-    case "review": {
+    case "review-feedback": {
       const worktreeName = rest[0];
-      const result: { kind: "review"; worktreeName?: string } = {
-        kind: "review",
+      const result: { kind: "review-feedback"; worktreeName?: string } = {
+        kind: "review-feedback",
       };
       if (worktreeName !== undefined) {
         result.worktreeName = worktreeName;
@@ -321,10 +321,10 @@ export function run(
       }
       return triageCommand(triageOpts);
     }
-    case "review": {
+    case "review-feedback": {
       const worktreeName = parsed.worktreeName;
       if (worktreeName === undefined || worktreeName.trim() === "") {
-        io.stderr("jarvis: review: missing <worktree-name>\n");
+        io.stderr("jarvis: review-feedback: missing <worktree-name>\n");
         io.stderr(USAGE);
         return 1;
       }

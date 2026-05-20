@@ -43,13 +43,6 @@ Final repo-specific notes for the draft handoff:
 - `commitSubspec` computes the acceptance-criteria commit body and updates `index.md` before it stages or commits anything. The draft does not need to broaden scope into commit-message redesign; it can keep the existing message shape and simply insert the fixer before the final `git add -A` / `git commit` sequence, or explicitly reread files after fixing if it wants commit metadata to reflect post-fix text exactly.
 - Because `check:fix` runs across the worktree root (`package.json` defines it as `biome check --write .`), the draft should state that this change is intentionally repo-wide within the patch worktree, not limited to files already touched in the iteration. That is the tradeoff that prevents late formatter churn on the branch.
 
-## Blocker
+## user review
 
-Review and approve `spec/2026-05-20T06-38-59Z-run-check-fix-before-commit/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis plan --resume-draft spec/2026-05-20T06-38-59Z-run-check-fix-before-commit/intent.md`
+We aren't aligned on the basics. This should only be a change for right before `bun run ready`. That should be it. Just want to fix the `check` before `ready` is run.

@@ -29,6 +29,8 @@ export type AgentRunOptions = {
   cwd: string;
   additionalReadDirs?: string[];
   signal?: AbortSignal;
+  onSpawned?: (child: { pid: number }) => void;
+  abortKillGraceMs?: number;
 };
 
 export interface Agent {

@@ -31,6 +31,9 @@ export function runAgent(
       detached: true,
       stdio: config.stdio,
     });
+    if (child.pid !== undefined) {
+      opts.onSpawned?.({ pid: child.pid });
+    }
 
     // Handle null streams
     const stdin = config.stdio[0] === "pipe" ? child.stdin : null;
@@ -56,6 +59,7 @@ export function runAgent(
     let stdoutEnded = false;
     let stderrEnded = false;
     let childClosed = false;
+    let abortReason: string | null = null;
     let abortTimer: NodeJS.Timeout | null = null;
     const settle = (r: AgentResult) => {
       if (settled) return;
@@ -68,6 +72,16 @@ export function runAgent(
     };
     const checkSettlement = (code?: number | null) => {
       if (settled) return;
+      if (abortReason !== null) {
+        if (childClosed || code !== undefined) {
+          settle({
+            kind: "error",
+            exitCode: -1,
+            stderr: `aborted: ${abortReason}`,
+          });
+        }
+        return;
+      }
       if (stdoutEnded && stderrEnded && (childClosed || code !== undefined)) {
         if (code === 0 || code === undefined) {
           settle({ kind: "ok", stdout: outBuf, stderr: errBuf });
@@ -124,6 +138,7 @@ export function runAgent(
             child.kill("SIGTERM");
           }
           // Keep the abort path bounded even if a descendant ignores SIGTERM.
+          const abortKillGraceMs = opts.abortKillGraceMs ?? 2000;
           abortTimer = setTimeout(() => {
             try {
               process.kill(-pgid, "SIGKILL");
@@ -134,7 +149,7 @@ export function runAgent(
                 // best-effort
               }
             }
-          }, 2000);
+          }, abortKillGraceMs);
           abortTimer.unref();
         } else {
           child.kill("SIGTERM");
@@ -142,11 +157,8 @@ export function runAgent(
         const reason = opts.signal?.reason
           ? String(opts.signal.reason)
           : "aborted";
-        settle({
-          kind: "error",
-          exitCode: -1,
-          stderr: `aborted: ${reason}`,
-        });
+        abortReason = reason;
+        checkSettlement();
       };
       if (opts.signal.aborted) {
         handleAbort();

@@ -3035,6 +3035,121 @@ exit 0
       expect(cap.err()).toContain("exceeded timeout");
     });
 
+    test("watchdog timeout kills SIGTERM-ignoring grandchildren and records pgid telemetry", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const ignoreTermScript = join(projectRoot, "ignore-term.sh");
+      writeFileSync(
+        ignoreTermScript,
+        `#!/usr/bin/env bash
+trap '' TERM
+while true; do :; done
+`,
+      );
+      chmodSync(ignoreTermScript, 0o755);
+      const hangScript = join(projectRoot, "hang-agent.sh");
+      writeFileSync(
+        hangScript,
+        `#!/usr/bin/env bash
+set -euo pipefail
+"$PWD/ignore-term.sh" &
+echo "$!" > "$PWD/hanging-child.pid"
+wait
+`,
+      );
+      chmodSync(hangScript, 0o755);
+
+      class HangingAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: hangScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 200,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const started = Date.now();
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude: new HangingAgent() },
+        handleSignals: false,
+      });
+      const elapsedMs = Date.now() - started;
+
+      expect(code).toBe(8);
+      expect(elapsedMs).toBeLessThanOrEqual(7200);
+      expect(cap.err()).toContain(
+        "[watchdog] iteration timeout fired after 200ms;",
+      );
+
+      const childPid = Number.parseInt(
+        readFileSync(join(projectRoot, "hanging-child.pid"), "utf8").trim(),
+        10,
+      );
+      expect(Number.isFinite(childPid)).toBe(true);
+      let childAlive = true;
+      try {
+        process.kill(childPid, 0);
+      } catch {
+        childAlive = false;
+      }
+      expect(childAlive).toBe(false);
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const timeoutRow = rows.find(
+        (row) =>
+          row.record_role !== "run_terminal" &&
+          row.exit_reason === "watchdog-iteration-timeout",
+      );
+      expect(timeoutRow).toBeDefined();
+      expect(typeof timeoutRow?.watchdog_pgid).toBe("number");
+
+      const sessionsDir = join(cfgDir, "sessions");
+      const sessionFile = readdirSync(sessionsDir)[0];
+      if (sessionFile === undefined) {
+        throw new Error("expected a session log file");
+      }
+      const sessionLog = readFileSync(join(sessionsDir, sessionFile), "utf8");
+      expect(sessionLog).toContain(
+        "[watchdog] iteration timeout fired after 200ms;",
+      );
+    });
+
     test("global run timeout causes exit code 8", async () => {
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();

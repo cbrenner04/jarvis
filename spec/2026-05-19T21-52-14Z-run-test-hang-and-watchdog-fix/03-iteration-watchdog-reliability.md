@@ -75,25 +75,25 @@ Two distinct failure modes are likely in play and both must be addressed:
 
 ## Acceptance criteria
 
-- [ ] Every agent spawn the harness owns runs in its own process group
+- [x] Every agent spawn the harness owns runs in its own process group
   via `detached: true`.
-- [ ] When `iterationTimeoutMs` expires while an agent is running, the
+- [x] When `iterationTimeoutMs` expires while an agent is running, the
   harness SIGTERMs the entire process group, waits up to 5 s, then
   SIGKILLs survivors, and resolves the iteration as a watchdog
   timeout.
-- [ ] A single `[watchdog] iteration timeout fired after Nms; killing
+- [x] A single `[watchdog] iteration timeout fired after Nms; killing
   agent pgid <pgid>` line appears in the session log when the watchdog
   fires.
-- [ ] The iteration's telemetry record in `~/.jarvis/runs.jsonl`
+- [x] The iteration's telemetry record in `~/.jarvis/runs.jsonl`
   reflects the new watchdog-timeout stop reason and the killed pgid.
-- [ ] A new regression test reproduces the SIGTERM-ignoring-grandchild
+- [x] A new regression test reproduces the SIGTERM-ignoring-grandchild
   scenario: the iteration terminates within `iterationTimeoutMs + 7 s`,
   no descendant pid survives, and the expected log line is present.
-- [ ] The test fails on the pre-fix code (current iteration loop) and
+- [x] The test fails on the pre-fix code (current iteration loop) and
   passes on the fixed code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

@@ -18,10 +18,11 @@ Add an opt-in refine-phase gate that intentionally stops a fresh committed plan 
 ## Task Checklist
 
 - Add CLI parsing and fresh-run plumbing for `--require-intent-approval`.
-- Teach the refine loop when the current turn is the last configured refine turn before draft.
+- Teach the refine loop when the current turn is the last configured refine turn before draft on a fresh committed run.
 - Update the refine prompt or prompt inputs so the agent knows that this last turn must leave a review-gate blocker when approval is required, unless it already produced a genuine blocker on its own.
 - Reuse the existing refine blocker exit path so refinement still produces `plan: refine`, then `plan: blocker`, pushes both, opens or updates the draft PR, and exits non-zero.
 - Keep the intent file contract narrow: no new blocker metadata, marker types, or sidecar state.
+- Update `docs/plan-mode.md` so operators can discover the new flag and understand why refinement may now stop before draft.
 
 ## Acceptance criteria
 
@@ -29,8 +30,9 @@ Add an opt-in refine-phase gate that intentionally stops a fresh committed plan 
 - [ ] The blocker body may contain zero guided questions; when there are no open questions it still leaves a clear approval message telling the reviewer that drafting can proceed after the blocker is cleared.
 - [ ] If the final refine turn already appends a genuine `## Blocker` because clarification is actually needed, jarvis reuses that blocker and stop path rather than appending a second approval-only blocker.
 - [ ] Fresh plan runs without `--require-intent-approval` keep the existing refine-to-draft behavior and do not synthesize a blocker solely for approval.
-- [ ] The stop reuses the current refine blocker mechanics on committed runs: `plan: refine` commit first, then `plan: blocker`, existing PR behavior preserved, and no new blocker kind or metadata is introduced.
+- [ ] On committed runs, the stop reuses the current refine blocker mechanics end-to-end: `plan: refine` commits first, `plan: blocker` follows, the existing draft PR is opened or updated before exit, and no new blocker kind or metadata is introduced.
+- [ ] `docs/plan-mode.md` documents `--require-intent-approval` as a refine-phase checkpoint on fresh committed runs rather than as a general blocker feature.
 
 ## Documentation updates
 
-- Document the new `--require-intent-approval` flag and the refine-phase approval checkpoint in `docs/plan-mode.md`.
+- Document the new `--require-intent-approval` flag, the refine-phase approval checkpoint, and the intent-only PR state it produces in `docs/plan-mode.md`.

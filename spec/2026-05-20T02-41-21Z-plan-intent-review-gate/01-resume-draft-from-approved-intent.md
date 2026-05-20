@@ -21,6 +21,7 @@ Add an explicit pre-draft resume entry point that continues an approval-gated co
 - Reject resume when `intent.md` still contains `## Blocker`.
 - Run the normal draft phase, then the configured review passes, against the existing plan branch and PR.
 - Preserve existing commit subjects and PR-body updates: `plan: draft` followed by `plan: review N`, with ready-marking on success.
+- Update `docs/plan-mode.md` so the manual approval step and resume command are documented with the post-refine workflow.
 
 ## Acceptance criteria
 
@@ -29,7 +30,8 @@ Add an explicit pre-draft resume entry point that continues an approval-gated co
 - [ ] `--resume-draft` exits with a clear validation error if `intent.md` still contains `## Blocker`; it does not auto-delete, reinterpret, or bypass the blocker.
 - [ ] After the blocker is cleared, `--resume-draft` runs draft plus the configured review passes, reuses the existing draft PR, and leaves draft/review commit numbering and PR attribution behavior consistent with the current committed plan flow.
 - [ ] Ordinary `--resume spec/<spec-dir>/index.md` behavior is unchanged and does not start accepting `intent.md` or sharing a context-sensitive dispatcher with `--resume-draft`.
+- [ ] CLI-facing help and `docs/plan-mode.md` explain the manual approval step, the `--resume-draft spec/<spec-dir>/intent.md` command, and the first-cut bounds: no typed blockers, no automatic blocker clearing, and no `modes.plan.commit: false` support.
 
 ## Documentation updates
 
-- Document the manual approval step and the `--resume-draft spec/<spec-dir>/intent.md` command in `docs/plan-mode.md`.
+- Document the manual approval step, the `--resume-draft spec/<spec-dir>/intent.md` command, how it differs from ordinary `--resume`, and the first-cut scope limits in `docs/plan-mode.md`.

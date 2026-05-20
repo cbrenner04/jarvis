@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make the approval-gated plan workflow discoverable in CLI help and plan-mode docs, including the new stop point between refinement and drafting.
+Make the approval-gated committed plan workflow discoverable in the user-facing docs, including the new stop point between refinement and drafting and the explicit resume-from-intent path.
 
 ## Decisions
 
@@ -10,10 +10,11 @@ Make the approval-gated plan workflow discoverable in CLI help and plan-mode doc
 - Examples should use the timestamped `spec/<spec-dir>/...` form and show the two-step operator flow:
   `jarvis plan --require-intent-approval ...` then, after editing `intent.md` to clear the blocker, `jarvis plan --resume-draft spec/<spec-dir>/intent.md`.
 - Existing no-blocker and ordinary `--resume` flows should stay documented as separate paths.
+- Flag parsing and command behavior belong to the implementation subspecs; this documentation pass should only cover the user-visible help text and narrative docs those changes expose.
 
 ## Task Checklist
 
-- Update plan command usage/help text to include the new flags.
+- Update the plan command usage/help text produced for users to include the new flags once the implementation exposes them.
 - Update `docs/plan-mode.md` sections covering flags, stop conditions, PR lifecycle, and next steps to explain the approval gate and resume path.
 - Clarify that the draft PR may temporarily contain only `intent.md` plus blocker commits before any `index.md` exists.
 - Clarify that this first cut does not support `modes.plan.commit: false`.

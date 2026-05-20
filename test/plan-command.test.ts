@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  appendPhase0ReviewGateBlocker,
   deriveSpecName,
   PLAN_USAGE,
   parseIntentFrontmatter,
@@ -19,6 +20,7 @@ import {
   renderPlanNextSteps,
   safeMarkPlanPrReady,
   seedIntentFile,
+  shouldStopAfterPhase0Refine,
   validateProposedName,
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";
@@ -1176,6 +1178,66 @@ describe("deriveSpecName", () => {
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toMatch(/^interactive-\d{4}-\d{2}-\d{2}-\d{4}$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("phase-0 intent review gate", () => {
+  test("stops only for fresh committed file-mode runs", () => {
+    expect(
+      shouldStopAfterPhase0Refine({
+        commit: true,
+        mode: "file",
+        resume: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldStopAfterPhase0Refine({
+        commit: true,
+        mode: "inline",
+        resume: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldStopAfterPhase0Refine({
+        commit: true,
+        mode: "interactive",
+        resume: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldStopAfterPhase0Refine({
+        commit: false,
+        mode: "file",
+        resume: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldStopAfterPhase0Refine({
+        commit: true,
+        mode: "file",
+        resume: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("appends a blocker section for intent review with the concrete spec dir", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-phase0-gate-"));
+    try {
+      const intentPath = join(dir, "intent.md");
+      writeFileSync(intentPath, "# Intent\n\nInitial request.\n", "utf8");
+      const out = appendPhase0ReviewGateBlocker(
+        intentPath,
+        "2026-05-20T02-41-21Z-plan-intent-review-gate",
+      );
+      expect(out).toContain("## Blocker");
+      expect(out).toContain(
+        "spec/2026-05-20T02-41-21Z-plan-intent-review-gate/intent.md",
+      );
+      expect(out).toContain("jarvis plan --resume spec/");
+      expect(out).toContain("/index.md");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

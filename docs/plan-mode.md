@@ -135,9 +135,21 @@ Once a name is chosen (with collision suffixing if needed), jarvis stamps the fi
 - Body: starts with **`Spec: spec/<spec-dir>/intent.md`** (example: `Spec: spec/2026-05-17T22-14-03Z-my-plan/intent.md`, or `Spec: spec/my-plan/intent.md` for legacy dirs) so the attribution renderer in `src/pr.ts` recognises it as a meta commit; followed by `Seeded from <intent path or "inline">`.
 - Pushed: immediately after commit.
 
+### Phase 0 Checkpoint (Committed file-path runs)
+
+For fresh `commit: true` file-path runs (`jarvis plan spec/.../intent.md`), jarvis stops after `plan: refine` and appends an intent review `## Blocker`, then commits `plan: blocker` and opens/updates a draft PR that contains only `spec/<spec-dir>/intent.md`. No draft/review agent phases run on this first invocation.
+
+Resume with:
+
+```sh
+jarvis plan --resume spec/<spec-dir>/index.md
+```
+
+Inline one-shot intent drafting (`jarvis plan "inline text"`) does not enter this checkpoint path.
+
 ### Phase 1: Draft
 
-After `plan: refine` is pushed, jarvis invokes an agent with a focused prompt (`src/modes/plan/prompts/draft.md`) that:
+After `plan: refine` is pushed and the Phase 0 checkpoint has been cleared via `--resume`, jarvis invokes an agent with a focused prompt (`src/modes/plan/prompts/draft.md`) that:
 
 - Inlines `intent.md` and `docs/spec-guidance.md`.
 - Asks the agent to read the target repo for context.

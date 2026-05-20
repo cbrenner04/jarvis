@@ -24,6 +24,7 @@ import {
   assertTargetRepoPlanBoundary,
   revertPaths,
 } from "../modes/plan/boundary.ts";
+import { detectBlocker } from "../modes/plan/blocker.ts";
 import {
   commitPlanBlocker,
   commitPlanDraft,
@@ -92,6 +93,16 @@ export const PLAN_USAGE = `Usage: jarvis plan [--refine-turns <n>] [--review-pas
 
 const PLAN_STUB_MESSAGE =
   "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n";
+const PHASE0_REVIEW_GATE_BLOCKER = `## Blocker
+
+Review and approve \`spec/<spec-dir>/intent.md\` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in \`intent.md\`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+\`jarvis plan --resume spec/<spec-dir>/index.md\``;
 
 /** Best-effort harness log for plan setup diagnostics (mirrors patch-mode fanout style). */
 function planHarnessLog(logClient: LogClient, text: string): void {
@@ -454,6 +465,36 @@ export function seedIntentFile(opts: SeedIntentFileOptions): void {
   }
 
   writeFileSync(intentPath, content, "utf8");
+}
+
+export function shouldStopAfterPhase0Refine(opts: {
+  commit: boolean;
+  mode: SeedIntentFileMode;
+  resume: boolean;
+}): boolean {
+  return opts.commit && opts.mode === "file" && !opts.resume;
+}
+
+export function appendPhase0ReviewGateBlocker(
+  intentPath: string,
+  specDirBasename: string,
+): string {
+  const current = readFileSync(intentPath, "utf8").replace(/\r\n/g, "\n");
+  if (detectBlocker(current).hasBlocker) {
+    return current;
+  }
+  const blockerSection = PHASE0_REVIEW_GATE_BLOCKER.replaceAll(
+    "<spec-dir>",
+    specDirBasename,
+  );
+  const withSpacer = current.endsWith("\n\n")
+    ? current
+    : current.endsWith("\n")
+      ? `${current}\n`
+      : `${current}\n\n`;
+  const updated = `${withSpacer}${blockerSection}\n`;
+  writeFileSync(intentPath, updated, "utf8");
+  return updated;
 }
 
 export async function planCommand(opts: PlanCommandOptions): Promise<number> {
@@ -1317,6 +1358,75 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           summarizePlan("error", specDirBasename);
           return 1;
         }
+      }
+
+      if (
+        shouldStopAfterPhase0Refine({
+          commit,
+          mode: inv.mode,
+          resume: inv.resume,
+        })
+      ) {
+        const intentPath = join(finalSpecPath, "intent.md");
+        const gatedIntent = appendPhase0ReviewGateBlocker(
+          intentPath,
+          specDirBasename,
+        );
+        const blockerBody = detectBlocker(gatedIntent).body;
+        const blockerReason =
+          blockerBody !== undefined
+            ? firstNonEmptyLine(blockerBody)
+            : "intent approval required";
+        try {
+          commitPlanBlocker({
+            worktreePath: worktreePath as string,
+            specDirBasename,
+            agentLabel: "operator",
+            reason: blockerReason,
+            specFilesCount: 0,
+          });
+          opts.io.stderr(`plan: blocker commit pushed\n`);
+          const planBranch = `plan/${planName}`;
+          const baseBranch = getCurrentBranch(project.root);
+          const prResult = await ensureDraftPr({
+            branch: planBranch,
+            base: baseBranch,
+            title: `plan: ${planName}`,
+            bodyGenerator: async () =>
+              buildPlanPrHeader({
+                name: planName,
+                specDirBasename,
+                worktreePath: worktreePath as string,
+              }),
+            footer: renderAttribution({
+              cwd: worktreePath as string,
+              base: baseBranch,
+            }),
+            cwd: worktreePath as string,
+          });
+          const prUrl = getPrUrl(worktreePath as string, planBranch);
+          opts.io.stdout(`${prUrl}\n`);
+          opts.io.stderr(`plan: draft PR #${prResult.number} opened\n`);
+          safeUpdatePrBody({
+            io: opts.io,
+            branch: planBranch,
+            base: baseBranch,
+            worktreePath: worktreePath as string,
+            name: planName,
+            specDirBasename,
+          });
+        } catch (err) {
+          opts.io.stderr(`${(err as Error).message}\n`);
+          summarizePlan("error", specDirBasename);
+          return 1;
+        }
+
+        opts.io.stderr(`plan: blocked\n`);
+        if (blockerBody !== undefined) {
+          opts.io.stderr(`\n## Blocker\n\n${blockerBody}\n`);
+        }
+        summarizePlan("blocker", specDirBasename);
+        return 1;
       }
 
       // Run draft phase: invoke agent to generate spec tree

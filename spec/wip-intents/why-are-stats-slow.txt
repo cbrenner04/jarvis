@@ -1,0 +1,1 @@
+There is a huge delay between finishing plan mode and getting the plan summary. What gives?

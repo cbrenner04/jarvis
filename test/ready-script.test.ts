@@ -144,7 +144,7 @@ console.log(code);
     expect(output).toBe("0");
   });
 
-  test("check:fix runs before bun install in command sequence", () => {
+  test("bun install runs before check:fix in command sequence", () => {
     const _result = spawnSync(
       "bun",
       [
@@ -174,7 +174,8 @@ console.log("command-order-test");
     const readFileSync = require("node:fs").readFileSync;
     const readySource = readFileSync("./scripts/ready.ts", "utf8");
 
-    // Verify check:fix appears before install in the commands array
+    // Verify install appears before check:fix in the commands array (check:fix
+    // depends on @biomejs/biome being installed in node_modules).
     const checkFixIndex = readySource.indexOf(
       '{ name: "bun", args: ["run", "check:fix"]',
     );
@@ -184,11 +185,12 @@ console.log("command-order-test");
 
     expect(checkFixIndex).toBeGreaterThan(0);
     expect(installIndex).toBeGreaterThan(0);
-    expect(checkFixIndex).toBeLessThan(installIndex);
+    expect(installIndex).toBeLessThan(checkFixIndex);
   });
 
-  test("when check:fix exits non-zero, ready script exits without running install", () => {
-    // Create a test that verifies check:fix failure exits early
+  test("when check:fix exits non-zero, ready script exits without running subsequent commands", () => {
+    // Create a test that verifies check:fix failure exits early (typecheck,
+    // test, and check would not run).
     // We do this by creating a minimal mock environment
     const result = spawnSync(
       "bun",

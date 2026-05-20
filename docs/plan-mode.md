@@ -405,8 +405,9 @@ After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the 
 
 Like patch mode, plan mode invokes `bun run ready` automatically once every
 scripted phase succeeds (no blocker). The readiness transition begins with
-`bun run check:fix` (Biome's safe format and lint-rule fixer) as its first step,
-which may rewrite files before `install → typecheck → test → check` proceeds.
+`bun install --frozen-lockfile` so Biome is available, then runs
+`bun run check:fix` (Biome's safe format and lint-rule fixer) as the second
+step — which may rewrite files — before `typecheck → test → check` proceeds.
 If `check:fix` or any later step fails, the PR remains in draft. That readiness
 transition stays **outside** stdout: **Next steps** never instruct you to mark
 the draft ready manually. Encountering a blocker leaves the GitHub PR in draft

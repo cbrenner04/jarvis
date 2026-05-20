@@ -90,8 +90,8 @@ export async function runReady(): Promise<void> {
   const startTime = Date.now();
 
   const commands = [
-    { name: "bun", args: ["run", "check:fix"] },
     { name: "bun", args: ["install", "--frozen-lockfile"] },
+    { name: "bun", args: ["run", "check:fix"] },
     { name: "bun", args: ["run", "typecheck"] },
     { name: "bun", args: ["run", "test"] },
     { name: "bun", args: ["run", "check"] },

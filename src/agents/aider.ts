@@ -2,6 +2,10 @@
 // Aider runs non-interactively with --yes-always; auto-commits are disabled so
 // jarvis remains the sole committer in the worktree.
 import { runAgent } from "./spawn.ts";
+import {
+  estimateTokenUsage,
+  type EstimatedTokenUsage,
+} from "./token-estimation.ts";
 import type {
   Agent,
   AgentName,
@@ -12,6 +16,10 @@ import type {
 export type AiderAgentOptions = {
   binary?: string;
   model: string;
+  estimateUsage?: (args: {
+    prompt: string;
+    stdout: string;
+  }) => EstimatedTokenUsage | null;
 };
 
 const AIDER_MODEL_LABELS: Record<string, string> = {};
@@ -28,10 +36,15 @@ export class AiderAgent implements Agent {
   readonly name = "aider" as AgentName;
   readonly #binary: string;
   readonly #model: string;
+  readonly #estimateUsage: (args: {
+    prompt: string;
+    stdout: string;
+  }) => EstimatedTokenUsage | null;
 
   constructor(opts: AiderAgentOptions) {
     this.#binary = opts.binary ?? "aider";
     this.#model = opts.model;
+    this.#estimateUsage = opts.estimateUsage ?? estimateTokenUsage;
   }
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
@@ -67,10 +80,26 @@ export class AiderAgent implements Agent {
       return result;
     }
 
+    const estimated = this.#estimateUsage({
+      prompt,
+      stdout: result.stdout,
+    });
+    if (estimated === null) {
+      return {
+        ...result,
+        usage_source: "unavailable",
+        cost_source: "no-usage",
+        warnings: [
+          ...(result.warnings ?? []),
+          "aider: token estimator unavailable; usage recorded as unavailable.",
+        ],
+      };
+    }
+
     return {
       ...result,
-      usage_source: "unavailable",
-      cost_source: "no-usage",
+      usage: estimated,
+      usage_source: "estimated",
     };
   }
 

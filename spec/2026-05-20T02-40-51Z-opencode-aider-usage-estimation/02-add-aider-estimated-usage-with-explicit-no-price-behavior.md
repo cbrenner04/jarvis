@@ -26,10 +26,10 @@
 
 ## Acceptance criteria
 
-- [ ] Successful aider runs estimate tokens from prompt and stdout, attach those counts to the agent result, and return `usage_source: "estimated"`.
-- [ ] `resolveAiderPriceKey` still returns `null`, so the change does not imply hosted-model billing support for aider.
-- [ ] Downstream usage/cost enrichment records `cost_source: "no-price"` for estimated aider usage because aider still has no price key mapping.
-- [ ] No stdout parsing is introduced for aider token or cost lines.
-- [ ] If estimation fails, aider still returns a successful agent result with `usage_source: "unavailable"`, `cost_source: "no-usage"`, and exactly one warning explaining the fallback.
-- [ ] No new one-time run-loop notice is introduced for normal aider success.
-- [ ] Regression coverage proves the aider success path, estimator-failure warning fallback, and the downstream `no-price` outcome introduced by keeping aider price-key resolution disabled.
+- [x] Successful aider runs estimate tokens from prompt and stdout, attach those counts to the agent result, and return `usage_source: "estimated"`.
+- [x] `resolveAiderPriceKey` still returns `null`, so the change does not imply hosted-model billing support for aider.
+- [x] Downstream usage/cost enrichment records `cost_source: "no-price"` for estimated aider usage because aider still has no price key mapping.
+- [x] No stdout parsing is introduced for aider token or cost lines.
+- [x] If estimation fails, aider still returns a successful agent result with `usage_source: "unavailable"`, `cost_source: "no-usage"`, and exactly one warning explaining the fallback.
+- [x] No new one-time run-loop notice is introduced for normal aider success.
+- [x] Regression coverage proves the aider success path, estimator-failure warning fallback, and the downstream `no-price` outcome introduced by keeping aider price-key resolution disabled.

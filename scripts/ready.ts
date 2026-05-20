@@ -91,6 +91,7 @@ export async function runReady(): Promise<void> {
 
   const commands = [
     { name: "bun", args: ["install", "--frozen-lockfile"] },
+    { name: "bun", args: ["run", "check:fix"] },
     { name: "bun", args: ["run", "typecheck"] },
     { name: "bun", args: ["run", "test"] },
     { name: "bun", args: ["run", "check"] },

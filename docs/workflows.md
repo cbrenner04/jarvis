@@ -56,7 +56,7 @@ flowchart TD
     refine --> draft(["Draft index.md + subspecs<br/>(one call)"]):::llm
     draft --> openDraft["Open draft PR"]:::det
     openDraft --> review(["Self-review<br/>loop × --review-passes (default 2)"]):::llm
-    review --> markReady["gh pr ready (auto)"]:::det
+     review --> markReady["bun run ready (install → check:fix →<br/>typecheck → test → check)<br/>then gh pr ready (auto)"]:::det
   end
 
   markReady --> handoff["Human reviews + merges plan PR to main"]:::det
@@ -69,7 +69,7 @@ flowchart TD
     iterLoop -- yes --> agentCall(["Agent edits files,<br/>ticks acceptance criteria"]):::llm
     agentCall --> commit["Commit subspec progress · push<br/>ensure / update draft PR"]:::det
     commit --> iterLoop
-    iterLoop -- no --> patchReady["Mark PR ready"]:::det
+    iterLoop -- no -->    patchReady["bun run ready: install → check:fix →<br/>typecheck → test → check<br/>then gh pr ready"]:::det
   end
 
   patchReady --> done["Human reviews + merges patch PR"]:::stop
@@ -130,7 +130,7 @@ flowchart TD
   reviewBlk -- no --> commitReview["Commit plan: review k · push<br/>updatePrBody (det)"]:::det
   commitReview --> reviewLoop
 
-  reviewLoop -- no --> ready["gh pr ready (auto)"]:::det
+  reviewLoop -- no -->    ready["bun run ready (install → check:fix →<br/>typecheck → test → check)<br/>then gh pr ready (auto)"]:::det
   ready --> done["exit 0 · print Next steps"]:::stop
 
   classDef det fill:#dff5e1,stroke:#2f7d3a,color:#0b3d16;
@@ -154,6 +154,13 @@ What loops vs. what's a distinct path:
   Every purple box reads files + emits files; jarvis enforces invariants
   *after* the call (append-only on `intent.md`, write boundary, validation
   rules) but cannot make the agent's text choice deterministic.
+- **Readiness transition**: when every phase succeeds without a blocker,
+  `jarvis plan` invokes `bun run ready`, which first runs
+  `bun install --frozen-lockfile` so Biome is available, then applies
+  `bun run check:fix` (Biome's mutating format/lint fixer), then runs
+  `typecheck → test → check` in CI order. Only if all steps succeed
+  does the harness call `gh pr ready`. If any step fails (including `check:fix`),
+  the PR stays in draft.
 
 `--resume` re-enters the diagram at the review-loop (and optionally adds
 refine turns before it), reusing the existing worktree, branch, and PR.
@@ -234,6 +241,12 @@ What loops vs. what's a distinct path:
   rewrite from `generatePrBodyFromSpec`, ready-flip on completion) is pure
   function of files on disk. Re-running an iteration against the same disk
   state would commit the same thing.
+- **Readiness transition**: when the spec is complete, `jarvis run` invokes
+  `bun run ready`, which first runs `bun install --frozen-lockfile` so Biome is
+  available, then applies `bun run check:fix` (Biome's mutating format/lint
+  fixer), then runs `typecheck → test → check` in CI order. Only if all steps
+  succeed does the harness call `gh pr ready`. If any step fails (including
+  `check:fix`), the PR stays in draft for manual correction.
 
 Dotted edges show pre-emption — `maxIterations`, timeouts, and SIGINT can fire
 at the top of any iteration before the agent call.

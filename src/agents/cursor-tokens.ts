@@ -1,6 +1,6 @@
 import {
-  estimateTokenUsage,
   type EstimatedTokenUsage,
+  estimateTokenUsage,
 } from "./token-estimation.ts";
 
 export type EstimatedCursorUsage = EstimatedTokenUsage;

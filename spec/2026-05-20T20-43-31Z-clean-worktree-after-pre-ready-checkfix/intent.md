@@ -746,13 +746,6 @@ Add these to the checklist of items the draft must explicitly resolve:
   no-`Spec:`-line commit interleaved with meta-commits is omitted from
   bullets and from the summary, *and* does not split the meta-group.
 
-## Blocker
+## user review
 
-Review and approve `spec/2026-05-20T20-43-31Z-clean-worktree-after-pre-ready-checkfix/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis plan --resume-draft spec/2026-05-20T20-43-31Z-clean-worktree-after-pre-ready-checkfix/intent.md`
+if we can move this up the line to simplify, lets do that.

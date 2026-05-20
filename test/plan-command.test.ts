@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import {
   appendPhase0ReviewGateBlocker,
@@ -378,12 +378,58 @@ describe("planCommand", () => {
       cwd: project,
       config: { dir: cfgDir },
       logClient: client,
+      skipGhCheck: true,
     });
 
     // The harness log should record commit=false and specTimestamp=false
     const flagLine = harnessTexts.find((t) => t.includes("commit="));
     expect(flagLine).toMatch(/commit=false/);
     expect(flagLine).toMatch(/specTimestamp=false/);
+  });
+
+  test("commit: false works on registered non-git project (does not error with 'requires a git repository')", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    try {
+      // Verify project is not a git repo
+      expect(!existsSync(join(project, ".git"))).toBe(true);
+
+      // Set project-level config to commit: false
+      const cfg = loadConfig({ dir: cfgDir });
+      const projectConfig = cfg.projects.project;
+      if (!projectConfig) {
+        throw new Error("expected registered project");
+      }
+      projectConfig.plan = { commit: false };
+      writeConfig(cfg, { dir: cfgDir });
+
+      // Run plan with skipGhCheck to avoid needing a real agent
+      const { client, harnessTexts } = capturingLogClient();
+      const cap = captureIo();
+      const specPath = join(project, "intent.md");
+      writeFileSync(
+        specPath,
+        "---\nname: test-plan-non-git\n---\ntest intent\n",
+      );
+
+      const _code = await planCommand({
+        io: cap.io,
+        args: [specPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: client,
+        skipGhCheck: true,
+      });
+
+      // Should not exit with error about "requires a git repository"
+      expect(cap.err()).not.toContain(
+        "commit: false requires a git repository",
+      );
+      // harness log should record commit=false
+      const flagLine = harnessTexts.find((t) => t.includes("commit="));
+      expect(flagLine).toMatch(/commit=false/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -1488,6 +1534,18 @@ describe("seedIntentFile", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("plan.ts regression: error message removed", () => {
+  test("plan.ts no longer contains the error string 'commit: false requires a git repository'", () => {
+    const planTsContent = readFileSync(
+      resolve(__dirname, "../src/commands/plan.ts"),
+      "utf8",
+    );
+    expect(planTsContent).not.toContain(
+      "commit: false requires a git repository",
+    );
   });
 });
 

@@ -13,8 +13,9 @@ Plan mode creates a dedicated worktree and branch (`plan/<plan-name>` and `.work
 - A draft PR titled `plan: <plan-name>` (derived from branch identity, **not** the UTC prefix) that aggregates progress across all phases.
 
 **With `commit: false`:** Specs are written in Jarvis-owned storage outside the target repository:
+- The target directory must be a registered project (via `jarvis init` or `jarvis config`).
 - Specs live at `~/.jarvis/specs/<project-safe-id>/<spec-dir>/` (where `<project-safe-id>` is the registered project key, origin-derived slug, or root basename).
-- No git branch or worktree is created; plan mode runs in the target repo root directory.
+- No git branch or worktree is created; plan mode runs in the target directory root.
 - No commits, pushes, or draft PR are created.
 - The generated `index.md` includes a `repo:` binding so `jarvis run` can resolve the target repository.
 
@@ -67,7 +68,7 @@ jarvis performs that readiness transition programmatically whenever every phase
 succeeds.
 
 **With `commit: false`:** Milestone stderr lines for refine, naming, draft, and review are similar
-(no "commit pushed" or "PR opened" steps since there is no git/GitHub integration). 
+(the target directory does not need to be a git repository; no "commit pushed" or "PR opened" steps since there is no GitHub integration). 
 
 Stdout ends with:
 
@@ -120,7 +121,7 @@ Plan mode executes these phases in order:
 
 **With `commit: true`:** Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). **`intent.md` inside the eventual `spec/<spec-dir>/` tree captures** full intent for file/inline modes or **`# Intent` scaffolding** for no-argument runs, before refinement prompts begin (`--refine-turns`, default `3`).
 
-**With `commit: false`:** Jarvis creates the spec directory in Jarvis-owned storage (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`) and runs directly against the target repo root, with **`intent.md` inside that external storage** capturing full intent or scaffolding.
+**With `commit: false`:** Jarvis creates the spec directory in Jarvis-owned storage (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`) and runs directly against the target directory root (which may or may not be a git repository), with **`intent.md` inside that external storage** capturing full intent or scaffolding.
 
 Each turn is one non-interactive agent invocation. The prompt asks the agent to inspect the target repo as needed and refine `intent.md` by appending useful planning context: inferred constraints, assumptions, scope boundaries, risks, or draft-shaping notes. It cannot ask the terminal user questions or record a Q&A transcript. With `quotaFallback: "lenient"`, weak-quota fallback to the next agent runs only when **`git status --porcelain`** matches before and after that invocation (no disk mutations during the attempt); see [quota-signals.md](./quota-signals.md).
 
@@ -236,7 +237,7 @@ whatever humans or agents add between the narrative markers across rewrites.
 The `modes.plan.commit` boolean (config v2) controls where plan-mode specs are written and whether git/GitHub are involved:
 
 - **`true` (default):** Plan specs are authored in a worktree on a branch under the target repo's `spec/<spec-dir>/` tree. Git commits (`plan: refine`, `plan: draft`, `plan: review N`) are made, a draft PR is opened, and `gh pr ready` runs programmatically on success. After merge to `main`, the spec is available to `jarvis run`.
-- **`false`:** Plan specs are written to Jarvis-owned storage outside the target repo (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`). No git branch, worktree, commits, or PR are created. Plan mode runs directly in the target repo root. The generated `index.md` includes a portable `repo:` binding for later `jarvis run` invocations.
+- **`false`:** Plan specs are written to Jarvis-owned storage outside the target directory (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`). No git branch, worktree, commits, or PR are created. Plan mode runs directly in the target directory root (which may or may not be a git repository). The generated `index.md` includes a portable `repo:` binding for later `jarvis run` invocations.
 
 When `commit: false`, the spec tree must include a usable `repo:` metadata line so `jarvis run` can later resolve the target repository independently of the spec file's location.
 

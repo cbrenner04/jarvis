@@ -1060,13 +1060,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const isGitRepo = existsSync(join(project.root, ".git"));
     let worktreePath: string | null = null;
 
-    // commit: false requires a git repo
-    if (commit === false && !isGitRepo) {
-      opts.io.stderr("commit: false requires a git repository\n");
-      return 1;
-    }
-
-    // Enter the main plan flow if: commit is false (and isGitRepo, checked above),
+    // Enter the main plan flow if: commit is false (using project root directly),
     // or if commit is true and we can create a worktree
     if (commit === false || (!opts.skipGhCheck && isGitRepo)) {
       // For commit: false, use project root directly; otherwise create a worktree

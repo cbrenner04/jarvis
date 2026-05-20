@@ -57,12 +57,12 @@ The `commit: true` path is also unchanged: it still requires a git repo and `gh`
 
 ## Acceptance criteria
 
-- [ ] `src/commands/plan.ts` no longer contains the string `commit: false requires a git repository`.
-- [ ] Running `jarvis plan` against a registered project whose root has no `.git` directory, with `modes.plan.commit: false` resolved (globally or per-project), proceeds past project resolution and the early guard rather than exiting 1 with the historical message. (Verified by the new `test/plan-command.test.ts` case.)
-- [ ] `commit: true` plan runs against a non-git directory still fail through the existing worktree/`gh` paths; no new code path is introduced for them and no existing test that exercises that failure changes its expected output.
-- [ ] Project resolution (`src/resolve-project.ts`) is unchanged: an unregistered non-git directory still produces the existing "could not determine a target project" outcome and never reaches the plan flow.
-- [ ] `docs/plan-mode.md` and `docs/spec-guidance.md` no longer imply that `commit: false` requires the target directory to be a git repo, and call out registration as the actual requirement.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `src/commands/plan.ts` no longer contains the string `commit: false requires a git repository`.
+- [x] Running `jarvis plan` against a registered project whose root has no `.git` directory, with `modes.plan.commit: false` resolved (globally or per-project), proceeds past project resolution and the early guard rather than exiting 1 with the historical message. (Verified by the new `test/plan-command.test.ts` case.)
+- [x] `commit: true` plan runs against a non-git directory still fail through the existing worktree/`gh` paths; no new code path is introduced for them and no existing test that exercises that failure changes its expected output.
+- [x] Project resolution (`src/resolve-project.ts`) is unchanged: an unregistered non-git directory still produces the existing "could not determine a target project" outcome and never reaches the plan flow.
+- [x] `docs/plan-mode.md` and `docs/spec-guidance.md` no longer imply that `commit: false` requires the target directory to be a git repo, and call out registration as the actual requirement.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Out of scope
 

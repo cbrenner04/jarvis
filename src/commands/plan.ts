@@ -620,7 +620,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         inv.cwd,
         "spec",
         "wip-intents",
-        `${toKebabCase(inv.intentText)}.md`,
+        `${toKebabCase(inv.intentText.split(" ").slice(0, 4).join(" "))}.md`,
       );
       if (existsSync(inlineIntentPath)) {
         opts.io.stderr(

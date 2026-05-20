@@ -14,11 +14,9 @@ import { dirname, join, resolve } from "node:path";
 import {
   appendPhase0ReviewGateBlocker,
   deriveSpecName,
-  PLAN_USAGE,
   parseIntentFrontmatter,
   planCommand,
   renderPlanNextSteps,
-  safeMarkPlanPrReady,
   seedIntentFile,
   shouldStopAfterPhase0Refine,
   validateProposedName,

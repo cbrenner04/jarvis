@@ -31,6 +31,7 @@ import {
   commitPlanReview,
 } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
+import { runInlineDraftTurn } from "../modes/plan/inline-draft.ts";
 import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
 import {
   createPlanTelemetryWriter,
@@ -544,6 +545,41 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     if (inv.mode === "interactive" && (inv.refineTurns ?? 3) === 0) {
       opts.io.stderr(
         "plan: --refine-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n",
+      );
+      return 1;
+    }
+
+    if (inv.mode === "inline" && !inv.resume) {
+      const inlineIntentPath = join(inv.cwd, "intent.md");
+      if (existsSync(inlineIntentPath)) {
+        opts.io.stderr(
+          `plan: ${inlineIntentPath} already exists; refusing to overwrite\n`,
+        );
+        return 1;
+      }
+      writeFileSync(inlineIntentPath, `${inv.intentText}\n`, "utf8");
+      const inlineCfg = loadConfig(opts.config);
+      const inlineResult = await runInlineDraftTurn({
+        worktreePath: inv.cwd,
+        inlineIntent: inv.intentText,
+        config: inlineCfg,
+      });
+      if (inlineResult.result.kind === "ok") {
+        opts.io.stderr(`plan: inline intent draft written to ${inlineIntentPath}\n`);
+        return 0;
+      }
+      if (inlineResult.result.kind === "quota") {
+        opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+        return 2;
+      }
+      if (inlineResult.result.kind === "model_config") {
+        opts.io.stderr(
+          `plan: model configuration error\n${inlineResult.result.stderr}\n`,
+        );
+        return 3;
+      }
+      opts.io.stderr(
+        `plan: inline intent draft failed\n${inlineResult.result.stderr}\n`,
       );
       return 1;
     }

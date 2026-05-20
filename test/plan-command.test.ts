@@ -288,6 +288,7 @@ describe("planCommand", () => {
   test("inline mode: positional that is not a file", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {
+      writeFileSync(join(project, "intent.md"), "existing\n", "utf8");
       const cap = captureIo();
       const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
@@ -297,7 +298,7 @@ describe("planCommand", () => {
         config: { dir: cfgDir },
         logClient,
       });
-      expect(code).toBe(2);
+      expect(code).toBe(1);
       const inlineInv: PlanInvocation = {
         mode: "inline",
         intentText: "this is freeform intent",
@@ -310,9 +311,7 @@ describe("planCommand", () => {
       expect(
         harnessTexts.some((t) => t.startsWith("plan: target project=")),
       ).toBe(true);
-      expect(cap.err()).toContain(
-        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
-      );
+      expect(cap.err()).toContain("already exists; refusing to overwrite");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -458,6 +457,7 @@ describe("planCommand target-repo resolution", () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
+      writeFileSync(join(projectA, "intent.md"), "existing\n", "utf8");
 
       const cap = captureIo();
       const { client: logClient, harnessTexts } = capturingLogClient();
@@ -468,7 +468,7 @@ describe("planCommand target-repo resolution", () => {
         config: { dir: cfgDir },
         logClient,
       });
-      expect(code).toBe(2);
+      expect(code).toBe(1);
       const inlineInv: PlanInvocation = {
         mode: "inline",
         intentText: "freeform intent",
@@ -481,9 +481,7 @@ describe("planCommand target-repo resolution", () => {
       expect(harnessTexts).toContain(
         `plan: target project=project-a root=${projectA}`,
       );
-      expect(cap.err()).toContain(
-        "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
-      );
+      expect(cap.err()).toContain("already exists; refusing to overwrite");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -552,6 +550,7 @@ describe("planCommand target-repo resolution", () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
+      writeFileSync(join(dir, "intent.md"), "existing\n", "utf8");
 
       const cap = captureIo();
       const { client: logClient, harnessTexts } = capturingLogClient();
@@ -562,11 +561,12 @@ describe("planCommand target-repo resolution", () => {
         config: { dir: cfgDir },
         logClient,
       });
-      expect(code).toBe(2);
+      expect(code).toBe(1);
       expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(
         `plan: target project=project-a root=${projectA}`,
       );
+      expect(cap.err()).toContain("already exists; refusing to overwrite");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

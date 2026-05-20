@@ -96,7 +96,13 @@ Older date-only prefixes (for example **`spec/2026-05-11-v1/intent.md`**) remain
 jarvis plan "Add dark mode toggle to the app settings"
 ```
 
-Jarvis uses the supplied text directly as intent. Useful for quick one-liners without creating intermediate files.
+Jarvis runs one non-interactive agent turn that expands the inline text into a rough `intent.md` in the current working directory, then exits. This inline step does not run Phase 0 refinement, draft, review, worktree/branch setup, or resume prerequisites.
+
+To run the full committed plan pipeline, use file mode with an explicit intent file path:
+
+```sh
+jarvis plan path/to/intent.md
+```
 
 ### No-argument mode
 

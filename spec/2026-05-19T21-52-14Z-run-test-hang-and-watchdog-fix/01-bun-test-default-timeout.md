@@ -46,18 +46,25 @@ regression surfaces as a normal test failure within bounded time.
 
 ## Acceptance criteria
 
-- [ ] `bun test` enforces a 30 s default per-test timeout.
-- [ ] The full suite passes under the new default with no test exceeding
+- [x] `bun test` enforces a 30 s default per-test timeout.
+- [x] The full suite passes under the new default with no test exceeding
   the timeout (or with explicit, justified per-test opt-outs documented
   inline).
-- [ ] A test that intentionally sleeps for 31 s fails with a timeout
+- [x] A test that intentionally sleeps for 31 s fails with a timeout
   message (verified manually during impl; this test does not need to land
   in the repo).
-- [ ] Documentation describes the default timeout and the per-test
+- [x] Documentation describes the default timeout and the per-test
   override pattern.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
+- [x] `bun run check` passes.
+
+## Implementation notes
+
+The 30s timeout is enforced via `bun test --timeout=30000` in the package.json
+test script. Although bunfig.toml was created with `[test] timeout = 30000` as
+specified, Bun v1.3.13 does not currently read test timeout configuration from
+bunfig.toml; the command-line flag in the npm script is the effective mechanism.
 
 ## Documentation updates
 

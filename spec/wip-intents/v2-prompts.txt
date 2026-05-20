@@ -9,14 +9,18 @@ Why this matters:
 - v2 should not bury those instructions inside unrelated control-flow code. If prompts are code, they need stable ownership, reviewability, and tests where tests make sense.
 - v1 must stay reliable while v2 is built. Any shared prompt strategy must not accidentally destabilize the `jarvis1` daily-driver.
 
+Already decided (do not re-litigate; design around these):
+
+- Prompts live in a shared top-level `prompts/` directory, abstracted out of `v1/` and `v2/`, treated as first-class code.
+- `jarvis1` reads the shared, evolving prompts — it does NOT pin a frozen snapshot. "Reliable v1" means a stable engine, not frozen prompt text. One source of truth; improvements reach both engines.
+
 Primary questions to resolve:
 
 - Should exact prompt strings be cataloged as a separate artifact from the behavior catalog?
-- Should prompts live in a shared top-level directory (for example `prompts/`) that both `v1/` and `v2/` can read, or should prompts belong separately to each version?
-- If prompts are shared, does `jarvis1` consume ongoing prompt improvements, or does v1 pin a frozen prompt snapshot so its behavior stays stable?
-- If prompts are v2-only, when does extraction happen: before v2 architecture work, as part of the first v2 operation, or incrementally as each operation is implemented?
+- What is the exact internal layout of `prompts/`? (e.g. by operation, by engine, shared rules vs operation-specific, etc.)
+- When does extraction from v1 happen: before v2 architecture work, as part of the first v2 operation, or incrementally? (Note: the v1/v2 split deliberately leaves prompts inside `v1/`; this intent owns moving them out to `prompts/`.)
 - What counts as a prompt artifact: only text sent to agent CLIs, or also injected rules, placeholders, generated next-step instructions, command suggestions, and agent adapter wrappers?
-- What review standard applies to prompt changes? For example: snapshot tests for rendered prompts, behavior tests for prompt assembly, line-by-line PR review, or explicit changelog notes for behavior-affecting wording.
+- What review standard applies to prompt changes? Because v1 shares evolving prompts, a prompt edit can shift `jarvis1` output — so rendered-prompt snapshot tests and/or behavior tests matter, alongside line-by-line PR review, to keep behavior-affecting wording visible.
 
 Initial scope:
 
@@ -34,14 +38,13 @@ Initial scope:
   - **human instruction**: text that tells the terminal user or PR reviewer what to do next,
   - **protocol marker**: machine-readable text included in prompts or outputs for correlation, validation, or boundaries,
   - **data wrapper**: delimiters, placeholders, or framing that protect user/repo/spec content from being interpreted as higher-priority instructions.
-- Propose a target prompt layout. Consider at least:
-  - `v2/prompts/` owned only by v2,
-  - repo-root `prompts/` shared by `v1/` and `v2/`,
-  - `v1/prompts/` frozen plus `v2/prompts/` evolved separately,
-  - a hybrid where shared rules live at root but operation-specific prompts live under each version.
+- Propose the internal layout of the shared top-level `prompts/` (the share-vs-frozen and top-level-vs-per-version questions are already settled — root `prompts/`, shared and evolving). Consider at least:
+  - organize by operation (plan / implement / review / …),
+  - separate shared rules/fragments from operation-specific prompts,
+  - how engine-specific or agent-specific variants are represented if any are unavoidable.
 - Propose a prompt rendering contract: how prompts are assembled, how placeholders are typed/validated, how user-provided content is delimited, and how prompt-injection protections are represented.
 - Propose a review and testing standard. Prompt diffs should be reviewable like code; rendered prompt snapshots or focused tests should protect meaningful behavior without making harmless wording edits painful.
-- Identify what, if anything, should change in v1 immediately. The default bias is no v1 prompt rewrites unless extraction or testing is needed to make the v2 handoff safe.
+- Moving v1's prompts out of v1 source into the shared `prompts/` is in scope for the follow-on extraction — but that is a relocation, not a rewrite. The default bias is no v1 prompt wording changes; v1 keeps reading the same text, just from `prompts/` instead of inline. Wording edits, if any, follow the normal shared-prompt review/test standard since they affect both engines.
 - Produce follow-on implementation intents if the design chooses extraction, shared directories, snapshots, or prompt renderer changes.
 
 Expected output:

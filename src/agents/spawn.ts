@@ -28,8 +28,12 @@ export function runAgent(
     const child = spawn(config.binary, argv, {
       cwd: config.cwd,
       env,
+      detached: true,
       stdio: config.stdio,
     });
+    if (child.pid !== undefined) {
+      opts.onSpawned?.({ pid: child.pid });
+    }
 
     // Handle null streams
     const stdin = config.stdio[0] === "pipe" ? child.stdin : null;
@@ -52,17 +56,64 @@ export function runAgent(
     let outBuf = "";
     let errBuf = "";
     let settled = false;
+    let stdoutEnded = false;
+    let stderrEnded = false;
+    let childClosed = false;
+    let abortReason: string | null = null;
+    let abortTimer: NodeJS.Timeout | null = null;
     const settle = (r: AgentResult) => {
       if (settled) return;
       settled = true;
+      if (abortTimer !== null) {
+        clearTimeout(abortTimer);
+        abortTimer = null;
+      }
       resolvePromise(r);
+    };
+    const checkSettlement = (code?: number | null) => {
+      if (settled) return;
+      if (abortReason !== null) {
+        if (childClosed || code !== undefined) {
+          settle({
+            kind: "error",
+            exitCode: -1,
+            stderr: `aborted: ${abortReason}`,
+          });
+        }
+        return;
+      }
+      if (stdoutEnded && stderrEnded && (childClosed || code !== undefined)) {
+        if (code === 0 || code === undefined) {
+          settle({ kind: "ok", stdout: outBuf, stderr: errBuf });
+        } else {
+          const exitCode = code ?? -1;
+          const diagnostics = `${errBuf}${outBuf}`;
+
+          // Classification order: model config → quota → generic error
+          if (isModelConfigurationSignal(config.name, diagnostics)) {
+            settle({ kind: "model_config", stderr: diagnostics });
+          } else if (isQuotaSignal(config.name, exitCode, diagnostics)) {
+            settle({ kind: "quota", stderr: diagnostics });
+          } else {
+            settle({ kind: "error", exitCode, stderr: diagnostics });
+          }
+        }
+      }
     };
 
     stdout.on("data", (chunk: Buffer) => {
       outBuf += chunk.toString("utf8");
     });
+    stdout.on("end", () => {
+      stdoutEnded = true;
+      checkSettlement();
+    });
     stderr.on("data", (chunk: Buffer) => {
       errBuf += chunk.toString("utf8");
+    });
+    stderr.on("end", () => {
+      stderrEnded = true;
+      checkSettlement();
     });
     child.on("error", (err) => {
       settle({
@@ -72,45 +123,42 @@ export function runAgent(
       });
     });
     child.on("close", (code) => {
-      if (code === 0) {
-        settle({ kind: "ok", stdout: outBuf, stderr: errBuf });
-        return;
-      }
-      const exitCode = code ?? -1;
-      const diagnostics = `${errBuf}${outBuf}`;
-
-      // Classification order: model config → quota → generic error
-      if (isModelConfigurationSignal(config.name, diagnostics)) {
-        settle({ kind: "model_config", stderr: diagnostics });
-        return;
-      }
-
-      if (isQuotaSignal(config.name, exitCode, diagnostics)) {
-        settle({ kind: "quota", stderr: diagnostics });
-        return;
-      }
-      settle({ kind: "error", exitCode, stderr: diagnostics });
+      childClosed = true;
+      checkSettlement(code);
     });
 
     // Handle abort signal: send SIGTERM, wait grace period, then SIGKILL
     if (opts.signal) {
       const handleAbort = () => {
-        child.kill("SIGTERM");
-        // unref so a settled-but-not-yet-dead child does not keep the
-        // event loop alive for the full grace period.
-        setTimeout(() => {
-          if (!child.killed) {
-            child.kill("SIGKILL");
+        const pgid = child.pid;
+        if (pgid !== undefined) {
+          try {
+            process.kill(-pgid, "SIGTERM");
+          } catch {
+            child.kill("SIGTERM");
           }
-        }, 2000).unref();
+          // Keep the abort path bounded even if a descendant ignores SIGTERM.
+          const abortKillGraceMs = opts.abortKillGraceMs ?? 2000;
+          abortTimer = setTimeout(() => {
+            try {
+              process.kill(-pgid, "SIGKILL");
+            } catch {
+              try {
+                child.kill("SIGKILL");
+              } catch {
+                // best-effort
+              }
+            }
+          }, abortKillGraceMs);
+          abortTimer.unref();
+        } else {
+          child.kill("SIGTERM");
+        }
         const reason = opts.signal?.reason
           ? String(opts.signal.reason)
           : "aborted";
-        settle({
-          kind: "error",
-          exitCode: -1,
-          stderr: `aborted: ${reason}`,
-        });
+        abortReason = reason;
+        checkSettlement();
       };
       if (opts.signal.aborted) {
         handleAbort();

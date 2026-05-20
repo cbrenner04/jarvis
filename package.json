@@ -18,8 +18,8 @@
     "lint:fix:unsafe": "bun node_modules/@biomejs/biome/bin/biome lint --write --unsafe .",
     "typecheck": "tsc --noEmit",
     "install-opencode-permissions": "bun run scripts/install-opencode-permissions.ts",
-    "test": "bun test",
-    "ready": "bun install --frozen-lockfile && bun run typecheck && bun run test && bun run check",
+    "test": "bun test --timeout=30000",
+    "ready": "bun scripts/ready.ts",
     "start": "bun run src/index.ts"
   },
   "devDependencies": {

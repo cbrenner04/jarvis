@@ -54,23 +54,23 @@ in `bun install`, `tsc --noEmit`, or `biome check` would still wedge
 
 ## Acceptance criteria
 
-- [ ] `scripts/ready.ts` exists and runs `bun install
+- [x] `scripts/ready.ts` exists and runs `bun install
   --frozen-lockfile`, `bun run typecheck`, `bun run test`, `bun run
   check` in order, streaming each step's output through.
-- [ ] `package.json` `scripts.ready` invokes `bun scripts/ready.ts`.
-- [ ] On normal completion the script exits with the underlying chain's
+- [x] `package.json` `scripts.ready` invokes `bun scripts/ready.ts`.
+- [x] On normal completion the script exits with the underlying chain's
   exit code (0 on success, the failed step's non-zero code otherwise).
-- [ ] When the wall-clock deadline expires the script exits with code
+- [x] When the wall-clock deadline expires the script exits with code
   `124` within `deadline + 1 s` and no child processes survive past
   `deadline + 5 s`.
-- [ ] `JARVIS_READY_TIMEOUT_MS` overrides the default; invalid values
+- [x] `JARVIS_READY_TIMEOUT_MS` overrides the default; invalid values
   fall back to the default with a printed warning.
-- [ ] A new test reproduces a hanging step and asserts the deadline
+- [x] A new test reproduces a hanging step and asserts the deadline
   behavior; it fails on the pre-fix code (current shell pipeline) and
   passes on the new wrapper.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

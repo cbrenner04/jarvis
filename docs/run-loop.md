@@ -249,7 +249,9 @@ purposes:
   and cost, followed by a short `completed-spec` line marked
   **`record_role: "run_terminal"`** so end-of-run summaries do not sum usage twice.
   Rows may include optional **`configured_model`** (patch `modes.patch.agentOrder`
-  entry at invocation time). Set `telemetryPath` to `null` to disable.
+  entry at invocation time). Watchdog-triggered iteration timeouts include optional
+  **`watchdog_pgid`** (the killed agent process-group id). Set `telemetryPath` to
+  `null` to disable.
 
 ### Token usage and cost tracking
 
@@ -407,3 +409,9 @@ jarvis log-server
 
 On exit `4` and `5`, the bounded tail of recent agent output is printed to the
 terminal to help diagnose why progress stalled.
+
+When an iteration timeout fires, Jarvis logs a single watchdog line to both the
+run terminal and session log:
+`[watchdog] iteration timeout fired after Nms; killing agent pgid <pgid>`.
+The watchdog is armed before agent spawn, does not reset on streaming output,
+SIGTERMs the full process group, waits up to 5 seconds, then SIGKILLs survivors.

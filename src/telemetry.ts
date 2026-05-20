@@ -52,6 +52,7 @@ export type TelemetryRecord = {
   /** Discriminator so patch and plan sessions can share one JSONL file safely.*/
   mode?: TelemetryMode;
   plan_phase?: PlanTelemetryPhase;
+  watchdog_pgid?: number;
 };
 
 export function appendTelemetryLine(

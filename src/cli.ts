@@ -68,8 +68,8 @@ Commands:
                     Inspect a dirty or orphaned worktree.
   review-feedback <worktree-name>
                     Address PR review feedback on an existing patch worktree.
-  plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
-                    Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md).
+  plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
+                    Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md; --resume-draft expects spec/<…>/intent.md).
   prices            View or edit pricing data for cost tracking.
   help              Show this message.
 `;

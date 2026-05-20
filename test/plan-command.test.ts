@@ -261,6 +261,7 @@ describe("planCommand", () => {
     expect(PLAN_USAGE).toContain("--repo");
     expect(PLAN_USAGE).toContain("--cwd");
     expect(PLAN_USAGE).toContain("--resume");
+    expect(PLAN_USAGE).toContain("--resume-draft");
     expect(PLAN_USAGE).toContain('intent-file|"inline text"');
   });
 });
@@ -306,6 +307,7 @@ describe("planCommand", () => {
         intentText: "this is freeform intent",
         cwd: project,
         resume: false,
+        resumeDraft: false,
       };
       expect(cap.err()).not.toContain(describePlanInvocation(inlineInv));
       expect(cap.err()).not.toContain("plan: target project=");
@@ -413,6 +415,7 @@ describe("planCommand target-repo resolution", () => {
         intentPath,
         cwd: dir,
         resume: false,
+        resumeDraft: false,
       };
       expect(cap.err()).not.toContain(describePlanInvocation(fileInv));
       expect(cap.err()).not.toContain("plan: target project=");
@@ -476,6 +479,7 @@ describe("planCommand target-repo resolution", () => {
         intentText: "freeform intent",
         cwd: projectA,
         resume: false,
+        resumeDraft: false,
       };
       expect(cap.err()).not.toContain(describePlanInvocation(inlineInv));
       expect(cap.err()).not.toContain("plan: target project=");
@@ -511,6 +515,7 @@ describe("planCommand target-repo resolution", () => {
           mode: "interactive",
           cwd: projectA,
           resume: false,
+          resumeDraft: false,
         }),
       );
       expect(harnessTexts).toContain(
@@ -902,7 +907,35 @@ describe("parsePlanArgs", () => {
       expect(res.ok).toBe(true);
       if (!res.ok) return;
       expect(res.invocation.resume).toBe(true);
+      expect(res.invocation.resumeDraft).toBe(false);
       expect(res.invocation.mode).toBe("interactive");
+    } finally {
+      teardown();
+    }
+  });
+
+  test("--resume-draft sets flag inert", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["--resume-draft"], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.resume).toBe(false);
+      expect(res.invocation.resumeDraft).toBe(true);
+      expect(res.invocation.mode).toBe("interactive");
+    } finally {
+      teardown();
+    }
+  });
+
+  test("--resume and --resume-draft cannot be combined", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["--resume", "--resume-draft"], tmp);
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.exitCode).toBe(1);
+      expect(res.message).toContain("cannot be combined");
     } finally {
       teardown();
     }
@@ -961,6 +994,7 @@ describe("deriveSpecName", () => {
         intentPath: "/some/path/OAuth Login.md",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("oauth-login");
@@ -987,6 +1021,7 @@ describe("deriveSpecName", () => {
           intentPath: join(projectRoot, filename),
           cwd: projectRoot,
           resume: false,
+          resumeDraft: false,
         };
         const name = await deriveSpecName(inv, projectRoot);
         expect(name).toBe(expected);
@@ -1004,6 +1039,7 @@ describe("deriveSpecName", () => {
         intentText: "add csv export to reports !!!",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("add-csv-export-to-reports");
@@ -1020,6 +1056,7 @@ describe("deriveSpecName", () => {
         intentText: "add csv export to reports !!!",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       // Should not end with `-`
@@ -1039,6 +1076,7 @@ describe("deriveSpecName", () => {
         intentText: longText,
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name.length).toBeLessThanOrEqual(40);
@@ -1055,6 +1093,7 @@ describe("deriveSpecName", () => {
         intentPath: "/some/path/!!!.md",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("plan");
@@ -1071,6 +1110,7 @@ describe("deriveSpecName", () => {
         intentText: "!!!",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("plan");
@@ -1087,6 +1127,7 @@ describe("deriveSpecName", () => {
         intentPath: "/some/path/index.md",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("plan");
@@ -1103,6 +1144,7 @@ describe("deriveSpecName", () => {
         intentPath: "/some/path/intent.md",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("plan");
@@ -1120,6 +1162,7 @@ describe("deriveSpecName", () => {
         intentPath: "/some/path/OAuth Login.md",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("oauth-login-2");
@@ -1139,6 +1182,7 @@ describe("deriveSpecName", () => {
         intentPath: "/some/path/OAuth Login.md",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("oauth-login-2");
@@ -1160,6 +1204,7 @@ describe("deriveSpecName", () => {
         intentPath: "/some/path/OAuth Login.md",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toBe("oauth-login-3");
@@ -1175,6 +1220,7 @@ describe("deriveSpecName", () => {
         mode: "interactive",
         cwd: projectRoot,
         resume: false,
+        resumeDraft: false,
       };
       const name = await deriveSpecName(inv, projectRoot);
       expect(name).toMatch(/^interactive-\d{4}-\d{2}-\d{2}-\d{4}$/);
@@ -1236,8 +1282,8 @@ describe("phase-0 intent review gate", () => {
       expect(out).toContain(
         "spec/2026-05-20T02-41-21Z-plan-intent-review-gate/intent.md",
       );
-      expect(out).toContain("jarvis plan --resume spec/");
-      expect(out).toContain("/index.md");
+      expect(out).toContain("jarvis plan --resume-draft spec/");
+      expect(out).toContain("/intent.md");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

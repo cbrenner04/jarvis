@@ -87,7 +87,7 @@ export type PlanCommandOptions = {
   skipGhCheck?: boolean;
 };
 
-export const PLAN_USAGE = `Usage: jarvis plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
+export const PLAN_USAGE = `Usage: jarvis plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
                             Run plan mode (draft specs under spec/…; see docs/plan-mode.md).
 `;
 
@@ -102,7 +102,7 @@ Optional feedback:
 - If scope is unclear, append focused questions to this blocker section.
 
 Resume drafting once approved:
-\`jarvis plan --resume spec/<spec-dir>/index.md\``;
+\`jarvis plan --resume-draft spec/<spec-dir>/intent.md\``;
 
 /** Best-effort harness log for plan setup diagnostics (mirrors patch-mode fanout style). */
 function planHarnessLog(logClient: LogClient, text: string): void {
@@ -248,6 +248,24 @@ function assertResumeIndexPath(specPath: string): {
   };
 }
 
+function assertResumeDraftIntentPath(specPath: string): {
+  planName: string;
+  specDirBasename: string;
+} {
+  const resolved = resolve(specPath);
+  const base = basename(resolved);
+  if (base !== "intent.md") {
+    throw new Error(
+      `--resume-draft requires an intent.md path; got ${specPath}`,
+    );
+  }
+  const specDirBasename = basename(dirname(resolved));
+  return {
+    specDirBasename,
+    planName: stripPlanSpecTimestampPrefix(specDirBasename),
+  };
+}
+
 function isWorktreeClean(cwd: string): boolean {
   const porcelain = execFileSync("git", ["status", "--porcelain"], {
     cwd,
@@ -305,6 +323,7 @@ function computeResumeCounters(worktreePath: string): {
 function prepareResume(args: {
   projectRoot: string;
   specPath: string;
+  mode: "resume" | "resume-draft";
   config?: PlanCommandOptions["config"];
 }): ResumePrep {
   const cfg = loadConfig(args.config);
@@ -316,7 +335,10 @@ function prepareResume(args: {
     );
   }
 
-  const { planName, specDirBasename } = assertResumeIndexPath(args.specPath);
+  const { planName, specDirBasename } =
+    args.mode === "resume"
+      ? assertResumeIndexPath(args.specPath)
+      : assertResumeDraftIntentPath(args.specPath);
   const worktreePath = join(args.projectRoot, ".worktree", `plan-${planName}`);
   if (!existsSync(worktreePath)) {
     throw new Error(`plan worktree missing at ${worktreePath}`);
@@ -325,14 +347,17 @@ function prepareResume(args: {
   if (currentBranch(worktreePath) !== branch) {
     throw new Error(`${worktreePath} is not checked out on ${branch}`);
   }
-  if (!existsSync(join(worktreePath, "spec", specDirBasename, "index.md"))) {
-    throw new Error(
-      `missing spec/${specDirBasename}/index.md in ${worktreePath}`,
-    );
-  }
   if (!existsSync(join(worktreePath, "spec", specDirBasename, "intent.md"))) {
     throw new Error(
       `missing spec/${specDirBasename}/intent.md in ${worktreePath}`,
+    );
+  }
+  if (
+    args.mode === "resume" &&
+    !existsSync(join(worktreePath, "spec", specDirBasename, "index.md"))
+  ) {
+    throw new Error(
+      `missing spec/${specDirBasename}/index.md in ${worktreePath}`,
     );
   }
   if (!isWorktreeClean(worktreePath)) {
@@ -590,7 +615,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return 1;
     }
 
-    if (inv.mode === "inline" && !inv.resume) {
+    if (inv.mode === "inline" && !inv.resume && !inv.resumeDraft) {
       const inlineIntentPath = join(inv.cwd, "intent.md");
       if (existsSync(inlineIntentPath)) {
         opts.io.stderr(
@@ -625,19 +650,22 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return 1;
     }
 
-    if (inv.resume) {
+    if (inv.resume || inv.resumeDraft) {
+      const resumeFlag = inv.resume ? "--resume" : "--resume-draft";
       if (inv.mode === "interactive") {
-        opts.io.stderr("--resume requires a spec path\n");
+        opts.io.stderr(`${resumeFlag} requires a spec path\n`);
         return 1;
       }
       if (inv.mode !== "file") {
-        opts.io.stderr("--resume cannot be combined with intent text/file\n");
+        opts.io.stderr(
+          `${resumeFlag} cannot be combined with intent text/file\n`,
+        );
         return 1;
       }
       const reviewPasses = inv.reviewPasses ?? 2;
-      const refineTurns = inv.refineTurns ?? 0;
+      const refineTurns = inv.resume ? (inv.refineTurns ?? 0) : 0;
       if (reviewPasses === 0 && refineTurns === 0) {
-        opts.io.stderr("--resume requires at least one phase\n");
+        opts.io.stderr(`${resumeFlag} requires at least one phase\n`);
         return 1;
       }
 
@@ -646,6 +674,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         resume = prepareResume({
           projectRoot: project.root,
           specPath: inv.intentPath,
+          mode: inv.resume ? "resume" : "resume-draft",
           ...(opts.config !== undefined ? { config: opts.config } : {}),
         });
       } catch (err) {
@@ -659,6 +688,21 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       opts.io.stderr(`plan: resume ${suffix} started\n`);
 
       const cfg = loadConfig(opts.config);
+      const resumeIntentPath = join(
+        resume.worktreePath,
+        "spec",
+        resume.specDirBasename,
+        "intent.md",
+      );
+      if (inv.resumeDraft) {
+        const intentBody = readFileSync(resumeIntentPath, "utf8");
+        if (detectBlocker(intentBody).hasBlocker) {
+          opts.io.stderr(
+            `--resume-draft requires \`## Blocker\` to be cleared in spec/${resume.specDirBasename}/intent.md\n`,
+          );
+          return 1;
+        }
+      }
       const resumePlanStartedAt = new Date();
       const resumePlanStartedMs = Date.now();
       const resumeTelemetryPath = cfg.telemetryPath ?? null;
@@ -757,6 +801,108 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
             opts.io.stderr(`plan: blocked\n`);
             opts.io.stderr(`\n## Blocker\n\n${refineResult.blocker}\n`);
+            summarizeResume("blocker");
+            return 1;
+          }
+        } catch (err) {
+          opts.io.stderr(`${(err as Error).message}\n`);
+          summarizeResume("error");
+          return 1;
+        }
+      }
+
+      if (inv.resumeDraft) {
+        let draftResult: Awaited<ReturnType<typeof runDraftPhase>>;
+        let draftBlocker: string | undefined;
+        let draftSpecFilesCount = 0;
+        try {
+          const finalSpecPath = join(
+            resume.worktreePath,
+            "spec",
+            resume.specDirBasename,
+          );
+          const intentBefore = readFileSync(resumeIntentPath, "utf8");
+          draftResult = await runDraftPhase({
+            worktreePath: resume.worktreePath,
+            name: resume.specDirBasename,
+            config: cfg,
+            intentBefore,
+            stderr: opts.io.stderr,
+            planTelemetry: resumePlanTelemetry,
+          });
+          if (draftResult.result.kind !== "ok") {
+            if (draftResult.result.kind === "quota") {
+              opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+              summarizeResume("quota-exhausted");
+              return 2;
+            }
+            if (draftResult.result.kind === "model_config") {
+              opts.io.stderr(
+                `plan: model configuration error\n${draftResult.result.stderr}`,
+              );
+              summarizeResume("model-config");
+              return 3;
+            }
+            opts.io.stderr(
+              `plan: draft phase failed\n${draftResult.result.stderr}`,
+            );
+            summarizeResume("agent-error");
+            return 1;
+          }
+          const validation = validateDraftOutput(
+            resume.worktreePath,
+            resume.specDirBasename,
+            intentBefore,
+            finalSpecPath,
+          );
+          if (!validation.valid) {
+            opts.io.stderr(
+              `plan: draft validation failed: ${validation.error}\n`,
+            );
+            summarizeResume("error");
+            return 1;
+          }
+          draftBlocker = validation.blocker;
+          draftSpecFilesCount = draftResult.subspecCount ?? 0;
+          if (draftBlocker === undefined && draftResult.subspecCount === null) {
+            opts.io.stderr(`plan: could not count subspecs\n`);
+            summarizeResume("error");
+            return 1;
+          }
+          commitPlanDraft({
+            worktreePath: resume.worktreePath,
+            specDirBasename: resume.specDirBasename,
+            agentLabel: draftResult.agentLabel ?? "unknown",
+            subspecCount: draftSpecFilesCount,
+            subjectSuffix: suffix,
+          });
+          safeUpdatePrBody({
+            io: opts.io,
+            branch,
+            base: getCurrentBranch(project.root),
+            worktreePath: resume.worktreePath,
+            name: resume.planName,
+            specDirBasename: resume.specDirBasename,
+          });
+          if (draftBlocker !== undefined) {
+            commitPlanBlocker({
+              worktreePath: resume.worktreePath,
+              specDirBasename: resume.specDirBasename,
+              agentLabel: draftResult.agentLabel ?? "unknown",
+              reason: firstNonEmptyLine(draftBlocker),
+              specFilesCount: draftSpecFilesCount,
+              subjectSuffix: suffix,
+            });
+            safeUpdatePrBody({
+              io: opts.io,
+              branch,
+              base: getCurrentBranch(project.root),
+              worktreePath: resume.worktreePath,
+              name: resume.planName,
+              specDirBasename: resume.specDirBasename,
+            });
+            opts.io.stderr(`plan: blocked\n`);
+            opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
             summarizeResume("blocker");
             return 1;
           }

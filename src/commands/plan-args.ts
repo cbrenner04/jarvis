@@ -7,6 +7,7 @@ export type PlanInvocationCommon = {
   repo?: string;
   cwd: string;
   resume: boolean;
+  resumeDraft: boolean;
 };
 
 export type PlanInvocation =
@@ -62,12 +63,17 @@ export function parsePlanArgs(
   let repo: string | undefined;
   let cwdFlag: string | undefined;
   let resume = false;
+  let resumeDraft = false;
   const positional: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] as string;
     if (arg === "--resume") {
       resume = true;
+      continue;
+    }
+    if (arg === "--resume-draft") {
+      resumeDraft = true;
       continue;
     }
     if (FLAGS_WITH_VALUE.has(arg)) {
@@ -123,6 +129,13 @@ export function parsePlanArgs(
       message: "plan: too many arguments",
     };
   }
+  if (resume && resumeDraft) {
+    return {
+      ok: false,
+      exitCode: 1,
+      message: "plan: --resume and --resume-draft cannot be combined",
+    };
+  }
 
   const cwd =
     cwdFlag !== undefined
@@ -131,7 +144,7 @@ export function parsePlanArgs(
         : resolve(processCwd, cwdFlag)
       : processCwd;
 
-  const common: PlanInvocationCommon = { cwd, resume };
+  const common: PlanInvocationCommon = { cwd, resume, resumeDraft };
   if (refineTurns !== undefined) common.refineTurns = refineTurns;
   if (reviewPasses !== undefined) common.reviewPasses = reviewPasses;
   if (repo !== undefined) common.repo = repo;

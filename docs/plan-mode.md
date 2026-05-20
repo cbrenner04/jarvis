@@ -142,14 +142,14 @@ For fresh `commit: true` file-path runs (`jarvis plan spec/.../intent.md`), jarv
 Resume with:
 
 ```sh
-jarvis plan --resume spec/<spec-dir>/index.md
+jarvis plan --resume-draft spec/<spec-dir>/intent.md
 ```
 
 Inline one-shot intent drafting (`jarvis plan "inline text"`) does not enter this checkpoint path.
 
 ### Phase 1: Draft
 
-After `plan: refine` is pushed and the Phase 0 checkpoint has been cleared via `--resume`, jarvis invokes an agent with a focused prompt (`src/modes/plan/prompts/draft.md`) that:
+After `plan: refine` is pushed and the Phase 0 checkpoint has been cleared via `--resume-draft`, jarvis invokes an agent with a focused prompt (`src/modes/plan/prompts/draft.md`) that:
 
 - Inlines `intent.md` and `docs/spec-guidance.md`.
 - Asks the agent to read the target repo for context.
@@ -260,8 +260,7 @@ Select the target repository. Same semantics as `jarvis run --repo`. If omitted,
 
 ### `--resume <spec-path>`
 
-Resume a previously created plan worktree and branch. This is the only
-supported resume form:
+Resume a previously created post-draft plan worktree and branch:
 
 ```sh
 jarvis plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md
@@ -278,6 +277,26 @@ Validation rules:
 
 Resume does not accept positional intent text/file and does not require
 `--repo`; it operates entirely from the existing plan worktree state.
+
+### `--resume-draft <intent-path>`
+
+Resume from the Phase 0 intent-review gate:
+
+```sh
+jarvis plan --resume-draft spec/2026-05-17T22-14-03Z-my-plan/intent.md
+# legacy layouts still accepted, e.g. spec/my-plan/intent.md
+```
+
+Validation rules:
+
+- `<intent-path>` must point at `spec/<spec-dir>/intent.md` on disk.
+- `intent.md` must not contain a `## Blocker` section.
+- Local branch **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`
+  must both exist (basename derived **without** the UTC prefix via `YYYY-MM-DDTHH-mm-ssZ-` stripping when present).
+- The plan worktree must have **`plan/<plan-name>`** checked out.
+
+`--resume-draft` resumes with Phase 1 draft and then review passes. It does not
+accept positional inline intent text and does not require `--repo`.
 
 ## Resuming a plan
 

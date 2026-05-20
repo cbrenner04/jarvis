@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import {
   appendPhase0ReviewGateBlocker,
@@ -354,37 +354,78 @@ describe("planCommand", () => {
     }
   });
 
-  test("project-level specTimestamp and commit override global defaults", async () => {
-    const { cfgDir, project } = setupRegisteredProject();
-    // Set global defaults to true, project overrides to false
-    const cfg = loadConfig({ dir: cfgDir });
-    cfg.modes.plan = { ...cfg.modes.plan, specTimestamp: true, commit: true };
-    const projectConfig = cfg.projects.project;
-    if (!projectConfig) {
-      throw new Error("expected registered project");
-    }
-    projectConfig.plan = { specTimestamp: false, commit: false };
-    writeConfig(cfg, { dir: cfgDir });
+   test("project-level specTimestamp and commit override global defaults", async () => {
+     const { cfgDir, project } = setupRegisteredProject();
+     // Set global defaults to true, project overrides to false
+     const cfg = loadConfig({ dir: cfgDir });
+     cfg.modes.plan = { ...cfg.modes.plan, specTimestamp: true, commit: true };
+     const projectConfig = cfg.projects.project;
+     if (!projectConfig) {
+       throw new Error("expected registered project");
+     }
+     projectConfig.plan = { specTimestamp: false, commit: false };
+     writeConfig(cfg, { dir: cfgDir });
 
-    // Run plan with a minimal mock agent that captures harness log lines
-    const { client, harnessTexts } = capturingLogClient();
-    const { io } = captureIo();
-    const specPath = join(project, "intent.md");
-    writeFileSync(specPath, "---\nname: test-plan\n---\ntest intent\n");
+     // Run plan with a minimal mock agent that captures harness log lines
+     const { client, harnessTexts } = capturingLogClient();
+     const { io } = captureIo();
+     const specPath = join(project, "intent.md");
+     writeFileSync(specPath, "---\nname: test-plan\n---\ntest intent\n");
 
-    const _code = await planCommand({
-      io,
-      args: [specPath],
-      cwd: project,
-      config: { dir: cfgDir },
-      logClient: client,
+     const _code = await planCommand({
+       io,
+       args: [specPath],
+       cwd: project,
+       config: { dir: cfgDir },
+       logClient: client,
+       skipGhCheck: true,
+     });
+
+     // The harness log should record commit=false and specTimestamp=false
+     const flagLine = harnessTexts.find((t) => t.includes("commit="));
+      expect(flagLine).toMatch(/commit=false/);
+      expect(flagLine).toMatch(/specTimestamp=false/);
     });
 
-    // The harness log should record commit=false and specTimestamp=false
-    const flagLine = harnessTexts.find((t) => t.includes("commit="));
-    expect(flagLine).toMatch(/commit=false/);
-    expect(flagLine).toMatch(/specTimestamp=false/);
-  });
+   test("commit: false works on registered non-git project (does not error with 'requires a git repository')", async () => {
+     const { dir, cfgDir, project } = setupRegisteredProject();
+     try {
+       // Verify project is not a git repo
+       expect(!existsSync(join(project, ".git"))).toBe(true);
+
+       // Set project-level config to commit: false
+       const cfg = loadConfig({ dir: cfgDir });
+       const projectConfig = cfg.projects.project;
+       if (!projectConfig) {
+         throw new Error("expected registered project");
+       }
+       projectConfig.plan = { commit: false };
+       writeConfig(cfg, { dir: cfgDir });
+
+       // Run plan with skipGhCheck to avoid needing a real agent
+       const { client, harnessTexts } = capturingLogClient();
+       const cap = captureIo();
+       const specPath = join(project, "intent.md");
+       writeFileSync(specPath, "---\nname: test-plan-non-git\n---\ntest intent\n");
+
+       const code = await planCommand({
+         io: cap.io,
+         args: [specPath],
+         cwd: project,
+         config: { dir: cfgDir },
+         logClient: client,
+         skipGhCheck: true,
+       });
+
+       // Should not exit with error about "requires a git repository"
+       expect(cap.err()).not.toContain("commit: false requires a git repository");
+       // harness log should record commit=false
+       const flagLine = harnessTexts.find((t) => t.includes("commit="));
+       expect(flagLine).toMatch(/commit=false/);
+     } finally {
+       rmSync(dir, { recursive: true, force: true });
+     }
+   });
 });
 
 describe("planCommand target-repo resolution", () => {
@@ -1488,6 +1529,18 @@ describe("seedIntentFile", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+   });
+});
+
+describe("plan.ts regression: error message removed", () => {
+  test("plan.ts no longer contains the error string 'commit: false requires a git repository'", () => {
+    const planTsContent = readFileSync(
+      resolve(__dirname, "../src/commands/plan.ts"),
+      "utf8",
+    );
+    expect(planTsContent).not.toContain(
+      "commit: false requires a git repository",
+    );
   });
 });
 

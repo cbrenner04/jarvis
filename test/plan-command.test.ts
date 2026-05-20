@@ -291,7 +291,14 @@ describe("planCommand", () => {
   test("inline mode: positional that is not a file", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
     try {
-      writeFileSync(join(project, "intent.md"), "existing\n", "utf8");
+      const existingInlineIntent = join(
+        project,
+        "spec",
+        "wip-intents",
+        "this-is-freeform-intent.md",
+      );
+      mkdirSync(dirname(existingInlineIntent), { recursive: true });
+      writeFileSync(existingInlineIntent, "existing\n", "utf8");
       const cap = captureIo();
       const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
@@ -462,7 +469,14 @@ describe("planCommand target-repo resolution", () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
-      writeFileSync(join(projectA, "intent.md"), "existing\n", "utf8");
+      const existingInlineIntent = join(
+        projectA,
+        "spec",
+        "wip-intents",
+        "freeform-intent.md",
+      );
+      mkdirSync(dirname(existingInlineIntent), { recursive: true });
+      writeFileSync(existingInlineIntent, "existing\n", "utf8");
 
       const cap = captureIo();
       const { client: logClient, harnessTexts } = capturingLogClient();
@@ -557,7 +571,14 @@ describe("planCommand target-repo resolution", () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
-      writeFileSync(join(dir, "intent.md"), "existing\n", "utf8");
+      const existingInlineIntent = join(
+        dir,
+        "spec",
+        "wip-intents",
+        "freeform.md",
+      );
+      mkdirSync(dirname(existingInlineIntent), { recursive: true });
+      writeFileSync(existingInlineIntent, "existing\n", "utf8");
 
       const cap = captureIo();
       const { client: logClient, harnessTexts } = capturingLogClient();

@@ -423,4 +423,16 @@ bun run ready
 ```
 
 That script runs `bun install --frozen-lockfile`, `bun run typecheck`, `bun
-run test`, and `bun run check`.
+run test`, and `bun run check` with a 10-minute wall-clock deadline. If any step
+hangs or the total time exceeds 10 minutes, the script kills the process tree and
+exits with code 124.
+
+Override the default 10-minute timeout via the `JARVIS_READY_TIMEOUT_MS`
+environment variable (in milliseconds):
+
+```sh
+JARVIS_READY_TIMEOUT_MS=600000 bun run ready   # 10 minutes (default)
+JARVIS_READY_TIMEOUT_MS=1800000 bun run ready  # 30 minutes
+```
+
+Invalid or unset values fall back to the 10-minute default with a warning.

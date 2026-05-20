@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type BoundaryCheckResult =
@@ -154,4 +154,41 @@ Spec-file write boundary is enforced: only files under \`spec/${specDirBasename}
   } catch (err) {
     throw new Error(`failed to append blocker section to intent.md: ${err}`);
   }
+}
+
+/**
+ * For no-commit plan runs: check that the agent wrote only under the expected
+ * spec directory within the external storage root, not to sibling directories.
+ *
+ * Verifies that only `<specDirBasename>` exists under `<externalSpecRoot>/`,
+ * no other top-level entries were created.
+ */
+export function assertNoCommitExternalSpecBoundary(
+  externalSpecRoot: string,
+  specDirBasename: string,
+): BoundaryCheckResult {
+  // Check that the directory exists
+  if (!existsSync(externalSpecRoot)) {
+    return { ok: true };
+  }
+
+  let entries: string[];
+  try {
+    entries = readdirSync(externalSpecRoot);
+  } catch (err) {
+    return { ok: false, offendingPaths: [`(failed to read ${externalSpecRoot})`] };
+  }
+
+  const offendingPaths: string[] = [];
+  for (const entry of entries) {
+    if (entry !== specDirBasename) {
+      offendingPaths.push(join(externalSpecRoot, entry));
+    }
+  }
+
+  if (offendingPaths.length === 0) {
+    return { ok: true };
+  }
+
+  return { ok: false, offendingPaths };
 }

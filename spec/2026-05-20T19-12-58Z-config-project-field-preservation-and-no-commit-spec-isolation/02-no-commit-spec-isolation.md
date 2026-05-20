@@ -56,17 +56,17 @@ The desired behavior: for no-commit plan runs, the agent's working directory is 
 
 ## Acceptance criteria
 
-- [ ] A successful no-commit `jarvis plan` run authors all spec files (`intent.md`, `index.md`, subspecs) directly under `~/.jarvis/specs/<projectId>/<spec-dir-basename>/` and never writes anything under `<project.root>/spec/` at any phase.
-- [ ] A no-commit `jarvis plan` run that fails or is killed during the refine phase leaves no files in `<project.root>/spec/` and leaves no top-level `tmp-*` directory inside `<project.root>`.
-- [ ] A no-commit `jarvis plan` run that fails during the draft phase leaves no files in `<project.root>/spec/` and any partial files live only under `~/.jarvis/specs/<projectId>/`.
-- [ ] A no-commit `jarvis plan` run that fails during a review phase leaves no files in `<project.root>/spec/` and any partial files live only under `~/.jarvis/specs/<projectId>/`.
-- [ ] The collision guard for a pre-existing `~/.jarvis/specs/<projectId>/<spec-dir-basename>/` runs *before* the first agent invocation; the agent is not invoked when a collision is detected, and the target repo is not touched.
-- [ ] After every no-commit run (success or failure), `git status` against `<project.root>` (when it is a git repo) reports no working-tree changes attributable to the plan run, and `assertTargetRepoPlanBoundary` returns `{ ok: true }` at every existing call site.
-- [ ] `jarvis plan --resume <path under ~/.jarvis/specs/...>` performs every read and write under that external path. No `.worktree/plan-<name>/` is created, and `<project.root>/spec/` is not modified.
-- [ ] `injectRepoLineIntoIndex` is applied to the external `index.md` for no-commit runs.
-- [ ] The post-run summary line shows the external `~/.jarvis/specs/<projectId>/<spec-dir-basename>/index.md` path and the `jarvis run` command suggestion uses that path.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] A successful no-commit `jarvis plan` run authors all spec files (`intent.md`, `index.md`, subspecs) directly under `~/.jarvis/specs/<projectId>/<spec-dir-basename>/` and never writes anything under `<project.root>/spec/` at any phase.
+- [x] A no-commit `jarvis plan` run that fails or is killed during the refine phase leaves no files in `<project.root>/spec/` and leaves no top-level `tmp-*` directory inside `<project.root>`.
+- [x] A no-commit `jarvis plan` run that fails during the draft phase leaves no files in `<project.root>/spec/` and any partial files live only under `~/.jarvis/specs/<projectId>/`.
+- [x] A no-commit `jarvis plan` run that fails during a review phase leaves no files in `<project.root>/spec/` and any partial files live only under `~/.jarvis/specs/<projectId>/`.
+- [x] The collision guard for a pre-existing `~/.jarvis/specs/<projectId>/<spec-dir-basename>/` runs *before* the first agent invocation; the agent is not invoked when a collision is detected, and the target repo is not touched.
+- [x] After every no-commit run (success or failure), `git status` against `<project.root>` (when it is a git repo) reports no working-tree changes attributable to the plan run, and `assertTargetRepoPlanBoundary` returns `{ ok: true }` at every existing call site.
+- [x] `jarvis plan --resume <path under ~/.jarvis/specs/...>` performs every read and write under that external path. No `.worktree/plan-<name>/` is created, and `<project.root>/spec/` is not modified.
+- [x] `injectRepoLineIntoIndex` is applied to the external `index.md` for no-commit runs.
+- [x] The post-run summary line shows the external `~/.jarvis/specs/<projectId>/<spec-dir-basename>/index.md` path and the `jarvis run` command suggestion uses that path.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

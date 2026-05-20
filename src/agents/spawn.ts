@@ -28,6 +28,7 @@ export function runAgent(
     const child = spawn(config.binary, argv, {
       cwd: config.cwd,
       env,
+      detached: true,
       stdio: config.stdio,
     });
 
@@ -52,9 +53,14 @@ export function runAgent(
     let outBuf = "";
     let errBuf = "";
     let settled = false;
+    let abortTimer: NodeJS.Timeout | null = null;
     const settle = (r: AgentResult) => {
       if (settled) return;
       settled = true;
+      if (abortTimer !== null) {
+        clearTimeout(abortTimer);
+        abortTimer = null;
+      }
       resolvePromise(r);
     };
 
@@ -95,14 +101,29 @@ export function runAgent(
     // Handle abort signal: send SIGTERM, wait grace period, then SIGKILL
     if (opts.signal) {
       const handleAbort = () => {
-        child.kill("SIGTERM");
-        // unref so a settled-but-not-yet-dead child does not keep the
-        // event loop alive for the full grace period.
-        setTimeout(() => {
-          if (!child.killed) {
-            child.kill("SIGKILL");
+        const pgid = child.pid;
+        if (pgid !== undefined) {
+          try {
+            process.kill(-pgid, "SIGTERM");
+          } catch {
+            child.kill("SIGTERM");
           }
-        }, 2000).unref();
+          // Keep the abort path bounded even if a descendant ignores SIGTERM.
+          abortTimer = setTimeout(() => {
+            try {
+              process.kill(-pgid, "SIGKILL");
+            } catch {
+              try {
+                child.kill("SIGKILL");
+              } catch {
+                // best-effort
+              }
+            }
+          }, 2000);
+          abortTimer.unref();
+        } else {
+          child.kill("SIGTERM");
+        }
         const reason = opts.signal?.reason
           ? String(opts.signal.reason)
           : "aborted";

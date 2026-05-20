@@ -145,7 +145,7 @@ console.log(code);
   });
 
   test("check:fix runs before bun install in command sequence", () => {
-    const result = spawnSync(
+    const _result = spawnSync(
       "bun",
       [
         "-e",
@@ -175,8 +175,12 @@ console.log("command-order-test");
     const readySource = readFileSync("./scripts/ready.ts", "utf8");
 
     // Verify check:fix appears before install in the commands array
-    const checkFixIndex = readySource.indexOf('{ name: "bun", args: ["run", "check:fix"]');
-    const installIndex = readySource.indexOf('{ name: "bun", args: ["install",');
+    const checkFixIndex = readySource.indexOf(
+      '{ name: "bun", args: ["run", "check:fix"]',
+    );
+    const installIndex = readySource.indexOf(
+      '{ name: "bun", args: ["install",',
+    );
 
     expect(checkFixIndex).toBeGreaterThan(0);
     expect(installIndex).toBeGreaterThan(0);

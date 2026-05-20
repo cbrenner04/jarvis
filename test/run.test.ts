@@ -3181,7 +3181,7 @@ wait
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
-          iterationTimeoutMs: 200,
+          iterationTimeoutMs: 1500,
           git: true,
           projects: { project: { root: projectRoot } },
         },
@@ -3195,13 +3195,14 @@ wait
         config: { dir: cfgDir },
         agents: { claude: new HangingAgent() },
         handleSignals: false,
+        __testKillGraceMs: 200,
       });
       const elapsedMs = Date.now() - started;
 
       expect(code).toBe(8);
       expect(elapsedMs).toBeLessThanOrEqual(7200);
       expect(cap.err()).toContain(
-        "[watchdog] iteration timeout fired after 200ms;",
+        "[watchdog] iteration timeout fired after 1500ms;",
       );
 
       const childPid = Number.parseInt(
@@ -3237,7 +3238,7 @@ wait
       }
       const sessionLog = readFileSync(join(sessionsDir, sessionFile), "utf8");
       expect(sessionLog).toContain(
-        "[watchdog] iteration timeout fired after 200ms;",
+        "[watchdog] iteration timeout fired after 1500ms;",
       );
     });
 

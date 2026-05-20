@@ -22,10 +22,10 @@ The simplest fix is to prepend `check:fix` to the `commands` array in `scripts/r
 
 ## Acceptance criteria
 
-- [ ] `bun run ready` invokes `bun run check:fix` as the first command, before `bun install`, `bun run typecheck`, `bun run test`, and `bun run check`.
-- [ ] When `check:fix` exits non-zero, `scripts/ready.ts` exits with that code without running any subsequent commands.
-- [ ] The existing timeout, deadline math, SIGTERM/SIGKILL behavior, and per-command error reporting in `scripts/ready.ts` are unchanged.
-- [ ] Both patch-mode (`maybeMarkReady`) and plan-mode (`maybeMarkPlanPrReady`) readiness paths benefit from the fixer automatically because both invoke `bun run ready`.
+- [x] `bun run ready` invokes `bun run check:fix` as the first command, before `bun install`, `bun run typecheck`, `bun run test`, and `bun run check`.
+- [x] When `check:fix` exits non-zero, `scripts/ready.ts` exits with that code without running any subsequent commands.
+- [x] The existing timeout, deadline math, SIGTERM/SIGKILL behavior, and per-command error reporting in `scripts/ready.ts` are unchanged.
+- [x] Both patch-mode (`maybeMarkReady`) and plan-mode (`maybeMarkPlanPrReady`) readiness paths benefit from the fixer automatically because both invoke `bun run ready`.
 
 ## Documentation updates
 

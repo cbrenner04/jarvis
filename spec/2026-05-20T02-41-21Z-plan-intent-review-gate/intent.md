@@ -8,7 +8,7 @@ name: plan-refine-human-gate
 jarvis plan "one liner"
 ```
 
-Creates `intent.md` only — rough seed from the quoted string. Does **not** run Phase 0, draft, or review. No prescribed structure.
+One agent turn expands the one-liner into a rough `intent.md` and exits. Not a verbatim copy of the quoted string — a quick, messy first draft. Does **not** run Phase 0, draft, review, or the committed plan worktree pipeline. No prescribed structure beyond what that single turn writes.
 
 Operator edits the file (or not), then continues when ready.
 
@@ -27,7 +27,7 @@ Runs committed plan mode from that file:
 
 ## Decisions
 
-- Inline and file plan are **different commands** in practice: inline = author intent; file path = run the pipeline.
+- Inline = one-turn intent draft; file path = full plan pipeline from existing `intent.md`.
 - Phase 0 gate is universal for file-based fresh runs (not opt-in).
 - `--resume-draft` requires `## Blocker` cleared first.
 

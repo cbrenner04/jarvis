@@ -21,7 +21,7 @@ runs Phase 1 (draft) and review on the existing plan branch/PR.
 
 - [ ] `--resume-draft` runs draft + review after blocker cleared; fails if blocker present.
 - [ ] `jarvis plan spec/.../intent.md` without `--resume-draft` always starts at Phase 0 (fresh run).
-- [ ] `docs/plan-mode.md` documents the three-step operator flow: inline draft → `plan intent.md` → clear blocker → `--resume-draft`.
+- [ ] `docs/plan-mode.md` documents the operator flow: inline one-turn draft → `plan intent.md` → clear blocker → `--resume-draft`.
 
 ## Documentation updates
 

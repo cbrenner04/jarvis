@@ -97,6 +97,7 @@ export type CommitPlanDraftOptions = {
   name?: string;
   agentLabel: string;
   subspecCount: number;
+  subjectSuffix?: string;
 };
 
 export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
@@ -109,7 +110,7 @@ export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
     stdio: "pipe",
   });
 
-  const subject = "plan: draft";
+  const subject = `plan: draft${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(specDirBasename, [
     `Drafted by ${opts.agentLabel}.`,
     `Subspecs: ${opts.subspecCount}`,

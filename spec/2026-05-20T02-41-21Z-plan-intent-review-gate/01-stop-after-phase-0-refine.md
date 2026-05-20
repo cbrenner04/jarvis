@@ -22,11 +22,11 @@ Prerequisite: `intent.md` already exists (from inline draft, hand authoring, or 
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan spec/<spec-dir>/intent.md` runs Phase 0 then exits before draft with `## Blocker` when no earlier Phase 0 blocker stopped the run.
-- [ ] The resulting draft PR contains only the intent tree (no `index.md` or subspecs).
-- [ ] Commits on first invocation include `plan: refine` and `plan: blocker` only (no `plan: draft` / `plan: review N`).
-- [ ] `jarvis plan "inline text"` does not trigger this path (subspec 00).
-- [ ] `docs/plan-mode.md` documents the file-path workflow and Phase 0 checkpoint.
+- [x] `jarvis plan spec/<spec-dir>/intent.md` runs Phase 0 then exits before draft with `## Blocker` when no earlier Phase 0 blocker stopped the run.
+- [x] The resulting draft PR contains only the intent tree (no `index.md` or subspecs).
+- [x] Commits on first invocation include `plan: refine` and `plan: blocker` only (no `plan: draft` / `plan: review N`).
+- [x] `jarvis plan "inline text"` does not trigger this path (subspec 00).
+- [x] `docs/plan-mode.md` documents the file-path workflow and Phase 0 checkpoint.
 
 ## Documentation updates
 

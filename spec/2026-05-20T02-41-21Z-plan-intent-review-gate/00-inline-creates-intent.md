@@ -20,10 +20,10 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan "foo bar baz"` invokes exactly one agent turn and writes `intent.md` that expands on the one-liner (not a byte-for-byte copy unless the agent chooses that).
-- [ ] Inline exits without Phase 0, `plan: refine`, draft, review, or `--resume-draft` prerequisites.
-- [ ] `jarvis plan path/to/spec/.../intent.md` remains the entry point for the full committed plan run (subspec 01).
-- [ ] `docs/plan-mode.md` documents inline as a one-turn intent draft step, separate from file-path plan.
+- [x] `jarvis plan "foo bar baz"` invokes exactly one agent turn and writes `intent.md` that expands on the one-liner (not a byte-for-byte copy unless the agent chooses that).
+- [x] Inline exits without Phase 0, `plan: refine`, draft, review, or `--resume-draft` prerequisites.
+- [x] `jarvis plan path/to/spec/.../intent.md` remains the entry point for the full committed plan run (subspec 01).
+- [x] `docs/plan-mode.md` documents inline as a one-turn intent draft step, separate from file-path plan.
 
 ## Documentation updates
 

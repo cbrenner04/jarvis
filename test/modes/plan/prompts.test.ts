@@ -3,6 +3,7 @@ import {
   buildDraftPrompt,
   PlaceholderCollisionError,
 } from "../../../src/modes/plan/draft.ts";
+import { buildInlineDraftPrompt } from "../../../src/modes/plan/inline-draft.ts";
 import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
 import {
   buildRefinePrompt,
@@ -54,6 +55,22 @@ describe("buildDraftPrompt", () => {
     );
     // The post-intent Rules section still appears after the closing sentinel.
     expect(prompt.slice(end)).toContain("Rules");
+  });
+});
+
+describe("buildInlineDraftPrompt", () => {
+  test("injects working directory, intent path, and inline intent", () => {
+    const prompt = buildInlineDraftPrompt({
+      workdir: "/repo",
+      intentPath: "/repo/intent.md",
+      inlineIntent: "Add a basic login flow",
+    });
+    expect(prompt).not.toContain("<WORKDIR>");
+    expect(prompt).not.toContain("<INTENT_PATH>");
+    expect(prompt).not.toContain("<INLINE_INTENT>");
+    expect(prompt).toContain("/repo");
+    expect(prompt).toContain("/repo/intent.md");
+    expect(prompt).toContain("Add a basic login flow");
   });
 });
 

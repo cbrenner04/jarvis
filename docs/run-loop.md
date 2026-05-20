@@ -270,6 +270,7 @@ available. For aggregated totals shown to humans at run end, see
 
 - **`usage_source`**: How the usage data was obtained. One of:
   - `"agent"` — real token counts from the agent CLI.
+  - `"estimated"` — best-effort token estimates derived from prompt/output text.
   - `"unavailable"` — the agent CLI does not expose token counts.
   - `null` — no agent has populated usage yet (initial state, or agent does not
     support usage extraction).
@@ -326,15 +327,23 @@ events. If multiple files match or none do, the iteration still succeeds but
 telemetry uses `usage_source: "unavailable"` and `cost_source: "no-usage"` with
 an explanatory warning rather than attributing usage from the wrong session.
 
-Opencode usage is currently recorded as unavailable in telemetry
-(`usage_source: "unavailable"` and `cost_source: "no-usage"`). Jarvis prints a
-one-time notice on first opencode success per run:
+Opencode usage is estimated from prompt/stdout text on successful runs
+(`usage_source: "estimated"`). Cost is `"computed"` when the configured
+`provider/model` string has a matching `data/prices.json` row, otherwise
+`cost_source: "no-price"`.
+When opencode estimation fails and usage falls back to unavailable, Jarvis prints
+a one-time notice on first fallback success per run:
 `opencode: token usage not available for this CLI version (recording usage as unavailable)`.
 
 Cursor usage is currently recorded as unavailable in telemetry
 (`usage_source: "unavailable"` and `cost_source: "no-usage"`). Jarvis prints a
 one-time notice on first cursor success per run:
 `cursor: token usage not available for this CLI version (recording usage as unavailable)`.
+
+Aider usage is estimated from prompt/stdout text on successful runs
+(`usage_source: "estimated"`). Local-model deployments typically do not have
+matching `data/prices.json` entries, so these runs usually record
+`cost_source: "no-price"` while still preserving usage volume.
 
 ### End-of-run summary
 

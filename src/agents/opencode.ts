@@ -3,6 +3,10 @@
 // spec/2026-05-11-opencode-as-agent/04-opencode-permission-stanza.md). Jarvis does not
 // pass --dangerously-skip-permissions.
 import { runAgent } from "./spawn.ts";
+import {
+  estimateTokenUsage,
+  type EstimatedTokenUsage,
+} from "./token-estimation.ts";
 import type {
   Agent,
   AgentName,
@@ -13,26 +17,35 @@ import type {
 export type OpencodeAgentOptions = {
   binary?: string;
   model: string;
+  estimateUsage?: (args: {
+    prompt: string;
+    stdout: string;
+  }) => EstimatedTokenUsage | null;
 };
 
 const OPENCODE_MODEL_LABELS: Record<string, string> = {};
 
-export const OPENCODE_HAS_PRICED_MODELS = false;
+export const OPENCODE_HAS_PRICED_MODELS = true;
 
 export function resolveOpencodePriceKey(
-  _model: string | undefined,
+  model: string | undefined,
 ): string | null {
-  return null;
+  return model ?? null;
 }
 
 export class OpencodeAgent implements Agent {
   readonly name = "opencode" as AgentName;
   readonly #binary: string;
   readonly #model: string;
+  readonly #estimateUsage: (args: {
+    prompt: string;
+    stdout: string;
+  }) => EstimatedTokenUsage | null;
 
   constructor(opts: OpencodeAgentOptions) {
     this.#binary = opts.binary ?? "opencode";
     this.#model = opts.model;
+    this.#estimateUsage = opts.estimateUsage ?? estimateTokenUsage;
   }
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
@@ -64,10 +77,25 @@ export class OpencodeAgent implements Agent {
       return result;
     }
 
+    const estimated = this.#estimateUsage({
+      prompt,
+      stdout: result.stdout,
+    });
+    if (estimated === null) {
+      return {
+        ...result,
+        usage_source: "unavailable",
+        cost_source: "no-usage",
+        warnings: [
+          ...(result.warnings ?? []),
+          "opencode: token estimator unavailable; usage recorded as unavailable.",
+        ],
+      };
+    }
     return {
       ...result,
-      usage_source: "unavailable",
-      cost_source: "no-usage",
+      usage: estimated,
+      usage_source: "estimated",
     };
   }
 

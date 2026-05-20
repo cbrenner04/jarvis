@@ -616,19 +616,27 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     }
 
     if (inv.mode === "inline" && !inv.resume && !inv.resumeDraft) {
-      const inlineIntentPath = join(inv.cwd, "intent.md");
+      const inlineIntentPath = join(
+        inv.cwd,
+        "spec",
+        "wip-intents",
+        `${toKebabCase(inv.intentText)}.md`,
+      );
       if (existsSync(inlineIntentPath)) {
         opts.io.stderr(
           `plan: ${inlineIntentPath} already exists; refusing to overwrite\n`,
         );
         return 1;
       }
+      mkdirSync(dirname(inlineIntentPath), { recursive: true });
       writeFileSync(inlineIntentPath, `${inv.intentText}\n`, "utf8");
       const inlineCfg = loadConfig(opts.config);
       const inlineResult = await runInlineDraftTurn({
         worktreePath: inv.cwd,
         inlineIntent: inv.intentText,
+        intentPath: inlineIntentPath,
         config: inlineCfg,
+        stderr: opts.io.stderr,
       });
       if (inlineResult.result.kind === "ok") {
         opts.io.stderr(

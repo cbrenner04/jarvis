@@ -805,6 +805,96 @@ describe("registerProject / findProjectForPath", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test("registerProject on existing name preserves origin, git, siblings, and plan", () => {
+    const cfg = loadConfig({ dir });
+    cfg.projects.reregister = {
+      root: "/tmp/jarvis-old",
+      origin: "git@github.com:test/repo.git",
+      git: false,
+      siblings: ["/tmp/sibling1"],
+      plan: { specTimestamp: false },
+    };
+    writeConfig(cfg, { dir });
+
+    // Re-register with a new root but no origin specified
+    registerProject("reregister", "/tmp/jarvis-new", { dir });
+
+    const reloaded = loadConfig({ dir });
+    expect(reloaded.projects.reregister).toEqual({
+      root: "/tmp/jarvis-new",
+      origin: "git@github.com:test/repo.git",
+      git: false,
+      siblings: ["/tmp/sibling1"],
+      plan: { specTimestamp: false },
+    });
+  });
+
+  test("registerProject on existing name with new origin overwrites origin", () => {
+    const cfg = loadConfig({ dir });
+    cfg.projects.reregister2 = {
+      root: "/tmp/jarvis-old2",
+      origin: "git@github.com:test/old.git",
+      git: true,
+      siblings: ["/tmp/sibling2"],
+      plan: { commit: false },
+    };
+    writeConfig(cfg, { dir });
+
+    // Re-register with a new root and new origin
+    registerProject("reregister2", "/tmp/jarvis-new2", {
+      dir,
+      origin: "git@github.com:test/new.git",
+    });
+
+    const reloaded = loadConfig({ dir });
+    expect(reloaded.projects.reregister2).toEqual({
+      root: "/tmp/jarvis-new2",
+      origin: "git@github.com:test/new.git",
+      git: true,
+      siblings: ["/tmp/sibling2"],
+      plan: { commit: false },
+    });
+  });
+
+  test("registerProject on brand-new name still writes root and optional origin", () => {
+    registerProject("brandnew", "/tmp/jarvis-brandnew", { dir });
+    expect(loadConfig({ dir }).projects.brandnew).toEqual({
+      root: "/tmp/jarvis-brandnew",
+    });
+
+    registerProject(
+      "brandnewwithorigin",
+      "/tmp/jarvis-brandnew-origin",
+      { dir, origin: "git@github.com:test/brand.git" },
+    );
+    expect(loadConfig({ dir }).projects.brandnewwithorigin).toEqual({
+      root: "/tmp/jarvis-brandnew-origin",
+      origin: "git@github.com:test/brand.git",
+    });
+  });
+
+  test("setProjectOrigin preserves git, siblings, and plan", () => {
+    const cfg = loadConfig({ dir });
+    cfg.projects.origtest = {
+      root: "/tmp/jarvis-orig",
+      git: false,
+      siblings: ["/tmp/sibling3"],
+      plan: { specTimestamp: true },
+    };
+    writeConfig(cfg, { dir });
+
+    setProjectOrigin("origtest", "git@github.com:test/updated.git", { dir });
+
+    const reloaded = loadConfig({ dir });
+    expect(reloaded.projects.origtest).toEqual({
+      root: "/tmp/jarvis-orig",
+      origin: "git@github.com:test/updated.git",
+      git: false,
+      siblings: ["/tmp/sibling3"],
+      plan: { specTimestamp: true },
+    });
+  });
 });
 
 describe("git toggle", () => {
@@ -983,6 +1073,49 @@ describe("git toggle", () => {
     expect(() => setProjectGit("ghost", true, { dir })).toThrow(
       /not registered/,
     );
+  });
+
+  test("setProjectGit preserves origin, siblings, and plan fields", () => {
+    const cfg = loadConfig({ dir });
+    cfg.projects.preserve = {
+      root: "/tmp/jarvis-preserve",
+      origin: "git@github.com:test/repo.git",
+      siblings: ["/tmp/sibling1", "/tmp/sibling2"],
+      plan: { specTimestamp: false, commit: true },
+    };
+    writeConfig(cfg, { dir });
+
+    // Set git to true
+    setProjectGit("preserve", true, { dir });
+    let reloaded = loadConfig({ dir });
+    expect(reloaded.projects.preserve).toEqual({
+      root: "/tmp/jarvis-preserve",
+      origin: "git@github.com:test/repo.git",
+      siblings: ["/tmp/sibling1", "/tmp/sibling2"],
+      plan: { specTimestamp: false, commit: true },
+      git: true,
+    });
+
+    // Set git to false
+    setProjectGit("preserve", false, { dir });
+    reloaded = loadConfig({ dir });
+    expect(reloaded.projects.preserve).toEqual({
+      root: "/tmp/jarvis-preserve",
+      origin: "git@github.com:test/repo.git",
+      siblings: ["/tmp/sibling1", "/tmp/sibling2"],
+      plan: { specTimestamp: false, commit: true },
+      git: false,
+    });
+
+    // Clear git (set to undefined)
+    setProjectGit("preserve", undefined, { dir });
+    reloaded = loadConfig({ dir });
+    expect(reloaded.projects.preserve).toEqual({
+      root: "/tmp/jarvis-preserve",
+      origin: "git@github.com:test/repo.git",
+      siblings: ["/tmp/sibling1", "/tmp/sibling2"],
+      plan: { specTimestamp: false, commit: true },
+    });
   });
 
   test("accepts optional project siblings array", () => {

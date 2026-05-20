@@ -28,14 +28,14 @@ There is no test covering field preservation across these mutators, so the bug h
 
 ## Acceptance criteria
 
-- [ ] `setProjectGit(name, true | false | undefined)` preserves `origin`, `siblings`, and `plan` on the existing project record across a write+reload round trip.
-- [ ] `setProjectGit(name, undefined)` removes the `git` key from the persisted record (not stored as `undefined`, not left as the previous value).
-- [ ] `registerProject(name, root)` on a name that is already registered preserves `origin`, `git`, `siblings`, and `plan`; only `root` is overwritten.
-- [ ] `registerProject(name, root, { origin })` on a name that is already registered preserves `git`, `siblings`, and `plan`; both `root` and `origin` are overwritten.
-- [ ] `registerProject(name, root)` on a brand-new name still writes a record with only `root` (and `origin` if supplied), unchanged from current behavior.
-- [ ] `setProjectOrigin(name, origin)` preserves `git`, `siblings`, and `plan` (locked in by regression test even though current code already does this via spread).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `setProjectGit(name, true | false | undefined)` preserves `origin`, `siblings`, and `plan` on the existing project record across a write+reload round trip.
+- [x] `setProjectGit(name, undefined)` removes the `git` key from the persisted record (not stored as `undefined`, not left as the previous value).
+- [x] `registerProject(name, root)` on a name that is already registered preserves `origin`, `git`, `siblings`, and `plan`; only `root` is overwritten.
+- [x] `registerProject(name, root, { origin })` on a name that is already registered preserves `git`, `siblings`, and `plan`; both `root` and `origin` are overwritten.
+- [x] `registerProject(name, root)` on a brand-new name still writes a record with only `root` (and `origin` if supplied), unchanged from current behavior.
+- [x] `setProjectOrigin(name, origin)` preserves `git`, `siblings`, and `plan` (locked in by regression test even though current code already does this via spread).
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

@@ -678,10 +678,18 @@ export function registerProject(
       );
     }
   }
-  const project: Project = { root };
+  // Preserve existing project if re-registering the same name
+  const existing = cfg.projects[name];
+  const project: Project = existing ? { ...existing } : { root };
+  
+  // Always overwrite root with the new value
+  project.root = root;
+  
+  // Only overwrite origin if the caller supplied a non-empty origin
   if (opts?.origin !== undefined && opts.origin.trim() !== "") {
     project.origin = opts.origin;
   }
+  
   cfg.projects[name] = project;
   writeConfig(cfg, opts);
 }
@@ -716,12 +724,11 @@ export function setProjectGit(
   if (project === undefined) {
     throw new Error(`Project ${JSON.stringify(name)} is not registered`);
   }
-  const next: Project = { root: project.root };
-  if (project.origin !== undefined) {
-    next.origin = project.origin;
-  }
+  const next: Project = { ...project };
   if (value !== undefined) {
     next.git = value;
+  } else {
+    delete next.git;
   }
   cfg.projects[name] = next;
   writeConfig(cfg, opts);

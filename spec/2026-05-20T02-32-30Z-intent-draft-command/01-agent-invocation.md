@@ -17,6 +17,8 @@ The agent `cwd` is `dirname(out)` so relative file references in the prompt reso
 
 Config is loaded the same way `planCommand` loads it: accept an optional `config` override (for tests) and fall back to `loadConfig(cwd)` otherwise.
 
+This subspec covers only the single-turn command handler. It does not add telemetry, project resolution, worktree setup, git operations, or any multi-phase plan-mode behavior.
+
 ### Seed text by mode
 
 | mode | seed |
@@ -52,6 +54,12 @@ Seed:
 
 Mirror the pattern in `src/modes/plan/draft.ts` (and `refine.ts`): iterate `agentOrder`, on `"quota"` continue to the next entry, on `"model_config"` or `"error"` return immediately with exit code 1. If all entries return `"quota"`, emit a quota-exhausted message and exit 1.
 
+### Config expectations
+
+- Resolve agents from the same plan-mode order used by the refine phase: `config.modes.plan.agentOrder`.
+- If that array is absent or empty, use the same fallback helper or normalization path plan mode already uses rather than inventing a new intent-specific defaulting scheme.
+- The command must not call `enterMode`, `createPlanWorktree`, or any repo-resolution helper.
+
 ### Error messages (stderr, exit 1)
 
 | condition | message |
@@ -62,6 +70,7 @@ Mirror the pattern in `src/modes/plan/draft.ts` (and `refine.ts`): iterate `agen
 | agent returns `"error"` | `intent: agent error (exit <code>)` |
 | agent returns `"model_config"` | `intent: agent model config error` |
 | file read fails (mode: "file") | `intent: could not read seed file: <intentPath>` |
+| `agentOrder` is unavailable after config normalization | `intent: no plan-mode agents configured` |
 
 ## Task checklist
 
@@ -74,7 +83,9 @@ Mirror the pattern in `src/modes/plan/draft.ts` (and `refine.ts`): iterate `agen
   - Guard: if `existsSync(out)` emit error and return 1
   - Build seed string (read file for `mode: "file"`, catch read errors)
   - Build prompt string
-  - Loop `config.modes.plan.agentOrder`: call `createAgent(entry.agent, entry.model)`, then `agent.run(prompt, { cwd: dirname(out) })`
+  - Resolve the plan-mode agent order using the same config path or helper plan mode already relies on
+  - If no agents are available after normalization, emit `intent: no plan-mode agents configured` and return 1
+  - Loop the resolved agent order: call `createAgent(entry.agent, entry.model)`, then `agent.run(prompt, { cwd: dirname(out) })`
     - `"ok"` → break
     - `"quota"` → continue
     - `"model_config"` | `"error"` → emit error, return 1
@@ -84,14 +95,25 @@ Mirror the pattern in `src/modes/plan/draft.ts` (and `refine.ts`): iterate `agen
 
 - [ ] No telemetry wiring — skip entirely
 
+## Documentation updates
+
+- [ ] Add command-specific help or usage text for `jarvis intent` if existing command modules are responsible for describing their own flags and behavior.
+- [ ] Document the overwrite guard and the default output path in the same user-facing help surface as the new `--out` flag rather than relying only on tests or code comments.
+
 ## Acceptance criteria
 
 - [ ] `jarvis intent` (interactive mode) invokes the agent with seed `"# Intent\n"` and writes `intent.md` in the working directory on success
 - [ ] `jarvis intent "build a widget"` (inline mode) invokes the agent with the inline text as seed
 - [ ] `jarvis intent ./seed.md` (file mode) reads `seed.md` and uses its contents as seed
 - [ ] `jarvis intent --out notes.md` writes to `notes.md` instead of `intent.md`
+- [ ] The agent prompt includes the resolved absolute output path and instructs the agent to write a rough, unstructured intent draft with no required headings or acceptance-criteria scaffolding
+- [ ] The command invokes agents with `cwd = dirname(out)` so relative file references in the prompt are anchored to the output location
 - [ ] Running when `intent.md` already exists exits 1 with `intent: output file already exists: ...`
+- [ ] When the file seed cannot be read, exits 1 with `intent: could not read seed file: ...`
 - [ ] When the agent returns `"ok"` but does not create the file, exits 1 with `intent: agent completed but did not write ...`
+- [ ] When no plan-mode agents are available after config normalization, exits 1 with `intent: no plan-mode agents configured`
 - [ ] When all agents return `"quota"`, exits 1 with `intent: all agents returned quota errors`
+- [ ] When an agent returns `"model_config"`, exits 1 with `intent: agent model config error`
+- [ ] When an agent returns `"error"` with exit code `N`, exits 1 with `intent: agent error (exit N)`
 - [ ] TypeScript compiles without errors (`tsc --noEmit` passes)
 - [ ] No git operations are performed (no branch creation, no commits, no worktree)

@@ -1,3 +1,4 @@
-need a command for drafting an intention files. one turn, rough as hell draft.
+need a command for drafting an intention files. in line prompt. one turn, rough as hell draft.
 this could be added to the workflow for an inline prompt
 i don't want to introduce structure to intention files. i want the ability to manually create them with whatever info
+basically if i come with only a one liner in line, we should stop at 

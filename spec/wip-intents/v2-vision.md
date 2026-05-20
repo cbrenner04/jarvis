@@ -4,7 +4,24 @@ This is a long-lived reference doc, not a plan intent. It captures the *why* and
 
 ## Repo layout (target)
 
-Top-level `v1/` and `v2/` directories. Only repo-root config (CI, root README, root `.gitignore`, etc.) stays at the root. v1 and v2 each own their own `src/`, `test/`, `spec/`, and tooling config. v2 planning artifacts (including this doc and the wip intents) live under `v2/spec/` once the v1/v2 split lands.
+One package, multiple source trees. A single root `package.json`, `bun.lock`, and `node_modules` for the whole repo — not Bun workspaces, not a `package.json` per version. v1 and v2 are separate TypeScript projects (separate source trees that cannot import each other), not separate packages. This is the "have your cake and eat it too" shape: one dependency tree and one toolchain, but cleanly separated engines.
+
+```
+package.json / bun.lock / node_modules   # single, shared
+biome.json / tsconfig.base.json          # repo-wide tool config
+bin/jarvis1 -> v1   (after rename)       # bin/jarvis reserved for v2
+prompts/            # first-class, treated as code — shared by both engines
+v1/                 # engine v1 (own tsconfig project)
+  src/ test/ spec/
+v2/                 # engine v2 (own tsconfig project)
+  src/ test/ spec/
+```
+
+Accepted tradeoff of one lockfile: v1 and v2 share one resolved version of every dependency. Fine because v1 is a stable engine on the same stack, and the shared gate runs v1's tests on every change.
+
+Prompts are a top-level peer, not owned by either engine (see "Core premise" and the prompts intent). They are extracted to `prompts/` as later work, not during the v1/v2 split — the split moves v1's prompts wholesale into `v1/` first.
+
+v2 planning artifacts (this doc and the wip intents) live under `v2/spec/` once the split lands.
 
 ## Why rewrite
 
@@ -28,13 +45,15 @@ v2 takes the same idea one level up. Instead of just composing prompts, it compo
 
 - `run` / "patch mode" → `implement`. Drop both "run" and "patch" as user-facing terms.
 
-## Open questions (prompts)
+## Prompts as first-class artifacts
 
-If English is code, prompts deserve the same treatment as code: versioned, reusable, reviewable, not buried inline. Worth resolving as part of the v2 architecture design:
+If English is code, prompts deserve the same treatment as code: versioned, reusable, reviewable, not buried inline — arguably the most important pieces in the repo. Decided so far:
 
-- Should prompts live in a shared top-level directory (e.g. `prompts/`) that both v1 and v2 read from, rather than being inlined in each codebase?
-- If shared, does v1 actually pick up prompt improvements over time, or does v1 pin a frozen snapshot so its behavior stays stable?
-- If v2-only, when does extraction happen — as part of v2 day one, or later?
+- Prompts live in a **shared top-level `prompts/`** that both engines read from, abstracted out of v1 and v2.
+- v1 reads those **shared, evolving** prompts. "Reliable jarvis1" means a stable *engine*, not frozen prompt text — prompt improvements reach v1 too, and there is one source of truth rather than duplicated copies.
+- Extraction is **deferred**: the v1/v2 split moves v1's prompts wholesale into `v1/`; hoisting them to `prompts/` is later work.
+
+Still to design (owned by `v2-prompts.txt`): the exact `prompts/` layout, the prompt artifact taxonomy, the rendering/placeholder contract, and the review/testing standard. Because v1 shares evolving prompts, rendered-prompt snapshot or behavior tests matter — a prompt edit can shift `jarvis1` output and that change should be visible and reviewed.
 
 ## Open questions (composability)
 
@@ -57,7 +76,7 @@ Constraints v2's architecture must satisfy. Some are forward-looking (server, UI
 
 v1 is not going away. Once v2 ships, v1 stays installed and runnable forever as the "reliable jarvis" alongside the new one:
 
-- `jarvis1` — the stable, frozen v1 command. Same behavior as today's `jarvis`.
+- `jarvis1` — the stable v1 engine. Same code behavior as today's `jarvis`. "Stable" means the engine, not the prompts: it reads the shared, evolving `prompts/` like v2 does.
 - `jarvis` — v2. The new orchestration layer. Built incrementally; users opt in by running it.
 
 The rename happens almost immediately after the v1/v2 repo split so the two binaries coexist for the entire v2 build, not just after it lands.

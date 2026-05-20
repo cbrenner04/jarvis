@@ -400,6 +400,22 @@ Write-enabled fixes:
 Unsafe fix variants are also available as `format:unsafe`,
 `lint:fix:unsafe`, and `check:fix:unsafe`; inspect their diffs carefully.
 
+### Per-test timeout
+
+The test suite enforces a 30-second per-test timeout via the `bun test` script
+(`--timeout=30000`). If a test genuinely needs more time, pass
+`{ timeout: <ms> }` to `test(name, opts, fn)`:
+
+```typescript
+test("slow operation", { timeout: 60000 }, async () => {
+  // Test body
+});
+```
+
+The timeout is a backstop against hung tests hanging the entire suite. Do not
+increase the default or add per-test timeouts speculatively; only when a test
+legitimately requires more time.
+
 Before moving a PR out of draft, run:
 
 ```sh

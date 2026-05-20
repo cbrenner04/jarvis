@@ -65,6 +65,17 @@ For quota events, records use **`kind`: `"quota"`** with **`exitReason`**:
 | `quota-fallback` | Strict quota on the current agent; at least one later agent remains. |
 | `probable-quota-fallback` | Lenient weak-quota upgrade on the current agent; at least one later agent remains. |
 
+Timeout records use **`kind`: `"timeout"`** with:
+
+| exitReason | When |
+| --- | --- |
+| `watchdog-iteration-timeout` | Iteration watchdog fired, logged `[watchdog] …`, and killed the agent process group via SIGTERM→(5s)→SIGKILL. |
+| `iteration-timeout` | Iteration timeout result was returned without watchdog-fire context. |
+| `run-timeout` | Global run timeout fired. |
+
+Watchdog-triggered timeout rows may include `watchdog_pgid` so investigations
+can tie the timeout to the exact killed process group.
+
 Plan phases do not emit matching JSONL rows for per-phase agent outcomes.
 
 ## Capture convention (real quota events)

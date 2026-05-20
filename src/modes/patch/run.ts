@@ -143,6 +143,7 @@ type WriteTelemetry = (record: {
   cost_usd?: number | null;
   cost_source?: CostSource;
   warnings?: string[];
+  watchdog_pgid?: number;
 }) => void;
 
 type PreflightOk = {
@@ -634,6 +635,9 @@ function setupLogging(
         ...(record.configured_model !== undefined
           ? { configured_model: record.configured_model }
           : {}),
+        ...(record.watchdog_pgid !== undefined
+          ? { watchdog_pgid: record.watchdog_pgid }
+          : {}),
       });
       telemetryWrites = true;
       if (
@@ -913,7 +917,29 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
 
   // Create per-iteration abort controller
   state.currentController = new AbortController();
+  let watchdogPgid: number | null = null;
+  let watchdogFired = false;
+  let watchdogKillHandle: NodeJS.Timeout | null = null;
   const iterationTimeoutHandle = setTimeout(() => {
+    watchdogFired = true;
+    const pgid = watchdogPgid;
+    if (pgid !== null) {
+      const watchdogLine = `[watchdog] iteration timeout fired after ${cfg.iterationTimeoutMs}ms; killing agent pgid ${pgid}`;
+      fanout("harness", `${watchdogLine}\n`, "stderr");
+      try {
+        process.kill(-pgid, "SIGTERM");
+      } catch {
+        // best-effort, spawn-layer abort handler still runs.
+      }
+      watchdogKillHandle = setTimeout(() => {
+        try {
+          process.kill(-pgid, "SIGKILL");
+        } catch {
+          // best-effort
+        }
+      }, 5000);
+      watchdogKillHandle.unref();
+    }
     state.currentController?.abort("iteration-timeout");
   }, cfg.iterationTimeoutMs);
 
@@ -924,6 +950,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         ? {}
         : { additionalReadDirs: preflight.additionalReadDirs }),
       signal: state.currentController.signal,
+      abortKillGraceMs: 5000,
+      onSpawned: ({ pid }) => {
+        watchdogPgid = pid;
+      },
     });
 
     // Check for iteration timeout
@@ -941,8 +971,11 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         iteration,
         durationMs: iterationDurationMs(),
         kind: "timeout",
-        exitReason: "iteration-timeout",
+        exitReason: watchdogFired
+          ? "watchdog-iteration-timeout"
+          : "iteration-timeout",
         ...telemetryMeta,
+        ...(watchdogPgid !== null ? { watchdog_pgid: watchdogPgid } : {}),
       });
       return { kind: "return", exitCode: 8 };
     }
@@ -1451,6 +1484,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     return { kind: "return", exitCode: 3 };
   } finally {
     clearTimeout(iterationTimeoutHandle);
+    if (watchdogKillHandle !== null) {
+      clearTimeout(watchdogKillHandle);
+    }
   }
 }
 

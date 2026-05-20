@@ -1156,6 +1156,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             },
           );
           worktreePath = nextWorktreePath;
+          finalSpecPath = join(worktreePath, "spec", specDirBasename);
           const oldBranch = `plan/${tempPlanName}`;
           const localBranches = execFileSync(
             "git",

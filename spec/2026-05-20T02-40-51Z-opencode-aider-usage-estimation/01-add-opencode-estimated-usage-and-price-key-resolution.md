@@ -12,6 +12,7 @@
 - Price-table maintenance remains operator-managed; this subspec does not add or edit `data/prices.json`.
 - If estimation fails, opencode falls back to the current unavailable/no-usage behavior and adds one warning to the returned `AgentResult`.
 - The patch-loop notice in `src/modes/patch/run.ts` must stop firing on normal successful estimated opencode runs and only remain for real unavailable fallback cases.
+- This subspec owns its own regression coverage; the later documentation subspec must not be required to prove the runtime behavior.
 
 ## Task Checklist
 
@@ -32,4 +33,4 @@
 - [ ] If estimation fails, opencode still returns a successful agent result with `usage_source: "unavailable"`, `cost_source: "no-usage"`, and exactly one warning explaining the fallback.
 - [ ] The patch loop no longer prints `opencode: token usage not available for this CLI version...` for successful estimated opencode runs.
 - [ ] Any remaining opencode unavailable notice path is tied to actual unavailable fallback behavior, not normal success.
-- [ ] Unit tests cover successful estimated usage, identity price-key resolution, and estimator-failure fallback with warning propagation.
+- [ ] Unit tests in the opencode test suite cover successful estimated usage, identity price-key resolution, and estimator-failure fallback with warning propagation.

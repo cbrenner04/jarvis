@@ -2,7 +2,7 @@
 
 ## Problem
 
-Cursor already has a best-effort tiktoken estimator in `src/agents/cursor-tokens.ts`, but opencode and aider need the same behavior. Duplicating that logic in each agent would make future estimator changes harder to test and reason about.
+Cursor already has a best-effort tiktoken estimator in `src/agents/cursor-tokens.ts`, but opencode and aider need the same behavior. Duplicating that logic in each agent would make future estimator changes harder to test and reason about, and it would force later subspecs to mix shared-helper refactoring with agent-specific behavior changes.
 
 ## Decisions
 
@@ -10,6 +10,7 @@ Cursor already has a best-effort tiktoken estimator in `src/agents/cursor-tokens
 - Preserve the current cursor helper surface so existing imports of `estimateCursorUsage` continue to work after the extraction.
 - Keep the estimator best-effort only: tokenizer init or encode failures return `null` rather than failing the run.
 - The shared helper continues to estimate only prompt and stdout tokens and always reports zero cache token fields.
+- This subspec does not change opencode or aider behavior yet; it only prepares the shared helper and cursor compatibility layer those later slices will consume.
 
 ## Task Checklist
 

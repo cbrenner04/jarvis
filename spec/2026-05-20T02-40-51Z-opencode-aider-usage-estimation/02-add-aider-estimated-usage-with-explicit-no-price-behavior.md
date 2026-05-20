@@ -12,6 +12,7 @@
 - Jarvis does not add a one-time patch-loop notice for normal aider success.
 - If estimation fails, aider falls back to the current unavailable/no-usage behavior and adds one warning to the returned `AgentResult`.
 - This subspec does not add stdout parsing for aider token or cost lines.
+- This subspec owns its own regression coverage; the later documentation slice should not be needed to verify aider runtime behavior.
 
 ## Task Checklist
 
@@ -31,4 +32,4 @@
 - [ ] No stdout parsing is introduced for aider token or cost lines.
 - [ ] If estimation fails, aider still returns a successful agent result with `usage_source: "unavailable"`, `cost_source: "no-usage"`, and exactly one warning explaining the fallback.
 - [ ] No new one-time run-loop notice is introduced for normal aider success.
-- [ ] Unit tests cover successful estimated usage and estimator-failure fallback with warning propagation.
+- [ ] Unit tests in the aider test suite cover successful estimated usage and estimator-failure fallback with warning propagation.

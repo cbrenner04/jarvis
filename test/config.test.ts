@@ -1453,6 +1453,125 @@ describe("plan flags", () => {
     const cfg = loadConfig({ dir });
     expect(cfg.projects.app?.plan).toEqual({ commit: true });
   });
+
+  test("rejects flat specTimestamp at project level with nesting hint", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-flat-spec-timestamp",
+            specTimestamp: true,
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/myproject/);
+    expect(() => loadConfig({ dir })).toThrow(/specTimestamp/);
+    expect(() => loadConfig({ dir })).toThrow(/plan\.specTimestamp/);
+  });
+
+  test("rejects flat commit at project level with nesting hint", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-flat-commit",
+            commit: false,
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/myproject/);
+    expect(() => loadConfig({ dir })).toThrow(/commit/);
+    expect(() => loadConfig({ dir })).toThrow(/plan\.commit/);
+  });
+
+  test("rejects other unknown project keys with allowed set", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-unknown-key",
+            oringn: "git@github.com:example/repo.git",
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/myproject/);
+    expect(() => loadConfig({ dir })).toThrow(/oringn/);
+    expect(() => loadConfig({ dir })).toThrow(/root, origin, git, siblings, plan/);
+  });
+
+  test("rejects unknown keys under project.plan", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-unknown-plan-key",
+            plan: { comit: true },
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/myproject/);
+    expect(() => loadConfig({ dir })).toThrow(/plan/);
+    expect(() => loadConfig({ dir })).toThrow(/comit/);
+    expect(() => loadConfig({ dir })).toThrow(/specTimestamp, commit/);
+  });
+
+  test("accepts correctly-shaped config with all allowed keys", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+        },
+        projects: {
+          app: {
+            root: "/tmp/jarvis-full-project",
+            origin: "git@github.com:example/repo.git",
+            git: true,
+            siblings: ["/tmp/other"],
+            plan: { specTimestamp: false, commit: true },
+          },
+        },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects.app).toEqual({
+      root: "/tmp/jarvis-full-project",
+      origin: "git@github.com:example/repo.git",
+      git: true,
+      siblings: ["/tmp/other"],
+      plan: { specTimestamp: false, commit: true },
+    });
+  });
 });
 
 describe("resolvePlanFlags", () => {

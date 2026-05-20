@@ -2,15 +2,15 @@
 
 ## Problem
 
-The repo's current workflow docs describe `bun run ready` as the draft-to-ready gate, but they do not explain that Jarvis should first run `bun run check:fix` immediately before that gate. Once subspec 00 lands, the documented operator workflow needs to match the new harness behavior so reviewers understand why a readiness transition may rewrite files before the final verification pass.
+The repo's current workflow docs describe `bun run ready` as the draft-to-ready gate but do not mention that it now runs `bun run check:fix` as its first step. Once subspec 00 lands, the documented operator workflow needs to match the updated `ready` sequence so reviewers understand why a readiness transition may rewrite files before the final verification pass.
 
 ## Decisions (locked)
 
 - Keep documentation narrow and workflow-focused, but update every existing readiness description that would become inaccurate. `docs/workflows.md` and `docs/worktrees-and-commits.md` are the minimum required touch points.
-- Describe the readiness transition as a two-step local gate: first `bun run check:fix`, then `bun run ready`, then `gh pr ready` if both succeed.
+- Describe the updated `bun run ready` sequence as `check:fix → install → typecheck → test → check`, then `gh pr ready` on success.
 - Call out that `check:fix` is a mutating Biome pass across the worktree root and therefore may rewrite files right before the PR leaves draft.
-- Explain the failure behavior at a high level: a fixer or ready failure leaves the PR in draft so the branch can be corrected before retrying readiness.
-- Do not broaden the docs into claiming this happens on every patch-mode commit or every agent iteration; it is specific to the draft-to-ready transition.
+- Explain the failure behavior at a high level: if any step in `ready` fails (including `check:fix`), the PR stays in draft and the branch can be corrected before retrying.
+- Do not broaden the docs into claiming `check:fix` runs before ordinary patch-mode commits or during every agent iteration; it is specific to the `bun run ready` invocation at the draft-to-ready transition.
 
 ## Tasks
 
@@ -21,10 +21,10 @@ The repo's current workflow docs describe `bun run ready` as the draft-to-ready 
 
 ## Acceptance criteria
 
-- [ ] `docs/workflows.md` describes the draft-to-ready sequence as `bun run check:fix` -> `bun run ready` -> `gh pr ready` for the harness paths that mark PRs ready.
-- [ ] `docs/worktrees-and-commits.md` states that the readiness transition may mutate files via `check:fix` immediately before the final ready gate runs.
-- [ ] No existing readiness documentation still describes the automatic draft-to-ready transition as `ready`/`gh pr ready` only.
-- [ ] The updated docs state that a `check:fix` or `ready` failure leaves the PR in draft instead of claiming readiness always succeeds once the spec is complete.
+- [ ] `docs/workflows.md` describes `bun run ready` as running `check:fix → install → typecheck → test → check` followed by `gh pr ready`, not just the prior `install → typecheck → test → check` sequence.
+- [ ] `docs/worktrees-and-commits.md` states that the readiness transition may mutate files via `check:fix` (the first step of `bun run ready`) before the final checks run.
+- [ ] No existing readiness documentation still describes the draft-to-ready transition as beginning with `bun install` or omitting `check:fix` entirely.
+- [ ] The updated docs state that a failure in any `ready` step (including `check:fix`) leaves the PR in draft.
 - [ ] The updated docs do not claim that `check:fix` runs before ordinary patch-mode commits or during every iteration.
 
 ## Documentation updates

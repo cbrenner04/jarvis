@@ -207,6 +207,21 @@ describe("boundary", () => {
     }
   });
 
+  test("assertTargetRepoPlanBoundary returns ok for non-git root", () => {
+    // Create a non-git directory without a .git subdirectory
+    const nonGitDir = join(tempDir, "non-git-dir");
+    mkdirSync(nonGitDir);
+    mkdirSync(join(nonGitDir, "spec", "some-spec"), { recursive: true });
+    writeFileSync(
+      join(nonGitDir, "spec", "some-spec", "intent.md"),
+      "x\n",
+      "utf8",
+    );
+
+    const result = assertTargetRepoPlanBoundary(nonGitDir);
+    expect(result.ok).toBe(true);
+  });
+
   test("appendBoundaryBlocker adds blocker section to intent.md", () => {
     const intentPath = join(repoDir, "spec", specName, "intent.md");
     const offendingPaths = ["src/main.ts", "README.md"];

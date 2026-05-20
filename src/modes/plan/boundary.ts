@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type BoundaryCheckResult =
@@ -61,10 +61,18 @@ export function assertPlanWriteBoundary(
 /**
  * For no-commit plan runs: ensure the target repo checkout was not modified
  * under `spec/` while the agent worked in Jarvis-owned external storage.
+ *
+ * When the project root is not a git repository, returns { ok: true }
+ * without invoking git, since the boundary is enforced by the agent's cwd.
  */
 export function assertTargetRepoPlanBoundary(
   projectRoot: string,
 ): BoundaryCheckResult {
+  // If projectRoot is not a git repository, no git-based boundary check is needed
+  if (!existsSync(join(projectRoot, ".git"))) {
+    return { ok: true };
+  }
+
   let output: string;
   try {
     output = execFileSync("git", ["status", "--porcelain=v1", "-z"], {

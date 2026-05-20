@@ -267,6 +267,25 @@ Validation rules:
 Resume does not accept positional intent text/file and does not require
 `--repo`; it operates entirely from the existing plan worktree state.
 
+### `--resume-draft <intent-path>`
+
+Resume from an approval-gated intent-only state into draft plus review:
+
+```sh
+jarvis plan --resume-draft spec/2026-05-17T22-14-03Z-my-plan/intent.md
+# legacy layouts still accepted, e.g. spec/my-plan/intent.md
+```
+
+Validation rules:
+
+- `<intent-path>` must point at `spec/<spec-dir>/intent.md` on disk.
+- `spec/<spec-dir>/intent.md` must not still contain an exact `## Blocker` heading.
+- Local branch `plan/<plan-name>` and `.worktree/plan-<plan-name>/` must both exist.
+- This first cut supports committed plan mode only (`modes.plan.commit: true`).
+- Scope limits for this first cut: no typed blocker metadata and no automatic blocker clearing; reviewers must remove or resolve `## Blocker` manually before resume.
+
+This command is additive. Plain `jarvis plan spec/<spec-dir>/intent.md` remains fresh authoring input, and ordinary `--resume spec/<spec-dir>/index.md` behavior is unchanged.
+
 ## Resuming a plan
 
 Resume runs additional phases against an existing plan branch:
@@ -325,8 +344,8 @@ If an agent appends a `## Blocker` section to `spec/<spec-dir>/intent.md` (exact
 Jarvis then prints the blocker section to stderr and exits `1`. The draft PR
 reflects the blocker for human review. The user can resolve the blocker
 offline, update `spec/<spec-dir>/intent.md` manually on the branch, and re-run
-`jarvis plan --resume spec/<spec-dir>/index.md` to continue, or close the PR and
-start over.
+`jarvis plan --resume-draft spec/<spec-dir>/intent.md` to continue with draft/review,
+or `jarvis plan --resume spec/<spec-dir>/index.md` after draft exists, or close the PR and start over.
 
 ### 3. Ctrl-C
 

@@ -25,12 +25,12 @@ Add an explicit pre-draft resume entry point that continues an approval-gated co
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan --resume-draft spec/<spec-dir>/intent.md` is accepted as a distinct command shape, while plain `jarvis plan spec/<spec-dir>/intent.md` continues to mean fresh authoring input.
-- [ ] `--resume-draft` validates the committed-plan preconditions needed for the existing branch/worktree flow and reuses the untimestamped `plan/<name>` plus `.worktree/plan-<name>/` mapping derived from `<spec-dir>`.
-- [ ] `--resume-draft` exits with a clear validation error if `intent.md` still contains `## Blocker`; it does not auto-delete, reinterpret, or bypass the blocker.
-- [ ] After the blocker is cleared, `--resume-draft` runs draft plus the configured review passes, reuses the existing draft PR, and leaves draft/review commit numbering and PR attribution behavior consistent with the current committed plan flow.
-- [ ] Ordinary `--resume spec/<spec-dir>/index.md` behavior is unchanged and does not start accepting `intent.md` or sharing a context-sensitive dispatcher with `--resume-draft`.
-- [ ] CLI-facing help and `docs/plan-mode.md` explain the manual approval step, the `--resume-draft spec/<spec-dir>/intent.md` command, and the first-cut bounds: no typed blockers, no automatic blocker clearing, and no `modes.plan.commit: false` support.
+- [x] `jarvis plan --resume-draft spec/<spec-dir>/intent.md` is accepted as a distinct command shape, while plain `jarvis plan spec/<spec-dir>/intent.md` continues to mean fresh authoring input.
+- [x] `--resume-draft` validates the committed-plan preconditions needed for the existing branch/worktree flow and reuses the untimestamped `plan/<name>` plus `.worktree/plan-<name>/` mapping derived from `<spec-dir>`.
+- [x] `--resume-draft` exits with a clear validation error if `intent.md` still contains `## Blocker`; it does not auto-delete, reinterpret, or bypass the blocker.
+- [x] After the blocker is cleared, `--resume-draft` runs draft plus the configured review passes, reuses the existing draft PR, and leaves draft/review commit numbering and PR attribution behavior consistent with the current committed plan flow.
+- [x] Ordinary `--resume spec/<spec-dir>/index.md` behavior is unchanged and does not start accepting `intent.md` or sharing a context-sensitive dispatcher with `--resume-draft`.
+- [x] CLI-facing help and `docs/plan-mode.md` explain the manual approval step, the `--resume-draft spec/<spec-dir>/intent.md` command, and the first-cut bounds: no typed blockers, no automatic blocker clearing, and no `modes.plan.commit: false` support.
 
 ## Documentation updates
 

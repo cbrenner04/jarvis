@@ -97,7 +97,8 @@ export async function runInlineDraftTurn(opts: {
   }
 
   const agent = createAgent(entry.agent, entry.model);
-  const agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
+  const agentLabel =
+    agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
   const result = await agent.run(prompt, { cwd: opts.worktreePath });
   return { result, agentLabel };
 }

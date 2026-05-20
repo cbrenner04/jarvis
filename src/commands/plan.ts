@@ -18,13 +18,13 @@ import {
 } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
+import { detectBlocker } from "../modes/plan/blocker.ts";
 import {
   appendBoundaryBlocker,
   assertPlanWriteBoundary,
   assertTargetRepoPlanBoundary,
   revertPaths,
 } from "../modes/plan/boundary.ts";
-import { detectBlocker } from "../modes/plan/blocker.ts";
 import {
   commitPlanBlocker,
   commitPlanDraft,
@@ -631,7 +631,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         config: inlineCfg,
       });
       if (inlineResult.result.kind === "ok") {
-        opts.io.stderr(`plan: inline intent draft written to ${inlineIntentPath}\n`);
+        opts.io.stderr(
+          `plan: inline intent draft written to ${inlineIntentPath}\n`,
+        );
         return 0;
       }
       if (inlineResult.result.kind === "quota") {

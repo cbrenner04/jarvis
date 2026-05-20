@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { runAgent } from "../src/agents/spawn.ts";
 import type {
   Agent,
   AgentName,
@@ -3206,6 +3207,67 @@ exit 0
       expect(lastMessage).toContain("## Blocker");
       expect(lastMessage).toContain("Need implementation details");
     });
+  });
+});
+
+describe("agent stream handling (regression test for hang)", () => {
+  test("settles promise when child exits and streams end (even if timing differs)", async () => {
+    const result = await runAgent(
+      {
+        name: "claude",
+        binary: "sh",
+        cwd: tmpdir(),
+        buildArgv: () => ["-c", "echo 'output'; exit 0"],
+        stdio: ["pipe", "pipe", "pipe"] as const,
+        streamErrorPrefix: "test:",
+      },
+      "",
+      { cwd: tmpdir() },
+    );
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.stdout).toContain("output");
+    }
+  });
+
+  test("settles promise when child exits with error", async () => {
+    const result = await runAgent(
+      {
+        name: "claude",
+        binary: "sh",
+        cwd: tmpdir(),
+        buildArgv: () => ["-c", "echo 'error' >&2; exit 1"],
+        stdio: ["pipe", "pipe", "pipe"] as const,
+        streamErrorPrefix: "test:",
+      },
+      "",
+      { cwd: tmpdir() },
+    );
+
+    expect(result.kind).toBe("error");
+    expect(result.stderr).toContain("error");
+  });
+
+  test("settles promise when child exits without producing output", async () => {
+    const result = await runAgent(
+      {
+        name: "claude",
+        binary: "sh",
+        cwd: tmpdir(),
+        buildArgv: () => ["-c", "exit 0"],
+        stdio: ["pipe", "pipe", "pipe"] as const,
+        streamErrorPrefix: "test:",
+      },
+      "",
+      { cwd: tmpdir() },
+    );
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("");
+    }
   });
 });
 

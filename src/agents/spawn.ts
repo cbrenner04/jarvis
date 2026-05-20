@@ -52,17 +52,48 @@ export function runAgent(
     let outBuf = "";
     let errBuf = "";
     let settled = false;
+    let stdoutEnded = false;
+    let stderrEnded = false;
+    let childClosed = false;
     const settle = (r: AgentResult) => {
       if (settled) return;
       settled = true;
       resolvePromise(r);
     };
+    const checkSettlement = (code?: number | null) => {
+      if (settled) return;
+      if (stdoutEnded && stderrEnded && (childClosed || code !== undefined)) {
+        if (code === 0 || code === undefined) {
+          settle({ kind: "ok", stdout: outBuf, stderr: errBuf });
+        } else {
+          const exitCode = code ?? -1;
+          const diagnostics = `${errBuf}${outBuf}`;
+
+          // Classification order: model config → quota → generic error
+          if (isModelConfigurationSignal(config.name, diagnostics)) {
+            settle({ kind: "model_config", stderr: diagnostics });
+          } else if (isQuotaSignal(config.name, exitCode, diagnostics)) {
+            settle({ kind: "quota", stderr: diagnostics });
+          } else {
+            settle({ kind: "error", exitCode, stderr: diagnostics });
+          }
+        }
+      }
+    };
 
     stdout.on("data", (chunk: Buffer) => {
       outBuf += chunk.toString("utf8");
     });
+    stdout.on("end", () => {
+      stdoutEnded = true;
+      checkSettlement();
+    });
     stderr.on("data", (chunk: Buffer) => {
       errBuf += chunk.toString("utf8");
+    });
+    stderr.on("end", () => {
+      stderrEnded = true;
+      checkSettlement();
     });
     child.on("error", (err) => {
       settle({
@@ -72,24 +103,8 @@ export function runAgent(
       });
     });
     child.on("close", (code) => {
-      if (code === 0) {
-        settle({ kind: "ok", stdout: outBuf, stderr: errBuf });
-        return;
-      }
-      const exitCode = code ?? -1;
-      const diagnostics = `${errBuf}${outBuf}`;
-
-      // Classification order: model config → quota → generic error
-      if (isModelConfigurationSignal(config.name, diagnostics)) {
-        settle({ kind: "model_config", stderr: diagnostics });
-        return;
-      }
-
-      if (isQuotaSignal(config.name, exitCode, diagnostics)) {
-        settle({ kind: "quota", stderr: diagnostics });
-        return;
-      }
-      settle({ kind: "error", exitCode, stderr: diagnostics });
+      childClosed = true;
+      checkSettlement(code);
     });
 
     // Handle abort signal: send SIGTERM, wait grace period, then SIGKILL

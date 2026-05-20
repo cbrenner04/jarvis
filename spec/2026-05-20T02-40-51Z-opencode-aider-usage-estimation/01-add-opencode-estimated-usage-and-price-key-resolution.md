@@ -27,10 +27,10 @@
 
 ## Acceptance criteria
 
-- [ ] Successful opencode runs estimate tokens from prompt and stdout, attach those counts to the agent result, and return `usage_source: "estimated"` rather than `unavailable`.
-- [ ] `resolveOpencodePriceKey` returns the configured model string unchanged, allowing downstream pricing to use existing `data/prices.json` rows when present.
-- [ ] Downstream usage/cost enrichment records `cost_source: "estimated"` when an estimated opencode result is paired with a configured model that has a matching price-table row, and `cost_source: "no-price"` when the model string has no matching row.
-- [ ] If estimation fails, opencode still returns a successful agent result with `usage_source: "unavailable"`, `cost_source: "no-usage"`, and exactly one warning explaining the fallback.
-- [ ] The patch loop no longer prints `opencode: token usage not available for this CLI version...` for successful estimated opencode runs.
-- [ ] Any remaining opencode unavailable notice path is tied to actual unavailable fallback behavior, not normal success.
-- [ ] Regression coverage proves the opencode success path, identity price-key resolution, estimator-failure warning fallback, and the downstream priced-vs-unpriced enrichment outcomes introduced by this slice.
+- [x] Successful opencode runs estimate tokens from prompt and stdout, attach those counts to the agent result, and return `usage_source: "estimated"` rather than `unavailable`.
+- [x] `resolveOpencodePriceKey` returns the configured model string unchanged, allowing downstream pricing to use existing `data/prices.json` rows when present.
+- [x] Downstream usage/cost enrichment records `cost_source: "estimated"` when an estimated opencode result is paired with a configured model that has a matching price-table row, and `cost_source: "no-price"` when the model string has no matching row.
+- [x] If estimation fails, opencode still returns a successful agent result with `usage_source: "unavailable"`, `cost_source: "no-usage"`, and exactly one warning explaining the fallback.
+- [x] The patch loop no longer prints `opencode: token usage not available for this CLI version...` for successful estimated opencode runs.
+- [x] Any remaining opencode unavailable notice path is tied to actual unavailable fallback behavior, not normal success.
+- [x] Regression coverage proves the opencode success path, identity price-key resolution, estimator-failure warning fallback, and the downstream priced-vs-unpriced enrichment outcomes introduced by this slice.

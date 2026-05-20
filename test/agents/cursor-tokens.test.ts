@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { estimateCursorUsage } from "../../src/agents/cursor-tokens.ts";
+import { estimateTokenUsage } from "../../src/agents/token-estimation.ts";
 
 describe("estimateCursorUsage", () => {
   test("returns zero tokens for empty prompt and stdout", () => {
@@ -36,5 +37,32 @@ describe("estimateCursorUsage", () => {
     if (small !== null && big !== null) {
       expect(big.input_tokens).toBeGreaterThan(small.input_tokens);
     }
+  });
+});
+
+describe("estimateTokenUsage", () => {
+  test("returns null when encoder init throws", () => {
+    const result = estimateTokenUsage({
+      prompt: "prompt",
+      stdout: "stdout",
+      loadEncoder: () => {
+        throw new Error("init failed");
+      },
+    });
+    expect(result).toBeNull();
+  });
+
+  test("returns null when tokenization throws", () => {
+    const result = estimateTokenUsage({
+      prompt: "prompt",
+      stdout: "stdout",
+      loadEncoder: () =>
+        ({
+          encode: () => {
+            throw new Error("encode failed");
+          },
+        }) as never,
+    });
+    expect(result).toBeNull();
   });
 });

@@ -33,8 +33,9 @@ describe("resolveAgentPriceKey", () => {
     expect(resolveAgentPriceKey("codex", "gpt-5.2")).toBeNull();
   });
 
-  test("opencode and aider always return null", () => {
-    expect(resolveAgentPriceKey("opencode", "anything")).toBeNull();
+  test("opencode returns configured model unchanged and aider returns null", () => {
+    expect(resolveAgentPriceKey("opencode", "anything")).toBe("anything");
+    expect(resolveAgentPriceKey("opencode", undefined)).toBeNull();
     expect(resolveAgentPriceKey("aider", "anything")).toBeNull();
   });
 
@@ -52,7 +53,7 @@ describe("agentHasPricedModels", () => {
     expect(agentHasPricedModels("claude")).toBe(true);
     expect(agentHasPricedModels("codex")).toBe(true);
     expect(agentHasPricedModels("cursor")).toBe(true);
-    expect(agentHasPricedModels("opencode")).toBe(false);
+    expect(agentHasPricedModels("opencode")).toBe(true);
     expect(agentHasPricedModels("aider")).toBe(false);
   });
 });

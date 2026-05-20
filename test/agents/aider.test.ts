@@ -66,8 +66,13 @@ describe("AiderAgent", () => {
       kind: "ok",
       stdout: "hi-out",
       stderr: "hi-err",
-      usage_source: "unavailable",
-      cost_source: "no-usage",
+      usage_source: "estimated",
+      usage: {
+        input_tokens: expect.any(Number),
+        output_tokens: expect.any(Number),
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
     });
     const argv = readFileSync(join(dir, "argv"), "utf8");
     expect(argv).toContain("--message");
@@ -164,12 +169,17 @@ describe("AiderAgent", () => {
       kind: "ok",
       stdout,
       stderr: "",
-      usage_source: "unavailable",
-      cost_source: "no-usage",
+      usage_source: "estimated",
+      usage: {
+        input_tokens: expect.any(Number),
+        output_tokens: expect.any(Number),
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
     });
   });
 
-  test("successful invocations always mark usage as unavailable", async () => {
+  test("successful invocations estimate usage from prompt + stdout", async () => {
     const bin = fakeBinary({ exit: 0, stdout: "ok" });
     const agent = new AiderAgent({
       binary: bin,
@@ -179,9 +189,32 @@ describe("AiderAgent", () => {
     const result = await agent.run("p", { cwd });
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {
+      expect(result.usage_source).toBe("estimated");
+      expect(result.cost_source).toBeUndefined();
+      expect(result.usage).toBeDefined();
+      expect(result.usage?.input_tokens).toBeGreaterThan(0);
+      expect(result.usage?.output_tokens).toBeGreaterThan(0);
+      expect(result.usage?.cache_read_input_tokens).toBe(0);
+      expect(result.usage?.cache_creation_input_tokens).toBe(0);
+    }
+  });
+
+  test("estimator failure falls back to unavailable usage with one warning", async () => {
+    const bin = fakeBinary({ exit: 0, stdout: "ok" });
+    const agent = new AiderAgent({
+      binary: bin,
+      model: "ollama/llama3",
+      estimateUsage: () => null,
+    });
+
+    const result = await agent.run("p", { cwd });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
       expect(result.usage_source).toBe("unavailable");
       expect(result.cost_source).toBe("no-usage");
-      expect(result.usage).toBeUndefined();
+      expect(result.warnings).toEqual([
+        "aider: token estimator unavailable; usage recorded as unavailable.",
+      ]);
     }
   });
 

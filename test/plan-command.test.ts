@@ -146,8 +146,8 @@ describe("planCommand", () => {
       expect(cap.err()).toContain("--resume requires a spec path");
     } finally {
       rmSync(dir, { recursive: true, force: true });
-     }
-   });
+    }
+  });
 
   test("commit: false on non-git project does not call git for baseBranch", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
@@ -172,7 +172,10 @@ describe("planCommand", () => {
       const { client } = capturingLogClient();
       const cap = captureIo();
       const specPath = join(project, "intent.md");
-      writeFileSync(specPath, "---\nname: test-non-git-basebranch\n---\ntest intent\n");
+      writeFileSync(
+        specPath,
+        "---\nname: test-non-git-basebranch\n---\ntest intent\n",
+      );
 
       // This will fail because the agent doesn't exist, but the important thing
       // is that we don't see git errors about "not a git repository" before that

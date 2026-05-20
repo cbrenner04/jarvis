@@ -61,7 +61,7 @@ export function assertPlanWriteBoundary(
 /**
  * For no-commit plan runs: ensure the target repo checkout was not modified
  * under `spec/` while the agent worked in Jarvis-owned external storage.
- * 
+ *
  * When the project root is not a git repository, returns { ok: true }
  * without invoking git, since the boundary is enforced by the agent's cwd.
  */

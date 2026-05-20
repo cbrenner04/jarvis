@@ -1470,14 +1470,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
             opts.io.stderr(`plan: blocker commit pushed\n`);
 
-                safeUpdatePrBody({
-                  io: opts.io,
-                  branch: planBranch,
-                  base: baseBranch as string,
-                  worktreePath: worktreePath as string,
-                  name: planName,
-                  specDirBasename,
-                });
+            safeUpdatePrBody({
+              io: opts.io,
+              branch: planBranch,
+              base: baseBranch as string,
+              worktreePath: worktreePath as string,
+              name: planName,
+              specDirBasename,
+            });
           } catch (err) {
             opts.io.stderr(`${(err as Error).message}\n`);
             summarizePlan("error", specDirBasename);
@@ -1568,14 +1568,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           const prUrl = getPrUrl(worktreePath as string, planBranch);
           opts.io.stdout(`${prUrl}\n`);
           opts.io.stderr(`plan: draft PR #${prResult.number} opened\n`);
-            safeUpdatePrBody({
-              io: opts.io,
-              branch: planBranch,
-              base: baseBranch as string,
-              worktreePath: worktreePath as string,
-              name: planName,
-              specDirBasename,
-            });
+          safeUpdatePrBody({
+            io: opts.io,
+            branch: planBranch,
+            base: baseBranch as string,
+            worktreePath: worktreePath as string,
+            name: planName,
+            specDirBasename,
+          });
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
           summarizePlan("error", specDirBasename);
@@ -1823,14 +1823,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       // Post-draft body refresh (header now reflects the real index.md).
       if (commit) {
-            safeUpdatePrBody({
-              io: opts.io,
-              branch: planBranch,
-              base: baseBranch as string,
-              worktreePath: worktreePath as string,
-              name: planName,
-              specDirBasename,
-            });
+        safeUpdatePrBody({
+          io: opts.io,
+          branch: planBranch,
+          base: baseBranch as string,
+          worktreePath: worktreePath as string,
+          name: planName,
+          specDirBasename,
+        });
       }
 
       // Self-review phase
@@ -1962,14 +1962,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   });
                   opts.io.stderr(`plan: blocker commit pushed\n`);
 
-            safeUpdatePrBody({
-              io: opts.io,
-              branch: planBranch,
-              base: baseBranch as string,
-              worktreePath: worktreePath as string,
-              name: planName,
-              specDirBasename,
-            });
+                  safeUpdatePrBody({
+                    io: opts.io,
+                    branch: planBranch,
+                    base: baseBranch as string,
+                    worktreePath: worktreePath as string,
+                    name: planName,
+                    specDirBasename,
+                  });
                 } catch (err) {
                   opts.io.stderr(`${(err as Error).message}\n`);
                   summarizePlan("error", specDirBasename);
@@ -2087,14 +2087,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 `plan: review pass ${pass} committed and pushed\n`,
               );
 
-                safeUpdatePrBody({
-                  io: opts.io,
-                  branch: planBranch,
-                  base: baseBranch as string,
-                  worktreePath: worktreePath as string,
-                  name: planName,
-                  specDirBasename,
-                });
+              safeUpdatePrBody({
+                io: opts.io,
+                branch: planBranch,
+                base: baseBranch as string,
+                worktreePath: worktreePath as string,
+                name: planName,
+                specDirBasename,
+              });
             } catch (err) {
               opts.io.stderr(`${(err as Error).message}\n`);
               summarizePlan("error", specDirBasename);

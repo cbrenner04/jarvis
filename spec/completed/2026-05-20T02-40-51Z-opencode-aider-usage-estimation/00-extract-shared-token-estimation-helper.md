@@ -24,8 +24,8 @@ Cursor already has a best-effort tiktoken estimator in `src/agents/cursor-tokens
 
 ## Acceptance criteria
 
-- [ ] `src/agents/token-estimation.ts` exports a shared helper that accepts `prompt` and `stdout` strings and returns `input_tokens`, `output_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`.
-- [ ] On successful encoding, the helper returns prompt and stdout token counts with both cache fields set to `0`.
-- [ ] If encoder initialization or tokenization throws, the helper returns `null` and does not turn the agent run into an error.
-- [ ] Existing imports of `estimateCursorUsage` continue to compile and behave the same after the extraction.
-- [ ] Unit tests cover both successful estimation and `null` fallback for tokenizer failure.
+- [x] `src/agents/token-estimation.ts` exports a shared helper that accepts `prompt` and `stdout` strings and returns `input_tokens`, `output_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens`.
+- [x] On successful encoding, the helper returns prompt and stdout token counts with both cache fields set to `0`.
+- [x] If encoder initialization or tokenization throws, the helper returns `null` and does not turn the agent run into an error.
+- [x] Existing imports of `estimateCursorUsage` continue to compile and behave the same after the extraction.
+- [x] Unit tests cover both successful estimation and `null` fallback for tokenizer failure.

@@ -2256,6 +2256,97 @@ exit 0
     expect(cap.err()).toContain("made no progress");
   });
 
+  test("does not print the opencode unavailable notice for estimated usage", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    writeConfig(
+      {
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "opencode", model: "github-copilot/test" }],
+          },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+        },
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
+        maxIterations: 1,
+        iterationTimeoutMs: 30 * 60_000,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+    const opencode = new FakeAgent("opencode", () => ({
+      kind: "ok",
+      stdout: "ok",
+      stderr: "",
+      usage_source: "estimated",
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { opencode },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(4);
+    expect(cap.err()).not.toContain(
+      "opencode: token usage not available for this CLI version",
+    );
+  });
+
+  test("prints the opencode unavailable notice when usage is unavailable", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    writeConfig(
+      {
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "opencode", model: "github-copilot/test" }],
+          },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+        },
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
+        maxIterations: 1,
+        iterationTimeoutMs: 30 * 60_000,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+    const opencode = new FakeAgent("opencode", () => ({
+      kind: "ok",
+      stdout: "ok",
+      stderr: "",
+      usage_source: "unavailable",
+      cost_source: "no-usage",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { opencode },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(4);
+    expect(cap.err()).toContain(
+      "opencode: token usage not available for this CLI version",
+    );
+  });
+
   test("max-iterations exit prints bounded tail of latest iteration output", async () => {
     const spec = writeSpec("- [ ] one\n- [ ] two\n- [ ] three\n");
     const cap = captureIo();

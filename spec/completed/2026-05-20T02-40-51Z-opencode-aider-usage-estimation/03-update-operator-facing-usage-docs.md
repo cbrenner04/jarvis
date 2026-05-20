@@ -23,7 +23,7 @@ After the shared helper and both agent integrations land, the operator-facing do
 
 ## Acceptance criteria
 
-- [ ] `docs/agents.md` describes opencode as using estimated prompt/stdout token counts and notes that cost depends on a matching configured model string in `data/prices.json`.
-- [ ] `docs/agents.md` describes aider as recording estimated usage volume while typically remaining `cost_source: "no-price"` for local-model runs.
-- [ ] `docs/run-loop.md` documents `estimated` usage and cost-source behavior for opencode and aider and no longer says every successful opencode run is unavailable.
-- [ ] `docs/run-loop.md` documents that the opencode unavailable notice only applies when estimation falls back to unavailable usage, not on normal successful estimated runs.
+- [x] `docs/agents.md` describes opencode as using estimated prompt/stdout token counts and notes that cost depends on a matching configured model string in `data/prices.json`.
+- [x] `docs/agents.md` describes aider as recording estimated usage volume while typically remaining `cost_source: "no-price"` for local-model runs.
+- [x] `docs/run-loop.md` documents `estimated` usage and cost-source behavior for opencode and aider and no longer says every successful opencode run is unavailable.
+- [x] `docs/run-loop.md` documents that the opencode unavailable notice only applies when estimation falls back to unavailable usage, not on normal successful estimated runs.

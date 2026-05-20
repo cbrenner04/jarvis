@@ -21,15 +21,15 @@ The repo's current workflow docs describe `bun run ready` as the draft-to-ready 
 
 ## Acceptance criteria
 
-- [ ] `docs/workflows.md` describes `bun run ready` as running `check:fix → install → typecheck → test → check` followed by `gh pr ready`, not just the prior `install → typecheck → test → check` sequence.
-- [ ] `docs/worktrees-and-commits.md` states that the readiness transition may mutate files via `check:fix` (the first step of `bun run ready`) before the final checks run.
-- [ ] No existing readiness documentation still describes the draft-to-ready transition as beginning with `bun install` or omitting `check:fix` entirely.
-- [ ] The updated docs state that a failure in any `ready` step (including `check:fix`) leaves the PR in draft.
-- [ ] The updated docs do not claim that `check:fix` runs before ordinary patch-mode commits or during every iteration.
+- [x] `docs/workflows.md` describes `bun run ready` as running `check:fix → install → typecheck → test → check` followed by `gh pr ready`, not just the prior `install → typecheck → test → check` sequence.
+- [x] `docs/worktrees-and-commits.md` states that the readiness transition may mutate files via `check:fix` (the first step of `bun run ready`) before the final checks run.
+- [x] No existing readiness documentation still describes the draft-to-ready transition as beginning with `bun install` or omitting `check:fix` entirely.
+- [x] The updated docs state that a failure in any `ready` step (including `check:fix`) leaves the PR in draft.
+- [x] The updated docs do not claim that `check:fix` runs before ordinary patch-mode commits or during every iteration.
 
 ## Documentation updates
 
-- [ ] Update the minimum set of existing docs needed to keep all readiness descriptions accurate; avoid unrelated doc cleanup.
+- [x] Update the minimum set of existing docs needed to keep all readiness descriptions accurate; avoid unrelated doc cleanup.
 
 ## Out of scope
 

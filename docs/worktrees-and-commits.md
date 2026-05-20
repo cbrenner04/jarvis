@@ -109,8 +109,14 @@ The PR remains in draft until the spec is complete. If a PR already exists
 (on resume), it is reused without modification to the body.
 
 When the final subspec is completed and pushed, the draft PR automatically
-transitions to ready for review (via `gh pr ready`). Jarvis never merges;
-human reviewers are responsible for approval and merge decisions.
+transitions to ready for review. The readiness transition begins with
+`bun run ready`, which first runs `bun run check:fix` (Biome's safe format
+and lint-rule fixer) as its opening step. This may rewrite files before
+the rest of the ready gate (`install → typecheck → test → check`) proceeds.
+If `check:fix` or any later step fails, the PR remains in draft for manual
+correction. Only when all steps succeed does the harness call `gh pr ready`.
+Jarvis never merges; human reviewers are responsible for approval and merge
+decisions.
 
 ### PR body
 

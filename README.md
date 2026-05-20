@@ -422,10 +422,11 @@ Before moving a PR out of draft, run:
 bun run ready
 ```
 
-That script runs `bun install --frozen-lockfile`, `bun run typecheck`, `bun
-run test`, and `bun run check` with a 10-minute wall-clock deadline. If any step
-hangs or the total time exceeds 10 minutes, the script kills the process tree and
-exits with code 124.
+That script runs `bun run check:fix` (Biome's safe format and lint-rule fixer),
+then `bun install --frozen-lockfile`, `bun run typecheck`, `bun run test`, and
+`bun run check` with a 10-minute wall-clock deadline. If any step hangs or the
+total time exceeds 10 minutes, the script kills the process tree and exits with
+code 124.
 
 Override the default 10-minute timeout via the `JARVIS_READY_TIMEOUT_MS`
 environment variable (in milliseconds):

@@ -78,21 +78,21 @@ loop, and the boundary-violation paths (`appendBoundaryBlocker`,
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan <intent-file>` against a config with
+- [x] `jarvis plan <intent-file>` against a config with
   `modes.plan.commit: true` no longer errors with
   `plan: draft phase error: ENOENT ... plan-tmp-<id>/spec/<basename>/intent.md`
   when the draft phase runs after a successful refine and worktree move.
-- [ ] After the fix, every read or write that uses `finalSpecPath` in the
+- [x] After the fix, every read or write that uses `finalSpecPath` in the
   draft phase, review-pass loop, draft/review boundary handlers, and blocker
   commit handlers resolves to the post-move worktree path for `commit: true`.
-- [ ] `commit: false` runs continue to use the Jarvis-owned storage root
+- [x] `commit: false` runs continue to use the Jarvis-owned storage root
   (`~/.jarvis/specs/<projectId>/<specDirBasename>/`) for `finalSpecPath` with
   no change in behavior.
-- [ ] A new or extended test reproduces the regression against the
+- [x] A new or extended test reproduces the regression against the
   pre-fix code and passes against the fixed code.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
-- [ ] `bun run check` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
+- [x] `bun run check` passes.
 
 ## Documentation updates
 

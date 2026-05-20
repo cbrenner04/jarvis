@@ -27,14 +27,14 @@ A strict-keys validator catches the original failure mode at the point the user 
 
 ## Acceptance criteria
 
-- [ ] A config with `projects.<name>.specTimestamp` (flat) causes `loadConfig` to throw a validation error whose message names the project, the offending key, and suggests `plan.specTimestamp`.
-- [ ] A config with `projects.<name>.commit` (flat) causes `loadConfig` to throw a validation error whose message names the project, the offending key, and suggests `plan.commit`.
-- [ ] A config with any other unknown key on a project object (e.g. `projects.<name>.oringn`) causes `loadConfig` to throw a validation error that names the project, the offending key, and lists the allowed set (`root, origin, git, siblings, plan`).
-- [ ] A config with an unknown key under `projects.<name>.plan` (e.g. `projects.<name>.plan.comit`) causes `loadConfig` to throw a validation error scoped to `plan` that names the offending key and lists the allowed set (`specTimestamp, commit`).
-- [ ] A correctly-shaped config (project keys ⊆ allowed set, plan keys ⊆ allowed set) still parses without error.
-- [ ] `jarvis config show`, `jarvis config edit`, and any other command that goes through `loadConfig` surface the new validation error and exit non-zero when the config is malformed.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] A config with `projects.<name>.specTimestamp` (flat) causes `loadConfig` to throw a validation error whose message names the project, the offending key, and suggests `plan.specTimestamp`.
+- [x] A config with `projects.<name>.commit` (flat) causes `loadConfig` to throw a validation error whose message names the project, the offending key, and suggests `plan.commit`.
+- [x] A config with any other unknown key on a project object (e.g. `projects.<name>.oringn`) causes `loadConfig` to throw a validation error that names the project, the offending key, and lists the allowed set (`root, origin, git, siblings, plan`).
+- [x] A config with an unknown key under `projects.<name>.plan` (e.g. `projects.<name>.plan.comit`) causes `loadConfig` to throw a validation error scoped to `plan` that names the offending key and lists the allowed set (`specTimestamp, commit`).
+- [x] A correctly-shaped config (project keys ⊆ allowed set, plan keys ⊆ allowed set) still parses without error.
+- [x] `jarvis config show`, `jarvis config edit`, and any other command that goes through `loadConfig` surface the new validation error and exit non-zero when the config is malformed.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

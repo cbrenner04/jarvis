@@ -35,8 +35,15 @@ export async function runNameOnlyPhase(opts: {
   config: Config;
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
+  /**
+   * For no-commit specs, the external spec root where the spec is stored.
+   * If provided, spec reads/writes happen here instead of under worktreePath/spec/.
+   */
+  externalSpecRoot?: string;
 }): Promise<{ result: AgentResult; agentLabel: string | null }> {
-  const intentPath = join(opts.worktreePath, "spec", opts.name, "intent.md");
+  const intentPath = opts.externalSpecRoot
+    ? join(opts.externalSpecRoot, opts.name, "intent.md")
+    : join(opts.worktreePath, "spec", opts.name, "intent.md");
   const intent = readFileSync(intentPath, "utf8");
   const prompt = buildNameOnlyPrompt({ name: opts.name, intent });
 

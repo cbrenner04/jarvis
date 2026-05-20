@@ -21,6 +21,11 @@ export type RefinePhaseOptions = {
   /** When set, quota rotation emits lines aligned with patch harness wording. */
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
+  /**
+   * For no-commit specs, the external spec root where the spec is stored.
+   * If provided, spec reads/writes happen here instead of under worktreePath/spec/.
+   */
+  externalSpecRoot?: string;
 };
 
 /** Outcome for default CLI reporting after the refine phase completes. */
@@ -105,6 +110,11 @@ export async function runRefineTurn(opts: {
   totalTurns: number;
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
+  /**
+   * For no-commit specs, the external spec root where the spec is stored.
+   * If provided, spec reads/writes happen here instead of under worktreePath/spec/.
+   */
+  externalSpecRoot?: string;
 }): Promise<{
   result: AgentResult;
   agentLabel: string | null;
@@ -112,7 +122,9 @@ export async function runRefineTurn(opts: {
   blocker?: string | undefined;
 }> {
   // Read current intent.md
-  const intentPath = join(opts.worktreePath, "spec", opts.name, "intent.md");
+  const intentPath = opts.externalSpecRoot
+    ? join(opts.externalSpecRoot, opts.name, "intent.md")
+    : join(opts.worktreePath, "spec", opts.name, "intent.md");
   const intentBefore = readFileSync(intentPath, "utf8");
 
   // Read spec guidance
@@ -428,6 +440,9 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
       ...(opts.planTelemetry !== undefined
         ? { planTelemetry: opts.planTelemetry }
         : {}),
+      ...(opts.externalSpecRoot !== undefined
+        ? { externalSpecRoot: opts.externalSpecRoot }
+        : {}),
     });
 
     // Update agent label (use the most recent non-null one)
@@ -464,12 +479,9 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
     completedTurns = turn;
   }
 
-  const finalIntentPath = join(
-    opts.worktreePath,
-    "spec",
-    opts.name,
-    "intent.md",
-  );
+  const finalIntentPath = opts.externalSpecRoot
+    ? join(opts.externalSpecRoot, opts.name, "intent.md")
+    : join(opts.worktreePath, "spec", opts.name, "intent.md");
   const finalIntent = readFileSync(finalIntentPath, "utf8");
   const terminalOutcome = classifyRefineIntentOutcome(finalIntent);
 

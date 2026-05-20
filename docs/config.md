@@ -28,6 +28,7 @@ type Project = {
   origin?: string; // optional git remote URL recorded by `jarvis init`
   git?: boolean; // optional per-project override of the top-level `git` toggle
   siblings?: string[]; // optional array of absolute paths to sibling repositories
+  plan?: { specTimestamp?: boolean; commit?: boolean }; // optional per-project plan-mode overrides
 };
 
 type AgentEntry = {
@@ -59,6 +60,8 @@ type Config = {
   projects: Record<string, Project>; // key = path relative to ~/Work
 };
 ```
+
+**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, and `plan` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
 
 All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid
 configs are rejected with an error that names the offending file.
@@ -225,6 +228,42 @@ To add siblings to an existing project, edit `~/.jarvis/config.json` directly:
 
 Paths must be absolute. Non-absolute paths cause validation to fail with a
 clear error message.
+
+## Common misconfigurations
+
+**Flat `specTimestamp` or `commit` at the project level:**
+
+The `specTimestamp` and `commit` flags are **plan-mode overrides** and must be nested under the `plan` object:
+
+```json
+{
+  "projects": {
+    "myrepo": {
+      "root": "/path/to/repo",
+      "plan": {
+        "specTimestamp": true,
+        "commit": false
+      }
+    }
+  }
+}
+```
+
+❌ **Incorrect** (will cause a validation error):
+
+```json
+{
+  "projects": {
+    "myrepo": {
+      "root": "/path/to/repo",
+      "specTimestamp": true,
+      "commit": false
+    }
+  }
+}
+```
+
+If you accidentally place `specTimestamp` or `commit` flat on a project, `loadConfig` will throw an error naming the key and suggesting the correct nesting (`plan.specTimestamp` or `plan.commit`).
 
 ## `jarvis config` subcommands
 

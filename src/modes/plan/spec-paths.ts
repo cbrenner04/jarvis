@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ProjectMatch } from "../../config.ts";
 
@@ -55,4 +56,22 @@ export function computeNoCommitSpecRoot(
 ): string {
   const projectId = computeProjectSafeId(project);
   return join(jarvisConfigDir, "specs", projectId, specDirBasename);
+}
+
+/**
+ * Create the parent directory for a no-commit spec and return the spec root.
+ * Returns: `<jarvisConfigDir>/specs/<projectSafeId>/<specDirBasename>/`
+ */
+export function ensureNoCommitSpecRoot(
+  jarvisConfigDir: string,
+  project: ProjectMatch,
+  specDirBasename: string,
+): string {
+  const specRoot = computeNoCommitSpecRoot(
+    jarvisConfigDir,
+    project,
+    specDirBasename,
+  );
+  mkdirSync(join(specRoot, ".."), { recursive: true });
+  return specRoot;
 }

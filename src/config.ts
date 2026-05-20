@@ -427,8 +427,42 @@ function validateConfig(input: unknown, file: string): Config {
         }
         plan.commit = commitRaw;
       }
+      // Strict keys validation for plan object
+      const allowedPlanKeys = new Set(["specTimestamp", "commit"]);
+      for (const key of Object.keys(planObj)) {
+        if (!allowedPlanKeys.has(key)) {
+          fail(
+            file,
+            `project ${JSON.stringify(name)} plan: unknown key ${JSON.stringify(key)} (allowed: specTimestamp, commit)`,
+          );
+        }
+      }
       if (Object.keys(plan).length > 0) {
         project.plan = plan;
+      }
+    }
+    // Strict keys validation for project object
+    const allowedProjectKeys = new Set([
+      "root",
+      "origin",
+      "git",
+      "siblings",
+      "plan",
+    ]);
+    const projectObj = value as Record<string, unknown>;
+    for (const key of Object.keys(projectObj)) {
+      if (!allowedProjectKeys.has(key)) {
+        // Check if this is a known mis-nesting (specTimestamp or commit at project level)
+        if (key === "specTimestamp" || key === "commit") {
+          fail(
+            file,
+            `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)}; did you mean ${JSON.stringify(`plan.${key}`)}?`,
+          );
+        }
+        fail(
+          file,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan)`,
+        );
       }
     }
     projects[name] = project;
@@ -678,10 +712,18 @@ export function registerProject(
       );
     }
   }
-  const project: Project = { root };
+  // Preserve existing project if re-registering the same name
+  const existing = cfg.projects[name];
+  const project: Project = existing ? { ...existing } : { root };
+
+  // Always overwrite root with the new value
+  project.root = root;
+
+  // Only overwrite origin if the caller supplied a non-empty origin
   if (opts?.origin !== undefined && opts.origin.trim() !== "") {
     project.origin = opts.origin;
   }
+
   cfg.projects[name] = project;
   writeConfig(cfg, opts);
 }
@@ -716,12 +758,11 @@ export function setProjectGit(
   if (project === undefined) {
     throw new Error(`Project ${JSON.stringify(name)} is not registered`);
   }
-  const next: Project = { root: project.root };
-  if (project.origin !== undefined) {
-    next.origin = project.origin;
-  }
+  const next: Project = { ...project };
   if (value !== undefined) {
     next.git = value;
+  } else {
+    delete next.git;
   }
   cfg.projects[name] = next;
   writeConfig(cfg, opts);

@@ -232,6 +232,12 @@ Controls the intent-refinement budget. Default: `3`. `0` skips refinement turns 
 
 Number of self-review passes to run. Default: `2`. Use `--review-passes 0` to skip review entirely and stop after draft.
 
+### `--require-intent-approval`
+
+Adds an opt-in refine-phase approval checkpoint for fresh committed runs (`modes.plan.commit: true`). On the final configured refine turn, jarvis instructs the agent to append `## Blocker` to `spec/<spec-dir>/intent.md` when the turn did not already produce a genuine blocker. The blocker may include guided questions, or a clear approval message when there are no open questions.
+
+This uses the existing blocker lifecycle unchanged: `plan: refine` is committed first, then `plan: blocker`, the draft PR is opened or updated, and the run exits non-zero before draft starts. Without this flag, plan mode keeps the existing refine-to-draft behavior.
+
 ### `--repo <name|path|url>`
 
 Select the target repository. Same semantics as `jarvis run --repo`. If omitted, jarvis resolves the repo from the spec path or prompts (in TTY mode) or exits with a usage error (in non-TTY mode).

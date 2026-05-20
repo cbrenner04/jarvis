@@ -256,6 +256,7 @@ describe("planCommand", () => {
   test("usage advertises full surface", () => {
     expect(PLAN_USAGE).toContain("--refine-turns");
     expect(PLAN_USAGE).toContain("--review-passes");
+    expect(PLAN_USAGE).toContain("--require-intent-approval");
     expect(PLAN_USAGE).toContain("--repo");
     expect(PLAN_USAGE).toContain("--cwd");
     expect(PLAN_USAGE).toContain("--resume");
@@ -900,6 +901,7 @@ describe("parsePlanArgs", () => {
       expect(res.ok).toBe(true);
       if (!res.ok) return;
       expect(res.invocation.resume).toBe(true);
+      expect(res.invocation.requireIntentApproval).toBe(false);
       expect(res.invocation.mode).toBe("interactive");
     } finally {
       teardown();
@@ -936,6 +938,18 @@ describe("parsePlanArgs", () => {
       if (res.ok) return;
       expect(res.exitCode).toBe(1);
       expect(res.message).toContain("--bogus");
+    } finally {
+      teardown();
+    }
+  });
+
+  test("--require-intent-approval sets flag", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["--require-intent-approval", "intent"], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.requireIntentApproval).toBe(true);
     } finally {
       teardown();
     }

@@ -155,6 +155,19 @@ describe("refine/name-only prompts", () => {
     expect(prompt).toContain(REFINE_SKIP_HEADING);
   });
 
+  test("refine prompt includes approval-gate instruction when requested", () => {
+    const prompt = buildRefinePrompt({
+      name: "n",
+      intent: "x",
+      specGuidance: "g",
+      turnsRemaining: 1,
+      approvalGateInstruction: "Approval gate is required on this final refinement turn.",
+    });
+    expect(prompt).toContain(
+      "Approval gate is required on this final refinement turn.",
+    );
+  });
+
   test("name-only prompt injects intent and includes strict scope", () => {
     const prompt = buildNameOnlyPrompt({
       name: "test-name",

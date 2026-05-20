@@ -26,12 +26,12 @@ Add an opt-in refine-phase gate that intentionally stops a fresh committed plan 
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan --require-intent-approval <intent>` stops after refinement even when the intent is otherwise ready for draft, by appending `## Blocker` to `spec/<spec-dir>/intent.md` on the final refine turn.
-- [ ] The blocker body may contain zero guided questions; when there are no open questions it still leaves a clear approval message telling the reviewer that drafting can proceed after the blocker is cleared.
-- [ ] If the final refine turn already appends a genuine `## Blocker` because clarification is actually needed, jarvis reuses that blocker and stop path rather than appending a second approval-only blocker.
-- [ ] Fresh plan runs without `--require-intent-approval` keep the existing refine-to-draft behavior and do not synthesize a blocker solely for approval.
-- [ ] On committed runs, the stop reuses the current refine blocker mechanics end-to-end: `plan: refine` commits first, `plan: blocker` follows, the existing draft PR is opened or updated before exit, and no new blocker kind or metadata is introduced.
-- [ ] `docs/plan-mode.md` documents `--require-intent-approval` as a refine-phase checkpoint on fresh committed runs rather than as a general blocker feature.
+- [x] `jarvis plan --require-intent-approval <intent>` stops after refinement even when the intent is otherwise ready for draft, by appending `## Blocker` to `spec/<spec-dir>/intent.md` on the final refine turn.
+- [x] The blocker body may contain zero guided questions; when there are no open questions it still leaves a clear approval message telling the reviewer that drafting can proceed after the blocker is cleared.
+- [x] If the final refine turn already appends a genuine `## Blocker` because clarification is actually needed, jarvis reuses that blocker and stop path rather than appending a second approval-only blocker.
+- [x] Fresh plan runs without `--require-intent-approval` keep the existing refine-to-draft behavior and do not synthesize a blocker solely for approval.
+- [x] On committed runs, the stop reuses the current refine blocker mechanics end-to-end: `plan: refine` commits first, `plan: blocker` follows, the existing draft PR is opened or updated before exit, and no new blocker kind or metadata is introduced.
+- [x] `docs/plan-mode.md` documents `--require-intent-approval` as a refine-phase checkpoint on fresh committed runs rather than as a general blocker feature.
 
 ## Documentation updates
 

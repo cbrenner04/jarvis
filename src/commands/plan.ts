@@ -85,7 +85,7 @@ export type PlanCommandOptions = {
   skipGhCheck?: boolean;
 };
 
-export const PLAN_USAGE = `Usage: jarvis plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
+export const PLAN_USAGE = `Usage: jarvis plan [--refine-turns <n>] [--review-passes <n>] [--require-intent-approval] [--repo <name|path|url>] [--cwd <dir>] [--resume] [<intent-file|"inline text">]
                             Run plan mode (draft specs under spec/…; see docs/plan-mode.md).
 `;
 
@@ -614,6 +614,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             name: resume.specDirBasename,
             config: cfg,
             refineTurns,
+            requireIntentApprovalOnFinalTurn: false,
             stderr: opts.io.stderr,
             planTelemetry: resumePlanTelemetry,
           });
@@ -955,6 +956,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             name: specDirBasename,
             config: cfg,
             refineTurns: refineBudget,
+            ...(commit && !inv.resume && inv.requireIntentApproval
+              ? { requireIntentApprovalOnFinalTurn: true }
+              : {}),
             stderr: opts.io.stderr,
             planTelemetry: planTelemetryWriter,
           });

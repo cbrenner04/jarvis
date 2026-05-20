@@ -59,6 +59,7 @@ When turns remain after a refinement turn, a later run may append `## Refine tur
 ## Context
 
 Turns remaining: <TURNS_REMAINING>
+<APPROVAL_GATE_INSTRUCTION>
 
 ## Instructions
 

@@ -7,6 +7,7 @@ export type PlanInvocationCommon = {
   repo?: string;
   cwd: string;
   resume: boolean;
+  requireIntentApproval?: boolean;
 };
 
 export type PlanInvocation =
@@ -62,12 +63,17 @@ export function parsePlanArgs(
   let repo: string | undefined;
   let cwdFlag: string | undefined;
   let resume = false;
+  let requireIntentApproval = false;
   const positional: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i] as string;
     if (arg === "--resume") {
       resume = true;
+      continue;
+    }
+    if (arg === "--require-intent-approval") {
+      requireIntentApproval = true;
       continue;
     }
     if (FLAGS_WITH_VALUE.has(arg)) {
@@ -131,7 +137,11 @@ export function parsePlanArgs(
         : resolve(processCwd, cwdFlag)
       : processCwd;
 
-  const common: PlanInvocationCommon = { cwd, resume };
+  const common: PlanInvocationCommon = {
+    cwd,
+    resume,
+    requireIntentApproval,
+  };
   if (refineTurns !== undefined) common.refineTurns = refineTurns;
   if (reviewPasses !== undefined) common.reviewPasses = reviewPasses;
   if (repo !== undefined) common.repo = repo;

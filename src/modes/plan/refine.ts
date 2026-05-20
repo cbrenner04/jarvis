@@ -18,6 +18,7 @@ export type RefinePhaseOptions = {
   name: string;
   config: Config;
   refineTurns?: number;
+  requireIntentApprovalOnFinalTurn?: boolean;
   /** When set, quota rotation emits lines aligned with patch harness wording. */
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
@@ -48,6 +49,7 @@ const PLACEHOLDER_TOKENS = [
   "<NAME>",
   "<WORKDIR>",
   "<TURNS_REMAINING>",
+  "<APPROVAL_GATE_INSTRUCTION>",
 ];
 
 function validatePlaceholders(
@@ -71,12 +73,14 @@ export function buildRefinePrompt(opts: {
   intent: string;
   specGuidance: string;
   turnsRemaining: number;
+  approvalGateInstruction?: string;
 }): string {
   const collisionError = validatePlaceholders({
     name: opts.name,
     intent: opts.intent,
     specGuidance: opts.specGuidance,
     turnsRemaining: opts.turnsRemaining.toString(),
+    approvalGateInstruction: opts.approvalGateInstruction ?? "",
   });
   if (collisionError !== null) {
     throw collisionError;
@@ -93,6 +97,10 @@ export function buildRefinePrompt(opts: {
     "<TURNS_REMAINING>",
     opts.turnsRemaining.toString(),
   );
+  template = template.replaceAll(
+    "<APPROVAL_GATE_INSTRUCTION>",
+    opts.approvalGateInstruction ?? "",
+  );
 
   return template;
 }
@@ -103,6 +111,7 @@ export async function runRefineTurn(opts: {
   config: Config;
   turnNumber: number;
   totalTurns: number;
+  requireIntentApprovalOnFinalTurn?: boolean;
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
 }): Promise<{
@@ -129,11 +138,22 @@ export async function runRefineTurn(opts: {
   // Build the prompt
   let prompt: string;
   try {
+    const isFinalTurn = opts.turnNumber === opts.totalTurns;
+    const approvalGateInstruction =
+      opts.requireIntentApprovalOnFinalTurn === true && isFinalTurn
+        ? [
+            "Approval gate is required on this final refinement turn.",
+            "If you do not already need a genuine blocker, append a `## Blocker` section that asks for human approval before drafting proceeds.",
+            "Guided review questions are optional; zero questions is allowed.",
+            "If there are no open questions, still include a clear approval message that drafting can proceed after this blocker is cleared.",
+          ].join("\n")
+        : "";
     prompt = buildRefinePrompt({
       name: opts.name,
       intent: intentBefore,
       specGuidance,
       turnsRemaining: opts.totalTurns - opts.turnNumber + 1,
+      approvalGateInstruction,
     });
   } catch (err) {
     if (err instanceof PlaceholderCollisionError) {
@@ -424,6 +444,8 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
       config: opts.config,
       turnNumber: turn,
       totalTurns: budgetTurns,
+      requireIntentApprovalOnFinalTurn:
+        opts.requireIntentApprovalOnFinalTurn === true,
       ...(opts.stderr !== undefined ? { stderr: opts.stderr } : {}),
       ...(opts.planTelemetry !== undefined
         ? { planTelemetry: opts.planTelemetry }

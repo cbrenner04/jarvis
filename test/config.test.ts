@@ -863,11 +863,10 @@ describe("registerProject / findProjectForPath", () => {
       root: "/tmp/jarvis-brandnew",
     });
 
-    registerProject(
-      "brandnewwithorigin",
-      "/tmp/jarvis-brandnew-origin",
-      { dir, origin: "git@github.com:test/brand.git" },
-    );
+    registerProject("brandnewwithorigin", "/tmp/jarvis-brandnew-origin", {
+      dir,
+      origin: "git@github.com:test/brand.git",
+    });
     expect(loadConfig({ dir }).projects.brandnewwithorigin).toEqual({
       root: "/tmp/jarvis-brandnew-origin",
       origin: "git@github.com:test/brand.git",
@@ -1517,7 +1516,9 @@ describe("plan flags", () => {
     );
     expect(() => loadConfig({ dir })).toThrow(/myproject/);
     expect(() => loadConfig({ dir })).toThrow(/oringn/);
-    expect(() => loadConfig({ dir })).toThrow(/root, origin, git, siblings, plan/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /root, origin, git, siblings, plan/,
+    );
   });
 
   test("rejects unknown keys under project.plan", () => {

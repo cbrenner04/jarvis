@@ -217,7 +217,10 @@ function remoteSpecBranchExists(
   }
 }
 
-function removeSpecDirIfPresent(worktreePath: string, specDirBasename: string) {
+function _removeSpecDirIfPresent(
+  worktreePath: string,
+  specDirBasename: string,
+) {
   const specDir = join(worktreePath, "spec", specDirBasename);
   if (existsSync(specDir)) {
     rmSync(specDir, { recursive: true, force: true });
@@ -240,7 +243,7 @@ type ResumePrep = {
 const RESUME_SUBJECT_RE = /^plan: (refine|review \d+|blocker)(?: r(\d+))?$/;
 const REVIEW_SUBJECT_RE = /^plan: review (\d+)(?: r\d+)?$/;
 
-function assertResumeIndexPath(specPath: string): {
+function _assertResumeIndexPath(specPath: string): {
   planName: string;
   specDirBasename: string;
 } {
@@ -256,7 +259,7 @@ function assertResumeIndexPath(specPath: string): {
   };
 }
 
-function assertResumeDraftIntentPath(specPath: string): {
+function _assertResumeDraftIntentPath(specPath: string): {
   planName: string;
   specDirBasename: string;
 } {
@@ -374,17 +377,13 @@ function prepareResume(args: {
     throw new Error(`${worktreePath} is not checked out on ${branch}`);
   }
   if (!existsSync(join(worktreePath, "spec", specDir, "intent.md"))) {
-    throw new Error(
-      `missing spec/${specDir}/intent.md in ${worktreePath}`,
-    );
+    throw new Error(`missing spec/${specDir}/intent.md in ${worktreePath}`);
   }
   if (
     args.mode === "resume" &&
     !existsSync(join(worktreePath, "spec", specDir, "index.md"))
   ) {
-    throw new Error(
-      `missing spec/${specDir}/index.md in ${worktreePath}`,
-    );
+    throw new Error(`missing spec/${specDir}/index.md in ${worktreePath}`);
   }
   if (!isWorktreeClean(worktreePath)) {
     throw new Error(
@@ -730,10 +729,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       let nextReviewIndex = resume.nextReviewIndex;
       opts.io.stderr(`plan: resume ${suffix} started\n`);
 
-       const cfg = loadConfig(opts.config);
-       const resumeIntentPath = resume.externalSpecRoot
-         ? join(resume.externalSpecRoot, resume.specDirBasename, "intent.md")
-         : join(resume.worktreePath, "spec", resume.specDirBasename, "intent.md");
+      const cfg = loadConfig(opts.config);
+      const resumeIntentPath = resume.externalSpecRoot
+        ? join(resume.externalSpecRoot, resume.specDirBasename, "intent.md")
+        : join(
+            resume.worktreePath,
+            "spec",
+            resume.specDirBasename,
+            "intent.md",
+          );
       if (inv.resumeDraft) {
         const intentBody = readFileSync(resumeIntentPath, "utf8");
         if (detectBlocker(intentBody).hasBlocker) {
@@ -770,17 +774,17 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           return 130;
         }
         try {
-           const refineResult = await runRefinePhase({
-             worktreePath: resume.worktreePath,
-             name: resume.specDirBasename,
-             config: cfg,
-             refineTurns,
-             stderr: opts.io.stderr,
-             planTelemetry: resumePlanTelemetry,
-             ...(resume.externalSpecRoot !== undefined
-               ? { externalSpecRoot: resume.externalSpecRoot }
-               : {}),
-           });
+          const refineResult = await runRefinePhase({
+            worktreePath: resume.worktreePath,
+            name: resume.specDirBasename,
+            config: cfg,
+            refineTurns,
+            stderr: opts.io.stderr,
+            planTelemetry: resumePlanTelemetry,
+            ...(resume.externalSpecRoot !== undefined
+              ? { externalSpecRoot: resume.externalSpecRoot }
+              : {}),
+          });
           if (refineResult.result.kind !== "ok") {
             if (refineResult.result.kind === "quota") {
               opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
@@ -858,18 +862,16 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         let draftResult: Awaited<ReturnType<typeof runDraftPhase>>;
         let draftBlocker: string | undefined;
         let draftSpecFilesCount = 0;
-         try {
-           const finalSpecPath = resume.externalSpecRoot
-             ? join(resume.externalSpecRoot, resume.specDirBasename)
-             : join(resume.worktreePath, "spec", resume.specDirBasename);
-           const intentBefore = readFileSync(resumeIntentPath, "utf8");
-           draftResult = await runDraftPhase({
-             worktreePath: resume.worktreePath,
-             name: resume.specDirBasename,
-             ...(resume.externalSpecRoot
-               ? { specDirPath: finalSpecPath }
-               : {}),
-             config: cfg,
+        try {
+          const finalSpecPath = resume.externalSpecRoot
+            ? join(resume.externalSpecRoot, resume.specDirBasename)
+            : join(resume.worktreePath, "spec", resume.specDirBasename);
+          const intentBefore = readFileSync(resumeIntentPath, "utf8");
+          draftResult = await runDraftPhase({
+            worktreePath: resume.worktreePath,
+            name: resume.specDirBasename,
+            ...(resume.externalSpecRoot ? { specDirPath: finalSpecPath } : {}),
+            config: cfg,
             intentBefore,
             stderr: opts.io.stderr,
             planTelemetry: resumePlanTelemetry,
@@ -963,21 +965,21 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           summarizeResume("sigint");
           return 130;
         }
-         const resumeSpecPath = resume.externalSpecRoot
-           ? join(resume.externalSpecRoot, resume.specDirBasename)
-           : join(resume.worktreePath, "spec", resume.specDirBasename);
-         const intentPath = join(resumeSpecPath, "intent.md");
-         const intentBefore = readFileSync(intentPath, "utf8");
-         const result = await runReviewPass({
-           worktreePath: resume.worktreePath,
-           name: resume.specDirBasename,
-           ...(resume.externalSpecRoot ? { specDirPath: resumeSpecPath } : {}),
-           config: cfg,
-           passNumber: nextReviewIndex,
-           totalPasses: nextReviewIndex + reviewPasses - pass,
-           stderr: opts.io.stderr,
-           planTelemetry: resumePlanTelemetry,
-         });
+        const resumeSpecPath = resume.externalSpecRoot
+          ? join(resume.externalSpecRoot, resume.specDirBasename)
+          : join(resume.worktreePath, "spec", resume.specDirBasename);
+        const intentPath = join(resumeSpecPath, "intent.md");
+        const intentBefore = readFileSync(intentPath, "utf8");
+        const result = await runReviewPass({
+          worktreePath: resume.worktreePath,
+          name: resume.specDirBasename,
+          ...(resume.externalSpecRoot ? { specDirPath: resumeSpecPath } : {}),
+          config: cfg,
+          passNumber: nextReviewIndex,
+          totalPasses: nextReviewIndex + reviewPasses - pass,
+          stderr: opts.io.stderr,
+          planTelemetry: resumePlanTelemetry,
+        });
         if (result.result.kind !== "ok") {
           if (result.result.kind === "quota") {
             opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
@@ -1141,87 +1143,81 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
 
-       // Determine base branch for PR operations
-       // Only needed when commit: true; gate to avoid calling getCurrentBranch on non-git roots
-       let baseBranch: string | null = null;
-       if (commit) {
-         baseBranch = getCurrentBranch(project.root);
-       }
+      // Determine base branch for PR operations
+      // Only needed when commit: true; gate to avoid calling getCurrentBranch on non-git roots
+      let baseBranch: string | null = null;
+      if (commit) {
+        baseBranch = getCurrentBranch(project.root);
+      }
 
-       // Load config once for use in refine and draft phases
-       const cfg = loadConfig(opts.config);
+      // Load config once for use in refine and draft phases
+      const cfg = loadConfig(opts.config);
 
-       // For no-commit runs, create the external spec root directory early (before any agent writes)
-       // and check for collisions before seeding the intent.
-       let externalSpecRoot: string | undefined;
-       if (commit === false) {
-         externalSpecRoot = ensureNoCommitSpecRoot(
-           CONFIG_DIR,
-           project,
-           specDirBasename,
-         );
-       }
+      // For no-commit runs, create the external spec root directory early (before any agent writes)
+      // and check for collisions before seeding the intent.
+      let externalSpecRoot: string | undefined;
+      if (commit === false) {
+        externalSpecRoot = ensureNoCommitSpecRoot(
+          CONFIG_DIR,
+          project,
+          specDirBasename,
+        );
+      }
 
-       // Check for collision in the external spec root for no-commit runs
-       // This happens BEFORE any agent invocation or intent seeding
-       if (commit === false && externalSpecRoot) {
-         const tempSpecPath = join(externalSpecRoot, specDirBasename);
-         if (existsSync(tempSpecPath)) {
-           opts.io.stderr(
-             `${tempSpecPath} already exists. Rename or remove it before running again.\n`,
-           );
-           return 1;
-         }
-       }
+      // Check for collision in the external spec root for no-commit runs
+      // This happens BEFORE any agent invocation or intent seeding
+      if (commit === false && externalSpecRoot) {
+        const tempSpecPath = join(externalSpecRoot, specDirBasename);
+        if (existsSync(tempSpecPath)) {
+          opts.io.stderr(
+            `${tempSpecPath} already exists. Rename or remove it before running again.\n`,
+          );
+          return 1;
+        }
+      }
 
-       const cleanupNoCommitTempSpec = (): void => {
-         if (commit === false && externalSpecRoot) {
-           const tempSpecPath = join(externalSpecRoot, specDirBasename);
-           if (existsSync(tempSpecPath)) {
-             rmSync(tempSpecPath, { recursive: true, force: true });
-           }
-         }
-       };
+      const cleanupNoCommitTempSpec = (): void => {
+        if (commit === false && externalSpecRoot) {
+          const tempSpecPath = join(externalSpecRoot, specDirBasename);
+          if (existsSync(tempSpecPath)) {
+            rmSync(tempSpecPath, { recursive: true, force: true });
+          }
+        }
+      };
 
-       // Seed the intent.md file into the worktree or external spec root
-       try {
-         if (inv.mode === "file") {
-           seedIntentFile({
-             worktreePath,
-             name: specDirBasename,
-             mode: "file",
-             intentPath: inv.intentPath,
-             ...(externalSpecRoot !== undefined
-               ? { externalSpecRoot }
-               : {}),
-           });
-         } else if (inv.mode === "inline") {
-           seedIntentFile({
-             worktreePath,
-             name: specDirBasename,
-             mode: "inline",
-             intentText: inv.intentText,
-             ...(externalSpecRoot !== undefined
-               ? { externalSpecRoot }
-               : {}),
-           });
-         } else {
-           seedIntentFile({
-             worktreePath,
-             name: specDirBasename,
-             mode: "interactive",
-             ...(externalSpecRoot !== undefined
-               ? { externalSpecRoot }
-               : {}),
-           });
-         }
-       } catch (err) {
-         opts.io.stderr(
-           `failed to seed intent file: ${(err as Error).message}\n`,
-         );
-         cleanupNoCommitTempSpec();
-         return 1;
-       }
+      // Seed the intent.md file into the worktree or external spec root
+      try {
+        if (inv.mode === "file") {
+          seedIntentFile({
+            worktreePath,
+            name: specDirBasename,
+            mode: "file",
+            intentPath: inv.intentPath,
+            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
+          });
+        } else if (inv.mode === "inline") {
+          seedIntentFile({
+            worktreePath,
+            name: specDirBasename,
+            mode: "inline",
+            intentText: inv.intentText,
+            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
+          });
+        } else {
+          seedIntentFile({
+            worktreePath,
+            name: specDirBasename,
+            mode: "interactive",
+            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
+          });
+        }
+      } catch (err) {
+        opts.io.stderr(
+          `failed to seed intent file: ${(err as Error).message}\n`,
+        );
+        cleanupNoCommitTempSpec();
+        return 1;
+      }
 
       const planStartedAt = new Date();
       const planStartedMs = Date.now();
@@ -1257,17 +1253,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         const refineBudget = inv.refineTurns ?? 3;
 
         if (refineBudget > 0) {
-           const refineResult = await runRefinePhase({
-             worktreePath,
-             name: specDirBasename,
-             config: cfg,
-             refineTurns: refineBudget,
-             stderr: opts.io.stderr,
-             planTelemetry: planTelemetryWriter,
-             ...(externalSpecRoot !== undefined
-               ? { externalSpecRoot }
-               : {}),
-           });
+          const refineResult = await runRefinePhase({
+            worktreePath,
+            name: specDirBasename,
+            config: cfg,
+            refineTurns: refineBudget,
+            stderr: opts.io.stderr,
+            planTelemetry: planTelemetryWriter,
+            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
+          });
 
           // Handle refine result
           if (refineResult.result.kind !== "ok") {
@@ -1303,17 +1297,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           if (refineResult.terminalOutcome !== undefined) {
             opts.io.stderr(`plan: refine: ${refineResult.terminalOutcome}\n`);
           }
-         } else if (inv.mode !== "interactive") {
-           const namingResult = await runNameOnlyPhase({
-             worktreePath,
-             name: specDirBasename,
-             config: cfg,
-             stderr: opts.io.stderr,
-             planTelemetry: planTelemetryWriter,
-             ...(externalSpecRoot !== undefined
-               ? { externalSpecRoot }
-               : {}),
-           });
+        } else if (inv.mode !== "interactive") {
+          const namingResult = await runNameOnlyPhase({
+            worktreePath,
+            name: specDirBasename,
+            config: cfg,
+            stderr: opts.io.stderr,
+            planTelemetry: planTelemetryWriter,
+            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
+          });
           if (namingResult.result.kind !== "ok") {
             if (namingResult.result.kind === "quota") {
               opts.io.stderr(
@@ -1346,10 +1338,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
 
-       const tempIntentPath = externalSpecRoot
-         ? join(externalSpecRoot, specDirBasename, "intent.md")
-         : join(worktreePath, "spec", specDirBasename, "intent.md");
-       const tempIntent = readFileSync(tempIntentPath, "utf8");
+      const tempIntentPath = externalSpecRoot
+        ? join(externalSpecRoot, specDirBasename, "intent.md")
+        : join(worktreePath, "spec", specDirBasename, "intent.md");
+      const tempIntent = readFileSync(tempIntentPath, "utf8");
       const parsedName = parseIntentFrontmatter(tempIntent).name;
       const validation = validateProposedName(parsedName);
       let chosenBaseName: string;
@@ -1367,57 +1359,57 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         : planName;
       planHarnessLog(planLogClient, `plan: spec name=${planName}`);
 
-       // Disk-collision guard for commit: false (worktrees are checked by ensureUniquePlanName)
-       // This was already checked before seeding the intent, so skip it for no-commit.
-       if (commit === false) {
-         // Already checked; skip
-       }
+      // Disk-collision guard for commit: false (worktrees are checked by ensureUniquePlanName)
+      // This was already checked before seeding the intent, so skip it for no-commit.
+      if (commit === false) {
+        // Already checked; skip
+      }
 
-       const finalIntentBody = tempIntent.startsWith("---\n")
-         ? tempIntent.replace(
-             /^---\n[\s\S]*?\n---/,
-             `---\nname: ${planName}\n---`,
-           )
-         : `---\nname: ${planName}\n---\n\n${tempIntent}`;
-       writeFileSync(tempIntentPath, finalIntentBody, "utf8");
+      const finalIntentBody = tempIntent.startsWith("---\n")
+        ? tempIntent.replace(
+            /^---\n[\s\S]*?\n---/,
+            `---\nname: ${planName}\n---`,
+          )
+        : `---\nname: ${planName}\n---\n\n${tempIntent}`;
+      writeFileSync(tempIntentPath, finalIntentBody, "utf8");
 
-       // Rename temp spec directory to validated name
-       try {
-         if (commit === false && externalSpecRoot) {
-           // For no-commit, rename within the external spec root
-           renameSync(
-             join(externalSpecRoot, tempPlanName),
-             join(externalSpecRoot, specDirBasename),
-           );
-         } else {
-           // For commit: true, rename within worktree
-           renameSync(
-             join(worktreePath, "spec", tempPlanName),
-             join(worktreePath, "spec", specDirBasename),
-           );
-         }
-       } catch (err) {
-         opts.io.stderr(
-           `plan: failed to rename spec directory: ${(err as Error).message}\n`,
-         );
-         cleanupNoCommitTempSpec();
-         summarizePlan("error", specDirBasename);
-         return 1;
-       }
+      // Rename temp spec directory to validated name
+      try {
+        if (commit === false && externalSpecRoot) {
+          // For no-commit, rename within the external spec root
+          renameSync(
+            join(externalSpecRoot, tempPlanName),
+            join(externalSpecRoot, specDirBasename),
+          );
+        } else {
+          // For commit: true, rename within worktree
+          renameSync(
+            join(worktreePath, "spec", tempPlanName),
+            join(worktreePath, "spec", specDirBasename),
+          );
+        }
+      } catch (err) {
+        opts.io.stderr(
+          `plan: failed to rename spec directory: ${(err as Error).message}\n`,
+        );
+        cleanupNoCommitTempSpec();
+        summarizePlan("error", specDirBasename);
+        return 1;
+      }
 
-       // For commit: false, the spec is already in its final location (external).
-       // For commit: true, the spec is in the worktree and will be committed to git.
-       let finalSpecPath: string;
-       if (commit === false && externalSpecRoot) {
-         finalSpecPath = join(externalSpecRoot, specDirBasename);
-       } else {
-         finalSpecPath = join(worktreePath, "spec", specDirBasename);
-       }
+      // For commit: false, the spec is already in its final location (external).
+      // For commit: true, the spec is in the worktree and will be committed to git.
+      let finalSpecPath: string;
+      if (commit === false && externalSpecRoot) {
+        finalSpecPath = join(externalSpecRoot, specDirBasename);
+      } else {
+        finalSpecPath = join(worktreePath, "spec", specDirBasename);
+      }
 
-       // Inject repo: line into index.md for no-commit specs (for portability)
-       if (commit === false) {
-         injectRepoLineIntoIndex(finalSpecPath, project);
-       }
+      // Inject repo: line into index.md for no-commit specs (for portability)
+      if (commit === false) {
+        injectRepoLineIntoIndex(finalSpecPath, project);
+      }
 
       // Skip git operations when commit: false
       if (commit !== false) {
@@ -1649,15 +1641,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         const intentPath = join(finalSpecPath, "intent.md");
         const intentBefore = readFileSync(intentPath, "utf8");
 
-         draftResult = await runDraftPhase({
-           worktreePath,
-           name: specDirBasename,
-           ...(commit ? {} : { specDirPath: finalSpecPath }),
-           config: cfg,
-           intentBefore,
-           stderr: opts.io.stderr,
-           planTelemetry: planTelemetryWriter,
-         });
+        draftResult = await runDraftPhase({
+          worktreePath,
+          name: specDirBasename,
+          ...(commit ? {} : { specDirPath: finalSpecPath }),
+          config: cfg,
+          intentBefore,
+          stderr: opts.io.stderr,
+          planTelemetry: planTelemetryWriter,
+        });
 
         // Check if draft succeeded
         if (draftResult.result.kind !== "ok") {
@@ -1729,34 +1721,39 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const boundaryCheck = commit
         ? assertPlanWriteBoundary(worktreePath, specDirBasename)
         : assertTargetRepoPlanBoundary(project.root);
-      
+
       // For no-commit runs, also check the external spec directory
       const externalBoundaryCheck: BoundaryCheckResult =
         !commit && externalSpecRoot
-          ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename)
+          ? assertNoCommitExternalSpecBoundary(
+              externalSpecRoot,
+              specDirBasename,
+            )
           : { ok: true };
-      
-       const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
-       if (!allBoundariesOk) {
-         opts.io.stderr(
-           `plan: boundary violation detected before draft commit\n`,
-         );
-         const bcOffending = boundaryCheck.ok ? [] : boundaryCheck.offendingPaths;
-         const ebcOffending = externalBoundaryCheck.ok
-           ? []
-           : externalBoundaryCheck.offendingPaths;
-         const allOffendingPaths = [...bcOffending, ...ebcOffending];
-         if (commit) {
-           revertPaths(worktreePath, allOffendingPaths);
-         }
-         appendBoundaryBlocker(
-           finalSpecPath,
-           specDirBasename,
-           allOffendingPaths,
-         );
-         for (const path of allOffendingPaths) {
-           opts.io.stderr(`  - ${path}\n`);
-         }
+
+      const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
+      if (!allBoundariesOk) {
+        opts.io.stderr(
+          `plan: boundary violation detected before draft commit\n`,
+        );
+        const bcOffending = boundaryCheck.ok
+          ? []
+          : boundaryCheck.offendingPaths;
+        const ebcOffending = externalBoundaryCheck.ok
+          ? []
+          : externalBoundaryCheck.offendingPaths;
+        const allOffendingPaths = [...bcOffending, ...ebcOffending];
+        if (commit) {
+          revertPaths(worktreePath, allOffendingPaths);
+        }
+        appendBoundaryBlocker(
+          finalSpecPath,
+          specDirBasename,
+          allOffendingPaths,
+        );
+        for (const path of allOffendingPaths) {
+          opts.io.stderr(`  - ${path}\n`);
+        }
 
         if (commit) {
           try {
@@ -1915,16 +1912,16 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             : snapshotSpecDirFiles(finalSpecPath);
 
           // Run the review pass
-           const reviewResult = await runReviewPass({
-             worktreePath,
-             name: specDirBasename,
-             ...(commit ? {} : { specDirPath: finalSpecPath }),
-             config: cfg,
-             passNumber: pass,
-             totalPasses: reviewPasses,
-             stderr: opts.io.stderr,
-             planTelemetry: planTelemetryWriter,
-           });
+          const reviewResult = await runReviewPass({
+            worktreePath,
+            name: specDirBasename,
+            ...(commit ? {} : { specDirPath: finalSpecPath }),
+            config: cfg,
+            passNumber: pass,
+            totalPasses: reviewPasses,
+            stderr: opts.io.stderr,
+            planTelemetry: planTelemetryWriter,
+          });
 
           // Handle agent errors
           if (reviewResult.result.kind === "error") {
@@ -1987,40 +1984,46 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             return 1;
           }
 
-           // Check if a blocker was raised
-           if (validation.blocker !== undefined) {
-             // Check boundary before blocker commit
-             const boundaryCheck = commit
-               ? assertPlanWriteBoundary(worktreePath, specDirBasename)
-               : assertTargetRepoPlanBoundary(project.root);
-             
-              // For no-commit runs, also check the external spec directory
-              const externalBoundaryCheck: BoundaryCheckResult =
-                !commit && externalSpecRoot
-                  ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename)
-                  : { ok: true };
-             
-             const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
-               if (!allBoundariesOk) {
-                 opts.io.stderr(
-                   `plan: boundary violation detected before review blocker commit\n`,
-                 );
-                 const bcOffending = boundaryCheck.ok ? [] : boundaryCheck.offendingPaths;
-                 const ebcOffending = externalBoundaryCheck.ok
-                   ? []
-                   : externalBoundaryCheck.offendingPaths;
-                 const allOffendingPaths = [...bcOffending, ...ebcOffending];
-                 if (commit) {
-                   revertPaths(worktreePath, allOffendingPaths);
-                 }
-                 appendBoundaryBlocker(
-                   finalSpecPath,
-                   specDirBasename,
-                   allOffendingPaths,
-                 );
-                 for (const path of allOffendingPaths) {
-                   opts.io.stderr(`  - ${path}\n`);
-                 }
+          // Check if a blocker was raised
+          if (validation.blocker !== undefined) {
+            // Check boundary before blocker commit
+            const boundaryCheck = commit
+              ? assertPlanWriteBoundary(worktreePath, specDirBasename)
+              : assertTargetRepoPlanBoundary(project.root);
+
+            // For no-commit runs, also check the external spec directory
+            const externalBoundaryCheck: BoundaryCheckResult =
+              !commit && externalSpecRoot
+                ? assertNoCommitExternalSpecBoundary(
+                    externalSpecRoot,
+                    specDirBasename,
+                  )
+                : { ok: true };
+
+            const allBoundariesOk =
+              boundaryCheck.ok && externalBoundaryCheck.ok;
+            if (!allBoundariesOk) {
+              opts.io.stderr(
+                `plan: boundary violation detected before review blocker commit\n`,
+              );
+              const bcOffending = boundaryCheck.ok
+                ? []
+                : boundaryCheck.offendingPaths;
+              const ebcOffending = externalBoundaryCheck.ok
+                ? []
+                : externalBoundaryCheck.offendingPaths;
+              const allOffendingPaths = [...bcOffending, ...ebcOffending];
+              if (commit) {
+                revertPaths(worktreePath, allOffendingPaths);
+              }
+              appendBoundaryBlocker(
+                finalSpecPath,
+                specDirBasename,
+                allOffendingPaths,
+              );
+              for (const path of allOffendingPaths) {
+                opts.io.stderr(`  - ${path}\n`);
+              }
 
               if (commit) {
                 try {
@@ -2092,38 +2095,43 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             return 1;
           }
 
-           // Check boundary before review commit
-           const boundaryCheck = commit
-             ? assertPlanWriteBoundary(worktreePath, specDirBasename)
-             : assertTargetRepoPlanBoundary(project.root);
-           
-            // For no-commit runs, also check the external spec directory
-            const externalBoundaryCheck: BoundaryCheckResult =
-              !commit && externalSpecRoot
-                ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename)
-                : { ok: true };
-           
-            const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
-            if (!allBoundariesOk) {
-              opts.io.stderr(
-                `plan: boundary violation detected before review commit\n`,
-              );
-              const bcOffending = boundaryCheck.ok ? [] : boundaryCheck.offendingPaths;
-              const ebcOffending = externalBoundaryCheck.ok
-                ? []
-                : externalBoundaryCheck.offendingPaths;
-              const allOffendingPaths = [...bcOffending, ...ebcOffending];
-              if (commit) {
-                revertPaths(worktreePath, allOffendingPaths);
-              }
-              appendBoundaryBlocker(
-                finalSpecPath,
-                specDirBasename,
-                allOffendingPaths,
-              );
-              for (const path of allOffendingPaths) {
-                opts.io.stderr(`  - ${path}\n`);
-              }
+          // Check boundary before review commit
+          const boundaryCheck = commit
+            ? assertPlanWriteBoundary(worktreePath, specDirBasename)
+            : assertTargetRepoPlanBoundary(project.root);
+
+          // For no-commit runs, also check the external spec directory
+          const externalBoundaryCheck: BoundaryCheckResult =
+            !commit && externalSpecRoot
+              ? assertNoCommitExternalSpecBoundary(
+                  externalSpecRoot,
+                  specDirBasename,
+                )
+              : { ok: true };
+
+          const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
+          if (!allBoundariesOk) {
+            opts.io.stderr(
+              `plan: boundary violation detected before review commit\n`,
+            );
+            const bcOffending = boundaryCheck.ok
+              ? []
+              : boundaryCheck.offendingPaths;
+            const ebcOffending = externalBoundaryCheck.ok
+              ? []
+              : externalBoundaryCheck.offendingPaths;
+            const allOffendingPaths = [...bcOffending, ...ebcOffending];
+            if (commit) {
+              revertPaths(worktreePath, allOffendingPaths);
+            }
+            appendBoundaryBlocker(
+              finalSpecPath,
+              specDirBasename,
+              allOffendingPaths,
+            );
+            for (const path of allOffendingPaths) {
+              opts.io.stderr(`  - ${path}\n`);
+            }
 
             if (commit) {
               try {

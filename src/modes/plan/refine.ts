@@ -429,21 +429,21 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
   let completedTurns = 0;
   let agentLabel: string | null = null;
 
-   for (let turn = 1; turn <= budgetTurns; turn += 1) {
-     const turnResult = await runRefineTurn({
-       worktreePath: opts.worktreePath,
-       name: opts.name,
-       config: opts.config,
-       turnNumber: turn,
-       totalTurns: budgetTurns,
-       ...(opts.stderr !== undefined ? { stderr: opts.stderr } : {}),
-       ...(opts.planTelemetry !== undefined
-         ? { planTelemetry: opts.planTelemetry }
-         : {}),
-       ...(opts.externalSpecRoot !== undefined
-         ? { externalSpecRoot: opts.externalSpecRoot }
-         : {}),
-     });
+  for (let turn = 1; turn <= budgetTurns; turn += 1) {
+    const turnResult = await runRefineTurn({
+      worktreePath: opts.worktreePath,
+      name: opts.name,
+      config: opts.config,
+      turnNumber: turn,
+      totalTurns: budgetTurns,
+      ...(opts.stderr !== undefined ? { stderr: opts.stderr } : {}),
+      ...(opts.planTelemetry !== undefined
+        ? { planTelemetry: opts.planTelemetry }
+        : {}),
+      ...(opts.externalSpecRoot !== undefined
+        ? { externalSpecRoot: opts.externalSpecRoot }
+        : {}),
+    });
 
     // Update agent label (use the most recent non-null one)
     if (turnResult.agentLabel !== null) {

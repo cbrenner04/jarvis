@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type BoundaryCheckResult =
@@ -175,8 +175,11 @@ export function assertNoCommitExternalSpecBoundary(
   let entries: string[];
   try {
     entries = readdirSync(externalSpecRoot);
-  } catch (err) {
-    return { ok: false, offendingPaths: [`(failed to read ${externalSpecRoot})`] };
+  } catch (_err) {
+    return {
+      ok: false,
+      offendingPaths: [`(failed to read ${externalSpecRoot})`],
+    };
   }
 
   const offendingPaths: string[] = [];

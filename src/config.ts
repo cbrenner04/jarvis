@@ -396,76 +396,76 @@ function validateConfig(input: unknown, file: string): Config {
         project.siblings = siblings;
       }
     }
-     const planRaw = (value as Record<string, unknown>).plan;
-     if (planRaw !== undefined) {
-       if (
-         planRaw === null ||
-         typeof planRaw !== "object" ||
-         Array.isArray(planRaw)
-       ) {
-         fail(file, `project ${JSON.stringify(name)} plan must be an object`);
-       }
-       const planObj = planRaw as Record<string, unknown>;
-       const plan: { specTimestamp?: boolean; commit?: boolean } = {};
-       const specTimestampRaw = planObj.specTimestamp;
-       if (specTimestampRaw !== undefined) {
-         if (typeof specTimestampRaw !== "boolean") {
-           fail(
-             file,
-             `project ${JSON.stringify(name)} plan.specTimestamp must be a boolean`,
-           );
-         }
-         plan.specTimestamp = specTimestampRaw;
-       }
-       const commitRaw = planObj.commit;
-       if (commitRaw !== undefined) {
-         if (typeof commitRaw !== "boolean") {
-           fail(
-             file,
-             `project ${JSON.stringify(name)} plan.commit must be a boolean`,
-           );
-         }
-         plan.commit = commitRaw;
-       }
-       // Strict keys validation for plan object
-       const allowedPlanKeys = new Set(["specTimestamp", "commit"]);
-       for (const key of Object.keys(planObj)) {
-         if (!allowedPlanKeys.has(key)) {
-           fail(
-             file,
-             `project ${JSON.stringify(name)} plan: unknown key ${JSON.stringify(key)} (allowed: specTimestamp, commit)`,
-           );
-         }
-       }
-       if (Object.keys(plan).length > 0) {
-         project.plan = plan;
-       }
-     }
-     // Strict keys validation for project object
-     const allowedProjectKeys = new Set([
-       "root",
-       "origin",
-       "git",
-       "siblings",
-       "plan",
-     ]);
-     const projectObj = value as Record<string, unknown>;
-     for (const key of Object.keys(projectObj)) {
-       if (!allowedProjectKeys.has(key)) {
-         // Check if this is a known mis-nesting (specTimestamp or commit at project level)
-         if (key === "specTimestamp" || key === "commit") {
-           fail(
-             file,
-             `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)}; did you mean ${JSON.stringify(`plan.${key}`)}?`,
-           );
-         }
-         fail(
-           file,
-           `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan)`,
-         );
-       }
-     }
-     projects[name] = project;
+    const planRaw = (value as Record<string, unknown>).plan;
+    if (planRaw !== undefined) {
+      if (
+        planRaw === null ||
+        typeof planRaw !== "object" ||
+        Array.isArray(planRaw)
+      ) {
+        fail(file, `project ${JSON.stringify(name)} plan must be an object`);
+      }
+      const planObj = planRaw as Record<string, unknown>;
+      const plan: { specTimestamp?: boolean; commit?: boolean } = {};
+      const specTimestampRaw = planObj.specTimestamp;
+      if (specTimestampRaw !== undefined) {
+        if (typeof specTimestampRaw !== "boolean") {
+          fail(
+            file,
+            `project ${JSON.stringify(name)} plan.specTimestamp must be a boolean`,
+          );
+        }
+        plan.specTimestamp = specTimestampRaw;
+      }
+      const commitRaw = planObj.commit;
+      if (commitRaw !== undefined) {
+        if (typeof commitRaw !== "boolean") {
+          fail(
+            file,
+            `project ${JSON.stringify(name)} plan.commit must be a boolean`,
+          );
+        }
+        plan.commit = commitRaw;
+      }
+      // Strict keys validation for plan object
+      const allowedPlanKeys = new Set(["specTimestamp", "commit"]);
+      for (const key of Object.keys(planObj)) {
+        if (!allowedPlanKeys.has(key)) {
+          fail(
+            file,
+            `project ${JSON.stringify(name)} plan: unknown key ${JSON.stringify(key)} (allowed: specTimestamp, commit)`,
+          );
+        }
+      }
+      if (Object.keys(plan).length > 0) {
+        project.plan = plan;
+      }
+    }
+    // Strict keys validation for project object
+    const allowedProjectKeys = new Set([
+      "root",
+      "origin",
+      "git",
+      "siblings",
+      "plan",
+    ]);
+    const projectObj = value as Record<string, unknown>;
+    for (const key of Object.keys(projectObj)) {
+      if (!allowedProjectKeys.has(key)) {
+        // Check if this is a known mis-nesting (specTimestamp or commit at project level)
+        if (key === "specTimestamp" || key === "commit") {
+          fail(
+            file,
+            `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)}; did you mean ${JSON.stringify(`plan.${key}`)}?`,
+          );
+        }
+        fail(
+          file,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan)`,
+        );
+      }
+    }
+    projects[name] = project;
   }
 
   return {
@@ -715,15 +715,15 @@ export function registerProject(
   // Preserve existing project if re-registering the same name
   const existing = cfg.projects[name];
   const project: Project = existing ? { ...existing } : { root };
-  
+
   // Always overwrite root with the new value
   project.root = root;
-  
+
   // Only overwrite origin if the caller supplied a non-empty origin
   if (opts?.origin !== undefined && opts.origin.trim() !== "") {
     project.origin = opts.origin;
   }
-  
+
   cfg.projects[name] = project;
   writeConfig(cfg, opts);
 }

@@ -1,3 +1,0 @@
-need usage data for opencode and aider.
-if they don't output token usage, we should estimate like cursor.
-aider might be handled? spec drafter should confirm

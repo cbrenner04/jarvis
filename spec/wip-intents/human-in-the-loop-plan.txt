@@ -1,5 +1,0 @@
-Need to have a blocker after refinement and before draft. 
-
-* This likely means we need a draft PR with just the intent.md after refinement.
-* Need a blocker added to the intent.md at the end for reviewer to add their input. Maybe the final refinement turn adds this and guided questions? (as needed, 0 is ok)
-* Need a --resume-draft or something on the cli to know where we are in the process and an entry point back into the loop with draft and review. 

@@ -7,14 +7,21 @@ This is a long-lived reference doc, not a plan intent. It captures the *why* and
 One package, multiple source trees. A single root `package.json`, `bun.lock`, and `node_modules` for the whole repo — not Bun workspaces, not a `package.json` per version. v1 and v2 are separate TypeScript projects (separate source trees that cannot import each other), not separate packages. This is the "have your cake and eat it too" shape: one dependency tree and one toolchain, but cleanly separated engines.
 
 ```
-package.json / bun.lock / node_modules   # single, shared
-biome.json / tsconfig.base.json          # repo-wide tool config
-bin/jarvis1 -> v1   (after rename)       # bin/jarvis reserved for v2
-prompts/            # first-class, treated as code — shared by both engines
-v1/                 # engine v1 (own tsconfig project)
-  src/ test/ spec/
-v2/                 # engine v2 (own tsconfig project)
-  src/ test/ spec/
+package.json
+bun.lock
+node_modules
+biome.json
+tsconfig.base.json    # repo-wide tool config
+bin/jarvis1 -> v1     # after rename
+prompts/              # first-class, treated as code — shared by both engines
+v1/                   # engine v1 (own tsconfig project)
+  src/
+  test/
+  spec/
+v2/                   # engine v2 (own tsconfig project)
+  src/
+  test/
+  spec/
 ```
 
 Accepted tradeoff of one lockfile: v1 and v2 share one resolved version of every dependency. Fine because v1 is a stable engine on the same stack, and the shared gate runs v1's tests on every change.
@@ -43,7 +50,7 @@ v2 takes the same idea one level up. Instead of just composing prompts, it compo
 
 ## Naming clean-up
 
-- `run` / "patch mode" → `implement`. Drop both "run" and "patch" as user-facing terms.
+- `run` / "patch mode" → `implement`. Drop both "run" and "patch".
 
 ## Prompts as first-class artifacts
 
@@ -59,8 +66,8 @@ Still to design (owned by `v2-prompts.txt`): the exact `prompts/` layout, the pr
 
 The current "mode" model breaks down under the next round of features:
 
-- **`review`** is the next capability to add — but review wants to run *throughout* a plan or implement flow, not stand alone alongside them. That makes it not-a-mode in the same sense plan/implement are.
-- **`yolo`** is plan + implement + review composed. If yolo is a mode, then modes-compose-modes, which means "mode" is really just "named pipeline of operations."
+- `**review`** is the next capability to add — but review wants to run *throughout* a plan or implement flow, not stand alone alongside them. That makes it not-a-mode in the same sense plan/implement are.
+- `**yolo*`* is plan + implement + review composed. If yolo is a mode, then modes-compose-modes, which means "mode" is really just "named pipeline of operations."
 - The right primitive is probably something like **composable operations** (plan, implement, review, …) plus a **host/runner** that orchestrates them. Modes become preset compositions, not a distinct kind of thing.
 
 ## Architectural constraints
@@ -91,3 +98,4 @@ Install is intentionally not fancy — symlinks on two machines (personal + work
 4. **Design v2 architecture** — composable operations + host. Must satisfy the constraints above. Update this doc with the chosen model once decided.
 5. **Build v2 incrementally**, behavior-by-behavior. `jarvis` (v2) becomes usable as features land; `jarvis1` remains the daily-driver until v2 reaches parity.
 6. **No deletion of v1.** Both commands stay installed indefinitely.
+

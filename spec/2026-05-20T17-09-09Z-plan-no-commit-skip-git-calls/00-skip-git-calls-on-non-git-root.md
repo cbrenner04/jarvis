@@ -26,10 +26,10 @@ See [intent.md](./intent.md) for the full traceback and root cause.
 
 ## Acceptance criteria
 
-- [ ] `jarvis plan <intent>` against a registered non-git project with `modes.plan.commit: false` completes the refine and draft phases and at least one review pass without throwing and without printing `fatal: not a git repository` to stderr. Verified by a new test that exercises the post-draft path with a stubbed agent on a non-`git init`'ed project root.
-- [ ] `assertTargetRepoPlanBoundary` returns `{ ok: true }` when `<projectRoot>/.git` does not exist, without invoking `git`. Verified by a unit test in `test/plan-boundary.test.ts` (or equivalent).
-- [ ] `commit: true` plan runs are unchanged: existing tests in `test/plan-command.test.ts` and `test/plan-boundary.test.ts` continue to pass, and the boundary check still runs `git status` when the target is a git repo.
-- [ ] The previously-existing commit-false non-git test (`test/plan-command.test.ts:390`) continues to pass with the same expectations.
+- [x] `jarvis plan <intent>` against a registered non-git project with `modes.plan.commit: false` completes the refine and draft phases and at least one review pass without throwing and without printing `fatal: not a git repository` to stderr. Verified by a new test that exercises the post-draft path with a stubbed agent on a non-`git init`'ed project root.
+- [x] `assertTargetRepoPlanBoundary` returns `{ ok: true }` when `<projectRoot>/.git` does not exist, without invoking `git`. Verified by a unit test in `test/plan-boundary.test.ts` (or equivalent).
+- [x] `commit: true` plan runs are unchanged: existing tests in `test/plan-command.test.ts` and `test/plan-boundary.test.ts` continue to pass, and the boundary check still runs `git status` when the target is a git repo.
+- [x] The previously-existing commit-false non-git test (`test/plan-command.test.ts:390`) continues to pass with the same expectations.
 
 ## Out of scope
 

@@ -1060,6 +1060,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const isGitRepo = existsSync(join(project.root, ".git"));
     let worktreePath: string | null = null;
 
+    // Prepare plan branch name early (doesn't depend on git)
+    const planBranch = `plan/${planName}`;
+
     // Enter the main plan flow if: commit is false (using project root directly),
     // or if commit is true and we can create a worktree
     if (commit === false || (!opts.skipGhCheck && isGitRepo)) {
@@ -1104,6 +1107,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr("internal error: worktreePath is null\n");
         return 1;
       }
+
+      // Determine base branch for PR operations
+      // Only needed when commit: true; gate to avoid calling getCurrentBranch on non-git roots
+      let baseBranch: string | null = null;
+      if (commit) {
+        baseBranch = getCurrentBranch(project.root);
+      }
+
       const cleanupNoCommitTempSpec = (): void => {
         if (commit === false) {
           removeSpecDirIfPresent(worktreePath as string, tempPlanName);
@@ -1459,14 +1470,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
             opts.io.stderr(`plan: blocker commit pushed\n`);
 
-            safeUpdatePrBody({
-              io: opts.io,
-              branch: `plan/${planName}`,
-              base: getCurrentBranch(project.root),
-              worktreePath: worktreePath as string,
-              name: planName,
-              specDirBasename,
-            });
+                safeUpdatePrBody({
+                  io: opts.io,
+                  branch: planBranch,
+                  base: baseBranch as string,
+                  worktreePath: worktreePath as string,
+                  name: planName,
+                  specDirBasename,
+                });
           } catch (err) {
             opts.io.stderr(`${(err as Error).message}\n`);
             summarizePlan("error", specDirBasename);
@@ -1557,14 +1568,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           const prUrl = getPrUrl(worktreePath as string, planBranch);
           opts.io.stdout(`${prUrl}\n`);
           opts.io.stderr(`plan: draft PR #${prResult.number} opened\n`);
-          safeUpdatePrBody({
-            io: opts.io,
-            branch: planBranch,
-            base: baseBranch,
-            worktreePath: worktreePath as string,
-            name: planName,
-            specDirBasename,
-          });
+            safeUpdatePrBody({
+              io: opts.io,
+              branch: planBranch,
+              base: baseBranch as string,
+              worktreePath: worktreePath as string,
+              name: planName,
+              specDirBasename,
+            });
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
           summarizePlan("error", specDirBasename);
@@ -1666,10 +1677,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
 
-      // Cache the base branch once for subsequent gh/git calls.
-      const baseBranch = getCurrentBranch(project.root);
-      const planBranch = `plan/${planName}`;
-
       // Check boundary before draft commit
       const boundaryCheck = commit
         ? assertPlanWriteBoundary(worktreePath, specDirBasename)
@@ -1705,7 +1712,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             safeUpdatePrBody({
               io: opts.io,
               branch: planBranch,
-              base: baseBranch,
+              base: baseBranch as string,
               worktreePath: worktreePath as string,
               name: planName,
               specDirBasename,
@@ -1748,7 +1755,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         try {
           const prResult = await ensureDraftPr({
             branch: planBranch,
-            base: baseBranch,
+            base: baseBranch as string,
             title: `plan: ${planName}`,
             bodyGenerator: async () =>
               buildPlanPrHeader({
@@ -1758,7 +1765,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               }),
             footer: renderAttribution({
               cwd: worktreePath as string,
-              base: baseBranch,
+              base: baseBranch as string,
             }),
             cwd: worktreePath as string,
           });
@@ -1794,7 +1801,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             safeUpdatePrBody({
               io: opts.io,
               branch: planBranch,
-              base: baseBranch,
+              base: baseBranch as string,
               worktreePath: worktreePath as string,
               name: planName,
               specDirBasename,
@@ -1816,14 +1823,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       // Post-draft body refresh (header now reflects the real index.md).
       if (commit) {
-        safeUpdatePrBody({
-          io: opts.io,
-          branch: planBranch,
-          base: baseBranch,
-          worktreePath: worktreePath as string,
-          name: planName,
-          specDirBasename,
-        });
+            safeUpdatePrBody({
+              io: opts.io,
+              branch: planBranch,
+              base: baseBranch as string,
+              worktreePath: worktreePath as string,
+              name: planName,
+              specDirBasename,
+            });
       }
 
       // Self-review phase
@@ -1955,14 +1962,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   });
                   opts.io.stderr(`plan: blocker commit pushed\n`);
 
-                  safeUpdatePrBody({
-                    io: opts.io,
-                    branch: planBranch,
-                    base: baseBranch,
-                    worktreePath: worktreePath as string,
-                    name: planName,
-                    specDirBasename,
-                  });
+            safeUpdatePrBody({
+              io: opts.io,
+              branch: planBranch,
+              base: baseBranch as string,
+              worktreePath: worktreePath as string,
+              name: planName,
+              specDirBasename,
+            });
                 } catch (err) {
                   opts.io.stderr(`${(err as Error).message}\n`);
                   summarizePlan("error", specDirBasename);
@@ -1993,7 +2000,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 safeUpdatePrBody({
                   io: opts.io,
                   branch: planBranch,
-                  base: baseBranch,
+                  base: baseBranch as string,
                   worktreePath: worktreePath as string,
                   name: planName,
                   specDirBasename,
@@ -2048,7 +2055,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 safeUpdatePrBody({
                   io: opts.io,
                   branch: planBranch,
-                  base: baseBranch,
+                  base: baseBranch as string,
                   worktreePath: worktreePath as string,
                   name: planName,
                   specDirBasename,
@@ -2080,14 +2087,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 `plan: review pass ${pass} committed and pushed\n`,
               );
 
-              safeUpdatePrBody({
-                io: opts.io,
-                branch: planBranch,
-                base: baseBranch,
-                worktreePath: worktreePath as string,
-                name: planName,
-                specDirBasename,
-              });
+                safeUpdatePrBody({
+                  io: opts.io,
+                  branch: planBranch,
+                  base: baseBranch as string,
+                  worktreePath: worktreePath as string,
+                  name: planName,
+                  specDirBasename,
+                });
             } catch (err) {
               opts.io.stderr(`${(err as Error).message}\n`);
               summarizePlan("error", specDirBasename);

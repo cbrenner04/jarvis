@@ -104,6 +104,13 @@ export type RunCommandOptions = {
   cwdFlag?: string;
   /** Override the disambiguation prompt (for tests). */
   disambiguate?: DisambiguateFn;
+  /**
+   * Test-only override for the watchdog/abort SIGKILL grace period in
+   * milliseconds. Lets timing tests bound their wall-clock cost without
+   * waiting the full 5s grace for SIGTERM-ignoring grandchildren. Defaults
+   * to 5000ms; production callers must not set this.
+   */
+  __testKillGraceMs?: number;
 };
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
@@ -917,6 +924,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
 
   // Create per-iteration abort controller
   state.currentController = new AbortController();
+  const killGraceMs = opts.__testKillGraceMs ?? 5000;
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
   let watchdogKillHandle: NodeJS.Timeout | null = null;
@@ -937,7 +945,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         } catch {
           // best-effort
         }
-      }, 5000);
+      }, killGraceMs);
       watchdogKillHandle.unref();
     }
     state.currentController?.abort("iteration-timeout");
@@ -950,7 +958,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         ? {}
         : { additionalReadDirs: preflight.additionalReadDirs }),
       signal: state.currentController.signal,
-      abortKillGraceMs: 5000,
+      abortKillGraceMs: killGraceMs,
       onSpawned: ({ pid }) => {
         watchdogPgid = pid;
       },

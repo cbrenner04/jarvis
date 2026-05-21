@@ -51,13 +51,3 @@ Implementation shape:
 - Call out the root README and AGENTS updates as structural documentation work, not optional cleanup. They should explain the new top-level layout, clarify that `jarvis` still executes v1 from root-owned entrypoints, and point future v2 planning/implementation work at `v2/` without changing the current user-facing CLI contract.
 - The draft should preserve the "no behavior change" rule for runtime file loading by naming path-sensitive assets beyond TypeScript sources. That includes `data/prices.json`, `docs/**/*.md` that are read or referenced by commands/tests, and all prompt/rules markdown under `src/modes/**`; the migration should update path resolution only as needed to keep those reads internal to `v1/` and externally unchanged.
 
-## Blocker
-
-Review and approve `spec/2026-05-21T06-19-43Z-split-v1-v2-repo/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis plan --resume-draft spec/2026-05-21T06-19-43Z-split-v1-v2-repo/intent.md`

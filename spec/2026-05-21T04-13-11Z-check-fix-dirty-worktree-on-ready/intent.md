@@ -277,14 +277,3 @@ Two subspecs is the right split:
 ## Refine skip
 
 Code inspection confirms all implementation details from Refine turns 1 and 2 are accurate against the current source. The three-seam type design, git command patterns, `agentLabel` threading, `git: false` guard, and two-subspec split are all ready for drafting with no further refinement needed.
-
-## Blocker
-
-Review and approve `spec/2026-05-21T04-13-11Z-check-fix-dirty-worktree-on-ready/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis plan --resume-draft spec/2026-05-21T04-13-11Z-check-fix-dirty-worktree-on-ready/intent.md`

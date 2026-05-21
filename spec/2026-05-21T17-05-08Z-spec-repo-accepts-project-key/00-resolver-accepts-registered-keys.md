@@ -2,61 +2,67 @@
 
 ## Problem
 
-`jarvis plan` against a registered project with no configured `origin` (e.g. a non-git registered directory) writes a `repo:` line into the generated `index.md` using `project.key` as the fallback value (see `injectRepoLineIntoIndex` in `src/commands/plan.ts:2402`, `repoValue = project.origin ?? project.key`). The downstream resolver in `src/resolve-project.ts` does not accept a bare key on the spec `repo:` path: it tries `normalizeRepoUrl` on the value, which requires an `owner/repo` slug or a full URL, and a bare token like `genomics-stream` has no `/`, so the resolver returns `kind: "error"` with the bare message `unrecognized \`repo:\` value: genomics-stream` (currently at `src/resolve-project.ts:87-88`).
+`jarvis plan` against a registered project with no configured `origin` (typical for non-git directories, or for git directories where `jarvis init` did not capture the origin) writes a `repo:` line into the generated `index.md` using `project.key` as the fallback. See `injectRepoLineIntoIndex` in `src/commands/plan.ts:2402` (`const repoValue = project.origin ?? project.key;` at line 2419).
 
-Reproduces with:
+`resolveProject` in `src/resolve-project.ts` does not accept a bare key on the spec `repo:` path. The current spec-repo block (lines 67-111) handles the value as either an absolute path (line 69) or a URL/slug fed to `normalizeRepoUrl` (line 84). A bare token like `genomics-stream` has no `/`, so `normalizeRepoUrl` returns `undefined` and the resolver returns `kind: "error"` with the bare message at line 88:
+
+```text
+unrecognized `repo:` value: genomics-stream
+```
+
+The `--repo` flag does not have this gap: `resolveFromFlag` matches a registered key by name first (line 166) before trying absolute-path or URL/slug. Plan mode is therefore writing values that `jarvis run` cannot read back. This subspec brings the spec `repo:` path to parity with `--repo` for the registered-key case and reuses the helpful "Registered projects: …" error on the bare-message failure path.
+
+Reproduction (with the existing failing spec):
 
 ```sh
 jarvis run ~/.jarvis/specs/genomics-stream/lab-systems-testing-evidence-scanner/index.md
 # → unrecognized `repo:` value: genomics-stream
 ```
 
-The `--repo` flag already accepts a registered key via `resolveFromFlag` (`src/resolve-project.ts:165-172`), so plan mode is currently writing values that `jarvis run` cannot read back. This subspec brings the spec `repo:` path to parity with `--repo` for the registered-key case.
-
 ## Decisions
 
-- **Resolution precedence inside Step 2:** Registered-key match runs **first**, before the existing absolute-path branch and before the URL/slug branch. This mirrors `resolveFromFlag`'s precedence (name beats path beats URL) and ensures a key never accidentally matches an absolute path.
-- **Source/mode values:** Reuse the existing `source: "spec-repo"` and `mode: "registered"` for the new key-match success case. Do not add a new `source` variant; that would force every downstream consumer of `ResolvedProject.source` to handle a new case for no benefit.
-- **Error message reuse:** When the key match fails *and* `normalizeRepoUrl` returns `undefined`, switch the error path from the bare `unrecognized \`repo:\` value: ${repoValue}` to use `formatUnknownRepoError(repoValue, projects)` (defined at `src/resolve-project.ts:216`) so the user sees the registered-keys list, mirroring the `--repo` UX.
-- **`formatUnknownRepoError` lead-in:** The current body embeds `--repo` literally (`--repo: no project matches ${value}\nRegistered projects:\n${list}` at line 225). Generalize it by adding an optional second parameter (a lead-in label such as `"--repo"` or `` "`repo:`" ``) defaulting to `"--repo"` so existing call sites are byte-identical. The spec-repo call site passes the spec-flavored lead-in. Do not inline a wrapper that rewrites the first line; do not duplicate the body.
-- **No-matches fall-through preserved:** When `normalizeRepoUrl` succeeds but `matches.length === 0` (the implicit fall-through at `src/resolve-project.ts:109`), behavior is **unchanged** — execution still falls through to Steps 3–5 so an ad-hoc git-checkout walk can find an unregistered-but-on-disk repo. Do not convert this branch into an error.
-- **Absolute-path branch unchanged:** Legacy `repo: <absolute-local-path>` handling at `src/resolve-project.ts:69-82` is not touched. Do not add a key check inside the absolute-path branch.
-- **Precedence vs slug collision:** If a user registers a project whose `key` happens to be a valid `owner/repo` slug, the registered project wins (name beats URL). This matches `--repo`'s precedence and is locked in by a dedicated test.
-- **Out of scope:** Changing `--repo` behavior. Re-running `jarvis init` for any project. Migrating any registered project. Changing what `injectRepoLineIntoIndex` writes (that is subspec 01, and is optional/non-blocking).
+- **Precedence inside the spec-repo block (`src/resolve-project.ts:67-111`):** registered-key match runs **first**, before the `isAbsolute` branch (line 69) and before the URL/slug `else` branch (line 83). Mirrors `resolveFromFlag`'s order (name beats path beats URL) and prevents a key from being mistaken for an absolute path.
+- **Returned shape on key match:** `{ kind: "ok", resolved: { project: byName, mode: "registered", source: "spec-repo" } }`. Do **not** introduce a new `source` variant; downstream consumers of `ResolvedProject.source` (`src/resolve-project.ts:27`) should not need to learn a new case.
+- **Bare-message error (line 88) is replaced with `formatUnknownRepoError`.** When the key check misses and `normalizeRepoUrl` returns `undefined`, return `kind: "error"` whose message is rendered by `formatUnknownRepoError` so the user sees the registered-keys list. This is also the only error path on Step 2 today; the no-matches branch at the `else` end (line 109 comment) continues to fall through to Steps 3-5 and is **not** converted into an error.
+- **`formatUnknownRepoError` is generalized, not duplicated.** Its current body (line 225) embeds `--repo` literally. Add an optional parameter (e.g. `leadIn?: string`) defaulting to `"--repo"` so the two existing `--repo` call sites (`src/resolve-project.ts:186` and `:213`) keep byte-identical output. The new spec-repo call site passes a spec-flavored lead-in such as `` "spec `repo:`" ``. Do not inline a wrapper that rewrites the first line; do not fork the body.
+- **Ambiguous-matches branch is unchanged.** The URL/slug `else` already returns `kind: "ambiguous"` when `matches.length > 1` (lines 102-107). The new key check sits above this branch and does not affect it.
+- **Absolute-path branch is unchanged.** Legacy `repo: <absolute-local-path>` exact-root matching at lines 69-82 is not touched. Do not add a key check inside it.
+- **Slug-shaped key precedence:** if a user registers a project whose `key` happens to look like an `owner/repo` slug, the registered project wins (name beats URL). This is locked in by a dedicated test and matches `--repo`'s precedence.
+- **Out of scope for this subspec:** changing `--repo` flag semantics; re-running `jarvis init` for any project; persisting any new config; changing what `injectRepoLineIntoIndex` writes (subspec 01 owns that surface and is explicitly non-blocking).
 
 ## Task Checklist
 
-- [ ] In `src/resolve-project.ts`, inside the existing `if (opts.specRepo !== undefined && opts.specRepo.trim() !== "")` block (currently starting at line 67), add a registered-key match at the top of the block (before the `isAbsolute(repoValue)` branch). On match, return `{ kind: "ok", resolved: { project: byName, mode: "registered", source: "spec-repo" } }`.
-- [ ] In the same file, replace the bare `unrecognized \`repo:\` value: ${repoValue}` error (currently at line 88) with a call to `formatUnknownRepoError(repoValue, projects, /* lead-in for spec `repo:` */)`.
-- [ ] In `src/resolve-project.ts`, generalize `formatUnknownRepoError` (line 216) to accept an optional third parameter (e.g. `leadIn?: string`) defaulting to `"--repo"`. Keep existing call sites unchanged (they take the default and produce byte-identical output). The spec-repo call site passes the spec-flavored lead-in (e.g. `` "spec `repo:`" ``).
-- [ ] Add 5 unit tests to `test/resolve-project.test.ts`:
-  1. `specRepo: "genomics-stream"` with a registered project keyed `genomics-stream` (root set, no `origin`) → `kind: "ok"`, `resolved.source === "spec-repo"`, `resolved.mode === "registered"`, `resolved.project.key === "genomics-stream"`. This is the direct regression test for the reported bug.
-  2. `specRepo: "not-registered"` (no slash; no matching project; URL/slug normalization fails) → `kind: "error"`, and `message` contains the registered keys list (mirrors `--repo`'s failure shape).
-  3. Precedence test: registered project whose `key` equals a valid slug (e.g. `key: "owner/repo"`) → registered project wins over any URL/slug match.
-  4. `repoFlag: "genomics-stream"` (parallel `--repo` case) → `kind: "ok"`, `resolved.source === "repo-flag"`. Guards against accidentally collapsing the two paths.
-  5. Path-2 regression guard: `specRepo: "https://github.com/owner/unregistered"` (no registered project matches that origin) with a spec path that lives inside a registered project's root → `kind: "ok"`, `resolved.source === "registered"` (Step 3 still wins after Step 2's URL/slug yields no matches). If a test of this shape already exists, verify it still passes after the change; do not duplicate.
-- [ ] Run `bun run typecheck` and `bun test` and confirm both pass.
-- [ ] Update `docs/spec-guidance.md`:
-  - Add a fourth bullet to the "Accepted forms" list under the `repo:` discussion for "Registered project key (local-only; not portable across machines)".
-  - Update the resolution-order list so that Step 2's sub-order is: (a) registered-key match, (b) absolute-path exact-root match (legacy), (c) URL/slug loose match.
-- [ ] Update `docs/run-loop.md`: the resolution-order section must mirror the same Step 2 sub-order change above.
-- [ ] Update the `README.md` `repo:` form enumeration prose (if any). `grep README.md` for `repo:` and patch only enumeration prose; do not change the Spec Shape example (URLs remain the recommended portable form).
+- [ ] In `src/resolve-project.ts`, add a registered-key match at the top of the existing `if (opts.specRepo !== undefined && opts.specRepo.trim() !== "")` block (currently starting at line 67), placed before the `isAbsolute(repoValue)` check on line 69. On match, return `{ kind: "ok", resolved: { project: byName, mode: "registered", source: "spec-repo" } }`.
+- [ ] In the same file, replace the bare `unrecognized \`repo:\` value: ${repoValue}` error at line 88 with `formatUnknownRepoError(repoValue, projects, <spec-flavored lead-in>)`.
+- [ ] Generalize `formatUnknownRepoError` (definition at line 216) to accept an optional `leadIn` parameter defaulting to `"--repo"`. Confirm the two existing `--repo` call sites (`src/resolve-project.ts:186` and `:213`) take the default and produce byte-identical output. The spec-repo call site passes the spec-flavored lead-in.
+- [ ] Add unit tests to `test/resolve-project.test.ts`:
+  1. `specRepo: "genomics-stream"` with a registered project whose key is `genomics-stream` (root set, no `origin`) → `kind: "ok"`, `resolved.source === "spec-repo"`, `resolved.mode === "registered"`, `resolved.project.key === "genomics-stream"`. Direct regression test for the reported bug.
+  2. `specRepo: "not-registered"` (no slash; no matching project; URL/slug normalization fails) → `kind: "error"`; `message` contains the registered keys list and the spec-flavored lead-in. Locks in the `formatUnknownRepoError` reuse.
+  3. Slug-collision precedence: a registered project with `key: "owner/repo"` and `specRepo: "owner/repo"` (no other project's origin matches) → resolves to the registered project, `mode: "registered"`, `source: "spec-repo"` (name beats URL).
+  4. `--repo` parity guard: `repoFlag: "genomics-stream"` against the same config as test (1) → `kind: "ok"`, `resolved.source === "repo-flag"`. Guards against accidentally collapsing the two paths.
+  5. Fall-through guard: `specRepo: "https://github.com/owner/unregistered"` (no registered project's origin matches that URL) with a spec path located inside a registered project's root → `kind: "ok"`, `resolved.source === "registered"` (Step 3 still wins after Step 2's URL/slug yields zero matches). If an equivalent test already exists, verify it still passes; do not duplicate.
+- [ ] Run `bun run typecheck` and `bun test`; confirm both pass.
+- [ ] Update documentation per the "Documentation updates" section below.
 
 ## Acceptance criteria
 
-- [ ] `src/resolve-project.ts` Step 2's spec-repo block does a registered-key lookup (`projects.find((p) => p.key === repoValue)`) **before** the `isAbsolute(repoValue)` check, and on match returns `{ kind: "ok", resolved: { project, mode: "registered", source: "spec-repo" } }`.
-- [ ] The previously bare `unrecognized \`repo:\` value: ${repoValue}` error path uses `formatUnknownRepoError(...)` so the user sees the registered-keys list.
-- [ ] `formatUnknownRepoError` accepts a lead-in parameter (or equivalent mechanism) with `--repo` as the default; existing `--repo` call sites produce byte-identical error messages.
+- [ ] The spec-repo block in `src/resolve-project.ts` performs `projects.find((p) => p.key === repoValue)` **before** the `isAbsolute(repoValue)` check, and returns `{ kind: "ok", resolved: { project, mode: "registered", source: "spec-repo" } }` on match.
+- [ ] The bare `unrecognized \`repo:\` value: …` error path is replaced with a `formatUnknownRepoError(...)` call so the user sees the registered-keys list.
+- [ ] `formatUnknownRepoError` accepts an optional lead-in parameter (default `"--repo"`); both existing `--repo` call sites continue to produce byte-identical error messages.
 - [ ] `test/resolve-project.test.ts` contains the 5 cases listed in the task checklist, all passing under `bun test`.
+- [ ] The no-matches URL/slug fall-through (line 109 area) is unchanged: a spec with `repo: <unmatched-url>` whose path lives inside a registered root still resolves via Step 3 rather than erroring. Locked in by test (5).
+- [ ] The ambiguous-matches branch (URL/slug, `matches.length > 1`) still returns `kind: "ambiguous"` rather than erroring or being short-circuited by the new key check.
+- [ ] A registered project whose key happens to look like an `owner/repo` slug resolves to that registered project, not via URL matching. Locked in by test (3).
+- [ ] `--repo` behavior is unchanged. Locked in by test (4).
 - [ ] `bun run typecheck` passes after the change.
 - [ ] `bun test` passes after the change.
-- [ ] After the change, running `jarvis run` against a spec whose `index.md` contains `repo: <registered-key>` (where `<registered-key>` is a key in `~/.jarvis/config.json`) resolves to that project instead of erroring. This is demonstrable via the new unit test (1) above.
-- [ ] The "no-matches fall-through" branch (Step 2 URL/slug yields zero matches) still falls through to Steps 3–5; it is **not** converted into an error. Locked in by test (5).
-- [ ] A registered key whose value happens to be a valid `owner/repo` slug resolves to the registered project, not via URL matching. Locked in by test (3).
-- [ ] `--repo` behavior is unchanged. Locked in by test (4).
 
 ## Documentation updates
 
-- [ ] `docs/spec-guidance.md` — accepted-forms list and Step 2 resolution-order list updated to reflect the new registered-key match. Note that registered keys are local to one user's `~/.jarvis/config.json` and are not portable; URL/slug remain the recommended portable forms.
-- [ ] `docs/run-loop.md` — Step 2 resolution-order text updated to mirror `docs/spec-guidance.md`.
-- [ ] `README.md` — any enumeration of accepted `repo:` forms updated to match the docs above. Do not change the Spec Shape example.
+`docs/spec-guidance.md` and `docs/run-loop.md` do not currently document sub-steps within Step 2; both files describe Step 2 as a single "Spec `repo:` URL/slug" item in the top-level 1-5 resolution order list. Do not invent a new sub-list; instead, surface the new accepted form and rephrase Step 2 so the key-match path is visible.
+
+- [ ] **`docs/spec-guidance.md`:**
+  - Under the "Accepted forms" list (currently at line 71-73: HTTPS URL / SSH URL / Slug), add a fourth bullet for "Registered project key" with a parenthetical note that it is **local-only and not portable across machines** because keys are defined in `~/.jarvis/config.json`. Recommend URL/slug for portable specs.
+  - In the resolution-order list (the "1." through "5." block starting at line 78), rephrase item 2 so it covers both the registered-key match and the URL/slug loose match (e.g. "Spec `repo:` matches a registered project's key, or URL/slug loose-matched against a registered project's `origin`."). Do not introduce a sub-numbered list; a single sentence covering both forms is sufficient.
+- [ ] **`docs/run-loop.md`:** mirror the same change to item 2 of the 1-5 list at lines 12-23. Same single-sentence treatment as `docs/spec-guidance.md`; do not introduce a sub-list.
+- [ ] **`README.md`:** the Spec Shape section (around line 98) uses a URL example and does not currently enumerate accepted `repo:` forms. Leave the example unchanged. If a `grep -n "repo:" README.md` surfaces any prose that enumerates the accepted forms (i.e. URL / slug, etc.), update it to include the registered-key form with the same local-only caveat; otherwise no README change is required.

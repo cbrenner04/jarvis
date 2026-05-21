@@ -127,10 +127,13 @@ block in `run.ts:1152`. No additional guard is needed.
       pattern with the same error-capture logic.
 - [ ] Implement `realCommitCheckFix(cwd, agentLabel)` inline: `git add -A`,
       `git commit -F -` with `appendAgentTrailer("chore: apply pre-ready check:fix", agentLabel)`,
-      then re-run `git status --porcelain` and throw the idempotency error if still dirty,
-      then call `pushCurrent({ cwd, firstPush: false })`.
+      then re-run `git status --porcelain`; if still dirty, call `getCurrentBranch(cwd)`
+      to get the branch name for the error message and throw the idempotency error
+      (do not proceed to push); if clean, call `pushCurrent({ cwd, firstPush: false })`.
 - [ ] Add imports to `pr.ts`: `appendAgentTrailer` from `../../commit-trailer.ts`,
-      `pushCurrent` from `../../worktree.ts`. (`execFileSync` is already imported.)
+      `pushCurrent` from `../../worktree.ts`. (`execFileSync` is already imported.
+      `getCurrentBranch` is already defined locally in `pr.ts` at line 205 — do not
+      add a duplicate import.)
 - [ ] Update the `run.ts:1223` call site to pass `agentLabel: agent.attributionLabel()`.
 - [ ] Add four tests to `test/modes/patch/pr.test.ts` under `describe("maybeMarkReady")`:
   - (a) All subspecs complete, `runReady` does not dirty the tree → `commitCheckFix`

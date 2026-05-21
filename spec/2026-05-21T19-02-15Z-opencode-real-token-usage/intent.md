@@ -168,3 +168,14 @@ Turn 1 plus this confirmation cover the unknowns the drafter would otherwise hit
 ## Refine skip
 
 Turn 2 explicitly recommended leaving the final turn unused absent a new ambiguity, and none has surfaced (no drafting has occurred between turn 2 and this turn). The intent body, decisions in turn 1, and verifications in turn 2 already pin down: argv edit location, parser location and exported-function shape, post-hoc render strategy (with confirmed-safe `result.stdout` mutation and follow-up checkbox for live streaming), valid-JSON-line definition, `sawAnyCostField` vs. cost-sum distinction for `no-price` selection, exact warning text, malformed-`step_finish` handling lifted to acceptance criterion, scope of `opencodeUnavailableNoted` (do not rename), reasoning-token drop, fixture minimums, and the docs list. Adding speculative notes would risk overconstraining the drafter. No refinement applied this turn.
+
+## Blocker
+
+Review and approve `spec/2026-05-21T19-02-15Z-opencode-real-token-usage/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis plan --resume-draft spec/2026-05-21T19-02-15Z-opencode-real-token-usage/intent.md`

@@ -17,6 +17,7 @@ import {
   parseIntentFrontmatter,
   planCommand,
   renderPlanNextSteps,
+  resolveResumeSpecPath,
   seedIntentFile,
   shouldStopAfterPhase0Refine,
   validateProposedName,
@@ -774,6 +775,41 @@ describe("parsePlanArgs", () => {
     }
   });
 
+  test("--resume-draft with a non-existent spec path stays file mode", () => {
+    setup();
+    try {
+      // The spec lives in the plan worktree, not the cwd the user runs from, so
+      // the path won't exist here. It must still be treated as a spec path, not
+      // silently downgraded to inline intent text.
+      const rel = "spec/2026-05-21T04-13-11Z-fix-thing/intent.md";
+      const res = parsePlanArgs(["--resume-draft", rel], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.mode).toBe("file");
+      if (res.invocation.mode !== "file") return;
+      expect(res.invocation.resumeDraft).toBe(true);
+      expect(res.invocation.intentPath).toBe(resolve(tmp, rel));
+    } finally {
+      teardown();
+    }
+  });
+
+  test("--resume with a non-existent spec path stays file mode", () => {
+    setup();
+    try {
+      const rel = "spec/2026-05-21T04-13-11Z-fix-thing/index.md";
+      const res = parsePlanArgs(["--resume", rel], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.mode).toBe("file");
+      if (res.invocation.mode !== "file") return;
+      expect(res.invocation.resume).toBe(true);
+      expect(res.invocation.intentPath).toBe(resolve(tmp, rel));
+    } finally {
+      teardown();
+    }
+  });
+
   test("--cwd rewrites file resolution base", () => {
     setup();
     try {
@@ -807,6 +843,41 @@ describe("parsePlanArgs", () => {
     } finally {
       teardown();
     }
+  });
+});
+
+describe("resolveResumeSpecPath", () => {
+  test("derives the spec dir from the parent, not the file basename", () => {
+    // Regression: a previous implementation used basename(specPath), yielding
+    // "intent.md" as the spec dir and a bogus `plan-intent.md` worktree.
+    const out = resolveResumeSpecPath(
+      "/repo/.worktree/plan-fix-thing/spec/2026-05-21T04-13-11Z-fix-thing/intent.md",
+      "resume-draft",
+    );
+    expect(out.specDirBasename).toBe("2026-05-21T04-13-11Z-fix-thing");
+    expect(out.planName).toBe("fix-thing");
+    expect(out.specDirPath).toBe(
+      "/repo/.worktree/plan-fix-thing/spec/2026-05-21T04-13-11Z-fix-thing",
+    );
+    expect(out.externalSpecRoot).toBe("/repo/.worktree/plan-fix-thing/spec");
+  });
+
+  test("resume mode expects an index.md path", () => {
+    const out = resolveResumeSpecPath(
+      "/x/specs/proj/2026-05-21T04-13-11Z-fix-thing/index.md",
+      "resume",
+    );
+    expect(out.specDirBasename).toBe("2026-05-21T04-13-11Z-fix-thing");
+    expect(out.externalSpecRoot).toBe("/x/specs/proj");
+  });
+
+  test("rejects a path whose basename is not the expected spec file", () => {
+    expect(() =>
+      resolveResumeSpecPath("/x/spec/foo/intent.md", "resume"),
+    ).toThrow("--resume requires a index.md path");
+    expect(() =>
+      resolveResumeSpecPath("/x/spec/foo/index.md", "resume-draft"),
+    ).toThrow("--resume-draft requires a intent.md path");
   });
 });
 

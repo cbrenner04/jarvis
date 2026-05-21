@@ -133,17 +133,18 @@ self-contained.
    - On any other event type (`step_start`, tool parts, etc.): no rendering, no accumulation.
    - On non-JSON or non-event lines: append the original line (with trailing newline) to `renderedText` as pass-through so banners and legacy log lines survive.
 
-3. **Wire usage/cost in `extractUsageAndCost`** (or wherever the success path is built in `src/agents/opencode.ts:80-99`):
+3. **Wire usage/cost in the `run()` success path** (`src/agents/opencode.ts:80-99` today; there is **no** `extractUsageAndCost` function in `opencode.ts` — the intent's phrasing was loose. The mapping into `AgentResult` happens inline in `run()` after `runAgent` returns `kind: "ok"`. Replace that block with the three cases below):
 
    - Call `parseOpencodeJsonStream(result.stdout)`.
    - **Case A — `sawStepFinish` true**:
      - `usage = { ...parsed.usage }`, `usage_source = "agent"`.
      - If `sawAnyCostField` true: `cost_usd = parsed.costUsd`, `cost_source = "agent"`.
      - Else: `cost_usd = null`, `cost_source = "no-price"`.
+     - Note: in this case the agent itself reports cost, so the downstream price-table enrichment in `src/telemetry-enrichment.ts` (which only fills in `cost_source: "computed"` when `cost_source` is unset or `"estimated"`) will leave these values alone. Verify by re-reading `telemetry-enrichment.ts:37-77` before drafting.
    - **Case B — `sawStepFinish` false, estimator returns usage**:
-     - Use `estimateTokenUsage(prompt, result.stdout)` as today; `usage_source = "estimated"`.
+     - Use `estimateTokenUsage(prompt, result.stdout)` as today; `usage = estimated`, `usage_source = "estimated"`.
+     - Do **not** set `cost_usd` or `cost_source` on the returned `AgentResult`. The downstream price-table enrichment in `src/telemetry-enrichment.ts` reads `usage` plus the price key from `resolveOpencodePriceKey` and fills in `cost_usd` + `cost_source` (`"computed"` when a rate exists, `"no-price"` otherwise). This matches today's behavior exactly — opencode.ts's current estimator success path also does not set cost fields directly.
      - Append warning: `"opencode: no step_finish events in --format json stream; falling back to token estimation."`.
-     - Existing price-table cost path still applies (`cost_source` becomes `"computed"` or `"no-price"` per the current `extractUsageAndCost` fallback logic).
    - **Case C — `sawStepFinish` false, estimator returns null**:
      - `usage_source = "unavailable"`, `cost_source = "no-usage"` (existing behavior, unchanged).
      - The existing `warnings` entry (`"opencode: token estimator unavailable; usage recorded as unavailable."`) still applies.
@@ -174,7 +175,8 @@ Add tests in `test/agents/opencode.test.ts`:
 
 3. **No `step_finish` events but parseable text.** Stdout with only `text`
    parts. Assert fallback to `estimateTokenUsage`, `usage_source === "estimated"`,
-   and `warnings` contains exactly:
+   the agent does not set `cost_usd` or `cost_source` directly, and
+   `warnings` contains exactly:
    `"opencode: no step_finish events in --format json stream; falling back to token estimation."`.
 
 4. **Estimator also returns null.** Stub or arrange so `estimateTokenUsage`
@@ -207,9 +209,10 @@ is acceptable but not required.
 
 Where possible, write tests against the exported `parseOpencodeJsonStream`
 directly. The agent's `run()` integration is still exercised by the argv-shape
-test plus at least one end-to-end test that drives `extractUsageAndCost` (or
-the equivalent post-parse field-population path) so the mapping into
-`AgentResult` is covered.
+test plus at least one end-to-end test that drives `OpencodeAgent.run()` end
+to end (e.g. via the existing fixture-driven test harness pattern in
+`test/agents/opencode.test.ts`) so the mapping from the parser output into
+`AgentResult` fields is covered.
 
 ## Documentation updates
 
@@ -240,7 +243,7 @@ the equivalent post-parse field-population path) so the mapping into
 - [ ] Other event types (`step_start`, tool parts) are ignored for usage and rendering purposes.
 - [ ] Non-JSON / non-event lines are forwarded into the rendered transcript so banners and legacy log lines survive.
 - [ ] When at least one `step_finish` accumulated cleanly: `AgentResult.usage_source === "agent"`. When `sawAnyCostField` is true: `AgentResult.cost_usd` equals the summed cost and `AgentResult.cost_source === "agent"` (including the `cost: 0` case). When `sawAnyCostField` is false: `AgentResult.cost_usd === null` and `AgentResult.cost_source === "no-price"`.
-- [ ] When no `step_finish` was observed (or all were malformed) and `estimateTokenUsage` returns usage: `AgentResult.usage_source === "estimated"`, the existing price-table cost path applies, and `AgentResult.warnings` contains exactly `"opencode: no step_finish events in --format json stream; falling back to token estimation."`.
+- [ ] When no `step_finish` was observed (or all were malformed) and `estimateTokenUsage` returns usage: `AgentResult.usage` is set from the estimator, `AgentResult.usage_source === "estimated"`, the agent does **not** set `cost_usd` or `cost_source` (downstream `src/telemetry-enrichment.ts` fills them via the price table), and `AgentResult.warnings` contains exactly `"opencode: no step_finish events in --format json stream; falling back to token estimation."`.
 - [ ] When no `step_finish` was observed and `estimateTokenUsage` returns null: `AgentResult.usage_source === "unavailable"` and `AgentResult.cost_source === "no-usage"` (existing behavior preserved).
 - [ ] On the success path (Case A and Case B above), the returned `AgentResult.stdout` is replaced with the rendered transcript (concatenated `text` parts plus pass-through non-JSON lines). Raw JSON event lines do not appear verbatim in the returned `AgentResult.stdout`.
 - [ ] `resolveOpencodePriceKey`, `OPENCODE_HAS_PRICED_MODELS`, `streamErrorPrefix: "opencode:"`, quota detection, model-config detection, and exit-code routing in `src/agents/spawn.ts` are unchanged.

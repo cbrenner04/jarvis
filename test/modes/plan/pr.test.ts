@@ -142,27 +142,48 @@ afterEach(() => {
 });
 
 describe("maybeMarkPlanPrReady", () => {
-  test("skips silently when PR does not exist", () => {
-    let checkPrCalled = false;
+  test("silent no-op when PR state is 'none'", () => {
+    let getPrStateCalled = false;
     let markReadyCalled = false;
 
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
-      checkPrExists: (_branch, _cwd) => {
-        checkPrCalled = true;
-        return null;
+      getOpenPrState: (_branch, _cwd) => {
+        getPrStateCalled = true;
+        return { state: "none" };
       },
       markReady: () => {
         markReadyCalled = true;
       },
     });
 
-    expect(checkPrCalled).toBe(true);
+    expect(getPrStateCalled).toBe(true);
     expect(markReadyCalled).toBe(false);
   });
 
-  test("calls markReady when PR exists", () => {
+  test("silent no-op when PR state is 'ready'", () => {
+    let getPrStateCalled = false;
+    let markReadyCalled = false;
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      getOpenPrState: (_branch, _cwd) => {
+        getPrStateCalled = true;
+        return { state: "ready", number: 456 };
+      },
+      markReady: () => {
+        markReadyCalled = true;
+      },
+    });
+
+    expect(getPrStateCalled).toBe(true);
+    expect(markReadyCalled).toBe(false);
+  });
+
+  test("runs ready gate and transition when PR state is 'draft'", () => {
+    let getPrStateCalled = false;
     let markReadyCalled = false;
     let markReadyBranch = "";
     let markReadyCwd = "";
@@ -170,7 +191,10 @@ describe("maybeMarkPlanPrReady", () => {
     maybeMarkPlanPrReady({
       branch: "feature",
       cwd: gitDir,
-      checkPrExists: (_branch, _cwd) => 123,
+      getOpenPrState: (_branch, _cwd) => {
+        getPrStateCalled = true;
+        return { state: "draft", number: 123 };
+      },
       markReady: (branch, cwd) => {
         markReadyCalled = true;
         markReadyBranch = branch;
@@ -178,62 +202,25 @@ describe("maybeMarkPlanPrReady", () => {
       },
     });
 
+    expect(getPrStateCalled).toBe(true);
     expect(markReadyCalled).toBe(true);
     expect(markReadyBranch).toBe("feature");
     expect(markReadyCwd).toBe(gitDir);
   });
 
-  test("propagates errors from markReady", () => {
+  test("propagates errors from markReady when PR is draft", () => {
     const multilineError =
       "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
     expect(() => {
       maybeMarkPlanPrReady({
         branch: "feature",
         cwd: gitDir,
-        checkPrExists: () => 123,
+        getOpenPrState: () => ({ state: "draft", number: 123 }),
         markReady: () => {
           throw new Error(multilineError);
         },
       });
     }).toThrow(multilineError);
-  });
-
-  test("calls markReady with bun run ready before gh pr ready", () => {
-    let bunReadyCalled = false;
-    const ghReadyCalled = false;
-    let bunCalledBeforeGh = false;
-
-    maybeMarkPlanPrReady({
-      branch: "feature",
-      cwd: gitDir,
-      checkPrExists: () => 123,
-      markReady: () => {
-        bunReadyCalled = true;
-        if (!ghReadyCalled) {
-          bunCalledBeforeGh = true;
-        }
-      },
-    });
-
-    expect(bunReadyCalled).toBe(true);
-    expect(bunCalledBeforeGh).toBe(true);
-  });
-
-  test("propagates error from bun run ready and does not call gh pr ready", () => {
-    const ghReadyCalled = false;
-
-    expect(() => {
-      maybeMarkPlanPrReady({
-        branch: "feature",
-        cwd: gitDir,
-        checkPrExists: () => 123,
-        markReady: () => {
-          throw new Error("bun run ready failed");
-        },
-      });
-    }).toThrow("bun run ready failed");
-
-    expect(ghReadyCalled).toBe(false);
   });
 });
 

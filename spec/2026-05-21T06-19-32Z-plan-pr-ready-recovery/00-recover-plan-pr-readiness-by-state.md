@@ -66,20 +66,20 @@ this tree needs:
 
 ## Acceptance criteria
 
-- [ ] On a later successful committed `jarvis plan --resume ...` run, an open
+- [x] On a later successful committed `jarvis plan --resume ...` run, an open
   draft PR for the plan branch still runs the ready gate and is flipped to
   ready.
-- [ ] On a later successful committed `jarvis plan --resume ...` run, an open
+- [x] On a later successful committed `jarvis plan --resume ...` run, an open
       ready PR for the plan branch skips both `bun run ready` and `gh pr ready`
       and emits no readiness warning.
-- [ ] If the plan branch has no open PR, the plan readiness helper remains a
+- [x] If the plan branch has no open PR, the plan readiness helper remains a
       silent no-op.
-- [ ] If `bun run ready` fails while recovering an open draft PR, the PR
+- [x] If `bun run ready` fails while recovering an open draft PR, the PR
   remains draft and the failure still surfaces through
   `warning: could not mark PR ready for review: ...`.
-- [ ] Unit tests in `test/modes/plan/pr.test.ts` assert the `none`, `draft`,
+- [x] Unit tests in `test/modes/plan/pr.test.ts` assert the `none`, `draft`,
   and `ready` states explicitly rather than inferring state from GitHub CLI
   stderr text.
-- [ ] Command-level tests still prove the recovery helper only runs after a
+- [x] Command-level tests still prove the recovery helper only runs after a
   successful committed plan completion path, not after incomplete or failed
   plan runs.

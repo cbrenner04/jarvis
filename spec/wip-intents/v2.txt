@@ -7,26 +7,15 @@ Model: one package, two source trees. A single root `package.json` / `bun.lock` 
 What needs to happen, at a high level:
 
 - Move `src/`, `test/`, `spec/`, and any other v1-only directories/files into `v1/`.
-- Leave v1's prompts where they live in v1 source — they move into `v1/` wholesale with everything else. Do NOT extract prompts to a shared top-level `prompts/` in this intent; prompt extraction (and the decision that v1 reads shared, evolving prompts) is owned by `v2-prompts.txt`. The target end-state has a top-level `prompts/` peer to `v1/` and `v2/`, but that is later work.
-- Create `v2/` with at least `v2/spec/wip-intents/` populated by migrating this file and `v2-vision.md` into it. No v2 source code yet.
+- Create `v2/` with at least `v2/spec/wip-intents/` populated by migrating this file and the other `v2-*` files into it. No v2 source code yet.
 - Keep the `jarvis` CLI entrypoint working from the repo root unchanged — binary name, subcommands, flags, stdout/stderr, exit codes all identical. Keep the root package `bin` field pointing at `bin/jarvis`, and update that shim to run the v1 CLI explicitly (for example `../v1/src/cli.ts` instead of `../src/cli.ts`). Existing symlinks to `bin/jarvis` must keep working.
-- Keep a single root `package.json`. Do not introduce Bun workspaces or a per-version `package.json`. Preserve the familiar root command surface: `bun run typecheck`, `bun test`, `bun run check`, and `bun run ready` still work and validate v1 after the move. Root scripts validate v1 for now; once v2 has real source, they fan out to both versions (e.g. `check` → `check:v1` + `check:v2`).
+- Keep a single root `package.json`. Do not introduce Bun workspaces or a per-version `package.json`. Preserve the familiar root command surface: `bun run typecheck`, `bun test`, `bun run check`, and `bun run ready` still work and validate v1 after the move. 
 - Keep `bun.lock` and `node_modules` at the repo root as the single shared dependency tree. No v1-local or v2-local lockfile. Accepted consequence by design: v1 and v2 share one resolved version of every dependency.
-- Make v1 its own TypeScript project: add `v1/tsconfig.json` extending a shared root `tsconfig.base.json`, scoped to v1 source. This is what enforces "pretty separate" — once v2 lands, separate tsconfig projects mean v1 and v2 cannot import each other's modules. Root owns repo-wide config (biome, base tsconfig) and the delegating scripts. v2 gets no source/test tooling yet beyond the empty `v2/spec/` tree.
+- Make v1 its own TypeScript project: add `v1/tsconfig.json` extending a shared root `tsconfig.base.json`, scoped to v1 source. This is what enforces "pretty separate" — once v2 lands, separate tsconfig projects mean v1 and v2 cannot import each other's modules. Root owns repo-wide config (biome, base tsconfig) and the delegating scripts.
 - CI and GitHub workflows continue to pass against v1 from its new location. Prefer path/script updates over workflow redesign; if workflows already call root scripts, keep that contract.
-- Update any cross-references in v1's existing specs that point at old paths (e.g. `src/modes/patch/pr.ts` → `v1/src/modes/patch/pr.ts`), or explicitly grandfather them if updating them is risky.
 - This change is purely structural. No behavior changes, no deletions of "probably unused" code, no renames.
 
 Implementation shape:
 
-- Do the relocation as a single big-bang structural move. This repo is currently personal-use enough that staged directory moves would add overhead without reducing meaningful risk.
-- This is not the moment to introduce `jarvis1`; that rename is the next intent (`v2-rename-binary.txt`).
-- The verification bar is the existing gate plus a small manual CLI smoke test: `bun run typecheck`, `bun test`, `bun run check`, `bun run ready`, `bin/jarvis help`, and one harmless config/read-only subcommand. Do not add broad e2e coverage as part of this split unless the move reveals a specific regression that cannot be covered with existing tests.
-
-Out of scope:
-
-- Any v2 source code or scaffolding beyond the migrated `v2/spec/` tree.
-- Cataloging v1 behaviors (next intent — see `v2-catalog.txt`).
-- Dropping unused v1 code.
-- Renaming `run`/`patch` to `implement` (v2-only concern).
-- Touching agent adapters' external contracts.
+- Do the relocation as a single big-bang structural move. This repo is currently personal-use only so staged directory moves would add overhead without reducing meaningful risk.
+- The verification bar is the existing gate plus a small manual CLI smoke test: `bun run typecheck`, `bun test`, `bun run check`, `bun run ready`, `bin/jarvis help`, and one harmless config/read-only subcommand.

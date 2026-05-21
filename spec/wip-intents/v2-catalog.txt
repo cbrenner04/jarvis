@@ -1,35 +1,45 @@
-Produce a high-level catalog of every user-facing behavior in v1, in a single document, so we have a shared source of truth for what v2 must preserve. This is step 3 of the v2 rollout — see `v2-vision.md` for context. Depends on the v1/v2 split (`v2.txt`) and the `jarvis` → `jarvis1` rename (`v2-rename-binary.txt`) having landed; this intent assumes v1 lives at `v1/` and is invoked as `jarvis1`.
+Produce a high-level catalog of every user-facing behavior in v1 so v2 has a shared source of truth for what it must preserve. This is step 3 of the v2 rollout; see `v2-vision.md` for context. It depends on the v1/v2 split and the `jarvis` -> `jarvis1` rename having landed. The resulting implementation work should assume v1 lives under `v1/` and is invoked as `jarvis1`.
 
-Goal: one document — `v2/spec/v1-behaviors.md` (working name) — that lets a reader who has never run jarvis understand, at a glance, every behavior v1 exposes. The catalog is the input for the v2 architecture design intent and for every subsequent v2 behavior-build intent. It is *not* an exhaustive technical spec; it is a behavior inventory at a level we can review together before deciding what gets carried forward.
+The generated spec should be explicit enough for agents to execute without live human clarification. Use a `## Blocker` only when the work cannot be planned or implemented responsibly from source and local docs, such as a missing prerequisite tree or a contradiction that would make the catalog materially misleading.
 
-How the catalog is produced:
-- Read v1 source exhaustively — every CLI entrypoint, every command/mode, every config path, every agent adapter, every workflow. Do not rely on `--help` output or the README; those will miss undocumented behaviors. Source is the source of truth.
-- Produce a first draft as one document. Split into multiple files only if it gets unwieldy (rough threshold: ~500 lines or harder to navigate than to read top-to-bottom).
-- When ambiguity comes up (something surprising, possibly unintentional, or where source alone can't tell you whether a behavior is wanted), accumulate the question rather than guessing. Don't dump every question at once. Group a handful, ask, apply the answers, move on. The drafting process is a slow back-and-forth, not a write-then-review.
-- Open the catalog as a draft PR and use PR review comments as the iteration cycle. The first draft does not need to be perfect; it needs to be reviewable and structured so line comments can refine behavior descriptions, mark unclear/vestigial behaviors, and add missing workflows.
+## Goal
 
-What "behavior" means for this catalog:
-- Every CLI command and meaningful subcommand / flag.
-- Every distinct user workflow (e.g. "kick off plan mode on a fresh spec", "resume an interrupted plan", "review a PR", "run patch mode against an index", "init in a new repo", "configure a project").
-- Every meaningful side effect (worktrees, branches, commits, PRs, GitHub interactions, log files, lockfiles, spec mutations, etc.).
-- Every config knob that observably changes behavior.
-- Every implicit behavior worth calling out (default model selection, quota detection, completion detection, ready-check gating, dirty-status handling, etc.).
-- The shape of `jarvis plan` itself: refine for N rounds, draft, review for N rounds. The *behavior* of the planning loop is in scope and v2 must preserve it; the *implementation* of that loop is expected to change. Catalog the behavior, not the implementation.
-- Prompt effects are in scope only at the behavior level. For example, catalog that patch mode asks an agent to inspect repo guidance, read the spec, follow Jarvis rules, and complete one task. Do not catalog the exact prompt strings here.
+Create one reviewable catalog document at `v2/spec/v1-behaviors.md`. The catalog should let a reader who has never run Jarvis understand, at a glance, every behavior v1 exposes. It is the input for the v2 architecture design intent and for later v2 behavior-build intents.
 
-What the doc should look like (rough shape, to be refined):
-- Grouped by area (commands / modes / config / agents / workflows / side effects), not flat.
-- One short paragraph or bullet per behavior — enough to recognize and discuss, not enough to re-implement from.
-- Each entry tagged with a confidence note where appropriate: "definitely used", "unclear if used", "vestigial".
-- A short "things that surprised me" section at the end for behaviors that are non-obvious or feel wrong.
+The catalog is a behavior inventory, not a reimplementation spec. It should be complete enough to review for parity decisions, but it should not try to explain v1's internal code structure or prescribe v2 design.
 
-Out of scope:
-- Deep technical specs per behavior (those happen later, per v2 build intent).
-- Deciding what to keep vs. drop — the catalog only flags candidates; review is a separate pass we'll do together.
-- Implementation references (file paths, function names). The catalog is about user-observable behavior, not v1's code structure.
-- Exact prompt inventory, prompt extraction, or prompt reuse design. That needs its own intent because prompts are part of the "English is code" architecture question, not just behavior cataloging. See `v2-prompts.txt`.
-- Any v2 design decisions.
+## Planning expectations
 
-Maintenance requirement:
+Prefer a small number of source-audit slices that can each be completed independently and reviewed in one PR. A reasonable decomposition is:
 
-- While v1 remains active during v2 development, any v1 bug fix or behavior change should update `v2/spec/v1-behaviors.md` when the user-observable behavior changes. Treat that as a top-level requirement for future v1 work. If the work is being run through Jarvis, this requirement should live in the relevant Jarvis prompt/rules so the implementing agent sees it automatically; if the work is manual, the PR author owns the catalog update.
+The planned subspecs should require source-first auditing. They may use README/help output/tests/docs as cross-checks, but not as the primary source of truth.
+
+When source leaves something ambiguous, the implementation should record that ambiguity in the catalog itself with an uncertainty tag and enough context for later PR review.
+
+## What counts as behavior
+
+Catalog every user-observable v1 behavior.
+
+## Catalog shape
+
+The catalog should be grouped by area rather than presented as one flat list. Suggested sections:
+
+- Overview and scope
+- Commands and modes
+- Spec authoring and implementation workflows
+- Config and project resolution
+- Agent adapters, model selection, and quota fallback
+- Git/GitHub behavior
+- Filesystem, logging, telemetry, and other side effects
+- Completion, blockers, exit codes, and failure handling
+- Behaviors with uncertain intent
+- Surprising or possibly vestigial behaviors
+- Maintenance requirement for future v1 changes
+
+Each behavior entry should be short: enough for a reviewer to recognize and discuss the behavior, not enough to rebuild it. Where appropriate, tag entries with a confidence/status note.
+
+Describe what the source shows, what the intent is. If the intent is unclear, record why and what decision later review should make.
+
+## Maintenance requirement
+
+While v1 remains active during v2 development, any v1 bug fix or behavior change must update `v2/spec/v1-behaviors.md` when user-observable behavior changes. The generated spec should include this maintenance rule in the catalog and, if needed, update prompts and nearby v2/v1 docs so future work sees the requirement.

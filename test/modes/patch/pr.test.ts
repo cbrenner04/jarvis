@@ -391,10 +391,7 @@ describe("maybeMarkReady", () => {
   });
 
   test("(b) runReady dirties tree -> commitCheckFix called with correct args, then ghPrReady", () => {
-    writeFileSync(
-      indexPath,
-      "# Spec\n\n- [x] [00 - one](./00-one.md)\n",
-    );
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     // Commit the spec file to have a clean baseline
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
     execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
@@ -436,10 +433,7 @@ describe("maybeMarkReady", () => {
   });
 
   test("(c) runReady throws -> commitCheckFix not called, ghPrReady not called, error propagates", () => {
-    writeFileSync(
-      indexPath,
-      "# Spec\n\n- [x] [00 - one](./00-one.md)\n",
-    );
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     // Commit the spec file to have a clean baseline
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
     execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
@@ -469,10 +463,7 @@ describe("maybeMarkReady", () => {
   });
 
   test("(d) commitCheckFix throws -> ghPrReady not called, error propagates", () => {
-    writeFileSync(
-      indexPath,
-      "# Spec\n\n- [x] [00 - one](./00-one.md)\n",
-    );
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     // Commit the spec file to have a clean baseline
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
     execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });

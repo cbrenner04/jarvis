@@ -240,3 +240,14 @@ Subspec 1's surface area, restated tightly:
 - **Docs:** 3 files (`docs/spec-guidance.md`, `docs/run-loop.md`, README enumeration if any).
 
 Nothing else.
+
+## Blocker
+
+Review and approve `spec/2026-05-21T17-05-08Z-spec-repo-accepts-project-key/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis plan --resume-draft spec/2026-05-21T17-05-08Z-spec-repo-accepts-project-key/intent.md`

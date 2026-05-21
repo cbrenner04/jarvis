@@ -2,57 +2,63 @@
 
 ## Problem
 
-The current plan-mode documentation already says that committed plan mode opens
-a draft PR and marks it ready automatically on success. That is directionally
-correct, but it does not explain the recovery case that motivated this tree:
-when a prior ready transition for a completed plan branch did not happen, a
-later successful committed `jarvis plan --resume ...` run should retry the
-transition only if the branch's open PR is still draft.
+The docs already describe the normal committed plan lifecycle: Jarvis opens a
+draft PR while authoring the spec and marks it ready automatically when the
+plan finishes successfully. What they do not explain is the recovery case that
+motivated this tree:
 
-Without that wording, the docs either under-describe the supported recovery path
-or risk overpromising a stronger background guarantee than the implementation
-actually provides.
+- if the branch PR is still draft because an earlier ready transition failed,
+  was skipped, or did not stick, a later successful committed
+  `jarvis plan --resume ...` run should retry that transition;
+- if the branch PR is already ready, that same resume path should do nothing;
+- if the ready gate fails again, the PR stays draft and the recovery trigger
+  remains a later successful committed resume run.
+
+Without that wording, the docs either under-describe a supported recovery path
+or imply a broader "Jarvis eventually repairs PR readiness on its own" promise
+that this work does not introduce.
 
 ## Decisions
 
-- Keep the user-facing contract attached to the existing trigger: Jarvis retries
-  the ready transition only during a later successful committed resume run, not
-  through a separate repair command or background scan.
-- Describe already-ready PRs as a no-op during resume recovery so the docs match
-  the intended idempotent helper behavior.
-- Preserve the current gate in the docs: if `bun run ready` fails, the PR stays
-  draft and the later successful retry path remains `jarvis plan --resume ...`.
-- Update only plan-mode docs that currently promise automatic ready-on-success
-  in a way that would be misleading once this recovery behavior is relied on.
+- Keep the user-facing contract tied to the existing trigger: Jarvis retries
+  the transition only during a later successful committed resume run.
+- Describe already-ready PRs as untouched on resume so the docs match the
+  idempotent helper behavior.
+- Preserve the current gate semantics in the docs: a failed `bun run ready`
+  leaves the PR draft.
+- Limit documentation changes to pages that currently describe the committed
+  plan PR lifecycle or otherwise imply automatic `gh pr ready` behavior.
 
 ## Tasks
 
-- [ ] Update `docs/plan-mode.md` where it describes the plan PR lifecycle and
-      auto-ready-on-success behavior so it mentions committed-resume recovery
-      for still-draft PRs and the no-op behavior for already-ready PRs.
-- [ ] Update other plan-readiness references that promise automatic
-      `gh pr ready` behavior, such as `docs/run-loop.md`, `docs/config.md`,
-      `docs/workflows.md`, or `docs/worktrees-and-commits.md`, only where the
-      current wording would otherwise imply a broader guarantee than "retry on a
-      later successful committed resume."
-- [ ] Keep the documentation wording narrow: no claims about background repair,
-      eventual consistency, or non-open PR handling.
+- [ ] Update [docs/plan-mode.md](../../docs/plan-mode.md) where it describes
+      the committed plan PR lifecycle so it mentions resume-based recovery for
+      still-draft open PRs and the no-op behavior for already-ready open PRs.
+- [ ] Update [docs/run-loop.md](../../docs/run-loop.md) anywhere it currently
+      implies that successful plan completion always performs a fresh
+      draft-to-ready transition instead of allowing for the resume recovery
+      path.
+- [ ] Review other lifecycle docs that mention committed plan PR readiness,
+      such as [docs/worktrees-and-commits.md](../../docs/worktrees-and-commits.md),
+      and update them only if their current wording would overpromise anything
+      beyond "retry on a later successful committed resume."
+- [ ] Keep the wording narrow: no claims about background repair, eventual
+      readiness, or behavior for closed or merged PRs.
 
 ## Documentation updates
 
-- [ ] Ensure the updated docs consistently describe the trigger as a successful
-      committed `jarvis plan --resume ...` completion when recovering a missed
-      draft-to-ready transition.
+- [ ] Ensure every updated page describes the recovery trigger as a successful
+      committed `jarvis plan --resume ...` completion and keeps the already-ready
+      path as a no-op.
 
 ## Acceptance criteria
 
-- [ ] The plan-mode docs state that committed plan mode still marks draft PRs
-      ready automatically on successful completion, including later successful
-      committed resume runs when the branch's open PR is still draft.
+- [ ] The plan lifecycle docs state that committed plan mode still marks draft
+      PRs ready automatically on successful completion, including later
+      successful committed resume runs when the branch's open PR is still draft.
 - [ ] The docs state that an already-ready open PR is left untouched on resume
       rather than implying that Jarvis reruns the full ready gate every time.
-- [ ] The docs preserve the existing gate semantics: if `bun run ready` fails,
-      the PR remains draft and the recovery trigger is a later successful
-      committed resume run.
+- [ ] The docs state that if `bun run ready` fails, the PR remains draft and
+      the retry path is a later successful committed resume run.
 - [ ] The updated wording does not promise any background repair loop or
       readiness changes for closed or merged PRs.

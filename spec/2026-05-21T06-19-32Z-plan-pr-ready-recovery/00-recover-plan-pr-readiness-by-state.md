@@ -2,79 +2,78 @@
 
 ## Problem
 
-`maybeMarkPlanPrReady(...)` currently asks only whether an open PR exists for
-the plan branch. Once that binary check returns a PR number, the helper always
-runs `bun run ready` and then `gh pr ready <branch>`.
+Committed plan mode already tries to flip the branch PR from draft to ready
+when a plan run finishes successfully. The gap is recovery when that transition
+did not happen earlier and the user later runs a successful committed
+`jarvis plan --resume ...`.
 
-That contract is too weak for committed plan resume recovery:
+Today `maybeMarkPlanPrReady(...)` only distinguishes "open PR exists" from "no
+open PR". Once it sees any open PR for the branch, it reruns `bun run ready`
+and then `gh pr ready <branch>`. That is too coarse for the recovery behavior
+this tree needs:
 
-- a completed plan branch whose open PR is still draft should retry the ready
-  gate and transition on a later successful committed `jarvis plan --resume`
-  run;
-- a completed plan branch whose open PR is already ready should not rerun the
-  ready gate or surface a warning from `gh pr ready`;
-- a completed plan branch with no open PR should continue to no-op silently;
-- a rerun whose ready gate fails must preserve the current boundary: emit the
-  existing warning and leave the PR draft.
+- an open draft PR should retry the ready gate and transition to ready;
+- an open ready PR should be a true no-op;
+- no open PR should remain a silent no-op;
+- a failed ready gate should still leave the PR draft and surface the existing
+  warning through the command-level wrapper.
 
 ## Decisions
 
-- Add an explicit branch-scoped open-PR-state lookup seam for plan readiness.
-  The implementation can use an enum or small object, but tests must be able to
-  distinguish `none`, `draft`, and `ready` without inferring state from shell
-  output.
-- Limit the behavior change to committed plan mode's success path. Jarvis still
-  attempts readiness only after plan mode itself completes successfully in the
-  `commit: true` flow, including successful committed resume runs.
-- Treat `ready` as a true no-op for the whole helper. Do not run `bun run ready`
+- Scope this change to the existing committed plan success path. A successful
+  committed `jarvis plan --resume ...` run is the recovery trigger; incomplete,
+  blocked, or failed plan runs do not attempt PR readiness work.
+- Add an explicit open-PR state lookup for the current plan branch so the
+  readiness helper can distinguish `none`, `draft`, and `ready` before it
+  decides whether to run any gate or GitHub transition command.
+- Treat `ready` as a no-op for the entire helper. Do not run `bun run ready`
   and do not call `gh pr ready` when the branch already has an open ready PR.
-- Preserve the existing warn-and-continue boundary in
-  `safeMarkPlanPrReady(...)`. Draft-PR recovery failures remain visible as
-  `warning: could not mark PR ready for review: ...`, while `none` and `ready`
-  states produce no warning.
-- Keep closed or merged PRs out of scope for this work. The readiness helper
-  only consults the branch's open PR state and otherwise behaves as if no open
-  PR exists.
+- Preserve the current warn-and-continue boundary in
+  `safeMarkPlanPrReady(...)`: failures while recovering an open draft PR still
+  surface as `warning: could not mark PR ready for review: ...`.
+- Keep the lookup limited to open PRs for the branch. Closed or merged PRs
+  remain out of scope and behave the same as "no open PR" for this path.
 
 ## Tasks
 
-- [ ] Replace the plan-mode readiness seam in `src/modes/plan/pr.ts` so
-      `maybeMarkPlanPrReady(...)` branches on explicit open-PR state rather
-      than `number | null`.
-- [ ] Update the default branch-scoped PR lookup used by plan readiness so it
-      can distinguish open draft PRs from open ready PRs without coupling the
-      contract to GitHub CLI error text.
-- [ ] Keep the default open-draft path behavior unchanged: run `bun run ready`
-      first, then `gh pr ready`, and surface `bun run ready` failures with the
-      current multi-line error formatting.
-- [ ] Leave `safeMarkPlanPrReady(...)` in `src/commands/plan.ts` as the
-      best-effort wrapper, but adapt its test seam types to the richer open-PR
-      state contract.
-- [ ] Reshape `test/modes/plan/pr.test.ts` around stateful cases instead of the
-      current binary "PR exists" contract.
-- [ ] Add or update command-level coverage in `test/plan-command.test.ts` only
-      if needed to prove the successful committed plan completion path still
-      invokes the helper and still warns only on real recovery failures.
+- [ ] Replace the binary plan-mode PR lookup in `src/modes/plan/pr.ts` with a
+      branch-scoped open-PR state lookup that exposes `none`, `draft`, and
+      `ready` directly to `maybeMarkPlanPrReady(...)`.
+- [ ] Update `maybeMarkPlanPrReady(...)` so it only runs `bun run ready` and
+      `gh pr ready` for the `draft` state, and skips the entire readiness flow
+      for `none` and `ready`.
+- [ ] Preserve the current draft recovery order and failure behavior:
+      `bun run ready` runs before `gh pr ready`, multi-line ready-gate failures
+      keep their current formatting, and `gh pr ready` is not called after a
+      failed gate.
+- [ ] Keep `safeMarkPlanPrReady(...)` in `src/commands/plan.ts` as the
+      best-effort wrapper, updating only the seam types and assertions needed
+      for the richer PR-state contract.
+- [ ] Rewrite `test/modes/plan/pr.test.ts` around explicit `none`, `draft`, and
+      `ready` cases instead of the current binary "PR exists" contract.
+- [ ] Update `test/plan-command.test.ts` only where needed to prove the command
+      still invokes the helper on the successful committed completion path and
+      only warns on real draft-recovery failures.
 
 ## Documentation updates
 
-- [ ] Update any inline comments or docstrings near the plan readiness helper so
-      they describe the new `none` / `draft` / `ready` behavior accurately.
+- [ ] Update inline comments or docstrings near the plan readiness helper so
+      they describe the `none` / `draft` / `ready` behavior and the committed
+      resume recovery trigger accurately.
 
 ## Acceptance criteria
 
-- [ ] A later successful committed `jarvis plan --resume ...` run against a
-      branch with an open draft PR still runs the ready gate and flips the PR
-      to ready.
-- [ ] A later successful committed `jarvis plan --resume ...` run against a
-      branch with an open ready PR skips both `bun run ready` and `gh pr ready`
+- [ ] On a later successful committed `jarvis plan --resume ...` run, an open
+      draft PR for the plan branch still runs the ready gate and is flipped to
+      ready.
+- [ ] On a later successful committed `jarvis plan --resume ...` run, an open
+      ready PR for the plan branch skips both `bun run ready` and `gh pr ready`
       and emits no readiness warning.
-- [ ] A branch with no open PR remains a silent no-op for the plan readiness
-      helper.
-- [ ] If `bun run ready` fails while recovering an open draft PR, the helper
-      still surfaces the failure through
-      `warning: could not mark PR ready for review: ...` and does not force the
-      PR ready.
-- [ ] Unit tests in `test/modes/plan/pr.test.ts` cover the `none`, `draft`, and
-      `ready` states explicitly rather than inferring behavior from CLI stderr
-      text.
+- [ ] If the plan branch has no open PR, the plan readiness helper remains a
+      silent no-op.
+- [ ] If `bun run ready` fails while recovering an open draft PR, the PR
+      remains draft and the failure still surfaces through
+      `warning: could not mark PR ready for review: ...`.
+- [ ] Unit tests in `test/modes/plan/pr.test.ts` assert the `none`, `draft`,
+      and `ready` states explicitly rather than inferring state from GitHub CLI
+      stderr text.

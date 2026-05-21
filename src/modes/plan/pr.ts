@@ -250,10 +250,7 @@ export type OpenPrInfo = {
  * Returns an `OpenPrInfo` with state `none`, `draft`, or `ready`.
  * For `draft` and `ready` states, includes the PR number for later reference.
  */
-export function getOpenPrState(
-  branch: string,
-  cwd: string,
-): OpenPrInfo {
+export function getOpenPrState(branch: string, cwd: string): OpenPrInfo {
   try {
     const output = execFileSync(
       "gh",

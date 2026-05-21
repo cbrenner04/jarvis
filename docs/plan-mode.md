@@ -143,6 +143,7 @@ For fresh `commit: true` file-path runs (`jarvis plan spec/.../intent.md`), jarv
 Resume with:
 
 ```sh
+jarvis plan --resume-draft spec/<spec-dir>/
 jarvis plan --resume-draft spec/<spec-dir>/intent.md
 ```
 
@@ -264,13 +265,16 @@ Select the target repository. Same semantics as `jarvis run --repo`. If omitted,
 Resume a previously created post-draft plan worktree and branch:
 
 ```sh
+jarvis plan --resume spec/2026-05-17T22-14-03Z-my-plan/
 jarvis plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md
-# legacy layouts still accepted, e.g. spec/my-plan/index.md
+# legacy layouts still accepted, e.g. spec/my-plan/ or spec/my-plan/index.md
 ```
 
 Validation rules:
 
-- `<spec-path>` must point at `spec/<spec-dir>/index.md` on disk.
+- `<spec-path>` must point at either `spec/<spec-dir>/` or
+  `spec/<spec-dir>/index.md` on disk. Directory paths are resolved to the
+  `index.md` file inside them.
 - The sibling `spec/<spec-dir>/intent.md` must exist.
 - Local branch **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`
   must both exist (basename derived **without** the UTC prefix via `YYYY-MM-DDTHH-mm-ssZ-` stripping when present).
@@ -279,18 +283,21 @@ Validation rules:
 Resume does not accept positional intent text/file and does not require
 `--repo`; it operates entirely from the existing plan worktree state.
 
-### `--resume-draft <intent-path>`
+### `--resume-draft <spec-path>`
 
 Resume from the Phase 0 intent-review gate:
 
 ```sh
+jarvis plan --resume-draft spec/2026-05-17T22-14-03Z-my-plan/
 jarvis plan --resume-draft spec/2026-05-17T22-14-03Z-my-plan/intent.md
-# legacy layouts still accepted, e.g. spec/my-plan/intent.md
+# legacy layouts still accepted, e.g. spec/my-plan/ or spec/my-plan/intent.md
 ```
 
 Validation rules:
 
-- `<intent-path>` must point at `spec/<spec-dir>/intent.md` on disk.
+- `<spec-path>` must point at either `spec/<spec-dir>/` or
+  `spec/<spec-dir>/intent.md` on disk. Directory paths are resolved to the
+  `intent.md` file inside them.
 - `intent.md` must not contain a `## Blocker` section.
 - Local branch **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`
   must both exist (basename derived **without** the UTC prefix via `YYYY-MM-DDTHH-mm-ssZ-` stripping when present).

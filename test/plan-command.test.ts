@@ -761,6 +761,125 @@ describe("parsePlanArgs", () => {
     }
   });
 
+  test("--resume resolves an existing spec directory to index.md", () => {
+    setup();
+    try {
+      const specDir = join(tmp, "spec-dir");
+      mkdirSync(specDir);
+      const indexPath = join(specDir, "index.md");
+      writeFileSync(indexPath, "# spec\n");
+
+      const res = parsePlanArgs(["--resume", specDir], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.mode).toBe("file");
+      if (res.invocation.mode !== "file") return;
+      expect(res.invocation.intentPath).toBe(indexPath);
+    } finally {
+      teardown();
+    }
+  });
+
+  test("--resume-draft resolves an existing spec directory to intent.md", () => {
+    setup();
+    try {
+      const specDir = join(tmp, "spec-dir");
+      mkdirSync(specDir);
+      const intentPath = join(specDir, "intent.md");
+      writeFileSync(intentPath, "intent\n");
+
+      const res = parsePlanArgs(["--resume-draft", specDir], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.mode).toBe("file");
+      if (res.invocation.mode !== "file") return;
+      expect(res.invocation.intentPath).toBe(intentPath);
+    } finally {
+      teardown();
+    }
+  });
+
+  test("resume directory resolution tolerates trailing slashes", () => {
+    setup();
+    try {
+      const specDir = join(tmp, "spec-dir");
+      mkdirSync(specDir);
+      const indexPath = join(specDir, "index.md");
+      const intentPath = join(specDir, "intent.md");
+      writeFileSync(indexPath, "# spec\n");
+      writeFileSync(intentPath, "intent\n");
+
+      const resumeRes = parsePlanArgs(["--resume", `${specDir}/`], tmp);
+      expect(resumeRes.ok).toBe(true);
+      if (!resumeRes.ok) return;
+      expect(resumeRes.invocation.mode).toBe("file");
+      if (resumeRes.invocation.mode !== "file") return;
+      expect(resumeRes.invocation.intentPath).toBe(indexPath);
+
+      const draftRes = parsePlanArgs(["--resume-draft", `${specDir}/`], tmp);
+      expect(draftRes.ok).toBe(true);
+      if (!draftRes.ok) return;
+      expect(draftRes.invocation.mode).toBe("file");
+      if (draftRes.invocation.mode !== "file") return;
+      expect(draftRes.invocation.intentPath).toBe(intentPath);
+    } finally {
+      teardown();
+    }
+  });
+
+  test("resume directory missing expected file returns a path-specific error", () => {
+    setup();
+    try {
+      const specDir = join(tmp, "spec-dir");
+      mkdirSync(specDir);
+      const intentPath = join(specDir, "intent.md");
+
+      const res = parsePlanArgs(["--resume-draft", specDir], tmp);
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.exitCode).toBe(1);
+      expect(res.message).toContain("--resume-draft");
+      expect(res.message).toContain(intentPath);
+      expect(res.message).not.toContain("intent text");
+    } finally {
+      teardown();
+    }
+  });
+
+  test("resume missing path returns a path-specific error", () => {
+    setup();
+    try {
+      const missingPath = join(tmp, "missing-spec", "index.md");
+
+      const res = parsePlanArgs(["--resume", "missing-spec/index.md"], tmp);
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.exitCode).toBe(1);
+      expect(res.message).toContain("--resume");
+      expect(res.message).toContain(missingPath);
+      expect(res.message).not.toContain("intent text");
+    } finally {
+      teardown();
+    }
+  });
+
+  test("existing directory without resume remains inline mode", () => {
+    setup();
+    try {
+      const specDir = join(tmp, "spec-dir");
+      mkdirSync(specDir);
+
+      const res = parsePlanArgs([specDir], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.mode).toBe("inline");
+      if (res.invocation.mode !== "inline") return;
+      expect(res.invocation.intentText).toBe(specDir);
+    } finally {
+      teardown();
+    }
+  });
+
   test("--resume and --resume-draft cannot be combined", () => {
     setup();
     try {

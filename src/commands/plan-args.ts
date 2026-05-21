@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 
 export type PlanInvocationCommon = {
   refineTurns?: number;
@@ -49,6 +49,14 @@ function parseNonNegativeInteger(
 function isExistingFile(path: string): boolean {
   try {
     return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isExistingDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
   } catch {
     return false;
   }
@@ -157,6 +165,35 @@ export function parsePlanArgs(
   const candidatePath = isAbsolute(positionalArg)
     ? positionalArg
     : resolve(cwd, positionalArg);
+  const resumeFlag = resumeDraft
+    ? "--resume-draft"
+    : resume
+      ? "--resume"
+      : undefined;
+  if (resumeFlag !== undefined) {
+    const expectedBasename = resumeDraft ? "intent.md" : "index.md";
+    const resumePath = isExistingDirectory(candidatePath)
+      ? join(candidatePath, expectedBasename)
+      : candidatePath;
+    if (isExistingFile(resumePath)) {
+      return {
+        ok: true,
+        invocation: { ...common, mode: "file", intentPath: resumePath },
+      };
+    }
+    if (isExistingDirectory(candidatePath)) {
+      return {
+        ok: false,
+        exitCode: 1,
+        message: `plan: ${resumeFlag} requires ${resumePath} but no such file exists`,
+      };
+    }
+    return {
+      ok: false,
+      exitCode: 1,
+      message: `plan: ${resumeFlag} spec path not found: ${resumePath}`,
+    };
+  }
   if (isExistingFile(candidatePath)) {
     return {
       ok: true,

@@ -119,7 +119,7 @@ jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-p
 jarvis plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [<intent-file|"inline text">]
     Draft a spec through intent refinement, initial drafting, and self-review.
 
-jarvis plan --resume <spec-path>
+jarvis plan --resume <spec-dir-or-index-path>
     Resume an existing plan branch/worktree for more refinement or review passes.
 
 jarvis init

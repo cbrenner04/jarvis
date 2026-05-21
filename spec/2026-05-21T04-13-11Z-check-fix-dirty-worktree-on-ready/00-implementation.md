@@ -148,25 +148,25 @@ block in `run.ts:1152`. No additional guard is needed.
 
 ## Acceptance criteria
 
-- [ ] `MaybeMarkReadyOpts` has `agentLabel?: string`, `runReady?: (cwd: string) => void`,
+- [x] `MaybeMarkReadyOpts` has `agentLabel?: string`, `runReady?: (cwd: string) => void`,
       `commitCheckFix?: (cwd: string, agentLabel: string) => void`, and
       `ghPrReady?: (branch: string, cwd: string) => void` fields.
-- [ ] When `markReady` is absent and `runReady` does not dirty the worktree,
+- [x] When `markReady` is absent and `runReady` does not dirty the worktree,
       `commitCheckFix` is not invoked and `ghPrReady` (or the real `gh pr ready`)
       is called normally.
-- [ ] When `markReady` is absent and `runReady` dirties the worktree,
+- [x] When `markReady` is absent and `runReady` dirties the worktree,
       `commitCheckFix` is invoked with the correct `cwd` and `agentLabel` before
       `ghPrReady`.
-- [ ] `realCommitCheckFix` re-checks `git status --porcelain` after committing; if
+- [x] `realCommitCheckFix` re-checks `git status --porcelain` after committing; if
       still dirty it throws an error naming the branch and listing the unexpected
       dirty paths before `pushCurrent` is called, so `ghPrReady` is never reached.
-- [ ] When `runReady` throws, `commitCheckFix` is not called, `ghPrReady` is not
+- [x] When `runReady` throws, `commitCheckFix` is not called, `ghPrReady` is not
       called, and the error propagates out of `maybeMarkReady`.
-- [ ] When `commitCheckFix` throws, `ghPrReady` is not called and the error
+- [x] When `commitCheckFix` throws, `ghPrReady` is not called and the error
       propagates out of `maybeMarkReady`.
-- [ ] The `run.ts:1223` call site passes `agentLabel: agent.attributionLabel()`.
-- [ ] All existing `maybeMarkReady` tests (including the `markReady` short-circuit
+- [x] The `run.ts:1223` call site passes `agentLabel: agent.attributionLabel()`.
+- [x] All existing `maybeMarkReady` tests (including the `markReady` short-circuit
       tests) continue to pass without modification.
-- [ ] The four new tests described in the Tasks section all pass.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] The four new tests described in the Tasks section all pass.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.

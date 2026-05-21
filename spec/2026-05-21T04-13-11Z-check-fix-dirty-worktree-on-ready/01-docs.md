@@ -78,17 +78,17 @@ wording:
 
 ## Acceptance criteria
 
-- [ ] `docs/worktrees-and-commits.md` mentions the `chore: apply pre-ready check:fix`
+- [x] `docs/worktrees-and-commits.md` mentions the `chore: apply pre-ready check:fix`
       commit, identifies it as a conditional harness commit (not a subspec commit),
       and states that operators do not need to manually commit anything for the
       readiness transition.
-- [ ] `docs/workflows.md` reflects the updated readiness sequence including the
+- [x] `docs/workflows.md` reflects the updated readiness sequence including the
       conditional commit step before `gh pr ready`.
-- [ ] `docs/run-loop.md` clarifies that the "worktree not clean" exit 6 from
+- [x] `docs/run-loop.md` clarifies that the "worktree not clean" exit 6 from
       `tryFinishSpecIfDone` is not expected on the normal readiness path after this
       change.
-- [ ] `AGENTS.md` documents that the `chore: apply pre-ready check:fix` commit is
+- [x] `AGENTS.md` documents that the `chore: apply pre-ready check:fix` commit is
       excluded from the per-commit attribution list but its `Jarvis-Agent:` trailer
       counts toward the summary line.
-- [ ] `bun run typecheck` passes (docs changes are prose only; this is a
+- [x] `bun run typecheck` passes (docs changes are prose only; this is a
       sanity-check that no TypeScript files were accidentally modified).

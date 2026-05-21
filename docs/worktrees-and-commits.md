@@ -114,9 +114,17 @@ transitions to ready for review. The readiness transition begins with
 available, then runs `bun run check:fix` (Biome's safe format and lint-rule
 fixer). This may rewrite files before the rest of the ready gate
 (`typecheck → test → check`) proceeds. If `check:fix` or any later step fails,
-the PR remains in draft for manual correction. Only when all steps succeed
-does the harness call `gh pr ready`. Jarvis never merges; human reviewers are
-responsible for approval and merge decisions.
+the PR remains in draft for manual correction.
+
+If `check:fix` mutates any files, the harness creates and pushes a single
+`chore: apply pre-ready check:fix` commit before proceeding further. This commit
+is **not** a subspec commit (it has no `Spec:` body line) and is automatically
+handled by the harness — operators do not need to manually commit or stash
+anything. The commit is pushed immediately and becomes part of the branch.
+
+After all readiness steps succeed (or in the case where `check:fix` caused no
+mutations), the harness calls `gh pr ready`. Jarvis never merges; human
+reviewers are responsible for approval and merge decisions.
 
 ### PR body
 

@@ -1223,6 +1223,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 maybeMarkReady({
                   indexPath: specPath,
                   cwd: agentWorkingDir,
+                  agentLabel: agent.attributionLabel(),
                 });
               } catch (err) {
                 const message =

@@ -22,13 +22,15 @@ This slice is the physical relocation step. It defines exactly what moves under 
   - `test/helpers/**`
   - `data/prices.json`
 - `spec/` is split by content rather than copied wholesale:
-  - All current non-v2 spec history and planning move under `v1/spec/`, including `spec/completed/**`, `spec/wip-intents/web-interface.txt`, `spec/wip-intents/draft-pr-flip-to-ready-plan.txt`, `spec/wip-intents/still-cant run-non-git-dirs.txt`, and this plan tree once it is merged and later implemented from `main`.
+  - All current non-v2 spec history and planning move under `v1/spec/`, including `spec/completed/**`, `spec/wip-intents/web-interface.txt`, `spec/wip-intents/draft-pr-flip-to-ready-plan.txt`, `spec/wip-intents/still-cant run-non-git-dirs.txt`, and the implementation-history files from this plan tree (`index.md`, `00-relocate-v1-and-seed-v2.md`, `01-root-compatibility-and-tsconfig.md`, `02-docs-specs-and-verification.md`) once this spec has been merged and later implemented from `main`.
   - The current v2 planning material is carved out into `v2/spec/wip-intents/` with exact path moves:
+    - `spec/2026-05-21T06-19-43Z-split-v1-v2-repo/intent.md` → `v2/spec/wip-intents/split-v1-v2-repo-intent.md`
     - `spec/wip-intents/v2-vision.md` → `v2/spec/wip-intents/v2-vision.md`
     - `spec/wip-intents/v2.txt` → `v2/spec/wip-intents/v2.txt`
     - `spec/wip-intents/v2-catalog.txt` → `v2/spec/wip-intents/v2-catalog.txt`
     - `spec/wip-intents/v2-prompts.txt` → `v2/spec/wip-intents/v2-prompts.txt`
     - `spec/wip-intents/v2-rename-binary.txt` → `v2/spec/wip-intents/v2-rename-binary.txt`
+  - The root `spec/` directory should disappear as part of the relocation. After the move, spec content lives only under `v1/spec/` and `v2/spec/`.
 - Seed `v2/` only with structure needed for follow-on planning in this step:
   - `v2/spec/`
   - `v2/spec/wip-intents/`
@@ -52,6 +54,7 @@ This slice is the physical relocation step. It defines exactly what moves under 
 
 - [ ] Move `src/`, `test/`, `data/`, `docs/`, and `scripts/` under `v1/` without renaming internal files.
 - [ ] Move the full non-v2 `spec/` tree under `v1/spec/`, carving out the exact v2 planning files into `v2/spec/wip-intents/`.
+- [ ] Split this plan tree intentionally: move its `intent.md` into `v2/spec/wip-intents/split-v1-v2-repo-intent.md`, while the implementation-history files from the same tree stay with the v1 spec history under `v1/spec/`.
 - [ ] Create the `v2/spec/wip-intents/` skeleton and populate it with the migrated v2 planning material.
 - [ ] Update path-sensitive imports and file reads only where the relocation makes them necessary, keeping runtime behavior unchanged.
 - [ ] Ensure no behavior-bearing v1 asset remains orphaned at the repo root after the move.
@@ -66,7 +69,9 @@ This slice is the physical relocation step. It defines exactly what moves under 
 - [ ] The repository no longer has root `src/`, `test/`, `data/`, `docs/`, or `scripts/` directories containing the current v1 implementation; their contents live under `v1/` instead.
 - [ ] Behavior-bearing non-TypeScript assets that previously shipped with v1, including patch rules, plan prompt markdown, test fixtures/helpers, and `data/prices.json`, moved with the v1 tree rather than remaining at the root.
 - [ ] `v1/spec/` contains the current non-v2 spec history and planning content, including `spec/completed/**` and the non-v2 files previously under `spec/wip-intents/`.
-- [ ] `v2/spec/wip-intents/` exists and contains migrated copies of `v2-vision.md`, `v2.txt`, `v2-catalog.txt`, `v2-prompts.txt`, and `v2-rename-binary.txt` from their pre-split source paths.
+- [ ] `v2/spec/wip-intents/` exists and contains migrated copies of `split-v1-v2-repo-intent.md`, `v2-vision.md`, `v2.txt`, `v2-catalog.txt`, `v2-prompts.txt`, and `v2-rename-binary.txt` from their pre-split source paths.
+- [ ] The implementation-history files from this spec tree remain available under `v1/spec/` after the split, so the historical record of how the repo was reorganized stays with v1 rather than being mixed into v2 planning.
+- [ ] The repo root no longer contains a top-level `spec/` directory after the relocation; specs now live only under `v1/spec/` and `v2/spec/`.
 - [ ] No extra package manifest, lockfile, workspace file, or version-local dependency tree was introduced under `v1/` or `v2/`.
 - [ ] The split leaves the repo in a structurally consistent state for follow-on work: root compatibility files remain at top level, v1 owns the shipping engine, and v2 owns its planning materials.
 

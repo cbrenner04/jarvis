@@ -22,9 +22,11 @@ This slice defines the root contract after the split: one package manifest, one 
   - `package.json` `"module": "src/index.ts"`
   - `package.json` `"start": "bun run src/index.ts"`
   - `package.json` `"typecheck": "tsc --noEmit"`
+  - `package.json` `"test": "bun test --timeout=30000"`
   - `package.json` `"ready": "bun scripts/ready.ts"`
   - `package.json` `"install-opencode-permissions": "bun run scripts/install-opencode-permissions.ts"`
   - `bin/jarvis` dispatch to `../src/cli.ts`
+- `bun run check` stays rooted at `.` because the repo still has one formatter/linter surface, but that does not make the root an implementation home. Any root-owned helper introduced by this slice must be forwarding glue only.
 - Thin root shims are allowed only as forwarding glue. The real v1 implementation must live under `v1/src/` and `v1/scripts/`, not remain at root `src/` or `scripts/`.
 - Split TypeScript ownership explicitly:
   - root `tsconfig.base.json` contains shared compiler options only
@@ -38,6 +40,7 @@ This slice defines the root contract after the split: one package manifest, one 
 
 - [ ] Repoint root package entrypoints and scripts so the existing command names forward into `v1/...` behavior.
 - [ ] Update `bin/jarvis` to keep its symlink-resolution wrapper intact while dispatching to the v1 CLI path.
+- [ ] Ensure the root `test` entry continues to execute the v1 test suite after `test/` moves under `v1/`, either by targeting `v1/test` directly or by routing through a thin forwarding shim.
 - [ ] Move `scripts/ready.ts` and `scripts/install-opencode-permissions.ts` into `v1/scripts/`, then update root callers or shims to invoke them there.
 - [ ] Introduce `tsconfig.base.json` at the root and `v1/tsconfig.json` for the v1 source tree.
 - [ ] Make the root `typecheck` entry explicitly validate v1 only in this step.
@@ -52,10 +55,11 @@ This slice defines the root contract after the split: one package manifest, one 
 
 - [ ] `package.json` remains the only package manifest in the repository and still exposes `bin/jarvis` from the root package.
 - [ ] `bin/jarvis` preserves the current symlink-safe wrapper behavior and now dispatches into the v1 CLI path, so existing PATH symlinks continue to work.
-- [ ] Root script names remain unchanged, but their implementation targets now resolve into `v1/` code or new forwarding shims whose only job is dispatching into `v1/`.
+- [ ] Root script names remain unchanged, but `module`, `start`, `typecheck`, `test`, `ready`, and `install-opencode-permissions` now resolve into `v1/` code or new forwarding shims whose only job is dispatching into `v1/`.
 - [ ] The real implementations of the current product entrypoints no longer live in root `src/` or root `scripts/`; those trees now live under `v1/`.
 - [ ] The repo has a root `tsconfig.base.json` for shared compiler options and a `v1/tsconfig.json` that owns the v1 include globs.
 - [ ] `bun run typecheck` targets `v1/tsconfig.json` explicitly and does not implicitly typecheck `v2/` in this step.
+- [ ] `bun test` from the repo root still runs the v1 test suite after the move and does not depend on leaving the real tests at the repo root.
 - [ ] `bun run check` continues to run from the repo root against `.` and succeeds with the new `v2/` documentation/spec files included in the same formatter/linter surface.
 - [ ] `.github/workflows/ci.yml` still validates the repo through the familiar root commands rather than a new per-version workflow shape.
 

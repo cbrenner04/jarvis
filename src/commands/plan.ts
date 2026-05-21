@@ -243,37 +243,35 @@ type ResumePrep = {
 const RESUME_SUBJECT_RE = /^plan: (refine|review \d+|blocker)(?: r(\d+))?$/;
 const REVIEW_SUBJECT_RE = /^plan: review (\d+)(?: r\d+)?$/;
 
-function _assertResumeIndexPath(specPath: string): {
+/**
+ * Resolve a resume spec path into its components. The path points at the spec
+ * file the user is told to pass — `index.md` for `--resume`, `intent.md` for
+ * `--resume-draft` — so the spec directory is its parent, never the path's own
+ * basename. (Reading the basename directly yields "intent.md"/"index.md" and
+ * derives a bogus `plan-intent.md` worktree.)
+ */
+export function resolveResumeSpecPath(
+  specPath: string,
+  mode: "resume" | "resume-draft",
+): {
   planName: string;
   specDirBasename: string;
+  specDirPath: string;
+  externalSpecRoot: string;
 } {
   const resolved = resolve(specPath);
-  const base = basename(resolved);
-  if (base !== "index.md") {
-    throw new Error(`--resume requires an index.md path; got ${specPath}`);
+  const expectedFile = mode === "resume" ? "index.md" : "intent.md";
+  if (basename(resolved) !== expectedFile) {
+    const flag = mode === "resume" ? "--resume" : "--resume-draft";
+    throw new Error(`${flag} requires a ${expectedFile} path; got ${specPath}`);
   }
-  const specDirBasename = basename(dirname(resolved));
+  const specDirPath = dirname(resolved);
+  const specDirBasename = basename(specDirPath);
   return {
-    specDirBasename,
     planName: stripPlanSpecTimestampPrefix(specDirBasename),
-  };
-}
-
-function _assertResumeDraftIntentPath(specPath: string): {
-  planName: string;
-  specDirBasename: string;
-} {
-  const resolved = resolve(specPath);
-  const base = basename(resolved);
-  if (base !== "intent.md") {
-    throw new Error(
-      `--resume-draft requires an intent.md path; got ${specPath}`,
-    );
-  }
-  const specDirBasename = basename(dirname(resolved));
-  return {
     specDirBasename,
-    planName: stripPlanSpecTimestampPrefix(specDirBasename),
+    specDirPath,
+    externalSpecRoot: dirname(specDirPath),
   };
 }
 
@@ -349,19 +347,21 @@ function prepareResume(args: {
   // For no-commit specs, the spec path is already external; for commit specs, it's in the worktree
   const isNoCommit = !commit;
 
-  // Extract the spec directory basename from the path
-  const specDir = basename(args.specPath);
-  const parentDir = dirname(args.specPath);
-  const planName = stripPlanSpecTimestampPrefix(specDir);
+  // The spec path points at the spec file (intent.md / index.md); its parent
+  // is the spec directory and the grandparent is the external spec root.
+  const { planName, specDirBasename, externalSpecRoot } = resolveResumeSpecPath(
+    args.specPath,
+    args.mode,
+  );
+  const specDir = specDirBasename;
 
   if (isNoCommit) {
     // For no-commit specs, specs live under ~/.jarvis/specs/<projectId>/<specDirBasename>/
-    // The specPath should point to one of these directories
     return {
       planName,
       specDirBasename: specDir,
       worktreePath: project.root,
-      externalSpecRoot: parentDir,
+      externalSpecRoot,
       nextResumeIndex: 0,
       nextReviewIndex: 0,
     };

@@ -157,6 +157,18 @@ export function parsePlanArgs(
   const candidatePath = isAbsolute(positionalArg)
     ? positionalArg
     : resolve(cwd, positionalArg);
+  // In resume modes the positional is a spec path (spec/<dir>/intent.md or
+  // index.md) that identifies an existing plan. It need not exist relative to
+  // cwd — for commit-mode plans the spec lives inside the plan worktree, not
+  // the repo the user is standing in. prepareResume re-derives the worktree
+  // from the spec dir name, so always treat it as a path here rather than
+  // silently falling back to inline intent text.
+  if (resume || resumeDraft) {
+    return {
+      ok: true,
+      invocation: { ...common, mode: "file", intentPath: candidatePath },
+    };
+  }
   if (isExistingFile(candidatePath)) {
     return {
       ok: true,

@@ -1,1 +1,1 @@
-At the end of plan, the PR should be flipped from draft to ready.
+At the end of plan, the PR should be flipped from draft to ready. Its possible it is written this way but something went wrong a couple times. Either way, if the spec is complete, flip to ready. Maybe if you run plan again and its complete, it checks the branch and flips.

@@ -281,3 +281,14 @@ Code inspection confirms all implementation details from Refine turns 1 and 2 ar
 ## Refine skip
 
 Re-verified `pr.ts:108-161` and `test/modes/patch/pr.test.ts:285-354` directly. Source matches every detail in Refine turns 1 and 2 exactly. No further refinement needed; intent is ready for drafting.
+
+## Blocker
+
+Review and approve `spec/2026-05-21T04-24-26Z-check-fix-dirty-worktree-on-ready-2/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis plan --resume-draft spec/2026-05-21T04-24-26Z-check-fix-dirty-worktree-on-ready-2/intent.md`

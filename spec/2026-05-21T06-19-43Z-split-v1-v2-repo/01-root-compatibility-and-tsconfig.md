@@ -28,6 +28,10 @@ This slice defines the root contract after the split: one package manifest, one 
   - `bin/jarvis` dispatch to `../src/cli.ts`
 - `bun run check` stays rooted at `.` because the repo still has one formatter/linter surface, but that does not make the root an implementation home. Any root-owned helper introduced by this slice must be forwarding glue only.
 - Thin root shims are allowed only as forwarding glue. The real v1 implementation must live under `v1/src/` and `v1/scripts/`, not remain at root `src/` or `scripts/`.
+- Forwarding glue means either:
+  - `package.json` entries that point directly at `v1/...`, or
+  - new root helper files whose only responsibility is invoking `v1/...` and returning its exit status unchanged.
+  Any additional root logic is out of scope for this split.
 - Split TypeScript ownership explicitly:
   - root `tsconfig.base.json` contains shared compiler options only
   - `v1/tsconfig.json` extends the base file and owns the `include` globs for v1 source/tests
@@ -43,6 +47,7 @@ This slice defines the root contract after the split: one package manifest, one 
 - [ ] Ensure the root `test` entry continues to execute the v1 test suite after `test/` moves under `v1/`, either by targeting `v1/test` directly or by routing through a thin forwarding shim.
 - [ ] Move `scripts/ready.ts` and `scripts/install-opencode-permissions.ts` into `v1/scripts/`, then update root callers or shims to invoke them there.
 - [ ] Introduce `tsconfig.base.json` at the root and `v1/tsconfig.json` for the v1 source tree.
+- [ ] Decide explicitly whether the repo keeps a root `tsconfig.json`; if it remains, reduce it to a non-authoritative wrapper that cannot become a second source-tree config.
 - [ ] Make the root `typecheck` entry explicitly validate v1 only in this step.
 - [ ] Preserve the existing workflow and root script contracts used by CI.
 
@@ -58,6 +63,7 @@ This slice defines the root contract after the split: one package manifest, one 
 - [ ] Root script names remain unchanged, but `module`, `start`, `typecheck`, `test`, `ready`, and `install-opencode-permissions` now resolve into `v1/` code or new forwarding shims whose only job is dispatching into `v1/`.
 - [ ] The real implementations of the current product entrypoints no longer live in root `src/` or root `scripts/`; those trees now live under `v1/`.
 - [ ] The repo has a root `tsconfig.base.json` for shared compiler options and a `v1/tsconfig.json` that owns the v1 include globs.
+- [ ] If a root `tsconfig.json` still exists after the split, it does not own source-tree includes for `v1/` or `v2/`; `v1/tsconfig.json` remains the authoritative v1 project config.
 - [ ] `bun run typecheck` targets `v1/tsconfig.json` explicitly and does not implicitly typecheck `v2/` in this step.
 - [ ] `bun test` from the repo root still runs the v1 test suite after the move and does not depend on leaving the real tests at the repo root.
 - [ ] `bun run check` continues to run from the repo root against `.` and succeeds with the new `v2/` documentation/spec files included in the same formatter/linter surface.

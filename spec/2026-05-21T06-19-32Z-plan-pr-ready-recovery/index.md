@@ -5,6 +5,10 @@ committed plan run" behavior. This tree is narrower: make that transition
 recoverable and idempotent when a later successful committed
 `jarvis plan --resume ...` run lands on a branch whose spec is already complete.
 
+This review tree keeps the trigger and boundary intentionally narrow: only the
+successful committed resume path retries readiness, and it should do so only
+for an open draft PR on the plan branch.
+
 ## Scope
 
 - Committed plan mode only.

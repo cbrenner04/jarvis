@@ -29,11 +29,11 @@ that this work does not introduce.
 - Limit documentation changes to pages that currently describe the committed
   plan PR lifecycle or otherwise imply automatic `gh pr ready` behavior.
 
-## Tasks
+## Task Checklist
 
 - [ ] Update [docs/plan-mode.md](../../docs/plan-mode.md) where it describes
-      the committed plan PR lifecycle so it mentions resume-based recovery for
-      still-draft open PRs and the no-op behavior for already-ready open PRs.
+  the committed plan PR lifecycle so it mentions resume-based recovery for
+  still-draft open PRs and the no-op behavior for already-ready open PRs.
 - [ ] Update [docs/run-loop.md](../../docs/run-loop.md) anywhere it currently
       implies that successful plan completion always performs a fresh
       draft-to-ready transition instead of allowing for the resume recovery
@@ -54,11 +54,14 @@ that this work does not introduce.
 ## Acceptance criteria
 
 - [ ] The plan lifecycle docs state that committed plan mode still marks draft
-      PRs ready automatically on successful completion, including later
-      successful committed resume runs when the branch's open PR is still draft.
+  PRs ready automatically on successful completion, including later
+  successful committed resume runs when the branch's open PR is still draft.
 - [ ] The docs state that an already-ready open PR is left untouched on resume
-      rather than implying that Jarvis reruns the full ready gate every time.
+  rather than implying that Jarvis reruns the full ready gate every time.
 - [ ] The docs state that if `bun run ready` fails, the PR remains draft and
-      the retry path is a later successful committed resume run.
+  the retry path is a later successful committed resume run.
 - [ ] The updated wording does not promise any background repair loop or
-      readiness changes for closed or merged PRs.
+  readiness changes for closed or merged PRs.
+- [ ] Documentation changes are limited to pages that already describe the
+  committed plan PR lifecycle or would otherwise misstate this recovery
+  contract.

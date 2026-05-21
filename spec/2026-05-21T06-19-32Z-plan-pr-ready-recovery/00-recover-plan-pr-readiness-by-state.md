@@ -25,7 +25,9 @@ this tree needs:
   blocked, or failed plan runs do not attempt PR readiness work.
 - Add an explicit open-PR state lookup for the current plan branch so the
   readiness helper can distinguish `none`, `draft`, and `ready` before it
-  decides whether to run any gate or GitHub transition command.
+  decides whether to run any gate or GitHub transition command. The lookup
+  contract should expose the PR identity together with that state so the
+  helper does not have to fall back to a second binary existence check.
 - Treat `ready` as a no-op for the entire helper. Do not run `bun run ready`
   and do not call `gh pr ready` when the branch already has an open ready PR.
 - Preserve the current warn-and-continue boundary in
@@ -34,14 +36,15 @@ this tree needs:
 - Keep the lookup limited to open PRs for the branch. Closed or merged PRs
   remain out of scope and behave the same as "no open PR" for this path.
 
-## Tasks
+## Task Checklist
 
 - [ ] Replace the binary plan-mode PR lookup in `src/modes/plan/pr.ts` with a
       branch-scoped open-PR state lookup that exposes `none`, `draft`, and
-      `ready` directly to `maybeMarkPlanPrReady(...)`.
+      `ready` directly to `maybeMarkPlanPrReady(...)`, along with the open PR
+      identity needed for the draft-to-ready transition.
 - [ ] Update `maybeMarkPlanPrReady(...)` so it only runs `bun run ready` and
-      `gh pr ready` for the `draft` state, and skips the entire readiness flow
-      for `none` and `ready`.
+  `gh pr ready` for the `draft` state, and skips the entire readiness flow
+  for `none` and `ready`.
 - [ ] Preserve the current draft recovery order and failure behavior:
       `bun run ready` runs before `gh pr ready`, multi-line ready-gate failures
       keep their current formatting, and `gh pr ready` is not called after a
@@ -52,8 +55,8 @@ this tree needs:
 - [ ] Rewrite `test/modes/plan/pr.test.ts` around explicit `none`, `draft`, and
       `ready` cases instead of the current binary "PR exists" contract.
 - [ ] Update `test/plan-command.test.ts` only where needed to prove the command
-      still invokes the helper on the successful committed completion path and
-      only warns on real draft-recovery failures.
+      still invokes the helper only on the successful committed completion path
+      and only warns on real draft-recovery failures.
 
 ## Documentation updates
 
@@ -64,16 +67,19 @@ this tree needs:
 ## Acceptance criteria
 
 - [ ] On a later successful committed `jarvis plan --resume ...` run, an open
-      draft PR for the plan branch still runs the ready gate and is flipped to
-      ready.
+  draft PR for the plan branch still runs the ready gate and is flipped to
+  ready.
 - [ ] On a later successful committed `jarvis plan --resume ...` run, an open
       ready PR for the plan branch skips both `bun run ready` and `gh pr ready`
       and emits no readiness warning.
 - [ ] If the plan branch has no open PR, the plan readiness helper remains a
       silent no-op.
 - [ ] If `bun run ready` fails while recovering an open draft PR, the PR
-      remains draft and the failure still surfaces through
-      `warning: could not mark PR ready for review: ...`.
+  remains draft and the failure still surfaces through
+  `warning: could not mark PR ready for review: ...`.
 - [ ] Unit tests in `test/modes/plan/pr.test.ts` assert the `none`, `draft`,
-      and `ready` states explicitly rather than inferring state from GitHub CLI
-      stderr text.
+  and `ready` states explicitly rather than inferring state from GitHub CLI
+  stderr text.
+- [ ] Command-level tests still prove the recovery helper only runs after a
+  successful committed plan completion path, not after incomplete or failed
+  plan runs.

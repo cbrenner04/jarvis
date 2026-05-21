@@ -2396,10 +2396,31 @@ function countSpecFiles(specDirPath: string): number {
 }
 
 /**
- * Inject a `repo:` line into the index.md if not already present.
- * Prefers origin URL if available; falls back to project key.
+ * Try to detect git origin from a project root directory.
+ * Returns the non-empty trimmed stdout from `git -C <root> remote get-url origin`,
+ * or undefined if detection fails for any reason (non-zero exit, missing git, non-git directory, etc.).
+ * Non-throwing; all errors are caught and return undefined.
  */
-function injectRepoLineIntoIndex(
+function detectGitOrigin(projectRoot: string): string | undefined {
+  try {
+    const origin = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: projectRoot,
+      stdio: "pipe",
+      encoding: "utf8",
+    }).trim();
+    // Return only if non-empty; empty stdout is treated as "no origin"
+    return origin.length > 0 ? origin : undefined;
+  } catch {
+    // Any error (non-zero exit, missing git binary, non-git directory, etc.) is silent
+    return undefined;
+  }
+}
+
+/**
+ * Inject a `repo:` line into the index.md if not already present.
+ * Prefers origin URL if available; falls back to detected git origin; falls back to project key.
+ */
+export function injectRepoLineIntoIndex(
   specDirPath: string,
   project: ProjectMatch,
 ): void {
@@ -2415,8 +2436,16 @@ function injectRepoLineIntoIndex(
     return; // Already has a repo: line
   }
 
-  // Determine the repo value: prefer origin, fall back to key
-  const repoValue = project.origin ?? project.key;
+  // Determine the repo value: prefer configured origin, then detect from git, then fall back to key
+  let repoValue = project.origin;
+  if (!repoValue) {
+    // Try to detect git origin when project.origin is not configured
+    repoValue = detectGitOrigin(project.root);
+  }
+  // Final fallback to project key
+  if (!repoValue) {
+    repoValue = project.key;
+  }
   if (!repoValue) {
     return; // Can't inject if no repo identifier
   }

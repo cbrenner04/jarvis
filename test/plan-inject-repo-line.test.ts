@@ -109,9 +109,7 @@ describe("injectRepoLineIntoIndex", () => {
   });
 
   test("when project.origin is undefined, root is a git checkout with no origin remote, emits repo: <project.key> (fallback preserved)", () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "jarvis-inject-repo-4-no-remote-"),
-    );
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-inject-repo-4-no-remote-"));
     try {
       // Create a git repo WITHOUT a remote origin
       const projectRoot = join(dir, "project");

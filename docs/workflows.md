@@ -157,10 +157,12 @@ What loops vs. what's a distinct path:
 - **Readiness transition**: when every phase succeeds without a blocker,
   `jarvis plan` invokes `bun run ready`, which first runs
   `bun install --frozen-lockfile` so Biome is available, then applies
-  `bun run check:fix` (Biome's mutating format/lint fixer), then runs
-  `typecheck → test → check` in CI order. Only if all steps succeed
-  does the harness call `gh pr ready`. If any step fails (including `check:fix`),
-  the PR stays in draft.
+  `bun run check:fix` (Biome's mutating format/lint fixer). If `check:fix`
+  mutates any files, the harness commits and pushes them as a single
+  `chore: apply pre-ready check:fix` commit (not a phase commit). Then it runs
+  `typecheck → test → check` in CI order. Only if all steps succeed does the
+  harness call `gh pr ready`. If any step fails (including `check:fix`), the PR
+  stays in draft.
 
 `--resume` re-enters the diagram at the review-loop (and optionally adds
 refine turns before it), reusing the existing worktree, branch, and PR.
@@ -244,9 +246,11 @@ What loops vs. what's a distinct path:
 - **Readiness transition**: when the spec is complete, `jarvis run` invokes
   `bun run ready`, which first runs `bun install --frozen-lockfile` so Biome is
   available, then applies `bun run check:fix` (Biome's mutating format/lint
-  fixer), then runs `typecheck → test → check` in CI order. Only if all steps
-  succeed does the harness call `gh pr ready`. If any step fails (including
-  `check:fix`), the PR stays in draft for manual correction.
+  fixer). If `check:fix` mutates any files, the harness commits and pushes them
+  as a single `chore: apply pre-ready check:fix` commit. Then it runs
+  `typecheck → test → check` in CI order. Only if all steps succeed does the
+  harness call `gh pr ready`. If any step fails (including `check:fix`), the PR
+  stays in draft for manual correction.
 
 Dotted edges show pre-emption — `maxIterations`, timeouts, and SIGINT can fire
 at the top of any iteration before the agent call.

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { appendAgentTrailer } from "../../commit-trailer.ts";
 import {
   checkPrExists,
   extractNarrative,
@@ -9,6 +10,7 @@ import {
   type UpdatePrBodyOpts as SharedUpdatePrBodyOpts,
   updatePrBody as sharedUpdatePrBody,
 } from "../../pr.ts";
+import { pushCurrent } from "../../worktree.ts";
 import { parsePatchSpec } from "./spec.ts";
 
 export { NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
@@ -108,10 +110,18 @@ export function updatePrBody(opts: UpdatePrBodyOpts): void {
 export type MaybeMarkReadyOpts = {
   indexPath: string;
   cwd: string;
+  /** Test seam: agent label for the commit trailer. Threaded to the `commitCheckFix` seam. */
+  agentLabel?: string;
   /** Test seam: check if PR exists. Defaults to `checkPrExists`. */
   checkPrExists?: (branch: string, cwd: string) => boolean;
-  /** Test seam: invoke `bun run ready` and `gh pr ready`. Defaults to execFileSync calls. */
+  /** Short-circuit seam: stubs the entire ready + commit + gh-pr-ready sequence. When present, skips all other seams. */
   markReady?: (branch: string, cwd: string) => void;
+  /** Seam for just `bun run ready`. Used by tests when markReady is absent. Defaults to execFileSync call. */
+  runReady?: (cwd: string) => void;
+  /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only when markReady is absent and tree is dirty after runReady. */
+  commitCheckFix?: (cwd: string, agentLabel: string) => void;
+  /** Seam for the `gh pr ready <branch>` shell-out. Used by tests to verify it is/isn't called. Defaults to execFileSync call. */
+  ghPrReady?: (branch: string, cwd: string) => void;
 };
 
 export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
@@ -128,37 +138,94 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
     );
   }
 
-  const mark =
-    opts.markReady ??
-    ((branch, cwd) => {
-      try {
-        execFileSync("bun", ["run", "ready"], {
-          cwd,
-          env: process.env,
-          stdio: "pipe",
-        });
-      } catch (err) {
-        const out = err as NodeJS.ErrnoException & {
-          stdout?: Buffer;
-          stderr?: Buffer;
-        };
-        const captured = [out.stdout?.toString(), out.stderr?.toString()]
-          .filter(Boolean)
-          .join("\n")
-          .trim();
-        throw new Error(
-          captured
-            ? `bun run ready failed:\n${captured}`
-            : `bun run ready failed`,
-        );
-      }
-      execFileSync("gh", ["pr", "ready", branch], {
+  // Short-circuit: if markReady is provided, use it and skip all other seams
+  if (opts.markReady) {
+    opts.markReady(branch, opts.cwd);
+    return;
+  }
+
+  // Default implementations
+  const realBunRunReady = (cwd: string) => {
+    try {
+      execFileSync("bun", ["run", "ready"], {
         cwd,
         env: process.env,
         stdio: "pipe",
       });
+    } catch (err) {
+      const out = err as NodeJS.ErrnoException & {
+        stdout?: Buffer;
+        stderr?: Buffer;
+      };
+      const captured = [out.stdout?.toString(), out.stderr?.toString()]
+        .filter(Boolean)
+        .join("\n")
+        .trim();
+      throw new Error(
+        captured
+          ? `bun run ready failed:\n${captured}`
+          : `bun run ready failed`,
+      );
+    }
+  };
+
+  const realCommitCheckFix = (cwd: string, agentLabel: string) => {
+    execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+    const commitMessage = appendAgentTrailer(
+      "chore: apply pre-ready check:fix",
+      agentLabel,
+    );
+    execFileSync("git", ["commit", "-F", "-"], {
+      cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      input: commitMessage,
     });
-  mark(branch, opts.cwd);
+
+    // Idempotency guard: re-check for dirty state
+    const porcelain = execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    if (porcelain !== "") {
+      const dirtyBranch = getCurrentBranch(cwd);
+      throw new Error(
+        `pre-ready check:fix commit succeeded but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
+      );
+    }
+
+    // Push after successful commit
+    pushCurrent({ cwd, firstPush: false });
+  };
+
+  const realGhPrReady = (branch: string, cwd: string) => {
+    execFileSync("gh", ["pr", "ready", branch], {
+      cwd,
+      env: process.env,
+      stdio: "pipe",
+    });
+  };
+
+  // Four-seam sequence
+  const runReadyFn = opts.runReady ?? realBunRunReady;
+  const commitCheckFixFn = opts.commitCheckFix ?? realCommitCheckFix;
+  const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
+
+  runReadyFn(opts.cwd);
+
+  // Check for dirty state after running ready
+  const porcelain = execFileSync("git", ["status", "--porcelain"], {
+    cwd: opts.cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+
+  if (porcelain !== "") {
+    commitCheckFixFn(opts.cwd, opts.agentLabel ?? "");
+  }
+
+  ghPrReadyFn(branch, opts.cwd);
 }
 
 export function generatePrBodyFromSpec(specIndexPath: string): string {

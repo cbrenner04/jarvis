@@ -351,4 +351,143 @@ describe("maybeMarkReady", () => {
       }),
     ).toThrow("cannot mark PR ready: no PR found");
   });
+
+  test("(a) runReady does not dirty tree -> commitCheckFix not called, ghPrReady called", () => {
+    writeFileSync(
+      indexPath,
+      "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n",
+    );
+    // Commit the spec file to have a clean tree
+    execSync("git add -A", { cwd: dir, stdio: "pipe" });
+    execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
+
+    let runReadyCalled = false;
+    let commitCheckFixCalled = false;
+    let ghPrReadyCalled = false;
+    let ghPrReadyBranch = "";
+
+    maybeMarkReady({
+      indexPath,
+      cwd: dir,
+      checkPrExists: () => true,
+      agentLabel: "test-agent",
+      runReady: () => {
+        runReadyCalled = true;
+        // Don't dirty the tree
+      },
+      commitCheckFix: () => {
+        commitCheckFixCalled = true;
+      },
+      ghPrReady: (branch) => {
+        ghPrReadyCalled = true;
+        ghPrReadyBranch = branch;
+      },
+    });
+
+    expect(runReadyCalled).toBe(true);
+    expect(commitCheckFixCalled).toBe(false);
+    expect(ghPrReadyCalled).toBe(true);
+    expect(ghPrReadyBranch).toBe("feature");
+  });
+
+  test("(b) runReady dirties tree -> commitCheckFix called with correct args, then ghPrReady", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+    // Commit the spec file to have a clean baseline
+    execSync("git add -A", { cwd: dir, stdio: "pipe" });
+    execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
+
+    let runReadyCalled = false;
+    let commitCheckFixCalled = false;
+    let commitCheckFixCwd = "";
+    let commitCheckFixAgentLabel = "";
+    let ghPrReadyCalled = false;
+
+    maybeMarkReady({
+      indexPath,
+      cwd: dir,
+      checkPrExists: () => true,
+      agentLabel: "my-agent",
+      runReady: () => {
+        runReadyCalled = true;
+        // Dirty the tree by creating an untracked file
+        execSync("echo dirty > dirty.txt", { cwd: dir, stdio: "pipe" });
+      },
+      commitCheckFix: (cwd, agentLabel) => {
+        commitCheckFixCalled = true;
+        commitCheckFixCwd = cwd;
+        commitCheckFixAgentLabel = agentLabel;
+        // Clean up the dirty file
+        execSync("git add -A", { cwd, stdio: "pipe" });
+        execSync("git commit -q -m 'clean'", { cwd, stdio: "pipe" });
+      },
+      ghPrReady: () => {
+        ghPrReadyCalled = true;
+      },
+    });
+
+    expect(runReadyCalled).toBe(true);
+    expect(commitCheckFixCalled).toBe(true);
+    expect(commitCheckFixCwd).toBe(dir);
+    expect(commitCheckFixAgentLabel).toBe("my-agent");
+    expect(ghPrReadyCalled).toBe(true);
+  });
+
+  test("(c) runReady throws -> commitCheckFix not called, ghPrReady not called, error propagates", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+    // Commit the spec file to have a clean baseline
+    execSync("git add -A", { cwd: dir, stdio: "pipe" });
+    execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
+
+    let commitCheckFixCalled = false;
+    let ghPrReadyCalled = false;
+
+    expect(() =>
+      maybeMarkReady({
+        indexPath,
+        cwd: dir,
+        checkPrExists: () => true,
+        runReady: () => {
+          throw new Error("runReady failed");
+        },
+        commitCheckFix: () => {
+          commitCheckFixCalled = true;
+        },
+        ghPrReady: () => {
+          ghPrReadyCalled = true;
+        },
+      }),
+    ).toThrow("runReady failed");
+
+    expect(commitCheckFixCalled).toBe(false);
+    expect(ghPrReadyCalled).toBe(false);
+  });
+
+  test("(d) commitCheckFix throws -> ghPrReady not called, error propagates", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+    // Commit the spec file to have a clean baseline
+    execSync("git add -A", { cwd: dir, stdio: "pipe" });
+    execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
+
+    let ghPrReadyCalled = false;
+
+    expect(() =>
+      maybeMarkReady({
+        indexPath,
+        cwd: dir,
+        checkPrExists: () => true,
+        runReady: () => {
+          // Dirty the tree
+          execSync("echo dirty > dirty.txt", { cwd: dir, stdio: "pipe" });
+        },
+        commitCheckFix: () => {
+          throw new Error("commitCheckFix failed");
+        },
+        ghPrReady: () => {
+          ghPrReadyCalled = true;
+        },
+      }),
+    ).toThrow("commitCheckFix failed");
+
+    expect(ghPrReadyCalled).toBe(false);
+  });
 });

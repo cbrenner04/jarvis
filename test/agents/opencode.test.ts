@@ -33,15 +33,17 @@ function fakeBinary(opts: {
   stderr?: string;
 }): string {
   const path = join(dir, "opencode");
-  const out = opts.stdout ?? "";
-  const err = opts.stderr ?? "";
+  const stdoutFile = join(dir, "stdout.txt");
+  const stderrFile = join(dir, "stderr.txt");
+  writeFileSync(stdoutFile, opts.stdout ?? "");
+  writeFileSync(stderrFile, opts.stderr ?? "");
   const script = `#!/usr/bin/env bash
 # Record argv (NUL-separated) and cwd so the test can inspect them.
 : > "${dir}/argv"
 for a in "$@"; do printf '%s\\0' "$a" >> "${dir}/argv"; done
 pwd > "${dir}/cwd"
-printf '%s' ${JSON.stringify(out)}
-printf '%s' ${JSON.stringify(err)} 1>&2
+cat "${stdoutFile}"
+cat "${stderrFile}" 1>&2
 exit ${opts.exit}
 `;
   writeFileSync(path, script);
@@ -285,7 +287,8 @@ describe("OpencodeAgent", () => {
   });
 
   test("handles cost: 0 (github-copilot path)", async () => {
-    const jsonStream = '{"type":"step_finish","part":{"tokens":{"total":100,"input":10,"output":20,"reasoning":0,"cache":{"write":70,"read":0}},"cost":0}}';
+    const jsonStream =
+      '{"type":"step_finish","part":{"tokens":{"total":100,"input":10,"output":20,"reasoning":0,"cache":{"write":70,"read":0}},"cost":0}}';
 
     const bin = fakeBinary({ exit: 0, stdout: jsonStream });
     const agent = new OpencodeAgent({
@@ -458,7 +461,7 @@ describe("parseOpencodeJsonStream", () => {
     expect(result.usage.output_tokens).toBe(60);
     expect(result.usage.cache_read_input_tokens).toBe(15);
     expect(result.usage.cache_creation_input_tokens).toBe(195);
-    expect(result.costUsd).toBe(0.15);
+    expect(result.costUsd).toBeCloseTo(0.15);
     expect(result.sawAnyCostField).toBe(true);
   });
 

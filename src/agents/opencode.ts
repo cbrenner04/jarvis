@@ -41,7 +41,9 @@ const OPENCODE_MODEL_LABELS: Record<string, string> = {};
 
 export const OPENCODE_HAS_PRICED_MODELS = true;
 
-export function parseOpencodeJsonStream(stdout: string): ParsedOpencodeJsonStream {
+export function parseOpencodeJsonStream(
+  stdout: string,
+): ParsedOpencodeJsonStream {
   const lines = stdout.split("\n");
   const usage = {
     input_tokens: 0,
@@ -123,10 +125,7 @@ export function parseOpencodeJsonStream(stdout: string): ParsedOpencodeJsonStrea
       const cacheRead = cacheObj.read;
       const cacheWrite = cacheObj.write;
 
-      if (
-        typeof cacheRead !== "number" ||
-        typeof cacheWrite !== "number"
-      ) {
+      if (typeof cacheRead !== "number" || typeof cacheWrite !== "number") {
         // Malformed step_finish, skip it
         continue;
       }

@@ -90,13 +90,3 @@ The current `maybeMarkPlanPrReady(...)` implementation in `src/modes/plan/pr.ts`
 
 The docs should describe this as recovery during a later successful committed resume, not as a background repair mechanism or a general "completed specs always become ready eventually" guarantee. That keeps the user-facing contract aligned with the actual trigger: Jarvis only retries the draft-to-ready transition when a subsequent committed `jarvis plan --resume ...` run completes successfully.
 
-## Blocker
-
-Review and approve `spec/2026-05-21T06-19-32Z-plan-pr-ready-recovery/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis plan --resume-draft spec/2026-05-21T06-19-32Z-plan-pr-ready-recovery/intent.md`

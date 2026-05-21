@@ -12,12 +12,12 @@ files uncommitted. The completion-blocker check in `src/worktree.ts:178`
 The fix (Option 1 from the intent): immediately after `bun run ready` succeeds,
 detect any dirty state, commit it under `chore: apply pre-ready check:fix` (plus a
 `Jarvis-Agent:` trailer), push, then call `gh pr ready`. The `markReady` seam in
-`MaybeMarkReadyOpts` is expanded to three independent seams so each step is
+`MaybeMarkReadyOpts` is expanded to four independent seams so each step is
 testable in isolation without breaking existing tests that stub `markReady`.
 
 ## Design decisions
 
-### Three-seam type expansion
+### Four-seam type expansion
 
 ```ts
 export type MaybeMarkReadyOpts = {
@@ -29,14 +29,18 @@ export type MaybeMarkReadyOpts = {
   markReady?: (branch: string, cwd: string) => void;
   /** Seam for just `bun run ready`. Used by new tests when markReady is absent. */
   runReady?: (cwd: string) => void;
-  /** Seam for dirty-check, git add -A, git commit, and pushCurrent together. Called only when markReady absent and tree is dirty. */
+  /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only when markReady absent and tree is dirty after runReady. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
+  /** Seam for the `gh pr ready <branch>` shell-out. Used by new tests to verify it is/isn't called. */
+  ghPrReady?: (branch: string, cwd: string) => void;
 };
 ```
 
 When `markReady` is present it short-circuits exactly as today (all existing tests
 pass). When absent the real implementation runs:
-`(runReady ?? realBunRunReady)(cwd)` → dirty-check → `(commitCheckFix ?? realCommitCheckFix)(cwd, agentLabel ?? "")` if dirty → second dirty-check (throw if still dirty) → `gh pr ready <branch>`.
+`(runReady ?? realBunRunReady)(cwd)` → dirty-check → `(commitCheckFix ?? realCommitCheckFix)(cwd, agentLabel ?? "")` if dirty → `(ghPrReady ?? realGhPrReady)(branch, cwd)`.
+
+The second dirty-check (idempotency guard) is entirely inside `realCommitCheckFix` — it runs after the commit, before `pushCurrent`. If still dirty, `realCommitCheckFix` throws, which prevents `ghPrReady` from being called.
 
 ### Commit message
 
@@ -113,45 +117,49 @@ block in `run.ts:1152`. No additional guard is needed.
 ## Tasks
 
 - [ ] Expand `MaybeMarkReadyOpts` in `src/modes/patch/pr.ts` with `agentLabel?`,
-      `runReady?`, and `commitCheckFix?` fields, with JSDoc matching the patterns
-      used for the existing seam fields.
-- [ ] Refactor the default lambda in `maybeMarkReady` to use the three-seam
-      sequence: `runReady` → dirty-check → `commitCheckFix` → second dirty-check
-      → `gh pr ready`. Keep `markReady` as a short-circuit override when present.
+      `runReady?`, `commitCheckFix?`, and `ghPrReady?` fields, with JSDoc matching
+      the patterns used for the existing seam fields.
+- [ ] Refactor the default lambda in `maybeMarkReady` to use the four-seam
+      sequence: `runReady` → dirty-check → `commitCheckFix` (if dirty) → `ghPrReady`.
+      Keep `markReady` as a short-circuit override when present.
 - [ ] Implement `realBunRunReady(cwd)` inline (or as a named `const` inside the
       function body) using the existing `execFileSync("bun", ["run", "ready"], ...)`
       pattern with the same error-capture logic.
 - [ ] Implement `realCommitCheckFix(cwd, agentLabel)` inline: `git add -A`,
       `git commit -F -` with `appendAgentTrailer("chore: apply pre-ready check:fix", agentLabel)`,
-      second `git status --porcelain` guard, `pushCurrent({ cwd, firstPush: false })`.
-- [ ] Add imports to `pr.ts`: `appendAgentTrailer` from `../../commit-trailer.ts`
-      and `pushCurrent` from `../../worktree.ts`.
+      then re-run `git status --porcelain` and throw the idempotency error if still dirty,
+      then call `pushCurrent({ cwd, firstPush: false })`.
+- [ ] Add imports to `pr.ts`: `appendAgentTrailer` from `../../commit-trailer.ts`,
+      `pushCurrent` from `../../worktree.ts`. (`execFileSync` is already imported.)
 - [ ] Update the `run.ts:1223` call site to pass `agentLabel: agent.attributionLabel()`.
 - [ ] Add four tests to `test/modes/patch/pr.test.ts` under `describe("maybeMarkReady")`:
   - (a) All subspecs complete, `runReady` does not dirty the tree → `commitCheckFix`
-        seam is not called, no error.
+        seam is not called, `ghPrReady` seam is called.
   - (b) All subspecs complete, `runReady` dirties the tree → `commitCheckFix` seam
-        is called with correct `cwd` and `agentLabel`.
-  - (c) `runReady` seam throws → `commitCheckFix` seam not called, error propagates.
-  - (d) `commitCheckFix` seam throws → `gh pr ready` not called, error propagates.
-      Use a `ghPrReady` seam (add `ghPrReady?: (branch: string, cwd: string) => void`
-      alongside the others, or verify via the existing `markReady` absence pattern).
+        is called with correct `cwd` and `agentLabel`, then `ghPrReady` is called.
+  - (c) `runReady` seam throws → `commitCheckFix` not called, `ghPrReady` not called,
+        error propagates.
+  - (d) `commitCheckFix` seam throws → `ghPrReady` seam not called, error propagates.
+        Supply both `commitCheckFix` (throws) and `ghPrReady` (records whether called)
+        seams to make the assertion direct.
 
 ## Acceptance criteria
 
 - [ ] `MaybeMarkReadyOpts` has `agentLabel?: string`, `runReady?: (cwd: string) => void`,
-      and `commitCheckFix?: (cwd: string, agentLabel: string) => void` fields.
+      `commitCheckFix?: (cwd: string, agentLabel: string) => void`, and
+      `ghPrReady?: (branch: string, cwd: string) => void` fields.
 - [ ] When `markReady` is absent and `runReady` does not dirty the worktree,
-      `commitCheckFix` is not invoked and `gh pr ready` is called normally.
+      `commitCheckFix` is not invoked and `ghPrReady` (or the real `gh pr ready`)
+      is called normally.
 - [ ] When `markReady` is absent and `runReady` dirties the worktree,
       `commitCheckFix` is invoked with the correct `cwd` and `agentLabel` before
-      `gh pr ready`.
-- [ ] When `markReady` is absent and the worktree is still dirty after
-      `commitCheckFix` (the idempotency guard), `gh pr ready` is not called and an
-      error is thrown naming the branch and listing the unexpected dirty paths.
-- [ ] When `runReady` throws, `commitCheckFix` is not called and the error
-      propagates out of `maybeMarkReady`.
-- [ ] When `commitCheckFix` throws, `gh pr ready` is not called and the error
+      `ghPrReady`.
+- [ ] `realCommitCheckFix` re-checks `git status --porcelain` after committing; if
+      still dirty it throws an error naming the branch and listing the unexpected
+      dirty paths before `pushCurrent` is called, so `ghPrReady` is never reached.
+- [ ] When `runReady` throws, `commitCheckFix` is not called, `ghPrReady` is not
+      called, and the error propagates out of `maybeMarkReady`.
+- [ ] When `commitCheckFix` throws, `ghPrReady` is not called and the error
       propagates out of `maybeMarkReady`.
 - [ ] The `run.ts:1223` call site passes `agentLabel: agent.attributionLabel()`.
 - [ ] All existing `maybeMarkReady` tests (including the `markReady` short-circuit

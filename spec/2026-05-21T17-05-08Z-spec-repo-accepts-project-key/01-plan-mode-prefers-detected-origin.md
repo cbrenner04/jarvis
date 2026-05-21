@@ -31,15 +31,15 @@ For registered projects whose `root` is a git checkout with an `origin` remote, 
 
 ## Acceptance criteria
 
-- [ ] `injectRepoLineIntoIndex` invokes `git -C <project.root> remote get-url origin` only when `project.origin` is `undefined`; the detected non-empty trimmed stdout is used as the `repo:` value.
-- [ ] All `git`-invocation failure modes (non-zero exit, missing remote, non-git directory, empty stdout, missing `git` binary) silently fall back to `project.key`. No warning, no prompt, no thrown error escapes `injectRepoLineIntoIndex`.
-- [ ] When `project.origin` is set, behavior is unchanged: the configured origin wins and no `git` subprocess is run on this path.
-- [ ] No write to `~/.jarvis/config.json` occurs from this code path.
-- [ ] `injectRepoLineIntoIndex` is exported from `src/commands/plan.ts` so the new unit tests can call it directly. The function's signature is unchanged apart from this export.
-- [ ] The 4 unit tests listed in the task checklist exist and pass under `bun test`. Tests construct real on-disk git state with `git init` (and `git remote add origin <url>` where applicable) rather than mocking the `git` subprocess.
-- [ ] `bun run typecheck` passes after the change.
-- [ ] `bun test` passes after the change.
+- [x] `injectRepoLineIntoIndex` invokes `git -C <project.root> remote get-url origin` only when `project.origin` is `undefined`; the detected non-empty trimmed stdout is used as the `repo:` value.
+- [x] All `git`-invocation failure modes (non-zero exit, missing remote, non-git directory, empty stdout, missing `git` binary) silently fall back to `project.key`. No warning, no prompt, no thrown error escapes `injectRepoLineIntoIndex`.
+- [x] When `project.origin` is set, behavior is unchanged: the configured origin wins and no `git` subprocess is run on this path.
+- [x] No write to `~/.jarvis/config.json` occurs from this code path.
+- [x] `injectRepoLineIntoIndex` is exported from `src/commands/plan.ts` so the new unit tests can call it directly. The function's signature is unchanged apart from this export.
+- [x] The 4 unit tests listed in the task checklist exist and pass under `bun test`. Tests construct real on-disk git state with `git init` (and `git remote add origin <url>` where applicable) rather than mocking the `git` subprocess.
+- [x] `bun run typecheck` passes after the change.
+- [x] `bun test` passes after the change.
 
 ## Documentation updates
 
-- [ ] `docs/plan-mode.md` (or the nearest existing plan-mode doc) notes that plan mode prefers a detected `origin` (via `git remote get-url origin` against `project.root`) over the registered project key when emitting the `repo:` line, and that the registered project key remains the final fallback (resolver-safe per subspec 00).
+- [x] `docs/plan-mode.md` (or the nearest existing plan-mode doc) notes that plan mode prefers a detected `origin` (via `git remote get-url origin` against `project.root`) over the registered project key when emitting the `repo:` line, and that the registered project key remains the final fallback (resolver-safe per subspec 00).

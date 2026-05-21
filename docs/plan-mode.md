@@ -241,6 +241,10 @@ The `modes.plan.commit` boolean (config v2) controls where plan-mode specs are w
 
 When `commit: false`, the spec tree must include a usable `repo:` metadata line so `jarvis run` can later resolve the target repository independently of the spec file's location.
 
+### `repo:` binding and origin detection
+
+Plan mode writes a `repo:` line into the generated `index.md`. When the target project has a configured `origin` URL, that URL is used directly for portability. When `origin` is not configured but the project root is a git checkout with an `origin` remote, plan mode automatically detects that remote via `git remote get-url origin` and emits it as the portable `repo:` value. This detection is read-only and does not persist the origin back to `~/.jarvis/config.json`. On any detection failure (non-git directory, no `origin` remote, missing `git` binary, etc.), plan mode falls back silently to the registered project key, which remains resolver-safe for `jarvis run`.
+
 ## Flags
 
 ### `--refine-turns <n>`

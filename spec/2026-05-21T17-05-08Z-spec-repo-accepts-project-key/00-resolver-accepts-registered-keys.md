@@ -46,23 +46,23 @@ jarvis run ~/.jarvis/specs/genomics-stream/lab-systems-testing-evidence-scanner/
 
 ## Acceptance criteria
 
-- [ ] The spec-repo block in `src/resolve-project.ts` performs `projects.find((p) => p.key === repoValue)` **before** the `isAbsolute(repoValue)` check, and returns `{ kind: "ok", resolved: { project, mode: "registered", source: "spec-repo" } }` on match.
-- [ ] The bare `unrecognized \`repo:\` value: …` error path is replaced with a `formatUnknownRepoError(...)` call so the user sees the registered-keys list.
-- [ ] `formatUnknownRepoError` accepts an optional lead-in parameter (default `"--repo"`); both existing `--repo` call sites continue to produce byte-identical error messages.
-- [ ] `test/resolve-project.test.ts` contains the 5 cases listed in the task checklist, all passing under `bun test`.
-- [ ] The no-matches URL/slug fall-through (line 109 area) is unchanged: a spec with `repo: <unmatched-url>` whose path lives inside a registered root still resolves via Step 3 rather than erroring. Locked in by test (5).
-- [ ] The ambiguous-matches branch (URL/slug, `matches.length > 1`) still returns `kind: "ambiguous"` rather than erroring or being short-circuited by the new key check.
-- [ ] A registered project whose key happens to look like an `owner/repo` slug resolves to that registered project, not via URL matching. Locked in by test (3).
-- [ ] `--repo` behavior is unchanged. Locked in by test (4).
-- [ ] `bun run typecheck` passes after the change.
-- [ ] `bun test` passes after the change.
+- [x] The spec-repo block in `src/resolve-project.ts` performs `projects.find((p) => p.key === repoValue)` **before** the `isAbsolute(repoValue)` check, and returns `{ kind: "ok", resolved: { project, mode: "registered", source: "spec-repo" } }` on match.
+- [x] The bare `unrecognized \`repo:\` value: …` error path is replaced with a `formatUnknownRepoError(...)` call so the user sees the registered-keys list.
+- [x] `formatUnknownRepoError` accepts an optional lead-in parameter (default `"--repo"`); both existing `--repo` call sites continue to produce byte-identical error messages.
+- [x] `test/resolve-project.test.ts` contains the 5 cases listed in the task checklist, all passing under `bun test`.
+- [x] The no-matches URL/slug fall-through (line 109 area) is unchanged: a spec with `repo: <unmatched-url>` whose path lives inside a registered root still resolves via Step 3 rather than erroring. Locked in by test (5).
+- [x] The ambiguous-matches branch (URL/slug, `matches.length > 1`) still returns `kind: "ambiguous"` rather than erroring or being short-circuited by the new key check.
+- [x] A registered project whose key happens to look like an `owner/repo` slug resolves to that registered project, not via URL matching. Locked in by test (3).
+- [x] `--repo` behavior is unchanged. Locked in by test (4).
+- [x] `bun run typecheck` passes after the change.
+- [x] `bun test` passes after the change.
 
 ## Documentation updates
 
 `docs/spec-guidance.md` and `docs/run-loop.md` do not currently document sub-steps within Step 2; both files describe Step 2 as a single "Spec `repo:` URL/slug" item in the top-level 1-5 resolution order list. Do not invent a new sub-list; instead, surface the new accepted form and rephrase Step 2 so the key-match path is visible.
 
-- [ ] **`docs/spec-guidance.md`:**
-  - Under the "Accepted forms" list (currently at line 71-73: HTTPS URL / SSH URL / Slug), add a fourth bullet for "Registered project key" with a parenthetical note that it is **local-only and not portable across machines** because keys are defined in `~/.jarvis/config.json`. Recommend URL/slug for portable specs.
-  - In the resolution-order list (the "1." through "5." block starting at line 78), rephrase item 2 so it covers both the registered-key match and the URL/slug loose match (e.g. "Spec `repo:` matches a registered project's key, or URL/slug loose-matched against a registered project's `origin`."). Do not introduce a sub-numbered list; a single sentence covering both forms is sufficient.
-- [ ] **`docs/run-loop.md`:** mirror the same change to item 2 of the 1-5 list at lines 12-23. Same single-sentence treatment as `docs/spec-guidance.md`; do not introduce a sub-list.
-- [ ] **`README.md`:** the Spec Shape section (around line 98) uses a URL example and does not currently enumerate accepted `repo:` forms. Leave the example unchanged. If a `grep -n "repo:" README.md` surfaces any prose that enumerates the accepted forms (i.e. URL / slug, etc.), update it to include the registered-key form with the same local-only caveat; otherwise no README change is required.
+- [x] **`docs/spec-guidance.md`:**
+  - [x] Under the "Accepted forms" list (currently at line 71-73: HTTPS URL / SSH URL / Slug), add a fourth bullet for "Registered project key" with a parenthetical note that it is **local-only and not portable across machines** because keys are defined in `~/.jarvis/config.json`. Recommend URL/slug for portable specs.
+  - [x] In the resolution-order list (the "1." through "5." block starting at line 78), rephrase item 2 so it covers both the registered-key match and the URL/slug loose match (e.g. "Spec `repo:` matches a registered project's key, or URL/slug loose-matched against a registered project's `origin`."). Do not introduce a sub-numbered list; a single sentence covering both forms is sufficient.
+- [x] **`docs/run-loop.md`:** mirror the same change to item 2 of the 1-5 list at lines 12-23. Same single-sentence treatment as `docs/spec-guidance.md`; do not introduce a sub-list.
+- [x] **`README.md`:** the Spec Shape section (around line 98) uses a URL example and does not currently enumerate accepted `repo:` forms. Leave the example unchanged. If a `grep -n "repo:" README.md` surfaces any prose that enumerates the accepted forms (i.e. URL / slug, etc.), update it to include the registered-key form with the same local-only caveat; otherwise no README change is required.

@@ -13,8 +13,8 @@ using the following order:
    may be a registered project name, an absolute path equal to a registered
    project's root, or a URL/slug that loose-matches a registered project's
    `origin`.
-2. Spec `repo:` URL/slug — loose-matched against the `origin` URLs recorded
-   for each registered project.
+2. Spec `repo:` matches a registered project's key, or URL/slug — loose-matched
+   against the `origin` URLs recorded for each registered project.
 3. Spec path is inside a registered project's `root` — that project wins.
 4. Spec path is inside any git checkout (walking parents until `.git`) — the
    run proceeds in ad-hoc mode against that checkout. Nothing is persisted

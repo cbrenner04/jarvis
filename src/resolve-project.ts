@@ -66,6 +66,16 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
   // preserve back-compat by checking for an exact root match first.
   if (opts.specRepo !== undefined && opts.specRepo.trim() !== "") {
     const repoValue = opts.specRepo.trim();
+
+    // Try matching as a registered project key first (exact match).
+    const byName = projects.find((p) => p.key === repoValue);
+    if (byName !== undefined) {
+      return {
+        kind: "ok",
+        resolved: { project: byName, mode: "registered", source: "spec-repo" },
+      };
+    }
+
     if (isAbsolute(repoValue)) {
       const exact = projects.find((p) => p.root === resolve(repoValue));
       if (exact !== undefined) {
@@ -85,7 +95,7 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
       if (normalized === undefined) {
         return {
           kind: "error",
-          message: `unrecognized \`repo:\` value: ${repoValue}`,
+          message: formatUnknownRepoError(repoValue, projects, "spec `repo:`"),
         };
       }
       const matches = projects.filter(
@@ -216,13 +226,14 @@ function resolveFromFlag(
 function formatUnknownRepoError(
   value: string,
   projects: ProjectMatch[],
+  leadIn: string = "--repo",
 ): string {
   const names = projects.map((p) => p.key).sort();
   const list =
     names.length === 0
       ? "(none registered)"
       : names.map((n) => `  - ${n}`).join("\n");
-  return `--repo: no project matches ${JSON.stringify(value)}\nRegistered projects:\n${list}`;
+  return `${leadIn}: no project matches ${JSON.stringify(value)}\nRegistered projects:\n${list}`;
 }
 
 function findGitCheckoutRoot(start: string): string | undefined {

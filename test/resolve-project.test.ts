@@ -258,4 +258,120 @@ describe("resolveProject", () => {
 
     expect(result.kind).toBe("needs-prompt");
   });
+
+  test("spec repo key: registered project key resolves", () => {
+    // Test case 1: specRepo: "genomics-stream" with a registered project
+    // whose key is "genomics-stream" (root set, no origin)
+    registerProject("genomics-stream", projectA, { dir: cfgDir });
+    const specPath = join(dir, "specs", "index.md");
+    mkdirSync(join(dir, "specs"));
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "genomics-stream",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.source).toBe("spec-repo");
+      expect(result.resolved.mode).toBe("registered");
+      expect(result.resolved.project.key).toBe("genomics-stream");
+    }
+  });
+
+  test("spec repo key: unknown key errors with registered projects list", () => {
+    // Test case 2: specRepo: "not-registered" (no slash; no matching project;
+    // URL/slug normalization fails) → error with registered keys list
+    registerProject("genomics-stream", projectA, { dir: cfgDir });
+    registerProject("project-b", projectB, { dir: cfgDir });
+    const specPath = join(dir, "specs", "index.md");
+    mkdirSync(join(dir, "specs"));
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "not-registered",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toContain("spec `repo:`:");
+      expect(result.message).toContain("not-registered");
+      expect(result.message).toContain("genomics-stream");
+      expect(result.message).toContain("project-b");
+    }
+  });
+
+  test("spec repo slug: key that looks like owner/repo slug wins over URL matching", () => {
+    // Test case 3: a registered project with key: "owner/repo" and
+    // specRepo: "owner/repo" (no other project's origin matches) →
+    // resolves to the registered project, mode: "registered", source: "spec-repo"
+    registerProject("owner/repo", projectA, { dir: cfgDir });
+    registerProject("other-project", projectB, {
+      dir: cfgDir,
+      origin: "https://github.com/example/other.git",
+    });
+    const specPath = join(dir, "specs", "index.md");
+    mkdirSync(join(dir, "specs"));
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "owner/repo",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.source).toBe("spec-repo");
+      expect(result.resolved.mode).toBe("registered");
+      expect(result.resolved.project.key).toBe("owner/repo");
+    }
+  });
+
+  test("--repo parity: registered key by flag resolves", () => {
+    // Test case 4: repoFlag: "genomics-stream" against the same config as test 1
+    // → kind: "ok", resolved.source === "repo-flag"
+    registerProject("genomics-stream", projectA, { dir: cfgDir });
+    const specPath = join(dir, "specs", "index.md");
+    mkdirSync(join(dir, "specs"));
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      repoFlag: "genomics-stream",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.source).toBe("repo-flag");
+    }
+  });
+
+  test("spec repo URL fall-through: unmatched URL falls through to location-based resolution", () => {
+    // Test case 5: specRepo: "https://github.com/owner/unregistered" (no
+    // registered project's origin matches that URL) with a spec path located
+    // inside a registered project's root → kind: "ok", resolved.source ===
+    // "registered" (Step 3 still wins after Step 2's URL/slug yields zero matches)
+    registerProject("project-a", projectA, { dir: cfgDir });
+    const specDir = join(projectA, "specs");
+    mkdirSync(specDir);
+    const specPath = join(specDir, "index.md");
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "https://github.com/owner/unregistered",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.source).toBe("registered");
+    }
+  });
 });

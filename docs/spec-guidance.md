@@ -71,12 +71,13 @@ Specs may live anywhere. The `repo:` line is **optional** for in-repo specs (sin
 - HTTPS URL: `https://github.com/owner/repo[.git]`
 - SSH URL: `git@github.com:owner/repo[.git]`
 - Slug: `owner/repo` (interpreted as `github.com/owner/repo`)
+- Registered project key (local-only, not portable across machines)
 
 Jarvis resolves the target repo at run time in this order:
 
 1. `--repo <name|path|url>` flag passed on the command line.
-2. Spec `repo:` URL/slug, loose-matched against the `origin` URLs of
-   registered projects.
+2. Spec `repo:` matches a registered project's key, or URL/slug loose-matched
+   against the `origin` URLs of registered projects.
 3. Spec path lives inside a registered project's root.
 4. Spec path lives inside any git checkout (used in ad-hoc mode; jarvis does
    not persist anything to config).

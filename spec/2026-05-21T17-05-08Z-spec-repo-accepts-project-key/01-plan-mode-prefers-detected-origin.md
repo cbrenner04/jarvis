@@ -11,6 +11,7 @@ For registered projects whose `root` is a git checkout with an `origin` remote, 
 - **Subspec 00 must land first.** This subspec assumes the resolver already accepts bare keys; do not start this work if subspec 00 is not yet merged.
 - **Trigger:** in `injectRepoLineIntoIndex`, when `project.origin` is `undefined`, attempt to read the origin via `git -C <project.root> remote get-url origin`. When `project.origin` is set, behavior is unchanged.
 - **Subprocess shape:** non-throwing. Capture stdout/stderr/exit; treat any non-zero exit, missing remote, missing `git` binary, non-git directory, or empty stdout as "no detected origin" and fall back to `project.key`. Use whatever git-invocation utility already exists in `src/commands/plan.ts` (or the closest reused helper). Do not introduce a new git wrapper.
+- **Testability via export.** `injectRepoLineIntoIndex` is currently file-private (`src/commands/plan.ts:2402`, no `export` keyword) and has no existing tests (verified by `grep -rln "injectRepoLineIntoIndex" test/`). Export it so the new tests can call it directly. Do not change its signature or behavior beyond the origin-detection change itself.
 - **No config mutation.** Do not write the detected origin back to `~/.jarvis/config.json`. Detection is read-only here; persisting that value is a separate concern that belongs to `jarvis init` and is out of scope.
 - **Silent failures.** No warnings, no prompts, no thrown errors escape `injectRepoLineIntoIndex`. Plan mode stays non-interactive on this path.
 - **No caching.** `injectRepoLineIntoIndex` is called at most twice per plan run (currently `src/commands/plan.ts:1411` and `:1712`). One `git` invocation per call when `project.origin` is undefined is acceptable; do not add memoization just for this.
@@ -19,12 +20,12 @@ For registered projects whose `root` is a git checkout with an `origin` remote, 
 ## Task Checklist
 
 - [ ] Modify `injectRepoLineIntoIndex` in `src/commands/plan.ts` so that when `project.origin` is `undefined`, it runs `git -C <project.root> remote get-url origin` (non-throwing) and uses the trimmed non-empty stdout as the `repo:` value. On any failure path (non-zero exit, no `origin` remote, non-git directory, empty stdout, missing `git`), fall back to `project.key`.
-- [ ] Locate the test file that currently covers `injectRepoLineIntoIndex` by running `grep -n "injectRepoLineIntoIndex" test/*.test.ts` (likely a `plan-*.test.ts` file). Add cases to that file; do not introduce a new test harness for plan mode.
-- [ ] Add 4 unit tests:
-  1. Project with `origin` set → emits `repo: <origin>` (existing behavior preserved; the new `git` call is not made).
-  2. Project without `origin`, `root` is a git checkout with an `origin` remote → emits `repo: <detected-origin>`.
-  3. Project without `origin`, `root` is not a git checkout → emits `repo: <project.key>` (fallback preserved; resolver-safe per subspec 00).
-  4. Project without `origin`, `root` is a git checkout without an `origin` remote → emits `repo: <project.key>` (fallback preserved).
+- [ ] Export `injectRepoLineIntoIndex` from `src/commands/plan.ts` (it is currently file-private at line 2402). This is the minimum-viable change to make it directly unit-testable; do not refactor the function's signature or behavior beyond what is required for the origin-detection change. There are no existing tests for `injectRepoLineIntoIndex` (verified by `grep -rln "injectRepoLineIntoIndex" test/`); add a new `test/plan-inject-repo-line.test.ts` file (or co-locate cases in `test/plan-command.test.ts` if that fits better with the file's existing shape). Do not introduce a new test harness or new mocking library; reuse the existing test-utils used by sibling `plan-*.test.ts` files (especially the temp-directory / `git init` helpers in `test/plan-end-to-end.test.ts` and `test/plan-worktree.test.ts`).
+- [ ] Add 4 unit tests. Each case should exercise `injectRepoLineIntoIndex` against a temp index file and a temp `project.root` directory; use `git init` + `git remote add origin <url>` to construct real-on-disk git states (matching the sibling tests' style) rather than mocking the `git` subprocess:
+  1. Project with `origin` set in config → emits `repo: <origin>` (existing behavior preserved; the new `git` call is not made — assert via the written line value, not by spying on subprocess).
+  2. Project without `origin` in config, `root` is a git checkout with an `origin` remote (set up with `git init && git remote add origin <url>`) → emits `repo: <detected-origin>`.
+  3. Project without `origin` in config, `root` is not a git checkout (empty temp dir) → emits `repo: <project.key>` (fallback preserved; resolver-safe per subspec 00).
+  4. Project without `origin` in config, `root` is a git checkout with no `origin` remote (just `git init`, no remote added) → emits `repo: <project.key>` (fallback preserved).
 - [ ] Run `bun run typecheck` and `bun test`; confirm both pass.
 - [ ] Update `docs/plan-mode.md` (or the nearest existing plan-mode doc) with a short note describing the new write-time origin detection. Keep it brief — this is hygiene, not a feature.
 
@@ -34,7 +35,8 @@ For registered projects whose `root` is a git checkout with an `origin` remote, 
 - [ ] All `git`-invocation failure modes (non-zero exit, missing remote, non-git directory, empty stdout, missing `git` binary) silently fall back to `project.key`. No warning, no prompt, no thrown error escapes `injectRepoLineIntoIndex`.
 - [ ] When `project.origin` is set, behavior is unchanged: the configured origin wins and no `git` subprocess is run on this path.
 - [ ] No write to `~/.jarvis/config.json` occurs from this code path.
-- [ ] The 4 unit tests listed in the task checklist exist and pass under `bun test`.
+- [ ] `injectRepoLineIntoIndex` is exported from `src/commands/plan.ts` so the new unit tests can call it directly. The function's signature is unchanged apart from this export.
+- [ ] The 4 unit tests listed in the task checklist exist and pass under `bun test`. Tests construct real on-disk git state with `git init` (and `git remote add origin <url>` where applicable) rather than mocking the `git` subprocess.
 - [ ] `bun run typecheck` passes after the change.
 - [ ] `bun test` passes after the change.
 

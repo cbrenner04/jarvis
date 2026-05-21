@@ -1,0 +1,2 @@
+  $ jarvis run ~/.jarvis/specs/genomics-stream/lab-systems-testing-evidence-scanner/index.md
+unrecognized `repo:` value: genomics-stream

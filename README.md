@@ -11,8 +11,8 @@ git and GitHub bookkeeping around each successful step.
 
 The current main workflows are:
 
-1. `jarvis plan` turns an intent (unstructured prompt) into a reviewable spec tree.
-2. `jarvis run` implements an existing spec one checked task at a time.
+1. `jarvis1 plan` turns an intent (unstructured prompt) into a reviewable spec tree.
+2. `jarvis1 run` implements an existing spec one checked task at a time.
 
 Specs are ordinary Markdown files. Work is complete when the active spec has no
 unchecked GitHub-style task-list items left.
@@ -32,13 +32,15 @@ Install from a local checkout:
 git clone <this-repo-url> ~/code/jarvis
 cd ~/code/jarvis
 bun install
-ln -s ~/code/jarvis/bin/jarvis /usr/local/bin/jarvis
-jarvis help
+ln -s ~/code/jarvis/bin/jarvis1 /usr/local/bin/jarvis1
+jarvis1 help
 ```
 
-The `bin/jarvis` shim runs `bun v1/src/cli.ts` from this checkout, so keep the
+The `bin/jarvis1` shim runs `bun v1/src/cli.ts` from this checkout, so keep the
 checkout at a stable path. If `/usr/local/bin` is not writable or is not on
 your `PATH`, symlink into another directory such as `~/.local/bin`.
+v1 installs as `jarvis1` so the bare `jarvis` command remains available for
+the future v2 CLI.
 
 ## Quickstart
 
@@ -46,13 +48,13 @@ Register the target repo once:
 
 ```sh
 cd <target-repo>
-jarvis init
+jarvis1 init
 ```
 
 Draft a spec from an intent:
 
 ```sh
-jarvis plan "Add a settings toggle for dark mode"
+jarvis1 plan "Add a settings toggle for dark mode"
 ```
 
 By default, plan mode creates `spec/YYYY-MM-DDTHH-mm-ssZ-<name>/` on a
@@ -63,12 +65,12 @@ before implementation.
 Run the implementation loop after the spec is available on the target branch:
 
 ```sh
-jarvis log-server
+jarvis1 log-server
 # in another terminal
-jarvis run spec/YYYY-MM-DDTHH-mm-ssZ-<name>/index.md
+jarvis1 run spec/YYYY-MM-DDTHH-mm-ssZ-<name>/index.md
 ```
 
-`jarvis run` creates or resumes `.worktree/<spec-name>/`, invokes agents from
+`jarvis1 run` creates or resumes `.worktree/<spec-name>/`, invokes agents from
 `modes.patch.agentOrder`, commits each completed subspec, pushes after every
 commit, opens or updates a draft PR, and marks the PR ready when the checklist
 is complete. Jarvis never merges PRs.
@@ -76,7 +78,7 @@ is complete. Jarvis never merges PRs.
 For specs that should live outside the target repo, set
 `modes.plan.commit: false` in `~/.jarvis/config.json`. Plan output then goes to
 `~/.jarvis/specs/...`, no branch or PR is created, and the generated `repo:`
-line lets `jarvis run` resolve the target repo later.
+line lets `jarvis1 run` resolve the target repo later.
 
 ## Spec Shape
 
@@ -102,7 +104,7 @@ repo: https://github.com/owner/repo
 ```
 
 Each subspec should include a `## Acceptance criteria` checklist. During
-`jarvis run`, the active agent is expected to complete one focused piece of
+`jarvis1 run`, the active agent is expected to complete one focused piece of
 work and tick the criteria it actually satisfied. Jarvis uses those checkbox
 transitions to decide whether to commit a completed subspec, make a `WIP:`
 progress commit, stop for no progress, or stop on a blocker.
@@ -114,59 +116,61 @@ contract.
 
 After the v1/v2 split, the repository has three distinct areas:
 
-- **Root** (`/`): Shared glue and repo-wide guidance. Contains `bin/jarvis` (shim that runs the v1 engine), the single `package.json`, and documentation files (`README.md`, `AGENTS.md`).
-- **v1** (`v1/`): The shipping harness implementation. Contains `src/`, `test/`, `docs/`, `scripts/`, `data/`, and `spec/`. All current jarvis functionality lives here. The root `bin/jarvis` shim dispatches to `v1/src/cli.ts`.
+- **Root** (`/`): Shared glue and repo-wide guidance. Contains `bin/jarvis1` (shim that runs the v1 engine), the single `package.json`, and documentation files (`README.md`, `AGENTS.md`).
+- **v1** (`v1/`): The shipping harness implementation. Contains `src/`, `test/`, `docs/`, `scripts/`, `data/`, and `spec/`. All current jarvis functionality lives here. The root `bin/jarvis1` shim dispatches to `v1/src/cli.ts`.
 - **v2** (`v2/`): Reserved for v2 planning and future implementation. Contains `spec/wip-intents/` with long-lived planning documents. No implementation code yet.
 
-From a user's perspective, `jarvis` commands work exactly as before, dispatching through the root shim to the v1 engine. Future v2 development will introduce v2/src and v2/test co-located as appropriate.
+From a user's perspective, v1 commands dispatch through the root shim to the v1
+engine as `jarvis1`. Future v2 development will introduce v2/src and v2/test
+co-located as appropriate and can claim the bare `jarvis` command.
 
 ## Commands
 
 ```text
-jarvis run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
+jarvis1 run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
     Implement an existing spec. `--cwd` is only valid when effective git is false.
 
-jarvis plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [<intent-file|"inline text">]
+jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [<intent-file|"inline text">]
     Draft a spec through intent refinement, initial drafting, and self-review.
 
-jarvis plan --resume <spec-path>
+jarvis1 plan --resume <spec-path>
     Resume an existing plan branch/worktree for more refinement or review passes.
 
-jarvis init
+jarvis1 init
     Register the current repo in ~/.jarvis/config.json.
 
-jarvis config
-    Show or edit config. Use `jarvis config show`, `path`, `projects`,
+jarvis1 config
+    Show or edit config. Use `jarvis1 config show`, `path`, `projects`,
     `set-patch-order`, `set-plan-order`, `set-git`, `set-project-git`,
     `remove-project`, and `edit`.
 
-jarvis prices
+jarvis1 prices
     Show or edit model pricing data used for cost summaries.
 
-jarvis log-server
-    Start the local full-transcript log server required by `jarvis run`.
+jarvis1 log-server
+    Start the local full-transcript log server required by `jarvis1 run`.
 
-jarvis cleanup [--dry-run]
+jarvis1 cleanup [--dry-run]
     Remove merged local worktrees and matching branches, then try to archive
     matching spec directories under `spec/completed/`, commit that archive
     move, and push the cleanup commit.
 
-jarvis triage [worktree-name]
+jarvis1 triage [worktree-name]
     Inspect dirty or orphaned worktrees and print suggested next moves.
 
-jarvis review-feedback <worktree-name>
+jarvis1 review-feedback <worktree-name>
     Address PR review feedback on an existing patch worktree.
 
-jarvis help
+jarvis1 help
     Show CLI usage.
 ```
 
 Unknown subcommands print usage and exit non-zero. Every invocation bootstraps
 `~/.jarvis/config.json` if needed.
 
-### `jarvis review-feedback` workflow
+### `jarvis1 review-feedback` workflow
 
-`jarvis review-feedback <worktree-name>` runs inside an existing patch worktree at
+`jarvis1 review-feedback <worktree-name>` runs inside an existing patch worktree at
 `.worktree/<worktree-name>/` and performs one harness-controlled pass:
 
 1. Require a clean starting worktree and an open PR for the current branch.
@@ -192,8 +196,8 @@ Jarvis state lives under `~/.jarvis/`:
   specs/
 ```
 
-Config version 2 is mode-specific. Patch mode (`jarvis run`) and plan mode
-(`jarvis plan`) each have their own ordered list of agent/model entries:
+Config version 2 is mode-specific. Patch mode (`jarvis1 run`) and plan mode
+(`jarvis1 plan`) each have their own ordered list of agent/model entries:
 
 ```json
 {
@@ -300,13 +304,13 @@ Config version 2 is mode-specific. Patch mode (`jarvis run`) and plan mode
 
 Default agent order is `claude`, `codex`, then `cursor`. `opencode` and
 `aider` are supported but opt in; add them to `modes.patch.agentOrder` or
-`modes.plan.agentOrder` with an explicit model string. `jarvis config
-set-patch-order` and `jarvis config set-plan-order` replace a whole order with
+`modes.plan.agentOrder` with an explicit model string. `jarvis1 config
+set-patch-order` and `jarvis1 config set-plan-order` replace a whole order with
 comma-separated `agent:model` pairs.
 
 Important switches:
 
-- `git: false` disables worktrees, commits, pushes, and PRs for `jarvis run`.
+- `git: false` disables worktrees, commits, pushes, and PRs for `jarvis1 run`.
   The agent runs in the project root, or in `--cwd <dir>` when supplied.
 - `modes.plan.commit: false` stores plan-generated specs under
   `~/.jarvis/specs/...` instead of committing them to the target repo.
@@ -339,7 +343,7 @@ Run output is split by purpose:
 
 - The run terminal shows concise harness progress and stop reasons.
 - `~/.jarvis/sessions/*.log` stores the complete transcript.
-- `jarvis log-server` provides a live full-transcript viewer.
+- `jarvis1 log-server` provides a live full-transcript viewer.
 - `~/.jarvis/runs.jsonl` stores per-invocation telemetry and cost data.
 
 See [v1/docs/agents.md](v1/docs/agents.md), [v1/docs/run-loop.md](v1/docs/run-loop.md),
@@ -347,7 +351,7 @@ and [v1/docs/quota-signals.md](v1/docs/quota-signals.md).
 
 ## Git and PR Behavior
 
-With `git: true`, `jarvis run` creates a branch-backed worktree under
+With `git: true`, `jarvis1 run` creates a branch-backed worktree under
 `.worktree/<spec-name>/`. Each completed subspec becomes one commit whose body
 starts with `Spec: <relative subspec path>` and includes that subspec's
 acceptance criteria. Jarvis adds a `Jarvis-Agent: <label>` trailer to commits
@@ -367,9 +371,9 @@ details, including cleanup and triage behavior.
 
 ## Documentation
 
-- [v1/docs/run-loop.md](v1/docs/run-loop.md): `jarvis run` resolution, iteration,
+- [v1/docs/run-loop.md](v1/docs/run-loop.md): `jarvis1 run` resolution, iteration,
   completion, output destinations, telemetry, stop conditions, and exit codes.
-- [v1/docs/plan-mode.md](v1/docs/plan-mode.md): `jarvis plan` phases, flags, commit
+- [v1/docs/plan-mode.md](v1/docs/plan-mode.md): `jarvis1 plan` phases, flags, commit
   and no-commit modes, resume, PR lifecycle, and blockers.
 - [v1/docs/workflows.md](v1/docs/workflows.md): visual control-flow diagrams for
   plan and patch mode.

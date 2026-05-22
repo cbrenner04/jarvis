@@ -1,0 +1,87 @@
+# v1 behavior catalog for v2 parity review
+
+This document inventories user-observable v1 behavior so v2 can explicitly preserve, change, or drop each item.
+
+## Overview and scope
+
+- This catalog describes behavior as shipped today under `v1/`, with v1 invoked via `jarvis` in CLI usage and help text. Sources: `v1/src/cli.ts`
+- The planned `jarvis1` rename is still pending, so this file intentionally records current `jarvis` behavior as the migration baseline for v2 review. Sources: `v1/src/cli.ts`, `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/00-skeleton-commands-and-project-resolution.md`
+- Source files under `v1/src/` are treated as authority for behavior; docs are used to cross-check operator workflow expectations and terminology. Sources: `v1/src/cli.ts`, `v1/docs/run-loop.md`, `v1/docs/spec-guidance.md`
+- Behavior entries in this catalog stay as short bullets ending with `Sources:` citations; `[uncertain]` is reserved for cases where source evidence cannot support a stronger claim. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/00-skeleton-commands-and-project-resolution.md`
+
+## Commands and modes
+
+### Command surface
+
+- The shipped top-level subcommands are `run`, `init`, `config`, `log-server`, `cleanup`, `triage`, `review-feedback`, `plan`, `prices`, and `help` (including `-h`/`--help` aliases to help output). Sources: `v1/src/cli.ts`
+- Unknown subcommands exit non-zero and print usage, while parse-time argument errors also print usage with a command-specific error prefix. Sources: `v1/src/cli.ts`
+- `review-feedback` requires a non-empty `<worktree-name>` and exits with usage when omitted, while `triage` accepts an optional worktree argument and otherwise runs a no-arg listing mode. Sources: `v1/src/cli.ts`, `v1/src/commands/triage.ts`
+- `prices` is a two-operation command surface (`show` and `edit`) rather than one flat action, and missing/unknown prices subcommands print command-specific usage. Sources: `v1/src/commands/prices.ts`, `v1/src/commands/prices-show.ts`, `v1/src/commands/prices-edit.ts`
+- `cleanup` exposes a `--dry-run` mode and requires execution from inside a registered project or it exits with a targeted registration error. Sources: `v1/src/cli.ts`, `v1/src/commands/cleanup.ts`
+
+### Patch-mode run workflow
+
+- `jarvis run` accepts `--max-iterations`, `--repo`, and `--cwd` around a required `<spec-path>`, then forwards those into run-mode options after validating numeric bounds for max iterations. Sources: `v1/src/cli.ts`, `v1/src/modes/patch/run.ts`
+- Default implementation runs are index-routed: operators are expected to run against an `index.md` tree where one unchecked linked subspec is selected per agent iteration. Sources: `v1/docs/spec-guidance.md`, `v1/docs/run-loop.md`
+- Non-index spec runs prompt for explicit operator action instead of silently proceeding as a normal index loop. Sources: `v1/docs/spec-guidance.md`, `v1/docs/run-loop.md`
+
+### Plan mode
+
+- `jarvis plan` is a distinct command path from `run`, receives its own argument parser/handler, and is reserved here for dedicated behavior expansion in subspec 03. Sources: `v1/src/cli.ts`, `v1/src/commands/plan.ts`
+
+## Spec authoring and implementation workflows
+
+- New implementation specs are expected to be authored as index-routed trees (`index.md` + numbered subspec files) with checklist links from index into atomic subspec documents. Sources: `v1/docs/spec-guidance.md`
+- The documented workflow requires spec-first sequencing: create a spec PR, merge spec files to `main`, and only then start implementation runs against that merged spec. Sources: `v1/docs/spec-guidance.md`
+- `jarvis plan` can generate spec trees, but generated specs follow the same merge-first rule before `jarvis run` implementation work begins. Sources: `v1/docs/spec-guidance.md`, `v1/docs/workflows.md`
+- External plan output (`modes.plan.commit: false`) produces Jarvis-owned spec trees outside the repo with a required `repo:` binding so later `jarvis run` invocations can resolve the target checkout. Sources: `v1/docs/spec-guidance.md`, `v1/docs/config.md`
+
+## Config and project resolution
+
+### Config storage and bootstrap
+
+- Jarvis stores state under `~/.jarvis/` with `config.json`, and configuration is auto-bootstrapped on first run rather than requiring manual initialization. Sources: `v1/src/config.ts`, `v1/docs/config.md`
+- The config defaults to schema version 2 with mode-specific agent order blocks (`modes.patch.agentOrder` and `modes.plan.agentOrder`) and project registry storage under `projects`. Sources: `v1/src/config.ts`, `v1/docs/config.md`
+- Invalid config structure is rejected with file-specific validation errors instead of partial best-effort reads. Sources: `v1/src/config.ts`
+- `jarvis init` only registers repos under `~/Work` by deriving the project key from the path relative to that root, and it records `origin` only when `git remote get-url origin` yields a non-empty value. Sources: `v1/src/commands/init.ts`, `v1/src/config.ts`
+
+### Repository resolution order and matching
+
+- Target-repo resolution order is `--repo` first, then spec `repo:` value, then spec-path-inside-registered-project, then ad-hoc parent walk for a `.git` checkout root, then unresolved prompt/error signaling. Sources: `v1/src/resolve-project.ts`, `v1/src/repo.ts`, `v1/docs/run-loop.md`
+- For both `--repo` and non-absolute `repo:` values, matching first checks exact registered project key and then loose URL/slug equivalence via normalized `host/owner/repo` comparison. Sources: `v1/src/resolve-project.ts`, `v1/src/repo-url.ts`
+- Legacy absolute-path `repo:` values are honored only as exact matches to a registered project root; non-matching absolute paths fall through to location-based resolution. Sources: `v1/src/resolve-project.ts`, `v1/docs/spec-guidance.md`, `v1/docs/run-loop.md`
+- URL normalization intentionally lowercases host/owner/repo, strips protocol/user/trailing `.git`, interprets bare `owner/repo` as GitHub, and drops extra URL path segments when comparing loose matches. Sources: `v1/src/repo-url.ts`
+
+### Ambiguity handling and operator prompts
+
+- Multiple registered matches for `--repo` or spec `repo:` produce an explicit ambiguous result with candidate set rather than picking one silently. Sources: `v1/src/resolve-project.ts`
+- In interactive mode, disambiguation prompts let operators choose by 1-based index or exact project key, with `q`/blank treated as cancellation. Sources: `v1/src/disambiguation-prompt.ts`
+- In non-TTY mode, disambiguation does not prompt and instead emits candidates plus a rerun hint using `--repo <name>`. Sources: `v1/src/disambiguation-prompt.ts`
+
+## Agent adapters, model selection, and quota fallback
+
+Subspec 01 is expected to fill this section with v1 behavior for adapter selection, model handling, pricing keys, and quota fallback across commands and modes. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/01-agents-models-pricing-and-quota.md`
+
+## Git/GitHub behavior
+
+Subspec 02 is expected to fill this section with worktree lifecycle, commit/PR behavior, readiness transitions, and attribution details in shipped v1 flows. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/02-git-github-worktrees-and-attribution.md`
+
+## Filesystem, logging, telemetry, and other side effects
+
+Subspec 04 is expected to fill this section with write boundaries, logs/telemetry emission, and other observable side effects that occur during v1 runs. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/04-side-effects-completion-and-failures.md`
+
+## Completion, blockers, exit codes, and failure handling
+
+Subspec 04 is expected to fill this section with completion semantics, blocker handling, and exit-code/failure behavior for patch and related workflows. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/04-side-effects-completion-and-failures.md`
+
+## Behaviors with uncertain intent
+
+Subspec 04 is expected to consolidate this section with `[uncertain]` entries where source indicates behavior but does not justify a clear policy intent. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/04-side-effects-completion-and-failures.md`
+
+## Surprising or possibly vestigial behaviors
+
+Subspec 04 is expected to consolidate this section with behavior that is observable in v1 but likely transitional, surprising, or vestigial. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/04-side-effects-completion-and-failures.md`
+
+## Maintenance requirement for future v1 changes
+
+Subspec 05 is expected to replace this stub with the long-lived maintenance requirement and reminder placement tied to the v2 rollout workflow. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/05-maintenance-reminder-and-final-verification.md`

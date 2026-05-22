@@ -413,10 +413,18 @@ scripted phase succeeds (no blocker). The readiness transition begins with
 `bun install --frozen-lockfile` so Biome is available, then runs
 `bun run check:fix` (Biome's safe format and lint-rule fixer) as the second
 step — which may rewrite files — before `typecheck → test → check` proceeds.
-If `check:fix` or any later step fails, the PR remains in draft. That readiness
-transition stays **outside** stdout: **Next steps** never instruct you to mark
-the draft ready manually. Encountering a blocker leaves the GitHub PR in draft
-until content is repaired and **`jarvis plan --resume …`** succeeds.
+
+**Readiness transition behavior:**
+- If the branch's open PR is **draft**, the `bun run ready` gate runs. On success, `gh pr ready` flips the PR to ready. On gate failure, the PR remains draft.
+- If the branch's open PR is **already ready**, both the gate and GitHub transition are skipped; the PR remains ready and emits no warning.
+- If **no open PR exists**, the readiness helper is a silent no-op.
+
+**Recovery on resume:** A later successful `jarvis plan --resume …` invocation retries the readiness transition:
+- If the PR is still **draft** (because an earlier ready gate failed or did not run), the gate runs again and may flip the PR to ready.
+- If the PR is **already ready**, the resume path does nothing (idempotent no-op).
+- If the gate fails again, the PR remains draft; the recovery trigger is a subsequent successful committed resume run.
+
+That readiness transition stays **outside** stdout: **Next steps** never instruct you to mark the draft ready manually. Encountering a blocker leaves the GitHub PR in draft until content is repaired and **`jarvis plan --resume …`** succeeds.
 
 ### PR body updates
 

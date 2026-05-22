@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CommitInfo } from "../../pr.ts";
-import { checkPrExists, readBranchCommits } from "../../pr.ts";
+import { readBranchCommits } from "../../pr.ts";
 
 /**
  * A single subspec entry parsed from `index.md`.
@@ -238,27 +238,81 @@ export function renderPlanAttribution(opts: {
   return lines.join("\n");
 }
 
+export type PrState = "none" | "draft" | "ready";
+
+export type OpenPrInfo = {
+  state: PrState;
+  number?: number;
+};
+
+/**
+ * Look up the current state of an open PR for the given branch.
+ * Returns an `OpenPrInfo` with state `none`, `draft`, or `ready`.
+ * For `draft` and `ready` states, includes the PR number for later reference.
+ */
+export function getOpenPrState(branch: string, cwd: string): OpenPrInfo {
+  try {
+    const output = execFileSync(
+      "gh",
+      [
+        "pr",
+        "view",
+        branch,
+        "--json",
+        "number,state,isDraft",
+        "-q",
+        'select(.state=="OPEN") | {number: .number, isDraft: .isDraft}',
+      ],
+      { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
+    );
+    const trimmed = output.trim();
+    if (trimmed === "") {
+      return { state: "none" };
+    }
+    const parsed = JSON.parse(trimmed) as { number: number; isDraft: boolean };
+    return {
+      state: parsed.isDraft ? "draft" : "ready",
+      number: parsed.number,
+    };
+  } catch {
+    return { state: "none" };
+  }
+}
+
 export type MaybeMarkPlanPrReadyOpts = {
   branch: string;
   cwd: string;
-  /** Test seam: check if PR exists. Defaults to `checkPrExists`. */
-  checkPrExists?: (branch: string, cwd: string) => number | null;
+  /** Test seam: get the open PR state. Defaults to `getOpenPrState`. */
+  getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
   /** Test seam: invoke `gh pr ready`. Defaults to `execFileSync`. */
   markReady?: (branch: string, cwd: string) => void;
 };
 
 /**
  * Mark the plan-mode PR ready for review by invoking `gh pr ready <branch>`.
- * Skips silently if no PR exists. Throws on `gh` failure; callers wrap with
- * try/catch and warn-and-continue.
+ *
+ * Behavior depends on the current PR state:
+ * - `none` (no open PR): silent no-op
+ * - `draft` (open draft PR): run `bun run ready` gate, then `gh pr ready` transition
+ * - `ready` (open ready PR): skip both gate and transition, silent no-op
+ *
+ * Throws on `gh` failure or gate failure; callers wrap with try/catch and warn-and-continue.
  */
 export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
-  const checkPr = opts.checkPrExists ?? checkPrExists;
-  const prNumber = checkPr(opts.branch, opts.cwd);
-  if (prNumber === null) {
+  const getPrState = opts.getOpenPrState ?? getOpenPrState;
+  const prInfo = getPrState(opts.branch, opts.cwd);
+
+  // No open PR: silent no-op
+  if (prInfo.state === "none") {
     return;
   }
 
+  // Ready PR: silent no-op (skip gate and transition)
+  if (prInfo.state === "ready") {
+    return;
+  }
+
+  // Draft PR: run gate and transition
   const mark =
     opts.markReady ??
     ((branch, cwd) => {

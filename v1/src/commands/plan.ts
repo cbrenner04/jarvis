@@ -40,7 +40,11 @@ import {
   createPlanTelemetryWriter,
   type PlanTelemetryWriter,
 } from "../modes/plan/plan-telemetry.ts";
-import { buildPlanPrHeader, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
+import {
+  buildPlanPrHeader,
+  maybeMarkPlanPrReady,
+  type OpenPrInfo,
+} from "../modes/plan/pr.ts";
 import {
   type RefineTerminalOutcome,
   runRefinePhase,
@@ -2332,14 +2336,14 @@ export function safeMarkPlanPrReady(args: {
   branch: string;
   worktreePath: string;
   markReady?: (branch: string, cwd: string) => void;
-  checkPrExists?: (branch: string, cwd: string) => number | null;
+  getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
 }): void {
   try {
     maybeMarkPlanPrReady({
       branch: args.branch,
       cwd: args.worktreePath,
       ...(args.markReady ? { markReady: args.markReady } : {}),
-      ...(args.checkPrExists ? { checkPrExists: args.checkPrExists } : {}),
+      ...(args.getOpenPrState ? { getOpenPrState: args.getOpenPrState } : {}),
     });
   } catch (err) {
     args.io.stderr(

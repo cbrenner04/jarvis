@@ -92,7 +92,9 @@ assertions:
 `"spawns aider with --message, --model, --yes-always, --no-auto-commits, --no-git, --no-stream, --no-show-model-warnings in cwd"`
 
 **Add a new test** asserting the `BROWSER` env var reaches the subprocess as
-`"false"`:
+`"false"`. Place it inside the existing `describe("AiderAgent", () => { ... })`
+block (before its closing `});`). No new imports are needed — `readFileSync`,
+`join`, and `AiderAgent` are already imported at the top of the file.
 
 ```ts
 test("passes BROWSER=false to the aider subprocess", async () => {

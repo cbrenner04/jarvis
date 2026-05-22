@@ -62,6 +62,7 @@ calls Python's `webbrowser` module.
       it is the intended aider-supported mechanism (not a workaround).
 - [ ] The document explains the `BROWSER=false` choice and why `""` is not used.
 - [ ] `bun run typecheck` passes (no new type errors introduced).
+- [ ] `bun test` passes (existing tests unaffected by the new doc).
 
 ## Documentation updates
 

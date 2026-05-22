@@ -366,6 +366,12 @@ function looksLikeUrlOrSlug(value: string): boolean {
 }
 
 function readRepoPath(specPath: string): string | undefined {
+  // The spec path may be a synthetic anchor (e.g. the project-resolution
+  // anchor used by location-based preflight) that never exists on disk. A
+  // missing file simply means there is no `repo:` line to read.
+  if (!existsSync(specPath)) {
+    return undefined;
+  }
   let inFence = false;
   for (const line of readFileSync(specPath, "utf8").split(/\r?\n/)) {
     if (/^\s*(```|~~~)/.test(line)) {

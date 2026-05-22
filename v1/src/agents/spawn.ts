@@ -14,6 +14,7 @@ export interface SpawnConfig {
   stdio: StdioOptions;
   writeStdin?: (stdin: NodeJS.WritableStream, prompt: string) => void;
   streamErrorPrefix: string;
+  env?: Record<string, string>;
 }
 
 export function runAgent(
@@ -23,7 +24,10 @@ export function runAgent(
 ): Promise<AgentResult> {
   return new Promise((resolvePromise) => {
     const argv = config.buildArgv(prompt, opts);
-    const env = { ...process.env, PWD: config.cwd } as Record<string, string>;
+    const env = { ...process.env, PWD: config.cwd, ...config.env } as Record<
+      string,
+      string
+    >;
     delete env.OLDPWD;
     const child = spawn(config.binary, argv, {
       cwd: config.cwd,

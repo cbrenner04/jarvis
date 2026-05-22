@@ -20,5 +20,5 @@ for an open draft PR on the plan branch.
 
 ## Subspecs
 
-- [ ] [00 - Recover plan PR readiness by branch PR state](./00-recover-plan-pr-readiness-by-state.md)
-- [ ] [01 - Document committed-resume readiness recovery](./01-document-plan-ready-recovery.md)
+- [x] [00 - Recover plan PR readiness by branch PR state](./00-recover-plan-pr-readiness-by-state.md)
+- [x] [01 - Document committed-resume readiness recovery](./01-document-plan-ready-recovery.md)

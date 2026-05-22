@@ -53,15 +53,15 @@ that this work does not introduce.
 
 ## Acceptance criteria
 
-- [ ] The plan lifecycle docs state that committed plan mode still marks draft
+- [x] The plan lifecycle docs state that committed plan mode still marks draft
   PRs ready automatically on successful completion, including later
   successful committed resume runs when the branch's open PR is still draft.
-- [ ] The docs state that an already-ready open PR is left untouched on resume
+- [x] The docs state that an already-ready open PR is left untouched on resume
   rather than implying that Jarvis reruns the full ready gate every time.
-- [ ] The docs state that if `bun run ready` fails, the PR remains draft and
+- [x] The docs state that if `bun run ready` fails, the PR remains draft and
   the retry path is a later successful committed resume run.
-- [ ] The updated wording does not promise any background repair loop or
+- [x] The updated wording does not promise any background repair loop or
   readiness changes for closed or merged PRs.
-- [ ] Documentation changes are limited to pages that already describe the
+- [x] Documentation changes are limited to pages that already describe the
   committed plan PR lifecycle or would otherwise misstate this recovery
   contract.

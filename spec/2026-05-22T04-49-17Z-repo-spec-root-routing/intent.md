@@ -158,13 +158,6 @@ The safest draft framing is probably:
   updated as part of the same source-of-truth change or called out as an
   intentional non-goal with a documented follow-up.
 
-## Blocker
+## User review
 
-Review and approve `spec/2026-05-22T04-49-17Z-repo-spec-root-routing/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft spec/2026-05-22T04-49-17Z-repo-spec-root-routing/intent.md`
+If user needs to run `jarvis plan` from a version dir, if that makes this simpler, that would be fine

@@ -53,17 +53,17 @@ the primary owned output is the plan-mode behavior area itself.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/v1-behaviors.md` contains a substantive plan-mode behavior area
+- [x] `v2/spec/v1-behaviors.md` contains a substantive plan-mode behavior area
       inside `## Commands and modes` that explains the end-to-end workflow and
       resume semantics from source.
-- [ ] The plan-mode catalog explicitly includes all six plan flags and
+- [x] The plan-mode catalog explicitly includes all six plan flags and
       distinguishes `--resume` from `--resume-draft`.
-- [ ] The plan-mode catalog captures observable phase behavior, emitted files,
+- [x] The plan-mode catalog captures observable phase behavior, emitted files,
       review/refine loop semantics, and plan-specific quota or stderr output
       where source exposes them.
-- [ ] Every behavior entry added by this subspec cites at least one supporting
+- [x] Every behavior entry added by this subspec cites at least one supporting
       source file.
-- [ ] Any ambiguity called out by this subspec is tagged `[uncertain]` and
+- [x] Any ambiguity called out by this subspec is tagged `[uncertain]` and
       includes a brief explanation of the unresolved evidence gap.
 
 ## Documentation updates

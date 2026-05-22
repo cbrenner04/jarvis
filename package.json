@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "bin": {
-    "jarvis": "bin/jarvis"
+    "jarvis1": "bin/jarvis1"
   },
   "scripts": {
     "check": "bun node_modules/@biomejs/biome/bin/biome check .",

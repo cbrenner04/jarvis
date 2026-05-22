@@ -19,11 +19,11 @@ Rename the v1 entry-point shim from `bin/jarvis` to `bin/jarvis1` and update `pa
 
 ## Acceptance criteria
 
-- [ ] `bin/jarvis1` exists, is executable, and contains the same shim logic that previously lived in `bin/jarvis`
-- [ ] `bin/jarvis` is absent from the working tree
-- [ ] `package.json` publishes `bin/jarvis1` under the `jarvis1` key and no longer publishes a `jarvis` bin key
-- [ ] If `bun install` rewrites `bun.lock`, the updated lockfile is included; if it does not, `bun.lock` is unchanged
-- [ ] `bun run typecheck` passes
+- [x] `bin/jarvis1` exists, is executable, and contains the same shim logic that previously lived in `bin/jarvis`
+- [x] `bin/jarvis` is absent from the working tree
+- [x] `package.json` publishes `bin/jarvis1` under the `jarvis1` key and no longer publishes a `jarvis` bin key
+- [x] If `bun install` rewrites `bun.lock`, the updated lockfile is included; if it does not, `bun.lock` is unchanged
+- [x] `bun run typecheck` passes
 
 ## Documentation updates
 

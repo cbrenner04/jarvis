@@ -96,7 +96,7 @@ if (!envValue) {
   test("ready script respects deadlines by exiting with 124 on timeout", () => {
     // Set timeout to 1ms - the bun install command will definitely exceed this
     // and the ready script should timeout and exit with code 124
-    const result = spawnSync("bun", ["scripts/ready.ts"], {
+    const result = spawnSync("bun", ["v1/scripts/ready.ts"], {
       cwd: process.cwd(),
       timeout: 10000, // 10s overall to prevent hanging
       stdio: "pipe",
@@ -124,7 +124,7 @@ if (!envValue) {
       [
         "-e",
         `
-import { runCommand } from "./scripts/ready.ts";
+import { runCommand } from "./v1/scripts/ready.ts";
 
 // Test that runCommand resolves with the exit code
 const code = await runCommand("true", [], 5000, 0);
@@ -150,7 +150,7 @@ console.log(code);
       [
         "-e",
         `
-import { runReady } from "./scripts/ready.ts";
+import { runReady } from "./v1/scripts/ready.ts";
 import { spawnSync } from "node:child_process";
 
 // Mock the spawn function to capture command order
@@ -172,7 +172,7 @@ console.log("command-order-test");
 
     // For a more reliable test, check the source file directly
     const readFileSync = require("node:fs").readFileSync;
-    const readySource = readFileSync("./scripts/ready.ts", "utf8");
+    const readySource = readFileSync("./v1/scripts/ready.ts", "utf8");
 
     // Verify install appears before check:fix in the commands array (check:fix
     // depends on @biomejs/biome being installed in node_modules).
@@ -197,7 +197,7 @@ console.log("command-order-test");
       [
         "-e",
         `
-import { runCommand } from "./scripts/ready.ts";
+import { runCommand } from "./v1/scripts/ready.ts";
 
 // Test that a failing command exits early
 const code = await runCommand("false", [], 5000, 0);

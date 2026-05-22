@@ -6,7 +6,12 @@ Decisions and conventions for working in this repo. This file is for humans and 
 
 `jarvis` is a minimal coding-agent harness ("ralph loop"). It sends one-shot prompts to an underlying agent CLI (`claude`, `codex`, `cursor`) on a loop until a target-repo spec is complete, the user kills it, or all agents are out of quota.
 
-This repo contains **only the harness**. Work in this repo is work on the harness itself.
+The repository has been split into three areas:
+- The root contains shared glue, configuration, and the public docs
+- `v1/` contains the current shipping harness implementation (source, tests, specs, scripts, and data)
+- `v2/` contains planning materials for the next version and reserved space for future v2 implementation
+
+Work in this repository is work on the harness itself. The v1 implementation lives under `v1/`. Future v2 work will land under `v2/src` and `v2/test` once implementation begins.
 
 ## Core decisions
 
@@ -17,7 +22,7 @@ This repo contains **only the harness**. Work in this repo is work on the harnes
 - **Default agent fallback order**: `claude → codex → cursor`. Configurable.
 - **Spec format (in target repos)**: Markdown with GitHub-style task list checkboxes. Completion = zero unchecked `- [ ]` items remain.
 - **Stop conditions**: spec complete, all agents quota-exhausted, or manual kill (Ctrl-C).
-- **Quota detection**: per-agent stderr/exit-code heuristics documented in `docs/quota-signals.md`.
+- **Quota detection**: per-agent stderr/exit-code heuristics documented in `v1/docs/quota-signals.md`.
 
 ## The loop prompt (sent to the agent each iteration)
 
@@ -27,24 +32,24 @@ Minimal. Roughly:
 Inspect the target repo for guidance, conventions, and relevant docs.
 Read the spec at <SPEC_PATH>.
 Follow these Jarvis rules:
-<src/modes/patch/rules.md>
+<v1/src/modes/patch/rules.md>
 Pick the single most important unchecked task and complete it.
 ```
 
-Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owned rules for patch mode live in `src/modes/patch/rules.md` and are injected inline.
+Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owned rules for patch mode live in `v1/src/modes/patch/rules.md` and are injected inline.
 
 ## Conventions for spec files in *this* repo
 
-- All specs live under `spec/`.
-- Multi-file specs go in a subdirectory with an `index.md` (new trees use a basename `YYYY-MM-DDTHH-mm-ssZ-<name>/`, filesystem-safe UTC — see [docs/spec-guidance.md](docs/spec-guidance.md); older repos may still show date-only folders like `spec/2026-05-11-v1/`).
+- V1 implementation specs live under `v1/spec/`; v2 planning material lives under `v2/spec/`.
+- Multi-file specs go in a subdirectory with an `index.md` (new trees use a basename `YYYY-MM-DDTHH-mm-ssZ-<name>/`, filesystem-safe UTC — see [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md); older repos may still show date-only folders like `v1/spec/2026-05-11-v1/`).
 - The index is the routing file an agent reads to select work. It contains a checklist of subspec pointers; a subspec is complete when its checkbox is checked.
 - Each subspec is **atomic and testable**: it can be implemented and verified independently of the others.
 - Each subspec includes a **Documentation updates** section. Doc changes are part of the work, not a follow-up.
-- External agents that need to create specs should follow [docs/spec-guidance.md](docs/spec-guidance.md).
+- External agents that need to create specs should follow [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
 
 ## Working rules for agents in this repo
 
-- Before updating `jarvis`, make sure there is a spec for the intended change. If no spec exists, create one first using the conventions in [docs/spec-guidance.md](docs/spec-guidance.md).
+- Before updating `jarvis`, make sure there is a spec for the intended change. If no spec exists, create one first using the conventions in [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
 - New specs must be committed to `main` (via a normal PR) **before** any implementation work on them begins. Jarvis runs against the spec on disk; partially drafted specs in feature branches lead to drift between the spec and the implementation. Open the spec PR, get it merged, then start a separate run/branch for the implementation.
 - If a spec already exists for the intended change, run it through `jarvis` instead of implementing it directly.
 - Read the index to choose the next unchecked subspec, then read that subspec before editing.
@@ -65,5 +70,5 @@ When Jarvis creates a draft PR, it appends an attribution footer to the PR body 
   `- <short sha> <commit subject> — <agent label>`. Commits without a `Jarvis-Agent` trailer are listed with `unknown` as the label. Multiple `Jarvis-Agent` trailers on the same commit are joined with `, `.
 - **Summary line**: a deduped, first-appearance-ordered list of labels: `Written by <Label A>, <Label B>, <Label C> through Jarvis.`. When only one unique label is present this collapses to `Written by <Label> through Jarvis.` (matching the historical single-line format). When no labelled commits exist the summary line is omitted.
 - **Agent labels**: Each agent's `attributionLabel()` method returns a human-readable identifier for its configured model. If the model is unknown, the raw model string is used. If no model is configured, the default fallback is `<cli-name> (default model)`.
-- **Composition**: `ensureDraftPr` in `src/pr.ts` appends the rendered footer to the body with a markdown `---` separator. When the footer is empty (no subspec commits on the branch) no separator or footer is appended.
+- **Composition**: `ensureDraftPr` in `v1/src/pr.ts` appends the rendered footer to the body with a markdown `---` separator. When the footer is empty (no subspec commits on the branch) no separator or footer is appended.
 - **Plan mode**: Plan-mode PRs collapse consecutive meta-commits (`plan: interview`, `plan: draft`, `plan: review N`, `plan: blocker`) into a single summary line rather than listing each individually. This reduces visual clutter for plan-mode PRs before implementation work lands (which may introduce 5+ meta-commits before any subspec commits exist). Subspec commits on plan-mode branches are rendered individually. See [docs/plan-mode.md § PR lifecycle](docs/plan-mode.md#pr-lifecycle) for details.

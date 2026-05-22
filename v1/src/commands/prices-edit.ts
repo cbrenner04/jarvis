@@ -44,7 +44,7 @@ export function pricesEditCommand(opts: PricesEditCommandOptions): number {
   const originalHash = hashFile(pricesPath);
 
   // Launch editor
-  io.stderr(`opening data/prices.json in $EDITOR ...\n`);
+  io.stderr(`opening v1/data/prices.json in $EDITOR ...\n`);
 
   let status: number;
   if (opts.runEditor !== undefined) {

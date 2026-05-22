@@ -1016,6 +1016,12 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       return { kind: "exit", exitCode: 130 };
     }
 
+    const afterSpecPath = refreshActiveSpecPath(preflight);
+    const afterSubspecPath =
+      activeSubspecPath === undefined
+        ? undefined
+        : findRelocatedSpecFile(activeSubspecPath, agentWorkingDir);
+
     if (result.kind === "ok") {
       // Extract usage and cost data from the agent result
       const usageCost = extractUsageAndCost(
@@ -1075,8 +1081,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       }
       let subspecCompleted = false;
       let subspecProgressed = false;
-      if (activeSubspecPath !== undefined) {
-        const afterCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+      if (afterSubspecPath !== undefined) {
+        const afterCriteria = snapshotAcceptanceCriteria(afterSubspecPath);
         const newlyChecked = diffAcceptanceCriteria(
           beforeCriteria,
           afterCriteria,
@@ -1087,20 +1093,20 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
 
         // Check if a blocker was added during this iteration
         const afterParse = parsePatchSpec(
-          readFileSync(activeSubspecPath, "utf8"),
+          readFileSync(afterSubspecPath, "utf8"),
         );
         const hasBlockerNow = afterParse.blocker !== undefined;
         if (hasBlockerNow && !hasBlockerBefore) {
           const blockerBody = afterParse.blocker;
           if (!blockerBody) {
             throw new Error(
-              `Blocker section added but body is missing in ${activeSubspecPath}`,
+              `Blocker section added but body is missing in ${afterSubspecPath}`,
             );
           }
 
           if (gitEnabled) {
             try {
-              commitWipProgressWithBlocker(activeSubspecPath, {
+              commitWipProgressWithBlocker(afterSubspecPath, {
                 cwd: agentWorkingDir,
                 newlyChecked,
                 checkedTotal,
@@ -1112,7 +1118,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               const message = err instanceof Error ? err.message : String(err);
               fanout(
                 "harness",
-                `failed to commit blocker for ${activeSubspecPath}: ${message}\n`,
+                `failed to commit blocker for ${afterSubspecPath}: ${message}\n`,
                 "stderr",
               );
               return { kind: "return", exitCode: 1 };
@@ -1127,7 +1133,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                   err instanceof Error ? err.message : String(err);
                 fanout(
                   "harness",
-                  `failed to push blocker commit for ${activeSubspecPath}: ${message}\n`,
+                  `failed to push blocker commit for ${afterSubspecPath}: ${message}\n`,
                   "stderr",
                 );
                 return { kind: "return", exitCode: 1 };
@@ -1135,7 +1141,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
             }
           }
 
-          const blockerText = `${activeSubspecPath}\n\n${blockerBody}`;
+          const blockerText = `${afterSubspecPath}\n\n${blockerBody}`;
           fanout("harness", `${blockerText}\n`, "stderr");
           writeTelemetry({
             agent: agent.name,
@@ -1151,7 +1157,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         if (allChecked) {
           if (gitEnabled) {
             try {
-              commitSubspec(activeSubspecPath, {
+              commitSubspec(afterSubspecPath, {
                 cwd: agentWorkingDir,
                 agentLabel: agent.attributionLabel(),
               });
@@ -1159,7 +1165,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               const message = err instanceof Error ? err.message : String(err);
               fanout(
                 "harness",
-                `failed to commit completed subspec ${activeSubspecPath}: ${message}\n`,
+                `failed to commit completed subspec ${afterSubspecPath}: ${message}\n`,
                 "stderr",
               );
               return { kind: "return", exitCode: 1 };
@@ -1174,7 +1180,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                   err instanceof Error ? err.message : String(err);
                 fanout(
                   "harness",
-                  `failed to push completed subspec ${activeSubspecPath}: ${message}\n`,
+                  `failed to push completed subspec ${afterSubspecPath}: ${message}\n`,
                   "stderr",
                 );
                 return { kind: "return", exitCode: 1 };
@@ -1186,7 +1192,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 const branch = getCurrentBranch(agentWorkingDir);
                 if (!state.draftPrEnsured) {
                   const prBody = async (): Promise<string> =>
-                    getDeterministicPrBody(specPath);
+                    getDeterministicPrBody(afterSpecPath);
                   const footer = renderAttribution({
                     cwd: agentWorkingDir,
                     base,
@@ -1194,7 +1200,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                   const ensured = await ensureDraftPr({
                     branch,
                     base,
-                    title: getIndexTitle(specPath),
+                    title: getIndexTitle(afterSpecPath),
                     bodyGenerator: prBody,
                     footer,
                     cwd: agentWorkingDir,
@@ -1205,7 +1211,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 if (!createdThisIteration) {
                   try {
                     updatePrBody({
-                      indexPath: specPath,
+                      indexPath: afterSpecPath,
                       branch,
                       base,
                       cwd: agentWorkingDir,
@@ -1215,13 +1221,13 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                       err instanceof Error ? err.message : String(err);
                     fanout(
                       "harness",
-                      `failed to update PR body for ${activeSubspecPath}: ${message}\n`,
+                      `failed to update PR body for ${afterSubspecPath}: ${message}\n`,
                       "stderr",
                     );
                   }
                 }
                 maybeMarkReady({
-                  indexPath: specPath,
+                  indexPath: afterSpecPath,
                   cwd: agentWorkingDir,
                   agentLabel: agent.attributionLabel(),
                 });
@@ -1230,7 +1236,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                   err instanceof Error ? err.message : String(err);
                 fanout(
                   "harness",
-                  `failed to update PR for completed subspec ${activeSubspecPath}: ${message}\n`,
+                  `failed to update PR for completed subspec ${afterSubspecPath}: ${message}\n`,
                   "stderr",
                 );
                 return { kind: "return", exitCode: 1 };
@@ -1242,7 +1248,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           subspecProgressed = true;
           if (gitEnabled) {
             try {
-              commitWipProgress(activeSubspecPath, {
+              commitWipProgress(afterSubspecPath, {
                 cwd: agentWorkingDir,
                 newlyChecked,
                 checkedTotal,
@@ -1253,7 +1259,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               const message = err instanceof Error ? err.message : String(err);
               fanout(
                 "harness",
-                `failed to commit WIP progress for ${activeSubspecPath}: ${message}\n`,
+                `failed to commit WIP progress for ${afterSubspecPath}: ${message}\n`,
                 "stderr",
               );
               return { kind: "return", exitCode: 1 };
@@ -1270,7 +1276,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               const worktreeName = basename(agentWorkingDir);
               fanout(
                 "harness",
-                `iteration ${iteration} edited files but checked no new acceptance criteria for ${activeSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+                `iteration ${iteration} edited files but checked no new acceptance criteria for ${afterSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
                 "stderr",
               );
               return { kind: "return", exitCode: 6 };
@@ -1278,7 +1284,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           }
         }
       }
-      const after = countUnchecked(specPath);
+      const after = countUnchecked(afterSpecPath);
       if (after === 0) {
         writeTelemetry({
           agent: agent.name,
@@ -1420,8 +1426,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     }
 
     let checkedAnyCriteria = false;
-    if (activeSubspecPath !== undefined) {
-      const afterCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+    if (afterSubspecPath !== undefined) {
+      const afterCriteria = snapshotAcceptanceCriteria(afterSubspecPath);
       checkedAnyCriteria =
         diffAcceptanceCriteria(beforeCriteria, afterCriteria).length > 0;
     }
@@ -1648,6 +1654,63 @@ export function specOutsideWorktreeReadDirs(opts: {
     return undefined;
   }
   return [dirname(specPath)];
+}
+
+function refreshActiveSpecPath(preflight: PreflightOk): string {
+  const activeSpecPath = findRelocatedSpecFile(
+    preflight.specPath,
+    preflight.agentWorkingDir,
+  );
+  preflight.specPath = activeSpecPath;
+  return activeSpecPath;
+}
+
+function findRelocatedSpecFile(
+  previousPath: string,
+  searchRoot: string,
+): string {
+  if (existsSync(previousPath)) {
+    return previousPath;
+  }
+
+  const previousDirName = basename(dirname(previousPath));
+  const previousFileName = basename(previousPath);
+  const matches: string[] = [];
+  findRelocatedSpecFileMatches(
+    resolve(searchRoot),
+    previousDirName,
+    previousFileName,
+    matches,
+  );
+
+  return matches.length === 1 ? (matches[0] ?? previousPath) : previousPath;
+}
+
+function findRelocatedSpecFileMatches(
+  dir: string,
+  parentName: string,
+  fileName: string,
+  matches: string[],
+): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === ".git" || entry.name === "node_modules") {
+      continue;
+    }
+
+    const entryPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      findRelocatedSpecFileMatches(entryPath, parentName, fileName, matches);
+      continue;
+    }
+
+    if (
+      entry.isFile() &&
+      entry.name === fileName &&
+      basename(dirname(entryPath)) === parentName
+    ) {
+      matches.push(entryPath);
+    }
+  }
 }
 
 export function prepareActiveSpecPath(opts: {

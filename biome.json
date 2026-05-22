@@ -14,7 +14,7 @@
       "!**/build",
       "!**/coverage",
       "!**/.git",
-      "!**/test/fixtures"
+      "!**/v1/test/fixtures"
     ]
   },
   "formatter": {

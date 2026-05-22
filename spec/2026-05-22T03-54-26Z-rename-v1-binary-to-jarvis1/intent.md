@@ -124,3 +124,14 @@ All occurrences found by `grep -rn '"jarvis ' v1/test/ --include="*.ts"` (exclud
 ## Refine skip
 
 Repo audit confirms Refine turn 2 is accurate and complete. Verified: `bin/jarvis` exists and is the only shim, `package.json` has `"bin": { "jarvis": "bin/jarvis" }`, all 10 test-file assertions match the enumerated line numbers, README has 32 command invocations, and `v1/docs/` has ~126 command occurrences (slight count difference from the stated 135 due to grep-pattern variation — does not affect scope). CLAUDE.md command references are on lines 21 and 66; line 21 contains user-invocable `jarvis config`, `jarvis init`, `jarvis run <spec>` and should be updated; line 66 is product-description prose ("jarvis writes onto every commit") and should be left unchanged. No additional refinement needed; intent is ready for drafting.
+
+## Blocker
+
+Review and approve `spec/2026-05-22T03-54-26Z-rename-v1-binary-to-jarvis1/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis plan --resume-draft spec/2026-05-22T03-54-26Z-rename-v1-binary-to-jarvis1/intent.md`

@@ -157,7 +157,7 @@ any agent.
 
 ## Plan mode
 
-Plan mode (`jarvis plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis run` implements existing specs. Refine → draft → self-review runs inside **`.worktree/plan-<plan-name>/`** on branch **`plan/<plan-name>`** (branch/worktree names intentionally **omit** the UTC prefix even when authoring files live under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`**). **Legacy trees** capped at **`spec/<plan-name>/`** remain **`jarvis plan --resume` capable**. A GitHub draft PR opens after **`plan: draft`**; **`gh pr ready`** runs programmatically whenever blockers absent, stderr defaults stay quiet besides milestone chatter ([quieter-output section in plan-mode docs](./plan-mode.md#default-terminal-output)), and stdout **Next steps** recap merge/`jarvis run` without instructing reviewers to toggle readiness manually.
+Plan mode (`jarvis plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis run` implements existing specs. Refine → draft → self-review runs inside **`.worktree/plan-<plan-name>/`** on branch **`plan/<plan-name>`** (branch/worktree names intentionally **omit** the UTC prefix even when authoring files live under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`**). **Legacy trees** capped at **`spec/<plan-name>/`** remain **`jarvis plan --resume` capable**. A GitHub draft PR opens after **`plan: draft`**. Readiness transitions are attempted when all phases complete without blockers. If the draft PR is already ready, it remains untouched (idempotent). If it is still draft and the readiness gate fails, a later successful `jarvis plan --resume …` invocation retries the transition. Stderr defaults stay quiet besides milestone chatter ([quieter-output section in plan-mode docs](./plan-mode.md#default-terminal-output)), and stdout **Next steps** recap merge/`jarvis run` without instructing reviewers to toggle readiness manually.
 
 Full details — phases, flags, stop conditions, PR lifecycle, and cleanup — appear in
 [docs/plan-mode.md](./plan-mode.md).
@@ -329,12 +329,17 @@ events. If multiple files match or none do, the iteration still succeeds but
 telemetry uses `usage_source: "unavailable"` and `cost_source: "no-usage"` with
 an explanatory warning rather than attributing usage from the wrong session.
 
-Opencode usage is estimated from prompt/stdout text on successful runs
-(`usage_source: "estimated"`). Cost is `"computed"` when the configured
-`provider/model` string has a matching `data/prices.json` row, otherwise
-`cost_source: "no-price"`.
-When opencode estimation fails and usage falls back to unavailable, Jarvis prints
-a one-time notice on first fallback success per run:
+Opencode usage and cost are extracted from the `--format json` stream events
+(`usage_source: "agent"`, `cost_source: "agent"` when successful). Per-step
+token counts and costs are read from `step_finish.part.tokens` and
+`step_finish.part.cost` fields. When the JSON stream contains no complete
+`step_finish` events (or only malformed ones), the run falls back to the legacy
+token estimator path, recording `usage_source: "estimated"` and generating a
+per-iteration warning: `"opencode: no step_finish events in --format json stream; falling back to token estimation."`.
+The deepest fallback when the estimator is also unavailable records
+`usage_source: "unavailable"` and `cost_source: "no-usage"`, with a one-time
+notice printed on first fallback success per run (gated by
+`opencodeUnavailableNoted` in `src/modes/patch/run.ts`):
 `opencode: token usage not available for this CLI version (recording usage as unavailable)`.
 
 Cursor usage is currently recorded as unavailable in telemetry

@@ -1,0 +1,4 @@
+{"type":"step_start","timestamp":"2026-05-21T19:02:15Z","sessionID":"ses_123","part":{"id":"prt_1","type":"step-start","messageID":"msg_1","sessionID":"ses_123"}}
+{"type":"text","timestamp":"2026-05-21T19:02:15Z","sessionID":"ses_123","part":{"id":"prt_2","text":"Hello, ","type":"text-part","messageID":"msg_1","sessionID":"ses_123"}}
+{"type":"text","timestamp":"2026-05-21T19:02:16Z","sessionID":"ses_123","part":{"id":"prt_3","text":"this is a test.","type":"text-part","messageID":"msg_1","sessionID":"ses_123"}}
+{"type":"step_finish","timestamp":"2026-05-21T19:02:17Z","sessionID":"ses_123","part":{"id":"prt_4","reason":"stop","messageID":"msg_1","sessionID":"ses_123","type":"step-finish","tokens":{"total":24672,"input":3,"output":4,"reasoning":0,"cache":{"write":24665,"read":0}},"cost":0}}

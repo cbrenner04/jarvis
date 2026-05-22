@@ -19,8 +19,7 @@ v1/                   # engine v1 (own tsconfig project)
   test/
   spec/
 v2/                   # engine v2 (own tsconfig project)
-  src/
-  test/
+  src/                # source and co-located *.test.ts files
   spec/
 ```
 
@@ -30,6 +29,7 @@ Prompts are a top-level peer, not owned by either engine (see "Core premise" and
 
 - **Behavior is the source of truth.** v1's *implementation* is mostly disposable; its *behaviors and user workflows* are what v2 must preserve.
 - **Documented in code.** Inline documentation is a first-class output, not an afterthought. Separate higher-level docs keep the big picture coherent.
+- **Tests beside v2 source.** v2 tests live next to the source they cover instead of in a parallel `v2/test/` tree. Keep test-only fixtures near their owning code unless a genuinely shared fixture earns a shared home.
 - **Composable over modal.** "mode" (plan / patch / review / yolo) is probably the wrong primitive — see open questions below.
 - **No tech-stack churn.** bun + biome + typescript stay.
 
@@ -46,13 +46,70 @@ If English is code, prompts deserve the same treatment as code: versioned, reusa
 
 Still to design (owned by `v2-prompts.txt`): the exact `prompts/` layout, the prompt artifact taxonomy, the rendering/placeholder contract, and the review/testing standard. Because v1 shares evolving prompts, rendered-prompt snapshot or behavior tests matter — a prompt edit can shift `jarvis1` output and that change should be visible and reviewed.
 
-## Open questions (composability)
+## Composability direction
 
 The current "mode" model breaks down under the next round of features:
 
-- **`review`** is the next capability to add — but review wants to run *throughout* a plan or implement flow, not stand alone alongside them. That makes it not-a-mode in the same sense plan/implement are.
-- **`yolo`** is plan + implement + review composed. If yolo is a mode, then modes-compose-modes, which means "mode" is really just "named pipeline of operations."
-- The right primitive is probably something like **composable operations** (plan, implement, review, …) plus a **host/runner** that orchestrates them. Modes become preset compositions, not a distinct kind of thing.
+- **review** is a capability to add, but review wants to run *throughout* a plan or implement flow, not stand alone alongside them. That makes it not-a-mode in the same sense plan/implement are.
+- **yolo** is plan + implement + review composed. If yolo is a mode, then modes-compose-modes, which means "mode" is really just "named pipeline of operations."
+- The right primitive is composable behavior loops plus a **host/runner** that orchestrates them. Modes become user-defined workflow presets, not a distinct kind of source-code entity.
+
+### Behavior loops as interchangeable workflow pieces
+
+The composability target is not only "modes are pipelines." It is that the repeated pieces inside today's modes become explicit, interchangeable **behaviors**. A behavior is the loop primitive: what kind of work is being repeated, who performs it, and how the runner decides whether to continue or stop. Model selection, prompt selection, artifact contracts, and write boundaries specialize that primitive into concrete workflow steps.
+
+Useful behavior shapes:
+
+- **Write loop**: run an agent until a requested artifact exists, acceptance criteria move, or a blocker is declared. Model + prompt + artifact contract turn this into concrete steps such as create-intent, draft-spec, or implement-code.
+- **Review and update loop**: run an agent against existing artifacts, critique them, and update them in place. Model + prompt + artifact contract turn this into concrete steps such as refine-intent, review-spec, implementation-review, or security-review.
+- **Human loop**: pause automation for human review, approval, edits, merge, or an explicit resume command. v2 should make this less clunky than today, but the core architecture should not depend on brittle external resume conditions from day one.
+
+Workflows should stay mostly linear. A workflow is an ordered list of behavior steps with bounded repeat patterns, not an arbitrary graph. It should be possible to repeat a previous range of steps a fixed number of times, such as "repeat spec review + human review up to `N` times," while avoiding free-form branching that could make workflows surprising or hard to reason about.
+
+Loop counts are maximums. A workflow can force the full maximum when desired, but agent-driven loops may be allowed to stop early after a minimum number of passes when the agent reports that no useful work remains. That early-stop path needs an explicit outcome, not silent agent discretion.
+
+Plan mode today can be described as a fixed composition of those behavior loops:
+
+1. "Write" loop 1 time with an intent-creation prompt.
+2. "Review and update" loop `N` times with an intent-refinement prompt.
+3. "Human" loop `N` times for intent approval.
+4. "Write" loop 1 time with a draft-spec prompt.
+5. "Review and update" loop `N` times with a spec-review prompt.
+6. "Human" loop `N` times for final review and merge.
+
+Different projects should be able to choose different compositions without changing the underlying behavior implementations. A lightweight project might run only steps `1, 3, 4, 6`. A stricter project might run `1-6`, then repeat spec review + human review (`5, 6`) until the spec is accepted. The same behavior pieces are reused; only the workflow graph changes.
+
+The same model also describes implementation. Patch mode today is roughly:
+
+1. "Write" loop `N` times with an implementation prompt.
+2. "Human" loop `N` times for PR review and merge.
+
+A common stricter implementation workflow might instead be:
+
+1. "Write" loop `N` times with an implementation prompt.
+2. "Review and update" loop `N` times with a code-review prompt.
+3. "Review and update" loop `N` times with a security-review prompt.
+4. "Human" loop `N` times for final review and merge.
+
+An example of a YOLO workflow would be:
+
+1. "Write" loop 1 time with an intent-creation prompt.
+2. "Review and update" loop `N` times with an intent-refinement prompt.
+3. "Write" loop 1 time with a draft-spec prompt.
+4. "Review and update" loop `N` times with a spec-review prompt.
+5. "Write" loop `N` times with an implementation prompt.
+6. "Review and update" loop `N` times with a code-review prompt.
+7. "Review and update" loop `N` times with a security-review prompt.
+8. "Human" loop `N` times for final review and merge.
+
+Or
+
+1. "Write" loop 1 time with an intent-creation prompt.
+2. "Write" loop 1 time with a draft-spec prompt.
+3. "Write" loop `N` times with an implementation prompt.
+4. "Human" loop `N` times for final review and merge.
+
+This points toward a v2 architecture where "plan", "implement", "review", and "yolo" are not hardcoded modes in Jarvis source. They are user favorites or named workflow presets composed from the smaller behavior vocabulary Jarvis exposes. Prompts and model choices become step inputs, not hardcoded mode internals. The host/runner owns sequencing, bounded repeats, state handoff, quota fallback, telemetry, and human checkpoints.
 
 ## Architectural constraints
 
@@ -82,4 +139,3 @@ Install is intentionally not fancy — symlinks on two machines (personal + work
 4. **Design v2 architecture** — composable operations + host. Must satisfy the constraints above. Update this doc with the chosen model once decided.
 5. **Build v2 incrementally**, behavior-by-behavior. `jarvis` (v2) becomes usable as features land; `jarvis1` remains the daily-driver until v2 reaches parity.
 6. **No deletion of v1.** Both commands stay installed indefinitely.
-

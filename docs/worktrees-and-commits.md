@@ -230,7 +230,12 @@ The first push uses `git push -u origin plan/<plan-name>` to set up tracking;
 later pushes use plain `git push`.
 
 
-When every scripted phase succeeds, plan mode invokes **`gh pr ready`** automatically (mirroring **`jarvis run`** readiness semantics). Encountering **`plan: blocker`** commits (or lingering blockers) stops before readiness—the PR stays draft until recovery via **`jarvis plan --resume …`**.
+When every scripted phase succeeds, plan mode attempts a readiness transition (mirroring **`jarvis run`** readiness semantics):
+- If the branch's open PR is **draft**, the `bun run ready` gate runs. On success, `gh pr ready` flips it to ready. On gate failure, the PR remains draft.
+- If the branch's open PR is **already ready**, it remains untouched (idempotent).
+- A later successful `jarvis plan --resume …` invocation retries the transition for still-draft PRs.
+
+Encountering **`plan: blocker`** commits (or lingering blockers) stops before readiness—the PR stays draft until the blocker is cleared and **`jarvis plan --resume …`** succeeds.
 
 ## Cleanup
 

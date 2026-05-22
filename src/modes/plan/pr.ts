@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CommitInfo } from "../../pr.ts";
-import { checkPrExists, readBranchCommits } from "../../pr.ts";
+import { readBranchCommits } from "../../pr.ts";
 
 /**
  * A single subspec entry parsed from `index.md`.

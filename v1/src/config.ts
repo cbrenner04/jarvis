@@ -140,7 +140,10 @@ const DEFAULT_CONFIG: Config = {
   version: 2,
   modes: {
     patch: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
-    plan: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER), targetDir: "spec" },
+    plan: {
+      agentOrder: structuredClone(DEFAULT_AGENT_ORDER),
+      targetDir: "spec",
+    },
   },
   quotaFallback: "lenient",
   weakQuotaExitCodes: [],
@@ -416,7 +419,11 @@ function validateConfig(input: unknown, file: string): Config {
         fail(file, `project ${JSON.stringify(name)} plan must be an object`);
       }
       const planObj = planRaw as Record<string, unknown>;
-      const plan: { specTimestamp?: boolean; commit?: boolean; targetDir?: string } = {};
+      const plan: {
+        specTimestamp?: boolean;
+        commit?: boolean;
+        targetDir?: string;
+      } = {};
       const specTimestampRaw = planObj.specTimestamp;
       if (specTimestampRaw !== undefined) {
         if (typeof specTimestampRaw !== "boolean") {
@@ -656,7 +663,9 @@ function validateTargetDir(
   }
   const trimmed = value.trim();
   if (isAbsolute(trimmed)) {
-    failWith(`${name} must be a relative path (got ${JSON.stringify(trimmed)})`);
+    failWith(
+      `${name} must be a relative path (got ${JSON.stringify(trimmed)})`,
+    );
   }
   if (trimmed.includes("..")) {
     failWith(

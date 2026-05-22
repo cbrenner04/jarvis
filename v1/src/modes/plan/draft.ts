@@ -96,10 +96,7 @@ export function buildDraftPrompt(opts: {
     template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
   } else {
     // For commit specs, replace the placeholder with the actual committed root
-    template = template.replaceAll(
-      "spec/<NAME>/",
-      `${targetDir}/<NAME>/`,
-    );
+    template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
   }
   template = template.replaceAll("<WORKDIR>", workDir);
   template = template.replaceAll("<NAME>", opts.name);

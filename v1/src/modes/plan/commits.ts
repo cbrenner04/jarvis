@@ -24,7 +24,11 @@ export type CommitPlanRefineOptions = {
  * convention used by `renderAttribution` to filter PR-attribution-eligible
  * commits. Additional body lines follow the spec marker.
  */
-function buildPlanBody(specDirBasename: string, lines: string[], targetDir: string = "spec"): string {
+function buildPlanBody(
+  specDirBasename: string,
+  lines: string[],
+  targetDir: string = "spec",
+): string {
   const specLine = `Spec: ${targetDir}/${specDirBasename}/intent.md`;
   return [specLine, "", ...lines].join("\n");
 }
@@ -115,10 +119,11 @@ export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
   });
 
   const subject = `plan: draft${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
-  const body = buildPlanBody(specDirBasename, [
-    `Drafted by ${opts.agentLabel}.`,
-    `Subspecs: ${opts.subspecCount}`,
-  ], opts.targetDir);
+  const body = buildPlanBody(
+    specDirBasename,
+    [`Drafted by ${opts.agentLabel}.`, `Subspecs: ${opts.subspecCount}`],
+    opts.targetDir,
+  );
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
@@ -159,9 +164,11 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
   });
 
   const subject = `plan: review ${opts.passNumber}${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
-  const body = buildPlanBody(specDirBasename, [
-    `Reviewed by ${opts.agentLabel}.`,
-  ], opts.targetDir);
+  const body = buildPlanBody(
+    specDirBasename,
+    [`Reviewed by ${opts.agentLabel}.`],
+    opts.targetDir,
+  );
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
@@ -205,11 +212,15 @@ export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
   });
 
   const subject = `plan: blocker${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
-  const body = buildPlanBody(specDirBasename, [
-    `Blocked by ${opts.reason}`,
-    `Spec files to date: ${opts.specFilesCount}`,
-    `Raised by ${opts.agentLabel}.`,
-  ], opts.targetDir);
+  const body = buildPlanBody(
+    specDirBasename,
+    [
+      `Blocked by ${opts.reason}`,
+      `Spec files to date: ${opts.specFilesCount}`,
+      `Raised by ${opts.agentLabel}.`,
+    ],
+    opts.targetDir,
+  );
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 

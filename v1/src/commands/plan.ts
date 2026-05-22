@@ -381,13 +381,17 @@ function prepareResume(args: {
     throw new Error(`${worktreePath} is not checked out on ${branch}`);
   }
   if (!existsSync(join(worktreePath, targetDir, specDir, "intent.md"))) {
-    throw new Error(`missing ${targetDir}/${specDir}/intent.md in ${worktreePath}`);
+    throw new Error(
+      `missing ${targetDir}/${specDir}/intent.md in ${worktreePath}`,
+    );
   }
   if (
     args.mode === "resume" &&
     !existsSync(join(worktreePath, targetDir, specDir, "index.md"))
   ) {
-    throw new Error(`missing ${targetDir}/${specDir}/index.md in ${worktreePath}`);
+    throw new Error(
+      `missing ${targetDir}/${specDir}/index.md in ${worktreePath}`,
+    );
   }
   if (!isWorktreeClean(worktreePath)) {
     throw new Error(
@@ -549,10 +553,7 @@ export function appendPhase0ReviewGateBlocker(
   const blockerSection = PHASE0_REVIEW_GATE_BLOCKER.replaceAll(
     "<spec-dir>",
     specDirBasename,
-  ).replaceAll(
-    "spec/",
-    `${targetDir}/`,
-  );
+  ).replaceAll("spec/", `${targetDir}/`);
   const withSpacer = current.endsWith("\n\n")
     ? current
     : current.endsWith("\n")
@@ -643,7 +644,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     );
 
     const fullProject = cfg.projects[project.key];
-    const { specTimestamp, commit, targetDir } = resolvePlanFlags(cfg, fullProject);
+    const { specTimestamp, commit, targetDir } = resolvePlanFlags(
+      cfg,
+      fullProject,
+    );
     planHarnessLog(
       planLogClient,
       `plan: resolved flags specTimestamp=${specTimestamp} commit=${commit} targetDir=${targetDir}`,
@@ -740,7 +744,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       const cfg = loadConfig(opts.config);
       const resumeProject = findProjectForPath(inv.intentPath);
-      const { targetDir: resumeTargetDir } = resolvePlanFlags(cfg, resumeProject);
+      const { targetDir: resumeTargetDir } = resolvePlanFlags(
+        cfg,
+        resumeProject,
+      );
       const resumeIntentPath = resume.externalSpecRoot
         ? join(resume.externalSpecRoot, resume.specDirBasename, "intent.md")
         : join(
@@ -847,7 +854,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               agentLabel: refineResult.agentLabel ?? "unknown",
               reason: firstNonEmptyLine(refineResult.blocker),
               specFilesCount: countSpecFiles(
-                join(resume.worktreePath, resumeTargetDir, resume.specDirBasename),
+                join(
+                  resume.worktreePath,
+                  resumeTargetDir,
+                  resume.specDirBasename,
+                ),
               ),
               subjectSuffix: suffix,
               targetDir: resumeTargetDir,
@@ -879,7 +890,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         try {
           const finalSpecPath = resume.externalSpecRoot
             ? join(resume.externalSpecRoot, resume.specDirBasename)
-            : join(resume.worktreePath, resumeTargetDir, resume.specDirBasename);
+            : join(
+                resume.worktreePath,
+                resumeTargetDir,
+                resume.specDirBasename,
+              );
           const intentBefore = readFileSync(resumeIntentPath, "utf8");
           draftResult = await runDraftPhase({
             worktreePath: resume.worktreePath,
@@ -2020,7 +2035,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           if (validation.blocker !== undefined) {
             // Check boundary before blocker commit
             const boundaryCheck = commit
-              ? assertPlanWriteBoundary(worktreePath, specDirBasename, targetDir)
+              ? assertPlanWriteBoundary(
+                  worktreePath,
+                  specDirBasename,
+                  targetDir,
+                )
               : assertTargetRepoPlanBoundary(project.root);
 
             // For no-commit runs, also check the external spec directory
@@ -2241,7 +2260,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         try {
           const prUrl = getPrUrl(worktreePath as string, planBranch);
           opts.io.stdout(
-            renderPlanNextSteps({ prUrl, planName, specDirBasename, targetDir }),
+            renderPlanNextSteps({
+              prUrl,
+              planName,
+              specDirBasename,
+              targetDir,
+            }),
           );
         } catch {
           // best-effort; completion still succeeds without a URL

@@ -99,10 +99,7 @@ export function buildReviewPrompt(opts: {
     template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
   } else {
     // For commit specs, replace the placeholder with the actual committed root
-    template = template.replaceAll(
-      "spec/<NAME>/",
-      `${targetDir}/<NAME>/`,
-    );
+    template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
   }
 
   return template;

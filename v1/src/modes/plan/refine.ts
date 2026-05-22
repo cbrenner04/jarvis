@@ -95,10 +95,7 @@ export function buildRefinePrompt(opts: {
   let template = readFileSync(promptFile, "utf8");
 
   const targetDir = opts.targetDir ?? "spec";
-  template = template.replaceAll(
-    "spec/<NAME>/",
-    `${targetDir}/<NAME>/`,
-  );
+  template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
   template = template.replaceAll("<WORKDIR>", opts.name);
   template = template.replaceAll("<NAME>", opts.name);
   template = template.replaceAll("<INTENT>", opts.intent);
@@ -455,9 +452,7 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
       ...(opts.externalSpecRoot !== undefined
         ? { externalSpecRoot: opts.externalSpecRoot }
         : {}),
-      ...(opts.targetDir !== undefined
-        ? { targetDir: opts.targetDir }
-        : {}),
+      ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });
 
     // Update agent label (use the most recent non-null one)

@@ -1,66 +1,51 @@
 # 01 — v1 source string updates
 
-Update every user-facing `jarvis` command string in the v1 TypeScript source to `jarvis1`. This covers usage text, error prefixes, actionable command suggestions, status output, and generated next-step messages. Data-namespace strings (`namespace: "jarvis"`, `~/.jarvis/` paths, git trailers, PR narrative markers) are explicitly excluded.
+Update every user-facing `jarvis` command string in the v1 TypeScript source to `jarvis1`. This subspec is limited to runtime-facing strings emitted by the shipped CLI; it does not rename storage namespaces, repo identity, or protected internal markers.
 
 ## Decisions
 
-- Update only strings that a user reads as a command they can run or an error prefix that identifies the CLI. Do not update internal keys, config paths, telemetry namespaces, or protocol markers.
-- All fifteen files below are in scope. Any file not listed is out of scope.
+- Update strings that users read as a command invocation, usage line, CLI-prefixed error, or actionable next step.
+- Do not update internal keys, config paths, telemetry namespaces, PR narrative markers, or protocol markers even when they contain `jarvis`.
+- The audited source scope is fixed to the fifteen files below. If more user-facing command strings are discovered during implementation, extend this subspec before editing code outside the listed files.
 
 ## Files in scope
 
-**From Refine turn 1:**
-1. `v1/src/cli.ts` — `USAGE` string, `"jarvis: ..."` error prefixes
-2. `v1/src/commands/plan.ts` — `PLAN_USAGE` (line ~97), `jarvis plan --resume-draft` in usage text (line ~112), worktree triage suggestion (line ~394), no-registered-projects error containing `` `jarvis init` `` (line ~620), no-commit next-step message and plan-complete handoff messages (`jarvis run`, `jarvis plan --resume`, `jarvis run spec/...`) (lines ~2234, ~2268, ~2271)
-3. `v1/src/log-server-preflight.ts` — `"jarvis: log server unreachable..."` prefix, `` `jarvis log-server` `` suggestion
-4. `v1/src/modes/patch/run.ts` — `` `jarvis run` `` plan-branch-exists warning (line ~588); `` `jarvis triage `` suggestions in the no-new-criteria error (line ~1279) and spec-complete-but-blocker error (line ~1521)
-5. `v1/src/commands/triage.ts` — `"jarvis cleanup"` and `"jarvis run"` action suggestions
-
-**From Refine turn 2:**
-6. `v1/src/modes/shared-entry.ts` — `"jarvis: log server unreachable..."`, `` `jarvis log-server` ``, `` `jarvis init` `` suggestions
-7. `v1/src/worktree.ts` — `` `jarvis cleanup` `` in thrown-error message (line ~106); JSDoc comment mentioning `jarvis triage` is NOT updated
-8. `v1/src/commands/init.ts` — `"jarvis: init must be run inside..."`, `` `jarvis config` `` suggestion, `"jarvis: ${err}"` prefix
-9. `v1/src/commands/review-feedback.ts` — all `"jarvis review-feedback: ..."` error/status prefix strings
-10. `v1/src/logging.ts` — `"jarvis: invalid logServerBind..."`, `"jarvis: log server failed: ..."`, `"jarvis log-server listening on..."` (do NOT rename `namespace: "jarvis"` on line ~22)
-
-**From Refine turn 3:**
-11. `v1/src/commands/config.ts` — `USAGE` string, sixteen `"jarvis: ..."` error prefixes covering every config subcommand
-12. `v1/src/commands/prices.ts` — `USAGE` string, `"jarvis: unknown prices subcommand..."` error
-13. `v1/src/commands/prices-edit.ts` — `"jarvis: ..."` error prefixes
-14. `v1/src/commands/prices-show.ts` — `"jarvis: failed to load prices: ..."` error
-15. `v1/src/disambiguation-prompt.ts` — `"jarvis: ..."` error prefixes for invalid-choice errors
+1. `v1/src/cli.ts` — usage text and `jarvis:` error prefixes
+2. `v1/src/commands/plan.ts` — plan usage text, `jarvis init`/`jarvis run`/`jarvis plan --resume*` handoff strings, and triage suggestions
+3. `v1/src/log-server-preflight.ts` — `jarvis:` prefix and `jarvis log-server` suggestion
+4. `v1/src/modes/patch/run.ts` — `jarvis run` and `jarvis triage` suggestions emitted during patch-mode failures
+5. `v1/src/commands/triage.ts` — `jarvis cleanup` and `jarvis run` action suggestions
+6. `v1/src/modes/shared-entry.ts` — `jarvis:` prefix plus `jarvis log-server` and `jarvis init` suggestions
+7. `v1/src/worktree.ts` — thrown error that points the user to `jarvis cleanup`
+8. `v1/src/commands/init.ts` — `jarvis:` prefixes and `jarvis config` suggestion
+9. `v1/src/commands/review-feedback.ts` — `jarvis review-feedback:` status and error prefixes
+10. `v1/src/logging.ts` — `jarvis:` errors and `jarvis log-server listening ...` status output
+11. `v1/src/commands/config.ts` — config usage text and `jarvis:` error prefixes
+12. `v1/src/commands/prices.ts` — prices usage text and unknown-subcommand error
+13. `v1/src/commands/prices-edit.ts` — `jarvis:` error prefixes
+14. `v1/src/commands/prices-show.ts` — failed-to-load error prefix
+15. `v1/src/disambiguation-prompt.ts` — invalid-choice error prefixes
 
 ## Do NOT change
 
-- `namespace: "jarvis"` in `plan.ts` (telemetry/session key)
-- `namespace: "jarvis"` in `logging.ts` (data-namespace key)
-- `~/.jarvis/` path strings throughout
-- Git trailer values, PR narrative markers, internal protocol strings
-- JSDoc/code comments (non-user-facing)
+- `namespace: "jarvis"` in `v1/src/commands/plan.ts`
+- `namespace: "jarvis"` in `v1/src/logging.ts`
+- `~/.jarvis/` path strings anywhere in source
+- Git trailer values, PR narrative markers, and protocol markers
+- Non-user-facing comments and JSDoc
+- Product-name prose that is not telling the user what executable to run, including `jarvis cannot detect completion` and `Auto-generated by jarvis`
 
 ## Task checklist
 
-- [ ] Update `v1/src/cli.ts`
-- [ ] Update `v1/src/commands/plan.ts`
-- [ ] Update `v1/src/log-server-preflight.ts`
-- [ ] Update `v1/src/modes/patch/run.ts`
-- [ ] Update `v1/src/commands/triage.ts`
-- [ ] Update `v1/src/modes/shared-entry.ts`
-- [ ] Update `v1/src/worktree.ts` (thrown-error only, not JSDoc)
-- [ ] Update `v1/src/commands/init.ts`
-- [ ] Update `v1/src/commands/review-feedback.ts`
-- [ ] Update `v1/src/logging.ts` (skip `namespace:` line)
-- [ ] Update `v1/src/commands/config.ts`
-- [ ] Update `v1/src/commands/prices.ts`
-- [ ] Update `v1/src/commands/prices-edit.ts`
-- [ ] Update `v1/src/commands/prices-show.ts`
-- [ ] Update `v1/src/disambiguation-prompt.ts`
+- [ ] Update usage text, command suggestions, and CLI-prefixed errors in all fifteen files listed above
+- [ ] Leave protected namespace, path, and product-name strings untouched
+- [ ] Re-audit the edited files for stray user-facing `jarvis` command text before handing off to the test subspec
 
 ## Acceptance criteria
 
-- [ ] Running `grep -n 'jarvis' v1/src/cli.ts v1/src/commands/plan.ts v1/src/log-server-preflight.ts v1/src/modes/patch/run.ts v1/src/commands/triage.ts v1/src/modes/shared-entry.ts v1/src/worktree.ts v1/src/commands/init.ts v1/src/commands/review-feedback.ts v1/src/logging.ts v1/src/commands/config.ts v1/src/commands/prices.ts v1/src/commands/prices-edit.ts v1/src/commands/prices-show.ts v1/src/disambiguation-prompt.ts` shows no remaining occurrences of `jarvis` in user-facing strings — every surviving match is a data-namespace key (`namespace: "jarvis"`), a path segment (`~/.jarvis`), a code comment, or the product-name prose (e.g. `Auto-generated by jarvis`)
+- [ ] Every user-facing command example or CLI-prefix string in the fifteen files listed above uses `jarvis1` instead of `jarvis`
+- [ ] Any remaining `jarvis` occurrences in those files are only protected cases from the do-not-change list: `namespace: "jarvis"`, `~/.jarvis/` paths, non-user-facing comments, or product-name prose
 - [ ] `bun run typecheck` passes
-- [ ] `bun test` passes
 
 ## Documentation updates
 

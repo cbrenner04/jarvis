@@ -1,67 +1,74 @@
-# 02 — Test updates
+# 02 — Test updates and command-boundary verification
 
-Update test files that assert on user-facing command strings to expect `jarvis1` instead of `jarvis`. The intent is to keep tests aligned with the renamed binary and source strings changed in subspec 01. Internal test plumbing (temp dir prefixes, git config values, branch names, narrative markers, protocol strings, data paths) is explicitly not renamed.
+Update tests that assert on user-facing command strings so they match the renamed v1 binary, then verify the final boundary: `jarvis1` runs v1 and bare `jarvis` is no longer owned by v1.
+
+## Decisions
+
+- This subspec owns only tests and end-state verification. Runtime source changes belong to subspec 01.
+- Update assertions that check command text shown to users. Do not rename internal test fixture strings, temp-dir prefixes, protocol markers, or `.jarvis` path construction.
+- The final smoke checks here are the only place the spec requires direct verification that `bin/jarvis1` works and `bin/jarvis` is gone.
 
 ## Files in scope
 
-- `v1/test/cli.test.ts`
-- `v1/test/run.test.ts`
-- `v1/test/init.test.ts`
-- `v1/test/plan-command.test.ts`
-- `v1/test/plan-worktree.test.ts`
-- `v1/test/triage-command.test.ts`
+1. `v1/test/cli.test.ts`
+2. `v1/test/run.test.ts`
+3. `v1/test/init.test.ts`
+4. `v1/test/plan-command.test.ts`
+5. `v1/test/plan-worktree.test.ts`
+6. `v1/test/triage-command.test.ts`
 
-## Changes per file
+## Required changes
 
 **`v1/test/cli.test.ts`**
-- `describe("bin/jarvis", ...)` → `describe("bin/jarvis1", ...)`
-- `linkPath = join(binDir, "jarvis")` → `join(binDir, "jarvis1")`
-- `resolve("bin/jarvis")` symlink target → `resolve("bin/jarvis1")`
-- `toContain("Usage: jarvis")` → `toContain("Usage: jarvis1")`
-- `toContain("Usage: jarvis config")` (line ~223) → `toContain("Usage: jarvis1 config")`
+
+- Rename the integration describe block from `bin/jarvis` to `bin/jarvis1`
+- Update the symlink test to create and invoke `jarvis1`
+- Update usage assertions to expect `Usage: jarvis1 ...`
 
 **`v1/test/run.test.ts`**
-- Line ~403: `toContain("jarvis log-server")` → `toContain("jarvis1 log-server")`
-- Lines ~577, ~1157: `toContain("jarvis triage")` → `toContain("jarvis1 triage")`
+
+- Update assertions that mention `jarvis log-server` and `jarvis triage`
 
 **`v1/test/init.test.ts`**
-- Line ~200: `toContain("jarvis config")` → `toContain("jarvis1 config")`
+
+- Update the `jarvis config` suggestion assertion
 
 **`v1/test/plan-command.test.ts`**
-- Line ~100: `toContain("jarvis plan --resume")` → `toContain("jarvis1 plan --resume")`
-- Line ~102: `toContain(\`jarvis run spec/...\`)` or equivalent → `toContain("jarvis1 run")`
-- Line ~512: `toContain("jarvis log-server")` → `toContain("jarvis1 log-server")`
-- Line ~1189: `toContain("jarvis plan --resume-draft spec/")` → `toContain("jarvis1 plan --resume-draft")`
+
+- Update assertions that mention `jarvis plan --resume`, `jarvis plan --resume-draft`, `jarvis run`, and `jarvis log-server`
 
 **`v1/test/plan-worktree.test.ts`**
-- Line ~90: `toContain("jarvis cleanup")` → `toContain("jarvis1 cleanup")`
+
+- Update the `jarvis cleanup` assertion
 
 **`v1/test/triage-command.test.ts`**
-- Line ~287: `toContain("jarvis cleanup")` → `toContain("jarvis1 cleanup")`
+
+- Update the `jarvis cleanup` assertion
 
 ## Do NOT change
 
-- `mkdtempSync(join(tmpdir(), "jarvis-..."))` temp-dir name prefixes
-- `"jarvis-e2e"` git branch names
+- `mkdtempSync(join(tmpdir(), "jarvis-..."))` temp-dir prefixes
+- `"jarvis-e2e"` branch names
 - `"jarvis-test@example.com"` and `"jarvis-test"` git config values
-- `<!-- jarvis:narrative:start -->`, `<!-- jarvis:narrative:end -->` narrative markers
-- `<!-- jarvis-codex-invocation: ... -->` protocol markers
+- `<!-- jarvis:narrative:start -->`, `<!-- jarvis:narrative:end -->` markers
+- `<!-- jarvis-codex-invocation: ... -->` markers
 - `".jarvis-project-resolution-anchor.md"` internal filenames
 - `join(... ".jarvis" ...)` config/data path construction
 
 ## Task checklist
 
-- [ ] Update `v1/test/cli.test.ts` (describe block, symlink paths, Usage assertions)
-- [ ] Update `v1/test/run.test.ts` (log-server and triage assertions)
-- [ ] Update `v1/test/init.test.ts` (config suggestion assertion)
-- [ ] Update `v1/test/plan-command.test.ts` (plan resume, run, log-server assertions)
-- [ ] Update `v1/test/plan-worktree.test.ts` (cleanup assertion)
-- [ ] Update `v1/test/triage-command.test.ts` (cleanup assertion)
+- [ ] Update all six test files listed above to expect `jarvis1` in user-facing output
+- [ ] Leave protected internal test strings untouched
+- [ ] Run the full test suite after the assertion updates
+- [ ] Run the final binary smoke checks after tests pass
 
 ## Acceptance criteria
 
-- [ ] `bun test` passes, including the `bin/jarvis1` symlink integration test in `cli.test.ts` (requires subspec 00 and 01 to be applied first so `bin/jarvis1` exists and source strings are updated)
-- [ ] Running `grep -n 'toContain.*"jarvis \|toContain.*`jarvis ' v1/test/cli.test.ts v1/test/run.test.ts v1/test/init.test.ts v1/test/plan-command.test.ts v1/test/plan-worktree.test.ts v1/test/triage-command.test.ts` shows no remaining assertions matching user-facing command strings — every surviving `jarvis` match is a protected string from the do-not-change list above
+- [ ] `bun test` passes
+- [ ] The updated test files contain no remaining assertions that expect a user-facing `jarvis ...` command string
+- [ ] Running `bin/jarvis1 help` succeeds
+- [ ] Running `bin/jarvis1 plan --help` succeeds and its usage output names `jarvis1`
+- [ ] `bin/jarvis` is absent, or invoking it fails because v1 no longer owns the bare `jarvis` command
 
 ## Documentation updates
 

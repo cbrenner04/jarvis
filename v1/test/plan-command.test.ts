@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -150,9 +151,20 @@ describe("planCommand", () => {
 
   test("commit: false on non-git project does not call git for baseBranch", async () => {
     const { dir, cfgDir, project } = setupRegisteredProject();
+    const originalPath = process.env.PATH;
     try {
       // Verify project is not a git repo
       expect(!existsSync(join(project, ".git"))).toBe(true);
+
+      // Stub `aider` on PATH with a fake binary that fails immediately. This
+      // keeps the test from spawning the real aider, which would otherwise try
+      // to open a browser to litellm/aider docs on an unknown model.
+      const binDir = join(dir, "bin");
+      mkdirSync(binDir);
+      const aider = join(binDir, "aider");
+      writeFileSync(aider, "#!/usr/bin/env bash\nexit 1\n");
+      chmodSync(aider, 0o755);
+      process.env.PATH = `${binDir}:${originalPath ?? ""}`;
 
       // Set project-level config to commit: false and add a no-op agent
       const cfg = loadConfig({ dir: cfgDir });
@@ -161,7 +173,7 @@ describe("planCommand", () => {
         throw new Error("expected registered project");
       }
       projectConfig.plan = { commit: false };
-      // Configure an invalid model for an agent so it fails at invocation
+      // Configure the (now stubbed) aider agent so it fails at invocation
       cfg.modes.plan.agentOrder = [
         { agent: "aider", model: "non-existent-model-for-test" },
       ];
@@ -195,6 +207,7 @@ describe("planCommand", () => {
       // (it was fixed by gating behind if(commit))
       expect(stderr).not.toContain("fatal: not a git repository");
     } finally {
+      process.env.PATH = originalPath;
       rmSync(dir, { recursive: true, force: true });
     }
   });

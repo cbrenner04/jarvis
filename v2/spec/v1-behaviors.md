@@ -147,23 +147,40 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - Footer summary line is first-seen deduped (`Written by <Label A>, <Label B> through Jarvis.`) and omitted when no labelled commits exist; the entire footer is omitted when no qualifying subspec commits are present. Sources: `v1/src/pr.ts`
 - Patch PR body rewrites preserve only content between `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->`; header and footer are regenerated each rewrite and manual edits outside narrative markers are not sticky. Sources: `v1/src/pr.ts`, `v1/src/modes/patch/pr.ts`
 - Plan-mode attribution collapses consecutive plan meta-commits into a single summary bullet, while subspec commits remain individually listed, and both still contribute to the deduped `Written by ... through Jarvis.` summary ordering by first appearance. Sources: `v1/src/modes/plan/pr.ts`
-- [uncertain] Plan-mode collapsed attribution bullets always use fixed text `spec commits (refine, draft, review)` even when the grouped meta commits may include blocker/resume variants, so the wording may be lossy relative to exact commit subjects. Sources: `v1/src/modes/plan/pr.ts`
+- Cross-reference: plan-mode collapsed attribution wording has a fixed label that can be lossy relative to grouped commit variants; see `## Behaviors with uncertain intent`. Sources: `v1/src/modes/plan/pr.ts`
 
 ## Filesystem, logging, telemetry, and other side effects
 
-Subspec 04 is expected to fill this section with write boundaries, logs/telemetry emission, and other observable side effects that occur during v1 runs. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/04-side-effects-completion-and-failures.md`
+- `run` and `plan` both run a mandatory log-server reachability preflight (default `http://127.0.0.1:4310/logs`) after repo resolution and before agent work; failures print a specific `jarvis: log server unreachable ...` banner plus error detail and exit `1`. Sources: `v1/src/mode-entry.ts`, `v1/src/log-server-preflight.ts`
+- Log-server health checks and normal log sends are HTTP `POST` JSON payloads to the configured URL, and non-2xx responses are treated as transport failures (`log server returned HTTP <status>`). Sources: `v1/src/logging.ts`
+- After preflight succeeds, harness log forwarding is fire-and-forget; log send failures are swallowed so agent iteration can proceed, with on-disk session logs treated as the authoritative record. Sources: `v1/src/modes/patch/run.ts`
+- Patch runs always open a session log file under the configured logging root, write timestamped `[tag]` lines (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`), and close the FD during finalize. Sources: `v1/src/modes/patch/run.ts`, `v1/src/config.ts`
+- Telemetry writes are append-only JSONL rows to `telemetryPath` (when configured), with parent directories auto-created and one row per invocation plus optional `run_terminal` rows for run exit state. Sources: `v1/src/telemetry.ts`, `v1/src/modes/patch/run.ts`
+- Telemetry usage/cost enrichment normalizes unavailable usage to explicit null token fields + `cost_source: "no-usage"`, and otherwise may compute USD from local price tables when usage exists and a price key resolves. Sources: `v1/src/telemetry-enrichment.ts`
+- When telemetry rows exist for the run namespace/time window, patch finalize prints a human-readable run summary (iterations/attempts/duration/cost table) to stdout; malformed telemetry lines are ignored rather than failing the run. Sources: `v1/src/run-summary.ts`, `v1/src/modes/patch/run.ts`
+- Patch run preflight may persist config side effects by lazily backfilling missing registered-project `origin` from git remote URL when available, but failures in this best-effort update do not block execution. Sources: `v1/src/modes/patch/run.ts`, `v1/src/config.ts`, `v1/src/commands/init.ts`
 
 ## Completion, blockers, exit codes, and failure handling
 
-Subspec 04 is expected to fill this section with completion semantics, blocker handling, and exit-code/failure behavior for patch and related workflows. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/04-side-effects-completion-and-failures.md`
+- Patch spec completion is checkbox-driven: parser counts unchecked GitHub-task items, and a spec with zero task items is malformed (`MalformedSpecError`) rather than complete. Sources: `v1/src/modes/patch/completion.ts`, `v1/src/modes/patch/spec.ts`
+- For index-routed runs, the active subspec is the first unchecked linked task in `index.md`; if no linked unchecked item exists, active subspec resolution returns `undefined` and iteration logic falls back to top-level checklist progress only. Sources: `v1/src/modes/patch/completion.ts`, `v1/src/modes/patch/spec.ts`, `v1/src/modes/patch/run.ts`
+- If the active subspec has no exact `## Acceptance criteria` checklist items, patch run stops with exit `1` and prints parser-warning details when near-miss headings (wrong case/level) were detected. Sources: `v1/src/modes/patch/run.ts`, `v1/src/modes/patch/spec.ts`
+- Blocker detection is exact-header based (`## Blocker`): pre-existing blocker body causes immediate blocked exit `7`, and newly added blocker body during an iteration also exits `7` (with WIP blocker commit/push in git mode before exiting). Sources: `v1/src/modes/patch/blocker.ts`, `v1/src/modes/patch/spec.ts`, `v1/src/modes/patch/run.ts`
+- Spec checklists can be complete while run still exits `6` when git worktree state blocks completion (dirty/unpushed state surfaced via `worktreeCompletionBlocker` guidance and `jarvis triage` hint). Sources: `v1/src/modes/patch/run.ts`, `v1/src/worktree.ts`
+- Exit reasons are mapped from run codes in patch mode as: `0` criteria complete, `1` error, `2` quota exhausted, `3` agent/model hard failure, `4` no progress, `5` max iterations, `6` dirty worktree/completion blocker, `7` blocked, `8` timeout, `9` worktree lock busy, and `130` SIGINT. Sources: `v1/src/modes/patch/run.ts`
+- Agent-failure pipeline classifies non-zero exits in strict order (`model_config` before strict quota before generic error), merges stderr+stdout into diagnostics on errors, and only allows weak/lenient quota upgrades in mode-controlled no-progress contexts. Sources: `v1/src/agents/spawn.ts`, `v1/src/agents/quota.ts`, `v1/docs/agent-cli-failure-pipeline.md`, `v1/src/modes/patch/run.ts`
+- Patch-mode fallback policy differs by error class: strict quota rotates to next configured agent, model-config fails fast with no fallback, and non-quota errors only rotate under lenient weak-quota rules; otherwise run exits `3`. Sources: `v1/src/modes/patch/run.ts`, `v1/src/agents/quota.ts`
 
 ## Behaviors with uncertain intent
 
-Subspec 04 is expected to consolidate this section with `[uncertain]` entries where source indicates behavior but does not justify a clear policy intent. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/04-side-effects-completion-and-failures.md`
+- [uncertain] Plan-mode collapsed attribution bullets always use fixed text `spec commits (refine, draft, review)` even when grouped commits include blocker/resume variants, so the label can lose subject-level detail; source shows this formatting but not why lossy wording is preferred. Sources: `v1/src/modes/plan/pr.ts`
+- [uncertain] `parsePatchSpec` captures only the last exact `## Acceptance criteria` section and last exact `## Blocker` section when duplicates exist, but v1 does not document whether duplicate sections are invalid or intentionally "last one wins." Sources: `v1/src/modes/patch/spec.ts`
 
 ## Surprising or possibly vestigial behaviors
 
-Subspec 04 is expected to consolidate this section with behavior that is observable in v1 but likely transitional, surprising, or vestigial. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/04-side-effects-completion-and-failures.md`
+- `run` can exit successfully (`0`) even when invoked on a non-index spec with unchecked tasks remaining, because non-index flow is intentionally one-iteration and then returns after `criteria-progress`. Sources: `v1/src/modes/patch/run.ts`
+- Log-server connectivity is a hard gate for both patch and plan modes even though post-preflight log delivery failures are ignored; this makes local observability service availability stricter than later per-message reliability. Sources: `v1/src/mode-entry.ts`, `v1/src/log-server-preflight.ts`, `v1/src/modes/patch/run.ts`
+- The fallback non-index prompt defaults to `exit` on empty or unrecognized input, so a mistaken Enter can terminate `jarvis run` without any agent attempt. Sources: `v1/src/modes/patch/run.ts`
 
 ## Maintenance requirement for future v1 changes
 

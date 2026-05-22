@@ -63,23 +63,23 @@ cross-reference there and keep the substantive entry in its natural home.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/v1-behaviors.md` contains substantive sections for side effects,
+- [x] `v2/spec/v1-behaviors.md` contains substantive sections for side effects,
       completion/blockers/failures, uncertain behaviors, and surprising or
       possibly vestigial behaviors.
-- [ ] The side-effects section documents the log-server preflight gate,
+- [x] The side-effects section documents the log-server preflight gate,
       logging/telemetry behavior, and other durable artifacts visible to users.
-- [ ] The completion/failure section captures completion detection, blocker
+- [x] The completion/failure section captures completion detection, blocker
       handling, and exit/failure semantics sourced from the patch-mode and
       failure-pipeline code/docs.
-- [ ] Any uncertainty or vestigial-behavior entries introduced earlier in the
+- [x] Any uncertainty or vestigial-behavior entries introduced earlier in the
       catalog have been consolidated into the dedicated catch-all sections
       unless they need a brief cross-reference in their original area.
-- [ ] The uncertain and surprising sections contain only source-backed entries;
+- [x] The uncertain and surprising sections contain only source-backed entries;
       uncertain items are tagged `[uncertain]` with a brief explanation.
-- [ ] Every behavior entry added by this subspec cites at least one supporting
+- [x] Every behavior entry added by this subspec cites at least one supporting
       source file.
 
 ## Documentation updates
 
-- [ ] `v2/spec/v1-behaviors.md` is updated for the side-effect, completion, and
+- [x] `v2/spec/v1-behaviors.md` is updated for the side-effect, completion, and
       failure behavior areas owned by this subspec.

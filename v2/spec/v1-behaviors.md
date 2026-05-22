@@ -60,7 +60,39 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 
 ## Agent adapters, model selection, and quota fallback
 
-Subspec 01 is expected to fill this section with v1 behavior for adapter selection, model handling, pricing keys, and quota fallback across commands and modes. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/01-agents-models-pricing-and-quota.md`
+### Roster and default order
+
+- v1 recognizes exactly five adapter names (`claude`, `codex`, `cursor`, `opencode`, `aider`) and `createAgent()` instantiates the matching adapter class directly from that name/model pair. Sources: `v1/src/agents/types.ts`, `v1/src/agents/factory.ts`
+- Default `modes.patch.agentOrder` and `modes.plan.agentOrder` include only three entries in this order: `claude` (`haiku`), `codex` (`gpt-5.3-codex`), then `cursor` (`Composer 2`); `opencode` and `aider` are supported but opt-in via config edits. Sources: `v1/src/config.ts`, `v1/docs/agents.md`
+- `jarvis run` executes agents in configured patch order and advances only when an agent result is classified as quota-related; if the active agent returns a non-quota hard error, the iteration stops instead of trying later agents. Sources: `v1/src/modes/patch/run.ts`, `v1/src/agents/quota.ts`
+
+### Adapter-specific behavior
+
+- `claude` runs `claude -p --permission-mode acceptEdits --output-format json`, pipes the prompt on stdin, forwards `--add-dir` entries, and parses JSON response fields into displayed text, usage, and cost when present. Sources: `v1/src/agents/claude.ts`, `v1/docs/agents.md`
+- `codex` runs `codex exec --color never --sandbox workspace-write -c approval_policy="on-request"` with stdin prompt piping, appends a per-invocation marker to the prompt, and derives usage by correlating changed `~/.codex/sessions/*.jsonl` files; ambiguous or missing correlation is reported as unavailable instead of guessed. Sources: `v1/src/agents/codex.ts`, `v1/src/agents/codex-session.ts`, `v1/docs/agents.md`
+- `cursor` runs `cursor agent -p --output-format text --force --workspace <cwd> <prompt>`, and successful runs estimate token usage from prompt+stdout rather than CLI-reported counters. Sources: `v1/src/agents/cursor.ts`, `v1/src/agents/cursor-tokens.ts`, `v1/docs/agents.md`
+- `opencode` runs `opencode run --dir <cwd> --model <provider/model> --format json <prompt>`, parses JSONL event output, uses summed `step_finish` token/cost fields when present, and falls back to estimator warnings when no clean `step_finish` data exists. Sources: `v1/src/agents/opencode.ts`, `v1/src/agents/token-estimation.ts`, `v1/docs/agents.md`
+- `aider` runs with non-interactive flags including `--yes-always`, `--no-auto-commits`, `--no-git`, and `--no-show-model-warnings`, sets `BROWSER=false` in subprocess env, and always uses token estimation (or unavailable usage when estimation fails). Sources: `v1/src/agents/aider.ts`, `v1/src/agents/token-estimation.ts`, `v1/docs/aider-model-warnings.md`
+
+### Model and pricing visibility
+
+- Each configured agent entry carries its own model string, and each adapter emits attribution labels as either known friendly names, raw model strings, or `<agent> (default model)` when no explicit model is configured. Sources: `v1/src/config.ts`, `v1/src/agents/claude.ts`, `v1/src/agents/codex.ts`, `v1/src/agents/cursor.ts`, `v1/src/agents/opencode.ts`, `v1/src/agents/aider.ts`
+- Pricing support is adapter-specific: Claude/Codex/Cursor/Opencode report `agentHasPricedModels=true` while Aider reports `false`; price-key resolution is delegated per adapter and may return `null` for unsupported/unpriced model values. Sources: `v1/src/agents/price-keys.ts`, `v1/src/agents/claude.ts`, `v1/src/agents/codex.ts`, `v1/src/agents/cursor.ts`, `v1/src/agents/opencode.ts`, `v1/src/agents/aider.ts`
+- Exact usage/cost visibility is mixed by adapter: Claude and Opencode can return agent-sourced usage/cost, Codex computes cost from correlated session usage plus local price table, Cursor/Aider primarily produce estimated usage, and any estimator/session-correlation miss is surfaced via `usage_source: "unavailable"` plus warnings. Sources: `v1/src/agents/types.ts`, `v1/src/agents/claude.ts`, `v1/src/agents/codex.ts`, `v1/src/agents/cursor.ts`, `v1/src/agents/opencode.ts`, `v1/src/agents/aider.ts`, `v1/src/agents/codex-session.ts`
+- Patch-mode harness emits one-time operator stderr notices when successful Cursor or Opencode runs still have unavailable usage (`token usage not available for this CLI version`) and forwards adapter warnings with `<agent>: <warning>` prefix. Sources: `v1/src/modes/patch/run.ts`
+
+### Quota detection and fallback semantics
+
+- Spawn classification order is model-configuration first, then strict quota pattern matching, then generic error; only non-zero exits can classify as quota/model-config. Sources: `v1/src/agents/spawn.ts`, `v1/src/agents/quota.ts`
+- Quota and model-configuration classification is regex-driven per adapter, with shared base model-config patterns and extra adapter-specific additions for Opencode/Aider provider-local failures. Sources: `v1/src/agents/quota.ts`, `v1/docs/quota-signals.md`
+- `quotaFallback: "lenient"` can upgrade `kind: "error"` into `kind: "quota"` only when the caller-provided guard allows it; patch mode passes that guard only for no-progress iterations, preventing weak quota upgrades after observable repo progress. Sources: `v1/src/agents/quota.ts`, `v1/src/modes/patch/run.ts`, `v1/docs/quota-signals.md`
+- Quota rotation and exhaustion stderr strings are shared constants: strict fallback uses `quota exhausted; falling back`, lenient upgraded fallback uses `probable quota-like error (exit N); falling back`, and terminal exhaustion uses `all agents quota-exhausted` (plan prefixes with `plan:` and may append phase suffixes). Sources: `v1/src/quota-harness-messages.ts`, `v1/src/modes/patch/run.ts`, `v1/src/modes/plan/emit-plan-quota-stderr.ts`, `v1/src/commands/plan.ts`, `v1/docs/quota-signals.md`
+
+### Abort and process lifecycle
+
+- All adapters execute via a shared spawn wrapper that launches the CLI in a detached process group, normalizes env with `PWD=<agent cwd>` and no `OLDPWD`, and buffers stdout/stderr until stream close + process close before final classification. Sources: `v1/src/agents/spawn.ts`, `v1/docs/agents.md`
+- Patch-mode Ctrl-C handling aborts the current iteration controller and surfaces `interrupted`; agent subprocess abort handling then sends `SIGTERM` to the process group first and escalates to `SIGKILL` after a grace timeout. Sources: `v1/src/modes/patch/run.ts`, `v1/src/agents/spawn.ts`
+- Aborted agent runs resolve as `kind: "error"` with `exitCode: -1` and `stderr` prefixed `aborted: <reason>`, so aborts are operator-visible as explicit harness-side failures rather than silent termination. Sources: `v1/src/agents/spawn.ts`, `v1/src/agents/types.ts`
 
 ## Git/GitHub behavior
 

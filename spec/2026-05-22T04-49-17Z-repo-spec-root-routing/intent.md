@@ -157,3 +157,14 @@ The safest draft framing is probably:
 - any remaining root-`spec` assumptions in cleanup/archive code are either
   updated as part of the same source-of-truth change or called out as an
   intentional non-goal with a documented follow-up.
+
+## Blocker
+
+Review and approve `spec/2026-05-22T04-49-17Z-repo-spec-root-routing/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft spec/2026-05-22T04-49-17Z-repo-spec-root-routing/intent.md`

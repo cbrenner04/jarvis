@@ -77,7 +77,7 @@ export type Project = {
   origin?: string;
   git?: boolean;
   siblings?: string[];
-  plan?: { specTimestamp?: boolean; commit?: boolean };
+  plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string };
 };
 
 export type ProjectMatch = {
@@ -95,6 +95,7 @@ export type ModeConfig = {
   agentOrder: AgentEntry[];
   specTimestamp?: boolean;
   commit?: boolean;
+  targetDir?: string;
 };
 
 export type Config = {
@@ -139,7 +140,7 @@ const DEFAULT_CONFIG: Config = {
   version: 2,
   modes: {
     patch: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
-    plan: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
+    plan: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER), targetDir: "spec" },
   },
   quotaFallback: "lenient",
   weakQuotaExitCodes: [],
@@ -250,6 +251,15 @@ function validateConfig(input: unknown, file: string): Config {
       fail(file, "modes.plan.commit must be a boolean");
     }
     planCommit = planModeObj.commit;
+  }
+
+  let planTargetDir: string | undefined;
+  if (planModeObj.targetDir !== undefined) {
+    planTargetDir = validateTargetDir(
+      planModeObj.targetDir,
+      "modes.plan.targetDir",
+      (message) => fail(file, message),
+    );
   }
 
   const maxIterations = validatePositiveInteger(
@@ -406,7 +416,7 @@ function validateConfig(input: unknown, file: string): Config {
         fail(file, `project ${JSON.stringify(name)} plan must be an object`);
       }
       const planObj = planRaw as Record<string, unknown>;
-      const plan: { specTimestamp?: boolean; commit?: boolean } = {};
+      const plan: { specTimestamp?: boolean; commit?: boolean; targetDir?: string } = {};
       const specTimestampRaw = planObj.specTimestamp;
       if (specTimestampRaw !== undefined) {
         if (typeof specTimestampRaw !== "boolean") {
@@ -427,13 +437,21 @@ function validateConfig(input: unknown, file: string): Config {
         }
         plan.commit = commitRaw;
       }
+      const targetDirRaw = planObj.targetDir;
+      if (targetDirRaw !== undefined) {
+        plan.targetDir = validateTargetDir(
+          targetDirRaw,
+          `project ${JSON.stringify(name)} plan.targetDir`,
+          (message) => fail(file, message),
+        );
+      }
       // Strict keys validation for plan object
-      const allowedPlanKeys = new Set(["specTimestamp", "commit"]);
+      const allowedPlanKeys = new Set(["specTimestamp", "commit", "targetDir"]);
       for (const key of Object.keys(planObj)) {
         if (!allowedPlanKeys.has(key)) {
           fail(
             file,
-            `project ${JSON.stringify(name)} plan: unknown key ${JSON.stringify(key)} (allowed: specTimestamp, commit)`,
+            `project ${JSON.stringify(name)} plan: unknown key ${JSON.stringify(key)} (allowed: specTimestamp, commit, targetDir)`,
           );
         }
       }
@@ -478,6 +496,7 @@ function validateConfig(input: unknown, file: string): Config {
           ? { specTimestamp: planSpecTimestamp }
           : {}),
         ...(planCommit !== undefined ? { commit: planCommit } : {}),
+        ...(planTargetDir !== undefined ? { targetDir: planTargetDir } : {}),
       },
     },
     quotaFallback,
@@ -625,6 +644,26 @@ function validateQuotaFallback(
     return value;
   }
   failWith('quotaFallback must be "strict" or "lenient"');
+}
+
+function validateTargetDir(
+  value: unknown,
+  name: string,
+  failWith: (message: string) => never,
+): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    failWith(`${name} must be a non-empty string`);
+  }
+  const trimmed = value.trim();
+  if (isAbsolute(trimmed)) {
+    failWith(`${name} must be a relative path (got ${JSON.stringify(trimmed)})`);
+  }
+  if (trimmed.includes("..")) {
+    failWith(
+      `${name} must not contain ".." traversal (got ${JSON.stringify(trimmed)})`,
+    );
+  }
+  return trimmed;
 }
 
 function validateExitCodeList(
@@ -781,13 +820,14 @@ export function effectiveGit(cfg: Config, projectName?: string): boolean {
 export function resolvePlanFlags(
   cfg: Config,
   project: Project | undefined,
-): { specTimestamp: boolean; commit: boolean } {
+): { specTimestamp: boolean; commit: boolean; targetDir: string } {
   const globalPlan = cfg.modes?.plan;
   const projectPlan = project?.plan;
   return {
     specTimestamp:
       projectPlan?.specTimestamp ?? globalPlan?.specTimestamp ?? true,
     commit: projectPlan?.commit ?? globalPlan?.commit ?? true,
+    targetDir: projectPlan?.targetDir ?? globalPlan?.targetDir ?? "spec",
   };
 }
 

@@ -158,13 +158,3 @@ Two command-level asymmetries the catalog's Commands section should capture expl
 
 No additional subspecs are needed. The six-subspec plan (00–05) covers every identified behavior area, the source file lists are now complete, and the assembly strategy (00 creates skeleton; 01–04 fill assigned sections; 05 verifies and adds maintenance) is sound. The intent is ready to draft.
 
-## Blocker
-
-Review and approve `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis plan --resume-draft spec/2026-05-22T04-09-01Z-v1-behavior-catalog/intent.md`

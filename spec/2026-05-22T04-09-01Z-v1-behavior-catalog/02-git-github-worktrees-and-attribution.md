@@ -16,6 +16,10 @@ Add entries to `## Behaviors with uncertain intent` or
 `## Surprising or possibly vestigial behaviors` only when this audit uncovers a
 behavior that belongs there more naturally than in the Git/GitHub section.
 
+This slice should fill the existing section shape rather than broadening the
+catalog outline. Plan-mode-specific git behaviors belong here only when they
+are observable through worktrees, commits, PRs, or PR bodies.
+
 ## Primary sources
 
 - `v1/src/pr.ts`
@@ -35,6 +39,9 @@ behavior that belongs there more naturally than in the Git/GitHub section.
 - [ ] Document user-visible lock behavior from `v1/src/worktree-lock.ts`,
       including how stale or conflicting locks surface to operators if they
       block progress.
+- [ ] Organize the section with stable subsections that separate worktree and
+      lock behavior, branch and commit behavior, PR/GitHub CLI behavior, and
+      attribution/footer behavior.
 - [ ] Capture PR behavior, including draft PR creation timing, base-branch
       assumptions, the role of the GitHub CLI wrapper, and any meaningful
       differences between patch-mode and plan-mode PR handling.
@@ -53,6 +60,8 @@ behavior that belongs there more naturally than in the Git/GitHub section.
 - [ ] `v2/spec/v1-behaviors.md` contains a substantive `## Git/GitHub behavior`
       section covering worktrees, branch/worktree naming, PR creation/update
       behavior, commit/trailer behavior, and attribution footers.
+- [ ] The section is organized with clearly named subsections for worktrees and
+      locks, branches and commits, PR/GitHub CLI behavior, and attribution.
 - [ ] The section includes source-backed catalog entries for worktree locking
       and for the GitHub CLI mediated behaviors implemented through `v1/src/gh.ts`.
 - [ ] The section captures plan-mode-specific PR lifecycle details that are

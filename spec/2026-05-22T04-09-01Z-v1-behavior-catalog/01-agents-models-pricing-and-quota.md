@@ -17,6 +17,10 @@ Add entries to `## Behaviors with uncertain intent` only when this audit finds
 real ambiguity about an observable agent behavior that cannot be resolved from
 source.
 
+Keep the section within the document contract established by subspec 00 rather
+than inventing a new layout. This slice should fill the agent area in place,
+not restructure neighboring sections.
+
 ## Primary sources
 
 - `v1/src/agents/`
@@ -42,6 +46,9 @@ source.
 - [ ] Document default and configurable agent order, model selection behavior,
       any adapter-specific warnings or constraints, and the way price keys or
       estimation logic become visible in usage/cost reporting.
+- [ ] Organize the section with stable subsections that separate:
+      roster/default order, adapter-specific behaviors, model/pricing
+      visibility, quota/fallback semantics, and spawn/abort lifecycle behavior.
 - [ ] Capture quota detection and fallback behavior, including strict versus
       fallback-eligible outcomes, shared harness stderr strings, and the
       operator-visible all-agents-exhausted case.
@@ -56,6 +63,9 @@ source.
 - [ ] `v2/spec/v1-behaviors.md` contains a substantive `## Agent adapters,
       model selection, and quota fallback` section covering all five adapters:
       `claude`, `codex`, `cursor`, `opencode`, and `aider`.
+- [ ] The section is organized with clearly named subsections for
+      roster/defaults, adapter-specific behavior, model/pricing visibility,
+      quota/fallback, and abort/process lifecycle.
 - [ ] The section describes observable fallback behavior, quota classification,
       and the shared operator-facing stderr messages from
       `v1/src/quota-harness-messages.ts`.

@@ -10,11 +10,9 @@ few bullets under general command help.
 ## Scope
 
 Expand the catalog's treatment of `plan` so a reader can understand the
-end-to-end observable workflow and command surface. This may be implemented as
-a dedicated plan-mode subsection within `## Commands and modes` or as a
-separate top-level section if that produces a clearer catalog, but whichever
-shape is chosen must remain grouped by behavior area and preserve the section
-structure introduced in subspec 00.
+end-to-end observable workflow and command surface. This work must live in the
+dedicated `### Plan mode` subsection created inside `## Commands and modes` by
+subspec 00; do not add a new top-level section.
 
 This subspec may also update `## Git/GitHub behavior` if plan-mode source
 reveals additional PR-facing details that were not visible in subspec 02, but
@@ -22,6 +20,7 @@ the primary owned output is the plan-mode behavior area itself.
 
 ## Primary sources
 
+- `v1/src/cli.ts`
 - `v1/src/commands/plan.ts`
 - `v1/src/modes/plan/`
 - `v1/src/modes/plan/prompts/`
@@ -38,6 +37,10 @@ the primary owned output is the plan-mode behavior area itself.
       `v1/src/commands/plan.ts`: `--refine-turns`, `--review-passes`, `--repo`,
       `--cwd`, `--resume`, and `--resume-draft`, including the distinction
       between resuming from `index.md` versus `intent.md`.
+- [ ] Keep `### Command surface` focused on the one-line `plan` command entry
+      from subspec 00, and place the end-to-end workflow details only under the
+      dedicated `### Plan mode` subsection so the catalog does not duplicate
+      plan behavior in two places.
 - [ ] Document how plan prompts and inline-draft behavior shape what the agent
       is asked to produce, but keep the catalog at the level of user-observable
       behavior rather than prompt internals.
@@ -51,7 +54,8 @@ the primary owned output is the plan-mode behavior area itself.
 ## Acceptance criteria
 
 - [ ] `v2/spec/v1-behaviors.md` contains a substantive plan-mode behavior area
-      that explains the end-to-end workflow and resume semantics from source.
+      inside `## Commands and modes` that explains the end-to-end workflow and
+      resume semantics from source.
 - [ ] The plan-mode catalog explicitly includes all six plan flags and
       distinguishes `--resume` from `--resume-draft`.
 - [ ] The plan-mode catalog captures observable phase behavior, emitted files,

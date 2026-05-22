@@ -19,6 +19,8 @@ Fully author these sections in `v2/spec/v1-behaviors.md`:
 
 This subspec owns the catalog's catch-all behavior sections. Use them to record
 real ambiguities or surprising source-backed behaviors, not generic caveats.
+When a behavior clearly belongs in another top-level section, add at most a
+cross-reference there and keep the substantive entry in its natural home.
 
 ## Primary sources
 
@@ -45,6 +47,9 @@ real ambiguities or surprising source-backed behaviors, not generic caveats.
 - [ ] Capture filesystem side effects that matter to users or reviewers, such
       as session files, telemetry files, logs, or other durable artifacts that
       the source shows v1 creating or updating.
+- [ ] Normalize any `[uncertain]` entries or surprising-behavior entries seeded
+      by earlier subspecs so these catch-all sections become the catalog's
+      single review location for unresolved or vestigial behaviors.
 - [ ] Audit patch-mode completion and blocker detection, including what counts
       as spec completion, how blockers are surfaced, and how malformed spec
       structure is handled.
@@ -66,6 +71,9 @@ real ambiguities or surprising source-backed behaviors, not generic caveats.
 - [ ] The completion/failure section captures completion detection, blocker
       handling, and exit/failure semantics sourced from the patch-mode and
       failure-pipeline code/docs.
+- [ ] Any uncertainty or vestigial-behavior entries introduced earlier in the
+      catalog have been consolidated into the dedicated catch-all sections
+      unless they need a brief cross-reference in their original area.
 - [ ] The uncertain and surprising sections contain only source-backed entries;
       uncertain items are tagged `[uncertain]` with a brief explanation.
 - [ ] Every behavior entry added by this subspec cites at least one supporting

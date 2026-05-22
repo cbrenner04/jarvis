@@ -32,6 +32,11 @@ subspecs can fill in:
 - Surprising or possibly vestigial behaviors
 - Maintenance requirement for future v1 changes
 
+This subspec also establishes the catalog's shared writing contract so later
+subspecs append compatible entries instead of redefining the format. The
+initial file should lock the top-level section order from the intent and define
+the subsection skeleton that later slices will fill.
+
 ## Primary sources
 
 - `v1/src/cli.ts`
@@ -51,6 +56,10 @@ subspecs can fill in:
 - [ ] Create `v2/spec/v1-behaviors.md` with the full target section structure
       and a short preamble that frames the file as a v1 behavior inventory for
       v2 parity review.
+- [ ] Establish a stable document contract for later subspecs:
+      each behavior is a short bullet, each bullet ends with a `Sources:`
+      citation, and only `[uncertain]` is used as an inline status tag when the
+      source does not justify a stronger statement.
 - [ ] In `## Overview and scope`, document that the catalog describes behavior
       as shipped today under `v1/`, invoked as `jarvis`, and note that the
       planned `jarvis1` rename is pending.
@@ -65,10 +74,20 @@ subspecs can fill in:
 - [ ] Document the non-plan command workflows users observe around spec
       authoring and implementation, including the merge-first rule for specs and
       the expectation that `jarvis run` executes from an index-routed spec tree.
+- [ ] Inside `## Commands and modes`, create the long-lived subsection
+      structure that later subspecs must keep:
+      `### Command surface`, `### Patch-mode run workflow`, and
+      `### Plan mode`.
 - [ ] Audit config and project resolution behavior from source, including
       registry bootstrap, `--repo`/`repo:`/spec-path resolution order,
       disambiguation prompting, ad-hoc git checkout fallback, and the
       normalization/loose matching behavior around repo URLs and slugs.
+- [ ] Inside `## Config and project resolution`, create a stable subsection
+      shape that separates config storage/bootstrap from repo resolution and
+      ambiguity handling so later edits do not need to reshuffle this section.
+- [ ] For every top-level section not yet authored in this subspec, add a brief
+      non-placeholder stub sentence that names the later subspec expected to
+      fill it. Subspec 05 will remove these stubs once the catalog is complete.
 - [ ] Where the source shows silent or surprising resolution behavior, record it
       in the catalog rather than smoothing it over. Use `[uncertain]` only when
       the observable behavior or intended policy cannot be stated confidently
@@ -80,11 +99,15 @@ subspecs can fill in:
       section headers from the intent, with substantive content in `Overview and
       scope`, `Commands and modes`, `Spec authoring and implementation
       workflows`, and `Config and project resolution`.
+- [ ] The new catalog establishes a stable authoring format for later slices:
+      short bullets for behavior entries, trailing `Sources:` citations on each
+      entry, and only `[uncertain]` as an inline ambiguity tag.
 - [ ] The `Overview and scope` section explicitly says the catalog documents v1
       as currently invoked via `jarvis` and notes the pending `jarvis1` rename.
 - [ ] The `Commands and modes` section includes all nine subcommands plus
       `help`, and it distinguishes the `prices` sub-operations and the
-      `review-feedback` versus `triage` worktree-argument behavior.
+      `review-feedback` versus `triage` worktree-argument behavior, while
+      reserving a dedicated `### Plan mode` subsection for subspec 03.
 - [ ] The `Config and project resolution` section describes the resolution order
       and user-facing ambiguity handling sourced from `v1/src/repo.ts`,
       `v1/src/resolve-project.ts`, `v1/src/disambiguation-prompt.ts`, and

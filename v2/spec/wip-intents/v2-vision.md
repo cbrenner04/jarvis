@@ -136,6 +136,7 @@ Install is intentionally not fancy — symlinks on two machines (personal + work
 1. **Split repo into `v1/` and `v2/`.** Move current code, tests, and specs into `v1/`. Create `v2/` as a sibling. Root keeps only repo-wide config. *(First intent — see `v2.txt`.)*
 2. **Rename binary `jarvis` → `jarvis1`, reserve `jarvis` for v2.** *(See `v2-rename-binary.txt`.)*
 3. **Catalog v1 behaviors** — one high-level doc covering every user-facing behavior, produced by reading source exhaustively, then iterated on with review. *(See `v2-catalog.txt`.)*
+   While v1 remains active during rollout, parity-relevant v1 behavior changes should update `v2/spec/v1-behaviors.md` in the same change window to keep v2 planning grounded in current behavior.
 4. **Design v2 architecture** — composable operations + host. Must satisfy the constraints above. Update this doc with the chosen model once decided.
 5. **Build v2 incrementally**, behavior-by-behavior. `jarvis` (v2) becomes usable as features land; `jarvis1` remains the daily-driver until v2 reaches parity.
 6. **No deletion of v1.** Both commands stay installed indefinitely.

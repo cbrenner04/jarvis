@@ -60,24 +60,24 @@ not restructure neighboring sections.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/v1-behaviors.md` contains a substantive `## Agent adapters,
+- [x] `v2/spec/v1-behaviors.md` contains a substantive `## Agent adapters,
       model selection, and quota fallback` section covering all five adapters:
       `claude`, `codex`, `cursor`, `opencode`, and `aider`.
-- [ ] The section is organized with clearly named subsections for
+- [x] The section is organized with clearly named subsections for
       roster/defaults, adapter-specific behavior, model/pricing visibility,
       quota/fallback, and abort/process lifecycle.
-- [ ] The section describes observable fallback behavior, quota classification,
+- [x] The section describes observable fallback behavior, quota classification,
       and the shared operator-facing stderr messages from
       `v1/src/quota-harness-messages.ts`.
-- [ ] The section captures user-visible model/pricing behavior, including where
+- [x] The section captures user-visible model/pricing behavior, including where
       exact usage is available versus estimated and where adapter-specific
       warnings or session artifacts matter to operators.
-- [ ] Every behavior entry added by this subspec cites at least one supporting
+- [x] Every behavior entry added by this subspec cites at least one supporting
       source file.
-- [ ] Any ambiguity called out by this subspec is tagged `[uncertain]` and
+- [x] Any ambiguity called out by this subspec is tagged `[uncertain]` and
       includes a brief explanation of the unresolved evidence gap.
 
 ## Documentation updates
 
-- [ ] `v2/spec/v1-behaviors.md` is updated for the agent, model, pricing, and
+- [x] `v2/spec/v1-behaviors.md` is updated for the agent, model, pricing, and
       quota-fallback behavior area owned by this subspec.

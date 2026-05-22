@@ -96,26 +96,26 @@ the subsection skeleton that later slices will fill.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/v1-behaviors.md` exists and contains all intended top-level
+- [x] `v2/spec/v1-behaviors.md` exists and contains all intended top-level
       section headers from the intent, with substantive content in `Overview and
       scope`, `Commands and modes`, `Spec authoring and implementation
       workflows`, and `Config and project resolution`.
-- [ ] The new catalog establishes a stable authoring format for later slices:
+- [x] The new catalog establishes a stable authoring format for later slices:
       short bullets for behavior entries, trailing `Sources:` citations on each
       entry, and only `[uncertain]` as an inline ambiguity tag.
-- [ ] The `Overview and scope` section explicitly says the catalog documents v1
+- [x] The `Overview and scope` section explicitly says the catalog documents v1
       as currently invoked via `jarvis` and notes the pending `jarvis1` rename.
-- [ ] The `Commands and modes` section includes all nine subcommands plus
+- [x] The `Commands and modes` section includes all nine subcommands plus
       `help`, and it distinguishes the `prices` sub-operations and the
       `review-feedback` versus `triage` worktree-argument behavior, while
       reserving a dedicated `### Plan mode` subsection for subspec 03.
-- [ ] The `Config and project resolution` section describes the resolution order
+- [x] The `Config and project resolution` section describes the resolution order
       and user-facing ambiguity handling sourced from `v1/src/repo.ts`,
       `v1/src/resolve-project.ts`, `v1/src/disambiguation-prompt.ts`, and
       `v1/src/repo-url.ts`.
-- [ ] Every behavior entry added by this subspec cites at least one supporting
+- [x] Every behavior entry added by this subspec cites at least one supporting
       source file.
-- [ ] Any ambiguity called out by this subspec is tagged `[uncertain]` and
+- [x] Any ambiguity called out by this subspec is tagged `[uncertain]` and
       includes a brief explanation of what source gap or contradiction remains.
 
 ## Documentation updates

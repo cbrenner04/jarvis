@@ -2,81 +2,74 @@
 
 ## Goal
 
-Make every committed-plan consumer that formats, validates, or constrains
-spec-relative paths use the same resolved committed-spec root as subspec 00.
-This covers the current family of hard-coded `spec/<spec-dir>/...` assumptions
-across boundary enforcement, resume/help text, commit metadata, PR rendering,
-and plan prompts.
+Make every committed-plan consumer that formats or constrains spec-relative
+paths for new plans use the same resolved `targetDir` from subspec 00, instead
+of a hard-coded `spec/<spec-dir>/...` literal. Keep parsers that read existing
+commit bodies permissive so legacy `spec/...` history stays valid.
 
 ## Decisions
 
-- Path formatting for committed plans is part of the same behavior as path
-  resolution; commit bodies and PR text must not keep an independent
-  `spec/...` convention.
-- The shared formatter must emit the actual committed spec path for the active
-  tree, not merely the preferred root for new plans. New Jarvis-repo plans
-  therefore use `v1/spec/...`, while resumed legacy Jarvis-repo root trees keep
-  using `spec/...`.
-- Compatibility for historical Jarvis-repo root `spec/...` plan trees must be
-  explicit where parsers consume existing commit bodies or resume paths.
-- Existing `Spec: spec/...` commit bodies remain valid historical data; this
-  change extends parsers and renderers to understand `v1/spec/...`, not by
-  rewriting old commit history.
-- Callers that receive an explicit committed spec path from resume or
-  `--resume-draft` should preserve that path identity through user-facing text,
-  write-boundary checks, and commit metadata rather than silently canonicalizing
-  it to a different root.
+- Path formatting for new committed plans is part of the same behavior as the
+  path resolution in subspec 00; commit bodies and PR text must use the resolved
+  `targetDir`, not an independent `spec/...` literal.
+- The shared formatter emits the actual committed spec path for the active tree.
+  For new plans that is `<targetDir>/<spec-dir>/...`; for a resumed legacy tree
+  it is the real on-disk path that resume already resolved.
+- Parsers that consume existing `Spec:` commit bodies or resume paths stay
+  permissive about the root. Existing `Spec: spec/...` bodies remain valid
+  historical data; this change does not rewrite history.
+- PR rendering and meta-commit grouping that currently match `Spec: spec/...`
+  must recognize any committed root, so both default `spec/...` repos and a
+  configured `v1/spec/...` repo render correctly.
+- Callers that receive an explicit committed spec path (resume or
+  `--resume-draft`) preserve that path identity through user-facing text,
+  write-boundary checks, and commit metadata rather than canonicalizing it to
+  the configured root.
 - Patch-mode spec handling is out of scope unless a concrete reader breaks when
-  pointed at `v1/spec/...`.
+  pointed at a non-`spec/` root.
 
 ## Task Checklist
 
 - Replace hard-coded committed-plan path strings in CLI usage, next-step
-  commands, resume guidance, and blocker text with output from the committed
-  spec-root formatter or policy introduced in subspec 00.
+  commands, resume guidance, and blocker text with output derived from the
+  resolved `targetDir`.
 - Route write-boundary enforcement and boundary blocker messaging through the
-  resolved committed-spec root instead of a literal `spec/<spec-dir>/` prefix.
-- Update plan-phase prompt templates or prompt rewriting so committed draft and
-  review prompts tell agents to write under the correct repo-local path.
-- Update plan commit-body `Spec:` markers to use the resolved committed spec
-  path and keep downstream parsing working.
-- Update PR rendering or meta-commit grouping that currently recognizes only
-  `Spec: spec/...` lines so it continues to work for both generic repos and
-  Jarvis-repo `v1/spec/...` plans.
-- Ensure new-path metadata surfaces and legacy-path parsers share one path
-  formatter/parser contract rather than each caller carrying its own regex or
-  prefix logic.
-- Ensure resumed legacy root-level Jarvis specs continue to print and validate
-  against their real `spec/...` path instead of being reformatted as
-  `v1/spec/...`.
+  resolved committed root instead of a literal `spec/<spec-dir>/` prefix.
+- Update plan-phase prompt templates so committed draft and review prompts tell
+  agents to write under the resolved root.
+- Update plan commit-body `Spec:` markers (`commits.ts`) to use the resolved
+  committed path.
+- Update PR rendering / meta-commit grouping (`pr.ts`) so the `Spec:` matcher
+  and the body header links work for any committed root.
+- Ensure the `Spec:` parser stays permissive so historical `spec/...` bodies and
+  resumed legacy trees still parse and render.
 - Add regression coverage for the formatting and parser surfaces that consume
   committed-plan paths.
 
 ## Acceptance criteria
 
-- [ ] Human-facing committed-plan output uses `v1/spec/<spec-dir>/...` for this
-      repository and still uses `spec/<spec-dir>/...` for ordinary repos.
-- [ ] Plan draft or review prompts, write-boundary enforcement, and boundary
-      blocker text all target the same resolved committed spec root.
-- [ ] Plan meta-commit bodies use `Spec: <resolved-committed-spec-path>/intent.md`
-      instead of a hard-coded `Spec: spec/...` line.
-- [ ] PR metadata or attribution logic that parses committed plan `Spec:` lines
-      continues to recognize both generic `spec/...` plans and Jarvis-repo
-      `v1/spec/...` plans.
-- [ ] Existing historical plan commits in this repository that already contain
-      `Spec: spec/...` remain renderable without migration or history edits.
-- [ ] Resume, `--resume-draft`, and next-step commands printed for new
-      Jarvis-repo plans reference `v1/spec/...` paths.
+- [ ] Human-facing committed-plan output uses the resolved `targetDir` (e.g.
+      `v1/spec/<spec-dir>/...` for a repo configured that way, `spec/<spec-dir>/`
+      for a default repo).
+- [ ] Plan draft/review prompts, write-boundary enforcement, and boundary
+      blocker text all target the resolved committed root.
+- [ ] Plan meta-commit bodies emit `Spec: <resolved-committed-path>/intent.md`.
+- [ ] PR metadata/attribution that parses committed plan `Spec:` lines
+      recognizes both default `spec/...` plans and a configured `v1/spec/...`
+      plan.
+- [ ] Existing historical plan commits containing `Spec: spec/...` remain
+      renderable without migration or history edits.
+- [ ] Resume, `--resume-draft`, and next-step commands printed for a new plan in
+      a configured-root repo reference the resolved `targetDir` path.
 - [ ] Resume, `--resume-draft`, boundary enforcement, and follow-up commit
-      metadata for a legacy Jarvis-repo root-level `spec/<spec-dir>/...` tree
-      continue to reference that real legacy path rather than rewriting it to
-      `v1/spec/...`.
-- [ ] Automated coverage proves the shared formatter is used by path-consuming
-      plan metadata surfaces rather than each caller carrying its own prefix.
+      metadata for a legacy root-level `spec/<spec-dir>/...` tree continue to
+      reference that real legacy path rather than rewriting it to the configured
+      root.
+- [ ] Automated coverage proves the path-consuming surfaces use the shared
+      resolved value rather than each caller carrying its own prefix.
 
 ## Documentation updates
 
-- Update the operator-facing plan-mode docs that describe committed plan paths,
-  resume commands, write-boundary behavior, and plan PR metadata where they are
-  specific to this repository or to the shared committed-spec formatting rule,
-  including the legacy-root resume behavior.
+- Update operator-facing plan-mode docs that describe committed plan paths,
+  resume commands, write-boundary behavior, and plan PR metadata where they
+  depend on the committed root, including the legacy-root resume behavior.

@@ -161,3 +161,33 @@ The safest draft framing is probably:
 ## User review
 
 If user needs to run `jarvis plan` from a version dir, if that makes this simpler, that would be fine
+
+## Decision turn 4 — config-driven target directory
+
+Direction decided with the user: drive the committed-spec root for new plans
+from configuration rather than from in-code Jarvis-repo detection.
+
+- Reuse the existing plan-flag precedence already implemented by
+  `resolvePlanFlags(cfg, project)` in `v1/src/config.ts`, which resolves
+  `projects.<name>.plan.X` over `modes.plan.X` over a built-in default. Add a
+  new `targetDir` key to that same precedence chain.
+- `modes.plan.targetDir` is the global default and is written explicitly as
+  `"spec"` in the default config, so the on-disk config states the default
+  rather than relying only on an implicit fallback. `projects.<name>.plan.targetDir`
+  overrides it per project.
+- The field is optional with a default of `"spec"`: existing configs keep
+  working unchanged and ordinary target repos keep authoring under `spec/`. No
+  required-field migration and no config-version bump.
+- This repository opts into `v1/spec` by setting
+  `projects.<jarvis>.plan.targetDir = "v1/spec"` in config, not through any
+  hard-coded repo detection. Behavior for this repo therefore changes only once
+  that config value is set.
+- Consequences for earlier turns: the "run jarvis plan from v1/" question is
+  moot (cwd no longer matters; the configured root is joined onto the plan
+  worktree path), and the dual-root (`v1/spec` + legacy `spec/`) collision logic
+  is dropped in favor of one configured root. Legacy root-level `spec/...` trees
+  remain readable/resumable via their explicit paths, and `Spec:` parsers stay
+  permissive about the root.
+- `targetDir` is a worktree-relative path; it must be validated as relative
+  (no absolute paths, no `..` escape) because it is joined onto the plan
+  worktree path.

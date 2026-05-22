@@ -13,8 +13,11 @@ an accumulation of partial notes.
 Fully author the `## Maintenance requirement for future v1 changes` section in
 `v2/spec/v1-behaviors.md`.
 
-Add one maintenance reminder outside the catalog in `AGENTS.md`, since it is
-repo-level guidance that future v1 behavior changes are likely to read.
+Add one maintenance reminder outside the catalog in
+`v2/spec/wip-intents/v2-vision.md`, since that long-lived v2 planning document
+already frames this catalog as rollout step 3 and is a natural place to remind
+future v2 planning work that parity-relevant v1 behavior changes must update
+the catalog.
 
 Perform a full-document verification pass on `v2/spec/v1-behaviors.md` and
 fix any remaining structural issues, missing citations, or leftover placeholder
@@ -23,7 +26,7 @@ language introduced by earlier subspecs.
 ## Primary sources
 
 - `v2/spec/v1-behaviors.md`
-- `AGENTS.md`
+- `v2/spec/wip-intents/v2-vision.md`
 - The active spec tree in `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/`
 
 ## Task checklist
@@ -31,8 +34,10 @@ language introduced by earlier subspecs.
 - [ ] Add a maintenance section to `v2/spec/v1-behaviors.md` stating that any
       v1 bug fix or user-observable behavior change must update the catalog when
       parity-relevant behavior changes.
-- [ ] Add a concise reminder to `AGENTS.md` so future v1 changes are likely to
-      see the obligation in repo-level working rules.
+- [ ] Add a concise reminder to `v2/spec/wip-intents/v2-vision.md` near the
+      rollout or behavior-parity discussion so future v2 planning work sees the
+      obligation to keep `v2/spec/v1-behaviors.md` in sync with parity-relevant
+      v1 behavior changes.
 - [ ] Review the entire catalog for structural completeness: all intended
       sections present, no placeholder text, no empty stubs, and no missing
       command/agent/behavior areas promised by the intent.
@@ -49,9 +54,9 @@ language introduced by earlier subspecs.
 - [ ] `v2/spec/v1-behaviors.md` contains a substantive `## Maintenance
       requirement for future v1 changes` section that states the update rule for
       future v1 behavior changes.
-- [ ] `AGENTS.md` is updated with a concise reminder to keep
-      `v2/spec/v1-behaviors.md` in sync with user-observable v1 behavior
-      changes.
+- [ ] `v2/spec/wip-intents/v2-vision.md` is updated with a concise reminder to
+      keep `v2/spec/v1-behaviors.md` in sync with user-observable v1 behavior
+      changes while v1 remains active during the v2 rollout.
 - [ ] The final catalog contains all intended behavior-area sections with no
       placeholder text, no empty stubs, and no temporary scaffold notes
       remaining.
@@ -64,4 +69,5 @@ language introduced by earlier subspecs.
 
 - [ ] `v2/spec/v1-behaviors.md` gains the maintenance section and any final
       corrective edits needed for a clean reviewable document.
-- [ ] `AGENTS.md` is updated with the maintenance reminder.
+- [ ] `v2/spec/wip-intents/v2-vision.md` is updated with the maintenance
+      reminder.

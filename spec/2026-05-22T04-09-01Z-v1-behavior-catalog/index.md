@@ -42,4 +42,7 @@ that the `jarvis` -> `jarvis1` rename is still pending.
 - Subspec 04 owns the final consolidation of `## Behaviors with uncertain
   intent` and `## Surprising or possibly vestigial behaviors`; earlier
   subspecs may seed those sections only when a behavior clearly belongs there.
+- Subspec 05 places the out-of-catalog maintenance reminder in
+  `v2/spec/wip-intents/v2-vision.md`, not `AGENTS.md`, so the reminder stays
+  attached to the v2 rollout context that introduced this catalog.
 - If blocked, append `## Blocker` to the active subspec and stop.

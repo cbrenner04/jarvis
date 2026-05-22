@@ -69,7 +69,8 @@ the subsection skeleton that later slices will fill.
       `review-feedback`, `plan`, `prices`, and `help`.
 - [ ] Capture command-specific asymmetries the source exposes, including:
       `review-feedback` requiring `<worktree-name>`, `triage` not requiring it,
-      and `prices` being a two-operation command family rather than one flat
+      and `prices` exposing two distinct operator-facing actions (`show` and
+      `edit`, or the exact equivalent named in source) rather than one flat
       action.
 - [ ] Document the non-plan command workflows users observe around spec
       authoring and implementation, including the merge-first rule for specs and

@@ -68,14 +68,14 @@ This slice is the physical relocation step. It defines exactly what moves under 
 
 ## Acceptance criteria
 
-- [ ] The repository no longer has root `src/`, `test/`, `data/`, `docs/`, or `scripts/` directories containing the current v1 implementation; their contents live under `v1/` instead.
-- [ ] Behavior-bearing non-TypeScript assets that previously shipped with v1, including patch rules, plan prompt markdown, test fixtures/helpers, and `data/prices.json`, moved with the v1 tree rather than remaining at the root.
-- [ ] `v1/spec/` contains the current non-v2 spec history and planning content, including `spec/completed/**` and the non-v2 files previously under `spec/wip-intents/`.
-- [ ] `v2/spec/wip-intents/` exists and contains the relocated `split-v1-v2-repo-intent.md`, `v2-vision.md`, `v2.txt`, `v2-catalog.txt`, `v2-prompts.txt`, and `v2-rename-binary.txt`, with those files no longer duplicated under `v1/spec/`.
-- [ ] The implementation-history files from this spec tree remain available under `v1/spec/` after the split, so the historical record of how the repo was reorganized stays with v1 rather than being mixed into v2 planning.
-- [ ] The repo root no longer contains a top-level `spec/` directory after the relocation; specs now live only under `v1/spec/` and `v2/spec/`.
-- [ ] No extra package manifest, lockfile, workspace file, or version-local dependency tree was introduced under `v1/` or `v2/`.
-- [ ] The split leaves the repo in a structurally consistent state for follow-on work: root compatibility files remain at top level, v1 owns the shipping engine and its history, and v2 owns only the explicitly carved-out planning materials from this step.
+- [x] The repository no longer has root `src/`, `test/`, `data/`, `docs/`, or `scripts/` directories containing the current v1 implementation; their contents live under `v1/` instead.
+- [x] Behavior-bearing non-TypeScript assets that previously shipped with v1, including patch rules, plan prompt markdown, test fixtures/helpers, and `data/prices.json`, moved with the v1 tree rather than remaining at the root.
+- [x] `v1/spec/` contains the current non-v2 spec history and planning content, including `spec/completed/**` and the non-v2 files previously under `spec/wip-intents/`.
+- [x] `v2/spec/wip-intents/` exists and contains the relocated `split-v1-v2-repo-intent.md`, `v2-vision.md`, `v2.txt`, `v2-catalog.txt`, `v2-prompts.txt`, and `v2-rename-binary.txt`, with those files no longer duplicated under `v1/spec/`.
+- [x] The implementation-history files from this spec tree remain available under `v1/spec/` after the split, so the historical record of how the repo was reorganized stays with v1 rather than being mixed into v2 planning.
+- [x] The repo root no longer contains a top-level `spec/` directory after the relocation; specs now live only under `v1/spec/` and `v2/spec/`.
+- [x] No extra package manifest, lockfile, workspace file, or version-local dependency tree was introduced under `v1/` or `v2/`.
+- [x] The split leaves the repo in a structurally consistent state for follow-on work: root compatibility files remain at top level, v1 owns the shipping engine and its history, and v2 owns only the explicitly carved-out planning materials from this step.
 
 ## Out of scope
 

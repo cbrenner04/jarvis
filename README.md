@@ -36,7 +36,7 @@ ln -s ~/code/jarvis/bin/jarvis /usr/local/bin/jarvis
 jarvis help
 ```
 
-The `bin/jarvis` shim runs `bun src/cli.ts` from this checkout, so keep the
+The `bin/jarvis` shim runs `bun v1/src/cli.ts` from this checkout, so keep the
 checkout at a stable path. If `/usr/local/bin` is not writable or is not on
 your `PATH`, symlink into another directory such as `~/.local/bin`.
 
@@ -107,7 +107,7 @@ work and tick the criteria it actually satisfied. Jarvis uses those checkbox
 transitions to decide whether to commit a completed subspec, make a `WIP:`
 progress commit, stop for no progress, or stop on a blocker.
 
-See [docs/spec-guidance.md](docs/spec-guidance.md) for the full authoring
+See [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md) for the full authoring
 contract.
 
 ## Commands
@@ -306,7 +306,7 @@ Important switches:
   work.
 - `telemetryPath: null` disables JSONL telemetry.
 
-See [docs/config.md](docs/config.md) for the full schema and validation rules.
+See [v1/docs/config.md](v1/docs/config.md) for the full schema and validation rules.
 
 ## Agents and Output
 
@@ -332,8 +332,8 @@ Run output is split by purpose:
 - `jarvis log-server` provides a live full-transcript viewer.
 - `~/.jarvis/runs.jsonl` stores per-invocation telemetry and cost data.
 
-See [docs/agents.md](docs/agents.md), [docs/run-loop.md](docs/run-loop.md),
-and [docs/quota-signals.md](docs/quota-signals.md).
+See [v1/docs/agents.md](v1/docs/agents.md), [v1/docs/run-loop.md](v1/docs/run-loop.md),
+and [v1/docs/quota-signals.md](v1/docs/quota-signals.md).
 
 ## Git and PR Behavior
 
@@ -352,28 +352,28 @@ Plan mode uses `plan/<name>` branches and `.worktree/plan-<name>/` worktrees
 when `modes.plan.commit` is true. Its commits are `plan: refine`,
 `plan: draft`, `plan: review N`, and `plan: blocker`.
 
-See [docs/worktrees-and-commits.md](docs/worktrees-and-commits.md) for the
+See [v1/docs/worktrees-and-commits.md](v1/docs/worktrees-and-commits.md) for the
 details, including cleanup and triage behavior.
 
 ## Documentation
 
-- [docs/run-loop.md](docs/run-loop.md): `jarvis run` resolution, iteration,
+- [v1/docs/run-loop.md](v1/docs/run-loop.md): `jarvis run` resolution, iteration,
   completion, output destinations, telemetry, stop conditions, and exit codes.
-- [docs/plan-mode.md](docs/plan-mode.md): `jarvis plan` phases, flags, commit
+- [v1/docs/plan-mode.md](v1/docs/plan-mode.md): `jarvis plan` phases, flags, commit
   and no-commit modes, resume, PR lifecycle, and blockers.
-- [docs/workflows.md](docs/workflows.md): visual control-flow diagrams for
+- [v1/docs/workflows.md](v1/docs/workflows.md): visual control-flow diagrams for
   plan and patch mode.
-- [docs/worktrees-and-commits.md](docs/worktrees-and-commits.md): worktree
+- [v1/docs/worktrees-and-commits.md](v1/docs/worktrees-and-commits.md): worktree
   layout, commits, PR bodies, cleanup, and triage.
-- [docs/agents.md](docs/agents.md): supported CLIs, exact flags, usage
+- [v1/docs/agents.md](v1/docs/agents.md): supported CLIs, exact flags, usage
   extraction, permission posture, and opt-in setup.
-- [docs/config.md](docs/config.md): config schema, defaults, project
+- [v1/docs/config.md](v1/docs/config.md): config schema, defaults, project
   registration, siblings, and config subcommands.
-- [docs/quota-signals.md](docs/quota-signals.md): quota/model/error
+- [v1/docs/quota-signals.md](v1/docs/quota-signals.md): quota/model/error
   classification and fallback behavior.
-- [docs/spec-guidance.md](docs/spec-guidance.md): current spec authoring
+- [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md): current spec authoring
   conventions.
-- [docs/agent-cli-failure-pipeline.md](docs/agent-cli-failure-pipeline.md):
+- [v1/docs/agent-cli-failure-pipeline.md](v1/docs/agent-cli-failure-pipeline.md):
   classification pipeline for agent CLI failures.
 
 Agents working in this repository should also read [AGENTS.md](AGENTS.md).

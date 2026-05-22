@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -1063,6 +1064,59 @@ describe("runCommand", () => {
     expect(latestMessage).toContain(
       "## Acceptance criteria\n\n- [x] Two accepted.",
     );
+  });
+
+  test("tracks the active linked subspec when its spec directory moves", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    writeFileSync(
+      join(specDir, "00-one.md"),
+      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Spec moved.\n",
+    );
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      const v1Dir = join(projectRoot, "v1");
+      mkdirSync(v1Dir);
+      renameSync(join(projectRoot, "spec"), join(v1Dir, "spec"));
+      writeFileSync(
+        join(v1Dir, "spec", "feature", "00-one.md"),
+        "# 00 - One\n\n## Acceptance criteria\n\n- [x] Spec moved.\n",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(claude.calls).toHaveLength(1);
+    expect(existsSync(spec)).toBe(false);
+    expect(
+      readFileSync(
+        join(projectRoot, "v1", "spec", "feature", "index.md"),
+        "utf8",
+      ),
+    ).toContain("- [x] [00 - One](./00-one.md)");
+    expect(
+      execSync("git log -1 --format=%B", {
+        cwd: projectRoot,
+        encoding: "utf8",
+      }),
+    ).toContain("Spec: v1/spec/feature/00-one.md");
   });
 
   test("exits 6 with guidance when linked subspec work is dirty but unchecked", async () => {

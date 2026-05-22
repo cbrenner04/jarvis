@@ -51,13 +51,13 @@ The split changes where humans and agents look for code, specs, and planning mat
 
 ## Acceptance criteria
 
-- [ ] `README.md` documents the new repo layout, keeps the root installation story intact, and makes clear that `jarvis` still runs the v1 engine after the split.
-- [ ] `AGENTS.md` remains at the repo root and is updated to reflect the `v1/` plus `v2/` layout and the workflow expectations that follow from that split.
-- [ ] The split documents the exact ownership of specs: non-v2 history/planning under `v1/spec/`, v2 planning materials under `v2/spec/wip-intents/`, and this split plan’s `intent.md` specifically under `v2/spec/wip-intents/split-v1-v2-repo-intent.md`.
-- [ ] Any root or moved documentation links/path references affected by the relocation are updated so they resolve correctly after the move.
-- [ ] Focused tests cover any path-resolution or command-surface regressions introduced by the split where unit coverage is practical.
-- [ ] The implementation records successful verification of `bun run typecheck`, `bun test`, `bun run check`, `bun run ready`, `bin/jarvis help`, and one harmless read-only/config subcommand, all run from the repo root after the move.
-- [ ] The final repo shape preserves behavior at the command boundary: from a user’s perspective, root `jarvis` commands behave the same as before even though the implementation now lives under `v1/`.
+- [x] `README.md` documents the new repo layout, keeps the root installation story intact, and makes clear that `jarvis` still runs the v1 engine after the split.
+- [x] `AGENTS.md` remains at the repo root and is updated to reflect the `v1/` plus `v2/` layout and the workflow expectations that follow from that split.
+- [x] The split documents the exact ownership of specs: non-v2 history/planning under `v1/spec/`, v2 planning materials under `v2/spec/wip-intents/`, and this split plan’s `intent.md` specifically under `v2/spec/wip-intents/split-v1-v2-repo-intent.md`.
+- [x] Any root or moved documentation links/path references affected by the relocation are updated so they resolve correctly after the move.
+- [x] Focused tests cover any path-resolution or command-surface regressions introduced by the split where unit coverage is practical.
+- [x] The implementation records successful verification of `bun run typecheck`, `bun test`, `bun run check`, `bun run ready`, `bin/jarvis help`, and one harmless read-only/config subcommand, all run from the repo root after the move.
+- [x] The final repo shape preserves behavior at the command boundary: from a user’s perspective, root `jarvis` commands behave the same as before even though the implementation now lives under `v1/`.
 
 ## Out of scope
 

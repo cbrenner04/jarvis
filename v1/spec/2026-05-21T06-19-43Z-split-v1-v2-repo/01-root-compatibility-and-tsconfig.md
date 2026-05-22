@@ -58,16 +58,16 @@ This slice defines the root contract after the split: one package manifest, one 
 
 ## Acceptance criteria
 
-- [ ] `package.json` remains the only package manifest in the repository and still exposes `bin/jarvis` from the root package.
-- [ ] `bin/jarvis` preserves the current symlink-safe wrapper behavior and now dispatches into the v1 CLI path, so existing PATH symlinks continue to work.
-- [ ] Root script names remain unchanged, but `module`, `start`, `typecheck`, `test`, `ready`, and `install-opencode-permissions` now resolve into `v1/` code or new forwarding shims whose only job is dispatching into `v1/`.
-- [ ] The real implementations of the current product entrypoints no longer live in root `src/` or root `scripts/`; those trees now live under `v1/`.
-- [ ] The repo has a root `tsconfig.base.json` for shared compiler options and a `v1/tsconfig.json` that owns the v1 include globs.
-- [ ] If a root `tsconfig.json` still exists after the split, it does not own source-tree includes for `v1/` or `v2/`; `v1/tsconfig.json` remains the authoritative v1 project config.
-- [ ] `bun run typecheck` targets `v1/tsconfig.json` explicitly and does not implicitly typecheck `v2/` in this step.
-- [ ] `bun test` from the repo root still runs the v1 test suite after the move and does not depend on leaving the real tests at the repo root.
-- [ ] `bun run check` continues to run from the repo root against `.` and succeeds with the new `v2/` documentation/spec files included in the same formatter/linter surface.
-- [ ] `.github/workflows/ci.yml` still validates the repo through the familiar root commands rather than a new per-version workflow shape.
+- [x] `package.json` remains the only package manifest in the repository and still exposes `bin/jarvis` from the root package.
+- [x] `bin/jarvis` preserves the current symlink-safe wrapper behavior and now dispatches into the v1 CLI path, so existing PATH symlinks continue to work.
+- [x] Root script names remain unchanged, but `module`, `start`, `typecheck`, `test`, `ready`, and `install-opencode-permissions` now resolve into `v1/` code or new forwarding shims whose only job is dispatching into `v1/`.
+- [x] The real implementations of the current product entrypoints no longer live in root `src/` or root `scripts/`; those trees now live under `v1/`.
+- [x] The repo has a root `tsconfig.base.json` for shared compiler options and a `v1/tsconfig.json` that owns the v1 include globs.
+- [x] If a root `tsconfig.json` still exists after the split, it does not own source-tree includes for `v1/` or `v2/`; `v1/tsconfig.json` remains the authoritative v1 project config.
+- [x] `bun run typecheck` targets `v1/tsconfig.json` explicitly and does not implicitly typecheck `v2/` in this step.
+- [x] `bun test` from the repo root still runs the v1 test suite after the move and does not depend on leaving the real tests at the repo root.
+- [x] `bun run check` continues to run from the repo root against `.` and succeeds with the new `v2/` documentation/spec files included in the same formatter/linter surface.
+- [x] `.github/workflows/ci.yml` still validates the repo through the familiar root commands rather than a new per-version workflow shape.
 
 ## Out of scope
 

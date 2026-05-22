@@ -6,7 +6,12 @@ Decisions and conventions for working in this repo. This file is for humans and 
 
 `jarvis` is a minimal coding-agent harness ("ralph loop"). It sends one-shot prompts to an underlying agent CLI (`claude`, `codex`, `cursor`) on a loop until a target-repo spec is complete, the user kills it, or all agents are out of quota.
 
-This repo contains **only the harness**. Work in this repo is work on the harness itself.
+The repository has been split into three areas:
+- The root contains shared glue, configuration, and the public docs
+- `v1/` contains the current shipping harness implementation (source, tests, specs, scripts, and data)
+- `v2/` contains planning materials for the next version and reserved space for future v2 implementation
+
+Work in this repository is work on the harness itself. The v1 implementation lives under `v1/`. Future v2 work will land under `v2/src` and `v2/test` once implementation begins.
 
 ## Core decisions
 
@@ -17,7 +22,7 @@ This repo contains **only the harness**. Work in this repo is work on the harnes
 - **Default agent fallback order**: `claude → codex → cursor`. Configurable.
 - **Spec format (in target repos)**: Markdown with GitHub-style task list checkboxes. Completion = zero unchecked `- [ ]` items remain.
 - **Stop conditions**: spec complete, all agents quota-exhausted, or manual kill (Ctrl-C).
-- **Quota detection**: per-agent stderr/exit-code heuristics documented in `docs/quota-signals.md`.
+- **Quota detection**: per-agent stderr/exit-code heuristics documented in `v1/docs/quota-signals.md`.
 
 ## The loop prompt (sent to the agent each iteration)
 
@@ -44,7 +49,7 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 
 ## Working rules for agents in this repo
 
-- Before updating `jarvis`, make sure there is a spec for the intended change. If no spec exists, create one first using the conventions in [docs/spec-guidance.md](docs/spec-guidance.md).
+- Before updating `jarvis`, make sure there is a spec for the intended change. If no spec exists, create one first using the conventions in [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
 - New specs must be committed to `main` (via a normal PR) **before** any implementation work on them begins. Jarvis runs against the spec on disk; partially drafted specs in feature branches lead to drift between the spec and the implementation. Open the spec PR, get it merged, then start a separate run/branch for the implementation.
 - If a spec already exists for the intended change, run it through `jarvis` instead of implementing it directly.
 - Read the index to choose the next unchecked subspec, then read that subspec before editing.

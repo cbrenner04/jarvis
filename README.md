@@ -110,6 +110,16 @@ progress commit, stop for no progress, or stop on a blocker.
 See [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md) for the full authoring
 contract.
 
+## Repository Layout
+
+After the v1/v2 split, the repository has three distinct areas:
+
+- **Root** (`/`): Shared glue and repo-wide guidance. Contains `bin/jarvis` (shim that runs the v1 engine), the single `package.json`, and documentation files (`README.md`, `AGENTS.md`).
+- **v1** (`v1/`): The shipping harness implementation. Contains `src/`, `test/`, `docs/`, `scripts/`, `data/`, and `spec/`. All current jarvis functionality lives here. The root `bin/jarvis` shim dispatches to `v1/src/cli.ts`.
+- **v2** (`v2/`): Reserved for v2 planning and future implementation. Contains `spec/wip-intents/` with long-lived planning documents. No implementation code yet.
+
+From a user's perspective, `jarvis` commands work exactly as before, dispatching through the root shim to the v1 engine. Future v2 development will introduce v2/src and v2/test co-located as appropriate.
+
 ## Commands
 
 ```text

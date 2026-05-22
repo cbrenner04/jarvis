@@ -122,4 +122,29 @@ describe("ensureWorktree (patch-mode)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("reuses a checkout already on the patch spec branch", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-resume-"));
+    try {
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "test");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'initial'", { cwd: dir });
+
+      const specDir = join(dir, "spec", "feature");
+      const specFile = join(specDir, "index.md");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(specFile, "# Test spec\n");
+      execSync("git checkout -b feature", { cwd: dir });
+
+      const worktreePath = await ensureWorktree(dir, specFile);
+
+      expect(worktreePath).toBe(dir);
+      expect(existsSync(join(dir, ".worktree", "feature"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

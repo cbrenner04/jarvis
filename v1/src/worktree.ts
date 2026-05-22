@@ -21,6 +21,12 @@ export async function ensureWorktree(
   const specName = getSpecName(specPath);
   const worktreePath = join(projectRoot, ".worktree", specName);
 
+  // Resumed runs can be launched from the patch worktree itself. Reuse that
+  // checkout instead of trying to create another worktree for the same branch.
+  if (currentBranchMatches(projectRoot, specName)) {
+    return projectRoot;
+  }
+
   try {
     execFileSync("git", ["fetch", "origin"], {
       cwd: projectRoot,
@@ -162,6 +168,17 @@ function branchExistsOnOrigin(
   }
 }
 
+function currentBranchMatches(
+  projectRoot: string,
+  branchName: string,
+): boolean {
+  try {
+    return getCurrentBranch(projectRoot) === branchName;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * When the agent cwd is a git checkout, spec completion requires a clean
  * working tree so checkbox checks cannot succeed while work (including seeded
@@ -254,7 +271,11 @@ export function createWorktreeSymlinks(
   worktreePath: string,
   symlinks: string[] | undefined,
 ): void {
-  if (!symlinks || symlinks.length === 0) {
+  if (
+    !symlinks ||
+    symlinks.length === 0 ||
+    resolve(projectRoot) === resolve(worktreePath)
+  ) {
     return;
   }
 

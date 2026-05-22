@@ -1,12 +1,11 @@
-# 02 - Cleanup compatibility and repo-specific docs
+# 02 - Repo docs and explicit cleanup non-goal
 
 ## Goal
 
-Close the remaining gaps created by moving new Jarvis-repo committed plans to
-`v1/spec/...`: cleanup/archive behavior and documentation that talks about this
-repository's own spec layout. This slice should either extend the shared
-committed-spec-root logic into cleanup or make any intentional non-goal
-explicit so operators are not left with a half-migrated workflow.
+Finish the repo-facing guidance for the new Jarvis-specific spec location and
+make the cleanup/archive boundary explicit. This slice does not add a second
+implementation project for cleanup routing; it documents the operator-visible
+consequences of moving new Jarvis-repo committed plans to `v1/spec/...`.
 
 ## Decisions
 
@@ -15,27 +14,28 @@ explicit so operators are not left with a half-migrated workflow.
   specifically about the Jarvis repository itself.
 - Repo-specific guidance in this repository should point new work at `v1/spec/`
   and reserve `v2/spec/` for future explicit workflows.
-- Cleanup behavior needs an explicit answer in this spec: either update it to
-  understand the Jarvis-repo committed-spec root for new plans, or document the
-  limitation as an intentional follow-up with no ambiguity for operators.
+- Cleanup/archive support for `v1/spec/...` is an intentional non-goal of this
+  change. Existing cleanup behavior that reasons about root `spec/...` and
+  `spec/completed/...` is left untouched here.
+- Because cleanup stays unchanged, docs must not imply that `jarvis1 cleanup`
+  will archive new Jarvis-repo plan trees created under `v1/spec/...`.
+- Any later work that teaches cleanup about `v1/spec/...` should be handled in
+  a separate spec so this routing change stays reviewable.
 - Historical root-level `spec/...` trees in this repository must remain safe to
   leave in place.
 
 ## Task Checklist
 
-- Audit cleanup/archive code and docs for assumptions that only committed
-  `spec/<spec-dir>` trees exist.
-- If feasible within this spec, route cleanup/archive lookup for this
-  repository through the same committed-spec-root source of truth so new
-  `v1/spec/...` plans are archived consistently.
-- If cleanup is intentionally deferred, document the limitation in both the
-  implementation notes and user-facing docs, and make sure new-path docs do not
-  imply behavior that cleanup does not provide.
+- Audit cleanup/archive docs and workflow text for assumptions that new
+  committed plan trees will always be archived from root `spec/...`.
+- Document the cleanup limitation in user-facing docs and any implementation
+  notes that describe the new `v1/spec/...` location.
 - Update repo-owned docs and examples that describe creating specs for this
   repository so they use `v1/spec/...` instead of root `spec/...`.
 - Preserve generic docs for ordinary target repos unless the page is explicitly
   describing work on the Jarvis repo.
-- Add regression coverage for any cleanup or archive behavior changed here.
+- Add coverage only if this slice changes any user-visible text that is already
+  asserted in tests.
 
 ## Acceptance criteria
 
@@ -44,16 +44,14 @@ explicit so operators are not left with a half-migrated workflow.
 - [ ] Generic docs for normal target repos still describe committed in-repo
       specs under `spec/<timestamp>-<slug>/` unless they are explicitly about
       the Jarvis repository.
-- [ ] Cleanup/archive behavior for new Jarvis-repo committed plans is either
-      updated to handle `v1/spec/...` or explicitly documented as a non-goal of
-      this change with clear operator-facing guidance.
+- [ ] The docs explicitly state that this change does not teach `jarvis1 cleanup`
+      to archive new Jarvis-repo plan trees under `v1/spec/...`.
 - [ ] Historical root-level `spec/...` trees in this repository do not require
       migration as part of this work.
-- [ ] Any cleanup or archive logic changed for the new routed path has
-      automated coverage.
+- [ ] No cleanup/archive code changes are required to complete this spec.
 
 ## Documentation updates
 
 - Update the repo-specific docs that currently teach root-level `spec/` for
-  Jarvis-owned work, and update cleanup or workflow docs as needed to match the
-  final scope decision for `v1/spec/...`.
+  Jarvis-owned work, and update cleanup/workflow docs as needed to reflect the
+  explicit non-goal for `v1/spec/...` archival.

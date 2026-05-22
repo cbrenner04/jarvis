@@ -130,3 +130,14 @@ Use `Record<string, string>` (not `Partial<Record<string, string>>`). `process.e
 ## Refine skip
 
 All code locations have been verified against the actual source. The intent is complete and consistent with the codebase. No further refinement is needed before drafting.
+
+## Blocker
+
+Review and approve `spec/2026-05-22T01-48-54Z-aider-no-browser-launch/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis plan --resume-draft spec/2026-05-22T01-48-54Z-aider-no-browser-launch/intent.md`

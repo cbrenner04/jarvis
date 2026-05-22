@@ -4,8 +4,8 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 
 ## Overview and scope
 
-- This catalog describes behavior as shipped today under `v1/`, with v1 invoked via `jarvis` in CLI usage and help text. Sources: `v1/src/cli.ts`
-- The planned `jarvis1` rename is still pending, so this file intentionally records current `jarvis` behavior as the migration baseline for v2 review. Sources: `v1/src/cli.ts`, `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/00-skeleton-commands-and-project-resolution.md`
+- This catalog describes behavior as shipped today under `v1/`, with v1 invoked via `jarvis1` in CLI usage and help text. Sources: `v1/src/cli.ts`
+- The `jarvis1` rename has landed, so this file intentionally records the renamed `jarvis1` behavior as the migration baseline for v2 review. Sources: `v1/src/cli.ts`, `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/00-skeleton-commands-and-project-resolution.md`
 - Source files under `v1/src/` are treated as authority for behavior; docs are used to cross-check operator workflow expectations and terminology. Sources: `v1/src/cli.ts`, `v1/docs/run-loop.md`, `v1/docs/spec-guidance.md`
 - Behavior entries in this catalog stay as short bullets ending with `Sources:` citations; `[uncertain]` is reserved for cases where source evidence cannot support a stronger claim. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/00-skeleton-commands-and-project-resolution.md`
 
@@ -31,9 +31,9 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - Plan-mode flag surface includes exactly `--refine-turns`, `--review-passes`, `--repo`, `--cwd`, `--resume`, and `--resume-draft`, with non-negative integer validation for refine/review counts. Sources: `v1/src/cli.ts`, `v1/src/commands/plan.ts`, `v1/src/commands/plan-args.ts`
 - The single positional argument is interpreted as an existing file path in normal mode and as inline intent text otherwise, but in `--resume`/`--resume-draft` modes it is always treated as a spec path (never inline text fallback). Sources: `v1/src/commands/plan-args.ts`
 - `--resume` requires a path ending in `index.md`, while `--resume-draft` requires `intent.md`; both derive plan identity from the parent spec directory basename (with timestamp prefix stripping for plan branch/worktree naming). Sources: `v1/src/commands/plan.ts`
-- Plan mode supports interactive/no-arg, file, and inline entry flows; interactive mode rejects `--refine-turns 0` because there is no seed intent content to refine. Sources: `v1/src/commands/plan.ts`, `v1/src/commands/plan-args.ts`
+- [uncertain] Plan mode supports interactive/no-arg, file, and inline entry flows; interactive mode rejects `--refine-turns 0` because there is no seed intent content to refine; interactive mode implementation behavior is unconfirmed. Sources: `v1/src/commands/plan.ts`, `v1/src/commands/plan-args.ts`
 - Inline intent mode runs a dedicated one-shot inline-draft agent pass that rewrites only the generated `spec/wip-intents/*.md` intent file and returns without entering refine/draft/review phases. Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/inline-draft.ts`, `v1/src/modes/plan/prompts/inline-draft.md`
-- File/interactive plan flows run an end-to-end phase pipeline: intent seeding, refine phase, draft phase, then `N` review passes (`--review-passes`, default `2`) with explicit per-pass stderr milestones. Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/refine.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/plan/review.ts`
+- File/interactive plan flows run an end-to-end phase pipeline: intent seeding, refine phase (controlled by `--refine-turns`, default unspecified), draft phase, then 2 review passes by default (controlled by `--review-passes`, default `2`) with explicit per-pass stderr milestones. Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/refine.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/plan/review.ts`
 - Refine behavior is append-only on intent body and must end each turn with one of `## Refine turn N`, `## Refine skip`, or `## Blocker`; invalid intent rewrites are surfaced as errors and stop phase progress. Sources: `v1/src/modes/plan/refine.ts`, `v1/src/modes/plan/prompts/refine.md`
 - Draft behavior requires index generation plus numbered subspecs and treats blocker insertion in `intent.md` as a valid stop state; otherwise missing `index.md` or missing numbered subspecs fail validation. Sources: `v1/src/modes/plan/draft.ts`, `v1/src/modes/plan/prompts/draft.md`
 - Review behavior snapshots current spec markdown into prompt context, forbids `intent.md` rewrites except blocker append, validates `index.md` still exists, and can skip committing a pass when no changes were produced. Sources: `v1/src/modes/plan/review.ts`, `v1/src/modes/plan/prompts/review.md`, `v1/src/commands/plan.ts`
@@ -49,7 +49,7 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - New implementation specs are expected to be authored as index-routed trees (`index.md` + numbered subspec files) with checklist links from index into atomic subspec documents. Sources: `v1/docs/spec-guidance.md`
 - The documented workflow requires spec-first sequencing: create a spec PR, merge spec files to `main`, and only then start implementation runs against that merged spec. Sources: `v1/docs/spec-guidance.md`
 - `jarvis plan` can generate spec trees, but generated specs follow the same merge-first rule before `jarvis run` implementation work begins. Sources: `v1/docs/spec-guidance.md`, `v1/docs/workflows.md`
-- External plan output (`modes.plan.commit: false`) produces Jarvis-owned spec trees outside the repo with a required `repo:` binding so later `jarvis run` invocations can resolve the target checkout. Sources: `v1/docs/spec-guidance.md`, `v1/docs/config.md`
+- External plan output (`modes.plan.commit: false`) produces Jarvis-owned spec trees written to a configured external spec root directory (not inside the target repo) with a required `repo:` binding so later `jarvis run` invocations can resolve the target checkout. Sources: `v1/src/modes/plan/spec-paths.ts`, `v1/docs/spec-guidance.md`, `v1/docs/config.md`
 
 ## Config and project resolution
 
@@ -79,7 +79,7 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 
 - v1 recognizes exactly five adapter names (`claude`, `codex`, `cursor`, `opencode`, `aider`) and `createAgent()` instantiates the matching adapter class directly from that name/model pair. Sources: `v1/src/agents/types.ts`, `v1/src/agents/factory.ts`
 - Default `modes.patch.agentOrder` and `modes.plan.agentOrder` include only three entries in this order: `claude` (`haiku`), `codex` (`gpt-5.3-codex`), then `cursor` (`Composer 2`); `opencode` and `aider` are supported but opt-in via config edits. Sources: `v1/src/config.ts`, `v1/docs/agents.md`
-- `jarvis run` executes agents in configured patch order and advances only when an agent result is classified as quota-related; if the active agent returns a non-quota hard error, the iteration stops instead of trying later agents. Sources: `v1/src/modes/patch/run.ts`, `v1/src/agents/quota.ts`
+- Both patch and plan modes execute agents in their configured order and advance only when an agent result is classified as quota-related; if the active agent returns a non-quota hard error, the mode stops instead of trying later agents. Sources: `v1/src/modes/patch/run.ts`, `v1/src/commands/plan.ts`, `v1/src/agents/quota.ts`
 
 ### Adapter-specific behavior
 
@@ -154,13 +154,15 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - `run` and `plan` both run a mandatory log-server reachability preflight (default `http://127.0.0.1:4310/logs`) after repo resolution and before agent work; failures print a specific `jarvis: log server unreachable ...` banner plus error detail and exit `1`. Sources: `v1/src/mode-entry.ts`, `v1/src/log-server-preflight.ts`
 - Log-server health checks and normal log sends are HTTP `POST` JSON payloads to the configured URL, and non-2xx responses are treated as transport failures (`log server returned HTTP <status>`). Sources: `v1/src/logging.ts`
 - After preflight succeeds, harness log forwarding is fire-and-forget; log send failures are swallowed so agent iteration can proceed, with on-disk session logs treated as the authoritative record. Sources: `v1/src/modes/patch/run.ts`
-- Patch runs always open a session log file under the configured logging root, write timestamped `[tag]` lines (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`), and close the FD during finalize. Sources: `v1/src/modes/patch/run.ts`, `v1/src/config.ts`
+- [uncertain] Patch runs always open a session log file under the configured logging root, write timestamped `[tag]` lines (`harness`, `outbound`, `inbound_stdout`, `inbound_stderr`), and close the FD during finalize; plan mode session logging behavior is unconfirmed. Sources: `v1/src/modes/patch/run.ts`, `v1/src/config.ts`
 - Telemetry writes are append-only JSONL rows to `telemetryPath` (when configured), with parent directories auto-created and one row per invocation plus optional `run_terminal` rows for run exit state. Sources: `v1/src/telemetry.ts`, `v1/src/modes/patch/run.ts`
 - Telemetry usage/cost enrichment normalizes unavailable usage to explicit null token fields + `cost_source: "no-usage"`, and otherwise may compute USD from local price tables when usage exists and a price key resolves. Sources: `v1/src/telemetry-enrichment.ts`
 - When telemetry rows exist for the run namespace/time window, patch finalize prints a human-readable run summary (iterations/attempts/duration/cost table) to stdout; malformed telemetry lines are ignored rather than failing the run. Sources: `v1/src/run-summary.ts`, `v1/src/modes/patch/run.ts`
 - Patch run preflight may persist config side effects by lazily backfilling missing registered-project `origin` from git remote URL when available, but failures in this best-effort update do not block execution. Sources: `v1/src/modes/patch/run.ts`, `v1/src/config.ts`, `v1/src/commands/init.ts`
 
 ## Completion, blockers, exit codes, and failure handling
+
+### Patch mode
 
 - Patch spec completion is checkbox-driven: parser counts unchecked GitHub-task items, and a spec with zero task items is malformed (`MalformedSpecError`) rather than complete. Sources: `v1/src/modes/patch/completion.ts`, `v1/src/modes/patch/spec.ts`
 - For index-routed runs, the active subspec is the first unchecked linked task in `index.md`; if no linked unchecked item exists, active subspec resolution returns `undefined` and iteration logic falls back to top-level checklist progress only. Sources: `v1/src/modes/patch/completion.ts`, `v1/src/modes/patch/spec.ts`, `v1/src/modes/patch/run.ts`
@@ -171,10 +173,19 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - Agent-failure pipeline classifies non-zero exits in strict order (`model_config` before strict quota before generic error), merges stderr+stdout into diagnostics on errors, and only allows weak/lenient quota upgrades in mode-controlled no-progress contexts. Sources: `v1/src/agents/spawn.ts`, `v1/src/agents/quota.ts`, `v1/docs/agent-cli-failure-pipeline.md`, `v1/src/modes/patch/run.ts`
 - Patch-mode fallback policy differs by error class: strict quota rotates to next configured agent, model-config fails fast with no fallback, and non-quota errors only rotate under lenient weak-quota rules; otherwise run exits `3`. Sources: `v1/src/modes/patch/run.ts`, `v1/src/agents/quota.ts`
 
+### Plan mode
+
+- Plan mode completion is spec-driven: refine/draft phases produce spec output, and review phase validates that `index.md` exists and completion is signaled by zero review-pass changes or explicit blocker insertion in `intent.md`. Sources: `v1/src/modes/plan/refine.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/plan/review.ts`
+- Plan exit semantics include `0` on successful completion, `2` on all-agents quota exhaustion, `3` on model configuration errors, `130` on SIGINT checkpoints, and `1` on blockers/validation/hard failures. Sources: `v1/src/commands/plan.ts`
+- Plan mode blocker behavior: blocker insertion in `intent.md` during refine phase stops the run with exit `1`, and blocker content is preserved in both draft and review phases. Sources: `v1/src/modes/plan/refine.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/plan/review.ts`
+
 ## Behaviors with uncertain intent
 
-- [uncertain] Plan-mode collapsed attribution bullets always use fixed text `spec commits (refine, draft, review)` even when grouped commits include blocker/resume variants, so the label can lose subject-level detail; source shows this formatting but not why lossy wording is preferred. Sources: `v1/src/modes/plan/pr.ts`
-- [uncertain] `parsePatchSpec` captures only the last exact `## Acceptance criteria` section and last exact `## Blocker` section when duplicates exist, but v1 does not document whether duplicate sections are invalid or intentionally "last one wins." Sources: `v1/src/modes/patch/spec.ts`
+Items marked `[uncertain]` need additional evidence (code inspection, tests, or documentation review) to confirm or clarify their intent.
+
+- [uncertain] Plan-mode refine commit attribution always renders as `plan: refine — unknown` and does not carry the agent label; confirmed to be a bug in v1, resolution needed in v2. Evidence: see v1 commit attribution logic and refine-phase trailer handling. Sources: `v1/src/modes/plan/pr.ts`
+- [uncertain] Plan-mode collapsed attribution bullets always use fixed text `spec commits (refine, draft, review)` even when grouped commits include blocker/resume variants, so the label can lose subject-level detail; evidence needed: design rationale or test coverage explaining why lossy wording is preferred. Sources: `v1/src/modes/plan/pr.ts`
+- [uncertain] `parsePatchSpec` captures only the last exact `## Acceptance criteria` section and last exact `## Blocker` section when duplicates exist, but v1 does not document whether duplicate sections are invalid or intentionally "last one wins;" evidence needed: spec parser test coverage or explicit behavior documentation. Sources: `v1/src/modes/patch/spec.ts`
 
 ## Surprising or possibly vestigial behaviors
 

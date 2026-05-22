@@ -17,6 +17,7 @@ The split changes where humans and agents look for code, specs, and planning mat
   - that root `jarvis` entrypoints still execute v1 in this step
   - that v2 planning material now lives under `v2/spec/`
   - that future v2 implementation work should land under `v2/`, not by reusing root paths
+  - that future v2 tests are co-located with the source they cover instead of placed in a parallel `v2/test/` tree
   - that root-owned files are now compatibility glue or repo-wide guidance, not a second home for the v1 implementation
 - Describe the spec topology as a full-tree relocation plus carveout:
   - `v1/spec/` becomes the home for completed history and remaining v1-oriented planning/spec work

@@ -35,7 +35,8 @@ This slice is the physical relocation step. It defines exactly what moves under 
 - Seed `v2/` only with structure needed for follow-on planning in this step:
   - `v2/spec/`
   - `v2/spec/wip-intents/`
-  - no `v2/src/` or `v2/test/` is required yet unless the implementer needs empty placeholders to satisfy tooling; if placeholders are added they must remain inert and pass the unchanged root formatting/lint surface.
+  - no `v2/src/` is required yet unless the implementer needs an empty placeholder to satisfy tooling; if a placeholder is added it must remain inert and pass the unchanged root formatting/lint surface.
+  - do not seed a parallel `v2/test/` tree. Future v2 tests live beside the source they cover under `v2/src/`.
 - Root-owned paths remain at the top level:
   - `.github/`
   - `.gitignore`

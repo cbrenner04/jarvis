@@ -82,6 +82,8 @@ Initial scope:
   - prompt diffs should be reviewable like code;
   - rendered prompt snapshots should protect meaningful behavior without making
     harmless wording edits painful;
+  - v2 tests for prompt renderer source should follow the v2 co-location rule
+    and live next to that source rather than under a parallel `v2/test/` tree;
   - prompt versioning should make behavior-affecting shared changes visible for
     both `jarvis1` and v2;
   - broader evals are out of scope for now and should be left as a future

@@ -2,8 +2,8 @@
 
 ## Goal
 
-Introduce one source of truth for committed in-repo spec placement in plan mode
-so Jarvis can keep the generic default of `spec/` for normal target repos while
+Introduce one source of truth for committed in-repo plan-spec routing so
+Jarvis can keep the generic default of `spec/` for normal target repos while
 defaulting new Jarvis-repo committed specs to `v1/spec/`.
 
 This slice is about path selection and validation only. It should not yet
@@ -14,15 +14,24 @@ rewrite every human-facing message or PR/body formatter that still prints
 
 - The committed-spec-root decision must live behind one helper or policy layer,
   not duplicated across plan-mode call sites.
-- That helper must answer two related questions:
-  which root should new committed plans use, and which existing committed roots
-  should resume/lookup accept for compatibility.
+- That helper must expose enough structure for later callers to share the same
+  routing facts rather than recomputing them ad hoc:
+  the preferred root for new committed plans, the accepted existing roots for
+  lookup/resume, and the actual matched root when an existing spec path is
+  being resumed.
 - The generic committed-spec default remains `spec/` for ordinary target repos.
 - For this repository, new committed plan authoring defaults to `v1/spec/`.
 - `v2/spec/` remains out of scope for automatic routing in this change; reserve
   it for a later explicit workflow rather than inventing heuristics now.
 - Existing root-level `spec/...` trees in this repository remain valid inputs
   for resume or read flows where the current code already supports them.
+- New-plan collision detection in this repository must consider both the new
+  preferred root and any accepted legacy roots for the same basename so Jarvis
+  does not create parallel `spec/<name>` and `v1/spec/<name>` trees for one
+  plan name.
+- The routing decision should be derived from target-repo context in one place.
+  Callers may consult that policy, but they should not each grow their own
+  Jarvis-repo detection logic.
 - Repo-root invocation is not a hard requirement for this change. If the
   smallest defensible implementation requires users to run `jarvis1 plan` from
   `v1/` for Jarvis-owned work, that is acceptable as long as the workflow is
@@ -38,7 +47,8 @@ rewrite every human-facing message or PR/body formatter that still prints
 - Route new committed plan directory creation through that helper instead of
   hard-coding `worktreePath/spec/<spec-dir>`.
 - Route committed-plan collision detection through the same helper so new
-  `v1/spec/...` plans do not drift from existence checks.
+  `v1/spec/...` plans do not drift from existence checks and so legacy
+  `spec/...` siblings still block duplicate plan names in this repository.
 - Route committed-plan resume lookup through the same helper, including any
   Jarvis-repo legacy fallback roots the implementation decides to keep.
 - Preserve no-commit external plan storage under `~/.jarvis/specs/...` with no
@@ -58,6 +68,10 @@ rewrite every human-facing message or PR/body formatter that still prints
       creation, collision detection, and committed resume existence checks.
 - [ ] Legacy root-level `spec/<spec-dir>/...` trees in this repository remain
       resumable or otherwise readable where they were before this change.
+- [ ] In this repository, creating a new committed plan whose basename already
+      exists under either `v1/spec/` or legacy root `spec/` is rejected or
+      resolved consistently by the shared routing policy instead of creating
+      two parallel plan trees.
 - [ ] No-commit plan mode continues to use `~/.jarvis/specs/...` unchanged.
 - [ ] If Jarvis-repo plan authoring requires invocation from `v1/` rather than
       the repo root, that workflow is documented explicitly; if not, no such

@@ -13,13 +13,19 @@ and plan prompts.
 - Path formatting for committed plans is part of the same behavior as path
   resolution; commit bodies and PR text must not keep an independent
   `spec/...` convention.
-- The shared formatter must still emit `spec/...` for generic repos and
-  `v1/spec/...` for new Jarvis-repo committed plans.
+- The shared formatter must emit the actual committed spec path for the active
+  tree, not merely the preferred root for new plans. New Jarvis-repo plans
+  therefore use `v1/spec/...`, while resumed legacy Jarvis-repo root trees keep
+  using `spec/...`.
 - Compatibility for historical Jarvis-repo root `spec/...` plan trees must be
   explicit where parsers consume existing commit bodies or resume paths.
 - Existing `Spec: spec/...` commit bodies remain valid historical data; this
   change extends parsers and renderers to understand `v1/spec/...`, not by
   rewriting old commit history.
+- Callers that receive an explicit committed spec path from resume or
+  `--resume-draft` should preserve that path identity through user-facing text,
+  write-boundary checks, and commit metadata rather than silently canonicalizing
+  it to a different root.
 - Patch-mode spec handling is out of scope unless a concrete reader breaks when
   pointed at `v1/spec/...`.
 
@@ -40,6 +46,9 @@ and plan prompts.
 - Ensure new-path metadata surfaces and legacy-path parsers share one path
   formatter/parser contract rather than each caller carrying its own regex or
   prefix logic.
+- Ensure resumed legacy root-level Jarvis specs continue to print and validate
+  against their real `spec/...` path instead of being reformatted as
+  `v1/spec/...`.
 - Add regression coverage for the formatting and parser surfaces that consume
   committed-plan paths.
 
@@ -58,6 +67,10 @@ and plan prompts.
       `Spec: spec/...` remain renderable without migration or history edits.
 - [ ] Resume, `--resume-draft`, and next-step commands printed for new
       Jarvis-repo plans reference `v1/spec/...` paths.
+- [ ] Resume, `--resume-draft`, boundary enforcement, and follow-up commit
+      metadata for a legacy Jarvis-repo root-level `spec/<spec-dir>/...` tree
+      continue to reference that real legacy path rather than rewriting it to
+      `v1/spec/...`.
 - [ ] Automated coverage proves the shared formatter is used by path-consuming
       plan metadata surfaces rather than each caller carrying its own prefix.
 
@@ -65,4 +78,5 @@ and plan prompts.
 
 - Update the operator-facing plan-mode docs that describe committed plan paths,
   resume commands, write-boundary behavior, and plan PR metadata where they are
-  specific to this repository or to the shared committed-spec formatting rule.
+  specific to this repository or to the shared committed-spec formatting rule,
+  including the legacy-root resume behavior.

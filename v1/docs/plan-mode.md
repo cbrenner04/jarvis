@@ -4,11 +4,11 @@ Reference for `jarvis1 plan [<intent-file|"inline text">]` semantics: how it cre
 
 ## Overview
 
-Plan mode creates a dedicated worktree and branch (`plan/<plan-name>` and `.worktree/plan-<plan-name>/`; **no UTC prefix**) to draft a new spec collaboratively with an agent. The location where specs are written depends on the `modes.plan.commit` config setting:
+Plan mode creates a dedicated worktree and branch (`plan/<plan-name>` and `.worktree/plan-<plan-name>/`; **no UTC prefix**) to draft a new spec collaboratively with an agent. The location where specs are written depends on the `modes.plan.commit` config setting and the configured `targetDir`:
 
-**With `commit: true` (default):** Specs are written inside the target repository under `spec/<spec-dir>/`:
-- A seeded `spec/<spec-dir>/intent.md` capturing the user's initial request. New runs use **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** (`<plan-name>` is the validated kebab-case name after collisions). Older trees may still omit the timestamp (**`<spec-dir>`** = `<plan-name>` only); both layouts stay valid for resume and `jarvis1 run`.
-- A `plan: draft` commit with `spec/<spec-dir>/index.md` plus atomic subspec files.
+**With `commit: true` (default):** Specs are written inside the target repository under `<targetDir>/<spec-dir>/` where `<targetDir>` defaults to `spec` but may be configured per-project:
+- A seeded `<targetDir>/<spec-dir>/intent.md` capturing the user's initial request. New runs use **`<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** (`<plan-name>` is the validated kebab-case name after collisions). Older trees may still omit the timestamp (**`<spec-dir>`** = `<plan-name>` only); both layouts stay valid for resume and `jarvis1 run`.
+- A `plan: draft` commit with `<targetDir>/<spec-dir>/index.md` plus atomic subspec files.
 - Zero or more `plan: review <N>` commits (default 2) where agents refine the spec tree in place.
 - A draft PR titled `plan: <plan-name>` (derived from branch identity, **not** the UTC prefix) that aggregates progress across all phases.
 
@@ -19,11 +19,11 @@ Plan mode creates a dedicated worktree and branch (`plan/<plan-name>` and `.work
 - No commits, pushes, or draft PR are created.
 - The generated `index.md` includes a `repo:` binding so `jarvis1 run` can resolve the target repository.
 
-**With `commit: true`:** The draft PR opens after `plan: draft`. **Lifecycle:** when every phase succeeds without a blocker, **`gh pr ready` runs automatically** (same readiness transition as patch mode). **Stdout Next steps:** jarvis prints the PR URL plus exact `jarvis1 plan --resume …` and `jarvis1 run …` commands using **`spec/<spec-dir>/` paths**. That block deliberately **does not** ask you to toggle draft/readiness manually.
+**With `commit: true`:** The draft PR opens after `plan: draft`. **Lifecycle:** when every phase succeeds without a blocker, **`gh pr ready` runs automatically** (same readiness transition as patch mode). **Stdout Next steps:** jarvis prints the PR URL plus exact `jarvis1 plan --resume …` and `jarvis1 run …` commands using **`<targetDir>/<spec-dir>/` paths** (e.g., `spec/…` for default repos, `v1/spec/…` for configured roots). That block deliberately **does not** ask you to toggle draft/readiness manually.
 
 **With `commit: false`:** There is no PR. **Stdout Next steps:** jarvis prints the absolute path to the external spec (e.g., `~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md`) plus exact `jarvis1 plan --resume …` and `jarvis1 run …` commands using that absolute path.
 
-Unlike `jarvis1 run`, which expects specs to be complete before PR readiness, plan mode drafts incomplete specs: you review/edit on the PR, then merge to `main`; after merging, **`jarvis1 run spec/<spec-dir>/index.md`** implements it.
+Unlike `jarvis1 run`, which expects specs to be complete before PR readiness, plan mode drafts incomplete specs: you review/edit on the PR, then merge to `main`; after merging, **`jarvis1 run <targetDir>/<spec-dir>/index.md`** implements it (e.g., `jarvis1 run spec/…` or `jarvis1 run v1/spec/…` depending on your repo's configuration).
 
 Plan mode is useful for:
 
@@ -35,9 +35,10 @@ Plan mode is useful for:
 ## Names and paths
 
 - **`<plan-name>`** — The collision-suffixed kebab-case slug backing **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`; it **never** includes the filesystem timestamp segment.
-- **`<spec-dir>`** — Directory basename under **`spec/`** hosting `intent.md` / `index.md`. New runs mint **`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**; legacy trees may still flatten to **`<plan-name>`** alone. Resume + `jarvis1 run` honor both layouts.
+- **`<targetDir>`** — Root directory for committed specs, configured per-project or globally (default `"spec"`). See [config.md](./config.md#targetdir-plan-mode-committrue-only) for details.
+- **`<spec-dir>`** — Directory basename under **`<targetDir>/`** hosting `intent.md` / `index.md`. New runs mint **`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**; legacy trees may still flatten to **`<plan-name>`** alone. Resume + `jarvis1 run` honor both layouts.
 
-After merge, **`jarvis1 run spec/<spec-dir>/index.md`** consumes the finalized tree (**`<spec-dir>`** keeps the UTC prefix when plan mode created one).
+After merge, **`jarvis1 run <targetDir>/<spec-dir>/index.md`** consumes the finalized tree (**`<spec-dir>`** keeps the UTC prefix when plan mode created one). For a default repo this is `spec/…`; for a configured root like `v1/spec/` it is `v1/spec/…`.
 
 ## Default terminal output
 
@@ -58,10 +59,12 @@ Stdout ends with:
 ```text
 Next steps:
   1. Review the draft PR: https://…
-  2. Edit spec/<spec-dir>/ …
- … `jarvis1 plan --resume spec/<spec-dir>/index.md`
- … merge … `jarvis1 run spec/<spec-dir>/index.md`
+  2. Edit <targetDir>/<spec-dir>/ …
+ … `jarvis1 plan --resume <targetDir>/<spec-dir>/index.md`
+ … merge … `jarvis1 run <targetDir>/<spec-dir>/index.md`
 ```
+
+where `<targetDir>` is the configured plan root (e.g., `spec` for default repos, `v1/spec` for this repository).
 
 Notice there is **no** third bullet telling reviewers to toggle draft/readiness —
 jarvis performs that readiness transition programmatically whenever every phase
@@ -89,7 +92,13 @@ Plan mode accepts intent in three forms:
 jarvis1 plan spec/2026-05-17T22-14-03Z-my-feature/intent.md
 ```
 
-Older date-only prefixes (for example **`spec/2026-05-11-v1/intent.md`**) remain valid authoring inputs; **[docs/spec-guidance.md](./spec-guidance.md)** captures the canonical timestamp shape for newly created trees.
+or, for a repository configured to use a non-default `targetDir`:
+
+```sh
+jarvis1 plan v1/spec/2026-05-17T22-14-03Z-my-feature/intent.md
+```
+
+Older date-only prefixes (for example **`spec/2026-05-11-v1/intent.md`** or **`v1/spec/2026-05-11-v1/intent.md`**) remain valid authoring inputs; **[docs/spec-guidance.md](./spec-guidance.md)** captures the canonical timestamp shape for newly created trees. Plan mode does not require running from any specific directory — the intent file path is resolved from the current working directory.
 
 ### Inline mode
 
@@ -457,10 +466,19 @@ jarvis1 cleanup
 ```
 
 The command discovers merged git worktrees, removes them locally, then attempts
-to **`spec/<archive>/ → spec/completed/<archive>/`** when **`spec/<archive>/`**
-exists (see authoritative rules in **[Worktrees: Cleanup](./worktrees-and-commits.md#cleanup)**).
+to archive committed specs by moving them from the default root `spec/` to `spec/completed/` (see authoritative rules in **[Worktrees: Cleanup](./worktrees-and-commits.md#cleanup)**).
 
-Important mapping note: for `.worktree/plan-<plan-name>/`, **`<archive>` collapses to `<plan-name>`**, which matches **`spec/<plan-name>/`** spec trees authored before timestamps existed. **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** does **not** share that flattened archive basename, so **`jarvis1 cleanup`** may report **`no spec directory moved`** even though files remain under **`spec/`** until you reorganize/move them manually into **`spec/completed/…`**.
+**Important limitation:** `jarvis1 cleanup` currently archives only specs created under the default `spec/` root. For repositories configured with a non-default `targetDir` (e.g., `v1/spec/`), **`jarvis1 cleanup` will not automatically move plan trees to a completed archive**. Manual cleanup for configured roots is a future enhancement. Affected specs remain on disk and can be archived manually:
+
+```sh
+# For a repo using v1/spec as targetDir:
+mv v1/spec/<spec-dir>/ v1/spec/completed/<spec-dir>/
+git add v1/spec/completed/
+git commit -m "archive: move v1/spec/<spec-dir>/ to completed"
+git push
+```
+
+Important mapping note: for `.worktree/plan-<plan-name>/`, **`<archive>` collapses to `<plan-name>`**, which matches **`spec/<plan-name>/`** (or **`<targetDir>/<plan-name>/`**) spec trees authored before timestamps existed. **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** does **not** share that flattened archive basename, so **`jarvis1 cleanup`** may report **`no spec directory moved`** even though files remain until you reorganize/move them manually.
 
 Manual teardown without `jarvis1 cleanup`:
 

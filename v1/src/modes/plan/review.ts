@@ -45,6 +45,8 @@ export type ReviewPhaseOptions = {
   totalPasses?: number;
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 };
 
 /**
@@ -59,6 +61,8 @@ export function buildReviewPrompt(opts: {
   totalPasses?: number;
   flatSpecLayout?: boolean;
   workDirLabel?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 }): string {
   const passNumber = opts.passNumber ?? 1;
   const totalPasses = opts.totalPasses ?? 1;
@@ -83,6 +87,7 @@ export function buildReviewPrompt(opts: {
   let template = readFileSync(promptFile, "utf8");
 
   const workDir = opts.workDirLabel ?? opts.name;
+  const targetDir = opts.targetDir ?? "spec";
   template = template.replaceAll("<WORKDIR>", workDir);
   template = template.replaceAll("<NAME>", opts.name);
   template = template.replaceAll("<INTENT>", opts.intent);
@@ -92,6 +97,9 @@ export function buildReviewPrompt(opts: {
 
   if (opts.flatSpecLayout) {
     template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
+  } else {
+    // For commit specs, replace the placeholder with the actual committed root
+    template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
   }
 
   return template;
@@ -177,6 +185,7 @@ export async function runReviewPass(
       totalPasses?: number;
       flatSpecLayout?: boolean;
       workDirLabel?: string;
+      targetDir?: string;
     } = {
       name: opts.name,
       intent,
@@ -185,6 +194,7 @@ export async function runReviewPass(
       ...(flatSpecLayout
         ? { flatSpecLayout: true, workDirLabel: specDirPath }
         : {}),
+      ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     };
     if (opts.passNumber !== undefined) {
       promptOpts.passNumber = opts.passNumber;

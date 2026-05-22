@@ -65,13 +65,16 @@ export function parseIndex(indexPath: string): {
 export function buildPlanPrHeader(opts: {
   name: string;
   specDirBasename?: string;
-  /** Worktree root; used to locate `spec/<name>/index.md`. Required to render the live header. */
+  /** Worktree root; used to locate `<targetDir>/<name>/index.md`. Required to render the live header. */
   worktreePath?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 }): string {
   const specDirBasename = opts.specDirBasename ?? opts.name;
+  const targetDir = opts.targetDir ?? "spec";
   const indexPath =
     opts.worktreePath !== undefined
-      ? join(opts.worktreePath, "spec", specDirBasename, "index.md")
+      ? join(opts.worktreePath, targetDir, specDirBasename, "index.md")
       : null;
   const parsed =
     indexPath !== null ? parseIndex(indexPath) : { title: "", subspecs: [] };
@@ -82,8 +85,8 @@ export function buildPlanPrHeader(opts: {
   const lines: string[] = [
     titleLine,
     "",
-    `- Intent: \`spec/${specDirBasename}/intent.md\``,
-    `- Index: \`spec/${specDirBasename}/index.md\``,
+    `- Intent: \`${targetDir}/${specDirBasename}/intent.md\``,
+    `- Index: \`${targetDir}/${specDirBasename}/index.md\``,
   ];
   return lines.join("\n");
 }
@@ -92,11 +95,12 @@ export function buildPlanPrHeader(opts: {
  * Check if a commit is a plan-mode meta-commit.
  * Meta-commits have subjects starting with "plan: " and first body line
  * pointing to the intent.md file (not a subspec file).
+ * Recognizes both default `spec/` and configured roots like `v1/spec/`.
  */
 function isPlanMetaCommit(commit: CommitInfo): boolean {
   return (
     commit.subject.startsWith("plan: ") &&
-    commit.firstBodyLine.startsWith("Spec: spec/") &&
+    commit.firstBodyLine.startsWith("Spec: ") &&
     commit.firstBodyLine.includes("/intent.md")
   );
 }
@@ -105,10 +109,11 @@ function isPlanMetaCommit(commit: CommitInfo): boolean {
  * Check if a commit is a subspec commit.
  * Subspec commits have first body line starting with "Spec: " and pointing
  * to an actual subspec file (not intent.md).
+ * Recognizes both default `spec/` and configured roots like `v1/spec/`.
  */
 function isSubspecCommit(commit: CommitInfo): boolean {
   return (
-    commit.firstBodyLine.startsWith("Spec: spec/") &&
+    commit.firstBodyLine.startsWith("Spec: ") &&
     !commit.firstBodyLine.includes("/intent.md")
   );
 }

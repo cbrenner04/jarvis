@@ -71,27 +71,34 @@ metadata, and PR rendering are covered in subspec 01.
 
 ## Acceptance criteria
 
-- [ ] `modes.plan.targetDir` and `projects.<name>.plan.targetDir` exist in the
+- [x] `modes.plan.targetDir` and `projects.<name>.plan.targetDir` exist in the
       config schema and round-trip through load/save.
-- [ ] The default config contains an explicit `modes.plan.targetDir` of `"spec"`.
-- [ ] `resolvePlanFlags` resolves `targetDir` as
+- [x] The default config contains an explicit `modes.plan.targetDir` of `"spec"`.
+- [x] `resolvePlanFlags` resolves `targetDir` as
       `projects.<name>.plan.targetDir ?? modes.plan.targetDir ?? "spec"`.
-- [ ] A config without any `targetDir` key authors new committed plans under
+- [x] A config without any `targetDir` key authors new committed plans under
       `spec/<spec-dir>/`, unchanged from today.
-- [ ] A project whose `plan.targetDir` is `"v1/spec"` authors and reuses new
+- [x] A project whose `plan.targetDir` is `"v1/spec"` authors and reuses new
       committed plan directories under `v1/spec/<spec-dir>/`.
-- [ ] New-plan directory creation, collision detection, and committed resume
+- [x] New-plan directory creation, collision detection, and committed resume
       existence checks all use the single resolved `targetDir`, not a hard-coded
       `spec/` literal.
-- [ ] `targetDir` validation rejects absolute paths and paths containing `..`.
-- [ ] No-commit plan mode continues to use `~/.jarvis/specs/...` unchanged, and
+- [x] `targetDir` validation rejects absolute paths and paths containing `..`.
+- [x] No-commit plan mode continues to use `~/.jarvis/specs/...` unchanged, and
       the explicit `specDirPath` override still takes precedence over the
       configured root.
-- [ ] Automated coverage exercises the override, the global default, and the
+- [x] Automated coverage exercises the override, the global default, and the
       built-in fallback, plus the relative-path validation.
 
 ## Documentation updates
 
-- Document the new `targetDir` config key (global and per-project), its explicit
-  `"spec"` default, the resolution precedence, and the relative-path constraint
-  in the developer-facing config notes.
+Documented the new `targetDir` config key in developer-facing config notes:
+
+- **Global config** (`modes.plan.targetDir`): Specifies the default committed
+  plan spec root for all projects, defaulting to `"spec"` if not set. Must be a
+  relative path with no absolute prefix and no `..` traversal.
+- **Per-project config** (`projects.<name>.plan.targetDir`): Overrides the global
+  default for a specific project. Same validation rules apply.
+- **Resolution precedence**: `projects.<name>.plan.targetDir ?? modes.plan.targetDir ?? "spec"`.
+- **Example**: To route the jarvis repo to `v1/spec`, set `projects.jarvis.plan.targetDir = "v1/spec"` in the config.
+- **No-commit mode**: The `specDirPath` override continues to take precedence, and external specs remain stored under `~/.jarvis/specs/...` regardless of the configured root.

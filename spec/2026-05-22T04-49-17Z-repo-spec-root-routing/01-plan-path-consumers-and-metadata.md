@@ -48,24 +48,24 @@ commit bodies permissive so legacy `spec/...` history stays valid.
 
 ## Acceptance criteria
 
-- [ ] Human-facing committed-plan output uses the resolved `targetDir` (e.g.
+- [x] Human-facing committed-plan output uses the resolved `targetDir` (e.g.
       `v1/spec/<spec-dir>/...` for a repo configured that way, `spec/<spec-dir>/`
       for a default repo).
-- [ ] Plan draft/review prompts, write-boundary enforcement, and boundary
+- [x] Plan draft/review prompts, write-boundary enforcement, and boundary
       blocker text all target the resolved committed root.
-- [ ] Plan meta-commit bodies emit `Spec: <resolved-committed-path>/intent.md`.
-- [ ] PR metadata/attribution that parses committed plan `Spec:` lines
+- [x] Plan meta-commit bodies emit `Spec: <resolved-committed-path>/intent.md`.
+- [x] PR metadata/attribution that parses committed plan `Spec:` lines
       recognizes both default `spec/...` plans and a configured `v1/spec/...`
       plan.
-- [ ] Existing historical plan commits containing `Spec: spec/...` remain
+- [x] Existing historical plan commits containing `Spec: spec/...` remain
       renderable without migration or history edits.
-- [ ] Resume, `--resume-draft`, and next-step commands printed for a new plan in
+- [x] Resume, `--resume-draft`, and next-step commands printed for a new plan in
       a configured-root repo reference the resolved `targetDir` path.
-- [ ] Resume, `--resume-draft`, boundary enforcement, and follow-up commit
+- [x] Resume, `--resume-draft`, boundary enforcement, and follow-up commit
       metadata for a legacy root-level `spec/<spec-dir>/...` tree continue to
       reference that real legacy path rather than rewriting it to the configured
       root.
-- [ ] Automated coverage proves the path-consuming surfaces use the shared
+- [x] Automated coverage proves the path-consuming surfaces use the shared
       resolved value rather than each caller carrying its own prefix.
 
 ## Documentation updates

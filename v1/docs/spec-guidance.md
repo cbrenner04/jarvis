@@ -7,9 +7,11 @@ Jarvis specs.
 
 ### In-repo specs (committed)
 
-Specs authored with `jarvis1 plan` under `modes.plan.commit: true` (the default) live inside the target repository under directories whose **basename** includes a filesystem-safe UTC timestamp prefix and a descriptive slug:
+Specs authored with `jarvis1 plan` under `modes.plan.commit: true` (the default) live inside the target repository under a configured **root directory** (default `spec`) with directories whose **basename** includes a filesystem-safe UTC timestamp prefix and a descriptive slug:
 
-`spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
+`<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
+
+where `<targetDir>` defaults to `spec` (canonical layout: `spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/`). Repositories can override the root with a per-project `plan.targetDir` setting (see [config.md](./config.md#targetdir-plan-mode-committrue-only) for details). For example, a repository might use `v1/spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/` if configured with `plan.targetDir = "v1/spec"`.
 
 The prefix converts `Date.prototype.toISOString()` (`:` → `-`, no milliseconds): for
 example `2026-05-17T22-14-03Z-my-feature`. Omitting the timestamp matches older
@@ -131,11 +133,12 @@ it does not ask questions live.
 Plan-generated specs follow the same merge-first rule: do not run `jarvis1 run` against the spec until after the plan PR is merged to `main`.
 
 When you iterate with
-`jarvis1 plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md` (or a legacy
-`spec/<plan-name>/index.md`), resume review commits add an `r<n>` suffix
+`jarvis1 plan --resume <targetDir>/2026-05-17T22-14-03Z-my-plan/index.md` (or a legacy
+`<targetDir>/<plan-name>/index.md`), resume review commits add an `r<n>` suffix
 (`plan: review 3 r1`, `plan: review 4 r1`, then `... r2` on a later resume
 invocation). The timestamp (when present) is **only** in the spec directory path;
 resume still attaches to **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`.
+For a default repository this is `spec/…`; for a configured root this is e.g. `v1/spec/…`.
 From `jarvis1 run`'s perspective, hand-edited specs and plan-generated specs are
 equivalent once merged to `main`.
 

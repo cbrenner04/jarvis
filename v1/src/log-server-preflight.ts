@@ -32,9 +32,9 @@ export async function checkLogServerReachable(
     await logClient.assertReachable();
   } catch (err) {
     opts.io.stderr(
-      `jarvis: log server unreachable at ${logServerUrl}. Start it with \`jarvis log-server\` or update config.\n`,
+      `jarvis1: log server unreachable at ${logServerUrl}. Start it with \`jarvis1 log-server\` or update config.\n`,
     );
-    opts.io.stderr(`jarvis: ${(err as Error).message}\n`);
+    opts.io.stderr(`jarvis1: ${(err as Error).message}\n`);
     return { kind: "error", exitCode: 1 };
   }
   return { kind: "ok", logClient, logServerUrl };

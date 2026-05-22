@@ -585,7 +585,7 @@ export function maybeWarnAboutUnmergedPlanBranch(args: {
     return;
   }
   args.io.stderr(
-    `warning: a plan branch ${planRef} exists on origin and has not been merged. Run \`jarvis run\` after merging the plan PR to avoid drift between the spec on disk and the merged spec.\n`,
+    `warning: a plan branch ${planRef} exists on origin and has not been merged. Run \`jarvis1 run\` after merging the plan PR to avoid drift between the spec on disk and the merged spec.\n`,
   );
 }
 
@@ -1276,7 +1276,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               const worktreeName = basename(agentWorkingDir);
               fanout(
                 "harness",
-                `iteration ${iteration} edited files but checked no new acceptance criteria for ${afterSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+                `iteration ${iteration} edited files but checked no new acceptance criteria for ${afterSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
                 "stderr",
               );
               return { kind: "return", exitCode: 6 };
@@ -1518,7 +1518,7 @@ async function tryFinishSpecIfDone(
       const worktreeName = basename(preflight.agentWorkingDir);
       logging.fanout(
         "harness",
-        `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+        `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
         "stderr",
       );
       return 6;

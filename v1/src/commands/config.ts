@@ -14,7 +14,7 @@ import {
 
 const AGENT_NAMES = ["claude", "codex", "cursor", "opencode"] as const;
 
-const USAGE = `Usage: jarvis config <subcommand> [args]
+const USAGE = `Usage: jarvis1 config <subcommand> [args]
 
 Subcommands:
   show                       Print the current config as JSON.
@@ -124,7 +124,7 @@ export function configCommand(opts: ConfigCommandOptions): number {
       const arg = rest[0];
       if (arg === undefined) {
         io.stderr(
-          "jarvis: set-patch-order: missing <agent:model,agent:model,...>\n",
+          "jarvis1: set-patch-order: missing <agent:model,agent:model,...>\n",
         );
         return 1;
       }
@@ -136,7 +136,7 @@ export function configCommand(opts: ConfigCommandOptions): number {
         );
         return 0;
       } catch (err) {
-        io.stderr(`jarvis: ${(err as Error).message}\n`);
+        io.stderr(`jarvis1: ${(err as Error).message}\n`);
         return 1;
       }
     }
@@ -144,7 +144,7 @@ export function configCommand(opts: ConfigCommandOptions): number {
       const arg = rest[0];
       if (arg === undefined) {
         io.stderr(
-          "jarvis: set-plan-order: missing <agent:model,agent:model,...>\n",
+          "jarvis1: set-plan-order: missing <agent:model,agent:model,...>\n",
         );
         return 1;
       }
@@ -156,7 +156,7 @@ export function configCommand(opts: ConfigCommandOptions): number {
         );
         return 0;
       } catch (err) {
-        io.stderr(`jarvis: ${(err as Error).message}\n`);
+        io.stderr(`jarvis1: ${(err as Error).message}\n`);
         return 1;
       }
     }
@@ -175,13 +175,13 @@ export function configCommand(opts: ConfigCommandOptions): number {
     case "remove-project": {
       const name = rest[0];
       if (name === undefined) {
-        io.stderr("jarvis: remove-project: missing <name>\n");
+        io.stderr("jarvis1: remove-project: missing <name>\n");
         return 1;
       }
       const cfg = loadConfig(opts.config);
       if (cfg.projects[name] === undefined) {
         io.stderr(
-          `jarvis: remove-project: unknown project ${JSON.stringify(name)}\n`,
+          `jarvis1: remove-project: unknown project ${JSON.stringify(name)}\n`,
         );
         return 1;
       }
@@ -193,12 +193,12 @@ export function configCommand(opts: ConfigCommandOptions): number {
     case "set-git": {
       const arg = rest[0];
       if (arg === undefined) {
-        io.stderr("jarvis: set-git: missing <true|false>\n");
+        io.stderr("jarvis1: set-git: missing <true|false>\n");
         return 1;
       }
       if (arg !== "true" && arg !== "false") {
         io.stderr(
-          `jarvis: set-git: expected true or false (got ${JSON.stringify(arg)})\n`,
+          `jarvis1: set-git: expected true or false (got ${JSON.stringify(arg)})\n`,
         );
         return 1;
       }
@@ -212,20 +212,20 @@ export function configCommand(opts: ConfigCommandOptions): number {
       const valueArg = rest[1];
       if (name === undefined || valueArg === undefined) {
         io.stderr(
-          "jarvis: set-project-git: missing <name> <true|false|unset>\n",
+          "jarvis1: set-project-git: missing <name> <true|false|unset>\n",
         );
         return 1;
       }
       if (valueArg !== "true" && valueArg !== "false" && valueArg !== "unset") {
         io.stderr(
-          `jarvis: set-project-git: expected true, false, or unset (got ${JSON.stringify(valueArg)})\n`,
+          `jarvis1: set-project-git: expected true, false, or unset (got ${JSON.stringify(valueArg)})\n`,
         );
         return 1;
       }
       const cfg = loadConfig(opts.config);
       if (cfg.projects[name] === undefined) {
         io.stderr(
-          `jarvis: set-project-git: unknown project ${JSON.stringify(name)}\n`,
+          `jarvis1: set-project-git: unknown project ${JSON.stringify(name)}\n`,
         );
         return 1;
       }
@@ -233,7 +233,7 @@ export function configCommand(opts: ConfigCommandOptions): number {
       try {
         setProjectGit(name, next, opts.config);
       } catch (err) {
-        io.stderr(`jarvis: ${(err as Error).message}\n`);
+        io.stderr(`jarvis1: ${(err as Error).message}\n`);
         return 1;
       }
       io.stdout(
@@ -258,19 +258,19 @@ export function configCommand(opts: ConfigCommandOptions): number {
         status = result.status ?? 1;
       }
       if (status !== 0) {
-        io.stderr(`jarvis: editor exited with status ${status}\n`);
+        io.stderr(`jarvis1: editor exited with status ${status}\n`);
         return 1;
       }
       try {
         loadConfig(opts.config);
       } catch (err) {
-        io.stderr(`jarvis: ${(err as Error).message}\n`);
+        io.stderr(`jarvis1: ${(err as Error).message}\n`);
         return 1;
       }
       return 0;
     }
     default:
-      io.stderr(`jarvis: unknown config subcommand ${JSON.stringify(sub)}\n`);
+      io.stderr(`jarvis1: unknown config subcommand ${JSON.stringify(sub)}\n`);
       io.stderr(USAGE);
       return 1;
   }

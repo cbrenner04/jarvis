@@ -27,7 +27,7 @@ export function pricesShowCommand(opts: PricesShowCommandOptions): number {
   try {
     prices = loadPrices();
   } catch (err) {
-    io.stderr(`jarvis: failed to load prices: ${(err as Error).message}\n`);
+    io.stderr(`jarvis1: failed to load prices: ${(err as Error).message}\n`);
     return 1;
   }
 

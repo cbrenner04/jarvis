@@ -41,7 +41,7 @@ export function init(opts: InitOptions): number {
   const workRoot = resolve(opts.workRoot ?? `${homedir()}${sep}Work`);
   const name = projectNameFor(cwd, workRoot);
   if (name === undefined) {
-    io.stderr(`jarvis: init must be run inside ${workRoot}\n`);
+    io.stderr(`jarvis1: init must be run inside ${workRoot}\n`);
     return 1;
   }
 
@@ -55,7 +55,7 @@ export function init(opts: InitOptions): number {
       return 0;
     }
     io.stderr(
-      `jarvis: project name ${JSON.stringify(name)} is already registered to ${existing.root}. Resolve with \`jarvis config\`.\n`,
+      `jarvis1: project name ${JSON.stringify(name)} is already registered to ${existing.root}. Resolve with \`jarvis1 config\`.\n`,
     );
     return 1;
   }
@@ -74,7 +74,7 @@ export function init(opts: InitOptions): number {
       origin === undefined ? opts.config : { ...(opts.config ?? {}), origin },
     );
   } catch (err) {
-    io.stderr(`jarvis: ${(err as Error).message}\n`);
+    io.stderr(`jarvis1: ${(err as Error).message}\n`);
     return 1;
   }
   io.stdout(`registered project ${JSON.stringify(name)} → ${cwd}\n`);

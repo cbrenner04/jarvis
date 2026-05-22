@@ -94,7 +94,7 @@ export type PlanCommandOptions = {
   skipGhCheck?: boolean;
 };
 
-export const PLAN_USAGE = `Usage: jarvis plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
+export const PLAN_USAGE = `Usage: jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
                             Run plan mode (draft specs under spec/…; see docs/plan-mode.md).
 `;
 
@@ -109,7 +109,7 @@ Optional feedback:
 - If scope is unclear, append focused questions to this blocker section.
 
 Resume drafting once approved:
-\`jarvis plan --resume-draft spec/<spec-dir>/intent.md\``;
+\`jarvis1 plan --resume-draft spec/<spec-dir>/intent.md\``;
 
 /** Best-effort harness log for plan setup diagnostics (mirrors patch-mode fanout style). */
 function planHarnessLog(logClient: LogClient, text: string): void {
@@ -391,7 +391,7 @@ function prepareResume(args: {
   }
   if (!isWorktreeClean(worktreePath)) {
     throw new Error(
-      `the worktree is not clean; inspect with \`jarvis triage plan-${planName}\` and re-run`,
+      `the worktree is not clean; inspect with \`jarvis1 triage plan-${planName}\` and re-run`,
     );
   }
   if (!remoteSpecBranchExists(args.projectRoot, planName)) {
@@ -617,7 +617,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     }
     if (entry.kind === "needs-prompt") {
       opts.io.stderr(
-        "could not determine a target project for this intent and no projects are registered. Run `jarvis init` in a target repo, or pass --repo <name|url>.\n",
+        "could not determine a target project for this intent and no projects are registered. Run `jarvis1 init` in a target repo, or pass --repo <name|url>.\n",
       );
       return 1;
     }
@@ -2231,7 +2231,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         );
         const indexPath = join(noCommitSpecRoot, "index.md");
         opts.io.stdout(
-          `Spec written to ${indexPath}\nRun with: jarvis run ${indexPath}\n`,
+          `Spec written to ${indexPath}\nRun with: jarvis1 run ${indexPath}\n`,
         );
       }
       summarizePlan("complete", specDirBasename);
@@ -2265,10 +2265,10 @@ export function renderPlanNextSteps(args: {
     "Next steps:",
     `  1. Review the draft PR: ${args.prUrl}`,
     `  2. Edit spec/${specDirBasename}/ on the plan branch as needed (locally or`,
-    "     through GitHub), or run `jarvis plan --resume",
+    "     through GitHub), or run `jarvis1 plan --resume",
     `     spec/${specDirBasename}/index.md\` for another self-review pass.`,
     "  3. After the merge, implement the spec with:",
-    `       jarvis run spec/${specDirBasename}/index.md`,
+    `       jarvis1 run spec/${specDirBasename}/index.md`,
     "",
   ].join("\n");
 }

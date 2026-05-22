@@ -53,7 +53,7 @@ export function runLogServer(opts: LogServerOptions): Promise<number> {
     const port = Number(portText);
     if (host === undefined || !Number.isInteger(port) || port <= 0) {
       opts.stderr(
-        `jarvis: invalid logServerBind ${JSON.stringify(opts.bind)} (expected host:port)\n`,
+        `jarvis1: invalid logServerBind ${JSON.stringify(opts.bind)} (expected host:port)\n`,
       );
       resolve(1);
       return;
@@ -96,13 +96,13 @@ export function runLogServer(opts: LogServerOptions): Promise<number> {
     });
 
     server.on("error", (err) => {
-      opts.stderr(`jarvis: log server failed: ${(err as Error).message}\n`);
+      opts.stderr(`jarvis1: log server failed: ${(err as Error).message}\n`);
       resolve(1);
     });
 
     server.listen(port, host, () => {
       opts.stdout(
-        `jarvis log-server listening on http://${host}:${port}/logs\n`,
+        `jarvis1 log-server listening on http://${host}:${port}/logs\n`,
       );
     });
 

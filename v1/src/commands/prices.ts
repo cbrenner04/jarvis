@@ -2,7 +2,7 @@ import type { Io } from "../cli.ts";
 import { pricesEditCommand } from "./prices-edit.ts";
 import { pricesShowCommand } from "./prices-show.ts";
 
-const USAGE = `Usage: jarvis prices <subcommand> [args]
+const USAGE = `Usage: jarvis1 prices <subcommand> [args]
 
 Subcommands:
   show              Display the pricing table.
@@ -31,7 +31,7 @@ export async function pricesCommand(
     case "edit":
       return pricesEditCommand({ io });
     default:
-      io.stderr(`jarvis: unknown prices subcommand ${JSON.stringify(sub)}\n`);
+      io.stderr(`jarvis1: unknown prices subcommand ${JSON.stringify(sub)}\n`);
       io.stderr(USAGE);
       return 1;
   }

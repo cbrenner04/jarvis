@@ -60,7 +60,7 @@ export async function promptForProject(
       const project = opts.candidates[idx] as ProjectMatch;
       return { kind: "selected", project };
     }
-    opts.io.stderr(`jarvis: ${JSON.stringify(input)} is not a valid choice\n`);
+    opts.io.stderr(`jarvis1: ${JSON.stringify(input)} is not a valid choice\n`);
     return { kind: "cancelled" };
   }
 
@@ -70,7 +70,7 @@ export async function promptForProject(
     return { kind: "selected", project: byName };
   }
 
-  opts.io.stderr(`jarvis: ${JSON.stringify(input)} is not a valid choice\n`);
+  opts.io.stderr(`jarvis1: ${JSON.stringify(input)} is not a valid choice\n`);
   return { kind: "cancelled" };
 }
 

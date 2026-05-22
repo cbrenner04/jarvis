@@ -97,9 +97,9 @@ describe("planCommand", () => {
     });
     expect(text).toContain("Next steps:");
     expect(text).toContain("https://github.com/acme/repo/pull/123");
-    expect(text).toContain("jarvis plan --resume");
+    expect(text).toContain("jarvis1 plan --resume");
     expect(text).toContain(`spec/${specDirBasename}/index.md`);
-    expect(text).toContain(`jarvis run spec/${specDirBasename}/index.md`);
+    expect(text).toContain(`jarvis1 run spec/${specDirBasename}/index.md`);
   });
 
   test("successful-plan next steps omit ready-flip wording; plan.ts omits redundant stderr footers", () => {
@@ -509,7 +509,7 @@ describe("planCommand log-server preflight", () => {
       });
       expect(code).toBe(1);
       expect(cap.err()).toContain("log server unreachable");
-      expect(cap.err()).toContain("jarvis log-server");
+      expect(cap.err()).toContain("jarvis1 log-server");
       expect(cap.err()).not.toContain(
         "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
@@ -1186,7 +1186,7 @@ describe("phase-0 intent review gate", () => {
       expect(out).toContain(
         "spec/2026-05-20T02-41-21Z-plan-intent-review-gate/intent.md",
       );
-      expect(out).toContain("jarvis plan --resume-draft spec/");
+      expect(out).toContain("jarvis1 plan --resume-draft spec/");
       expect(out).toContain("/intent.md");
     } finally {
       rmSync(dir, { recursive: true, force: true });

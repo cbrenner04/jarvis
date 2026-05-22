@@ -220,7 +220,7 @@ describe("run", () => {
     const cap = captureIo();
     const code = run(["config"], { io: cap.io, config: { dir: cfgDir } });
     expect(code).toBe(1);
-    expect(cap.err()).toContain("Usage: jarvis config");
+    expect(cap.err()).toContain("Usage: jarvis1 config");
   });
 
   test("config show prints the loaded config", () => {
@@ -329,11 +329,11 @@ describe("run", () => {
   });
 });
 
-describe("bin/jarvis", () => {
+describe("bin/jarvis1", () => {
   test("resolves the repo path when invoked through a symlink", () => {
     const binDir = mkdtempSync(join(tmpdir(), "jarvis-bin-"));
-    const linkPath = join(binDir, "jarvis");
-    symlinkSync(resolve("bin/jarvis"), linkPath);
+    const linkPath = join(binDir, "jarvis1");
+    symlinkSync(resolve("bin/jarvis1"), linkPath);
 
     try {
       const result = Bun.spawnSync([linkPath, "help"], {
@@ -342,7 +342,7 @@ describe("bin/jarvis", () => {
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout.toString()).toContain("Usage: jarvis");
+      expect(result.stdout.toString()).toContain("Usage: jarvis1");
       expect(result.stderr.toString()).toBe("");
     } finally {
       rmSync(binDir, { recursive: true, force: true });

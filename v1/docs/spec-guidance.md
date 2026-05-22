@@ -7,13 +7,13 @@ Jarvis specs.
 
 ### In-repo specs (committed)
 
-Specs authored with `jarvis plan` under `modes.plan.commit: true` (the default) live inside the target repository under directories whose **basename** includes a filesystem-safe UTC timestamp prefix and a descriptive slug:
+Specs authored with `jarvis1 plan` under `modes.plan.commit: true` (the default) live inside the target repository under directories whose **basename** includes a filesystem-safe UTC timestamp prefix and a descriptive slug:
 
 `spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
 
 The prefix converts `Date.prototype.toISOString()` (`:` → `-`, no milliseconds): for
 example `2026-05-17T22-14-03Z-my-feature`. Omitting the timestamp matches older
-trees and remains valid on disk — jarvis reads whatever path you pass (`jarvis
+trees and remains valid on disk — jarvis reads whatever path you pass (`jarvis1
 run`, resume, cleanup) — but **new specs should adopt the prefixed form so same-day
 trees sort and collide predictably.**
 
@@ -24,11 +24,11 @@ Plan-generated specs under `commit: true` already use `spec/<timestamp>-<validat
 
 ### External specs (no-commit)
 
-Specs authored with `jarvis plan` under `modes.plan.commit: false` live in Jarvis-owned storage outside the target directory:
+Specs authored with `jarvis1 plan` under `modes.plan.commit: false` live in Jarvis-owned storage outside the target directory:
 
 `~/.jarvis/specs/<project-safe-id>/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
 
-The target directory must be a registered project (via `jarvis init` or `jarvis config`); it may or may not be a git repository. The `<project-safe-id>` is the registered project key (e.g., `groceries`), a derived slug from the origin URL, or the repo root basename. For example:
+The target directory must be a registered project (via `jarvis1 init` or `jarvis1 config`); it may or may not be a git repository. The `<project-safe-id>` is the registered project key (e.g., `groceries`), a derived slug from the origin URL, or the repo root basename. For example:
 
 ```text
 ~/.jarvis/specs/groceries/2026-05-17T22-14-03Z-my-feature/index.md
@@ -36,7 +36,7 @@ The target directory must be a registered project (via `jarvis init` or `jarvis 
 ~/.jarvis/specs/groceries/2026-05-17T22-14-03Z-my-feature/00-first-task.md
 ```
 
-These specs are **not committed to the target directory**. They are Jarvis-owned artifacts that include a `repo:` binding to their target directory so `jarvis run` can later resolve the correct checkout.
+These specs are **not committed to the target directory**. They are Jarvis-owned artifacts that include a `repo:` binding to their target directory so `jarvis1 run` can later resolve the correct checkout.
 
 **Key difference:** In-repo specs are typically created as part of the work (authored collaboratively, merged to `main`, then implemented). External no-commit specs are generated and ready to run immediately — they live in Jarvis storage and remain there for reference and re-runs.
 
@@ -63,7 +63,7 @@ repo: https://github.com/owner/target-repo
 Run Jarvis against the index:
 
 ```sh
-jarvis run spec/2026-05-17T22-14-03Z-my-feature/index.md
+jarvis1 run spec/2026-05-17T22-14-03Z-my-feature/index.md
 ```
 
 Specs may live anywhere. The `repo:` line is **optional** for in-repo specs (since the spec location implies the target repo), but **required** for external specs authored with `modes.plan.commit: false` (since the spec path no longer resides inside the target directory). When present, `repo:` identifies the target repository in a portable way. Accepted forms:
@@ -94,7 +94,7 @@ machines and operators.
 
 If the resolved target — whether selected via `repo:`, `--repo`, a registered
 project, or the ad-hoc git-checkout walk — points at a directory that no
-longer exists on disk, `jarvis run` exits 1 with a named preflight error
+longer exists on disk, `jarvis1 run` exits 1 with a named preflight error
 identifying the missing path and the resolution source rather than the
 historical worktree-flavored "posix_spawn 'gh'" failure. See
 [run-loop.md](./run-loop.md#preflight-checks).
@@ -108,35 +108,35 @@ eventually does. The workflow is:
 
 1. Create the spec on a branch and open a PR with **only** the spec files.
 2. Get the spec PR merged.
-3. Start a separate run/branch (typically via `jarvis run`) for the
+3. Start a separate run/branch (typically via `jarvis1 run`) for the
    implementation work.
 
 Do not bundle spec authoring and implementation in the same PR.
 
-`jarvis plan` is one way to author specs; the merge-first
+`jarvis1 plan` is one way to author specs; the merge-first
 rule applies to plan-generated specs the same as hand-written ones.
 
-## Authoring with `jarvis plan`
+## Authoring with `jarvis1 plan`
 
-When using `jarvis plan [<intent-file|"inline text">]` to generate a spec, plan mode produces specs that conform to the conventions documented in this file: an `index.md` file with an H1 title and a GitHub-style task list of links to atomic subspecs, plus numbered subspec files (`00-*.md`, `01-*.md`, etc.) each with an exact `## Acceptance criteria` section containing checkboxes.
+When using `jarvis1 plan [<intent-file|"inline text">]` to generate a spec, plan mode produces specs that conform to the conventions documented in this file: an `index.md` file with an H1 title and a GitHub-style task list of links to atomic subspecs, plus numbered subspec files (`00-*.md`, `01-*.md`, etc.) each with an exact `## Acceptance criteria` section containing checkboxes.
 
-The generated spec tree is opened as a draft PR for review and editing. After you review the generated index and subspecs on the PR, you can edit the files directly (plan mode preserves manual edits across review passes) and merge the PR to `main`. Once merged, the spec becomes available to `jarvis run` for implementation work.
+The generated spec tree is opened as a draft PR for review and editing. After you review the generated index and subspecs on the PR, you can edit the files directly (plan mode preserves manual edits across review passes) and merge the PR to `main`. Once merged, the spec becomes available to `jarvis1 run` for implementation work.
 
-Plan mode also supports no-argument sessions (`jarvis plan`) for fuzzy intents:
+Plan mode also supports no-argument sessions (`jarvis1 plan`) for fuzzy intents:
 Jarvis seeds `intent.md` with `# Intent`, then runs a non-interactive
 intent-refinement pass before drafting. The agent can append inferred scope,
 assumptions, risks, or a visible `## Blocker` if human clarification is needed;
 it does not ask questions live.
 
-Plan-generated specs follow the same merge-first rule: do not run `jarvis run` against the spec until after the plan PR is merged to `main`.
+Plan-generated specs follow the same merge-first rule: do not run `jarvis1 run` against the spec until after the plan PR is merged to `main`.
 
 When you iterate with
-`jarvis plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md` (or a legacy
+`jarvis1 plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md` (or a legacy
 `spec/<plan-name>/index.md`), resume review commits add an `r<n>` suffix
 (`plan: review 3 r1`, `plan: review 4 r1`, then `... r2` on a later resume
 invocation). The timestamp (when present) is **only** in the spec directory path;
 resume still attaches to **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`.
-From `jarvis run`'s perspective, hand-edited specs and plan-generated specs are
+From `jarvis1 run`'s perspective, hand-edited specs and plan-generated specs are
 equivalent once merged to `main`.
 
 ## Subspecs
@@ -177,7 +177,7 @@ index after one subspec is complete.
 
 ## Non-index spec handling
 
-Passing a non-index spec to `jarvis run`, such as `spec/2026-05-17T22-14-03Z-my-feature/01-task.md`,
+Passing a non-index spec to `jarvis1 run`, such as `spec/2026-05-17T22-14-03Z-my-feature/01-task.md`,
 prompts for one of these actions:
 
 - `s`: switch to a sibling `index.md` and run the normal loop from there (only

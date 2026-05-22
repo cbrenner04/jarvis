@@ -1,13 +1,13 @@
 # Workflows: plan and patch
 
-Visual reference for how `jarvis plan` and `jarvis run` (patch mode) execute.
+Visual reference for how `jarvis1 plan` and `jarvis1 run` (patch mode) execute.
 Each diagram distinguishes deterministic harness steps from LLM-driven agent
 calls, and shows where the harness loops vs. takes distinct paths.
 
 Authoritative behavior lives in [plan-mode.md](./plan-mode.md) and
 [run-loop.md](./run-loop.md); this document only summarises control flow.
 
-`jarvis review-feedback <worktree-name>` runs one patch-mode agent pass against
+`jarvis1 review-feedback <worktree-name>` runs one patch-mode agent pass against
 actionable open PR feedback (unresolved inline review threads plus top-level
 review-round comments). The target patch worktree must start clean; on success
 the harness creates one commit (`address PR review comments`) and pushes it.
@@ -49,7 +49,7 @@ flowchart TD
   planQ -- yes --> runEntry
   planQ -- no --> planEntry
 
-  subgraph planMode["jarvis plan — author a spec (branch: plan/&lt;name&gt;)"]
+  subgraph planMode["jarvis1 plan — author a spec (branch: plan/&lt;name&gt;)"]
     direction TB
     planEntry["Preflight + tmp worktree"]:::det
     planEntry --> refine(["Refine intent<br/>loop × --refine-turns (default 3)"]):::llm
@@ -62,7 +62,7 @@ flowchart TD
   markReady --> handoff["Human reviews + merges plan PR to main"]:::det
   handoff --> runEntry
 
-  subgraph patchMode["jarvis run — implement the spec (branch: auto)"]
+  subgraph patchMode["jarvis1 run — implement the spec (branch: auto)"]
     direction TB
     runEntry["Preflight + per-spec worktree"]:::det
     runEntry --> iterLoop{"Unchecked tasks remain?"}:::dec
@@ -90,14 +90,14 @@ patch exit codes are deferred to the detailed diagrams below.
 
 ## Plan mode
 
-`jarvis plan` is **phase-structured**: a fixed sequence (refine → draft →
+`jarvis1 plan` is **phase-structured**: a fixed sequence (refine → draft →
 review) where only the **refine** and **review** phases iterate, and each
 iteration count is fixed up front by flags (`--refine-turns`,
 `--review-passes`). The agent does not decide when to stop.
 
 ```mermaid
 flowchart TD
-  start([jarvis plan ...]):::neutral
+  start([jarvis1 plan ...]):::neutral
 
   start --> pf["Preflight: resolve repo, tmp worktree<br/>.worktree/plan-tmp-&lt;uuid&gt;/, branch plan/tmp-&lt;uuid&gt;"]:::det
   pf --> seed["Seed spec/&lt;tmp&gt;/intent.md<br/>(from file / inline text / empty)"]:::det
@@ -155,7 +155,7 @@ What loops vs. what's a distinct path:
   *after* the call (append-only on `intent.md`, write boundary, validation
   rules) but cannot make the agent's text choice deterministic.
 - **Readiness transition**: when every phase succeeds without a blocker,
-  `jarvis plan` invokes `bun run ready`, which first runs
+  `jarvis1 plan` invokes `bun run ready`, which first runs
   `bun install --frozen-lockfile` so Biome is available, then applies
   `bun run check:fix` (Biome's mutating format/lint fixer). If `check:fix`
   mutates any files, the harness commits and pushes them as a single
@@ -167,7 +167,7 @@ What loops vs. what's a distinct path:
 `--resume` re-enters the diagram at the review-loop (and optionally adds
 refine turns before it), reusing the existing worktree, branch, and PR.
 
-## Patch mode (`jarvis run`)
+## Patch mode (`jarvis1 run`)
 
 Patch mode is **iteration-structured**: a single loop that terminates when the
 spec has no unchecked checkboxes (or when an exit condition fires). The agent
@@ -176,7 +176,7 @@ task, commits, and decides whether progress was made.
 
 ```mermaid
 flowchart TD
-  start([jarvis run spec/.../index.md]):::neutral
+  start([jarvis1 run spec/.../index.md]):::neutral
 
   start --> pf["Preflight: resolve repo,<br/>ensureWorktree, acquire lock,<br/>assertGhReady"]:::det
   pf --> warn["Maybe warn:<br/>unmerged plan/&lt;name&gt; on origin"]:::det
@@ -184,7 +184,7 @@ flowchart TD
 
   top -- yes --> finish["Clean tree?"]:::det
   finish --> cleanQ{"git status clean?"}:::dec
-  cleanQ -- no --> dirty["exit 6: dirty worktree<br/>(point at jarvis triage)"]:::stop
+  cleanQ -- no --> dirty["exit 6: dirty worktree<br/>(point at jarvis1 triage)"]:::stop
   cleanQ -- yes --> ok["print spec complete + PR URL<br/>exit 0"]:::stop
 
   top -- no --> agentQ{"Any agent left in agentOrder?"}:::dec
@@ -243,7 +243,7 @@ What loops vs. what's a distinct path:
   rewrite from `generatePrBodyFromSpec`, ready-flip on completion) is pure
   function of files on disk. Re-running an iteration against the same disk
   state would commit the same thing.
-- **Readiness transition**: when the spec is complete, `jarvis run` invokes
+- **Readiness transition**: when the spec is complete, `jarvis1 run` invokes
   `bun run ready`, which first runs `bun install --frozen-lockfile` so Biome is
   available, then applies `bun run check:fix` (Biome's mutating format/lint
   fixer). If `check:fix` mutates any files, the harness commits and pushes them
@@ -263,7 +263,7 @@ For an external audience: same flows, fewer branches.
 
 ```mermaid
 flowchart LR
-  subgraph plan["jarvis plan — author a spec"]
+  subgraph plan["jarvis1 plan — author a spec"]
     direction TB
     pl1["Refine intent"]:::llm
     pl2["Draft spec tree"]:::llm
@@ -271,7 +271,7 @@ flowchart LR
     pl1 --> pl2 --> pl3
   end
 
-  subgraph patch["jarvis run — implement a spec"]
+  subgraph patch["jarvis1 run — implement a spec"]
     direction TB
     pa1["Pick next unchecked task"]:::det
     pa2["Agent edits files, ticks boxes"]:::llm

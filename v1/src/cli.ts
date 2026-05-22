@@ -54,7 +54,7 @@ export type Io = {
   stderr: (s: string) => void;
 };
 
-const USAGE = `Usage: jarvis <command> [args]
+const USAGE = `Usage: jarvis1 <command> [args]
 
 Commands:
   run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
@@ -216,7 +216,7 @@ export function run(
             "--max-iterations",
           );
         } catch (err) {
-          io.stderr(`jarvis: ${(err as Error).message}\n`);
+          io.stderr(`jarvis1: ${(err as Error).message}\n`);
           return 1;
         }
       }
@@ -260,7 +260,7 @@ export function run(
       const project = findProjectMatchForPath(cwd, opts.config);
       if (project === undefined) {
         io.stderr(
-          "jarvis cleanup: not inside any project registered with `jarvis init`\n",
+          "jarvis1 cleanup: not inside any project registered with `jarvis1 init`\n",
         );
         return 1;
       }
@@ -302,7 +302,7 @@ export function run(
       const project = findProjectMatchForPath(cwd, opts.config);
       if (project === undefined) {
         io.stderr(
-          "jarvis triage: not inside any project registered with `jarvis init`\n",
+          "jarvis1 triage: not inside any project registered with `jarvis1 init`\n",
         );
         return 1;
       }
@@ -324,7 +324,7 @@ export function run(
     case "review-feedback": {
       const worktreeName = parsed.worktreeName;
       if (worktreeName === undefined || worktreeName.trim() === "") {
-        io.stderr("jarvis: review-feedback: missing <worktree-name>\n");
+        io.stderr("jarvis1: review-feedback: missing <worktree-name>\n");
         io.stderr(USAGE);
         return 1;
       }
@@ -371,11 +371,11 @@ export function run(
     case "prices":
       return pricesCommand({ args: parsed.rest, io });
     case "unknown":
-      io.stderr(`jarvis: unknown command ${JSON.stringify(parsed.name)}\n`);
+      io.stderr(`jarvis1: unknown command ${JSON.stringify(parsed.name)}\n`);
       io.stderr(USAGE);
       return 1;
     case "error":
-      io.stderr(`jarvis: ${parsed.message}\n`);
+      io.stderr(`jarvis1: ${parsed.message}\n`);
       io.stderr(USAGE);
       return 1;
   }

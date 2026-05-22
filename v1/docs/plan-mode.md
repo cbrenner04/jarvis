@@ -1,43 +1,43 @@
 # Plan Mode
 
-Reference for `jarvis plan [<intent-file|"inline text">]` semantics: how it creates draft specs, how the phases work, and when it stops.
+Reference for `jarvis1 plan [<intent-file|"inline text">]` semantics: how it creates draft specs, how the phases work, and when it stops.
 
 ## Overview
 
 Plan mode creates a dedicated worktree and branch (`plan/<plan-name>` and `.worktree/plan-<plan-name>/`; **no UTC prefix**) to draft a new spec collaboratively with an agent. The location where specs are written depends on the `modes.plan.commit` config setting:
 
 **With `commit: true` (default):** Specs are written inside the target repository under `spec/<spec-dir>/`:
-- A seeded `spec/<spec-dir>/intent.md` capturing the user's initial request. New runs use **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** (`<plan-name>` is the validated kebab-case name after collisions). Older trees may still omit the timestamp (**`<spec-dir>`** = `<plan-name>` only); both layouts stay valid for resume and `jarvis run`.
+- A seeded `spec/<spec-dir>/intent.md` capturing the user's initial request. New runs use **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** (`<plan-name>` is the validated kebab-case name after collisions). Older trees may still omit the timestamp (**`<spec-dir>`** = `<plan-name>` only); both layouts stay valid for resume and `jarvis1 run`.
 - A `plan: draft` commit with `spec/<spec-dir>/index.md` plus atomic subspec files.
 - Zero or more `plan: review <N>` commits (default 2) where agents refine the spec tree in place.
 - A draft PR titled `plan: <plan-name>` (derived from branch identity, **not** the UTC prefix) that aggregates progress across all phases.
 
 **With `commit: false`:** Specs are written in Jarvis-owned storage outside the target repository:
-- The target directory must be a registered project (via `jarvis init` or `jarvis config`).
+- The target directory must be a registered project (via `jarvis1 init` or `jarvis1 config`).
 - Specs live at `~/.jarvis/specs/<project-safe-id>/<spec-dir>/` (where `<project-safe-id>` is the registered project key, origin-derived slug, or root basename).
 - No git branch or worktree is created; plan mode runs in the target directory root.
 - No commits, pushes, or draft PR are created.
-- The generated `index.md` includes a `repo:` binding so `jarvis run` can resolve the target repository.
+- The generated `index.md` includes a `repo:` binding so `jarvis1 run` can resolve the target repository.
 
-**With `commit: true`:** The draft PR opens after `plan: draft`. **Lifecycle:** when every phase succeeds without a blocker, **`gh pr ready` runs automatically** (same readiness transition as patch mode). **Stdout Next steps:** jarvis prints the PR URL plus exact `jarvis plan --resume …` and `jarvis run …` commands using **`spec/<spec-dir>/` paths**. That block deliberately **does not** ask you to toggle draft/readiness manually.
+**With `commit: true`:** The draft PR opens after `plan: draft`. **Lifecycle:** when every phase succeeds without a blocker, **`gh pr ready` runs automatically** (same readiness transition as patch mode). **Stdout Next steps:** jarvis prints the PR URL plus exact `jarvis1 plan --resume …` and `jarvis1 run …` commands using **`spec/<spec-dir>/` paths**. That block deliberately **does not** ask you to toggle draft/readiness manually.
 
-**With `commit: false`:** There is no PR. **Stdout Next steps:** jarvis prints the absolute path to the external spec (e.g., `~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md`) plus exact `jarvis plan --resume …` and `jarvis run …` commands using that absolute path.
+**With `commit: false`:** There is no PR. **Stdout Next steps:** jarvis prints the absolute path to the external spec (e.g., `~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md`) plus exact `jarvis1 plan --resume …` and `jarvis1 run …` commands using that absolute path.
 
-Unlike `jarvis run`, which expects specs to be complete before PR readiness, plan mode drafts incomplete specs: you review/edit on the PR, then merge to `main`; after merging, **`jarvis run spec/<spec-dir>/index.md`** implements it.
+Unlike `jarvis1 run`, which expects specs to be complete before PR readiness, plan mode drafts incomplete specs: you review/edit on the PR, then merge to `main`; after merging, **`jarvis1 run spec/<spec-dir>/index.md`** implements it.
 
 Plan mode is useful for:
 
 - **Collaborative spec authoring**: agents draft specs from high-level intent, then refine them in multiple self-review passes.
-- **Non-interactive automation**: `jarvis plan intent.md`, `jarvis plan "inline text"`, and `jarvis plan` work end-to-end without human prompts.
+- **Non-interactive automation**: `jarvis1 plan intent.md`, `jarvis1 plan "inline text"`, and `jarvis1 plan` work end-to-end without human prompts.
 - **Spec validation before work**: review and edit the generated spec before implementation begins.
 
 
 ## Names and paths
 
 - **`<plan-name>`** — The collision-suffixed kebab-case slug backing **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`; it **never** includes the filesystem timestamp segment.
-- **`<spec-dir>`** — Directory basename under **`spec/`** hosting `intent.md` / `index.md`. New runs mint **`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**; legacy trees may still flatten to **`<plan-name>`** alone. Resume + `jarvis run` honor both layouts.
+- **`<spec-dir>`** — Directory basename under **`spec/`** hosting `intent.md` / `index.md`. New runs mint **`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**; legacy trees may still flatten to **`<plan-name>`** alone. Resume + `jarvis1 run` honor both layouts.
 
-After merge, **`jarvis run spec/<spec-dir>/index.md`** consumes the finalized tree (**`<spec-dir>`** keeps the UTC prefix when plan mode created one).
+After merge, **`jarvis1 run spec/<spec-dir>/index.md`** consumes the finalized tree (**`<spec-dir>`** keeps the UTC prefix when plan mode created one).
 
 ## Default terminal output
 
@@ -59,8 +59,8 @@ Stdout ends with:
 Next steps:
   1. Review the draft PR: https://…
   2. Edit spec/<spec-dir>/ …
- … `jarvis plan --resume spec/<spec-dir>/index.md`
- … merge … `jarvis run spec/<spec-dir>/index.md`
+ … `jarvis1 plan --resume spec/<spec-dir>/index.md`
+ … merge … `jarvis1 run spec/<spec-dir>/index.md`
 ```
 
 Notice there is **no** third bullet telling reviewers to toggle draft/readiness —
@@ -75,8 +75,8 @@ Stdout ends with:
 ```text
 Next steps:
   1. External spec: ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md
-  2. Run implementation: jarvis run ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md
- … `jarvis plan --resume ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md`
+  2. Run implementation: jarvis1 run ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md
+ … `jarvis1 plan --resume ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md`
 ```
 
 ## Input modes
@@ -86,7 +86,7 @@ Plan mode accepts intent in three forms:
 ### File mode
 
 ```sh
-jarvis plan spec/2026-05-17T22-14-03Z-my-feature/intent.md
+jarvis1 plan spec/2026-05-17T22-14-03Z-my-feature/intent.md
 ```
 
 Older date-only prefixes (for example **`spec/2026-05-11-v1/intent.md`**) remain valid authoring inputs; **[docs/spec-guidance.md](./spec-guidance.md)** captures the canonical timestamp shape for newly created trees.
@@ -94,7 +94,7 @@ Older date-only prefixes (for example **`spec/2026-05-11-v1/intent.md`**) remain
 ### Inline mode
 
 ```sh
-jarvis plan "Add dark mode toggle to the app settings"
+jarvis1 plan "Add dark mode toggle to the app settings"
 ```
 
 Jarvis runs one non-interactive agent turn that expands the inline text into a rough `intent.md` in the current working directory, then exits. This inline step does not run Phase 0 refinement, draft, review, worktree/branch setup, or resume prerequisites.
@@ -102,13 +102,13 @@ Jarvis runs one non-interactive agent turn that expands the inline text into a r
 To run the full committed plan pipeline, use file mode with an explicit intent file path:
 
 ```sh
-jarvis plan path/to/intent.md
+jarvis1 plan path/to/intent.md
 ```
 
 ### No-argument mode
 
 ```sh
-jarvis plan
+jarvis1 plan
 ```
 
 Jarvis starts with an empty seed (`# Intent` only) and runs intent refinement immediately. This mode requires at least one refinement turn; `--refine-turns 0` is rejected because there is no initial intent text to plan from. This is not a live interview — the refine phase is non-interactive.
@@ -138,15 +138,15 @@ Once a name is chosen (with collision suffixing if needed), jarvis stamps the fi
 
 ### Phase 0 Checkpoint (Committed file-path runs)
 
-For fresh `commit: true` file-path runs (`jarvis plan spec/.../intent.md`), jarvis stops after `plan: refine` and appends an intent review `## Blocker`, then commits `plan: blocker` and opens/updates a draft PR that contains only `spec/<spec-dir>/intent.md`. No draft/review agent phases run on this first invocation.
+For fresh `commit: true` file-path runs (`jarvis1 plan spec/.../intent.md`), jarvis stops after `plan: refine` and appends an intent review `## Blocker`, then commits `plan: blocker` and opens/updates a draft PR that contains only `spec/<spec-dir>/intent.md`. No draft/review agent phases run on this first invocation.
 
 Resume with:
 
 ```sh
-jarvis plan --resume-draft spec/<spec-dir>/intent.md
+jarvis1 plan --resume-draft spec/<spec-dir>/intent.md
 ```
 
-Inline one-shot intent drafting (`jarvis plan "inline text"`) does not enter this checkpoint path.
+Inline one-shot intent drafting (`jarvis1 plan "inline text"`) does not enter this checkpoint path.
 
 ### Phase 1: Draft
 
@@ -211,7 +211,7 @@ Coverage:
 
 - **Phases**: intent-refinement turns, naming-only (`--refine-turns 0` on non-interactive intents), draft, and each review pass—all agent attempts participate in the same telemetry stream.
 
-- **Telemetry**: Rows use the configured `telemetryPath` JSONL file (same file as `jarvis run`), with **`mode: "plan"`** and **`plan_phase`** set to `refine`, `name-only`, `draft`, or `review`. Patch summaries ignore these rows; plan summaries ignore patch rows, so both modes can coexist in one file.
+- **Telemetry**: Rows use the configured `telemetryPath` JSONL file (same file as `jarvis1 run`), with **`mode: "plan"`** and **`plan_phase`** set to `refine`, `name-only`, `draft`, or `review`. Patch summaries ignore these rows; plan summaries ignore patch rows, so both modes can coexist in one file.
 
 - **Labels**: The summary header reports **`phase attempts`** (count of non-`harness`, non-`run_terminal` invocation rows), not patch-style implementation iterations. Table rows use **`N attempt(s)`** per agent instead of **`N iteration(s)`**.
 
@@ -236,14 +236,14 @@ whatever humans or agents add between the narrative markers across rewrites.
 
 The `modes.plan.commit` boolean (config v2) controls where plan-mode specs are written and whether git/GitHub are involved:
 
-- **`true` (default):** Plan specs are authored in a worktree on a branch under the target repo's `spec/<spec-dir>/` tree. Git commits (`plan: refine`, `plan: draft`, `plan: review N`) are made, a draft PR is opened, and `gh pr ready` runs programmatically on success. After merge to `main`, the spec is available to `jarvis run`.
-- **`false`:** Plan specs are written to Jarvis-owned storage outside the target directory (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`). No git branch, worktree, commits, or PR are created. Plan mode runs directly in the target directory root (which may or may not be a git repository). The generated `index.md` includes a portable `repo:` binding for later `jarvis run` invocations.
+- **`true` (default):** Plan specs are authored in a worktree on a branch under the target repo's `spec/<spec-dir>/` tree. Git commits (`plan: refine`, `plan: draft`, `plan: review N`) are made, a draft PR is opened, and `gh pr ready` runs programmatically on success. After merge to `main`, the spec is available to `jarvis1 run`.
+- **`false`:** Plan specs are written to Jarvis-owned storage outside the target directory (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`). No git branch, worktree, commits, or PR are created. Plan mode runs directly in the target directory root (which may or may not be a git repository). The generated `index.md` includes a portable `repo:` binding for later `jarvis1 run` invocations.
 
-When `commit: false`, the spec tree must include a usable `repo:` metadata line so `jarvis run` can later resolve the target repository independently of the spec file's location.
+When `commit: false`, the spec tree must include a usable `repo:` metadata line so `jarvis1 run` can later resolve the target repository independently of the spec file's location.
 
 ### `repo:` binding and origin detection
 
-Plan mode writes a `repo:` line into the generated `index.md`. When the target project has a configured `origin` URL, that URL is used directly for portability. When `origin` is not configured but the project root is a git checkout with an `origin` remote, plan mode automatically detects that remote via `git remote get-url origin` and emits it as the portable `repo:` value. This detection is read-only and does not persist the origin back to `~/.jarvis/config.json`. On any detection failure (non-git directory, no `origin` remote, missing `git` binary, etc.), plan mode falls back silently to the registered project key, which remains resolver-safe for `jarvis run`.
+Plan mode writes a `repo:` line into the generated `index.md`. When the target project has a configured `origin` URL, that URL is used directly for portability. When `origin` is not configured but the project root is a git checkout with an `origin` remote, plan mode automatically detects that remote via `git remote get-url origin` and emits it as the portable `repo:` value. This detection is read-only and does not persist the origin back to `~/.jarvis/config.json`. On any detection failure (non-git directory, no `origin` remote, missing `git` binary, etc.), plan mode falls back silently to the registered project key, which remains resolver-safe for `jarvis1 run`.
 
 ## Flags
 
@@ -257,18 +257,18 @@ Number of self-review passes to run. Default: `2`. Use `--review-passes 0` to sk
 
 ### `--repo <name|path|url>`
 
-Select the target repository. Same semantics as `jarvis run --repo`. If omitted, jarvis resolves the repo from the spec path or prompts (in TTY mode) or exits with a usage error (in non-TTY mode).
+Select the target repository. Same semantics as `jarvis1 run --repo`. If omitted, jarvis resolves the repo from the spec path or prompts (in TTY mode) or exits with a usage error (in non-TTY mode).
 
 ### `--cwd <dir>`
 
-(Parsed but treated as a hint; the finalized worktree always lives under `.worktree/plan-<plan-name>/` in the target repo.) For consistency with `jarvis run`, this flag is accepted but has limited effect in plan mode. Produced files reside under **`spec/<spec-dir>/`** checked out inside that untimestamped plan worktree.
+(Parsed but treated as a hint; the finalized worktree always lives under `.worktree/plan-<plan-name>/` in the target repo.) For consistency with `jarvis1 run`, this flag is accepted but has limited effect in plan mode. Produced files reside under **`spec/<spec-dir>/`** checked out inside that untimestamped plan worktree.
 
 ### `--resume <spec-path>`
 
 Resume a previously created post-draft plan worktree and branch:
 
 ```sh
-jarvis plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md
+jarvis1 plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md
 # legacy layouts still accepted, e.g. spec/my-plan/index.md
 ```
 
@@ -288,7 +288,7 @@ Resume does not accept positional intent text/file and does not require
 Resume from the Phase 0 intent-review gate:
 
 ```sh
-jarvis plan --resume-draft spec/2026-05-17T22-14-03Z-my-plan/intent.md
+jarvis1 plan --resume-draft spec/2026-05-17T22-14-03Z-my-plan/intent.md
 # legacy layouts still accepted, e.g. spec/my-plan/intent.md
 ```
 
@@ -339,7 +339,7 @@ Plan mode stops in these cases:
 
 ### 1. All phases complete
 
-All draft and review passes finish without encountering a blocker. Jarvis exits **`0`** and triggers **`gh pr ready`** alongside the customary stdout **Next steps** block (**which omits redundant manual ready-flip instructions**). Humans still review/modify GitHub/Git content and merge once satisfied using `jarvis run spec/<spec-dir>/index.md` afterward.
+All draft and review passes finish without encountering a blocker. Jarvis exits **`0`** and triggers **`gh pr ready`** alongside the customary stdout **Next steps** block (**which omits redundant manual ready-flip instructions**). Humans still review/modify GitHub/Git content and merge once satisfied using `jarvis1 run spec/<spec-dir>/index.md` afterward.
 
 ### 2. Blocker encountered
 
@@ -361,7 +361,7 @@ If an agent appends a `## Blocker` section to `spec/<spec-dir>/intent.md` (exact
 Jarvis then prints the blocker section to stderr and exits `1`. The draft PR
 reflects the blocker for human review. The user can resolve the blocker
 offline, update `spec/<spec-dir>/intent.md` manually on the branch, and re-run
-`jarvis plan --resume spec/<spec-dir>/index.md` to continue, or close the PR and
+`jarvis1 plan --resume spec/<spec-dir>/index.md` to continue, or close the PR and
 start over.
 
 ### 3. Ctrl-C
@@ -374,7 +374,7 @@ pass. A second Ctrl-C while an agent is still running falls through to Node's
 default handler and terminates the process immediately, which may leave a
 partially-written file in the worktree but never an unintended commit. The
 user can return to the worktree and continue manually or with
-`jarvis plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md`.
+`jarvis1 plan --resume spec/2026-05-17T22-14-03Z-my-plan/index.md`.
 
 ### 4. Agent quota exhausted
 
@@ -386,7 +386,7 @@ If an agent reports a `model_config` signal (the configured model is not support
 
 **Policy (status quo):** After spawn-time classification and any lenient weak-quota upgrade (`quotaFallback: "lenient"`), a remaining classified `error` does **not** exit the inner `modes.plan.agentOrder` loop. Jarvis tries the next configured agent for the same phase invocation (refine turn, name-only pass, draft, or review). Rationale: plan mode favors completing an authoring run when one vendor CLI glitches while another may work.
 
-**Difference from patch:** `jarvis run` stops the current iteration on the same classified `error` (typically harness exit `1`). The operator fixes the CLI or config and re-runs jarvis; only **quota** results rotate to the next agent within a single patch iteration. See [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
+**Difference from patch:** `jarvis1 run` stops the current iteration on the same classified `error` (typically harness exit `1`). The operator fixes the CLI or config and re-runs jarvis; only **quota** results rotate to the next agent within a single patch iteration. See [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
 
 If every agent in the order fails without `ok`, the phase returns the last failure (often the last agent's `error`).
 
@@ -419,12 +419,12 @@ step — which may rewrite files — before `typecheck → test → check` proce
 - If the branch's open PR is **already ready**, both the gate and GitHub transition are skipped; the PR remains ready and emits no warning.
 - If **no open PR exists**, the readiness helper is a silent no-op.
 
-**Recovery on resume:** A later successful `jarvis plan --resume …` invocation retries the readiness transition:
+**Recovery on resume:** A later successful `jarvis1 plan --resume …` invocation retries the readiness transition:
 - If the PR is still **draft** (because an earlier ready gate failed or did not run), the gate runs again and may flip the PR to ready.
 - If the PR is **already ready**, the resume path does nothing (idempotent no-op).
 - If the gate fails again, the PR remains draft; the recovery trigger is a subsequent successful committed resume run.
 
-That readiness transition stays **outside** stdout: **Next steps** never instruct you to mark the draft ready manually. Encountering a blocker leaves the GitHub PR in draft until content is repaired and **`jarvis plan --resume …`** succeeds.
+That readiness transition stays **outside** stdout: **Next steps** never instruct you to mark the draft ready manually. Encountering a blocker leaves the GitHub PR in draft until content is repaired and **`jarvis1 plan --resume …`** succeeds.
 
 ### PR body updates
 
@@ -432,18 +432,18 @@ Each `plan: draft`, `plan: review N`, or `plan: blocker` commit triggers a PR-bo
 
 ### Merge-first rule
 
-After the PR merges to `main`, the spec tree under **`spec/<spec-dir>`** is available to **`jarvis run spec/<spec-dir>/index.md`**. Do not run `jarvis run` against a spec tree that is still only on an unmerged `plan/*` branch; merge the authoring PR first.
+After the PR merges to `main`, the spec tree under **`spec/<spec-dir>`** is available to **`jarvis1 run spec/<spec-dir>/index.md`**. Do not run `jarvis1 run` against a spec tree that is still only on an unmerged `plan/*` branch; merge the authoring PR first.
 
-## Handoff to `jarvis run`
+## Handoff to `jarvis1 run`
 
-Every successful `jarvis plan` invocation prints a next-steps block that:
+Every successful `jarvis1 plan` invocation prints a next-steps block that:
 
 - highlights the authoring PR URL;
 - reminds you to merge the authoring PR before implementation;
-- prints working-directory-aware commands for **`jarvis plan --resume spec/<spec-dir>/index.md`** (when iterating) alongside **`jarvis run spec/<spec-dir>/index.md`** post-merge;
+- prints working-directory-aware commands for **`jarvis1 plan --resume spec/<spec-dir>/index.md`** (when iterating) alongside **`jarvis1 run spec/<spec-dir>/index.md`** post-merge;
 - omits **`gh pr ready` / dashboard toggles**, because **`gh pr ready` already succeeded** whenever you reach this footer under normal exits.
 
-`jarvis run` also warns (non-blocking) when the target spec appears to be on an
+`jarvis1 run` also warns (non-blocking) when the target spec appears to be on an
 unmerged `plan/*` branch in the resolved repository.
 
 ## Cleanup
@@ -453,16 +453,16 @@ unmerged `plan/*` branch in the resolved repository.
 Merged plan-branch PRs (and merged patch-branch PRs) can be reclaimed with:
 
 ```sh
-jarvis cleanup
+jarvis1 cleanup
 ```
 
 The command discovers merged git worktrees, removes them locally, then attempts
 to **`spec/<archive>/ → spec/completed/<archive>/`** when **`spec/<archive>/`**
 exists (see authoritative rules in **[Worktrees: Cleanup](./worktrees-and-commits.md#cleanup)**).
 
-Important mapping note: for `.worktree/plan-<plan-name>/`, **`<archive>` collapses to `<plan-name>`**, which matches **`spec/<plan-name>/`** spec trees authored before timestamps existed. **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** does **not** share that flattened archive basename, so **`jarvis cleanup`** may report **`no spec directory moved`** even though files remain under **`spec/`** until you reorganize/move them manually into **`spec/completed/…`**.
+Important mapping note: for `.worktree/plan-<plan-name>/`, **`<archive>` collapses to `<plan-name>`**, which matches **`spec/<plan-name>/`** spec trees authored before timestamps existed. **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** does **not** share that flattened archive basename, so **`jarvis1 cleanup`** may report **`no spec directory moved`** even though files remain under **`spec/`** until you reorganize/move them manually into **`spec/completed/…`**.
 
-Manual teardown without `jarvis cleanup`:
+Manual teardown without `jarvis1 cleanup`:
 
 ```sh
 rm -rf .worktree/plan-<plan-name>
@@ -471,7 +471,7 @@ git branch -D plan/<plan-name>
 
 ### With `commit: false` (external specs)
 
-No-commit specs in Jarvis-owned storage (`~/.jarvis/specs/…`) are **not** automatically cleaned up. They persist as local artifacts for future reference and can be re-run with `jarvis run` at any time.
+No-commit specs in Jarvis-owned storage (`~/.jarvis/specs/…`) are **not** automatically cleaned up. They persist as local artifacts for future reference and can be re-run with `jarvis1 run` at any time.
 
 To remove an external no-commit spec:
 
@@ -480,7 +480,7 @@ To remove an external no-commit spec:
 rm -rf ~/.jarvis/specs/<project-key>/<spec-dir>/
 ```
 
-The `jarvis cleanup` command does not delete Jarvis-owned external specs; it only handles git worktrees and target-repo `spec/` directories from `commit: true` runs.
+The `jarvis1 cleanup` command does not delete Jarvis-owned external specs; it only handles git worktrees and target-repo `spec/` directories from `commit: true` runs.
 
 ## Validation rules
 

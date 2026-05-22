@@ -20,7 +20,7 @@ For spawn ordering, harness **`agent.run`** callsites, and mode guards end-to-en
 Authoritative outcomes for CLI result classification, fallback behavior, exit
 codes after fallback exhaustion, and telemetry semantics.
 
-| Raw CLI outcome | Classified kind | Patch iteration behavior (`jarvis run`) | Plan phase behavior (`jarvis plan`) | Exit code when all agents exhausted or no fallback remains | Telemetry kind/reason |
+| Raw CLI outcome | Classified kind | Patch iteration behavior (`jarvis1 run`) | Plan phase behavior (`jarvis1 plan`) | Exit code when all agents exhausted or no fallback remains | Telemetry kind/reason |
 | --- | --- | --- | --- | --- | --- |
 | Non-zero exit + strict quota signal from stderr patterns | `quota` | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) | `quota` / `quota-exhausted` |
 | Non-zero exit + weak quota signal (lenient), guard passes (`allowLenientWeakQuotaFallback=true`) | `quota` (upgraded from weak `error`) | Rotate to next agent only when no-progress guard passes | Rotate to next agent only when unchanged-porcelain guard passes | `2` (quota exhausted) | `quota` / `quota-exhausted` |
@@ -39,7 +39,7 @@ only rotates agents for quota-classified results within that iteration; see
 
 ### Operator-visible stderr (grep contract)
 
-Patch (`jarvis run`) and plan (`jarvis plan`) share these substrings when
+Patch (`jarvis1 run`) and plan (`jarvis1 plan`) share these substrings when
 rotating agents after a quota-classified result:
 
 - **Per-agent rotation:** `quota exhausted; falling back` (strict spawn-side
@@ -56,7 +56,7 @@ lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.
 
 ### Patch telemetry (`~/.jarvis/runs.jsonl`)
 
-Only **`jarvis run`** (patch mode) appends JSONL via `writeTelemetry` today.
+Only **`jarvis1 run`** (patch mode) appends JSONL via `writeTelemetry` today.
 For quota events, records use **`kind`: `"quota"`** with **`exitReason`**:
 
 | exitReason | When |

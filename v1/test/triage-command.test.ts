@@ -284,7 +284,7 @@ describe("suggested moves rules", () => {
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
     expect(lines[0]).toContain("PR is merged");
-    expect(lines[0]).toContain("jarvis cleanup");
+    expect(lines[0]).toContain("jarvis1 cleanup");
   });
 
   test("rule 4: modified + prState MERGED", () => {

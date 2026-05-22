@@ -26,6 +26,8 @@ export type RefinePhaseOptions = {
    * If provided, spec reads/writes happen here instead of under worktreePath/spec/.
    */
   externalSpecRoot?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 };
 
 /** Outcome for default CLI reporting after the refine phase completes. */
@@ -76,6 +78,8 @@ export function buildRefinePrompt(opts: {
   intent: string;
   specGuidance: string;
   turnsRemaining: number;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 }): string {
   const collisionError = validatePlaceholders({
     name: opts.name,
@@ -90,6 +94,11 @@ export function buildRefinePrompt(opts: {
   const promptFile = join(import.meta.dir, "prompts", "refine.md");
   let template = readFileSync(promptFile, "utf8");
 
+  const targetDir = opts.targetDir ?? "spec";
+  template = template.replaceAll(
+    "spec/<NAME>/",
+    `${targetDir}/<NAME>/`,
+  );
   template = template.replaceAll("<WORKDIR>", opts.name);
   template = template.replaceAll("<NAME>", opts.name);
   template = template.replaceAll("<INTENT>", opts.intent);
@@ -115,6 +124,8 @@ export async function runRefineTurn(opts: {
    * If provided, spec reads/writes happen here instead of under worktreePath/spec/.
    */
   externalSpecRoot?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 }): Promise<{
   result: AgentResult;
   agentLabel: string | null;
@@ -146,6 +157,7 @@ export async function runRefineTurn(opts: {
       intent: intentBefore,
       specGuidance,
       turnsRemaining: opts.totalTurns - opts.turnNumber + 1,
+      ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });
   } catch (err) {
     if (err instanceof PlaceholderCollisionError) {
@@ -442,6 +454,9 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
         : {}),
       ...(opts.externalSpecRoot !== undefined
         ? { externalSpecRoot: opts.externalSpecRoot }
+        : {}),
+      ...(opts.targetDir !== undefined
+        ? { targetDir: opts.targetDir }
         : {}),
     });
 

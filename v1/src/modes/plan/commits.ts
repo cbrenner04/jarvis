@@ -14,16 +14,18 @@ export type CommitPlanRefineOptions = {
   resumedBy?: string;
   /** When set, records explicit skip / blocker / refined in the commit body for reviewability. */
   refineOutcome?: "refined" | "skipped" | "blocker";
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 };
 
 /**
  * Build the body for a plan-mode commit. Every plan commit body's first
- * non-empty line is `Spec: spec/<name>/intent.md`, matching the AGENTS.md
+ * non-empty line is `Spec: <targetDir>/<name>/intent.md`, matching the AGENTS.md
  * convention used by `renderAttribution` to filter PR-attribution-eligible
  * commits. Additional body lines follow the spec marker.
  */
-function buildPlanBody(specDirBasename: string, lines: string[]): string {
-  const specLine = `Spec: spec/${specDirBasename}/intent.md`;
+function buildPlanBody(specDirBasename: string, lines: string[], targetDir: string = "spec"): string {
+  const specLine = `Spec: ${targetDir}/${specDirBasename}/intent.md`;
   return [specLine, "", ...lines].join("\n");
 }
 
@@ -71,7 +73,7 @@ export function commitPlanRefine(opts: CommitPlanRefineOptions): void {
   }
 
   const subject = `plan: refine${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
-  const body = buildPlanBody(specDirBasename, bodyLines);
+  const body = buildPlanBody(specDirBasename, bodyLines, opts.targetDir);
   const baseMessage = `${subject}\n\n${body}`;
   // No agent attribution for the refine commit (no agent involved yet).
   const commitMessage = appendAgentTrailer(baseMessage, "");
@@ -98,6 +100,8 @@ export type CommitPlanDraftOptions = {
   agentLabel: string;
   subspecCount: number;
   subjectSuffix?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 };
 
 export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
@@ -114,7 +118,7 @@ export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
   const body = buildPlanBody(specDirBasename, [
     `Drafted by ${opts.agentLabel}.`,
     `Subspecs: ${opts.subspecCount}`,
-  ]);
+  ], opts.targetDir);
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
@@ -140,6 +144,8 @@ export type CommitPlanReviewOptions = {
   passNumber: number;
   agentLabel: string;
   subjectSuffix?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 };
 
 export function commitPlanReview(opts: CommitPlanReviewOptions): void {
@@ -155,7 +161,7 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
   const subject = `plan: review ${opts.passNumber}${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(specDirBasename, [
     `Reviewed by ${opts.agentLabel}.`,
-  ]);
+  ], opts.targetDir);
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
@@ -184,6 +190,8 @@ export type CommitPlanBlockerOptions = {
   /** Number of generated subspec files at the time the blocker was raised. */
   specFilesCount: number;
   subjectSuffix?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 };
 
 export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
@@ -201,7 +209,7 @@ export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
     `Blocked by ${opts.reason}`,
     `Spec files to date: ${opts.specFilesCount}`,
     `Raised by ${opts.agentLabel}.`,
-  ]);
+  ], opts.targetDir);
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 

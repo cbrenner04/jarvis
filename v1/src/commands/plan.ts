@@ -540,6 +540,7 @@ export function shouldStopAfterPhase0Refine(opts: {
 export function appendPhase0ReviewGateBlocker(
   intentPath: string,
   specDirBasename: string,
+  targetDir: string = "spec",
 ): string {
   const current = readFileSync(intentPath, "utf8").replace(/\r\n/g, "\n");
   if (detectBlocker(current).hasBlocker) {
@@ -548,6 +549,9 @@ export function appendPhase0ReviewGateBlocker(
   const blockerSection = PHASE0_REVIEW_GATE_BLOCKER.replaceAll(
     "<spec-dir>",
     specDirBasename,
+  ).replaceAll(
+    "spec/",
+    `${targetDir}/`,
   );
   const withSpacer = current.endsWith("\n\n")
     ? current
@@ -788,6 +792,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             refineTurns,
             stderr: opts.io.stderr,
             planTelemetry: resumePlanTelemetry,
+            targetDir: resumeTargetDir,
             ...(resume.externalSpecRoot !== undefined
               ? { externalSpecRoot: resume.externalSpecRoot }
               : {}),
@@ -828,6 +833,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               completedTurns: refineResult.completedTurns,
               subjectSuffix: suffix,
               resumedBy: refineResult.agentLabel ?? "unknown",
+              targetDir: resumeTargetDir,
               ...(refineResult.terminalOutcome === "skipped" ||
               refineResult.terminalOutcome === "blocker"
                 ? { refineOutcome: refineResult.terminalOutcome }
@@ -844,6 +850,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 join(resume.worktreePath, resumeTargetDir, resume.specDirBasename),
               ),
               subjectSuffix: suffix,
+              targetDir: resumeTargetDir,
             });
             safeUpdatePrBody({
               io: opts.io,
@@ -882,6 +889,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             intentBefore,
             stderr: opts.io.stderr,
             planTelemetry: resumePlanTelemetry,
+            targetDir: resumeTargetDir,
           });
           if (draftResult.result.kind !== "ok") {
             if (draftResult.result.kind === "quota") {
@@ -928,6 +936,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             agentLabel: draftResult.agentLabel ?? "unknown",
             subspecCount: draftSpecFilesCount,
             subjectSuffix: suffix,
+            targetDir: resumeTargetDir,
           });
           safeUpdatePrBody({
             io: opts.io,
@@ -986,6 +995,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           totalPasses: nextReviewIndex + reviewPasses - pass,
           stderr: opts.io.stderr,
           planTelemetry: resumePlanTelemetry,
+          targetDir: resumeTargetDir,
         });
         if (result.result.kind !== "ok") {
           if (result.result.kind === "quota") {
@@ -1060,6 +1070,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           passNumber: nextReviewIndex,
           agentLabel: result.agentLabel ?? "unknown",
           subjectSuffix: suffix,
+          targetDir: resumeTargetDir,
         });
         safeUpdatePrBody({
           io: opts.io,
@@ -1084,6 +1095,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             prUrl,
             planName: resume.planName,
             specDirBasename: resume.specDirBasename,
+            targetDir: resumeTargetDir,
           }),
         );
       }
@@ -1267,6 +1279,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             refineTurns: refineBudget,
             stderr: opts.io.stderr,
             planTelemetry: planTelemetryWriter,
+            targetDir,
             ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           });
 
@@ -1311,6 +1324,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             config: cfg,
             stderr: opts.io.stderr,
             planTelemetry: planTelemetryWriter,
+            targetDir,
             ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           });
           if (namingResult.result.kind !== "ok") {
@@ -1503,6 +1517,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               intentPathOrLabel,
               completedTurns: refineCompletedTurns,
               refineOutcome: "blocker",
+              targetDir,
             });
             opts.io.stderr(`plan: refine commit pushed\n`);
 
@@ -1557,6 +1572,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             mode: inv.mode as "file" | "inline" | "interactive",
             intentPathOrLabel,
             completedTurns: refineCompletedTurns,
+            targetDir,
             ...(refineTerminalOutcome === "skipped" ||
             refineTerminalOutcome === "blocker"
               ? { refineOutcome: refineTerminalOutcome }
@@ -1581,6 +1597,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         const gatedIntent = appendPhase0ReviewGateBlocker(
           intentPath,
           specDirBasename,
+          targetDir,
         );
         const blockerBody = detectBlocker(gatedIntent).body;
         const blockerReason =
@@ -1594,6 +1611,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             agentLabel: "operator",
             reason: blockerReason,
             specFilesCount: 0,
+            targetDir,
           });
           opts.io.stderr(`plan: blocker commit pushed\n`);
           const planBranch = `plan/${planName}`;
@@ -1607,6 +1625,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 name: planName,
                 specDirBasename,
                 worktreePath: worktreePath as string,
+                targetDir,
               }),
             footer: renderAttribution({
               cwd: worktreePath as string,
@@ -1656,6 +1675,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           intentBefore,
           stderr: opts.io.stderr,
           planTelemetry: planTelemetryWriter,
+          targetDir,
         });
 
         // Check if draft succeeded
@@ -1726,7 +1746,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       // Check boundary before draft commit
       const boundaryCheck = commit
-        ? assertPlanWriteBoundary(worktreePath, specDirBasename)
+        ? assertPlanWriteBoundary(worktreePath, specDirBasename, targetDir)
         : assertTargetRepoPlanBoundary(project.root);
 
       // For no-commit runs, also check the external spec directory
@@ -1757,6 +1777,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           finalSpecPath,
           specDirBasename,
           allOffendingPaths,
+          targetDir,
         );
         for (const path of allOffendingPaths) {
           opts.io.stderr(`  - ${path}\n`);
@@ -1771,6 +1792,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               agentLabel,
               reason: "write boundary violation",
               specFilesCount: draftSpecFilesCount,
+              targetDir,
             });
             opts.io.stderr(`plan: blocker commit pushed\n`);
 
@@ -1807,6 +1829,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             specDirBasename,
             agentLabel,
             subspecCount: draftSpecFilesCount,
+            targetDir,
           });
           opts.io.stderr(`plan: draft commit pushed\n`);
         } catch (err) {
@@ -1827,6 +1850,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 name: planName,
                 specDirBasename,
                 worktreePath: worktreePath as string,
+                targetDir,
               }),
             footer: renderAttribution({
               cwd: worktreePath as string,
@@ -1928,6 +1952,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             totalPasses: reviewPasses,
             stderr: opts.io.stderr,
             planTelemetry: planTelemetryWriter,
+            targetDir,
           });
 
           // Handle agent errors
@@ -1995,7 +2020,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           if (validation.blocker !== undefined) {
             // Check boundary before blocker commit
             const boundaryCheck = commit
-              ? assertPlanWriteBoundary(worktreePath, specDirBasename)
+              ? assertPlanWriteBoundary(worktreePath, specDirBasename, targetDir)
               : assertTargetRepoPlanBoundary(project.root);
 
             // For no-commit runs, also check the external spec directory
@@ -2027,6 +2052,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 finalSpecPath,
                 specDirBasename,
                 allOffendingPaths,
+                targetDir,
               );
               for (const path of allOffendingPaths) {
                 opts.io.stderr(`  - ${path}\n`);
@@ -2104,7 +2130,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
           // Check boundary before review commit
           const boundaryCheck = commit
-            ? assertPlanWriteBoundary(worktreePath, specDirBasename)
+            ? assertPlanWriteBoundary(worktreePath, specDirBasename, targetDir)
             : assertTargetRepoPlanBoundary(project.root);
 
           // For no-commit runs, also check the external spec directory
@@ -2182,6 +2208,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 specDirBasename,
                 passNumber: pass,
                 agentLabel,
+                targetDir,
               });
               opts.io.stderr(
                 `plan: review pass ${pass} committed and pushed\n`,
@@ -2214,7 +2241,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         try {
           const prUrl = getPrUrl(worktreePath as string, planBranch);
           opts.io.stdout(
-            renderPlanNextSteps({ prUrl, planName, specDirBasename }),
+            renderPlanNextSteps({ prUrl, planName, specDirBasename, targetDir }),
           );
         } catch {
           // best-effort; completion still succeeds without a URL
@@ -2258,20 +2285,22 @@ export function renderPlanNextSteps(args: {
   planName?: string;
   specDirBasename?: string;
   specName?: string;
+  targetDir?: string;
 }): string {
   const specDirBasename = args.specDirBasename ?? args.specName;
   if (specDirBasename === undefined) {
     throw new Error("specDirBasename is required");
   }
+  const targetDir = args.targetDir ?? "spec";
   return [
     "",
     "Next steps:",
     `  1. Review the draft PR: ${args.prUrl}`,
-    `  2. Edit spec/${specDirBasename}/ on the plan branch as needed (locally or`,
+    `  2. Edit ${targetDir}/${specDirBasename}/ on the plan branch as needed (locally or`,
     "     through GitHub), or run `jarvis1 plan --resume",
-    `     spec/${specDirBasename}/index.md\` for another self-review pass.`,
+    `     ${targetDir}/${specDirBasename}/index.md\` for another self-review pass.`,
     "  3. After the merge, implement the spec with:",
-    `       jarvis1 run spec/${specDirBasename}/index.md`,
+    `       jarvis1 run ${targetDir}/${specDirBasename}/index.md`,
     "",
   ].join("\n");
 }

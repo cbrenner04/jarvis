@@ -40,10 +40,13 @@ export async function runNameOnlyPhase(opts: {
    * If provided, spec reads/writes happen here instead of under worktreePath/spec/.
    */
   externalSpecRoot?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 }): Promise<{ result: AgentResult; agentLabel: string | null }> {
+  const targetDir = opts.targetDir ?? "spec";
   const intentPath = opts.externalSpecRoot
     ? join(opts.externalSpecRoot, opts.name, "intent.md")
-    : join(opts.worktreePath, "spec", opts.name, "intent.md");
+    : join(opts.worktreePath, targetDir, opts.name, "intent.md");
   const intent = readFileSync(intentPath, "utf8");
   const prompt = buildNameOnlyPrompt({ name: opts.name, intent });
 

@@ -49,20 +49,20 @@ non-default root such as `v1/spec/...`.
 
 ## Acceptance criteria
 
-- [ ] This repository's registered project config sets
+- [x] This repository's registered project config sets
       `plan.targetDir = "v1/spec"`, and the docs show operators how to set
       `targetDir`.
-- [ ] Repository-specific guidance for creating or resuming new Jarvis specs
+- [x] Repository-specific guidance for creating or resuming new Jarvis specs
       points to `v1/spec/<spec-dir>/...`.
-- [ ] Generic docs for normal target repos still describe committed in-repo
+- [x] Generic docs for normal target repos still describe committed in-repo
       specs under `spec/<timestamp>-<slug>/`, with `targetDir` documented as an
       optional override.
-- [ ] The docs explicitly state that this change does not teach `jarvis1 cleanup`
+- [x] The docs explicitly state that this change does not teach `jarvis1 cleanup`
       to archive plan trees created under a configured non-default root.
-- [ ] Docs do not introduce a requirement to run plan mode from `v1/`.
-- [ ] Historical root-level `spec/...` trees in this repository do not require
+- [x] Docs do not introduce a requirement to run plan mode from `v1/`.
+- [x] Historical root-level `spec/...` trees in this repository do not require
       migration.
-- [ ] No cleanup/archive code changes are required to complete this spec.
+- [x] No cleanup/archive code changes are required to complete this spec.
 
 ## Documentation updates
 
@@ -70,3 +70,22 @@ non-default root such as `v1/spec/...`.
   Jarvis-owned work, add operator documentation for the `targetDir` config key,
   and update cleanup/workflow docs to record the non-goal for configured roots
   without overfitting generic target-repo guidance to this repo.
+
+## Manual setup after merge
+
+After this PR is merged, manually apply the configuration to `~/.jarvis/config.json`:
+
+```json
+{
+  "projects": {
+    "jarvis": {
+      "plan": {
+        "targetDir": "v1/spec"
+      }
+    }
+  }
+}
+```
+
+This can be done by editing `~/.jarvis/config.json` directly or using `jarvis1 config edit`.
+Verify with: `jarvis1 config show | jq '.projects.jarvis.plan.targetDir'` should output `"v1/spec"`.

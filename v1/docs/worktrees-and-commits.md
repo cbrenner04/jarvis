@@ -241,8 +241,8 @@ Encountering **`plan: blocker`** commits (or lingering blockers) stops before re
 
 `jarvis cleanup [--dry-run]` removes merged worktrees and branches from the
 local repo. Useful after PRs have been merged on GitHub to keep `.worktree/`
-tidy. Patch-mode repos use **`.worktree/<spec-dir>/`**; plan branches use **`.worktree/plan-<plan-name>/`** (sans UTC prefix despite timestamped **`spec/`** paths).
-worktrees are handled on the same conditions.
+tidy. Patch-mode repos use **`.worktree/<spec-dir>/`**; plan branches use **`.worktree/plan-<plan-name>/`** (sans UTC prefix despite timestamped spec paths).
+Both modes are handled on the same conditions.
 
 Behavior:
 
@@ -255,9 +255,11 @@ Behavior:
   rebase-merged PRs after the merged-PR, clean-worktree, unpushed-commit, and
   confirmation gates have already passed.
 
-- Afterwards tries **`spec/<archive>/ → spec/completed/<archive>/`** using a filesystem `rename()` when **`spec/<archive>/`** exists, letting **`<archive>`** be the `.worktree/<archive>/` directory name verbatim for patch layouts and stripping the **`plan-`** prefix for plan layouts (**`<archive> = plan-name`**). Timestamped authoring directories (**`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**) **do not** automatically match `<archive>`; archive them manually after cleanup if desired (cross-check **[plan-mode cleanup](./plan-mode.md#cleanup)**).
+- **For repositories using the default `spec/` root:** Afterwards tries **`spec/<archive>/ → spec/completed/<archive>/`** using a filesystem `rename()` when **`spec/<archive>/`** exists, letting **`<archive>`** be the `.worktree/<archive>/` directory name verbatim for patch layouts and stripping the **`plan-`** prefix for plan layouts (**`<archive> = plan-name`**). When that rename succeeds, cleanup creates and pushes a commit in the project root that stages only the moved spec paths.
 
-- When that rename succeeds, cleanup creates and pushes a commit in the project root that stages only the moved spec paths, so unrelated modified or untracked files stay out of the cleanup commit.
+- **For repositories with a configured non-default `targetDir`** (e.g., `v1/spec/`): Automatic archiving to `<targetDir>/completed/` is **not yet supported**. Manual cleanup is required (see **[plan-mode cleanup](./plan-mode.md#cleanup)** for details).
+
+- Timestamped authoring directories (**`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**) **do not** automatically match the simple `<archive>` basename; archive them manually after cleanup if desired (cross-check **[plan-mode cleanup](./plan-mode.md#cleanup)**).
 
 - If **`spec/<archive>/`** is missing entirely, cleanup still succeeds but emits **`no spec directory moved`**.
 

@@ -28,7 +28,7 @@ type Project = {
   origin?: string; // optional git remote URL recorded by `jarvis init`
   git?: boolean; // optional per-project override of the top-level `git` toggle
   siblings?: string[]; // optional array of absolute paths to sibling repositories
-  plan?: { specTimestamp?: boolean; commit?: boolean }; // optional per-project plan-mode overrides
+  plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string }; // optional per-project plan-mode overrides
 };
 
 type AgentEntry = {
@@ -39,6 +39,7 @@ type AgentEntry = {
 type ModeConfig = {
   agentOrder: AgentEntry[];
   commit?: boolean; // plan mode only: whether to commit specs to the target repo (default true)
+  targetDir?: string; // plan mode only: relative path where committed specs are routed (default "spec")
 };
 
 type Config = {
@@ -74,6 +75,38 @@ The optional `modes.plan.commit` boolean (default `true`) controls where plan-mo
 
 **`false`:** Plan specs are authored in Jarvis-owned storage at `~/.jarvis/specs/<project-safe-id>/<spec-dir>/` outside the target repository. No git worktree, branch, commits, or PR are created. Plan mode runs directly in the target repo root. The generated spec includes a `repo:` binding so `jarvis run` can resolve the target repository later. Use this mode when specs should not be committed to the repo or when you want to generate and immediately execute a spec without the PR review cycle.
 
+## `targetDir` (plan mode, commit=true only)
+
+The optional `targetDir` setting (default `"spec"`) specifies the relative path from the repository root where committed plan specs are written.
+
+**In `modes.plan`:** Sets the global default for all repositories that do not have a per-project override.
+
+**In `projects[<name>].plan`:** Overrides the global default for a specific repository.
+
+**Constraints:**
+- Must be a relative path (not absolute).
+- Must not begin with `..` (no parent directory access).
+- The default `"spec"` routes new plans to `spec/<timestamp>-<name>/`, the canonical layout documented in [spec-guidance.md](./spec-guidance.md).
+
+**Example:** To route a repository's new plans to `v1/spec/` instead of the default `spec/`:
+
+```json
+{
+  "projects": {
+    "jarvis": {
+      "root": "/path/to/jarvis",
+      "plan": {
+        "targetDir": "v1/spec"
+      }
+    }
+  }
+}
+```
+
+With this configuration, `jarvis1 plan` creates commits under `v1/spec/<timestamp>-<plan-name>/` instead of `spec/<timestamp>-<plan-name>/`.
+
+**Hand-editing:** Edit `~/.jarvis/config.json` directly, or use `jarvis config edit` to open the config in `$EDITOR`.
+
 ## `Project.origin`
 
 `jarvis init` records each project's `origin` remote URL by running `git
@@ -107,7 +140,8 @@ Default contents on first bootstrap:
         { "agent": "claude", "model": "haiku" },
         { "agent": "codex", "model": "gpt-5.3-codex" },
         { "agent": "cursor", "model": "Composer 2" }
-      ]
+      ],
+      "targetDir": "spec"
     }
   },
   "quotaFallback": "lenient",

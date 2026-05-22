@@ -96,7 +96,43 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 
 ## Git/GitHub behavior
 
-Subspec 02 is expected to fill this section with worktree lifecycle, commit/PR behavior, readiness transitions, and attribution details in shipped v1 flows. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/02-git-github-worktrees-and-attribution.md`
+### Worktrees and locks
+
+- Patch runs derive the worktree directory and branch name from the parent directory name of the resolved spec path, and create/reuse `.worktree/<spec-name>` plus branch `<spec-name>` (including recreating a missing local branch from `origin/<spec-name>` when available). Sources: `v1/src/worktree.ts`
+- If `jarvis run` is invoked from inside a checkout already on branch `<spec-name>`, worktree creation is skipped and the current checkout is reused as the agent working directory. Sources: `v1/src/worktree.ts`
+- New patch branches are based on `gh repo view --json defaultBranchRef` (via `getBaseBranch`), while failures to `git fetch origin` are tolerated and do not stop worktree setup. Sources: `v1/src/worktree.ts`, `v1/src/gh.ts`
+- Plan mode uses a separate namespace: `.worktree/plan-<name>` on branch `plan/<name>`, with an explicit hard error when the plan worktree path already exists. Sources: `v1/src/worktree.ts`
+- Patch and review-feedback flows serialize per-worktree execution with `.jarvis.lock`; if an existing lock PID is still alive, the command exits with code `9` and stderr `worktree is in use by process <pid> (started at <timestamp>)`. Sources: `v1/src/worktree-lock.ts`, `v1/src/modes/patch/run.ts`, `v1/src/commands/review-feedback.ts`
+- Stale lock recovery is automatic: when a lock file exists but its PID is dead, jarvis replaces the lock with the current process and records a harness log line about recovering a stale lock. Sources: `v1/src/worktree-lock.ts`, `v1/src/modes/patch/run.ts`
+- `.jarvis.lock` exclusion is enforced best-effort through worktree-local `info/exclude` so normal `git add -A` commit paths do not stage lock files. Sources: `v1/src/worktree-lock.ts`
+- Patch-mode run teardown always attempts to release `.jarvis.lock` for the active worktree once preflight marked it as acquired. Sources: `v1/src/modes/patch/run.ts`, `v1/src/worktree-lock.ts`
+
+### Branches and commits
+
+- Patch subspec completion commits are created by jarvis (not agent git automation) with subject equal to subspec H1, body first line `Spec: <relative subspec path>`, and embedded `## Acceptance criteria` section body copied from the subspec file. Sources: `v1/src/modes/patch/subspec.ts`
+- Completing a subspec also flips the corresponding linked checklist entry in that subspec directory's `index.md` from `[ ]` to `[x]` before commit creation. Sources: `v1/src/modes/patch/subspec.ts`
+- Progress and blocker iterations are committed as `WIP:` subjects with `Spec: <relative subspec path>` in the body, and blocker variants append a `## Blocker` section in commit message content. Sources: `v1/src/modes/patch/subspec.ts`
+- All harness-authored commit shapes append `Jarvis-Agent: <label>` trailer when the agent label is non-empty; empty labels omit the trailer line entirely. Sources: `v1/src/commit-trailer.ts`, `v1/src/modes/patch/subspec.ts`, `v1/src/modes/patch/pr.ts`
+- Push behavior is two-phase: first branch push uses `git push -u origin <current-branch>` and later pushes use plain `git push` once upstream tracking exists. Sources: `v1/src/worktree.ts`, `v1/src/modes/patch/run.ts`
+
+### PR and GitHub CLI mediation
+
+- GitHub connectivity/auth is preflight-gated through `gh auth status`; failures stop patch and review-feedback flows with surfaced stderr guidance rather than continuing without GitHub operations. Sources: `v1/src/gh.ts`, `v1/src/modes/patch/run.ts`, `v1/src/commands/review-feedback.ts`
+- Base-branch discovery for new worktree branches is mediated by `gh repo view --json defaultBranchRef -q .defaultBranchRef.name` and errors are surfaced as `failed to detect base branch: ...`. Sources: `v1/src/gh.ts`, `v1/src/worktree.ts`
+- Draft PR creation is gh-mediated and idempotent per open branch PR: `gh pr view` filters to `OPEN` only, and `gh pr create --draft --base <base> --head <branch> --title <title> --body <body>` is called only when no open PR exists. Sources: `v1/src/pr.ts`
+- Closed/merged PRs on the same branch are intentionally ignored by existence checks, so branch reuse can open a new draft PR instead of binding to historical PR state. Sources: `v1/src/pr.ts`
+- Patch mode rewrites existing PR bodies via `gh pr edit <branch> --body-file -` using deterministic header regeneration and optional attribution footer refresh after subspec commits. Sources: `v1/src/pr.ts`, `v1/src/modes/patch/pr.ts`, `v1/src/modes/patch/run.ts`
+- Patch-mode draft-to-ready transition requires an existing open PR, runs `bun run ready`, optionally creates/pushes `chore: apply pre-ready check:fix` if the ready gate dirties files, then calls `gh pr ready <branch>`. Sources: `v1/src/modes/patch/pr.ts`
+- Plan-mode ready transition is PR-state aware: no-op when no open PR or already ready, and only draft PRs run `bun run ready` followed by `gh pr ready <branch>`. Sources: `v1/src/modes/plan/pr.ts`
+
+### Attribution and PR footer behavior
+
+- Patch PR attribution is derived from `git log <base>..HEAD` and includes only commits whose first non-empty body line starts with `Spec: `, excluding commits without that prefix from per-commit attribution bullets. Sources: `v1/src/pr.ts`
+- Per-commit attribution bullets render as `- <short sha> <subject> — <label>`, where missing trailers map to `unknown` and multiple `Jarvis-Agent` trailers are joined with `, `. Sources: `v1/src/pr.ts`
+- Footer summary line is first-seen deduped (`Written by <Label A>, <Label B> through Jarvis.`) and omitted when no labelled commits exist; the entire footer is omitted when no qualifying subspec commits are present. Sources: `v1/src/pr.ts`
+- Patch PR body rewrites preserve only content between `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->`; header and footer are regenerated each rewrite and manual edits outside narrative markers are not sticky. Sources: `v1/src/pr.ts`, `v1/src/modes/patch/pr.ts`
+- Plan-mode attribution collapses consecutive plan meta-commits into a single summary bullet, while subspec commits remain individually listed, and both still contribute to the deduped `Written by ... through Jarvis.` summary ordering by first appearance. Sources: `v1/src/modes/plan/pr.ts`
+- [uncertain] Plan-mode collapsed attribution bullets always use fixed text `spec commits (refine, draft, review)` even when the grouped meta commits may include blocker/resume variants, so the wording may be lossy relative to exact commit subjects. Sources: `v1/src/modes/plan/pr.ts`
 
 ## Filesystem, logging, telemetry, and other side effects
 

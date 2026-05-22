@@ -57,22 +57,22 @@ are observable through worktrees, commits, PRs, or PR bodies.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/v1-behaviors.md` contains a substantive `## Git/GitHub behavior`
+- [x] `v2/spec/v1-behaviors.md` contains a substantive `## Git/GitHub behavior`
       section covering worktrees, branch/worktree naming, PR creation/update
       behavior, commit/trailer behavior, and attribution footers.
-- [ ] The section is organized with clearly named subsections for worktrees and
+- [x] The section is organized with clearly named subsections for worktrees and
       locks, branches and commits, PR/GitHub CLI behavior, and attribution.
-- [ ] The section includes source-backed catalog entries for worktree locking
+- [x] The section includes source-backed catalog entries for worktree locking
       and for the GitHub CLI mediated behaviors implemented through `v1/src/gh.ts`.
-- [ ] The section captures plan-mode-specific PR lifecycle details that are
+- [x] The section captures plan-mode-specific PR lifecycle details that are
       observable through git history or PR bodies, including attribution
       collapsing for meta-commits where supported by source.
-- [ ] Every behavior entry added by this subspec cites at least one supporting
+- [x] Every behavior entry added by this subspec cites at least one supporting
       source file.
-- [ ] Any ambiguity called out by this subspec is tagged `[uncertain]` and
+- [x] Any ambiguity called out by this subspec is tagged `[uncertain]` and
       includes a brief explanation of the unresolved evidence gap.
 
 ## Documentation updates
 
-- [ ] `v2/spec/v1-behaviors.md` is updated for the Git/GitHub behavior area
+- [x] `v2/spec/v1-behaviors.md` is updated for the Git/GitHub behavior area
       owned by this subspec.

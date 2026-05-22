@@ -12,7 +12,7 @@ that the `jarvis` -> `jarvis1` rename is still pending.
 
 - [x] [00 — Skeleton, commands, and project resolution](./00-skeleton-commands-and-project-resolution.md)
 - [x] [01 — Agents, models, pricing keys, and quota fallback](./01-agents-models-pricing-and-quota.md)
-- [ ] [02 — Git, GitHub, worktrees, and attribution](./02-git-github-worktrees-and-attribution.md)
+- [x] [02 — Git, GitHub, worktrees, and attribution](./02-git-github-worktrees-and-attribution.md)
 - [ ] [03 — Plan mode behavior catalog](./03-plan-mode-behavior-catalog.md)
 - [ ] [04 — Side effects, completion, blockers, and failures](./04-side-effects-completion-and-failures.md)
 - [ ] [05 — Maintenance rule, reminder docs, and final verification](./05-maintenance-reminder-and-final-verification.md)

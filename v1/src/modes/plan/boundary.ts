@@ -7,7 +7,7 @@ export type BoundaryCheckResult =
   | { ok: false; offendingPaths: string[] };
 
 /**
- * Check that all modified files in the worktree are within spec/<name>/
+ * Check that all modified files in the worktree are within <targetDir>/<name>/
  * or within the allowed list (e.g., the worktree's .gitignore).
  *
  * Returns { ok: true } if all changes are in-bounds, or
@@ -16,6 +16,7 @@ export type BoundaryCheckResult =
 export function assertPlanWriteBoundary(
   worktreePath: string,
   specDirBasename: string,
+  targetDir: string = "spec",
 ): BoundaryCheckResult {
   // Use git status --porcelain=v1 -z to get null-terminated output
   let output: string;
@@ -43,8 +44,8 @@ export function assertPlanWriteBoundary(
     // Format is "XY PATH" where XY is two status characters
     const path = record.slice(3); // Skip "XY "
 
-    // Check if path is within spec/<name>/
-    const isInSpec = path.startsWith(`spec/${specDirBasename}/`);
+    // Check if path is within <targetDir>/<name>/
+    const isInSpec = path.startsWith(`${targetDir}/${specDirBasename}/`);
 
     if (!isInSpec) {
       offendingPaths.push(path);
@@ -133,17 +134,18 @@ export function appendBoundaryBlocker(
   specDirPath: string,
   specDirBasename: string,
   offendingPaths: string[],
+  targetDir: string = "spec",
 ): void {
   const intentPath = join(specDirPath, "intent.md");
 
   const pathList = offendingPaths.map((p) => `  - \`${p}\``).join("\n");
   const blockerSection = `## Blocker
 
-Out-of-bounds write detected. The following paths were modified outside \`spec/${specDirBasename}/\` and have been reverted:
+Out-of-bounds write detected. The following paths were modified outside \`${targetDir}/${specDirBasename}/\` and have been reverted:
 
 ${pathList}
 
-Spec-file write boundary is enforced: only files under \`spec/${specDirBasename}/\` may be modified.`;
+Spec-file write boundary is enforced: only files under \`${targetDir}/${specDirBasename}/\` may be modified.`;
 
   try {
     const currentContent = readFileSync(intentPath, "utf8");

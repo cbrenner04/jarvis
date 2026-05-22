@@ -41,10 +41,12 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 ## Conventions for spec files in *this* repo
 
 - V1 implementation specs live under `v1/spec/`; v2 planning material lives under `v2/spec/`.
+  - **How this is configured:** This repository's project entry in `~/.jarvis/config.json` sets `projects.jarvis.plan.targetDir = "v1/spec"`, routing new plan-mode specs away from the default root. See [v1/docs/config.md § targetDir](v1/docs/config.md#targetdir-plan-mode-committrue-only) for how to configure this for other repositories.
 - Multi-file specs go in a subdirectory with an `index.md` (new trees use a basename `YYYY-MM-DDTHH-mm-ssZ-<name>/`, filesystem-safe UTC — see [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md); older repos may still show date-only folders like `v1/spec/2026-05-11-v1/`).
 - The index is the routing file an agent reads to select work. It contains a checklist of subspec pointers; a subspec is complete when its checkbox is checked.
 - Each subspec is **atomic and testable**: it can be implemented and verified independently of the others.
 - Each subspec includes a **Documentation updates** section. Doc changes are part of the work, not a follow-up.
+- When creating a new spec for this repository with `jarvis1 plan`, the generated spec will land under `v1/spec/<timestamp>-<name>/`. You can also resume a plan at `jarvis1 plan --resume v1/spec/<timestamp>-<name>/index.md`. No requirement to run from `v1/` — the plan command works from any directory.
 - External agents that need to create specs should follow [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
 
 ## Working rules for agents in this repo

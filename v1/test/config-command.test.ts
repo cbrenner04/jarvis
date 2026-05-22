@@ -50,7 +50,7 @@ describe("config show", () => {
       version: 2,
       modes: {
         patch: { agentOrder: defaultOrder },
-        plan: { agentOrder: defaultOrder },
+        plan: { agentOrder: defaultOrder, targetDir: "spec" },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],

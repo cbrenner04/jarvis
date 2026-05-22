@@ -24,6 +24,8 @@ export type DraftPhaseOptions = {
   /** For tests only; defaults to real CLI agents. */
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
   planTelemetry?: PlanTelemetryWriter | undefined;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 };
 
 export class PlaceholderCollisionError extends Error {
@@ -69,6 +71,8 @@ export function buildDraftPrompt(opts: {
   /** External no-commit layout: files live in the working directory, not `spec/<name>/`. */
   flatSpecLayout?: boolean;
   workDirLabel?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
 }): string {
   const collisionError = validatePlaceholders({
     name: opts.name,
@@ -83,12 +87,16 @@ export function buildDraftPrompt(opts: {
   let template = readFileSync(promptFile, "utf8");
 
   const workDir = opts.workDirLabel ?? opts.name;
+  const targetDir = opts.targetDir ?? "spec";
   if (opts.flatSpecLayout) {
     template = template.replace(
       "- **Only write files under `spec/<NAME>/`.**",
       "- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths.",
     );
     template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
+  } else {
+    // For commit specs, replace the placeholder with the actual committed root
+    template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
   }
   template = template.replaceAll("<WORKDIR>", workDir);
   template = template.replaceAll("<NAME>", opts.name);
@@ -141,6 +149,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       ...(flatSpecLayout
         ? { flatSpecLayout: true, workDirLabel: specDirPath }
         : {}),
+      ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });
   } catch (err) {
     if (err instanceof PlaceholderCollisionError) {

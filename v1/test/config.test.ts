@@ -54,7 +54,7 @@ describe("loadConfig", () => {
       version: 2,
       modes: {
         patch: { agentOrder: DEFAULT_AGENT_ORDER },
-        plan: { agentOrder: DEFAULT_AGENT_ORDER },
+        plan: { agentOrder: DEFAULT_AGENT_ORDER, targetDir: "spec" },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1595,6 +1595,7 @@ describe("resolvePlanFlags", () => {
     expect(resolvePlanFlags(cfg, undefined)).toEqual({
       specTimestamp: true,
       commit: true,
+      targetDir: "spec",
     });
   });
 
@@ -1627,6 +1628,7 @@ describe("resolvePlanFlags", () => {
     expect(resolvePlanFlags(cfg, project)).toEqual({
       specTimestamp: false,
       commit: false,
+      targetDir: "spec",
     });
   });
 
@@ -1654,6 +1656,7 @@ describe("resolvePlanFlags", () => {
     expect(resolvePlanFlags(cfg, project)).toEqual({
       specTimestamp: false,
       commit: true,
+      targetDir: "spec",
     });
   });
 
@@ -1686,6 +1689,7 @@ describe("resolvePlanFlags", () => {
     expect(resolvePlanFlags(cfg, project)).toEqual({
       specTimestamp: false,
       commit: true,
+      targetDir: "spec",
     });
   });
 
@@ -1718,6 +1722,7 @@ describe("resolvePlanFlags", () => {
     expect(resolvePlanFlags(cfg, project)).toEqual({
       specTimestamp: false,
       commit: false,
+      targetDir: "spec",
     });
   });
 
@@ -1741,6 +1746,7 @@ describe("resolvePlanFlags", () => {
     expect(resolvePlanFlags(cfg, project)).toEqual({
       specTimestamp: true,
       commit: true,
+      targetDir: "spec",
     });
   });
 
@@ -1763,6 +1769,191 @@ describe("resolvePlanFlags", () => {
     expect(resolvePlanFlags(cfg, undefined)).toEqual({
       specTimestamp: true,
       commit: true,
+      targetDir: "spec",
     });
+  });
+
+  test("resolves targetDir with project override", () => {
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: {
+          agentOrder: CLAUDE_ONLY,
+          targetDir: "spec",
+        },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {
+        app: {
+          root: "/tmp/a",
+          plan: { targetDir: "v1/spec" },
+        },
+      },
+    };
+    const project = cfg.projects.app;
+    expect(resolvePlanFlags(cfg, project)).toEqual({
+      specTimestamp: true,
+      commit: true,
+      targetDir: "v1/spec",
+    });
+  });
+
+  test("resolves targetDir with global default when project has no override", () => {
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: {
+          agentOrder: CLAUDE_ONLY,
+          targetDir: "specs",
+        },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {
+        app: {
+          root: "/tmp/a",
+        },
+      },
+    };
+    const project = cfg.projects.app;
+    expect(resolvePlanFlags(cfg, project)).toEqual({
+      specTimestamp: true,
+      commit: true,
+      targetDir: "specs",
+    });
+  });
+});
+
+describe("targetDir validation", () => {
+  test("rejects absolute paths", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+          },
+          plan: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+            targetDir: "/absolute/path",
+          },
+        },
+        quotaFallback: "lenient",
+        projects: {},
+      }),
+    );
+
+    expect(() => loadConfig({ dir })).toThrow(/relative path/);
+  });
+
+  test("rejects paths with .. traversal", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+          },
+          plan: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+            targetDir: "../specs",
+          },
+        },
+        quotaFallback: "lenient",
+        projects: {},
+      }),
+    );
+
+    expect(() => loadConfig({ dir })).toThrow(/\.\./);
+  });
+
+  test("rejects project-level targetDir with absolute paths", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+          },
+          plan: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+          },
+        },
+        quotaFallback: "lenient",
+        projects: {
+          app: {
+            root: "/tmp/a",
+            plan: { targetDir: "/absolute" },
+          },
+        },
+      }),
+    );
+
+    expect(() => loadConfig({ dir })).toThrow(/relative path/);
+  });
+
+  test("rejects project-level targetDir with .. traversal", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+          },
+          plan: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+          },
+        },
+        quotaFallback: "lenient",
+        projects: {
+          app: {
+            root: "/tmp/a",
+            plan: { targetDir: "../../specs" },
+          },
+        },
+      }),
+    );
+
+    expect(() => loadConfig({ dir })).toThrow(/\.\./);
+  });
+
+  test("accepts relative paths with subdirectories", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+          },
+          plan: {
+            agentOrder: [{ agent: "claude", model: "haiku" }],
+            targetDir: "v1/spec",
+          },
+        },
+        quotaFallback: "lenient",
+        projects: {},
+      }),
+    );
+
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.plan.targetDir).toBe("v1/spec");
   });
 });

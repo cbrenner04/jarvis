@@ -21,7 +21,8 @@ Rename the v1 entry-point shim from `bin/jarvis` to `bin/jarvis1` and update `pa
 - [ ] `bin/jarvis` does not exist
 - [ ] `package.json` contains `"jarvis1": "bin/jarvis1"` in the `bin` field and does not contain a `"jarvis"` key in `bin`
 - [ ] `bun run typecheck` passes
-- [ ] `bun test` passes
+
+Note: `bun test` is not gated here because `v1/test/cli.test.ts` still references `bin/jarvis` until subspec 02 applies its symlink path updates. Full `bun test` pass is verified as part of subspec 02's acceptance criteria.
 
 ## Documentation updates
 

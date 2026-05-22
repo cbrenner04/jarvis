@@ -60,8 +60,8 @@ Update test files that assert on user-facing command strings to expect `jarvis1`
 
 ## Acceptance criteria
 
-- [ ] `bun test` passes, including the `bin/jarvis1` symlink integration test in `cli.test.ts`
-- [ ] No `toContain("jarvis ` or `toContain(\`jarvis ` assertion remains in the six test files for user-facing command strings (protected strings from the do-not-change list above are excluded)
+- [ ] `bun test` passes, including the `bin/jarvis1` symlink integration test in `cli.test.ts` (requires subspec 00 and 01 to be applied first so `bin/jarvis1` exists and source strings are updated)
+- [ ] Running `grep -n 'toContain.*"jarvis \|toContain.*`jarvis ' v1/test/cli.test.ts v1/test/run.test.ts v1/test/init.test.ts v1/test/plan-command.test.ts v1/test/plan-worktree.test.ts v1/test/triage-command.test.ts` shows no remaining assertions matching user-facing command strings — every surviving `jarvis` match is a protected string from the do-not-change list above
 
 ## Documentation updates
 

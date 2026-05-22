@@ -35,7 +35,7 @@ export function pricesEditCommand(opts: PricesEditCommandOptions): number {
   try {
     loadPrices(pricesPath);
   } catch (err) {
-    io.stderr(`jarvis: ${(err as Error).message}\n`);
+    io.stderr(`jarvis1: ${(err as Error).message}\n`);
     return 1;
   }
 
@@ -59,7 +59,7 @@ export function pricesEditCommand(opts: PricesEditCommandOptions): number {
     // Check if the editor couldn't be spawned
     if (result.error) {
       io.stderr(
-        `jarvis: could not launch ${JSON.stringify(editor)}: ${(result.error as Error).message}\n`,
+        `jarvis1: could not launch ${JSON.stringify(editor)}: ${(result.error as Error).message}\n`,
       );
       io.stderr(`edit ${JSON.stringify(pricesPath)} manually\n`);
       return 1;

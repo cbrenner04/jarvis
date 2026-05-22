@@ -634,7 +634,7 @@ const suggestedMovesRules: Array<{
   {
     match: (input) => input.dirtyKind === "clean" && input.prState === "MERGED",
     format: (_input) => [
-      `1. PR is merged. Safe to remove with: jarvis cleanup`,
+      `1. PR is merged. Safe to remove with: jarvis1 cleanup`,
     ],
   },
 
@@ -694,7 +694,7 @@ const suggestedMovesRules: Array<{
     format: (input) => [
       `1. PR is merged but this tree has uncommitted work — probably orphaned.`,
       `2. Inspect: git -C ${input.worktreePath} diff`,
-      `3. Discard: git -C ${input.worktreePath} stash && jarvis cleanup`,
+      `3. Discard: git -C ${input.worktreePath} stash && jarvis1 cleanup`,
     ],
   },
 
@@ -716,7 +716,7 @@ const suggestedMovesRules: Array<{
       input.specComplete === false,
     format: (input) => [
       `1. Inspect: git -C ${input.worktreePath} diff`,
-      `2. Resume: jarvis run ${input.specPath || "(spec path unknown)"}`,
+      `2. Resume: jarvis1 run ${input.specPath || "(spec path unknown)"}`,
       `3. Discard: git -C ${input.worktreePath} reset --hard && git -C ${input.worktreePath} clean -fd`,
     ],
   },

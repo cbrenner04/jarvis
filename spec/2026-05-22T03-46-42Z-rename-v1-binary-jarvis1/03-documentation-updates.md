@@ -29,10 +29,10 @@ Update install instructions and command-invocation examples so the docs describe
 
 ## Acceptance criteria
 
-- [ ] The files listed above no longer instruct users to invoke v1 with bare `jarvis`
-- [ ] README includes a brief explanation that v1 now installs as `jarvis1` so the bare `jarvis` command can be reused by v2
-- [ ] Any remaining `jarvis` occurrences in those files are only product-name prose, repo/package identity, protected markers, or `~/.jarvis/` data paths
-- [ ] `bun run check` passes
+- [x] The files listed above no longer instruct users to invoke v1 with bare `jarvis`
+- [x] README includes a brief explanation that v1 now installs as `jarvis1` so the bare `jarvis` command can be reused by v2
+- [x] Any remaining `jarvis` occurrences in those files are only product-name prose, repo/package identity, protected markers, or `~/.jarvis/` data paths
+- [x] `bun run check` passes
 
 ## Documentation updates
 

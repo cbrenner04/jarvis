@@ -50,13 +50,13 @@ export async function reviewFeedbackCommand(
   const worktreePath = join(opts.projectRoot, ".worktree", opts.worktreeName);
   if (!existsSync(worktreePath)) {
     opts.io.stderr(
-      `jarvis review-feedback: unknown worktree ${JSON.stringify(opts.worktreeName)}\n`,
+      `jarvis1 review-feedback: unknown worktree ${JSON.stringify(opts.worktreeName)}\n`,
     );
     return 1;
   }
   if (opts.worktreeName.startsWith("plan-")) {
     opts.io.stderr(
-      "jarvis review-feedback: plan worktrees are unsupported in v1; review-feedback only supports patch worktrees\n",
+      "jarvis1 review-feedback: plan worktrees are unsupported in v1; review-feedback only supports patch worktrees\n",
     );
     return 1;
   }
@@ -74,13 +74,13 @@ export async function reviewFeedbackCommand(
     const branch = currentBranch(worktreePath);
     if (branch === "HEAD") {
       opts.io.stderr(
-        "jarvis review-feedback: unsupported git state detached HEAD in target worktree\n",
+        "jarvis1 review-feedback: unsupported git state detached HEAD in target worktree\n",
       );
       return 1;
     }
     if (branch.startsWith("plan/")) {
       opts.io.stderr(
-        "jarvis review-feedback: plan worktrees are unsupported in v1; review-feedback only supports patch worktrees\n",
+        "jarvis1 review-feedback: plan worktrees are unsupported in v1; review-feedback only supports patch worktrees\n",
       );
       return 1;
     }
@@ -88,7 +88,7 @@ export async function reviewFeedbackCommand(
     const status = gitStatusPorcelain(worktreePath);
     if (status.trim() !== "") {
       opts.io.stderr(
-        "jarvis review-feedback: target worktree is not clean; inspect or clean it before running review-feedback\n",
+        "jarvis1 review-feedback: target worktree is not clean; inspect or clean it before running review-feedback\n",
       );
       return 1;
     }
@@ -106,7 +106,7 @@ export async function reviewFeedbackCommand(
     );
     if (prNumber === null) {
       opts.io.stderr(
-        `jarvis review-feedback: no open PR found for branch ${JSON.stringify(branch)}\n`,
+        `jarvis1 review-feedback: no open PR found for branch ${JSON.stringify(branch)}\n`,
       );
       return 1;
     }
@@ -120,7 +120,7 @@ export async function reviewFeedbackCommand(
       feedback.inlineThreads.length === 0 &&
       feedback.topLevelComments.length === 0
     ) {
-      opts.io.stdout("jarvis review-feedback: no open review comments\n");
+      opts.io.stdout("jarvis1 review-feedback: no open review comments\n");
       return 0;
     }
     const prompt = renderReviewPrompt({
@@ -130,10 +130,10 @@ export async function reviewFeedbackCommand(
       patchRulesText: (opts.readPatchRulesFn ?? readPatchRulesText)(),
     });
     opts.io.stdout(
-      `jarvis review-feedback: collected ${feedback.inlineThreads.length} unresolved inline threads and ${feedback.topLevelComments.length} top-level comments for PR #${prNumber}\n`,
+      `jarvis1 review-feedback: collected ${feedback.inlineThreads.length} unresolved inline threads and ${feedback.topLevelComments.length} top-level comments for PR #${prNumber}\n`,
     );
     opts.io.stdout(
-      `jarvis review-feedback: review prompt prepared (${prompt.length} chars)\n`,
+      `jarvis1 review-feedback: review prompt prepared (${prompt.length} chars)\n`,
     );
 
     const config = (opts.loadConfigFn ?? loadConfig)(opts.config);
@@ -202,7 +202,7 @@ export async function reviewFeedbackCommand(
 
     if (gitStatusPorcelain(worktreePath).trim() === "") {
       opts.io.stderr(
-        "jarvis review-feedback: agent run completed with no file changes; no commit created\n",
+        "jarvis1 review-feedback: agent run completed with no file changes; no commit created\n",
       );
       return 1;
     }
@@ -212,7 +212,7 @@ export async function reviewFeedbackCommand(
       commitAll(worktreePath, "address PR review comments");
     } catch (err) {
       opts.io.stderr(
-        `jarvis review-feedback: failed to commit review feedback changes: ${errorMessage(err)}\n`,
+        `jarvis1 review-feedback: failed to commit review feedback changes: ${errorMessage(err)}\n`,
       );
       return 1;
     }
@@ -224,13 +224,13 @@ export async function reviewFeedbackCommand(
       });
     } catch (err) {
       opts.io.stderr(
-        `jarvis review-feedback: push failed after commit creation: ${errorMessage(err)}\n`,
+        `jarvis1 review-feedback: push failed after commit creation: ${errorMessage(err)}\n`,
       );
       return 1;
     }
 
     opts.io.stdout(
-      `jarvis review-feedback: committed and pushed review feedback updates via ${success.entry.agent}\n`,
+      `jarvis1 review-feedback: committed and pushed review feedback updates via ${success.entry.agent}\n`,
     );
     return 0;
   } finally {

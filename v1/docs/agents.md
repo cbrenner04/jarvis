@@ -18,7 +18,7 @@ and the binary each one invokes:
 
 The default fallback order is `claude → codex → cursor`. `opencode` and
 `aider` are supported but **opt-in** — they are not in the default
-`agentOrder`. Change the order with `jarvis config set-order <a,b,c>` (see
+`agentOrder`. Change the order with `jarvis1 config set-order <a,b,c>` (see
 [config.md](./config.md)).
 Quota detection is per-agent and based on documented or observed stderr
 signals; see [quota-signals.md](./quota-signals.md).
@@ -167,7 +167,7 @@ llama.cpp and LM Studio; see <https://aider.chat/docs/llms.html>.
 
 ## Plan-mode prompts
 
-Plan mode (`jarvis plan`) uses the same agent contract as patch mode. Plan-mode
+Plan mode (`jarvis1 plan`) uses the same agent contract as patch mode. Plan-mode
 prompts live in `src/modes/plan/prompts/` (`refine.md`, `name-only.md`,
 `draft.md`, `review.md`) and are short, focused prompts that inject intent and
 guidance without requiring any non-default permission-posture changes. The

@@ -197,7 +197,7 @@ describe("init", () => {
     });
     expect(code).toBe(1);
     expect(cap.err()).toContain("already registered");
-    expect(cap.err()).toContain("jarvis config");
+    expect(cap.err()).toContain("jarvis1 config");
 
     const cfg = loadConfig({ dir: cfgDir });
     expect(cfg.projects[name]).toEqual({ root: otherRoot });

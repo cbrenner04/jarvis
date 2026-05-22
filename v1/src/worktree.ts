@@ -103,7 +103,7 @@ export async function createPlanWorktree(
   // Fail loudly if the plan worktree already exists
   if (existsSync(worktreePath)) {
     throw new Error(
-      `plan worktree already exists at ${worktreePath}; resolve with \`jarvis cleanup\` or remove manually`,
+      `plan worktree already exists at ${worktreePath}; resolve with \`jarvis1 cleanup\` or remove manually`,
     );
   }
 

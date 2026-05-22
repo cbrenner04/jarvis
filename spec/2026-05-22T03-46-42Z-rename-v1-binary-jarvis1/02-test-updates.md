@@ -64,11 +64,11 @@ Update tests that assert on user-facing command strings so they match the rename
 
 ## Acceptance criteria
 
-- [ ] `bun test` passes
-- [ ] The updated test files contain no remaining assertions that expect a user-facing `jarvis ...` command string
-- [ ] Running `bin/jarvis1 help` succeeds
-- [ ] Running `bin/jarvis1 plan --help` succeeds and its usage output names `jarvis1`
-- [ ] `bin/jarvis` is absent, or invoking it fails because v1 no longer owns the bare `jarvis` command
+- [x] `bun test` passes
+- [x] The updated test files contain no remaining assertions that expect a user-facing `jarvis ...` command string
+- [x] Running `bin/jarvis1 help` succeeds
+- [x] Running `bin/jarvis1 plan --help` succeeds and its usage output names `jarvis1`
+- [x] `bin/jarvis` is absent, or invoking it fails because v1 no longer owns the bare `jarvis` command
 
 ## Documentation updates
 

@@ -102,9 +102,9 @@ export async function runSharedPreflight(
     const logServerUrl =
       opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
     opts.io.stderr(
-      `jarvis: log server unreachable at ${logServerUrl}. Start it with \`jarvis log-server\` or update config.\n`,
+      `jarvis1: log server unreachable at ${logServerUrl}. Start it with \`jarvis1 log-server\` or update config.\n`,
     );
-    opts.io.stderr(`jarvis: ${(err as Error).message}\n`);
+    opts.io.stderr(`jarvis1: ${(err as Error).message}\n`);
     return { kind: "error", exitCode: 1 };
   }
 
@@ -166,9 +166,9 @@ export async function runSharedProjectPreflight(
     const logServerUrl =
       opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
     opts.io.stderr(
-      `jarvis: log server unreachable at ${logServerUrl}. Start it with \`jarvis log-server\` or update config.\n`,
+      `jarvis1: log server unreachable at ${logServerUrl}. Start it with \`jarvis1 log-server\` or update config.\n`,
     );
-    opts.io.stderr(`jarvis: ${(err as Error).message}\n`);
+    opts.io.stderr(`jarvis1: ${(err as Error).message}\n`);
     return { kind: "error", exitCode: 1 };
   }
 
@@ -269,7 +269,7 @@ async function resolveProjectFromSpec(opts: {
       project: { key: "", root: "" },
       mode: "registered",
       error:
-        "could not determine a target project for this spec and no projects are registered. Run `jarvis init` in a target repo, or pass --repo <name|url>, or add a `repo:` line.",
+        "could not determine a target project for this spec and no projects are registered. Run `jarvis1 init` in a target repo, or pass --repo <name|url>, or add a `repo:` line.",
     };
   }
 

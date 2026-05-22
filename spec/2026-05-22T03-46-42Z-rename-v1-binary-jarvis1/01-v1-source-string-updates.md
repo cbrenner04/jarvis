@@ -43,9 +43,9 @@ Update every user-facing `jarvis` command string in the v1 TypeScript source to 
 
 ## Acceptance criteria
 
-- [ ] Every user-facing command example or CLI-prefix string in the fifteen files listed above uses `jarvis1` instead of `jarvis`
-- [ ] Any remaining `jarvis` occurrences in those files are only protected cases from the do-not-change list: `namespace: "jarvis"`, `~/.jarvis/` paths, non-user-facing comments, or product-name prose
-- [ ] `bun run typecheck` passes
+- [x] Every user-facing command example or CLI-prefix string in the fifteen files listed above uses `jarvis1` instead of `jarvis`
+- [x] Any remaining `jarvis` occurrences in those files are only protected cases from the do-not-change list: `namespace: "jarvis"`, `~/.jarvis/` paths, non-user-facing comments, or product-name prose
+- [x] `bun run typecheck` passes
 
 ## Documentation updates
 

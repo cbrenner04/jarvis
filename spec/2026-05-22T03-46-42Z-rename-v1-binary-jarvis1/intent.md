@@ -134,3 +134,14 @@ Many test occurrences of `jarvis` must NOT be updated; they are not user-facing 
 - `<!-- jarvis-codex-invocation: ... -->` — internal protocol markers (protected).
 - `".jarvis-project-resolution-anchor.md"` — internal filename (protected).
 - Any `join(... ".jarvis" ...)` path construction — config/data namespace (protected).
+
+## Blocker
+
+Review and approve `spec/2026-05-22T03-46-42Z-rename-v1-binary-jarvis1/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis plan --resume-draft spec/2026-05-22T03-46-42Z-rename-v1-binary-jarvis1/intent.md`

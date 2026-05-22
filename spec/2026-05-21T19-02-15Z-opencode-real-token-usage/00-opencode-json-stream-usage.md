@@ -235,32 +235,32 @@ to end (e.g. via the existing fixture-driven test harness pattern in
 
 ## Acceptance criteria
 
-- [ ] `src/agents/opencode.ts` argv passes `--format json` (not `--format default`).
-- [ ] `src/agents/opencode.ts` exports a pure function (suggested name `parseOpencodeJsonStream`) that takes a stdout string and returns at minimum `{ usage, costUsd, sawStepFinish, sawAnyCostField, renderedText, warnings }`.
-- [ ] The parser treats a line as a JSON event only when the trimmed line is non-empty, `JSON.parse` succeeds, and the parsed value is a plain object with a string `type` field. Arrays/numbers/strings/`null` at the top level and parse failures are pass-through.
-- [ ] On `type === "step_finish"` with valid numeric `part.tokens.input/output/cache.read/cache.write`, the parser accumulates `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` into running totals using the existing `AgentResult.usage` field names.
-- [ ] On `type === "step_finish"` where `part.tokens` is present but any required sub-field is missing or non-numeric, the step is skipped (no zeros, no NaN added). If every `step_finish` is malformed, the run is treated as if no `step_finish` was observed.
-- [ ] When `part.cost` is a number on a `step_finish` event, it is added to a cost accumulator, and `sawAnyCostField` is set true. `sawAnyCostField` is distinct from "cost sum is non-zero".
-- [ ] `reasoning_tokens` are not added to `AgentResult.usage`; no new field is introduced.
-- [ ] On `type === "text"` with a string `part.text`, the parser appends `part.text` to a rendered transcript in arrival order without dedup.
-- [ ] Other event types (`step_start`, tool parts) are ignored for usage and rendering purposes.
-- [ ] Non-JSON / non-event lines are forwarded into the rendered transcript so banners and legacy log lines survive.
-- [ ] When at least one `step_finish` accumulated cleanly: `AgentResult.usage_source === "agent"`. When `sawAnyCostField` is true: `AgentResult.cost_usd` equals the summed cost and `AgentResult.cost_source === "agent"` (including the `cost: 0` case). When `sawAnyCostField` is false: `AgentResult.cost_usd === null` and `AgentResult.cost_source === "no-price"`. (Assertions are against the agent-returned `AgentResult` before `src/telemetry-enrichment.ts` runs; downstream enrichment may overwrite `cost_source` to `"computed"` when `cost_usd === null` and a price-table rate exists for the model.)
-- [ ] When no `step_finish` was observed (or all were malformed) and `estimateTokenUsage` returns usage: `AgentResult.usage` is set from the estimator, `AgentResult.usage_source === "estimated"`, the agent does **not** set `cost_usd` or `cost_source` (downstream `src/telemetry-enrichment.ts` fills them via the price table), and `AgentResult.warnings` contains exactly `"opencode: no step_finish events in --format json stream; falling back to token estimation."`.
-- [ ] When no `step_finish` was observed and `estimateTokenUsage` returns null: `AgentResult.usage_source === "unavailable"` and `AgentResult.cost_source === "no-usage"` (existing behavior preserved).
-- [ ] On the success path (Case A and Case B above), the returned `AgentResult.stdout` is replaced with the rendered transcript (concatenated `text` parts plus pass-through non-JSON lines). Raw JSON event lines do not appear verbatim in the returned `AgentResult.stdout`.
-- [ ] `resolveOpencodePriceKey`, `OPENCODE_HAS_PRICED_MODELS`, `streamErrorPrefix: "opencode:"`, quota detection, model-config detection, and exit-code routing in `src/agents/spawn.ts` are unchanged.
-- [ ] `opencodeUnavailableNoted` in `src/modes/patch/run.ts` is not renamed; its gating at `:1020-1041` is unchanged.
-- [ ] The `buildArgv` signature in `src/agents/opencode.ts` is unchanged.
-- [ ] Test added: stdout stream with two `step_finish` events carrying non-zero tokens and cost yields summed usage, summed `cost_usd`, `usage_source === "agent"`, `cost_source === "agent"`.
-- [ ] Test added: stdout stream with `step_finish` events carrying `cost: 0` yields `cost_usd === 0` and `cost_source === "agent"` (not `"no-price"`).
-- [ ] Test added: stdout stream with no `step_finish` events but parseable text falls back to `estimateTokenUsage`; `usage_source === "estimated"`; `warnings` contains the exact legacy-fallback string.
-- [ ] Test added: when the estimator also returns null, `usage_source === "unavailable"` and `cost_source === "no-usage"`.
-- [ ] Test added: mixed JSON and non-JSON line stream — non-JSON lines appear in the rendered transcript; JSON event lines do not appear verbatim; only `text` parts contribute rendered content from events.
-- [ ] Test added: argv builder produces `--format json` (replaces the prior `--format default` assertion).
-- [ ] Test added: a malformed `step_finish` event is skipped without breaking accumulation of clean steps; a stream where every `step_finish` is malformed falls through to the estimator path with the legacy-fallback warning.
-- [ ] `test/fixtures/opencode/opencode-format-json-command.{stdout,stderr,exit}` is populated with a small realistic JSON event stream (at minimum: `step_start`, `text`, `step_finish` with non-zero tokens and `cost: 0`) and used by at least one of the tests above.
-- [ ] `docs/run-loop.md:332-338` updated to describe `--format json` stream-event extraction, the legacy estimator fallback with its per-iteration warning, and the unchanged `opencodeUnavailableNoted` gating.
-- [ ] `docs/agents.md` opencode row updated to state tokens/cost are extracted from `--format json` stream events.
-- [ ] `docs/AGENTS.md` opencode row updated to match `docs/agents.md`.
+- [x] `src/agents/opencode.ts` argv passes `--format json` (not `--format default`).
+- [x] `src/agents/opencode.ts` exports a pure function (suggested name `parseOpencodeJsonStream`) that takes a stdout string and returns at minimum `{ usage, costUsd, sawStepFinish, sawAnyCostField, renderedText, warnings }`.
+- [x] The parser treats a line as a JSON event only when the trimmed line is non-empty, `JSON.parse` succeeds, and the parsed value is a plain object with a string `type` field. Arrays/numbers/strings/`null` at the top level and parse failures are pass-through.
+- [x] On `type === "step_finish"` with valid numeric `part.tokens.input/output/cache.read/cache.write`, the parser accumulates `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` into running totals using the existing `AgentResult.usage` field names.
+- [x] On `type === "step_finish"` where `part.tokens` is present but any required sub-field is missing or non-numeric, the step is skipped (no zeros, no NaN added). If every `step_finish` is malformed, the run is treated as if no `step_finish` was observed.
+- [x] When `part.cost` is a number on a `step_finish` event, it is added to a cost accumulator, and `sawAnyCostField` is set true. `sawAnyCostField` is distinct from "cost sum is non-zero".
+- [x] `reasoning_tokens` are not added to `AgentResult.usage`; no new field is introduced.
+- [x] On `type === "text"` with a string `part.text`, the parser appends `part.text` to a rendered transcript in arrival order without dedup.
+- [x] Other event types (`step_start`, tool parts) are ignored for usage and rendering purposes.
+- [x] Non-JSON / non-event lines are forwarded into the rendered transcript so banners and legacy log lines survive.
+- [x] When at least one `step_finish` accumulated cleanly: `AgentResult.usage_source === "agent"`. When `sawAnyCostField` is true: `AgentResult.cost_usd` equals the summed cost and `AgentResult.cost_source === "agent"` (including the `cost: 0` case). When `sawAnyCostField` is false: `AgentResult.cost_usd === null` and `AgentResult.cost_source === "no-price"`. (Assertions are against the agent-returned `AgentResult` before `src/telemetry-enrichment.ts` runs; downstream enrichment may overwrite `cost_source` to `"computed"` when `cost_usd === null` and a price-table rate exists for the model.)
+- [x] When no `step_finish` was observed (or all were malformed) and `estimateTokenUsage` returns usage: `AgentResult.usage` is set from the estimator, `AgentResult.usage_source === "estimated"`, the agent does **not** set `cost_usd` or `cost_source` (downstream `src/telemetry-enrichment.ts` fills them via the price table), and `AgentResult.warnings` contains exactly `"opencode: no step_finish events in --format json stream; falling back to token estimation."`.
+- [x] When no `step_finish` was observed and `estimateTokenUsage` returns null: `AgentResult.usage_source === "unavailable"` and `AgentResult.cost_source === "no-usage"` (existing behavior preserved).
+- [x] On the success path (Case A and Case B above), the returned `AgentResult.stdout` is replaced with the rendered transcript (concatenated `text` parts plus pass-through non-JSON lines). Raw JSON event lines do not appear verbatim in the returned `AgentResult.stdout`.
+- [x] `resolveOpencodePriceKey`, `OPENCODE_HAS_PRICED_MODELS`, `streamErrorPrefix: "opencode:"`, quota detection, model-config detection, and exit-code routing in `src/agents/spawn.ts` are unchanged.
+- [x] `opencodeUnavailableNoted` in `src/modes/patch/run.ts` is not renamed; its gating at `:1020-1041` is unchanged.
+- [x] The `buildArgv` signature in `src/agents/opencode.ts` is unchanged.
+- [x] Test added: stdout stream with two `step_finish` events carrying non-zero tokens and cost yields summed usage, summed `cost_usd`, `usage_source === "agent"`, `cost_source === "agent"`.
+- [x] Test added: stdout stream with `step_finish` events carrying `cost: 0` yields `cost_usd === 0` and `cost_source === "agent"` (not `"no-price"`).
+- [x] Test added: stdout stream with no `step_finish` events but parseable text falls back to `estimateTokenUsage`; `usage_source === "estimated"`; `warnings` contains the exact legacy-fallback string.
+- [x] Test added: when the estimator also returns null, `usage_source === "unavailable"` and `cost_source === "no-usage"`.
+- [x] Test added: mixed JSON and non-JSON line stream — non-JSON lines appear in the rendered transcript; JSON event lines do not appear verbatim; only `text` parts contribute rendered content from events.
+- [x] Test added: argv builder produces `--format json` (replaces the prior `--format default` assertion).
+- [x] Test added: a malformed `step_finish` event is skipped without breaking accumulation of clean steps; a stream where every `step_finish` is malformed falls through to the estimator path with the legacy-fallback warning.
+- [x] `test/fixtures/opencode/opencode-format-json-command.{stdout,stderr,exit}` is populated with a small realistic JSON event stream (at minimum: `step_start`, `text`, `step_finish` with non-zero tokens and `cost: 0`) and used by at least one of the tests above.
+- [x] `docs/run-loop.md:332-338` updated to describe `--format json` stream-event extraction, the legacy estimator fallback with its per-iteration warning, and the unchanged `opencodeUnavailableNoted` gating.
+- [x] `docs/agents.md` opencode row updated to state tokens/cost are extracted from `--format json` stream events.
+- [x] `docs/AGENTS.md` opencode row updated to match `docs/agents.md`.
 - [ ] Follow-up checkbox (intentionally unchecked, do not tick in this subspec): wire live-streaming render through `SpawnConfig` so `text` parts render incrementally as opencode emits them, instead of the v1 post-hoc single-pass render.

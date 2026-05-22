@@ -40,7 +40,9 @@ const env = { ...process.env, PWD: config.cwd, ...config.env } as Record<string,
 ```
 
 `...config.env` goes last so caller overrides win. When `config.env` is
-`undefined` the spread is a no-op.
+`undefined` the spread is a no-op. All other agents (claude, codex, cursor,
+opencode) do not pass `env` in their `SpawnConfig`, so their env construction
+is unchanged.
 
 ### `src/agents/aider.ts`
 
@@ -63,19 +65,31 @@ env: { BROWSER: "false" },
 ### `test/agents/aider.test.ts`
 
 **Extend `fakeBinary`** to record the `BROWSER` env var alongside argv and cwd.
-Add the following line to the bash script inside `fakeBinary`, after the `pwd`
-line:
+Add the following line to the bash script inside `fakeBinary`, after the
+`pwd > "${dir}/cwd"` line.
 
-```bash
-printf '%s' "${BROWSER:-__unset__}" > "${dir}/browser_env"
+The bash script lives inside a JS template literal, so bash `${...}` variables
+must be escaped with a backslash to prevent JS interpolation. Show the line
+exactly as it should appear in the JS source:
+
+```ts
+pwd > "${dir}/cwd"
+printf '%s' "\${BROWSER:-__unset__}" > "${dir}/browser_env"
 ```
 
-The `__unset__` sentinel distinguishes "not passed" from "passed as empty
-string" so the test assertion is unambiguous.
+`\${BROWSER:-__unset__}` in the JS template literal produces
+`${BROWSER:-__unset__}` in the bash script. The `__unset__` sentinel
+distinguishes "not passed" from "passed as empty string" so the test assertion
+is unambiguous. `"${dir}"` (no backslash) remains a JS interpolation and bakes
+the temp dir path into the script at creation time — same pattern as the
+existing `argv` and `cwd` lines.
 
 **Extend the existing argv test** (`"spawns aider with --message, --model,
 --yes-always, --no-auto-commits, --no-git, --no-stream in cwd"`) to also assert
-`--no-show-model-warnings` is present in `argv`.
+`--no-show-model-warnings` is present in `argv`. Rename the test to include
+`--no-show-model-warnings` in the description so the name matches the
+assertions:
+`"spawns aider with --message, --model, --yes-always, --no-auto-commits, --no-git, --no-stream, --no-show-model-warnings in cwd"`
 
 **Add a new test** asserting the `BROWSER` env var reaches the subprocess as
 `"false"`:
@@ -97,7 +111,7 @@ test("passes BROWSER=false to the aider subprocess", async () => {
 - [ ] Add `"--no-show-model-warnings"` to the argv array in `AiderAgent.buildArgv` in `src/agents/aider.ts`.
 - [ ] Add `env: { BROWSER: "false" }` to the `SpawnConfig` object in `AiderAgent.run` in `src/agents/aider.ts`.
 - [ ] Extend `fakeBinary` in `test/agents/aider.test.ts` to emit `${BROWSER:-__unset__}` to `${dir}/browser_env`.
-- [ ] Extend the existing argv test to assert `--no-show-model-warnings` is in `argv`.
+- [ ] Extend the existing argv test to assert `--no-show-model-warnings` is in `argv`, and rename the test to include `--no-show-model-warnings` in its description.
 - [ ] Add a new test that reads `${dir}/browser_env` and asserts the value is `"false"`.
 - [ ] Run `bun run typecheck` and `bun test` and confirm both pass.
 
@@ -111,7 +125,6 @@ test("passes BROWSER=false to the aider subprocess", async () => {
 - [ ] The existing argv test also asserts `--no-show-model-warnings` is present.
 - [ ] `bun run typecheck` passes with no new errors.
 - [ ] `bun test` passes with no failures.
-- [ ] No other agents (claude, codex, cursor, opencode) are affected — they do not pass `env` in their `SpawnConfig`, so their env construction is unchanged.
 
 ## Documentation updates
 

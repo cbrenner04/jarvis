@@ -22,10 +22,13 @@ calls Python's `webbrowser` module.
       categories jarvis already classifies — this is the diagnostic boundary
       between a model that aider can't connect to vs. one that works but emits
       warnings.
-- [ ] Review `src/agents/aider.ts` `buildArgv` (lines 56–71) and the `--model`
-      value to understand what model string is currently passed. Note whether
-      the string format matches LiteLLM's expected provider-prefixed notation
-      (e.g. `ollama/llama3`, `anthropic/claude-3-5-sonnet`).
+- [ ] Review `src/agents/aider.ts` `buildArgv` (lines 56–71) to understand how
+      the `--model` flag is constructed. The model value is `this.#model`
+      injected at construction time — the code itself does not fix a specific
+      model string. Note what format LiteLLM expects (e.g.
+      `ollama/llama3`, `anthropic/claude-3-5-sonnet`) and whether model strings
+      that lack the provider prefix are the likely trigger for the registry-miss
+      warning (case 2).
 - [ ] Determine which of the three root cause cases applies (or may apply) for
       a typical jarvis-aider run:
       1. **Model naming mismatch** — the model string doesn't match LiteLLM's

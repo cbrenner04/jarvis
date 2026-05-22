@@ -400,7 +400,7 @@ describe("runCommand", () => {
 
     expect(code).toBe(1);
     expect(cap.err()).toContain("log server unreachable");
-    expect(cap.err()).toContain("jarvis log-server");
+    expect(cap.err()).toContain("jarvis1 log-server");
     expect(claude.calls).toHaveLength(0);
   });
 
@@ -574,7 +574,7 @@ describe("runCommand", () => {
 
     expect(code).toBe(6);
     expect(cap.err()).toContain("not clean");
-    expect(cap.err()).toContain("jarvis triage");
+    expect(cap.err()).toContain("jarvis1 triage");
     expect(cap.out()).not.toContain("spec complete");
   });
 
@@ -1154,7 +1154,7 @@ describe("runCommand", () => {
     expect(cap.err()).toContain("00-one.md");
     expect(cap.err()).toContain("- One accepted.");
     expect(cap.err()).toContain("Inspect the dirty worktree");
-    expect(cap.err()).toContain("jarvis triage");
+    expect(cap.err()).toContain("jarvis1 triage");
     expect(readFileSync(spec, "utf8")).toContain(
       "- [ ] [00 - One](./00-one.md)",
     );

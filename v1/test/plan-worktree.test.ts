@@ -87,7 +87,7 @@ describe("createPlanWorktree", () => {
       } catch (err) {
         const message = (err as Error).message;
         expect(message).toContain("plan worktree already exists");
-        expect(message).toContain("jarvis cleanup");
+        expect(message).toContain("jarvis1 cleanup");
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -63,6 +63,7 @@ export class AiderAgent implements Agent {
             "--no-auto-commits",
             "--no-git",
             "--no-stream",
+            "--no-show-model-warnings",
           ];
           for (const dir of buildOpts.additionalReadDirs ?? []) {
             argv.push(dir);
@@ -71,6 +72,7 @@ export class AiderAgent implements Agent {
         },
         stdio: ["ignore", "pipe", "pipe"],
         streamErrorPrefix: "aider:",
+        env: { BROWSER: "false" },
       },
       prompt,
       opts,

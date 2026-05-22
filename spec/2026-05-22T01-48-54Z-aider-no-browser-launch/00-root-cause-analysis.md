@@ -55,14 +55,14 @@ calls Python's `webbrowser` module.
 
 ## Acceptance criteria
 
-- [ ] `docs/aider-model-warnings.md` exists and covers all three root cause
+- [x] `docs/aider-model-warnings.md` exists and covers all three root cause
       cases with enough detail that a developer can diagnose which case they are
       hitting without consulting external resources.
-- [ ] The document explains what `--no-show-model-warnings` suppresses and why
+- [x] The document explains what `--no-show-model-warnings` suppresses and why
       it is the intended aider-supported mechanism (not a workaround).
-- [ ] The document explains the `BROWSER=false` choice and why `""` is not used.
-- [ ] `bun run typecheck` passes (no new type errors introduced).
-- [ ] `bun test` passes (existing tests unaffected by the new doc).
+- [x] The document explains the `BROWSER=false` choice and why `""` is not used.
+- [x] `bun run typecheck` passes (no new type errors introduced).
+- [x] `bun test` passes (existing tests unaffected by the new doc).
 
 ## Documentation updates
 

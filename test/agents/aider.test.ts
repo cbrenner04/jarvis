@@ -37,6 +37,7 @@ function fakeBinary(opts: {
 : > "${dir}/argv"
 for a in "$@"; do printf '%s\\0' "$a" >> "${dir}/argv"; done
 pwd > "${dir}/cwd"
+printf '%s' "\${BROWSER:-__unset__}" > "${dir}/browser_env"
 printf '%s' ${JSON.stringify(out)}
 printf '%s' ${JSON.stringify(err)} 1>&2
 exit ${opts.exit}
@@ -53,7 +54,7 @@ describe("AiderAgent", () => {
     );
   });
 
-  test("spawns aider with --message, --model, --yes-always, --no-auto-commits, --no-git, --no-stream in cwd", async () => {
+  test("spawns aider with --message, --model, --yes-always, --no-auto-commits, --no-git, --no-stream, --no-show-model-warnings in cwd", async () => {
     const bin = fakeBinary({ exit: 0, stdout: "hi-out", stderr: "hi-err" });
     const agent = new AiderAgent({
       binary: bin,
@@ -83,6 +84,7 @@ describe("AiderAgent", () => {
     expect(argv).toContain("--no-auto-commits");
     expect(argv).toContain("--no-git");
     expect(argv).toContain("--no-stream");
+    expect(argv).toContain("--no-show-model-warnings");
     const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
     const resolvedReportedCwd = realpathSync(reportedCwd);
     const resolvedCwd = realpathSync(cwd);
@@ -286,5 +288,13 @@ describe("AiderAgent", () => {
     expect(argv).toContain("--no-auto-commits");
     expect(argv).toContain("--no-git");
     expect(argv).toContain("--no-stream");
+  });
+
+  test("passes BROWSER=false to the aider subprocess", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new AiderAgent({ binary: bin, model: "ollama/llama3" });
+    await agent.run("prompt", { cwd });
+    const browserEnv = readFileSync(join(dir, "browser_env"), "utf8");
+    expect(browserEnv).toBe("false");
   });
 });

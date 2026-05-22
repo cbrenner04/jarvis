@@ -119,14 +119,14 @@ test("passes BROWSER=false to the aider subprocess", async () => {
 
 ## Acceptance criteria
 
-- [ ] `SpawnConfig` in `src/agents/spawn.ts` has an optional `env?: Record<string, string>` field.
-- [ ] The env construction in `runAgent` merges `config.env` after `PWD` so caller values override process env.
-- [ ] `"--no-show-model-warnings"` appears in the argv array built by `AiderAgent.buildArgv`.
-- [ ] `AiderAgent.run` passes `env: { BROWSER: "false" }` in its `SpawnConfig`.
-- [ ] A test in `test/agents/aider.test.ts` asserts `BROWSER=false` is received by the aider subprocess (via the `browser_env` file written by `fakeBinary`).
-- [ ] The existing argv test also asserts `--no-show-model-warnings` is present.
-- [ ] `bun run typecheck` passes with no new errors.
-- [ ] `bun test` passes with no failures.
+- [x] `SpawnConfig` in `src/agents/spawn.ts` has an optional `env?: Record<string, string>` field.
+- [x] The env construction in `runAgent` merges `config.env` after `PWD` so caller values override process env.
+- [x] `"--no-show-model-warnings"` appears in the argv array built by `AiderAgent.buildArgv`.
+- [x] `AiderAgent.run` passes `env: { BROWSER: "false" }` in its `SpawnConfig`.
+- [x] A test in `test/agents/aider.test.ts` asserts `BROWSER=false` is received by the aider subprocess (via the `browser_env` file written by `fakeBinary`).
+- [x] The existing argv test also asserts `--no-show-model-warnings` is present.
+- [x] `bun run typecheck` passes with no new errors.
+- [x] `bun test` passes with no failures.
 
 ## Documentation updates
 

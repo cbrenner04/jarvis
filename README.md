@@ -1,10 +1,10 @@
 # jarvis
 
-_If you treat English as code, where combinations of words produce behavior,
-then predictable behavior depends on composing those words carefully and
-repeatably. Jarvis is that idea applied._
+_When an LLM is the interpreter, English is code. Combinations of words produce
+behavior, and like any code, predictable behavior depends on composing those
+words carefully and repeatably. Jarvis is that idea applied._
 
-Jarvis is a small TypeScript/Bun harness for running coding-agent CLIs against
+Jarvis is a TypeScript/Bun harness for running coding-agent CLIs against
 Markdown specs. It does not implement an agent itself. Instead, it prepares the
 repo, calls one configured CLI at a time, records what happened, and handles the
 git and GitHub bookkeeping around each successful step.

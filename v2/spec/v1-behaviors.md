@@ -184,4 +184,6 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 
 ## Maintenance requirement for future v1 changes
 
-Subspec 05 is expected to replace this stub with the long-lived maintenance requirement and reminder placement tied to the v2 rollout workflow. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/05-maintenance-reminder-and-final-verification.md`
+- Any v1 bug fix or user-observable behavior change that can affect v2 parity decisions must update this catalog in the same change window, so v2 design/review never relies on stale v1 behavior documentation. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/05-maintenance-reminder-and-final-verification.md`
+- Required updates include command-surface changes, agent/model/quota behavior changes, git/GitHub workflow changes, and exit/blocker semantics, with each new or revised bullet ending in `Sources:` citations to the governing `v1/src` authority. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/index.md`, `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/05-maintenance-reminder-and-final-verification.md`
+- If a behavior change lands with unresolved ambiguity, record it explicitly using `[uncertain]` plus a short explanation instead of leaving uncertainty implicit, so later v2 reviewers can make a conscious preserve/change/drop decision. Sources: `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/index.md`, `spec/2026-05-22T04-09-01Z-v1-behavior-catalog/05-maintenance-reminder-and-final-verification.md`

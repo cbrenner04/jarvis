@@ -51,18 +51,18 @@ language introduced by earlier subspecs.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/v1-behaviors.md` contains a substantive `## Maintenance
+- [x] `v2/spec/v1-behaviors.md` contains a substantive `## Maintenance
       requirement for future v1 changes` section that states the update rule for
       future v1 behavior changes.
-- [ ] `v2/spec/wip-intents/v2-vision.md` is updated with a concise reminder to
+- [x] `v2/spec/wip-intents/v2-vision.md` is updated with a concise reminder to
       keep `v2/spec/v1-behaviors.md` in sync with user-observable v1 behavior
       changes while v1 remains active during the v2 rollout.
-- [ ] The final catalog contains all intended behavior-area sections with no
+- [x] The final catalog contains all intended behavior-area sections with no
       placeholder text, no empty stubs, and no temporary scaffold notes
       remaining.
-- [ ] The final catalog covers the complete CLI command surface and all five
+- [x] The final catalog covers the complete CLI command surface and all five
       agent adapters, and all catalog entries have source citations.
-- [ ] Any remaining ambiguity in the final catalog is explicitly tagged
+- [x] Any remaining ambiguity in the final catalog is explicitly tagged
       `[uncertain]` with a brief explanation.
 
 ## Documentation updates

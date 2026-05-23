@@ -117,3 +117,14 @@ v2 requirement as shared prompt-source alignment only: no `v2/src` runtime work
 exists yet, so satisfying "jarvis1 and v2 emit it" means placing the fragment in
 the shared top-level `prompts/` tree and updating any v1/v2 docs that still
 describe the old artifact inventory.
+
+## Blocker
+
+Review and approve `v1/spec/2026-05-23T23-18-02Z-global-terse-prompt/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v1/spec/2026-05-23T23-18-02Z-global-terse-prompt/intent.md`

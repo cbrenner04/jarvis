@@ -1,0 +1,33 @@
+Add a shared "be terse" directive to the prompts every agent jarvis dispatches,
+so terse output (code, comments, PRs, spec edits) is enforced on all target
+repos — not just this one (the AGENTS.md rule covers only this repo). Runs
+through the prompt-governance system, not inline edits.
+
+Goal: a global terseness fragment in shared `prompts/`, layered into the
+agent-facing prompts so both jarvis1 and v2 emit it.
+
+Decisions to design around:
+
+- New `global.terse` fragment (frontmatter `id`/`behavior`/`kind: fragment`/
+  `revision` per `v1/docs/prompt-governance.md`).
+- Layer it as a global fragment (default `global -> behavior -> step`). The
+  renderer primitive exists (`assemblePrompt` in `v1/src/prompts/renderer.ts`),
+  but no fragment artifacts exist yet and the live patch/plan render path likely
+  does not pass global fragments — wiring that path is part of this work.
+- Keep the directive tiny: minimize output, no filler or restating, comment
+  density matches surrounding code, lean PRs/specs. Mirror `v2/docs/v2-vision.md`
+  § Be terse.
+- Bump affected prompt `revision`s and update rendered snapshots under
+  `v1/test/`. The change ships to jarvis1 too — intended.
+
+Scope:
+
+- Add the `global.terse` fragment file (location per planning; no `fragments/`
+  dir exists yet — prompts are still mode-organized under `prompts/{plan,patch}`).
+- Wire it into the agent-facing prompts (`patch.prompt.body`, plan
+  draft/refine/review; consider `patch.rules`).
+- Update revisions + snapshots; `bun run ready` green.
+- Document the global fragment in `v1/docs/prompt-governance.md`.
+
+Out of scope: behavior/step prompt rewrites beyond adding the terseness layer;
+adopting the full behavior-organized `prompts/` layout.

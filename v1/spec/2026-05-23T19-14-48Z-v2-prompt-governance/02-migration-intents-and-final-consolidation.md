@@ -26,6 +26,8 @@ should not merge relocation, registry/snapshot support, and optional layered
 composition into one broad follow-on. The default outcome should be two
 immediate intents plus a documented later composition phase, unless the design
 finds a third atomic intent that is clearly justified.
+The final result should also remove ambiguity about the immediate intent set by
+choosing exact filenames and scopes for those follow-ons.
 
 ## Primary sources
 
@@ -59,6 +61,10 @@ finds a third atomic intent that is clearly justified.
       one for relocation-only extraction of current v1 prompt artifacts into
       shared prompt source, and one for prompt registry/renderer/snapshot/
       revision support.
+- [ ] Pick exact filenames for those immediate follow-on intents in the design
+      rather than leaving naming to later authors. Unless the design finds a
+      better conservative scheme, use one relocation-focused file and one
+      registry/renderer-focused file whose basenames make their scope obvious.
 - [ ] Ensure the extraction intent is explicit about its no-wording-change,
       no-new-composition-semantics posture and names the artifacts it moves.
 - [ ] Ensure the extraction intent names the current v1 artifacts concretely:
@@ -76,6 +82,9 @@ finds a third atomic intent that is clearly justified.
 - [ ] If the composition step is left as design-only follow-on, say so
       explicitly in both the design doc and this spec tree rather than leaving
       the omission ambiguous.
+- [ ] If the design chooses to create a third immediate intent for layered
+      composition, require it to justify why composition cannot wait until
+      relocation and registry support land and why that work remains atomic.
 - [ ] Do a final pass on `v2/spec/prompts.md` so it includes every section
       promised by the original intent:
       prompt inventory, directory/layout, shared-evolving v1 decision, prompt
@@ -97,6 +106,10 @@ finds a third atomic intent that is clearly justified.
       required by the design, with relocation-only extraction and
       renderer/registry/snapshot/revision work separated into distinct,
       testable intents.
+- [ ] The immediate follow-on intent set has exact filenames and clearly
+      bounded scopes, so later spec authors do not have to infer whether a
+      given task belongs to relocation, registry/rendering, or deferred
+      composition work.
 - [ ] Each new follow-on intent is atomic, names the files or surfaces it owns,
       and includes acceptance criteria and documentation updates suitable for a
       future implementation tree.

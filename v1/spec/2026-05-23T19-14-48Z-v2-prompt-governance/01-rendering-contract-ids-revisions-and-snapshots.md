@@ -24,6 +24,7 @@ Extend `v2/spec/prompts.md` with the design decisions for:
 - the narrow rendering contract and override model
 - review and rendered-snapshot expectations for shared prompts and adapter-local
   wrappers
+- the concrete location and naming scheme for revision-aware rendered snapshots
 
 This slice should not author the follow-on implementation intents themselves;
 subspec 02 owns that planning and final migration sequencing.
@@ -47,6 +48,9 @@ subspec 02 owns that planning and final migration sequencing.
 - [ ] Pick one concrete metadata mechanism for prompt artifacts and fragments,
       such as leading frontmatter, and require at least:
       stable `id`, behavior, step-or-fragment kind, and revision signal.
+- [ ] Require the design to use one vocabulary consistently for renderable
+      units, such as `step` and `fragment`, so runtime lookup, metadata, and
+      snapshot keys do not mix alternate names for the same concept.
 - [ ] Include one concrete metadata example in the design so later extraction
       work does not need to invent the schema. The example should make clear
       that runtime binding keys off `id` alone and treats file paths as
@@ -75,6 +79,11 @@ subspec 02 owns that planning and final migration sequencing.
       step identity and core instruction text remain shared prompt artifacts,
       while unavoidable CLI-specific wrappers stay thin, separately classified,
       minimized, and snapshot-covered.
+- [ ] State explicitly that the first implementation does not pull interactive
+      CLI chooser or confirmation strings into the prompt registry contract;
+      those remain cataloged surfaces from subspec 00, but the registry and
+      snapshot rules in this slice apply to shared agent-bound artifacts and
+      adapter-local wrappers.
 - [ ] Author the initial rendered-snapshot testing standard, covering at least:
       layering order, add/remove overrides, placeholder validation failures,
       non-recursive substitution, delimiter preservation for injected user
@@ -83,6 +92,10 @@ subspec 02 owns that planning and final migration sequencing.
       so later implementation work can make changes reviewable without inventing
       a second artifact model. The design should describe snapshots in terms of
       prompt ID plus revision, not file path.
+- [ ] Require one concrete snapshot path example in the design, including how
+      shared step snapshots and adapter-local wrapper snapshots are
+      distinguished without making file paths part of the stable runtime
+      binding.
 - [ ] Record that prompt renderer tests for future v2 source follow the v2
       co-location rule and live next to renderer/registry code rather than
       under a parallel `v2/test/` tree.
@@ -98,6 +111,9 @@ subspec 02 owns that planning and final migration sequencing.
 - [ ] The rendering contract clearly separates what lives in prompt source from
       what remains in renderer/runtime code, with non-recursive substitution and
       wrapper selection explicitly assigned to code.
+- [ ] The design explicitly excludes human-facing CLI chooser and confirmation
+      strings from the first prompt-registry contract even though they remain
+      part of the broader prompt-surface taxonomy.
 - [ ] The versioning strategy makes behavior-affecting shared prompt changes
       visible in review without introducing frozen prompt copies.
 - [ ] The review/testing section defines deterministic rendered-snapshot

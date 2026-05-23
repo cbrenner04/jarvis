@@ -32,6 +32,9 @@ than rewriting prompt wording or recataloging user-observable behavior.
   Do not collapse the plan prompt set into a generic directory reference if
   that would make `refine`, `name-only`, `draft`, `review`, or `inline-draft`
   easy to miss.
+- When a current source mixes prompt-owned text with runtime formatting, record
+  that split explicitly. The later relocation pass must be able to move the
+  prompt-owned text without accidentally moving conditional rendering logic.
 - Keep the prompt-surface inventory purpose- and lifecycle-oriented. The design
   may cite source files to anchor current surfaces, but it should not devolve
   into a file-by-file implementation tour.
@@ -43,9 +46,14 @@ than rewriting prompt wording or recataloging user-observable behavior.
   a documentation flourish. The design and follow-on intents should treat
   duplicate IDs, missing IDs, and unknown step references as hard validation
   failures.
+- Human-facing chooser and confirmation strings still belong in the surface
+  inventory even if the first prompt registry and snapshot rules exclude them
+  from shared prompt artifacts.
 - Keep relocation-only extraction separate from renderer/versioning/composition
   work. The first implementation pass must be auditable as a no-wording-change
   move.
+- The final migration section should choose exact immediate follow-on intent
+  filenames and make any layered-composition deferral explicit.
 - Treat layered fragment composition as a later migration step unless the spec
   can justify a separate, atomic follow-on intent for it. Do not blur
   relocation-only extraction together with new composition semantics.

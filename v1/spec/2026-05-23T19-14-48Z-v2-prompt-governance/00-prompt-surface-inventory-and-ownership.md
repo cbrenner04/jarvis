@@ -12,6 +12,9 @@ or stay adapter-local.
 This first slice should establish the design document, define the prompt-surface
 taxonomy, and lock in the explicit ownership calls requested by the intent so
 later subspecs can build on them without revisiting the basic classification.
+It must also separate stable instruction text from runtime-generated formatting
+inside mixed builders such as `v1/src/modes/patch/prompt.ts`, so later
+relocation work can move only prompt-owned text in the first pass.
 
 ## Scope
 
@@ -23,6 +26,9 @@ governance design in current v1 reality:
 - the hard boundary between prompt artifacts and renderer/runtime logic
 - the v1 inventory of current prompt surfaces by purpose and lifecycle
 - first-pass ownership calls for each named v1 surface
+- explicit notes where a current source mixes prompt-owned text with runtime
+  formatting, so the inventory records which parts relocate verbatim and which
+  parts stay in code for now
 
 This slice should stop short of finalizing the rendering contract, snapshot
 test matrix, versioning mechanics, or follow-on implementation intents; later
@@ -73,6 +79,14 @@ the same file rather than reframe it.
       project disambiguation chooser text,
       printed plan next-step/handoff text,
       and Codex's invocation marker wrapper.
+- [ ] Name the current plan prompt files explicitly in that inventory rather
+      than only by conceptual variant:
+      `v1/src/modes/plan/prompts/refine.md`,
+      `v1/src/modes/plan/prompts/name-only.md`,
+      `v1/src/modes/plan/prompts/draft.md`,
+      `v1/src/modes/plan/prompts/review.md`, and
+      `v1/src/modes/plan/prompts/inline-draft.md`
+      as loaded by `v1/src/modes/plan/inline-draft.ts`.
 - [ ] For each named v1 prompt surface, record an explicit first-pass ownership
       call:
       move into shared prompt source verbatim in the extraction pass, keep in
@@ -80,7 +94,7 @@ the same file rather than reframe it.
       surface with snapshot coverage.
 - [ ] Present the inventory in a form that makes omissions hard, such as a
       table with bucket, current surface, current source location, first-pass
-      ownership call, and migration timing/notes.
+      ownership call, relocation unit, and migration timing/notes.
 - [ ] Make the conservative first-pass decisions explicit in the doc:
       shared prompt source for `v1/src/modes/patch/rules.md`, plan prompt
       templates plus the inline-draft template, and the stable instruction text
@@ -92,6 +106,13 @@ the same file rather than reframe it.
 - [ ] Explain how the inventory is organized by purpose and lifecycle rather
       than by mode or source tree, while still naming the current files so
       extraction work cannot miss them.
+- [ ] State directly that human-facing chooser and confirmation strings remain
+      part of the broader prompt-surface inventory even if the first-pass
+      design keeps them in runtime code rather than under shared `prompts/`.
+- [ ] For `v1/src/modes/patch/prompt.ts`, distinguish the stable instruction
+      text that should move in the first pass from runtime-owned generated
+      sibling-directory bullets or similar conditional formatting that should
+      remain in TypeScript until a later composition phase.
 - [ ] Add placeholder-free stubs for the later sections this subspec does not
       finish, including prompt layout, rendering contract, review/testing,
       versioning, migration sequence, and unresolved tradeoffs.
@@ -111,6 +132,9 @@ the same file rather than reframe it.
 - [ ] The inventory explicitly names the current plan prompt variants
       (`refine`, `name-only`, `draft`, `review`, and `inline-draft`) instead of
       collapsing them into a generic reference to the prompts directory.
+- [ ] The inventory records a relocation unit for mixed sources so the later
+      extraction pass can move prompt-owned text without also moving
+      runtime-generated formatting or control logic.
 - [ ] The conservative extraction decisions from the intent are recorded
       directly in the design doc rather than left implicit.
 - [ ] `v2/spec/prompts.md` includes substantive section stubs for later slices

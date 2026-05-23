@@ -74,6 +74,18 @@ describe("assemblePrompt", () => {
       }),
     ).toBe("GLOBAL ONE\n\nBEHAVIOR TWO\n\nSTEP BODY");
   });
+
+  test("unknown prompt ids fail at render-time lookup", () => {
+    const registry = makeRegistry([fakeArtifact("step", "STEP BODY")]);
+    expect(() =>
+      assemblePrompt({
+        registry,
+        globalFragmentIds: [],
+        behaviorFragmentIds: [],
+        stepPromptId: "missing.step",
+      }),
+    ).toThrow("unknown prompt id `missing.step`");
+  });
 });
 
 describe("renderTemplateWithDeclarations", () => {
@@ -114,5 +126,15 @@ describe("enforceDelimiterPolicy", () => {
         placeholderName: "INTENT",
       }),
     ).toThrow(PromptRenderingError);
+  });
+
+  test("preserves delimiters in rendered templates when values are valid", () => {
+    const rendered = renderTemplateWithDeclarations(
+      "<<<INTENT_BEGIN>>>\n<INTENT>\n<<<INTENT_END>>>",
+      [{ name: "INTENT", type: "string", required: true }],
+      { INTENT: "safe value" },
+    );
+    expect(rendered).toContain("<<<INTENT_BEGIN>>>");
+    expect(rendered).toContain("<<<INTENT_END>>>");
   });
 });

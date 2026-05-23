@@ -12,4 +12,4 @@ out of scope.
 
 - [x] [00 - Registry metadata and load validation](./00-registry-metadata-and-load-validation.md)
 - [x] [01 - Renderer contract and runtime boundaries](./01-renderer-contract-and-runtime-boundaries.md)
-- [ ] [02 - Revision-aware snapshots and documentation](./02-revision-aware-snapshots-and-documentation.md)
+- [x] [02 - Revision-aware snapshots and documentation](./02-revision-aware-snapshots-and-documentation.md)

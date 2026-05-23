@@ -51,6 +51,13 @@ or agent invocation logic:
 Runtime prompt lookup is by stable `id` only. File paths are implementation
 detail and are not part of the runtime lookup contract.
 
+Validation and rendering failures are intentionally split:
+
+- Registry-load failures (metadata/relationship validation) are asserted in
+  `v1/test/prompts/registry.test.ts`.
+- Render-time failures (unknown runtime ID lookup, placeholder/type checks, and
+  delimiter policy) are asserted in `v1/test/prompts/renderer.test.ts`.
+
 ## Renderer Contract
 
 Shared rendering follows this contract:
@@ -82,3 +89,20 @@ TypeScript runtime code controls:
   example patch sibling-directory bullets).
 - Adapter transport wrappers after render (for example Codex invocation marker
   append); wrappers are not distinct shared prompt IDs.
+
+## Snapshot Keying
+
+Rendered prompt snapshots for this rollout use revision-aware keys:
+
+- Shared prompt body snapshots: `<id>@r<revision>...shared.txt`
+- Wrapper snapshots: `<id>@r<revision>.wrapper.<variant>.txt`
+
+Wrapper snapshots are adapter-local post-render artifacts; they must be stored
+and reviewed separately from shared prompt body snapshots.
+
+Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and
+is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
+
+- patch prompt body (`patch.prompt.body`)
+- plan draft/review/refine prompts (review includes multiple pass contexts)
+- codex transport wrapper variant (`codex.exec.stdin+marker`)

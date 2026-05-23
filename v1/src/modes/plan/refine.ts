@@ -49,7 +49,16 @@ export function buildRefinePrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  const promptFile = join(import.meta.dir, "prompts", "refine.md");
+  const promptFile = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "..",
+    "prompts",
+    "plan",
+    "refine.md",
+  );
   let template = readFileSync(promptFile, "utf8");
 
   const targetDir = opts.targetDir ?? "spec";

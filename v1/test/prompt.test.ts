@@ -7,7 +7,7 @@ describe("buildPrompt", () => {
   test("asks the agent to discover repo guidance and includes Jarvis rules", () => {
     const prompt = buildPrompt("spec/2026-05-11-v1/index.md");
     const rules = readFileSync(
-      join(import.meta.dir, "..", "src", "modes", "patch", "rules.md"),
+      join(import.meta.dir, "..", "..", "prompts", "patch", "rules.md"),
       "utf8",
     ).trim();
 
@@ -30,5 +30,26 @@ describe("buildPrompt", () => {
   test("passes the path through verbatim with no resolution or quoting", () => {
     const weird = "/tmp/some dir/spec.md";
     expect(buildPrompt(weird)).toContain(`Read the spec at ${weird}.`);
+  });
+
+  test("keeps sibling-directory block placement and newline joining unchanged", () => {
+    const prompt = buildPrompt("spec/path.md", ["../repo-a", "../repo-b"]);
+    const rules = readFileSync(
+      join(import.meta.dir, "..", "..", "prompts", "patch", "rules.md"),
+      "utf8",
+    ).trim();
+    expect(prompt).toBe(
+      [
+        "Inspect the target repo for guidance, conventions, and relevant docs.",
+        "Read the spec at spec/path.md.",
+        "Additional project sibling directories are available for this run:",
+        "- ../repo-a",
+        "- ../repo-b",
+        "Treat these directories as part of the target project when the active spec requires cross-repo edits.",
+        "Follow these Jarvis rules:",
+        rules,
+        "Pick the single most important unchecked task and complete it.",
+      ].join("\n"),
+    );
   });
 });

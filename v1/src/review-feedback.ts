@@ -240,7 +240,7 @@ async function resolveRepoOwnerAndName(
 
 export function readPatchRulesText(): string {
   return readFileSync(
-    join(import.meta.dir, "modes", "patch", "rules.md"),
+    join(import.meta.dir, "..", "..", "prompts", "patch", "rules.md"),
     "utf8",
   );
 }

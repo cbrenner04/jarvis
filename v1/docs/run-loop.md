@@ -93,7 +93,11 @@ Each iteration prints a banner before agent invocation with:
 
 Jarvis then builds the standard prompt and invokes the agent with `cwd` set to
 the active worktree. The prompt asks the agent to discover target-repo
-guidance and injects jarvis-owned rules from `src/modes/patch/rules.md` inline.
+guidance using stable instruction text from `prompts/patch/instructions.md` and
+injects jarvis-owned rules from `prompts/patch/rules.md` inline. The
+`v1/src/modes/patch/prompt.ts` file remains runtime assembly code
+(interpolation, sibling-directory block insertion, and line joining), while the
+prompt text itself is owned in `prompts/`.
 
 ## Completion
 

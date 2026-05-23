@@ -52,18 +52,18 @@ a second implementation slice for moving prompt bodies.
 
 ## Acceptance criteria
 
-- [ ] The final implementation tree is auditable as relocation-only, with the
+- [x] The final implementation tree is auditable as relocation-only, with the
       moved prompt text clearly separable from loader/path updates.
-- [ ] The shared source-of-truth story is unambiguous for all seven relocated
+- [x] The shared source-of-truth story is unambiguous for all seven relocated
       artifacts under the top-level `prompts/` tree:
       patch rules, patch stable instruction text, and the five plan templates.
-- [ ] `v1/docs/agents.md`, `v1/docs/run-loop.md`, and `v1/docs/plan-mode.md`
+- [x] `v1/docs/agents.md`, `v1/docs/run-loop.md`, and `v1/docs/plan-mode.md`
       all describe the new prompt ownership/location accurately.
-- [ ] The docs explicitly call out which prompt categories moved in this stage
+- [x] The docs explicitly call out which prompt categories moved in this stage
       and which prompt surfaces remain out of scope.
-- [ ] The docs distinguish the shared `prompts/` text artifacts from the
+- [x] The docs distinguish the shared `prompts/` text artifacts from the
       remaining v1 loader/runtime files that still live under `v1/src/...`.
-- [ ] No new prompt composition or rendering semantics are introduced while
+- [x] No new prompt composition or rendering semantics are introduced while
       completing the audit and docs work.
 
 ## Documentation updates

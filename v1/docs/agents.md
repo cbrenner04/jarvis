@@ -177,3 +177,24 @@ target repo and append planning notes, an
 explicit skip, or a `## Blocker` to `intent.md`, but it cannot pause to ask the
 terminal user questions. The same agents configured in `modes.plan.agentOrder`
 can serve both patch and plan work.
+
+## Prompt ownership (relocation stage one)
+
+Relocation stage one moved seven editable prompt text artifacts into the
+repo-level `prompts/` tree:
+
+- Patch mode stable instruction text: `prompts/patch/instructions.md`
+- Patch mode rules text: `prompts/patch/rules.md`
+- Plan templates: `prompts/plan/refine.md`, `prompts/plan/name-only.md`,
+  `prompts/plan/draft.md`, `prompts/plan/review.md`,
+  `prompts/plan/inline-draft.md`
+
+The corresponding `v1/src/...` files now own loader/runtime behavior only
+(path loading, interpolation, and rendering flow), not editable prompt-body
+source text.
+
+This relocation pass is intentionally mechanical and does not introduce new
+prompt IDs, registries, metadata validation, snapshot revisions, or wording
+changes. Interactive/operator prompt surfaces such as repository
+disambiguation remain in runtime code and are explicitly out of scope for this
+stage.

@@ -126,6 +126,25 @@ Jarvis starts with an empty seed (`# Intent` only) and runs intent refinement im
 
 Plan mode executes these phases in order:
 
+### Prompt ownership
+
+Relocation stage one moved the five editable plan prompt templates to the
+shared repo-level `prompts/plan/` tree:
+
+- `prompts/plan/refine.md`
+- `prompts/plan/name-only.md`
+- `prompts/plan/draft.md`
+- `prompts/plan/review.md`
+- `prompts/plan/inline-draft.md`
+
+The corresponding `v1/src/modes/plan/*.ts` files remain loader/runtime logic:
+template loading, rewrite handling, and non-recursive rendering behavior.
+
+This move is relocation-only and keeps prompt composition semantics unchanged:
+no wording edits, prompt IDs, registries, metadata expansion, or snapshot
+revision system are introduced here. Interactive/operator prompt surfaces such
+as project disambiguation remain out of scope for this stage.
+
 ### Phase 0: Intent Refinement
 
 **With `commit: true`:** Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). **`intent.md` inside the eventual `spec/<spec-dir>/` tree captures** full intent for file/inline modes or **`# Intent` scaffolding** for no-argument runs, before refinement prompts begin (`--refine-turns`, default `3`).

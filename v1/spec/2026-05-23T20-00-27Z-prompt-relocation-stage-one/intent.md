@@ -75,13 +75,3 @@ Out of scope:
 - The current docs mention prompt locations in more than the two obvious v1 pages. `v1/docs/agents.md` and `v1/docs/run-loop.md` are minimum scope, but `v1/docs/plan-mode.md` also names specific prompt-template paths and should be updated if those references would otherwise point at dead v1-owned files. The wording should distinguish "v1 runtime logic still lives in `v1/src/...`" from "prompt text source of truth now lives in the shared prompt tree."
 - The draft should avoid introducing compatibility shims that become a second editable prompt home. Thin TypeScript loaders that read the new shared path are fine; leaving user-editable markdown prompt bodies in both the old v1 tree and the new shared tree is not. Reviewers should be able to tell which files are still executable loader code versus which files are the sole prompt text artifacts.
 
-## Blocker
-
-Review and approve `v1/spec/2026-05-23T20-00-27Z-prompt-relocation-stage-one/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v1/spec/2026-05-23T20-00-27Z-prompt-relocation-stage-one/intent.md`

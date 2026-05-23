@@ -35,6 +35,8 @@ Optional relationship fields used during validation:
 
 - `fragmentOf` (IDs this artifact declares itself as a fragment of)
 - `overrides` (IDs this artifact explicitly overrides)
+- `placeholders` (declared placeholder contract, `NAME:string` or
+  `NAME:string!` for required)
 
 ## Validation Boundary
 
@@ -48,3 +50,35 @@ or agent invocation logic:
 
 Runtime prompt lookup is by stable `id` only. File paths are implementation
 detail and are not part of the runtime lookup contract.
+
+## Renderer Contract
+
+Shared rendering follows this contract:
+
+- Assembly order is deterministic: `global -> behavior -> step`.
+- Step definitions may explicitly add or remove named fragments.
+- Remove directives are strict runtime behavior (removal is honored, not
+  best-effort).
+
+Template substitution is non-recursive:
+
+- Placeholder tokens in source templates are replaced once.
+- Placeholder-looking text inside injected values is preserved as literal data.
+
+## Runtime Ownership Boundary
+
+Prompt source controls:
+
+- Prompt wording and delimiter placement.
+- Placeholder declarations (`placeholders`) and requiredness.
+- Explicit fragment relationships and step-level add/remove wiring.
+
+TypeScript runtime code controls:
+
+- Delimiter policy enforcement for user-supplied values (rejecting values that
+  contain reserved sentinel delimiters).
+- Placeholder type validation and missing-required checks at render time.
+- Conditional/structural formatting of dynamic values before rendering (for
+  example patch sibling-directory bullets).
+- Adapter transport wrappers after render (for example Codex invocation marker
+  append); wrappers are not distinct shared prompt IDs.

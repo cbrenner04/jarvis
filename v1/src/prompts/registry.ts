@@ -8,6 +8,15 @@ export type PromptMetadata = {
   revision: string;
   fragmentOf: string[];
   overrides: string[];
+  placeholders: PromptPlaceholderDeclaration[];
+};
+
+export type PromptPlaceholderType = "string";
+
+export type PromptPlaceholderDeclaration = {
+  name: string;
+  type: PromptPlaceholderType;
+  required: boolean;
 };
 
 export type PromptArtifact = {
@@ -43,6 +52,25 @@ function parseListValue(value: string): string[] {
     .split(",")
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
+}
+
+function parsePlaceholdersValue(value: string): PromptPlaceholderDeclaration[] {
+  const entries = parseListValue(value);
+  return entries.map((entry) => {
+    const match = /^([A-Z_][A-Z_0-9]*):(string)(!)?$/.exec(entry);
+    if (match === null) {
+      throw new Error(
+        `invalid placeholder declaration \`${entry}\`; expected NAME:string or NAME:string!`,
+      );
+    }
+    const name = match[1];
+    const type = match[2];
+    if (name === undefined || type === undefined) {
+      throw new Error(`invalid placeholder declaration \`${entry}\``);
+    }
+    const required = match[3] === "!";
+    return { name, type: type as PromptPlaceholderType, required };
+  });
 }
 
 function parseFrontmatter(text: string): {
@@ -105,9 +133,18 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
 
   const fragmentOf = parseListValue(fields.get("fragmentOf") ?? "");
   const overrides = parseListValue(fields.get("overrides") ?? "");
+  const placeholders = parsePlaceholdersValue(fields.get("placeholders") ?? "");
 
   return {
-    metadata: { id, behavior, kind, revision, fragmentOf, overrides },
+    metadata: {
+      id,
+      behavior,
+      kind,
+      revision,
+      fragmentOf,
+      overrides,
+      placeholders,
+    },
     sourcePath,
     body,
   };

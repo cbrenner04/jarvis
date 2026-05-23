@@ -11,6 +11,7 @@ import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 import { loadPromptRegistry } from "../../prompts/registry.ts";
+import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 
 /** Level-2 heading for explicit no-op refine outcome (append-only). */
 export const REFINE_SKIP_HEADING = "## Refine skip";
@@ -54,6 +55,19 @@ export function buildRefinePrompt(opts: {
 
   const targetDir = opts.targetDir ?? "spec";
   template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
+
+  enforceDelimiterPolicy({
+    value: opts.intent,
+    begin: "<<<INTENT_BEGIN>>>",
+    end: "<<<INTENT_END>>>",
+    placeholderName: "INTENT",
+  });
+  enforceDelimiterPolicy({
+    value: opts.specGuidance,
+    begin: "<<<SPEC_GUIDANCE_BEGIN>>>",
+    end: "<<<SPEC_GUIDANCE_END>>>",
+    placeholderName: "SPEC_GUIDANCE",
+  });
 
   try {
     template = renderTemplate(

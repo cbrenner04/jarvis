@@ -3,6 +3,7 @@ id: plan.prompt.refine
 behavior: agent-facing
 kind: template
 revision: 1
+placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!, TURNS_REMAINING:string!]
 ---
 # Plan Mode — Intent Refinement Phase
 

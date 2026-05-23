@@ -1,11 +1,19 @@
 import { loadPromptRegistry } from "../../prompts/registry.ts";
-
-function jarvisRules(): string {
-  return loadPromptRegistry().getById("patch.rules").body.trim();
-}
+import {
+  assemblePrompt,
+  renderTemplateWithDeclarations,
+} from "../../prompts/renderer.ts";
 
 export function buildPrompt(specPath: string, siblings?: string[]): string {
-  const template = loadPromptRegistry().getById("patch.prompt.body").body;
+  const registry = loadPromptRegistry();
+  const template = assemblePrompt({
+    registry,
+    globalFragmentIds: [],
+    behaviorFragmentIds: [],
+    stepPromptId: "patch.prompt.body",
+    addFragmentIds: [],
+    removeFragmentIds: [],
+  });
 
   let siblingsBlock = "";
 
@@ -20,10 +28,19 @@ export function buildPrompt(specPath: string, siblings?: string[]): string {
     siblingsBlock = `${lines.join("\n")}\n`;
   }
 
-  const rendered = template
-    .replace("<SPEC_PATH>", specPath)
-    .replace("<SIBLINGS_BLOCK>", siblingsBlock)
-    .replace("<PATCH_RULES>", jarvisRules());
+  const rendered = renderTemplateWithDeclarations(
+    template,
+    [
+      { name: "SPEC_PATH", type: "string", required: true },
+      { name: "SIBLINGS_BLOCK", type: "string", required: true },
+      { name: "PATCH_RULES", type: "string", required: true },
+    ],
+    {
+      SPEC_PATH: specPath,
+      SIBLINGS_BLOCK: siblingsBlock,
+      PATCH_RULES: registry.getById("patch.rules").body.trim(),
+    },
+  );
 
   return rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
 }

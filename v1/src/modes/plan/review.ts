@@ -13,6 +13,7 @@ import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 import { loadPromptRegistry } from "../../prompts/registry.ts";
+import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 
 export type ReviewPhaseOptions = {
   worktreePath: string;
@@ -62,6 +63,25 @@ export function buildReviewPrompt(opts: {
     // For commit specs, replace the placeholder with the actual committed root
     template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
   }
+
+  enforceDelimiterPolicy({
+    value: opts.intent,
+    begin: "<<<INTENT_BEGIN>>>",
+    end: "<<<INTENT_END>>>",
+    placeholderName: "INTENT",
+  });
+  enforceDelimiterPolicy({
+    value: opts.currentSpec,
+    begin: "<<<CURRENT_SPEC_BEGIN>>>",
+    end: "<<<CURRENT_SPEC_END>>>",
+    placeholderName: "CURRENT_SPEC",
+  });
+  enforceDelimiterPolicy({
+    value: opts.specGuidance,
+    begin: "<<<SPEC_GUIDANCE_BEGIN>>>",
+    end: "<<<SPEC_GUIDANCE_END>>>",
+    placeholderName: "SPEC_GUIDANCE",
+  });
 
   try {
     template = renderTemplate(

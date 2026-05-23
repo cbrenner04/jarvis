@@ -3,6 +3,7 @@ id: patch.prompt.body
 behavior: agent-facing
 kind: template
 revision: 1
+placeholders: [SPEC_PATH:string!, SIBLINGS_BLOCK:string!, PATCH_RULES:string!]
 ---
 Inspect the target repo for guidance, conventions, and relevant docs.
 Read the spec at <SPEC_PATH>.

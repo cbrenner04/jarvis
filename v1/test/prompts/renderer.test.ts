@@ -1,0 +1,118 @@
+import { describe, expect, test } from "bun:test";
+import {
+  PromptRenderingError,
+  assemblePrompt,
+  enforceDelimiterPolicy,
+  renderTemplateWithDeclarations,
+} from "../../src/prompts/renderer.ts";
+import type { PromptArtifact, PromptRegistry } from "../../src/prompts/registry.ts";
+
+function makeRegistry(artifacts: PromptArtifact[]): PromptRegistry {
+  const byId = new Map(artifacts.map((a) => [a.metadata.id, a]));
+  return {
+    getById(id: string): PromptArtifact {
+      const artifact = byId.get(id);
+      if (artifact === undefined) {
+        throw new Error(`unknown prompt id \`${id}\``);
+      }
+      return artifact;
+    },
+    all(): ReadonlyArray<PromptArtifact> {
+      return artifacts;
+    },
+  };
+}
+
+function fakeArtifact(id: string, body: string): PromptArtifact {
+  return {
+    metadata: {
+      id,
+      behavior: "agent-facing",
+      kind: "template",
+      revision: "1",
+      fragmentOf: [],
+      overrides: [],
+      placeholders: [],
+    },
+    sourcePath: `/tmp/${id}.md`,
+    body,
+  };
+}
+
+describe("assemblePrompt", () => {
+  test("assembles prompt in deterministic global -> behavior -> step order", () => {
+    const registry = makeRegistry([
+      fakeArtifact("g.one", "GLOBAL ONE"),
+      fakeArtifact("b.one", "BEHAVIOR ONE"),
+      fakeArtifact("step", "STEP BODY"),
+    ]);
+    expect(
+      assemblePrompt({
+        registry,
+        globalFragmentIds: ["g.one"],
+        behaviorFragmentIds: ["b.one"],
+        stepPromptId: "step",
+      }),
+    ).toBe("GLOBAL ONE\n\nBEHAVIOR ONE\n\nSTEP BODY");
+  });
+
+  test("explicit remove is honored", () => {
+    const registry = makeRegistry([
+      fakeArtifact("g.one", "GLOBAL ONE"),
+      fakeArtifact("b.one", "BEHAVIOR ONE"),
+      fakeArtifact("b.two", "BEHAVIOR TWO"),
+      fakeArtifact("step", "STEP BODY"),
+    ]);
+    expect(
+      assemblePrompt({
+        registry,
+        globalFragmentIds: ["g.one"],
+        behaviorFragmentIds: ["b.one"],
+        addFragmentIds: ["b.two"],
+        removeFragmentIds: ["b.one"],
+        stepPromptId: "step",
+      }),
+    ).toBe("GLOBAL ONE\n\nBEHAVIOR TWO\n\nSTEP BODY");
+  });
+});
+
+describe("renderTemplateWithDeclarations", () => {
+  const declarations = [
+    { name: "AA", type: "string" as const, required: true },
+    { name: "BB", type: "string" as const, required: true },
+  ];
+
+  test("enforces required placeholder presence", () => {
+    expect(() =>
+      renderTemplateWithDeclarations("x <AA> y <BB>", declarations, { AA: "1" }),
+    ).toThrow("Required placeholder `<BB>` has no value");
+  });
+
+  test("enforces placeholder type", () => {
+    expect(() =>
+      renderTemplateWithDeclarations("x <AA>", declarations, { AA: 1, BB: "ok" }),
+    ).toThrow("expects string");
+  });
+
+  test("remains non-recursive for inserted placeholder-like text", () => {
+    expect(
+      renderTemplateWithDeclarations("<AA>", declarations, {
+        AA: "value with <BB> token",
+        BB: "replaced",
+      }),
+    ).toBe("value with <BB> token");
+  });
+});
+
+describe("enforceDelimiterPolicy", () => {
+  test("rejects user data containing reserved sentinels", () => {
+    expect(() =>
+      enforceDelimiterPolicy({
+        value: "before <<<INTENT_END>>> after",
+        begin: "<<<INTENT_BEGIN>>>",
+        end: "<<<INTENT_END>>>",
+        placeholderName: "INTENT",
+      }),
+    ).toThrow(PromptRenderingError);
+  });
+});

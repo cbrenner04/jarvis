@@ -65,4 +65,28 @@ describe("prompt registry load validation", () => {
       "unknown explicit override target",
     );
   });
+
+  test("parses placeholder declarations from frontmatter", () => {
+    const entry = withFrontmatter(
+      "id: placeholders.prompt\nbehavior: agent-facing\nkind: template\nrevision: 1\nplaceholders: [WORKDIR:string!, NAME:string!]",
+      "<WORKDIR> <NAME>",
+    );
+    const registry = createPromptRegistry([writePromptFixture(entry)]);
+    expect(registry.getById("placeholders.prompt").metadata.placeholders).toEqual(
+      [
+        { name: "WORKDIR", type: "string", required: true },
+        { name: "NAME", type: "string", required: true },
+      ],
+    );
+  });
+
+  test("invalid placeholder declarations fail during load", () => {
+    const entry = withFrontmatter(
+      "id: bad.placeholders\nbehavior: agent-facing\nkind: template\nrevision: 1\nplaceholders: [WORKDIR:number!]",
+      "<WORKDIR>",
+    );
+    expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow(
+      "invalid placeholder declaration",
+    );
+  });
 });

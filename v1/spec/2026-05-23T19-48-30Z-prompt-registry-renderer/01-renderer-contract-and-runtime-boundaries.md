@@ -63,29 +63,29 @@ prompt source versus what stays in TypeScript runtime code.
 
 ## Acceptance criteria
 
-- [ ] Shared prompt rendering for the included surfaces is deterministic and
+- [x] Shared prompt rendering for the included surfaces is deterministic and
       follows the contract `global -> behavior -> step`.
-- [ ] Step-level explicit overrides can add and remove named fragments, and
+- [x] Step-level explicit overrides can add and remove named fragments, and
       tests prove removal is honored rather than silently ignored.
-- [ ] Placeholder declarations are enforced at render time: missing required
+- [x] Placeholder declarations are enforced at render time: missing required
       values and type-invalid values fail with hard renderer errors against a
       valid loaded registry.
-- [ ] Placeholder-looking text inside injected user content remains literal data
+- [x] Placeholder-looking text inside injected user content remains literal data
       after render; the renderer does not recursively expand inserted values.
-- [ ] Delimiter policy is enforced for injected user data so the rendered
+- [x] Delimiter policy is enforced for injected user data so the rendered
       prompt preserves the intended sentinel boundaries for intent/spec/context
       data blocks.
-- [ ] Runtime-only formatting logic stays in TypeScript and is exercised as
+- [x] Runtime-only formatting logic stays in TypeScript and is exercised as
       renderer input rather than being moved into template conditionals.
-- [ ] Adapter wrappers are selected after shared render and are tested as a
+- [x] Adapter wrappers are selected after shared render and are tested as a
       separate post-render layer rather than as distinct shared prompt IDs.
 
 ## Documentation updates
 
-- [ ] Update prompt-governance and developer docs to describe the renderer
+- [x] Update prompt-governance and developer docs to describe the renderer
       ownership boundary: what prompt source controls, what TypeScript runtime
       code controls, and the guarantee of non-recursive substitution.
-- [ ] Document the delimiter policy and explicit override semantics in the
+- [x] Document the delimiter policy and explicit override semantics in the
       prompt-maintenance guidance used by future prompt editors.
 
 ## Out of scope

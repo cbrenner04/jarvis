@@ -4,6 +4,8 @@ import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
+import { loadPromptRegistry } from "../../prompts/registry.ts";
+import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
@@ -49,20 +51,23 @@ export function buildRefinePrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  const promptFile = join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "..",
-    "prompts",
-    "plan",
-    "refine.md",
-  );
-  let template = readFileSync(promptFile, "utf8");
+  let template = loadPromptRegistry().getById("plan.prompt.refine").body;
 
   const targetDir = opts.targetDir ?? "spec";
   template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
+
+  enforceDelimiterPolicy({
+    value: opts.intent,
+    begin: "<<<INTENT_BEGIN>>>",
+    end: "<<<INTENT_END>>>",
+    placeholderName: "INTENT",
+  });
+  enforceDelimiterPolicy({
+    value: opts.specGuidance,
+    begin: "<<<SPEC_GUIDANCE_BEGIN>>>",
+    end: "<<<SPEC_GUIDANCE_END>>>",
+    placeholderName: "SPEC_GUIDANCE",
+  });
 
   try {
     template = renderTemplate(

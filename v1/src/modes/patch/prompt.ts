@@ -1,73 +1,50 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
-function jarvisRules(): string {
-  return readFileSync(
-    join(
-      import.meta.dir,
-      "..",
-      "..",
-      "..",
-      "..",
-      "prompts",
-      "patch",
-      "rules.md",
-    ),
-    "utf8",
-  ).trim();
-}
-
-function baseInstructions(specPath: string): string[] {
-  return readFileSync(
-    join(
-      import.meta.dir,
-      "..",
-      "..",
-      "..",
-      "..",
-      "prompts",
-      "patch",
-      "instructions.md",
-    ),
-    "utf8",
-  )
-    .trimEnd()
-    .split("\n")
-    .map((line) => line.replace("{{SPEC_PATH}}", specPath));
-}
+import { loadPromptRegistry } from "../../prompts/registry.ts";
+import {
+  assemblePrompt,
+  renderTemplateWithDeclarations,
+} from "../../prompts/renderer.ts";
 
 export function buildPrompt(specPath: string, siblings?: string[]): string {
-  const instructions = baseInstructions(specPath);
-  const rules = jarvisRules();
-  const lines = instructions.slice(0, 2);
+  const registry = loadPromptRegistry();
+  const template = assemblePrompt({
+    registry,
+    globalFragmentIds: [],
+    behaviorFragmentIds: [],
+    stepPromptId: "patch.prompt.body",
+    addFragmentIds: [],
+    removeFragmentIds: [],
+  });
+
+  let siblingsBlock = "";
 
   if (siblings !== undefined && siblings.length > 0) {
-    lines.push(
+    const lines = [
       "Additional project sibling directories are available for this run:",
-    );
+    ];
     for (const sibling of siblings) {
       lines.push(`- ${sibling}`);
     }
     lines.push(
       "Treat these directories as part of the target project when the active spec requires cross-repo edits.",
     );
+    siblingsBlock = `${lines.join("\n")}\n`;
   }
 
-  const hasRulesPlaceholder = instructions
-    .slice(2)
-    .some((line) => line.includes("{{PATCH_RULES}}"));
-  if (hasRulesPlaceholder) {
-    for (const line of instructions.slice(2)) {
-      lines.push(line.replace("{{PATCH_RULES}}", rules));
-    }
-  } else {
-    lines.push(instructions[2] ?? "Follow these Jarvis rules:");
-    lines.push(rules);
-    lines.push(
-      instructions[3] ??
-        "Pick the single most important unchecked task and complete it.",
-    );
-  }
+  const rendered = renderTemplateWithDeclarations(
+    template,
+    [
+      { name: "SPEC_PATH", type: "string", required: true },
+      { name: "SIBLINGS_BLOCK", type: "string", required: true },
+      { name: "PATCH_RULES", type: "string", required: true },
+    ],
+    {
+      SPEC_PATH: specPath,
+      SIBLINGS_BLOCK: siblingsBlock,
+      PATCH_RULES: registry.getById("patch.rules").body.trim(),
+    },
+  );
 
-  return lines.join("\n");
+  return rendered
+    .replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:")
+    .trim();
 }

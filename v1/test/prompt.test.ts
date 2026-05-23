@@ -1,15 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { buildPrompt } from "../src/modes/patch/prompt.ts";
+import { loadPromptRegistry } from "../src/prompts/registry.ts";
 
 describe("buildPrompt", () => {
   test("asks the agent to discover repo guidance and includes Jarvis rules", () => {
     const prompt = buildPrompt("spec/2026-05-11-v1/index.md");
-    const rules = readFileSync(
-      join(import.meta.dir, "..", "..", "prompts", "patch", "rules.md"),
-      "utf8",
-    ).trim();
+    const rules = loadPromptRegistry().getById("patch.rules").body.trim();
 
     expect(prompt).toContain(
       "Inspect the target repo for guidance, conventions, and relevant docs.",
@@ -34,10 +30,7 @@ describe("buildPrompt", () => {
 
   test("keeps sibling-directory block placement and newline joining unchanged", () => {
     const prompt = buildPrompt("spec/path.md", ["../repo-a", "../repo-b"]);
-    const rules = readFileSync(
-      join(import.meta.dir, "..", "..", "prompts", "patch", "rules.md"),
-      "utf8",
-    ).trim();
+    const rules = loadPromptRegistry().getById("patch.rules").body.trim();
     expect(prompt).toBe(
       [
         "Inspect the target repo for guidance, conventions, and relevant docs.",

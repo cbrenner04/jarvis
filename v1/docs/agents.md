@@ -178,6 +178,13 @@ explicit skip, or a `## Blocker` to `intent.md`, but it cannot pause to ask the
 terminal user questions. The same agents configured in `modes.plan.agentOrder`
 can serve both patch and plan work.
 
+Patch/plan prompt maintenance uses a metadata-first registry contract described
+in [prompt-governance.md](./prompt-governance.md). Runtime lookup is by stable
+prompt `id`, while prompt file paths remain organizational detail. The first
+rollout includes `patch.prompt.body`, `patch.rules`, and plan
+`draft`/`review`/`refine` prompts only; `name-only` and `inline-draft` remain
+outside that shared registry in this stage.
+
 ## Prompt ownership (relocation stage one)
 
 Relocation stage one moved seven editable prompt text artifacts into the

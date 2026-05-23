@@ -4,6 +4,8 @@ import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { loadPromptRegistry } from "../../prompts/registry.ts";
+import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
@@ -42,17 +44,7 @@ export function buildDraftPrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  const promptFile = join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "..",
-    "prompts",
-    "plan",
-    "draft.md",
-  );
-  let template = readFileSync(promptFile, "utf8");
+  let template = loadPromptRegistry().getById("plan.prompt.draft").body;
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
@@ -66,6 +58,19 @@ export function buildDraftPrompt(opts: {
     // For commit specs, replace the placeholder with the actual committed root
     template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
   }
+
+  enforceDelimiterPolicy({
+    value: opts.intent,
+    begin: "<<<INTENT_BEGIN>>>",
+    end: "<<<INTENT_END>>>",
+    placeholderName: "INTENT",
+  });
+  enforceDelimiterPolicy({
+    value: opts.specGuidance,
+    begin: "<<<SPEC_GUIDANCE_BEGIN>>>",
+    end: "<<<SPEC_GUIDANCE_END>>>",
+    placeholderName: "SPEC_GUIDANCE",
+  });
 
   try {
     template = renderTemplate(

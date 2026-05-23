@@ -42,21 +42,21 @@ reintroduce path-coupled lookups, silent validation drift, or wrapper sprawl.
 
 ## Acceptance criteria
 
-- [ ] Rendered snapshot outputs are keyed by prompt ID and revision for the
+- [x] Rendered snapshot outputs are keyed by prompt ID and revision for the
       shared prompt body covered by this migration stage.
-- [ ] Wrapper snapshots are stored or named separately from shared render
+- [x] Wrapper snapshots are stored or named separately from shared render
       snapshots and record the wrapper variant without turning wrappers into new
       shared prompt IDs.
-- [ ] Snapshot tests cover both step-render variants and adapter-wrapper
+- [x] Snapshot tests cover both step-render variants and adapter-wrapper
       variants for the included prompt surfaces.
-- [ ] Tests deterministically cover ordering, explicit overrides, placeholder
+- [x] Tests deterministically cover ordering, explicit overrides, placeholder
       validation, delimiter preservation, non-recursive substitution, wrapper
       selection, and ID-validation failures, with the failure-path assertions
       split cleanly between registry-load errors and render-time errors.
-- [ ] Prompt governance and developer docs describe the registry validation
+- [x] Prompt governance and developer docs describe the registry validation
       rules, the renderer contract invariants, and the snapshot keying scheme by
       ID plus revision.
-- [ ] The resulting change set remains reviewable independently of relocation
+- [x] The resulting change set remains reviewable independently of relocation
       extraction and does not introduce prompt wording rewrites or broader eval
       infrastructure.
 

@@ -42,76 +42,31 @@ export function renderTemplate(
   allowedPlaceholders: Set<string>,
   values: Partial<Record<string, string>>,
 ): string {
-  // Match <PLACEHOLDER_NAME> where PLACEHOLDER_NAME is all uppercase/underscore.
-  // Use negative lookbehind/lookahead to avoid matching within multi-bracket
-  // delimiters like <<<INTENT_BEGIN>>>.
-  // Require at least 2 characters to avoid matching documentation like <N>.
-  const placeholderPattern = /(?<!<)<([A-Z_][A-Z_0-9]{1,})>(?!>)/g;
-
-  // Collect all matches with their positions
-  const matches: Array<{
-    token: string;
-    name: string;
-    index: number;
-    length: number;
-  }> = [];
-
-  let match = placeholderPattern.exec(template);
-  while (match !== null) {
-    const placeholderName = match[1];
-    if (placeholderName === undefined) {
-      throw new TemplateRenderingError(
-        "invalid_placeholder_pattern",
-        "Regex pattern produced undefined placeholder name",
-      );
+  try {
+    return renderTemplateWithDeclarations(
+      template,
+      Array.from(allowedPlaceholders).map((name) => ({
+        name,
+        type: "string" as const,
+        required: true,
+      })),
+      values,
+    );
+  } catch (err) {
+    if (err instanceof PromptRenderingError) {
+      if (
+        err.reason === "unknown_placeholder" ||
+        err.reason === "missing_value" ||
+        err.reason === "invalid_placeholder_pattern"
+      ) {
+        throw new TemplateRenderingError(err.reason, err.details);
+      }
     }
-
-    const token = match[0]; // e.g., "<NAME>"
-
-    // Check if this is an allowed placeholder
-    if (!allowedPlaceholders.has(placeholderName)) {
-      throw new TemplateRenderingError(
-        "unknown_placeholder",
-        `Template references unknown placeholder \`${token}\``,
-      );
-    }
-
-    // Check if we have a value for this placeholder
-    const value = values[placeholderName];
-    if (value === undefined) {
-      throw new TemplateRenderingError(
-        "missing_value",
-        `Required placeholder \`${token}\` has no value`,
-      );
-    }
-
-    matches.push({
-      token,
-      name: placeholderName,
-      index: match.index,
-      length: token.length,
-    });
-
-    match = placeholderPattern.exec(template);
+    throw err;
   }
-
-  // Build result by processing template in order, replacing only original
-  // template placeholders, not recursively scanning injected values.
-  let result = "";
-  let lastIndex = 0;
-
-  for (const m of matches) {
-    // Add the template content before this placeholder
-    result += template.substring(lastIndex, m.index);
-    // Add the substituted value
-    const value = values[m.name];
-    result += value ?? "";
-    // Move past this placeholder
-    lastIndex = m.index + m.length;
-  }
-
-  // Add any remaining template content after the last placeholder
-  result += template.substring(lastIndex);
-
-  return result;
 }
+
+import {
+  PromptRenderingError,
+  renderTemplateWithDeclarations,
+} from "../../prompts/renderer.ts";

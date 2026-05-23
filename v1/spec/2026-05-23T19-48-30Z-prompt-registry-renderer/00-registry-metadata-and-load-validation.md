@@ -53,29 +53,29 @@ and snapshot work can assume a valid loaded prompt graph.
 
 ## Acceptance criteria
 
-- [ ] Registry APIs exposed to runtime code resolve the included prompt
+- [x] Registry APIs exposed to runtime code resolve the included prompt
       artifacts by stable prompt ID, with no lazy path-based fallback in the
       load or lookup path.
-- [ ] Missing `id`, `behavior`, `kind`, or `revision` metadata is reported as a
+- [x] Missing `id`, `behavior`, `kind`, or `revision` metadata is reported as a
       hard registry-load error naming the offending artifact.
-- [ ] Duplicate prompt IDs are reported as a hard registry-load error before
+- [x] Duplicate prompt IDs are reported as a hard registry-load error before
       any render attempt.
-- [ ] Unknown fragment membership references and unknown explicit override
+- [x] Unknown fragment membership references and unknown explicit override
       targets are reported as hard registry-load errors before any render
       attempt.
-- [ ] Tests prove the validation phase boundary: a valid loaded registry is a
+- [x] Tests prove the validation phase boundary: a valid loaded registry is a
       prerequisite for render-time behavior tests, and load failures do not
       depend on a specific prompt build or step invocation.
-- [ ] The rollout boundary is documented in-code or in the spec comments so
+- [x] The rollout boundary is documented in-code or in the spec comments so
       reviewers can see which prompt surfaces are intentionally included now and
       which are deferred.
 
 ## Documentation updates
 
-- [ ] Update the prompt-governance design/docs to record the first registry
+- [x] Update the prompt-governance design/docs to record the first registry
       surface area, the required metadata fields, and the rule that registry
       validation fails during load rather than during render.
-- [ ] Update the relevant v1 developer docs for prompt maintenance so path
+- [x] Update the relevant v1 developer docs for prompt maintenance so path
       location is treated as organizational detail and stable IDs are the
       supported runtime lookup contract.
 

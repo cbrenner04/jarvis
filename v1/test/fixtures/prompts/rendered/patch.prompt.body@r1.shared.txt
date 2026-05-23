@@ -1,9 +1,10 @@
----
-id: patch.rules
-behavior: agent-facing
-kind: rules
-revision: 1
----
+Inspect the target repo for guidance, conventions, and relevant docs.
+Read the spec at v1/spec/example/index.md.
+Additional project sibling directories are available for this run:
+- ../shared-lib
+- ../infra
+Treat these directories as part of the target project when the active spec requires cross-repo edits.
+Follow these Jarvis rules:
 # Patch Mode
 
 Execute active spec only.
@@ -33,3 +34,4 @@ Execute active spec only.
 - Repeated failure: record failure in spec; stop.
 - No TODOs. Put follow-up in spec.
 - New dependency? Record decision in spec; stop.
+Pick the single most important unchecked task and complete it.

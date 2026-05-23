@@ -14,8 +14,9 @@ Constraints and decisions:
 - Tests co-located as `*.test.ts` under `v2/src` (no `v2/test/` tree), run by
   the existing `bun test`.
 - `bin/jarvis` mirrors the `bin/jarvis1` bash wrapper (resolve symlinks, then
-  `exec bun run` the v2 entry) and is added to the `package.json` `bin` map.
-  `jarvis1` stays untouched as the daily driver.
+  `exec bun run` the v2 TS entry directly — no build step, same as `jarvis1`)
+  and is added to the `package.json` `bin` map. `jarvis1` stays untouched as the
+  daily driver.
 - Extend the root `typecheck` (currently v1-only) to cover v2 so `ready`/CI
   catch v2 type errors.
 - Enforce v1<->v2 import isolation with Biome `noRestrictedImports` via per-tree
@@ -28,9 +29,6 @@ Scope: create `v2/tsconfig.json`; a minimal `v2/src` entry plus one co-located
 test; `bin/jarvis` + its `package.json` entry; extend `typecheck`; add the Biome
 boundary overrides both directions. Cross-reference Phase 0 in
 `v2/docs/v2-build-order.md`.
-
-Open question for planning: does `bin/jarvis` bun-run the TS entry (like
-`jarvis1`) or a built artifact?
 
 Out of scope (Phases 1+): daemon, IPC, SQLite state, prompt wiring, any
 behavior or workflow logic, TUI.

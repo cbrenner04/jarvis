@@ -62,6 +62,7 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 - If blocked or ambiguous, append a `## Blocker` section to the subspec and stop rather than guessing.
 - Do not modify the harness behavior in ways the active subspec doesn't authorize.
 - Keep changes minimal; no speculative refactors or abstractions.
+- Be terse. Lean specs, intents, commits, comments, and PRs — no restating, no filler. Verbosity costs review effort and money (see `v2/docs/v2-vision.md` § Guiding principles).
 
 ## PR attribution
 

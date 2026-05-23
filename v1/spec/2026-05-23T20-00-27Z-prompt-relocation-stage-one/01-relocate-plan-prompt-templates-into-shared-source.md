@@ -4,7 +4,7 @@
 
 Plan mode currently owns five prompt templates directly under
 `v1/src/modes/plan/prompts/`. Stage one needs to move those template bytes into
-a shared prompt source tree without changing wording or disturbing the
+the shared top-level `prompts/` tree without changing wording or disturbing the
 per-loader rewrite behavior that already exists around committed-spec versus
 flat-layout plan runs.
 
@@ -16,10 +16,11 @@ that template ownership moves while `refine.ts`, `draft.ts`, `review.ts`,
 ## Scope
 
 Relocate the five existing plan prompt templates into plainly named shared
-files, then update the current plan loaders to read those new paths while
-preserving their existing rewrite and rendering behavior. This slice must leave
-plan-template ownership complete on its own: once it lands, the five template
-bodies should already have a single editable source of truth.
+files under the repo-level `prompts/` tree, then update the current plan
+loaders to read those new paths while preserving their existing rewrite and
+rendering behavior. This slice must leave plan-template ownership complete on
+its own: once it lands, the five template bodies should already have a single
+editable source of truth.
 
 This slice covers:
 
@@ -33,11 +34,22 @@ This slice does not cover prompt-template wording changes, new template
 metadata, registry lookup by ID, recursive rendering changes, or broader plan
 mode behavior changes.
 
+## Primary sources
+
+- `v1/src/modes/plan/refine.ts`
+- `v1/src/modes/plan/name-only.ts`
+- `v1/src/modes/plan/draft.ts`
+- `v1/src/modes/plan/review.ts`
+- `v1/src/modes/plan/inline-draft.ts`
+- `v1/src/modes/plan/prompts/`
+- `v1/docs/plan-mode.md`
+- `v2/spec/prompts.md`
+
 ## Task checklist
 
-- [ ] Create one shared prompt source file for each of the five current plan
-      templates rather than collapsing them into a registry, manifest, or
-      generated bundle.
+- [ ] Create one shared prompt source file under the repo-level `prompts/`
+      tree for each of the five current plan templates rather than collapsing
+      them into a registry, manifest, or generated bundle.
 - [ ] Move each template verbatim into the shared prompt tree with no wording
       changes.
 - [ ] Update the plan loaders so v1 reads the shared template files while
@@ -56,6 +68,9 @@ mode behavior changes.
 - [ ] Keep the resulting tree easy to audit:
       the five shared template files are the only editable template bodies,
       while the `v1/src/modes/plan/*.ts` files remain loaders/renderers.
+- [ ] Keep the destination layout aligned with the shared prompt ownership
+      chosen in `v2/spec/prompts.md`; this slice should populate that
+      `prompts/` tree, not reopen the location decision.
 - [ ] Update plan prompt tests so the rendered refine, name-only, draft,
       review, and inline-draft prompt texts remain identical after the path
       change.
@@ -63,7 +78,8 @@ mode behavior changes.
 ## Acceptance criteria
 
 - [ ] The five current plan templates exist as first-class shared prompt
-      artifacts in a one-file-per-template mapping.
+      artifacts under the top-level `prompts/` tree in a one-file-per-template
+      mapping.
 - [ ] `v1/src/modes/plan/prompts/` no longer remains a second editable home for
       those five template bodies.
 - [ ] Loader behavior is unchanged apart from the source path:
@@ -78,5 +94,5 @@ mode behavior changes.
 ## Documentation updates
 
 - [ ] Update plan-prompt location references touched by this slice so they
-      identify the shared prompt source as the template home and describe the
-      remaining `v1/src/modes/plan/*.ts` files as loaders/renderers.
+      identify the shared `prompts/` source as the template home and describe
+      the remaining `v1/src/modes/plan/*.ts` files as loaders/renderers.

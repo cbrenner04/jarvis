@@ -15,9 +15,16 @@ updates needed for v1 to read the moved artifacts.
 
 ## Conventions
 
+- The shared destination for this tree is the repo-level `prompts/` source
+  chosen by `v2/spec/prompts.md`. Do not reopen that location decision inside
+  these subspecs.
 - Keep the extraction boundary mechanical. Move prompt-owned text only; keep
   runtime formatting, interpolation, and conditional assembly logic in
   TypeScript.
+- Slice 00 must cover all current readers of the relocated patch artifacts, not
+  only patch-mode prompt assembly. If a legacy v1 path would still be required
+  at runtime after relocation, that cleanup belongs with the slice that moved
+  the artifact.
 - Land ownership cleanup with the slice that moves each prompt body. The final
   docs slice should verify and explain that ownership story, not re-open the
   prompt-migration work.

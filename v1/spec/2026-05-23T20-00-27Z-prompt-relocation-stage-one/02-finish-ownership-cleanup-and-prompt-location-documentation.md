@@ -5,10 +5,10 @@
 After the patch and plan prompt artifacts move, the remaining work is to make
 the ownership story explicit for humans. Reviewers and future contributors
 should be able to see, in docs, which files are the sole shared prompt
-artifacts, which files remain runtime loaders, and which prompt surfaces are
-explicitly out of scope for this stage. The existing docs currently point
-readers at v1-owned prompt paths, so they will become misleading unless they
-are updated in the same pass.
+artifacts under the repo-level `prompts/` tree, which files remain runtime
+loaders, and which prompt surfaces are explicitly out of scope for this stage.
+The existing docs currently point readers at v1-owned prompt paths, so they
+will become misleading unless they are updated in the same pass.
 
 ## Scope
 
@@ -19,6 +19,14 @@ update the operator/developer docs that currently name the old prompt
 locations, and make the out-of-scope boundaries explicit. It should not become
 a second implementation slice for moving prompt bodies.
 
+## Primary sources
+
+- `v1/docs/agents.md`
+- `v1/docs/run-loop.md`
+- `v1/docs/plan-mode.md`
+- `v2/spec/prompts.md`
+- outputs of subspecs 00 and 01
+
 ## Task checklist
 
 - [ ] Verify that slices 00 and 01 leave one editable source of truth for each
@@ -27,8 +35,8 @@ a second implementation slice for moving prompt bodies.
 - [ ] Verify that the old v1 paths no longer act as editable prompt-text homes
       and that the remaining `v1/src/...` files are clearly loader/runtime
       code.
-- [ ] Update `v1/docs/agents.md` to describe the shared prompt source location
-      and the exact categories moved in this stage.
+- [ ] Update `v1/docs/agents.md` to describe the shared repo-level `prompts/`
+      source location and the exact categories moved in this stage.
 - [ ] Update `v1/docs/run-loop.md` so its description of the patch-mode prompt
       and injected rules points at the shared source of truth rather than the
       legacy v1-owned files.
@@ -47,12 +55,14 @@ a second implementation slice for moving prompt bodies.
 - [ ] The final implementation tree is auditable as relocation-only, with the
       moved prompt text clearly separable from loader/path updates.
 - [ ] The shared source-of-truth story is unambiguous for all seven relocated
-      artifacts: patch rules, patch stable instruction text, and the five plan
-      templates.
+      artifacts under the top-level `prompts/` tree:
+      patch rules, patch stable instruction text, and the five plan templates.
 - [ ] `v1/docs/agents.md`, `v1/docs/run-loop.md`, and `v1/docs/plan-mode.md`
       all describe the new prompt ownership/location accurately.
 - [ ] The docs explicitly call out which prompt categories moved in this stage
       and which prompt surfaces remain out of scope.
+- [ ] The docs distinguish the shared `prompts/` text artifacts from the
+      remaining v1 loader/runtime files that still live under `v1/src/...`.
 - [ ] No new prompt composition or rendering semantics are introduced while
       completing the audit and docs work.
 
@@ -60,4 +70,4 @@ a second implementation slice for moving prompt bodies.
 
 - [ ] Update the prompt ownership and location guidance in
       `v1/docs/agents.md`, `v1/docs/run-loop.md`, and `v1/docs/plan-mode.md`
-      to match the relocated shared prompt source.
+      to match the relocated shared `prompts/` source.

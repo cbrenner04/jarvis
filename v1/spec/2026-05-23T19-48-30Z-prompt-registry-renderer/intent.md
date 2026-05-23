@@ -153,13 +153,3 @@ Out of scope:
   that separation in the draft will keep tests deterministic and prevent lazy
   path-based fallback behavior from leaking back in.
 
-## Blocker
-
-Review and approve `v1/spec/2026-05-23T19-48-30Z-prompt-registry-renderer/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v1/spec/2026-05-23T19-48-30Z-prompt-registry-renderer/intent.md`

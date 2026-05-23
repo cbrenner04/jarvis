@@ -102,24 +102,24 @@ subspec 02 owns that planning and final migration sequencing.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/prompts.md` specifies a concrete shared `prompts/` layout tied to
+- [x] `v2/spec/prompts.md` specifies a concrete shared `prompts/` layout tied to
       the v2 behavior vocabulary and suitable for both `jarvis1` and v2.
-- [ ] The design requires first-class prompt metadata with stable IDs,
+- [x] The design requires first-class prompt metadata with stable IDs,
       revision signals, and runtime lookup by ID rather than by file path.
-- [ ] The document defines hard validation failures for duplicate IDs, missing
+- [x] The document defines hard validation failures for duplicate IDs, missing
       IDs, and unknown prompt references.
-- [ ] The rendering contract clearly separates what lives in prompt source from
+- [x] The rendering contract clearly separates what lives in prompt source from
       what remains in renderer/runtime code, with non-recursive substitution and
       wrapper selection explicitly assigned to code.
-- [ ] The design explicitly excludes human-facing CLI chooser and confirmation
+- [x] The design explicitly excludes human-facing CLI chooser and confirmation
       strings from the first prompt-registry contract even though they remain
       part of the broader prompt-surface taxonomy.
-- [ ] The versioning strategy makes behavior-affecting shared prompt changes
+- [x] The versioning strategy makes behavior-affecting shared prompt changes
       visible in review without introducing frozen prompt copies.
-- [ ] The review/testing section defines deterministic rendered-snapshot
+- [x] The review/testing section defines deterministic rendered-snapshot
       coverage for renderer correctness and adapter-local wrappers, not just the
       happy-path rendered text.
-- [ ] The design includes one concrete metadata example and a concrete snapshot
+- [x] The design includes one concrete metadata example and a concrete snapshot
       keying rule based on prompt ID plus revision.
 
 ## Documentation updates

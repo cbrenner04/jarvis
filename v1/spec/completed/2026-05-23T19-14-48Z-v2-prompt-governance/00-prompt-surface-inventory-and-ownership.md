@@ -119,25 +119,25 @@ the same file rather than reframe it.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/prompts.md` exists and clearly states its relationship to
+- [x] `v2/spec/prompts.md` exists and clearly states its relationship to
       `v2/spec/v1-behaviors.md` without duplicating the behavior catalog.
-- [ ] The design document defines the four-bucket prompt-surface taxonomy and
+- [x] The design document defines the four-bucket prompt-surface taxonomy and
       uses it to classify the current v1 prompt surfaces named in the intent.
-- [ ] The document draws a hard prompt-artifact versus runtime-code boundary
+- [x] The document draws a hard prompt-artifact versus runtime-code boundary
       consistent with current v1 responsibilities, including non-recursive
       placeholder substitution and write-boundary enforcement staying in code.
-- [ ] Each named v1 prompt surface has an explicit first-pass ownership call:
+- [x] Each named v1 prompt surface has an explicit first-pass ownership call:
       shared prompt source now, runtime code for now, or minimized
       adapter-local surface.
-- [ ] The inventory explicitly names the current plan prompt variants
+- [x] The inventory explicitly names the current plan prompt variants
       (`refine`, `name-only`, `draft`, `review`, and `inline-draft`) instead of
       collapsing them into a generic reference to the prompts directory.
-- [ ] The inventory records a relocation unit for mixed sources so the later
+- [x] The inventory records a relocation unit for mixed sources so the later
       extraction pass can move prompt-owned text without also moving
       runtime-generated formatting or control logic.
-- [ ] The conservative extraction decisions from the intent are recorded
+- [x] The conservative extraction decisions from the intent are recorded
       directly in the design doc rather than left implicit.
-- [ ] `v2/spec/prompts.md` includes substantive section stubs for later slices
+- [x] `v2/spec/prompts.md` includes substantive section stubs for later slices
       so subspecs 01 and 02 can extend the same document in place.
 
 ## Documentation updates

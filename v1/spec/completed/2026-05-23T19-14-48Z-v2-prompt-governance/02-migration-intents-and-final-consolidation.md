@@ -93,30 +93,30 @@ choosing exact filenames and scopes for those follow-ons.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/prompts.md` defines a staged migration plan that keeps
+- [x] `v2/spec/prompts.md` defines a staged migration plan that keeps
       relocation-only extraction mechanically separate from renderer/versioning
       work and from any later layered-composition adoption.
-- [ ] The final design doc explicitly records that `jarvis1` and v2 share one
+- [x] The final design doc explicitly records that `jarvis1` and v2 share one
       evolving prompt source of truth and that prompt wording changes remain
       reviewable shared behavior changes.
-- [ ] `v2/spec/prompts.md` includes an unresolved risks/tradeoffs section that
+- [x] `v2/spec/prompts.md` includes an unresolved risks/tradeoffs section that
       matches the scope of the intent without reopening already-decided
       questions such as top-level shared `prompts/`.
-- [ ] `v2/spec/wip-intents/` contains the follow-on implementation intents
+- [x] `v2/spec/wip-intents/` contains the follow-on implementation intents
       required by the design, with relocation-only extraction and
       renderer/registry/snapshot/revision work separated into distinct,
       testable intents.
-- [ ] The immediate follow-on intent set has exact filenames and clearly
+- [x] The immediate follow-on intent set has exact filenames and clearly
       bounded scopes, so later spec authors do not have to infer whether a
       given task belongs to relocation, registry/rendering, or deferred
       composition work.
-- [ ] Each new follow-on intent is atomic, names the files or surfaces it owns,
+- [x] Each new follow-on intent is atomic, names the files or surfaces it owns,
       and includes acceptance criteria and documentation updates suitable for a
       future implementation tree.
-- [ ] The spec either creates a third layered-composition intent with a clear
+- [x] The spec either creates a third layered-composition intent with a clear
       reason, or explicitly defers that work to a later tree after relocation
       and registry support land.
-- [ ] The completed design doc covers all sections promised by the original
+- [x] The completed design doc covers all sections promised by the original
       intent and refine turns without duplicating `v2/spec/v1-behaviors.md`.
 
 ## Documentation updates

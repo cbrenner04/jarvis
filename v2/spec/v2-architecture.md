@@ -36,7 +36,7 @@ Decided:
   a Jarvis update?" — yes.)
 - **Organized by behavior.** The prompt tree mirrors the behavior vocabulary.
 - **Rendered by layering fragments + explicit overrides.** Fragments have scope:
-  _overarching_ (global, e.g. terseness rules) and _behavior-specific_ (planning
+  *overarching* (global, e.g. terseness rules) and *behavior-specific* (planning
   rules ≠ implementation rules). A rendered prompt = global fragments → behavior
   fragments → the step's task text, applied as a default layering. A step can
   **explicitly override** the default — add or remove specific fragments when
@@ -78,7 +78,7 @@ Per-project config:
   project opts into workflows and configures cli+model entirely in `~/.jarvis`.
 - **Default agent order + per-step override.** A project declares a default agent
   order (carried forward from v1's `agentOrder`); per-step config is an
-  _optional_ override. Most steps inherit the default; you only pin a model where
+  *optional* override. Most steps inherit the default; you only pin a model where
   it matters. This keeps config small and means adding a step in source doesn't
   silently leave every project's config incomplete.
 - **A coarse default split for the common case.** The usual difference is
@@ -173,7 +173,7 @@ Steering (the API surface the TUI drives):
 ## Runs, state & the human loop
 
 The daemon-first decision needs a durable run model under it. The governing
-split: **the daemon owns _orchestration_ state, never the _work_ itself.** The
+split: **the daemon owns *orchestration* state, never the *work* itself.** The
 work product lives where it always has — git worktree, branch, spec files, PR.
 The daemon stores only the position and bookkeeping needed to drive and resume a
 workflow, so a run stays recoverable and inspectable even when the daemon is
@@ -217,15 +217,15 @@ A **run** is a workflow instance carrying:
   abort. **Kill leaves a dirty worktree**; killed runs are recovered or cleaned
   up, never cleanly continued.
 - **Resume branches on how the current step stopped.** Pause stopped
-  _completed-at-boundary_ → resume just continues with the next step. Kill/crash
-  stopped _interrupted_ → resume re-runs the interrupted step over the dirty
+  *completed-at-boundary* → resume just continues with the next step. Kill/crash
+  stopped *interrupted* → resume re-runs the interrupted step over the dirty
   worktree (same code path as crash recovery). One field on the run records which.
 
 ### Human loop and "blocked" converge
 
 Both are just "the run is paused awaiting a human." A **human-loop step** is a
-_planned_ pause; a **blocked** outcome (from the output contract) is an
-_unplanned_ one. They surface identically in the TUI and resume via the same
+*planned* pause; a **blocked** outcome (from the output contract) is an
+*unplanned* one. They surface identically in the TUI and resume via the same
 explicit API call — no blocker files, no polling, no brittle external resume
 conditions (the thing the vision dislikes about v1). While paused, the worktree
 is right there to edit, then resume.
@@ -261,7 +261,7 @@ and the local model.
   safety ceiling.
 - **`queued` is a run status.** Runs admitted beyond current headroom queue and
   the daemon admits them FIFO as memory frees.
-- **Admission-only, no preemption (v1).** The budget gates _new_ admissions; it
+- **Admission-only, no preemption (v1).** The budget gates *new* admissions; it
   never touches already-running runs. Graceful preemption (pause the
   lowest-priority running run at its next boundary when memory goes critical,
   reusing the pause machinery) is noted as a future option, not built now.
@@ -272,7 +272,7 @@ and the local model.
   lightweight Ollama server. `qwen-3.6:35b` loads on demand into it, and Ollama's
   native `keep_alive` provides warm-TTL-then-unload — we don't build model
   lifecycle ourselves. This reconciles the constraints doc's "local model running
-  at the same time": the _server_ is resident, the _model_ is not.
+  at the same time": the *server* is resident, the *model* is not.
 - **Reached via aider, no new adapter.** The fallback calls the Ollama server
   through `aider` (already in v1's roster), configured to point at ollama/qwen.
 - **Configured only where it exists.** The local model is just a terminal entry
@@ -280,7 +280,7 @@ and the local model.
   order has no local fallback, so all-paid-exhausted stays a hard stop there (v1
   exit-2 behavior). This fits the per-project/agent-order config model.
 - **No special concurrency weighting needed.** Because admission is memory-aware,
-  a loaded qwen _is_ the memory drop that throttles new admissions — the watermark
+  a loaded qwen *is* the memory drop that throttles new admissions — the watermark
   handles it without any explicit "local-model run weighs more" rule.
 
 ## Git, worktrees & PRs

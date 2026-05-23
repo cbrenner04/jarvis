@@ -14,7 +14,16 @@ export function buildNameOnlyPrompt(opts: {
   name: string;
   intent: string;
 }): string {
-  const promptFile = join(import.meta.dir, "prompts", "name-only.md");
+  const promptFile = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "..",
+    "prompts",
+    "plan",
+    "name-only.md",
+  );
   let template = readFileSync(promptFile, "utf8");
 
   try {

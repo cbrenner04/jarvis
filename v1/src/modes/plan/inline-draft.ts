@@ -14,7 +14,16 @@ export function buildInlineDraftPrompt(opts: {
   intentPath: string;
   inlineIntent: string;
 }): string {
-  const promptFile = join(import.meta.dir, "prompts", "inline-draft.md");
+  const promptFile = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "..",
+    "prompts",
+    "plan",
+    "inline-draft.md",
+  );
   let template = readFileSync(promptFile, "utf8");
 
   try {

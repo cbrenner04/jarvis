@@ -50,7 +50,16 @@ export function buildReviewPrompt(opts: {
       ? "This is the first review pass. The spec snapshot below is the original draft."
       : `This is review pass ${passNumber} of ${totalPasses}. The spec snapshot below reflects the prior pass.`;
 
-  const promptFile = join(import.meta.dir, "prompts", "review.md");
+  const promptFile = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "..",
+    "prompts",
+    "plan",
+    "review.md",
+  );
   let template = readFileSync(promptFile, "utf8");
 
   const workDir = opts.workDirLabel ?? opts.name;

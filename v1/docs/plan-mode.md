@@ -159,7 +159,7 @@ Inline one-shot intent drafting (`jarvis1 plan "inline text"`) does not enter th
 
 ### Phase 1: Draft
 
-After `plan: refine` is pushed and the Phase 0 checkpoint has been cleared via `--resume-draft`, jarvis invokes an agent with a focused prompt (`src/modes/plan/prompts/draft.md`) that:
+After `plan: refine` is pushed and the Phase 0 checkpoint has been cleared via `--resume-draft`, jarvis invokes an agent with a focused prompt (`prompts/plan/draft.md`) that:
 
 - Inlines `intent.md` and `docs/spec-guidance.md`.
 - Asks the agent to read the target repo for context.
@@ -186,7 +186,7 @@ The agent produces files under `spec/<spec-dir>/` in the worktree. Jarvis does *
 
 ### Phase 2: Self-review
 
-After `plan: draft` is pushed, jarvis runs zero or more review passes (default: 2; configurable via `--review-passes`). Each pass invokes an agent with a focused prompt (`src/modes/plan/prompts/review.md`) that:
+After `plan: draft` is pushed, jarvis runs zero or more review passes (default: 2; configurable via `--review-passes`). Each pass invokes an agent with a focused prompt (`prompts/plan/review.md`) that:
 
 - Inlines the current `intent.md` and all spec files.
 - Inlines `docs/spec-guidance.md`.

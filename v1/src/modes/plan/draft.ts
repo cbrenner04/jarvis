@@ -42,7 +42,16 @@ export function buildDraftPrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  const promptFile = join(import.meta.dir, "prompts", "draft.md");
+  const promptFile = join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "..",
+    "prompts",
+    "plan",
+    "draft.md",
+  );
   let template = readFileSync(promptFile, "utf8");
 
   const workDir = opts.workDirLabel ?? opts.name;

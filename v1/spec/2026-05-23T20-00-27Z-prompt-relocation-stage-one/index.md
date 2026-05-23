@@ -10,7 +10,7 @@ updates needed for v1 to read the moved artifacts.
 ## Subspecs
 
 - [x] [00 — Relocate patch prompt artifacts into shared source](./00-relocate-patch-prompt-artifacts-into-shared-source.md)
-- [ ] [01 — Relocate plan prompt templates into shared source](./01-relocate-plan-prompt-templates-into-shared-source.md)
+- [x] [01 — Relocate plan prompt templates into shared source](./01-relocate-plan-prompt-templates-into-shared-source.md)
 - [ ] [02 — Finish ownership cleanup and prompt-location documentation](./02-finish-ownership-cleanup-and-prompt-location-documentation.md)
 
 ## Conventions

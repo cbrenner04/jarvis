@@ -39,6 +39,12 @@ describe("resolvePlanSpecDirPath", () => {
     );
   });
 
+  test("uses configured targetDir for committed specs", () => {
+    expect(
+      resolvePlanSpecDirPath("/repo", "my-plan", undefined, "v1/spec"),
+    ).toBe("/repo/v1/spec/my-plan");
+  });
+
   test("uses explicit external path", () => {
     expect(
       resolvePlanSpecDirPath("/repo", "my-plan", "/jarvis/specs/my-plan"),

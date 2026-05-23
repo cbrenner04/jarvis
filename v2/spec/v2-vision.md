@@ -4,9 +4,9 @@ This is a long-lived reference doc, not a plan intent. It captures the *why* and
 
 ## Repo layout (target)
 
-One package, multiple source trees. A single root `package.json`, `bun.lock`, and `node_modules` for the whole repo. v1 and v2 are separate TypeScript projects (separate source trees that cannot import each other), not separate packages. 
+One package, multiple source trees. A single root `package.json`, `bun.lock`, and `node_modules` for the whole repo. v1 and v2 are separate TypeScript projects (separate source trees that cannot import each other), not separate packages.
 
-```
+```text
 package.json
 bun.lock
 node_modules

@@ -1,5 +1,6 @@
 Design v2 prompt governance and extraction. This is a follow-on v2
-architecture intent seeded from `v2-behavior.txt` and `v2-vision.md`. It should
+architecture intent seeded from `v1-behaviors.md`, `v2-vision.md`, and the
+prompt decisions recorded in `wip-v2-musings.md`. It should
 land after the v1 behavior catalog, because the behavior catalog tells us what
 prompts currently *do*, while this intent decides how prompt artifacts are
 owned, rendered, reviewed, tested, and carried forward.
@@ -28,6 +29,20 @@ Decisions to design around:
   `v1/` and `v2/`, treated as first-class code.
 - `jarvis1` reads the shared, evolving prompts. It does not pin a frozen prompt
   snapshot. One source of truth means improvements reach both engines.
+- Prompts are organized by behavior, not by mode/operation. The tree mirrors the
+  v2 behavior vocabulary (write, review-and-update, human; see `v2-vision.md`),
+  with concrete step prompts (create-intent, draft-spec, implement, review-spec,
+  code-review, security-review) grouped under their behavior. The old
+  plan/implement/review/run "mode" framing is not the organizing axis.
+- Prompts are rendered by layering scoped fragments plus explicit per-step
+  overrides. Fragments are either overarching (global, e.g. terseness rules) or
+  behavior-specific (planning rules ≠ implementation rules). Default render =
+  global fragments → behavior fragments → the step's task text; a step may
+  explicitly add or remove fragments when it is the exception. The override
+  syntax is part of this design.
+- Prompts carry no cli/model coupling. A workflow step references a prompt by a
+  stable identifier; the agent (cli+model) is a per-project config binding over
+  the step, never part of the prompt artifact.
 - Extraction from v1 should happen before v2 architecture implementation starts.
   The intended sequence is: finish the behavior catalog, design prompt
   governance, extract prompts, then proceed into broader v2 architecture work.
@@ -66,13 +81,20 @@ Initial scope:
 - Propose the internal layout of the shared top-level `prompts/` directory. The
   share-vs-frozen and top-level-vs-per-version questions are already settled:
   root `prompts/`, shared and evolving. Consider at least:
-  - organization by operation, such as plan, implement, review, or run;
-  - shared rules/fragments versus operation-specific prompts;
+  - organization by behavior (write, review-and-update, human), mirroring the
+    v2 behavior vocabulary, with concrete step prompts (create-intent,
+    draft-spec, implement, review-spec, code-review, security-review) grouped
+    under their behavior — not by the old plan/implement/review/run modes;
+  - the fragment scopes: overarching/global fragments versus behavior-specific
+    fragments versus per-step prompt bodies, and how a step references its
+    prompt by stable identifier;
   - how engine-specific or agent-specific variants are represented if any are
     unavoidable;
   - where prompt metadata, version identifiers, and rendered snapshots belong.
 - Propose a prompt rendering contract:
-  - how prompt artifacts are assembled,
+  - how prompt artifacts are assembled by layering scoped fragments (global →
+    behavior → step task text), including the explicit per-step override syntax
+    for adding or removing fragments;
   - how placeholders are typed and validated,
   - how user-provided content is delimited,
   - how prompt-injection protections are represented,
@@ -115,7 +137,7 @@ Expected output:
 
 Relationship to the behavior catalog:
 
-- `v2-behaviors.txt` catalogs user-observable behavior and prompt *effects*.
+- `v1-behaviors.md` catalogs user-observable behavior and prompt *effects*.
 - This file governs exact prompt artifacts and the mechanics around them.
 - Do not duplicate the behavior catalog. Reference it when needed, but keep this
   document focused on prompt ownership, rendering, testing, versioning, and

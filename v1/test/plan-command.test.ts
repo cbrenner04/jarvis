@@ -1234,6 +1234,41 @@ describe("seedIntentFile", () => {
     }
   });
 
+  test("file mode: writes to configured targetDir", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-target-dir-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      const intentContent = "# Target Dir Intent\n";
+      const sourceIntentPath = join(dir, "source-intent.md");
+      writeFileSync(sourceIntentPath, intentContent, "utf8");
+
+      seedIntentFile({
+        worktreePath,
+        name: "my-spec",
+        mode: "file",
+        intentPath: sourceIntentPath,
+        targetDir: "v1/spec",
+      });
+
+      const writtenPath = join(
+        worktreePath,
+        "v1",
+        "spec",
+        "my-spec",
+        "intent.md",
+      );
+      expect(existsSync(writtenPath)).toBe(true);
+      expect(readFileSync(writtenPath, "utf8")).toBe(intentContent);
+      expect(
+        existsSync(join(worktreePath, "spec", "my-spec", "intent.md")),
+      ).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("file mode: with trailing newline preserved", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-trailing-newline-"));
     try {

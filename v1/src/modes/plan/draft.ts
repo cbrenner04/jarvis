@@ -92,6 +92,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
     opts.worktreePath,
     opts.name,
     opts.specDirPath,
+    opts.targetDir,
   );
   const flatSpecLayout = opts.specDirPath !== undefined;
   const agentCwd = opts.agentCwd ?? opts.worktreePath;
@@ -279,8 +280,14 @@ export function validateDraftOutput(
   name: string,
   intentBefore?: string,
   specDirPath?: string,
+  targetDir?: string,
 ): { valid: boolean; error: string | null; blocker?: string | undefined } {
-  const specDir = resolvePlanSpecDirPath(worktreePath, name, specDirPath);
+  const specDir = resolvePlanSpecDirPath(
+    worktreePath,
+    name,
+    specDirPath,
+    targetDir,
+  );
 
   // Check index.md exists
   const indexPath = join(specDir, "index.md");

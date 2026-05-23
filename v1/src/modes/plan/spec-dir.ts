@@ -6,8 +6,9 @@ export function resolvePlanSpecDirPath(
   worktreePath: string,
   specDirBasename: string,
   specDirPath?: string,
+  targetDir: string = "spec",
 ): string {
-  return specDirPath ?? join(worktreePath, "spec", specDirBasename);
+  return specDirPath ?? join(worktreePath, targetDir, specDirBasename);
 }
 
 /** Basenames of files directly under a spec directory. */

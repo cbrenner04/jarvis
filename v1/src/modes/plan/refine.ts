@@ -107,7 +107,7 @@ export async function runRefineTurn(opts: {
   // Read current intent.md
   const intentPath = opts.externalSpecRoot
     ? join(opts.externalSpecRoot, opts.name, "intent.md")
-    : join(opts.worktreePath, "spec", opts.name, "intent.md");
+    : join(opts.worktreePath, opts.targetDir ?? "spec", opts.name, "intent.md");
   const intentBefore = readFileSync(intentPath, "utf8");
 
   // Read spec guidance
@@ -466,7 +466,7 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
 
   const finalIntentPath = opts.externalSpecRoot
     ? join(opts.externalSpecRoot, opts.name, "intent.md")
-    : join(opts.worktreePath, "spec", opts.name, "intent.md");
+    : join(opts.worktreePath, opts.targetDir ?? "spec", opts.name, "intent.md");
   const finalIntent = readFileSync(finalIntentPath, "utf8");
   const terminalOutcome = classifyRefineIntentOutcome(finalIntent);
 

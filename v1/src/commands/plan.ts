@@ -224,8 +224,9 @@ function remoteSpecBranchExists(
 function _removeSpecDirIfPresent(
   worktreePath: string,
   specDirBasename: string,
+  targetDir: string = "spec",
 ) {
-  const specDir = join(worktreePath, "spec", specDirBasename);
+  const specDir = join(worktreePath, targetDir, specDirBasename);
   if (existsSync(specDir)) {
     rmSync(specDir, { recursive: true, force: true });
   }
@@ -462,11 +463,12 @@ export async function deriveSpecName(
 async function ensureUniquePlanName(
   projectRoot: string,
   baseName: string,
+  targetDir: string = "spec",
 ): Promise<string> {
   let finalName = baseName;
   let suffix = 2;
   while (true) {
-    const specDirExists = existsSync(join(projectRoot, "spec", finalName));
+    const specDirExists = existsSync(join(projectRoot, targetDir, finalName));
     const worktreeDirExists = existsSync(
       join(projectRoot, ".worktree", `plan-${finalName}`),
     );
@@ -487,6 +489,8 @@ export type SeedIntentFileOptions = {
   mode: SeedIntentFileMode;
   intentPath?: string;
   intentText?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
   /**
    * Optional external spec root for no-commit specs.
    * If provided, the spec is seeded here instead of under worktreePath/spec/.
@@ -495,9 +499,10 @@ export type SeedIntentFileOptions = {
 };
 
 export function seedIntentFile(opts: SeedIntentFileOptions): void {
+  const targetDir = opts.targetDir ?? "spec";
   const specDir = opts.externalSpecRoot
     ? join(opts.externalSpecRoot, opts.name)
-    : join(opts.worktreePath, "spec", opts.name);
+    : join(opts.worktreePath, targetDir, opts.name);
   const intentPath = join(specDir, "intent.md");
 
   if (existsSync(intentPath)) {
@@ -870,6 +875,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               worktreePath: resume.worktreePath,
               name: resume.planName,
               specDirBasename: resume.specDirBasename,
+              targetDir: resumeTargetDir,
             });
             opts.io.stderr(`plan: blocked\n`);
             opts.io.stderr(`\n## Blocker\n\n${refineResult.blocker}\n`);
@@ -960,6 +966,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             worktreePath: resume.worktreePath,
             name: resume.planName,
             specDirBasename: resume.specDirBasename,
+            targetDir: resumeTargetDir,
           });
           if (draftBlocker !== undefined) {
             commitPlanBlocker({
@@ -969,6 +976,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               reason: firstNonEmptyLine(draftBlocker),
               specFilesCount: draftSpecFilesCount,
               subjectSuffix: suffix,
+              targetDir: resumeTargetDir,
             });
             safeUpdatePrBody({
               io: opts.io,
@@ -977,6 +985,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               worktreePath: resume.worktreePath,
               name: resume.planName,
               specDirBasename: resume.specDirBasename,
+              targetDir: resumeTargetDir,
             });
             opts.io.stderr(`plan: blocked\n`);
             opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
@@ -1046,6 +1055,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           resume.worktreePath,
           resume.specDirBasename,
           intentBefore,
+          undefined,
+          resumeTargetDir,
         );
         if (!validation.valid) {
           opts.io.stderr(
@@ -1061,9 +1072,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             agentLabel: result.agentLabel ?? "unknown",
             reason: firstNonEmptyLine(validation.blocker),
             specFilesCount: countSpecFiles(
-              join(resume.worktreePath, "spec", resume.specDirBasename),
+              join(
+                resume.worktreePath,
+                resumeTargetDir,
+                resume.specDirBasename,
+              ),
             ),
             subjectSuffix: suffix,
+            targetDir: resumeTargetDir,
           });
           safeUpdatePrBody({
             io: opts.io,
@@ -1072,6 +1088,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             worktreePath: resume.worktreePath,
             name: resume.planName,
             specDirBasename: resume.specDirBasename,
+            targetDir: resumeTargetDir,
           });
           opts.io.stderr(`plan: blocked\n`);
           opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
@@ -1094,6 +1111,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath: resume.worktreePath,
           name: resume.planName,
           specDirBasename: resume.specDirBasename,
+          targetDir: resumeTargetDir,
         });
         nextReviewIndex += 1;
       }
@@ -1227,6 +1245,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             name: specDirBasename,
             mode: "file",
             intentPath: inv.intentPath,
+            targetDir,
             ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           });
         } else if (inv.mode === "inline") {
@@ -1235,6 +1254,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             name: specDirBasename,
             mode: "inline",
             intentText: inv.intentText,
+            targetDir,
             ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           });
         } else {
@@ -1242,6 +1262,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             worktreePath,
             name: specDirBasename,
             mode: "interactive",
+            targetDir,
             ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           });
         }
@@ -1272,7 +1293,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           startedAt: planStartedAt,
           startedMs: planStartedMs,
           exitReason,
-          specPathForSummary: `spec/${summarySpecName}/index.md`,
+          specPathForSummary: `${targetDir}/${summarySpecName}/index.md`,
           writer: planTelemetryWriter,
         });
       };
@@ -1389,7 +1410,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           `plan: agent did not propose a valid name; falling back to deterministic derivation (${chosenBaseName})\n`,
         );
       }
-      planName = await ensureUniquePlanName(project.root, chosenBaseName);
+      planName = await ensureUniquePlanName(
+        project.root,
+        chosenBaseName,
+        targetDir,
+      );
       specDirBasename = specTimestamp
         ? `${formatPlanSpecTimestamp()}-${planName}`
         : planName;
@@ -1546,6 +1571,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               agentLabel,
               reason,
               specFilesCount: 0,
+              targetDir,
             });
             opts.io.stderr(`plan: blocker commit pushed\n`);
 
@@ -1556,6 +1582,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               worktreePath: worktreePath as string,
               name: planName,
               specDirBasename,
+              targetDir,
             });
           } catch (err) {
             opts.io.stderr(`${(err as Error).message}\n`);
@@ -1658,6 +1685,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             worktreePath: worktreePath as string,
             name: planName,
             specDirBasename,
+            targetDir,
           });
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
@@ -1818,6 +1846,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               worktreePath: worktreePath as string,
               name: planName,
               specDirBasename,
+              targetDir,
             });
           } catch (err) {
             opts.io.stderr(`${(err as Error).message}\n`);
@@ -1899,6 +1928,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               agentLabel,
               reason,
               specFilesCount: draftSpecFilesCount,
+              targetDir,
             });
             opts.io.stderr(`plan: blocker commit pushed\n`);
 
@@ -1909,6 +1939,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               worktreePath: worktreePath as string,
               name: planName,
               specDirBasename,
+              targetDir,
             });
           } catch (err) {
             opts.io.stderr(`${(err as Error).message}\n`);
@@ -1934,6 +1965,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath: worktreePath as string,
           name: planName,
           specDirBasename,
+          targetDir,
         });
       }
 
@@ -2086,6 +2118,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                     agentLabel,
                     reason: "write boundary violation",
                     specFilesCount: countSpecFiles(finalSpecPath),
+                    targetDir,
                   });
                   opts.io.stderr(`plan: blocker commit pushed\n`);
 
@@ -2096,6 +2129,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                     worktreePath: worktreePath as string,
                     name: planName,
                     specDirBasename,
+                    targetDir,
                   });
                 } catch (err) {
                   opts.io.stderr(`${(err as Error).message}\n`);
@@ -2121,6 +2155,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   agentLabel,
                   reason,
                   specFilesCount,
+                  targetDir,
                 });
                 opts.io.stderr(`plan: blocker commit pushed\n`);
 
@@ -2131,6 +2166,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   worktreePath: worktreePath as string,
                   name: planName,
                   specDirBasename,
+                  targetDir,
                 });
               } catch (err) {
                 opts.io.stderr(`${(err as Error).message}\n`);
@@ -2180,6 +2216,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               finalSpecPath,
               specDirBasename,
               allOffendingPaths,
+              targetDir,
             );
             for (const path of allOffendingPaths) {
               opts.io.stderr(`  - ${path}\n`);
@@ -2194,6 +2231,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   agentLabel,
                   reason: "write boundary violation",
                   specFilesCount: countSpecFiles(finalSpecPath),
+                  targetDir,
                 });
                 opts.io.stderr(`plan: blocker commit pushed\n`);
 
@@ -2204,6 +2242,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   worktreePath: worktreePath as string,
                   name: planName,
                   specDirBasename,
+                  targetDir,
                 });
               } catch (err) {
                 opts.io.stderr(`${(err as Error).message}\n`);
@@ -2240,6 +2279,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 worktreePath: worktreePath as string,
                 name: planName,
                 specDirBasename,
+                targetDir,
               });
             } catch (err) {
               opts.io.stderr(`${(err as Error).message}\n`);
@@ -2364,6 +2404,7 @@ function safeUpdatePrBody(args: {
   worktreePath: string;
   name: string;
   specDirBasename: string;
+  targetDir?: string;
 }): void {
   try {
     updatePrBody({
@@ -2375,6 +2416,9 @@ function safeUpdatePrBody(args: {
           name: args.name,
           specDirBasename: args.specDirBasename,
           worktreePath: args.worktreePath,
+          ...(args.targetDir !== undefined
+            ? { targetDir: args.targetDir }
+            : {}),
         }),
     });
   } catch (err) {

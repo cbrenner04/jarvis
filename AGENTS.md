@@ -40,7 +40,7 @@ Target-repo guidance discovery is delegated to the underlying agent. Jarvis-owne
 
 ## Conventions for spec files in *this* repo
 
-- V1 implementation specs live under `v1/spec/`; v2 planning material lives under `v2/spec/`.
+- V1 implementation specs live under `v1/spec/`; v2 specs and work-seed intents live under `v2/spec/` (intents in `v2/spec/wip-intents/`). Long-lived v2 reference docs (vision, architecture, build order, behavior catalog, prompt design) live under `v2/docs/`, mirroring `v1/docs/`.
   - **How this is configured:** This repository's project entry in `~/.jarvis/config.json` sets `projects.jarvis.plan.targetDir = "v1/spec"`, routing new plan-mode specs away from the default root. See [v1/docs/config.md § targetDir](v1/docs/config.md#targetdir-plan-mode-committrue-only) for how to configure this for other repositories.
 - Multi-file specs go in a subdirectory with an `index.md` (new trees use a basename `YYYY-MM-DDTHH-mm-ssZ-<name>/`, filesystem-safe UTC — see [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md); older repos may still show date-only folders like `v1/spec/2026-05-11-v1/`).
 - The index is the routing file an agent reads to select work. It contains a checklist of subspec pointers; a subspec is complete when its checkbox is checked.

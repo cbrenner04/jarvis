@@ -9,7 +9,7 @@
 
 This document defines how prompt artifacts are owned, reviewed, versioned, and migrated across `jarvis1` (v1) and v2.
 
-It is the prompt-governance companion to `v2/spec/v1-behaviors.md`, not a second behavior catalog. `v1-behaviors.md` records externally observable behavior. This file defines prompt surfaces, ownership boundaries, and migration mechanics for those surfaces.
+It is the prompt-governance companion to `v2/docs/v1-behaviors.md`, not a second behavior catalog. `v1-behaviors.md` records externally observable behavior. This file defines prompt surfaces, ownership boundaries, and migration mechanics for those surfaces.
 
 ## Scope and source authority
 

@@ -18,9 +18,11 @@ v1/                   # engine v1 (own tsconfig project)
   src/
   test/
   spec/
+  docs/
 v2/                   # engine v2 (own tsconfig project)
   src/                # source and co-located *.test.ts files
-  spec/
+  spec/               # v2 specs + work-seed intents (wip-intents/)
+  docs/               # long-lived v2 reference docs (vision, architecture, ...)
 ```
 
 Prompts are a top-level peer, not owned by either engine (see "Core premise" and the prompts intent).
@@ -144,7 +146,7 @@ Install is intentionally not fancy — symlinks on two machines (personal + work
 1. **Split repo into `v1/` and `v2/`.** Move current code, tests, and specs into `v1/`. Create `v2/` as a sibling. Root keeps only repo-wide config. *(First intent — see `v2.txt`.)*
 2. **Rename binary `jarvis` → `jarvis1`, reserve `jarvis` for v2.** *(See `v2-rename-binary.txt`.)*
 3. **Catalog v1 behaviors** — one high-level doc covering every user-facing behavior, produced by reading source exhaustively, then iterated on with review. *(See `v2-catalog.txt`.)*
-   While v1 remains active during rollout, parity-relevant v1 behavior changes should update `v2/spec/v1-behaviors.md` in the same change window to keep v2 planning grounded in current behavior.
+   While v1 remains active during rollout, parity-relevant v1 behavior changes should update `v2/docs/v1-behaviors.md` in the same change window to keep v2 planning grounded in current behavior.
 4. **Design v2 architecture** — composable operations + host. Must satisfy the constraints above. The decided model is captured in [`v2-architecture.md`](v2-architecture.md).
 5. **Build v2 incrementally**, behavior-by-behavior. `jarvis` (v2) becomes usable as features land; `jarvis1` remains the daily-driver until v2 reaches parity.
 6. **No deletion of v1.** Both commands stay installed indefinitely.

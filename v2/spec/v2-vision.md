@@ -79,7 +79,7 @@ Plan mode today can be described as a fixed composition of those behavior loops:
 
 Different projects should be able to choose different compositions without changing the underlying behavior implementations. A lightweight project might run only steps `1, 3, 4, 6`. A stricter project might run `1-6`, then repeat spec review + human review (`5, 6`) until the spec is accepted. The same behavior pieces are reused; only the workflow graph changes.
 
-The same model also describes implementation. Patch mode today is roughly:
+The same idea also describes implementation. Patch mode today is roughly:
 
 1. "Write" loop `N` times with an implementation prompt.
 2. "Human" loop `N` times for PR review and merge.

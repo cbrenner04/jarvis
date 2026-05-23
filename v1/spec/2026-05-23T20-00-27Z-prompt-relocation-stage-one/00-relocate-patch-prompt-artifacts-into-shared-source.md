@@ -79,21 +79,21 @@ composition.
 
 ## Acceptance criteria
 
-- [ ] The top-level `prompts/` tree contains two first-class patch artifacts:
+- [x] The top-level `prompts/` tree contains two first-class patch artifacts:
       the relocated rules text and the relocated stable patch instruction text.
-- [ ] `v1/src/modes/patch/rules.md` is no longer a second editable home for the
+- [x] `v1/src/modes/patch/rules.md` is no longer a second editable home for the
       patch rules text.
-- [ ] `v1/src/modes/patch/prompt.ts` retains runtime assembly behavior and no
+- [x] `v1/src/modes/patch/prompt.ts` retains runtime assembly behavior and no
       longer embeds the stable literal instruction text directly.
-- [ ] Every current v1 reader of the relocated patch artifacts, including
+- [x] Every current v1 reader of the relocated patch artifacts, including
       `v1/src/review-feedback.ts`, loads them from the shared source rather
       than depending on the legacy v1 markdown path.
-- [ ] The rendered patch prompt remains byte-for-byte identical before and
+- [x] The rendered patch prompt remains byte-for-byte identical before and
       after relocation, including `rules.md` trimming, sibling-block placement,
       and newline joining.
-- [ ] No prompt registry, ID, metadata, revision, or fragment-layering
+- [x] No prompt registry, ID, metadata, revision, or fragment-layering
       semantics are introduced by this slice.
-- [ ] Automated coverage exists for the unchanged rendered patch prompt output.
+- [x] Automated coverage exists for the unchanged rendered patch prompt output.
 
 ## Documentation updates
 

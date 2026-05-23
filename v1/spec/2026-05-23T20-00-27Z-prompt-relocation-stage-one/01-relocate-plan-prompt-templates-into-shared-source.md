@@ -77,19 +77,19 @@ mode behavior changes.
 
 ## Acceptance criteria
 
-- [ ] The five current plan templates exist as first-class shared prompt
+- [x] The five current plan templates exist as first-class shared prompt
       artifacts under the top-level `prompts/` tree in a one-file-per-template
       mapping.
-- [ ] `v1/src/modes/plan/prompts/` no longer remains a second editable home for
+- [x] `v1/src/modes/plan/prompts/` no longer remains a second editable home for
       those five template bodies.
-- [ ] Loader behavior is unchanged apart from the source path:
+- [x] Loader behavior is unchanged apart from the source path:
       existing `targetDir` rewrites, flat-layout rewrites, and non-recursive
       rendering still behave exactly as they do today.
-- [ ] Rendered prompt text for refine, name-only, draft, review, and
+- [x] Rendered prompt text for refine, name-only, draft, review, and
       inline-draft stays identical after relocation.
-- [ ] No registry, metadata, revision, or new composition semantics are
+- [x] No registry, metadata, revision, or new composition semantics are
       introduced for the plan templates in this slice.
-- [ ] Automated coverage exists for the unchanged rendered plan prompt output.
+- [x] Automated coverage exists for the unchanged rendered plan prompt output.
 
 ## Documentation updates
 

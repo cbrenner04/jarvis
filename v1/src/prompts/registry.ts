@@ -30,11 +30,19 @@ const PROMPT_ARTIFACT_FILES = [
   // - patch prompt body/rules
   // - plan draft/review/refine
   // Deferred for now: plan name-only/inline-draft and human-facing prompts.
-  join(import.meta.dir, "..", "modes", "patch", "prompts", "body.md"),
-  join(import.meta.dir, "..", "modes", "patch", "rules.md"),
-  join(import.meta.dir, "..", "modes", "plan", "prompts", "draft.md"),
-  join(import.meta.dir, "..", "modes", "plan", "prompts", "review.md"),
-  join(import.meta.dir, "..", "modes", "plan", "prompts", "refine.md"),
+  join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "prompts",
+    "patch",
+    "instructions.md",
+  ),
+  join(import.meta.dir, "..", "..", "..", "prompts", "patch", "rules.md"),
+  join(import.meta.dir, "..", "..", "..", "prompts", "plan", "draft.md"),
+  join(import.meta.dir, "..", "..", "..", "prompts", "plan", "review.md"),
+  join(import.meta.dir, "..", "..", "..", "prompts", "plan", "refine.md"),
 ] as const;
 
 const REQUIRED_METADATA_FIELDS = [

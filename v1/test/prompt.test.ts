@@ -27,4 +27,22 @@ describe("buildPrompt", () => {
     const weird = "/tmp/some dir/spec.md";
     expect(buildPrompt(weird)).toContain(`Read the spec at ${weird}.`);
   });
+
+  test("keeps sibling-directory block placement and newline joining unchanged", () => {
+    const prompt = buildPrompt("spec/path.md", ["../repo-a", "../repo-b"]);
+    const rules = loadPromptRegistry().getById("patch.rules").body.trim();
+    expect(prompt).toBe(
+      [
+        "Inspect the target repo for guidance, conventions, and relevant docs.",
+        "Read the spec at spec/path.md.",
+        "Additional project sibling directories are available for this run:",
+        "- ../repo-a",
+        "- ../repo-b",
+        "Treat these directories as part of the target project when the active spec requires cross-repo edits.",
+        "Follow these Jarvis rules:",
+        rules,
+        "Pick the single most important unchecked task and complete it.",
+      ].join("\n"),
+    );
+  });
 });

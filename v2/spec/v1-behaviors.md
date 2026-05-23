@@ -24,7 +24,8 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - `jarvis1 run` accepts `--max-iterations`, `--repo`, and `--cwd` around a required `<spec-path>`, then forwards those into run-mode options after validating numeric bounds for max iterations. Sources: `v1/src/cli.ts`, `v1/src/modes/patch/run.ts`
 - Default implementation runs are index-routed: operators are expected to run against an `index.md` tree where one unchecked linked subspec is selected per agent iteration. Sources: `v1/docs/spec-guidance.md`, `v1/docs/run-loop.md`
 - Non-index spec runs prompt for explicit operator action instead of silently proceeding as a normal index loop. Sources: `v1/docs/spec-guidance.md`, `v1/docs/run-loop.md`
-### Non-git (loop-only) mode
+
+### Git and loop-only runs
 
 - Effective `git` resolves per-run from the top-level `git` flag overlaid by the resolved project's `projects.<key>.git` override; `--repo`/`--cwd` and ad-hoc resolution all funnel through the same effective value. Sources: `v1/src/config.ts` (`effectiveGit`), `v1/src/modes/patch/run.ts`
 - When effective `git` is `false`, patch mode runs "loop-only": no worktree is created, the agent's `cwd` is the resolved project root (or `--cwd <dir>` when supplied), and no per-subspec commit, push, draft-PR open, or ready-on-complete occurs. Sources: `v1/src/modes/patch/run.ts`, `v1/docs/run-loop.md`
@@ -107,7 +108,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 | `logServerUrl` | `http://127.0.0.1:4310/logs` | Endpoint for preflight + log sends. |
 | `logServerBind` | `127.0.0.1:4310` | Bind address for `jarvis1 log-server`. |
 | `telemetryPath` | `~/.jarvis/runs.jsonl` | JSONL telemetry path; `null` disables telemetry. |
-| `worktreeSymlinks` | unset | Paths symlinked from project root into each created worktree (ignored in non-git mode). |
+| `worktreeSymlinks` | unset | Paths symlinked from project root into each created worktree (ignored in loop-only runs). |
 | `git` | `true` | Global git participation toggle; per-project `projects.<key>.git` overrides. |
 | `projects` | `{}` | Registry keyed by name → `{ root, origin?, git?, siblings?, plan? }`. |
 
@@ -213,7 +214,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - Telemetry usage/cost enrichment normalizes unavailable usage to explicit null token fields + `cost_source: "no-usage"`, and otherwise may compute USD from local price tables when usage exists and a price key resolves. Sources: `v1/src/telemetry-enrichment.ts`
 - When telemetry rows exist for the run namespace/time window, patch finalize prints a human-readable run summary (iterations/attempts/duration/cost table) to stdout; malformed telemetry lines are ignored rather than failing the run. Sources: `v1/src/run-summary.ts`, `v1/src/modes/patch/run.ts`
 - Patch run preflight may persist config side effects by lazily backfilling missing registered-project `origin` from git remote URL when available, but failures in this best-effort update do not block execution. Sources: `v1/src/modes/patch/run.ts`, `v1/src/config.ts`, `v1/src/commands/init.ts`
-- Before iterating, patch preflight emits a non-fatal stderr warning when an unmerged `plan/<spec-name>` branch still exists on `origin` (i.e. the plan PR has not been merged into the default branch), advising the operator to run after merging to avoid drift between the on-disk spec and the merged spec. The check is best-effort and skipped in non-git mode. Sources: `v1/src/modes/patch/run.ts` (`maybeWarnAboutUnmergedPlanBranch`)
+- Before iterating, patch preflight emits a non-fatal stderr warning when an unmerged `plan/<spec-name>` branch still exists on `origin` (i.e. the plan PR has not been merged into the default branch), advising the operator to run after merging to avoid drift between the on-disk spec and the merged spec. The check is best-effort and skipped in loop-only runs. Sources: `v1/src/modes/patch/run.ts` (`maybeWarnAboutUnmergedPlanBranch`)
 
 ## Completion, blockers, exit codes, and failure handling
 

@@ -1,0 +1,92 @@
+Stand up the v2 engine's project scaffold. This is Phase 0 of the v2 build
+order (`v2/docs/v2-build-order.md`) and the first implementation chunk of
+rollout step 5 in `v2/docs/v2-vision.md` ("build v2 incrementally"). It must
+land before any other `v2/src` work, because every later phase (state store,
+daemon, steps) compiles inside the scaffold this intent creates.
+
+Goal: a v2 TypeScript project that compiles as its own tsconfig project, with a
+near-empty `v2/src` tree, co-located test wiring proving `bun test` picks up v2
+tests, a `jarvis` binary that resolves on PATH and reports a version / "v2 not
+ready", and CI (typecheck) coverage extended to the new project. No engine
+behavior — no daemon, no state, no commands beyond version/not-ready. The
+output is buildable, testable scaffolding plus the binary stub, nothing more.
+
+Why this matters:
+
+- The build order is daemon-shell-first: a lot of plumbing lands before the
+  first working step. The scaffold is the foundation all of that plumbing
+  compiles into, so it has to be correct and minimal before anything builds on
+  it.
+- v1 and v2 are separate tsconfig projects in one package and must not import
+  each other (`v2/docs/v2-vision.md`, "Repo layout"). The scaffold establishes
+  that isolation boundary up front so later phases can't accidentally couple the
+  two engines.
+- v2 tests are co-located with source (`*.test.ts` beside the code), unlike
+  v1's parallel `test/` tree (`v2/docs/v2-vision.md`, guiding principles). The
+  scaffold sets that convention in place so Phase 1 onward follows it by
+  default.
+- The `jarvis` binary was reserved for v2 during the rename step, but in
+  practice only `jarvis1` exists today (in `bin/` and the `package.json` `bin`
+  map). The scaffold makes `jarvis` a real, resolvable entry point so the two
+  binaries coexist concretely, with `jarvis1` untouched as the daily driver.
+
+Decisions to design around:
+
+- One package, multiple source trees. Root keeps the single `package.json`,
+  `bun.lock`, `node_modules`, `biome.json`, and `tsconfig.base.json`. v2 gets
+  its own `v2/tsconfig.json` extending `../tsconfig.base.json` (the same way
+  `v1/tsconfig.json` does), inheriting the strict settings — no per-engine
+  loosening.
+- v2 source and v1 source cannot import each other. Prefer enforcing this
+  mechanically (separate tsconfig projects / include scoping) over relying on
+  convention. Decide the exact mechanism during planning.
+- Tests live next to source as `*.test.ts` under `v2/src`, run by the existing
+  `bun test`. No `v2/test/` parallel tree.
+- The `jarvis` binary mirrors the existing `bin/jarvis1` pattern: a small bash
+  wrapper that resolves symlinks then `exec bun run`s the v2 entry (e.g.
+  `v2/src/cli.ts`), added to the `package.json` `bin` map alongside `jarvis1`.
+  The symlink-based install story (personal + work machines) must work for both
+  binaries.
+- For this phase the `jarvis` entry only resolves, prints a version, and clearly
+  signals v2 is not yet functional. No command surface beyond that.
+- The root `typecheck` script currently runs only `-p v1/tsconfig.json`. It must
+  be extended to also typecheck v2 (multi-project invocation or an added v2
+  script) so CI (`checks`) covers the new project. `bun run ready` /
+  `typecheck` / `test` must stay green.
+- No tech-stack churn: bun + biome + typescript unchanged.
+- Keep it minimal. Do not pre-build directory structure or abstractions that
+  Phase 1+ will define (state, daemon, prompts wiring). Resist scaffolding the
+  future.
+- Do not touch v1 / `jarvis1` behavior.
+
+Initial scope:
+
+- Create `v2/tsconfig.json` (own project, extends `../tsconfig.base.json`,
+  includes `src/**/*.ts`).
+- Create a minimal `v2/src` entry (e.g. `cli.ts`) that prints version and a
+  "v2 not ready" notice, plus at least one co-located `*.test.ts` that proves
+  the test runner discovers v2 tests.
+- Add a `bin/jarvis` wrapper following the `bin/jarvis1` pattern and register it
+  in the `package.json` `bin` map.
+- Extend the root `typecheck` script to cover v2; confirm `bun run ready`
+  passes.
+- Establish and verify v1<->v2 import isolation.
+
+Documentation updates:
+
+- Note the v2 project and the `jarvis` binary in the relevant docs; cross-
+  reference Phase 0 in `v2/docs/v2-build-order.md`. Reflect the second `bin`
+  entry in `v2/docs/v2-vision.md` if the repo-layout block needs it.
+
+Open questions for the plan flow:
+
+- Exact `bin/jarvis` wiring: bun-run the TS entry directly (like `jarvis1`), or
+  point at a built artifact?
+- Whether root `typecheck` becomes a single multi-project invocation or a
+  separate `typecheck:v2` script composed into `ready`.
+- The precise mechanism to enforce v1<->v2 import isolation (separate tsconfig
+  projects with no cross-references vs. an explicit lint/boundary rule).
+
+Out of scope (later phases): daemon, IPC, SQLite state, prompt-registry wiring,
+any behavior or workflow logic, and any TUI. Those are Phases 1+ in
+`v2/docs/v2-build-order.md`.

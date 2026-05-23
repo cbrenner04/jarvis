@@ -46,7 +46,7 @@ If English is code, prompts deserve the same treatment as code: versioned, reusa
 - Prompts live in a **shared top-level `prompts/`** that both engines read from, abstracted out of v1 and v2.
 - v1 reads those **shared, evolving** prompts. "Reliable jarvis1" means a stable *engine*, not frozen prompt text — prompt improvements reach v1 too, and there is one source of truth rather than duplicated copies.
 
-Still to design (owned by `v2-prompts.txt`): the exact `prompts/` layout, the prompt artifact taxonomy, the rendering/placeholder contract, and the review/testing standard. Because v1 shares evolving prompts, rendered-prompt snapshot or behavior tests matter — a prompt edit can shift `jarvis1` output and that change should be visible and reviewed.
+Designed and shipped (#121/#122): the `prompts/` layout, the prompt artifact taxonomy, the rendering/placeholder contract, and the review/testing standard. Because v1 shares evolving prompts, rendered-prompt snapshot tests guard `jarvis1` output — a prompt edit that shifts rendered output is visible and reviewed via revision-keyed snapshots. The canonical as-shipped contract is [`../../v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md); the design intent lives in [`prompts.md`](prompts.md).
 
 ## Composability direction
 

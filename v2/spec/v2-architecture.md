@@ -42,9 +42,11 @@ Decided:
   **explicitly override** the default — add or remove specific fragments when
   it's the exception.
 
-Still to design (owned by `v2-prompts.txt`): exact `prompts/` layout, fragment
-taxonomy, the override syntax, and the rendered-prompt snapshot/behavior test
-standard (a prompt edit can shift `jarvis1` output, so changes must be visible).
+Designed and shipped (#121/#122): the `prompts/` layout, fragment taxonomy, the
+override syntax, and the rendered-prompt snapshot test standard (a prompt edit
+can shift `jarvis1` output, so changes are kept visible via revision-keyed
+snapshots). The canonical as-shipped contract is [`../../v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md);
+[`prompts.md`](prompts.md) retains the original design intent.
 
 ## Workflows & orchestration
 

@@ -1,5 +1,12 @@
 # Prompt governance for jarvis1 and v2
 
+> **Status: original design intent — superseded by [`v1/docs/prompt-governance.md`](../../v1/docs/prompt-governance.md) for the as-shipped contract.**
+> The registry and renderer shipped in #121/#122; the v1 doc is canonical
+> wherever it and this doc disagree. Known drift from what shipped: frontmatter
+> fields (`behavior: agent-facing` / `kind: template`, list-form `placeholders`),
+> `<NAME>` delimiter syntax instead of `{{name}}`, and snapshot keying/paths.
+> Kept for historical design context.
+
 This document defines how prompt artifacts are owned, reviewed, versioned, and migrated across `jarvis1` (v1) and v2.
 
 It is the prompt-governance companion to `v2/spec/v1-behaviors.md`, not a second behavior catalog. `v1-behaviors.md` records externally observable behavior. This file defines prompt surfaces, ownership boundaries, and migration mechanics for those surfaces.
@@ -166,7 +173,7 @@ fragments:
   - write.boundary-rules
 placeholders:
   spec_path: { type: path, required: true }
-  sibling_dir_block: { type: markdown, required: false }
+  rules_block: { type: markdown, required: true }
 delimiters:
   user_data: markdown_fence
 fragment_overrides:

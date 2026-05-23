@@ -18,6 +18,9 @@ updates needed for v1 to read the moved artifacts.
 - Keep the extraction boundary mechanical. Move prompt-owned text only; keep
   runtime formatting, interpolation, and conditional assembly logic in
   TypeScript.
+- Land ownership cleanup with the slice that moves each prompt body. The final
+  docs slice should verify and explain that ownership story, not re-open the
+  prompt-migration work.
 - Use a one-artifact-per-file mapping in the new shared prompt tree so review
   diffs clearly separate moved text from loader updates.
 - Do not introduce prompt IDs, registries, rendered snapshots, revision

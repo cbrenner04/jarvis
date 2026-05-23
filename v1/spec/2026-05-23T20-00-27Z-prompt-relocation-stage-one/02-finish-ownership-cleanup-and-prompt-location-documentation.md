@@ -2,31 +2,31 @@
 
 ## Problem
 
-After the patch and plan prompt artifacts move, the tree still needs an
-auditable ownership story. Reviewers should be able to tell which files are the
-sole shared prompt artifacts, which files remain runtime loaders, and which
-prompt surfaces are explicitly out of scope for this stage. The existing docs
-currently point readers at v1-owned prompt paths, so they will become
-misleading unless they are updated in the same pass.
+After the patch and plan prompt artifacts move, the remaining work is to make
+the ownership story explicit for humans. Reviewers and future contributors
+should be able to see, in docs, which files are the sole shared prompt
+artifacts, which files remain runtime loaders, and which prompt surfaces are
+explicitly out of scope for this stage. The existing docs currently point
+readers at v1-owned prompt paths, so they will become misleading unless they
+are updated in the same pass.
 
 ## Scope
 
-Finalize the relocation-only story across docs and code ownership boundaries
-without introducing new renderer semantics. This includes deleting any stale
-editable prompt copies left behind by the earlier slices, clarifying the shared
-source-of-truth paths, and updating the operator/developer docs that currently
-name the old prompt locations.
+Document the completed relocation clearly once the code-moving slices have
+landed, without introducing new renderer semantics. This slice is a
+cross-cutting audit-and-docs pass: it should verify the final ownership story,
+update the operator/developer docs that currently name the old prompt
+locations, and make the out-of-scope boundaries explicit. It should not become
+a second implementation slice for moving prompt bodies.
 
 ## Task checklist
 
-- [ ] Verify that the final tree leaves one editable source of truth for each
-      relocated artifact category:
-      patch rules, patch stable instruction text, and each of the five plan
-      templates.
-- [ ] Remove any stale markdown prompt bodies from the old v1 locations that
-      would otherwise leave two editable copies of the same prompt text.
-- [ ] Keep runtime loader code in `v1/src/...` only where it still owns path
-      resolution, interpolation, rewrite hooks, and rendering behavior.
+- [ ] Verify that slices 00 and 01 leave one editable source of truth for each
+      relocated artifact:
+      patch rules, patch stable instruction text, and the five plan templates.
+- [ ] Verify that the old v1 paths no longer act as editable prompt-text homes
+      and that the remaining `v1/src/...` files are clearly loader/runtime
+      code.
 - [ ] Update `v1/docs/agents.md` to describe the shared prompt source location
       and the exact categories moved in this stage.
 - [ ] Update `v1/docs/run-loop.md` so its description of the patch-mode prompt
@@ -39,9 +39,8 @@ name the old prompt locations.
       no wording edits, no new prompt IDs, no registry validation expansion,
       no snapshot revision system, and no migration of interactive/operator
       prompts such as repository disambiguation.
-- [ ] Keep the resulting diff reviewable as a relocation pass, with any loader
-      logic changes limited to source-path rewiring or equivalent ownership
-      cleanup.
+- [ ] Keep this slice reviewable as an audit-and-docs pass rather than a new
+      prompt-migration implementation slice.
 
 ## Acceptance criteria
 
@@ -55,7 +54,7 @@ name the old prompt locations.
 - [ ] The docs explicitly call out which prompt categories moved in this stage
       and which prompt surfaces remain out of scope.
 - [ ] No new prompt composition or rendering semantics are introduced while
-      completing the cleanup and docs work.
+      completing the audit and docs work.
 
 ## Documentation updates
 

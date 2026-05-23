@@ -17,7 +17,9 @@ mechanical move with later renderer work that belongs to a different spec.
 
 Choose and create the concrete shared prompt destination for the two patch
 artifacts, then update patch-mode loading so v1 reads from that shared source
-without changing the rendered prompt.
+without changing the rendered prompt. This slice must leave patch-mode prompt
+ownership complete on its own: once it lands, the relocated patch artifacts
+should already have a single editable source of truth.
 
 This slice covers:
 
@@ -50,9 +52,12 @@ composition.
 - [ ] Update patch prompt loading to read the relocated files from the shared
       prompt source while preserving the current `trim()` behavior around the
       rules text.
-- [ ] Make the old v1 prompt-text path auditable after the move:
+- [ ] Remove or replace the old patch prompt-text homes so they are no longer
+      editable prompt sources after the move.
+- [ ] Keep the resulting tree easy to audit:
       there must be one editable source of truth for the patch rules and one
-      editable source of truth for the stable patch instruction text.
+      editable source of truth for the stable patch instruction text, while
+      runtime loader logic remains in TypeScript.
 - [ ] Extend or update patch prompt tests so they protect byte-for-byte output
       equivalence for runs with and without sibling directories.
 - [ ] Keep the implementation diff narrow enough that reviewers can separate
@@ -75,6 +80,6 @@ composition.
 
 ## Documentation updates
 
-- [ ] Update any patch-prompt ownership notes touched by this slice so they
+- [ ] Update patch-prompt location references touched by this slice so they
       point at the shared source location instead of implying that patch prompt
       text still lives entirely under `v1/src/modes/patch/`.

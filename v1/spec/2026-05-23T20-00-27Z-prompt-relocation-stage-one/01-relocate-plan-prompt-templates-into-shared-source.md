@@ -17,7 +17,9 @@ that template ownership moves while `refine.ts`, `draft.ts`, `review.ts`,
 
 Relocate the five existing plan prompt templates into plainly named shared
 files, then update the current plan loaders to read those new paths while
-preserving their existing rewrite and rendering behavior.
+preserving their existing rewrite and rendering behavior. This slice must leave
+plan-template ownership complete on its own: once it lands, the five template
+bodies should already have a single editable source of truth.
 
 This slice covers:
 
@@ -49,8 +51,11 @@ mode behavior changes.
 - [ ] Keep the existing non-recursive rendering contract unchanged. This
       relocation must not alter how placeholder-looking user content is treated
       during template rendering.
-- [ ] Remove or convert the old v1 prompt-template files so they do not remain
+- [ ] Remove or replace the old v1 prompt-template homes so they do not remain
       a second editable prompt home after the extraction.
+- [ ] Keep the resulting tree easy to audit:
+      the five shared template files are the only editable template bodies,
+      while the `v1/src/modes/plan/*.ts` files remain loaders/renderers.
 - [ ] Update plan prompt tests so the rendered refine, name-only, draft,
       review, and inline-draft prompt texts remain identical after the path
       change.
@@ -72,6 +77,6 @@ mode behavior changes.
 
 ## Documentation updates
 
-- [ ] Update any plan-prompt location references touched by this slice so they
+- [ ] Update plan-prompt location references touched by this slice so they
       identify the shared prompt source as the template home and describe the
       remaining `v1/src/modes/plan/*.ts` files as loaders/renderers.

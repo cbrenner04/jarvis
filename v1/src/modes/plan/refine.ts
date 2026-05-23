@@ -9,6 +9,7 @@ import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
+import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 /** Level-2 heading for explicit no-op refine outcome (append-only). */
 export const REFINE_SKIP_HEADING = "## Refine skip";
@@ -37,39 +38,6 @@ export type RefineTerminalOutcome =
   | "blocker"
   | "not_run";
 
-class PlaceholderCollisionError extends Error {
-  constructor(
-    public field: string,
-    public token: string,
-  ) {
-    super(
-      `${field} contains the literal token \`${token}\`; this would corrupt the prompt`,
-    );
-    this.name = "PlaceholderCollisionError";
-  }
-}
-
-const PLACEHOLDER_TOKENS = [
-  "<INTENT>",
-  "<SPEC_GUIDANCE>",
-  "<NAME>",
-  "<WORKDIR>",
-  "<TURNS_REMAINING>",
-];
-
-function validatePlaceholders(
-  values: Record<string, string>,
-): PlaceholderCollisionError | null {
-  for (const [field, value] of Object.entries(values)) {
-    for (const token of PLACEHOLDER_TOKENS) {
-      if (value.includes(token)) {
-        return new PlaceholderCollisionError(field, token);
-      }
-    }
-  }
-  return null;
-}
-
 /**
  * Build the refine phase prompt by injecting intent.md, spec guidance, and rules.
  */
@@ -81,29 +49,36 @@ export function buildRefinePrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  const collisionError = validatePlaceholders({
-    name: opts.name,
-    intent: opts.intent,
-    specGuidance: opts.specGuidance,
-    turnsRemaining: opts.turnsRemaining.toString(),
-  });
-  if (collisionError !== null) {
-    throw collisionError;
-  }
-
   const promptFile = join(import.meta.dir, "prompts", "refine.md");
   let template = readFileSync(promptFile, "utf8");
 
   const targetDir = opts.targetDir ?? "spec";
   template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
-  template = template.replaceAll("<WORKDIR>", opts.name);
-  template = template.replaceAll("<NAME>", opts.name);
-  template = template.replaceAll("<INTENT>", opts.intent);
-  template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
-  template = template.replaceAll(
-    "<TURNS_REMAINING>",
-    opts.turnsRemaining.toString(),
-  );
+
+  try {
+    template = renderTemplate(
+      template,
+      new Set([
+        "WORKDIR",
+        "NAME",
+        "INTENT",
+        "SPEC_GUIDANCE",
+        "TURNS_REMAINING",
+      ]),
+      {
+        WORKDIR: opts.name,
+        NAME: opts.name,
+        INTENT: opts.intent,
+        SPEC_GUIDANCE: opts.specGuidance,
+        TURNS_REMAINING: opts.turnsRemaining.toString(),
+      },
+    );
+  } catch (err) {
+    if (err instanceof TemplateRenderingError) {
+      throw new Error(`refine prompt configuration error: ${err.details}`);
+    }
+    throw err;
+  }
 
   return template;
 }
@@ -157,7 +132,7 @@ export async function runRefineTurn(opts: {
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });
   } catch (err) {
-    if (err instanceof PlaceholderCollisionError) {
+    if (err instanceof Error) {
       return {
         result: {
           kind: "model_config",

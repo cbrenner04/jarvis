@@ -10,6 +10,7 @@ import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
+import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 export type DraftPhaseOptions = {
   worktreePath: string;
@@ -28,39 +29,6 @@ export type DraftPhaseOptions = {
   targetDir?: string;
 };
 
-export class PlaceholderCollisionError extends Error {
-  constructor(
-    public field: string,
-    public token: string,
-  ) {
-    super(
-      `${field} contains the literal token \`${token}\`; this would corrupt the prompt`,
-    );
-    this.name = "PlaceholderCollisionError";
-  }
-}
-
-const PLACEHOLDER_TOKENS = [
-  "<INTENT>",
-  "<SPEC_GUIDANCE>",
-  "<NAME>",
-  "<WORKDIR>",
-  "<CURRENT_SPEC>",
-];
-
-function validatePlaceholders(
-  values: Record<string, string>,
-): PlaceholderCollisionError | null {
-  for (const [field, value] of Object.entries(values)) {
-    for (const token of PLACEHOLDER_TOKENS) {
-      if (value.includes(token)) {
-        return new PlaceholderCollisionError(field, token);
-      }
-    }
-  }
-  return null;
-}
-
 /**
  * Build the draft phase prompt by injecting intent.md, spec guidance, and rules.
  */
@@ -74,15 +42,6 @@ export function buildDraftPrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  const collisionError = validatePlaceholders({
-    name: opts.name,
-    intent: opts.intent,
-    specGuidance: opts.specGuidance,
-  });
-  if (collisionError !== null) {
-    throw collisionError;
-  }
-
   const promptFile = join(import.meta.dir, "prompts", "draft.md");
   let template = readFileSync(promptFile, "utf8");
 
@@ -98,10 +57,24 @@ export function buildDraftPrompt(opts: {
     // For commit specs, replace the placeholder with the actual committed root
     template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
   }
-  template = template.replaceAll("<WORKDIR>", workDir);
-  template = template.replaceAll("<NAME>", opts.name);
-  template = template.replaceAll("<INTENT>", opts.intent);
-  template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
+
+  try {
+    template = renderTemplate(
+      template,
+      new Set(["WORKDIR", "NAME", "INTENT", "SPEC_GUIDANCE"]),
+      {
+        WORKDIR: workDir,
+        NAME: opts.name,
+        INTENT: opts.intent,
+        SPEC_GUIDANCE: opts.specGuidance,
+      },
+    );
+  } catch (err) {
+    if (err instanceof TemplateRenderingError) {
+      throw new Error(`draft prompt configuration error: ${err.details}`);
+    }
+    throw err;
+  }
 
   return template;
 }
@@ -152,7 +125,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });
   } catch (err) {
-    if (err instanceof PlaceholderCollisionError) {
+    if (err instanceof Error) {
       return {
         result: {
           kind: "model_config",

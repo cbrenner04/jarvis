@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  buildDraftPrompt,
-  PlaceholderCollisionError,
-} from "../../../src/modes/plan/draft.ts";
+import { buildDraftPrompt } from "../../../src/modes/plan/draft.ts";
 import { buildInlineDraftPrompt } from "../../../src/modes/plan/inline-draft.ts";
 import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
 import {
@@ -251,53 +248,74 @@ changed intent
   });
 });
 
-describe("placeholder collision detection", () => {
-  test("buildDraftPrompt throws PlaceholderCollisionError when intent contains placeholder token", () => {
-    expect(() => {
-      buildDraftPrompt({
-        name: "test",
-        intent: "some text with <SPEC_GUIDANCE> inside",
-        specGuidance: "normal guidance",
-      });
-    }).toThrow(PlaceholderCollisionError);
+describe("non-recursive placeholder rendering", () => {
+  test("buildDraftPrompt allows intent containing placeholder tokens without error", () => {
+    const prompt = buildDraftPrompt({
+      name: "test",
+      intent: "documentation about <SPEC_GUIDANCE> and <INTENT> tokens",
+      specGuidance: "normal guidance",
+    });
+    expect(prompt).not.toThrow;
+    // The placeholder tokens in intent are treated as literal data
+    expect(prompt).toContain(
+      "documentation about <SPEC_GUIDANCE> and <INTENT> tokens",
+    );
   });
 
-  test("buildDraftPrompt throws PlaceholderCollisionError when name contains placeholder token", () => {
-    expect(() => {
-      buildDraftPrompt({
-        name: "test<NAME>",
-        intent: "normal intent",
-        specGuidance: "normal guidance",
-      });
-    }).toThrow(PlaceholderCollisionError);
+  test("buildDraftPrompt allows name containing placeholder tokens without error", () => {
+    const prompt = buildDraftPrompt({
+      name: "feature-with-<NAME>-in-it",
+      intent: "normal intent",
+      specGuidance: "normal guidance",
+    });
+    expect(prompt).not.toThrow;
+    // The placeholder in the name is preserved
+    expect(prompt).toContain("feature-with-<NAME>-in-it");
   });
 
-  test("buildReviewPrompt throws PlaceholderCollisionError when currentSpec contains placeholder token", () => {
-    expect(() => {
-      buildReviewPrompt({
-        name: "test",
-        intent: "normal intent",
-        specGuidance: "normal guidance",
-        currentSpec: "spec with <INTENT> inside",
-      });
-    }).toThrow(PlaceholderCollisionError);
+  test("buildReviewPrompt allows currentSpec containing placeholder tokens without error", () => {
+    const prompt = buildReviewPrompt({
+      name: "test",
+      intent: "normal intent",
+      specGuidance: "normal guidance",
+      currentSpec: "spec discussing <INTENT> and <SPEC_GUIDANCE> placeholders",
+    });
+    expect(prompt).not.toThrow;
+    // The placeholder tokens in currentSpec are treated as literal data
+    expect(prompt).toContain(
+      "spec discussing <INTENT> and <SPEC_GUIDANCE> placeholders",
+    );
   });
 
-  test("PlaceholderCollisionError has correct field and token", () => {
-    try {
-      buildDraftPrompt({
-        name: "test",
-        intent: "text with <NAME> token",
-        specGuidance: "guidance",
-      });
-      throw new Error("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(PlaceholderCollisionError);
-      expect((err as PlaceholderCollisionError).field).toBe("intent");
-      expect((err as PlaceholderCollisionError).token).toBe("<NAME>");
-      expect((err as PlaceholderCollisionError).message).toContain(
-        "intent contains the literal token `<NAME>`",
-      );
-    }
+  test("regression: refine prompt with intent containing literal placeholder tokens succeeds", () => {
+    // This is the reproduced failure case: when an agent appends prompt-governance
+    // notes to intent.md, those notes often contain exact placeholder tokens.
+    const intent = `# Intent
+
+Draft a spec for prompt governance that documents exact placeholder token usage.
+
+## Governance notes
+
+The template placeholders are:
+- <INTENT>
+- <SPEC_GUIDANCE>
+- <NAME>
+- <WORKDIR>
+- <TURNS_REMAINING>`;
+
+    const prompt = buildRefinePrompt({
+      name: "prompt-governance",
+      intent,
+      specGuidance: "Guidance for refining prompt specs",
+      turnsRemaining: 2,
+    });
+
+    expect(prompt).not.toThrow;
+    // The literal tokens in intent are preserved
+    expect(prompt).toContain("- <INTENT>");
+    expect(prompt).toContain("- <SPEC_GUIDANCE>");
+    expect(prompt).toContain("- <NAME>");
+    expect(prompt).toContain("- <WORKDIR>");
+    expect(prompt).toContain("- <TURNS_REMAINING>");
   });
 });

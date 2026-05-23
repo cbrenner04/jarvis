@@ -5,27 +5,35 @@ import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import { PlaceholderCollisionError } from "./draft.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
+import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 export function buildNameOnlyPrompt(opts: {
   name: string;
   intent: string;
 }): string {
-  const collisionError = [opts.name, opts.intent].some(
-    (value) => value.includes("<WORKDIR>") || value.includes("<NAME>"),
-  );
-  if (collisionError) {
-    throw new PlaceholderCollisionError("intent", "template placeholder token");
-  }
-
   const promptFile = join(import.meta.dir, "prompts", "name-only.md");
   let template = readFileSync(promptFile, "utf8");
-  template = template.replaceAll("<WORKDIR>", opts.name);
-  template = template.replaceAll("<NAME>", opts.name);
-  template = template.replaceAll("<INTENT>", opts.intent);
+
+  try {
+    template = renderTemplate(
+      template,
+      new Set(["WORKDIR", "NAME", "INTENT"]),
+      {
+        WORKDIR: opts.name,
+        NAME: opts.name,
+        INTENT: opts.intent,
+      },
+    );
+  } catch (err) {
+    if (err instanceof TemplateRenderingError) {
+      throw new Error(`name-only prompt configuration error: ${err.details}`);
+    }
+    throw err;
+  }
+
   return template;
 }
 

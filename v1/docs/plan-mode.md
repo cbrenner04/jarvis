@@ -168,7 +168,7 @@ After `plan: refine` is pushed and the Phase 0 checkpoint has been cleared via `
 
 The agent produces files under `spec/<spec-dir>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. The produced files are staged and committed as `plan: draft`.
 
-**Placeholder collision errors:** If the user's intent or spec name accidentally contains a placeholder token (e.g., `<SPEC_GUIDANCE>`), jarvis detects this before invoking the agent and exits `3` with a fatal configuration error. This prevents silent prompt corruption.
+**Prompt rendering:** Plan prompt builders use non-recursive template rendering, so placeholder-looking text in injected values (intent, spec name, etc.) is treated as literal data. For example, if the intent documents exact placeholder tokens like `<SPEC_GUIDANCE>`, those strings appear verbatim in the final prompt without escaping or recursive substitution. This allows spec-governance and prompt-documentation content to reference exact placeholder names.
 
 **Commit shape:**
 - Subject: `plan: draft`
@@ -196,7 +196,7 @@ After `plan: draft` is pushed, jarvis runs zero or more review passes (default: 
 
 Each pass is a single agent invocation; the agent does not decide when to stop or how many iterations to run. After each pass, the modified files are staged and committed as `plan: review <N>` (1-indexed).
 
-**Placeholder collision errors:** If the current spec contains a placeholder token (e.g., `<CURRENT_SPEC>`), jarvis detects this before invoking the agent and exits `3` with a fatal configuration error. This prevents silent prompt corruption.
+**Prompt rendering:** Like the draft phase, review prompts use non-recursive template rendering so that placeholder-looking text in the current spec (e.g., `<CURRENT_SPEC>` appearing in the snapshot) is treated as literal data without recursive substitution.
 
 **Commit shape (for pass 1):**
 - Subject: `plan: review 1`

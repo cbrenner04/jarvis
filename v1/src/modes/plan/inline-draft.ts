@@ -7,59 +7,35 @@ import type { AgentName, Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
-
-class PlaceholderCollisionError extends Error {
-  constructor(
-    public field: string,
-    public token: string,
-  ) {
-    super(
-      `${field} contains the literal token \`${token}\`; this would corrupt the prompt`,
-    );
-    this.name = "PlaceholderCollisionError";
-  }
-}
-
-const PLACEHOLDER_TOKENS = [
-  "<WORKDIR>",
-  "<INTENT_PATH>",
-  "<INLINE_INTENT>",
-  "<<<INLINE_INTENT_BEGIN>>>",
-  "<<<INLINE_INTENT_END>>>",
-];
-
-function validatePlaceholders(
-  values: Record<string, string>,
-): PlaceholderCollisionError | null {
-  for (const [field, value] of Object.entries(values)) {
-    for (const token of PLACEHOLDER_TOKENS) {
-      if (value.includes(token)) {
-        return new PlaceholderCollisionError(field, token);
-      }
-    }
-  }
-  return null;
-}
+import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 export function buildInlineDraftPrompt(opts: {
   workdir: string;
   intentPath: string;
   inlineIntent: string;
 }): string {
-  const collisionError = validatePlaceholders({
-    workdir: opts.workdir,
-    intentPath: opts.intentPath,
-    inlineIntent: opts.inlineIntent,
-  });
-  if (collisionError !== null) {
-    throw collisionError;
-  }
-
   const promptFile = join(import.meta.dir, "prompts", "inline-draft.md");
   let template = readFileSync(promptFile, "utf8");
-  template = template.replaceAll("<WORKDIR>", opts.workdir);
-  template = template.replaceAll("<INTENT_PATH>", opts.intentPath);
-  template = template.replaceAll("<INLINE_INTENT>", opts.inlineIntent);
+
+  try {
+    template = renderTemplate(
+      template,
+      new Set(["WORKDIR", "INTENT_PATH", "INLINE_INTENT"]),
+      {
+        WORKDIR: opts.workdir,
+        INTENT_PATH: opts.intentPath,
+        INLINE_INTENT: opts.inlineIntent,
+      },
+    );
+  } catch (err) {
+    if (err instanceof TemplateRenderingError) {
+      throw new Error(
+        `inline-draft prompt configuration error: ${err.details}`,
+      );
+    }
+    throw err;
+  }
+
   return template;
 }
 
@@ -91,7 +67,7 @@ export async function runInlineDraftTurn(opts: {
       inlineIntent: opts.inlineIntent,
     });
   } catch (err) {
-    if (err instanceof PlaceholderCollisionError) {
+    if (err instanceof Error) {
       return {
         result: {
           kind: "model_config",

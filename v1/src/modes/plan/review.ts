@@ -7,33 +7,11 @@ import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
-import { PlaceholderCollisionError } from "./draft.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
-
-const PLACEHOLDER_TOKENS = [
-  "<INTENT>",
-  "<SPEC_GUIDANCE>",
-  "<NAME>",
-  "<WORKDIR>",
-  "<CURRENT_SPEC>",
-  "<REVIEW_PASS_CONTEXT>",
-];
-
-function validatePlaceholders(
-  values: Record<string, string>,
-): PlaceholderCollisionError | null {
-  for (const [field, value] of Object.entries(values)) {
-    for (const token of PLACEHOLDER_TOKENS) {
-      if (value.includes(token)) {
-        return new PlaceholderCollisionError(field, token);
-      }
-    }
-  }
-  return null;
-}
+import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 export type ReviewPhaseOptions = {
   worktreePath: string;
@@ -72,34 +50,44 @@ export function buildReviewPrompt(opts: {
       ? "This is the first review pass. The spec snapshot below is the original draft."
       : `This is review pass ${passNumber} of ${totalPasses}. The spec snapshot below reflects the prior pass.`;
 
-  const collisionError = validatePlaceholders({
-    name: opts.name,
-    intent: opts.intent,
-    specGuidance: opts.specGuidance,
-    currentSpec: opts.currentSpec,
-    reviewPassContext,
-  });
-  if (collisionError !== null) {
-    throw collisionError;
-  }
-
   const promptFile = join(import.meta.dir, "prompts", "review.md");
   let template = readFileSync(promptFile, "utf8");
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
-  template = template.replaceAll("<WORKDIR>", workDir);
-  template = template.replaceAll("<NAME>", opts.name);
-  template = template.replaceAll("<INTENT>", opts.intent);
-  template = template.replaceAll("<SPEC_GUIDANCE>", opts.specGuidance);
-  template = template.replaceAll("<CURRENT_SPEC>", opts.currentSpec);
-  template = template.replaceAll("<REVIEW_PASS_CONTEXT>", reviewPassContext);
 
   if (opts.flatSpecLayout) {
     template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
   } else {
     // For commit specs, replace the placeholder with the actual committed root
     template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
+  }
+
+  try {
+    template = renderTemplate(
+      template,
+      new Set([
+        "WORKDIR",
+        "NAME",
+        "INTENT",
+        "SPEC_GUIDANCE",
+        "CURRENT_SPEC",
+        "REVIEW_PASS_CONTEXT",
+      ]),
+      {
+        WORKDIR: workDir,
+        NAME: opts.name,
+        INTENT: opts.intent,
+        SPEC_GUIDANCE: opts.specGuidance,
+        CURRENT_SPEC: opts.currentSpec,
+        REVIEW_PASS_CONTEXT: reviewPassContext,
+      },
+    );
+  } catch (err) {
+    if (err instanceof TemplateRenderingError) {
+      throw new Error(`review prompt configuration error: ${err.details}`);
+    }
+    throw err;
   }
 
   return template;
@@ -204,7 +192,7 @@ export async function runReviewPass(
     }
     prompt = buildReviewPrompt(promptOpts);
   } catch (err) {
-    if (err instanceof PlaceholderCollisionError) {
+    if (err instanceof Error) {
       return {
         result: {
           kind: "model_config",

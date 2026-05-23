@@ -108,26 +108,26 @@ rendering treats injected content as data by using non-recursive substitution.
 
 ## Acceptance criteria
 
-- [ ] V1 plan prompt builders use non-recursive placeholder rendering for
+- [x] V1 plan prompt builders use non-recursive placeholder rendering for
       refine, name-only, draft, review, and inline-draft prompts.
-- [ ] Injected values may contain exact placeholder-looking strings such as
+- [x] Injected values may contain exact placeholder-looking strings such as
       `<INTENT>` and `<SPEC_GUIDANCE>` without prompt-building failure or
       recursive substitution.
-- [ ] Template-source placeholders are still fully substituted for normal
+- [x] Template-source placeholders are still fully substituted for normal
       prompt builds.
-- [ ] Prompt rendering fails with a typed harness/template error when a
+- [x] Prompt rendering fails with a typed harness/template error when a
       template references an unknown placeholder or omits a required value.
-- [ ] Existing tests that expect `PlaceholderCollisionError` for
+- [x] Existing tests that expect `PlaceholderCollisionError` for
       placeholder-looking injected values are updated to assert the new
       behavior.
-- [ ] A regression test covers the reproduced refine failure shape: building a
+- [x] A regression test covers the reproduced refine failure shape: building a
       refine prompt with an intent containing literal `<INTENT>` and
       `<SPEC_GUIDANCE>` succeeds and preserves those strings inside the
       injected intent block.
-- [ ] V1 docs no longer describe literal placeholder text in prompt data as a
+- [x] V1 docs no longer describe literal placeholder text in prompt data as a
       fatal model-configuration collision.
-- [ ] V2 docs/spec material that mentions prompt rendering or placeholder
+- [x] V2 docs/spec material that mentions prompt rendering or placeholder
       validation is updated where needed to match the non-recursive rendering
       behavior.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.

@@ -97,21 +97,178 @@ Keep in runtime code for now:
 Classify as minimized adapter-local prompt surface:
 - Codex invocation marker wrapper in `v1/src/agents/codex.ts`
 
-## Prompt layout in shared source (stub for subspec 01)
+## Shared prompt layout and metadata contract
 
-Subspec 01 will define the concrete shared prompt directory layout and mapping from current v1 sources to prompt IDs/paths. This section will become the canonical layout and ownership map used by both engines.
+Shared prompt source lives in top-level `prompts/` and is organized by v2
+behavior vocabulary so both `jarvis1` and v2 bind to the same structure:
 
-## Rendering contract and prompt IDs (stub for subspec 01)
+```text
+prompts/
+  fragments/
+    global/
+    write/
+    review-and-update/
+    human/
+  steps/
+    write/
+    review-and-update/
+    human/
+  adapters/
+    codex/
+    claude/
+    cursor/
+```
 
-Subspec 01 will define the renderer contract, placeholder policy, non-recursive rendering guarantees, and stable prompt ID semantics. It will also specify hard validation failures for duplicate IDs, missing IDs, and unknown step references.
+Layout semantics:
+- `fragments/*`: reusable prompt `fragment` artifacts.
+- `steps/*`: renderable `step` artifacts that define behavior-step identity and
+  step task body.
+- `adapters/*`: minimized adapter-local `step` wrapper artifacts for unavoidable
+  CLI-specific framing.
 
-## Review and testing contract (stub for subspec 01)
+Runtime lookup binds to prompt metadata `id` only. File path is organizational
+detail and is not a runtime key.
 
-Subspec 01 will define deterministic prompt snapshot expectations for rendered prompt bodies and adapter-local wrappers, plus minimum regression coverage for shared prompt edits.
+Each renderable source artifact uses leading frontmatter metadata with required
+fields:
+- `id`: stable prompt ID used as runtime key.
+- `behavior`: one of `write`, `review-and-update`, `human`.
+- `kind`: `step` or `fragment`.
+- `revision`: monotonic revision signal for that ID.
 
-## Versioning and revisions (stub for subspec 01)
+`step` artifacts additionally declare:
+- `fragments`: ordered default layering references by fragment ID.
+- `placeholders`: declared placeholder schema (name + type + required flag).
+- `delimiters`: required delimiter policy for injected user data sections.
+- `fragment_overrides`: explicit `add` and `remove` fragment ID lists when the
+  step differs from behavior defaults.
 
-Subspec 01 will define revision metadata and compatibility rules across `jarvis1` and v2 so prompt changes are reviewable and attributable.
+Concrete metadata example (binding by ID, not path):
+
+```md
+---
+id: write.patch.execute
+behavior: write
+kind: step
+revision: 3
+fragments:
+  - global.terse
+  - write.boundary-rules
+placeholders:
+  spec_path: { type: path, required: true }
+  sibling_dir_block: { type: markdown, required: false }
+delimiters:
+  user_data: markdown_fence
+fragment_overrides:
+  add: [write.patch.sibling-guidance]
+  remove: []
+---
+Inspect the target repo for guidance, conventions, and relevant docs.
+Read the spec at {{spec_path}}.
+Follow these Jarvis rules:
+{{rules_block}}
+Pick the single most important unchecked task and complete it.
+```
+
+Validation failures are hard errors:
+- Duplicate `id` across all prompt artifacts.
+- Missing required metadata (`id`, `behavior`, `kind`, `revision`).
+- Unknown prompt reference ID (for fragment references or override IDs).
+
+## Rendering contract and layering rules
+
+First implementation rendering contract is narrow and explicit.
+
+Prompt source owns:
+- Ordered fragment membership declarations.
+- Step task text.
+- Delimiter declarations for injected user data zones.
+- Placeholder declarations (name/type/required).
+- Explicit fragment override intent (`add`/`remove`).
+
+Renderer/runtime code owns:
+- Placeholder substitution and type/required validation.
+- Enforcing non-recursive substitution (one substitution pass only).
+- Layer assembly and delimiter insertion mechanics.
+- Adapter wrapper selection and transport composition.
+- Hard-fail validation handling for duplicate/missing/unknown IDs.
+
+Default layering order:
+1. Global fragments.
+2. Behavior fragments.
+3. Step body.
+
+Override semantics:
+- `add`: append listed fragment IDs after behavior fragments and before step
+  body, preserving listed order.
+- `remove`: remove matching fragment IDs from inherited global/behavior lists
+  before final assembly.
+- Overrides are explicit per step; no implicit path-based inheritance.
+
+Placeholder and delimiter rules:
+- Every placeholder used in `step` text must be declared in metadata.
+- Missing required placeholder values are hard validation failures.
+- Type mismatch for declared placeholders is a hard validation failure.
+- Injected user content is always treated as opaque data, never as template
+  source.
+- Renderer preserves delimiter guards around injected user content and never
+  allows injected content to escape delimiter boundaries.
+- Delimiter and substitution invariants are enforced in code, not through
+  prompt-template logic.
+
+Adapter-wrapper boundary:
+- Shared artifact owns step identity (`id`) and core instruction text.
+- Adapter-specific wrappers are allowed only when unavoidable for CLI transport.
+- Adapter wrappers remain thin, separately classified under `prompts/adapters`,
+  minimized in scope, and covered by rendered snapshots.
+
+Human-facing chooser/confirmation strings:
+- Interactive chooser/confirmation strings remain cataloged prompt surfaces
+  (from subspec 00) but are excluded from the first shared prompt-registry and
+  snapshot contract in this slice.
+- First contract scope is shared agent-bound artifacts (`step` + `fragment`) and
+  minimized adapter-local wrappers only.
+
+## Review, snapshots, and revision rules
+
+Revision rule (per prompt `id`):
+- Bump `revision` when prompt wording changes.
+- Bump `revision` when a step's effective fragment set changes (including
+  override changes that alter rendered output).
+- Do not bump `revision` for file moves/renames only.
+- Do not bump `revision` for metadata comment-only edits that do not affect
+  rendering semantics.
+
+Rendered snapshots are keyed by prompt ID plus revision, never by source path.
+Snapshot location:
+
+```text
+prompts/snapshots/rendered/<id>/r<revision>/<variant>.md
+```
+
+`<variant>` distinguishes shared step render and adapter-local wrapper render:
+- `step.md`: shared rendered step output (after fragment layering +
+  substitution).
+- `wrapper.<adapter>.md`: adapter-local wrapped output for that same step ID.
+
+Concrete snapshot path examples:
+- `prompts/snapshots/rendered/write.patch.execute/r3/step.md`
+- `prompts/snapshots/rendered/write.patch.execute/r3/wrapper.codex.md`
+
+Initial rendered-snapshot testing standard (deterministic correctness):
+- Verifies default layering order (`global -> behavior -> step`).
+- Verifies explicit `add`/`remove` override behavior.
+- Verifies missing required placeholders fail validation.
+- Verifies non-recursive substitution (substituted values are not re-expanded).
+- Verifies delimiter preservation around injected user content.
+- Verifies adapter-wrapper selection for unavoidable adapter-local layers.
+- Verifies ID-based lookup/assembly and hard failures for duplicate, missing, and
+  unknown IDs.
+
+Test placement rule for v2 source:
+- Prompt renderer/registry tests live co-located with v2 renderer/registry
+  source (`v2/src/**`) per v2 test co-location guidance, not in a parallel
+  `v2/test/` tree.
 
 ## Migration sequence and follow-on intents (stub for subspec 02)
 

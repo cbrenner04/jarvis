@@ -3,10 +3,11 @@
 Phase 0 starts by giving `v2/` a real TypeScript entrypoint and a reserved
 `jarvis` binary without pulling any later-phase behavior forward. This slice is
 only the scaffold: a `v2/tsconfig.json`, a near-empty `v2/src/cli.ts`, one
-co-located Bun test under `v2/src`, and the root package metadata needed for a
-real `--version` response. It should stand on its own without touching the
-repo-wide verification and import-boundary wiring, which belongs in the next
-subspec.
+co-located Bun test under `v2/src`, the root package metadata needed for a real
+`--version` response, and the minimal root-facing doc note that tells readers
+what the new command does. It should stand on its own without touching the
+repo-wide typecheck wiring or import-boundary enforcement, which belongs in the
+next subspec.
 
 ## Decisions
 
@@ -24,9 +25,17 @@ subspec.
 - Keep the Phase 0 CLI surface to two explicit success paths: no arguments and
   `--version`. Other argv shapes are out of scope unless the implementation
   chooses to normalize them to the same `v2 not ready` stdout/exit-0 boundary.
+- Keep verification at the CLI-module boundary. The co-located Bun test should
+  import the v2 entry directly and assert stdout, stderr, and exit-code
+  behavior there; this subspec does not need subprocess coverage for the shell
+  shim.
 - Keep the root package boundary stable: do not repoint `module`, `start`, or
   exports at `v2` in this phase. The new surface is only the root `version`
   field, the additional `bin/jarvis` entry, and the new files under `v2/`.
+- Update an existing root-facing note rather than adding a new usage section.
+  `README.md` already explains that `jarvis1` is the v1 driver and that bare
+  `jarvis` was reserved for v2; Phase 0 should tighten that note to say bare
+  `jarvis` now resolves to the intentionally minimal scaffold.
 
 ## Task Checklist
 
@@ -38,8 +47,8 @@ subspec.
 - Add `bin/jarvis` and register it in the root `package.json` `bin` map without
   disturbing `jarvis1`, `module`, or `start`.
 - Add the root `package.json` `version` field used by the new CLI contract.
-- Add the minimal discoverability note in an existing root-facing doc so readers
-  can distinguish `jarvis1` from the new reserved `jarvis` shim.
+- Update the existing root-facing command note so readers can distinguish
+  `jarvis1` from the new minimal `jarvis` scaffold.
 
 ## Acceptance criteria
 
@@ -56,19 +65,23 @@ subspec.
       `jarvis` writes the exact `v2 not ready` message to stdout, writes nothing
       to stderr, exits 0, and does not print help text, banners, or stack
       traces.
+- [ ] The subspec does not add any broader CLI contract beyond those two
+      success paths. Unknown flags or subcommands remain out of scope unless the
+      implementation deliberately maps them to the same `v2 not ready`
+      stdout/exit-0 response.
 - [ ] `bin/jarvis` mirrors the existing `bin/jarvis1` shim structure
       byte-for-byte where practical, differing only in the final `exec bun run`
       target path, and the root `package.json` `bin` map exposes both
       `jarvis1` and `jarvis`.
 - [ ] A co-located Bun test under `v2/src/*.test.ts` covers the CLI module
       directly for the no-arg and `--version` cases, asserting stdout, stderr,
-      and exit-code behavior without introducing a new test script or separate
-      `v2/test/` tree.
-- [ ] One existing root-facing doc records the narrow command boundary for this
-      phase: `jarvis1` remains the daily-driver v1 command, while bare
-      `jarvis` now resolves to the intentionally minimal v2 scaffold.
+      and exit-code behavior without introducing subprocess wrapper coverage, a
+      new test script, or a separate `v2/test/` tree.
+- [ ] One existing root-facing doc note, preferably in `README.md`, is updated
+      to say `jarvis1` remains the daily-driver v1 command while bare `jarvis`
+      now resolves to the intentionally minimal v2 scaffold.
 
 ## Documentation updates
 
-- Update one existing root-facing doc, likely `README.md`, with the minimal
-  command-discoverability note above. Do not add a standalone v2 usage guide.
+- Update the existing root-facing command note in `README.md`; do not add a new
+  standalone v2 usage guide or broader v2 walkthrough.

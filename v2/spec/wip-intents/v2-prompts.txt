@@ -116,7 +116,7 @@ Expected output:
 Relationship to the behavior catalog:
 
 - `v2-behaviors.txt` catalogs user-observable behavior and prompt *effects*.
-- This intent governs exact prompt artifacts and the mechanics around them.
+- This file governs exact prompt artifacts and the mechanics around them.
 - Do not duplicate the behavior catalog. Reference it when needed, but keep this
   document focused on prompt ownership, rendering, testing, versioning, and
   migration.

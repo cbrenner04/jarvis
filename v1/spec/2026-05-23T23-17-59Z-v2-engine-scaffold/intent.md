@@ -122,13 +122,3 @@ behavior or workflow logic, TUI.
   is still the real driver and bare `jarvis` now resolves to the v2 scaffold.
   It does not need a new standalone v2 usage guide.
 
-## Blocker
-
-Review and approve `v1/spec/2026-05-23T23-17-59Z-v2-engine-scaffold/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v1/spec/2026-05-23T23-17-59Z-v2-engine-scaffold/intent.md`

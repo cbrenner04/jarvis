@@ -179,6 +179,36 @@ describe("cleanupCommand", () => {
     expect(existsSync(destination)).toBe(true);
   });
 
+  test("archives timestamped plan-mode spec from configured targetDir", () => {
+    const { io } = captureIo(["yes"]);
+
+    const name = "plan-placeholder-safe-rendering";
+    const timestampedName = `2026-05-23T17-53-16Z-${name}`;
+    const worktreePath = createTrackedPlanWorktree(name);
+    const source = join(projectRoot, "v1", "spec", timestampedName);
+    const destination = join(
+      projectRoot,
+      "v1",
+      "spec",
+      "completed",
+      timestampedName,
+    );
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# plan\n");
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      targetDir: "v1/spec",
+      isMergedPr: () => true,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+  });
+
   test("dry-run does not mutate worktrees or spec directories", () => {
     const { io } = captureIo();
 

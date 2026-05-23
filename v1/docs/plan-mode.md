@@ -466,19 +466,11 @@ jarvis1 cleanup
 ```
 
 The command discovers merged git worktrees, removes them locally, then attempts
-to archive committed specs by moving them from the default root `spec/` to `spec/completed/` (see authoritative rules in **[Worktrees: Cleanup](./worktrees-and-commits.md#cleanup)**).
-
-**Important limitation:** `jarvis1 cleanup` currently archives only specs created under the default `spec/` root. For repositories configured with a non-default `targetDir` (e.g., `v1/spec/`), **`jarvis1 cleanup` will not automatically move plan trees to a completed archive**. Manual cleanup for configured roots is a future enhancement. Affected specs remain on disk and can be archived manually:
-
-```sh
-# For a repo using v1/spec as targetDir:
-mv v1/spec/<spec-dir>/ v1/spec/completed/<spec-dir>/
-git add v1/spec/completed/
-git commit -m "archive: move v1/spec/<spec-dir>/ to completed"
-git push
-```
-
-Important mapping note: for `.worktree/plan-<plan-name>/`, **`<archive>` collapses to `<plan-name>`**, which matches **`spec/<plan-name>/`** (or **`<targetDir>/<plan-name>/`**) spec trees authored before timestamps existed. **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** does **not** share that flattened archive basename, so **`jarvis1 cleanup`** may report **`no spec directory moved`** even though files remain until you reorganize/move them manually.
+to archive committed specs by moving them from the configured plan `targetDir`
+to `<targetDir>/completed/` (see authoritative rules in **[Worktrees:
+Cleanup](./worktrees-and-commits.md#cleanup)**). For plan branches, cleanup
+first checks `<targetDir>/<plan-name>/`, then falls back to a timestamped
+`<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/` directory.
 
 Manual teardown without `jarvis1 cleanup`:
 

@@ -12,6 +12,8 @@ import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
   type ConfigOptions,
   findProjectMatchForPath,
+  loadConfig,
+  resolvePlanFlags,
   validatePositiveInteger,
 } from "./config.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
@@ -289,6 +291,11 @@ export function run(
           readlineSync,
         },
       };
+      const cfg = loadConfig(opts.config);
+      cleanupOpts.targetDir = resolvePlanFlags(
+        cfg,
+        cfg.projects[project.key],
+      ).targetDir;
       if (opts.config !== undefined) {
         cleanupOpts.config = opts.config;
       }

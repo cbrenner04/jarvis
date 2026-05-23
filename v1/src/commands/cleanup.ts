@@ -2,6 +2,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { ConfigOptions } from "../config.ts";
+import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 
 export type CleanupIo = {
   stdout: (s: string) => void;
@@ -14,6 +15,7 @@ export type CleanupCommandOptions = {
   io: CleanupIo;
   config?: ConfigOptions;
   dryRun?: boolean;
+  targetDir?: string;
   isMergedPr?: (branch: string) => boolean;
   removeItem?: (item: { path: string; branch: string; dir: string }) => void;
 };
@@ -35,6 +37,35 @@ function specNameForBranch(branch: string): string {
     return branch.slice("plan/".length);
   }
   return branch;
+}
+
+function resolveSpecArchiveSource(
+  projectRoot: string,
+  targetDir: string,
+  branch: string,
+): { source: string; specName: string; missingSource: string } {
+  const specName = specNameForBranch(branch);
+  const specRoot = join(projectRoot, targetDir);
+  const exactSource = join(specRoot, specName);
+  if (existsSync(exactSource)) {
+    return { source: exactSource, specName, missingSource: exactSource };
+  }
+
+  if (isPlanBranch(branch) && existsSync(specRoot)) {
+    const timestampedMatch = readdirSync(specRoot)
+      .filter((entry) => entry !== "completed")
+      .filter((entry) => stripPlanSpecTimestampPrefix(entry) === specName)
+      .sort()[0];
+    if (timestampedMatch !== undefined) {
+      return {
+        source: join(specRoot, timestampedMatch),
+        specName: timestampedMatch,
+        missingSource: exactSource,
+      };
+    }
+  }
+
+  return { source: exactSource, specName, missingSource: exactSource };
 }
 
 function deleteMergedBranch(projectRoot: string, branch: string): void {
@@ -101,6 +132,7 @@ function commitArchivedSpecMove(
 
 export function cleanupCommand(opts: CleanupCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
+  const targetDir = opts.targetDir ?? "spec";
   const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
 
   const toRemove: Array<{ path: string; branch: string; dir: string }> = [];
@@ -165,22 +197,25 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
 
-      const specName = specNameForBranch(item.branch);
+      const { source, specName, missingSource } = resolveSpecArchiveSource(
+        opts.projectRoot,
+        targetDir,
+        item.branch,
+      );
       if (specName === "completed") {
         opts.io.stderr(
-          `unsafe spec archive mapping for "${item.dir}": refusing to move spec/completed/\n`,
+          `unsafe spec archive mapping for "${item.dir}": refusing to move ${targetDir}/completed/\n`,
         );
         hadFailures = true;
         continue;
       }
 
-      const source = join(opts.projectRoot, "spec", specName);
-      const completedRoot = join(opts.projectRoot, "spec", "completed");
+      const completedRoot = join(opts.projectRoot, targetDir, "completed");
       const destination = join(completedRoot, specName);
 
       if (!existsSync(source)) {
         opts.io.stdout(
-          `no spec directory moved for ${item.branch}: missing ${source}\n`,
+          `no spec directory moved for ${item.branch}: missing ${missingSource}\n`,
         );
         continue;
       }

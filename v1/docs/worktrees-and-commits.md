@@ -255,15 +255,15 @@ Behavior:
   rebase-merged PRs after the merged-PR, clean-worktree, unpushed-commit, and
   confirmation gates have already passed.
 
-- **For repositories using the default `spec/` root:** Afterwards tries **`spec/<archive>/ → spec/completed/<archive>/`** using a filesystem `rename()` when **`spec/<archive>/`** exists, letting **`<archive>`** be the `.worktree/<archive>/` directory name verbatim for patch layouts and stripping the **`plan-`** prefix for plan layouts (**`<archive> = plan-name`**). When that rename succeeds, cleanup creates and pushes a commit in the project root that stages only the moved spec paths.
+- Afterwards tries **`<targetDir>/<archive>/ → <targetDir>/completed/<archive>/`** using a filesystem `rename()` when **`<targetDir>/<archive>/`** exists. For patch layouts, **`<archive>`** is the branch/worktree name. For plan layouts, cleanup strips the **`plan/`** branch prefix (**`<archive> = plan-name`**) and uses the project's configured plan `targetDir` (default: `spec`).
 
-- **For repositories with a configured non-default `targetDir`** (e.g., `v1/spec/`): Automatic archiving to `<targetDir>/completed/` is **not yet supported**. Manual cleanup is required (see **[plan-mode cleanup](./plan-mode.md#cleanup)** for details).
+- If the exact plan archive path is missing, cleanup also recognizes timestamped plan directories matching **`<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** and moves the matched timestamped directory to **`<targetDir>/completed/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`**.
 
-- Timestamped authoring directories (**`YYYY-MM-DDTHH-mm-ssZ-<plan-name>`**) **do not** automatically match the simple `<archive>` basename; archive them manually after cleanup if desired (cross-check **[plan-mode cleanup](./plan-mode.md#cleanup)**).
+- When that rename succeeds, cleanup creates and pushes a commit in the project root that stages only the moved spec paths.
 
-- If **`spec/<archive>/`** is missing entirely, cleanup still succeeds but emits **`no spec directory moved`**.
+- If **`<targetDir>/<archive>/`** is missing entirely and no timestamped fallback matches, cleanup still succeeds but emits **`no spec directory moved`**.
 
-- If **`spec/completed/<archive>/`** already exists (or another filesystem guard trips), jarvis emits a descriptive warning while continuing other candidates and exits **non-zero only after exhausting the queue**.
+- If **`<targetDir>/completed/<archive>/`** already exists (or another filesystem guard trips), jarvis emits a descriptive warning while continuing other candidates and exits **non-zero only after exhausting the queue**.
 
 The `.worktree/.keep` directory is never removed.
 

@@ -1,0 +1,47 @@
+# V2 prompt governance
+
+repo: cbrenner04/jarvis
+
+Produce `v2/spec/prompts.md` as the reviewable design for shared prompt
+governance across `jarvis1` and v2, then author the follow-on implementation
+intents under `v2/spec/wip-intents/` needed to extract existing v1 prompt
+artifacts and add prompt registry, renderer, snapshot, and revision support.
+
+This tree follows `v2/spec/v1-behaviors.md`, `v2/spec/v2-vision.md`, and
+`v2/spec/wip-v2-musings.md`. It should stay focused on prompt ownership,
+rendering, reviewability, testing, versioning, and migration mechanics rather
+than rewriting prompt wording or recataloging user-observable behavior.
+
+## Subspecs
+
+- [ ] [00 — Prompt surface inventory and ownership boundaries](./00-prompt-surface-inventory-and-ownership.md)
+- [ ] [01 — Rendering contract, prompt IDs, revisions, and snapshots](./01-rendering-contract-ids-revisions-and-snapshots.md)
+- [ ] [02 — Migration sequence, follow-on intents, and final consolidation](./02-migration-intents-and-final-consolidation.md)
+
+## Conventions
+
+- Land this tree as a spec-only PR before any prompt extraction or v2 prompt
+  runtime work begins.
+- Keep `v2/spec/prompts.md` as one cohesive design doc. Later subspecs should
+  extend or refine sections in place instead of splitting the governance design
+  across multiple docs.
+- Treat the current v1 source as the authority for today's prompt surfaces and
+  ownership boundaries. Use `v2/spec/v1-behaviors.md` for behavioral context,
+  not as a duplicate prompt inventory.
+- Keep the prompt-surface inventory purpose- and lifecycle-oriented. The design
+  may cite source files to anchor current surfaces, but it should not devolve
+  into a file-by-file implementation tour.
+- Make first-pass ownership calls explicit. For every named v1 prompt surface,
+  say whether the first extraction pass moves it into shared prompt source
+  verbatim, keeps it in runtime code for now, or classifies it as minimized
+  adapter-local prompt surface.
+- Stable prompt IDs and revision signals are part of the runtime contract, not
+  a documentation flourish. The design and follow-on intents should treat
+  duplicate IDs, missing IDs, and unknown step references as hard validation
+  failures.
+- Keep relocation-only extraction separate from renderer/versioning/composition
+  work. The first implementation pass must be auditable as a no-wording-change
+  move.
+- Snapshot testing in this tree means deterministic rendered-prompt and wrapper
+  coverage, not broad prompt eval infrastructure.
+- If blocked, append `## Blocker` to the active subspec and stop.

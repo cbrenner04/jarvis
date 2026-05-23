@@ -180,3 +180,14 @@ Out of scope:
 - The design doc should require one concrete metadata shape for prompt artifacts and snapshots. A conservative choice is leading frontmatter per prompt/fragment with at least: stable prompt `id`, behavior, step or fragment kind, and revision signal. Runtime lookup should bind by `id` only; file paths are organizational detail and must not be part of the stable contract.
 - The extraction intent and the renderer/snapshot intent should stay mechanically separate. The first should be auditable as a relocation-only change with no wording edits and no new composition semantics. The second should introduce registry lookup by prompt ID, revision-aware rendered snapshots, validation failures for missing/duplicate IDs, and deterministic renderer tests for ordering, overrides, placeholder handling, delimiters, non-recursive substitution, and wrapper selection.
 - If the design keeps layered composition as a later migration step, it should say so directly. The current patch prompt builder mixes static instruction text with runtime-generated sibling-directory bullets; drafting should preserve that distinction so a later composition step can extract only the static prompt body while leaving list generation and other conditional runtime formatting in TypeScript.
+
+## Blocker
+
+Review and approve `v1/spec/2026-05-23T19-14-48Z-v2-prompt-governance/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v1/spec/2026-05-23T19-14-48Z-v2-prompt-governance/intent.md`

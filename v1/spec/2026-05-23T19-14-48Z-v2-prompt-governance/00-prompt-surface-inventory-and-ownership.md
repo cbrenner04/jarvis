@@ -26,7 +26,9 @@ governance design in current v1 reality:
 
 This slice should stop short of finalizing the rendering contract, snapshot
 test matrix, versioning mechanics, or follow-on implementation intents; later
-subspecs own those details.
+subspecs own those details. It should, however, leave behind a usable document
+spine with later-section headings already in place so the next slices extend
+the same file rather than reframe it.
 
 ## Primary sources
 
@@ -35,6 +37,7 @@ subspecs own those details.
 - `v2/spec/wip-v2-musings.md`
 - `v1/src/modes/patch/prompt.ts`
 - `v1/src/modes/patch/rules.md`
+- `v1/src/modes/plan/inline-draft.ts`
 - `v1/src/modes/plan/prompts/`
 - `v1/src/disambiguation-prompt.ts`
 - `v1/src/modes/patch/run.ts`
@@ -57,20 +60,31 @@ subspecs own those details.
       substitution, non-recursive rendering, boundary enforcement, spec
       parsing, quota fallback, and git/write-boundary checks remain code.
 - [ ] Inventory the current v1 prompt surfaces named in the intent and refine
-      turns:
+      turns as explicit entries, not a grouped shorthand. At minimum the doc
+      must name:
       the patch prompt body assembled in `v1/src/modes/patch/prompt.ts`,
-      injected patch `rules.md`, plan templates in `v1/src/modes/plan/prompts/`,
-      inline-draft prompt, TTY-only non-index confirmation text in patch run,
-      project disambiguation chooser text, printed plan next-step/handoff text,
+      injected patch `rules.md`,
+      the plan refine prompt,
+      the plan name-only prompt,
+      the plan draft prompt,
+      the plan review prompt,
+      the inline-draft prompt loaded by `v1/src/modes/plan/inline-draft.ts`,
+      TTY-only non-index confirmation text in patch run,
+      project disambiguation chooser text,
+      printed plan next-step/handoff text,
       and Codex's invocation marker wrapper.
 - [ ] For each named v1 prompt surface, record an explicit first-pass ownership
       call:
       move into shared prompt source verbatim in the extraction pass, keep in
       runtime code for now, or classify as minimized adapter-local prompt
       surface with snapshot coverage.
+- [ ] Present the inventory in a form that makes omissions hard, such as a
+      table with bucket, current surface, current source location, first-pass
+      ownership call, and migration timing/notes.
 - [ ] Make the conservative first-pass decisions explicit in the doc:
       shared prompt source for `v1/src/modes/patch/rules.md`, plan prompt
-      templates, and the stable instruction text currently assembled in
+      templates plus the inline-draft template, and the stable instruction text
+      currently assembled in
       `v1/src/modes/patch/prompt.ts`; runtime code for project disambiguation,
       non-index confirmation, and printed plan next-step text unless the design
       deliberately argues otherwise; adapter-local prompt surface for the Codex
@@ -94,6 +108,9 @@ subspecs own those details.
 - [ ] Each named v1 prompt surface has an explicit first-pass ownership call:
       shared prompt source now, runtime code for now, or minimized
       adapter-local surface.
+- [ ] The inventory explicitly names the current plan prompt variants
+      (`refine`, `name-only`, `draft`, `review`, and `inline-draft`) instead of
+      collapsing them into a generic reference to the prompts directory.
 - [ ] The conservative extraction decisions from the intent are recorded
       directly in the design doc rather than left implicit.
 - [ ] `v2/spec/prompts.md` includes substantive section stubs for later slices

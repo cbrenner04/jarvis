@@ -23,7 +23,9 @@ under `v2/spec/wip-intents/` that the design recommends. This slice owns:
 
 This slice should keep the implementation intents atomic and auditable. It
 should not merge relocation, registry/snapshot support, and optional layered
-composition into one broad follow-on.
+composition into one broad follow-on. The default outcome should be two
+immediate intents plus a documented later composition phase, unless the design
+finds a third atomic intent that is clearly justified.
 
 ## Primary sources
 
@@ -59,6 +61,10 @@ composition into one broad follow-on.
       revision support.
 - [ ] Ensure the extraction intent is explicit about its no-wording-change,
       no-new-composition-semantics posture and names the artifacts it moves.
+- [ ] Ensure the extraction intent names the current v1 artifacts concretely:
+      patch `rules.md`, the stable prompt text currently assembled in
+      `v1/src/modes/patch/prompt.ts`, and the plan prompt templates
+      (`refine`, `name-only`, `draft`, `review`, `inline-draft`).
 - [ ] Ensure the renderer/snapshot intent covers ID lookup, revision-aware
       snapshots, validation failures for duplicate/missing/unknown IDs, and
       deterministic tests for ordering, overrides, placeholders, delimiters,
@@ -67,6 +73,9 @@ composition into one broad follow-on.
       composition adoption now or to leave that step documented only in
       `v2/spec/prompts.md` as a later follow-on once relocation and registry
       support land.
+- [ ] If the composition step is left as design-only follow-on, say so
+      explicitly in both the design doc and this spec tree rather than leaving
+      the omission ambiguous.
 - [ ] Do a final pass on `v2/spec/prompts.md` so it includes every section
       promised by the original intent:
       prompt inventory, directory/layout, shared-evolving v1 decision, prompt
@@ -91,6 +100,9 @@ composition into one broad follow-on.
 - [ ] Each new follow-on intent is atomic, names the files or surfaces it owns,
       and includes acceptance criteria and documentation updates suitable for a
       future implementation tree.
+- [ ] The spec either creates a third layered-composition intent with a clear
+      reason, or explicitly defers that work to a later tree after relocation
+      and registry support land.
 - [ ] The completed design doc covers all sections promised by the original
       intent and refine turns without duplicating `v2/spec/v1-behaviors.md`.
 

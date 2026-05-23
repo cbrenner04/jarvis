@@ -47,6 +47,10 @@ subspec 02 owns that planning and final migration sequencing.
 - [ ] Pick one concrete metadata mechanism for prompt artifacts and fragments,
       such as leading frontmatter, and require at least:
       stable `id`, behavior, step-or-fragment kind, and revision signal.
+- [ ] Include one concrete metadata example in the design so later extraction
+      work does not need to invent the schema. The example should make clear
+      that runtime binding keys off `id` alone and treats file paths as
+      organizational detail.
 - [ ] Specify that runtime binding is by prompt ID only, not by path, and that
       duplicate IDs, missing IDs, and references to unknown IDs are hard
       validation failures.
@@ -75,6 +79,13 @@ subspec 02 owns that planning and final migration sequencing.
       layering order, add/remove overrides, placeholder validation failures,
       non-recursive substitution, delimiter preservation for injected user
       content, and wrapper selection for any unavoidable adapter-local layer.
+- [ ] State where revision-aware rendered snapshots live and how they are keyed
+      so later implementation work can make changes reviewable without inventing
+      a second artifact model. The design should describe snapshots in terms of
+      prompt ID plus revision, not file path.
+- [ ] Record that prompt renderer tests for future v2 source follow the v2
+      co-location rule and live next to renderer/registry code rather than
+      under a parallel `v2/test/` tree.
 
 ## Acceptance criteria
 
@@ -92,6 +103,8 @@ subspec 02 owns that planning and final migration sequencing.
 - [ ] The review/testing section defines deterministic rendered-snapshot
       coverage for renderer correctness and adapter-local wrappers, not just the
       happy-path rendered text.
+- [ ] The design includes one concrete metadata example and a concrete snapshot
+      keying rule based on prompt ID plus revision.
 
 ## Documentation updates
 

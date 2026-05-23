@@ -28,6 +28,10 @@ than rewriting prompt wording or recataloging user-observable behavior.
 - Treat the current v1 source as the authority for today's prompt surfaces and
   ownership boundaries. Use `v2/spec/v1-behaviors.md` for behavioral context,
   not as a duplicate prompt inventory.
+- Name current v1 prompt surfaces explicitly when the intent already does so.
+  Do not collapse the plan prompt set into a generic directory reference if
+  that would make `refine`, `name-only`, `draft`, `review`, or `inline-draft`
+  easy to miss.
 - Keep the prompt-surface inventory purpose- and lifecycle-oriented. The design
   may cite source files to anchor current surfaces, but it should not devolve
   into a file-by-file implementation tour.
@@ -42,6 +46,9 @@ than rewriting prompt wording or recataloging user-observable behavior.
 - Keep relocation-only extraction separate from renderer/versioning/composition
   work. The first implementation pass must be auditable as a no-wording-change
   move.
+- Treat layered fragment composition as a later migration step unless the spec
+  can justify a separate, atomic follow-on intent for it. Do not blur
+  relocation-only extraction together with new composition semantics.
 - Snapshot testing in this tree means deterministic rendered-prompt and wrapper
   coverage, not broad prompt eval infrastructure.
 - If blocked, append `## Blocker` to the active subspec and stop.

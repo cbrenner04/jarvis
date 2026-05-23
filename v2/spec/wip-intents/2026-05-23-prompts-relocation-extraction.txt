@@ -1,0 +1,49 @@
+Relocation-only extraction of current v1 prompt artifacts into shared prompt
+source.
+
+This intent performs a pure move of prompt-owned text from current v1 locations
+to shared prompt source, without changing wording or introducing new composition
+semantics. It is the first migration stage from `v2/spec/prompts.md`.
+
+Scope:
+
+- Extract `v1/src/modes/patch/rules.md` into shared prompt source verbatim.
+- Extract stable prompt text currently assembled in
+  `v1/src/modes/patch/prompt.ts` into shared prompt artifacts while preserving
+  existing runtime conditional assembly behavior.
+- Extract plan prompt templates verbatim:
+  - `v1/src/modes/plan/prompts/refine.md`
+  - `v1/src/modes/plan/prompts/name-only.md`
+  - `v1/src/modes/plan/prompts/draft.md`
+  - `v1/src/modes/plan/prompts/review.md`
+  - `v1/src/modes/plan/prompts/inline-draft.md`
+- Update v1/v2 loading call sites only as needed to read extracted shared
+  artifacts without behavior changes.
+
+Out of scope:
+
+- Prompt wording edits.
+- New fragment layering/composition behavior.
+- Registry validation expansion (duplicate/missing/unknown IDs).
+- Revision-aware rendered snapshot infrastructure beyond existing checks.
+- Human chooser/confirmation prompt relocation.
+- Adapter-wrapper redesign.
+
+## Acceptance criteria
+
+- [ ] All listed prompt artifacts are relocated to shared prompt source with
+      no wording changes.
+- [ ] `v1/src/modes/patch/rules.md`, patch stable prompt text from
+      `v1/src/modes/patch/prompt.ts`, and all five plan prompt templates are
+      explicitly covered by implementation scope.
+- [ ] Runtime behavior for patch and plan prompt assembly remains unchanged
+      aside from reading prompt text from shared source.
+- [ ] No new prompt composition semantics are introduced in this extraction
+      pass.
+- [ ] The implementation tree is auditable as relocation-only (move/source-path
+      changes clearly separable from any rendering logic work).
+
+## Documentation updates
+
+- [ ] Update prompt-location and ownership docs to reflect extracted paths and
+      confirm relocation-only posture.

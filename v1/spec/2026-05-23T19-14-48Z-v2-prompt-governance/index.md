@@ -16,7 +16,7 @@ than rewriting prompt wording or recataloging user-observable behavior.
 
 - [x] [00 — Prompt surface inventory and ownership boundaries](./00-prompt-surface-inventory-and-ownership.md)
 - [x] [01 — Rendering contract, prompt IDs, revisions, and snapshots](./01-rendering-contract-ids-revisions-and-snapshots.md)
-- [ ] [02 — Migration sequence, follow-on intents, and final consolidation](./02-migration-intents-and-final-consolidation.md)
+- [x] [02 — Migration sequence, follow-on intents, and final consolidation](./02-migration-intents-and-final-consolidation.md)
 
 ## Conventions
 

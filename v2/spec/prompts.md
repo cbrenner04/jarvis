@@ -270,10 +270,88 @@ Test placement rule for v2 source:
   source (`v2/src/**`) per v2 test co-location guidance, not in a parallel
   `v2/test/` tree.
 
-## Migration sequence and follow-on intents (stub for subspec 02)
+## Migration sequence and follow-on intents
 
-Subspec 02 will define the exact migration order, implementation-intent filenames under `v2/spec/wip-intents/`, and the final consolidation plan. It will keep relocation-only extraction separate from later composition/versioning work.
+Migration is staged so prompt-wording moves stay mechanically auditable and do
+not get conflated with renderer behavior changes.
 
-## Unresolved tradeoffs (stub for subspec 02)
+### Stage 1 (immediate): relocation-only extraction
 
-Subspec 02 will explicitly resolve or defer layered prompt-fragment composition mechanics, including what remains out of first-pass extraction and why.
+Intent file: `v2/spec/wip-intents/2026-05-23-prompts-relocation-extraction.txt`
+
+Scope:
+- Move prompt-owned v1 artifacts into shared prompt source with no wording
+  changes.
+- Keep current runtime composition behavior in place.
+- Keep adapter-local wrappers and human chooser/confirmation strings in runtime
+  code for this stage.
+
+Guardrails:
+- No wording changes.
+- No new fragment-composition semantics.
+- No renderer contract expansion beyond what is needed to read relocated
+  artifacts.
+
+Why strict relocation first:
+- It isolates "where text lives" from "how text is rendered."
+- Prompt diffs remain one-to-one against current source text, making review
+  and blame mechanically clear.
+- Failures in later renderer/snapshot work cannot be mistaken for extraction
+  mistakes.
+
+### Stage 2 (immediate): registry + renderer + revision/snapshot support
+
+Intent file:
+`v2/spec/wip-intents/2026-05-23-prompts-registry-renderer-revisions-snapshots.txt`
+
+Scope:
+- Add prompt registry and ID lookup.
+- Enforce duplicate/missing/unknown ID validations as hard failures.
+- Add revision-aware rendered snapshot rules and deterministic tests.
+- Lock the first implementation rendering contract (ordering, overrides,
+  placeholders, delimiter handling, non-recursive substitution, wrapper
+  selection).
+
+This stage is intentionally separate from relocation so rendering and
+validation behavior changes are independently reviewable.
+
+### Stage 3 (deferred follow-on): layered composition adoption
+
+No immediate third intent is created in this tree. Layered-composition
+adoption is explicitly deferred until Stages 1 and 2 land.
+
+Deferred scope:
+- Promote mixed inline prompt assembly (for example, the patch prompt text
+  currently assembled in `v1/src/modes/patch/prompt.ts`) to richer fragment
+  composition only after baseline relocation and registry/snapshot guarantees
+  are stable.
+
+Deferral rationale:
+- Composition changes alter effective rendered text and can obscure relocation
+  audit trails.
+- Deferring composition keeps immediate work atomic and avoids combining three
+  independent risk classes (move, render, compose) in one implementation pass.
+
+## Shared-evolving v1 decision (migration lock)
+
+`jarvis1` and v2 read one shared, evolving prompt source of truth. Prompt
+wording changes are shared behavior changes and must follow the same review and
+snapshot expectations because they can affect both engines.
+
+## Unresolved risks and tradeoffs
+
+1. Adapter-local wrapper scope
+How much wrapper text should remain adapter-local versus moved into shared
+prompt artifacts is still a judgment call. Current posture keeps wrappers thin
+and transport-focused, but this boundary may need revisiting as adapters evolve.
+
+2. Timing of layered composition adoption
+After relocation lands, waiting too long to adopt explicit layered composition
+could leave mixed inline assembly in runtime code longer than desired. Moving
+too early risks coupling composition refactors to extraction validation and
+slowing review.
+
+3. Snapshot-first versus broader eval coverage
+Deterministic rendered snapshots are the immediate safety bar. Broader eval
+coverage (quality/outcome drift analysis) remains an open later decision and is
+not part of this first migration sequence.

@@ -31,11 +31,13 @@ Human-facing chooser and confirmation strings remain part of the broader prompt-
 Prompt artifacts are reviewable source text that expresses stable instructions. Runtime code is responsible for control flow, validation, and formatting mechanics.
 
 Prompt artifacts in the first extraction pass:
+
 - `v1/src/modes/patch/rules.md`
 - Plan prompt templates under `v1/src/modes/plan/prompts/*.md`
 - Stable instruction lines currently assembled in `v1/src/modes/patch/prompt.ts`
 
 Runtime-owned code that stays in TypeScript for now:
+
 - Placeholder substitution and template validation (`v1/src/modes/plan/template-renderer.ts`), including the non-recursive substitution contract
 - Boundary enforcement and boundary-blocker behavior (`v1/src/commands/plan.ts` + boundary helpers)
 - Spec parsing / checklist routing / index checks (`v1/src/modes/patch/spec.ts`, `completion.ts`, and patch preflight call sites)
@@ -66,10 +68,12 @@ For mixed builders, only stable instruction text relocates in pass one; interpol
 ### `v1/src/modes/patch/prompt.ts`
 
 Relocate now:
+
 - Stable instruction lines that define task intent and loop posture
 - Stable wrapper phrase introducing patch rules
 
 Keep in runtime TS for now:
+
 - Sibling-directory conditional branch
 - Runtime-generated bullet list of sibling paths
 - Join and ordering logic that depends on runtime inputs
@@ -81,6 +85,7 @@ This split allows a no-wording-change first extraction while avoiding premature 
 The first extraction pass is a no-wording-change relocation of prompt-owned text.
 
 Move now into shared prompt source:
+
 - `v1/src/modes/patch/rules.md`
 - `v1/src/modes/plan/prompts/refine.md`
 - `v1/src/modes/plan/prompts/name-only.md`
@@ -90,11 +95,13 @@ Move now into shared prompt source:
 - Stable instruction text currently assembled in `v1/src/modes/patch/prompt.ts`
 
 Keep in runtime code for now:
+
 - Project disambiguation chooser strings (`v1/src/disambiguation-prompt.ts`)
 - TTY-only non-index patch confirmation text (`v1/src/modes/patch/run.ts`)
 - Printed plan next-step and handoff text (`v1/src/commands/plan.ts`)
 
 Classify as minimized adapter-local prompt surface:
+
 - Codex invocation marker wrapper in `v1/src/agents/codex.ts`
 
 ## Shared prompt layout and metadata contract
@@ -120,6 +127,7 @@ prompts/
 ```
 
 Layout semantics:
+
 - `fragments/*`: reusable prompt `fragment` artifacts.
 - `steps/*`: renderable `step` artifacts that define behavior-step identity and
   step task body.
@@ -131,12 +139,14 @@ detail and is not a runtime key.
 
 Each renderable source artifact uses leading frontmatter metadata with required
 fields:
+
 - `id`: stable prompt ID used as runtime key.
 - `behavior`: one of `write`, `review-and-update`, `human`.
 - `kind`: `step` or `fragment`.
 - `revision`: monotonic revision signal for that ID.
 
 `step` artifacts additionally declare:
+
 - `fragments`: ordered default layering references by fragment ID.
 - `placeholders`: declared placeholder schema (name + type + required flag).
 - `delimiters`: required delimiter policy for injected user data sections.
@@ -171,6 +181,7 @@ Pick the single most important unchecked task and complete it.
 ```
 
 Validation failures are hard errors:
+
 - Duplicate `id` across all prompt artifacts.
 - Missing required metadata (`id`, `behavior`, `kind`, `revision`).
 - Unknown prompt reference ID (for fragment references or override IDs).
@@ -180,6 +191,7 @@ Validation failures are hard errors:
 First implementation rendering contract is narrow and explicit.
 
 Prompt source owns:
+
 - Ordered fragment membership declarations.
 - Step task text.
 - Delimiter declarations for injected user data zones.
@@ -187,6 +199,7 @@ Prompt source owns:
 - Explicit fragment override intent (`add`/`remove`).
 
 Renderer/runtime code owns:
+
 - Placeholder substitution and type/required validation.
 - Enforcing non-recursive substitution (one substitution pass only).
 - Layer assembly and delimiter insertion mechanics.
@@ -194,11 +207,13 @@ Renderer/runtime code owns:
 - Hard-fail validation handling for duplicate/missing/unknown IDs.
 
 Default layering order:
+
 1. Global fragments.
 2. Behavior fragments.
 3. Step body.
 
 Override semantics:
+
 - `add`: append listed fragment IDs after behavior fragments and before step
   body, preserving listed order.
 - `remove`: remove matching fragment IDs from inherited global/behavior lists
@@ -206,6 +221,7 @@ Override semantics:
 - Overrides are explicit per step; no implicit path-based inheritance.
 
 Placeholder and delimiter rules:
+
 - Every placeholder used in `step` text must be declared in metadata.
 - Missing required placeholder values are hard validation failures.
 - Type mismatch for declared placeholders is a hard validation failure.
@@ -217,12 +233,14 @@ Placeholder and delimiter rules:
   prompt-template logic.
 
 Adapter-wrapper boundary:
+
 - Shared artifact owns step identity (`id`) and core instruction text.
 - Adapter-specific wrappers are allowed only when unavoidable for CLI transport.
 - Adapter wrappers remain thin, separately classified under `prompts/adapters`,
   minimized in scope, and covered by rendered snapshots.
 
 Human-facing chooser/confirmation strings:
+
 - Interactive chooser/confirmation strings remain cataloged prompt surfaces
   (from subspec 00) but are excluded from the first shared prompt-registry and
   snapshot contract in this slice.
@@ -232,6 +250,7 @@ Human-facing chooser/confirmation strings:
 ## Review, snapshots, and revision rules
 
 Revision rule (per prompt `id`):
+
 - Bump `revision` when prompt wording changes.
 - Bump `revision` when a step's effective fragment set changes (including
   override changes that alter rendered output).
@@ -247,15 +266,18 @@ prompts/snapshots/rendered/<id>/r<revision>/<variant>.md
 ```
 
 `<variant>` distinguishes shared step render and adapter-local wrapper render:
+
 - `step.md`: shared rendered step output (after fragment layering +
   substitution).
 - `wrapper.<adapter>.md`: adapter-local wrapped output for that same step ID.
 
 Concrete snapshot path examples:
+
 - `prompts/snapshots/rendered/write.patch.execute/r3/step.md`
 - `prompts/snapshots/rendered/write.patch.execute/r3/wrapper.codex.md`
 
 Initial rendered-snapshot testing standard (deterministic correctness):
+
 - Verifies default layering order (`global -> behavior -> step`).
 - Verifies explicit `add`/`remove` override behavior.
 - Verifies missing required placeholders fail validation.
@@ -266,6 +288,7 @@ Initial rendered-snapshot testing standard (deterministic correctness):
   unknown IDs.
 
 Test placement rule for v2 source:
+
 - Prompt renderer/registry tests live co-located with v2 renderer/registry
   source (`v2/src/**`) per v2 test co-location guidance, not in a parallel
   `v2/test/` tree.
@@ -280,6 +303,7 @@ not get conflated with renderer behavior changes.
 Intent file: `v2/spec/wip-intents/2026-05-23-prompts-relocation-extraction.txt`
 
 Scope:
+
 - Move prompt-owned v1 artifacts into shared prompt source with no wording
   changes.
 - Keep current runtime composition behavior in place.
@@ -287,12 +311,14 @@ Scope:
   code for this stage.
 
 Guardrails:
+
 - No wording changes.
 - No new fragment-composition semantics.
 - No renderer contract expansion beyond what is needed to read relocated
   artifacts.
 
 Why strict relocation first:
+
 - It isolates "where text lives" from "how text is rendered."
 - Prompt diffs remain one-to-one against current source text, making review
   and blame mechanically clear.
@@ -305,6 +331,7 @@ Intent file:
 `v2/spec/wip-intents/2026-05-23-prompts-registry-renderer-revisions-snapshots.txt`
 
 Scope:
+
 - Add prompt registry and ID lookup.
 - Enforce duplicate/missing/unknown ID validations as hard failures.
 - Add revision-aware rendered snapshot rules and deterministic tests.
@@ -321,12 +348,14 @@ No immediate third intent is created in this tree. Layered-composition
 adoption is explicitly deferred until Stages 1 and 2 land.
 
 Deferred scope:
+
 - Promote mixed inline prompt assembly (for example, the patch prompt text
   currently assembled in `v1/src/modes/patch/prompt.ts`) to richer fragment
   composition only after baseline relocation and registry/snapshot guarantees
   are stable.
 
 Deferral rationale:
+
 - Composition changes alter effective rendered text and can obscure relocation
   audit trails.
 - Deferring composition keeps immediate work atomic and avoids combining three

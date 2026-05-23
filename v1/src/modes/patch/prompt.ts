@@ -3,7 +3,16 @@ import { join } from "node:path";
 
 function jarvisRules(): string {
   return readFileSync(
-    join(import.meta.dir, "..", "..", "..", "..", "prompts", "patch", "rules.md"),
+    join(
+      import.meta.dir,
+      "..",
+      "..",
+      "..",
+      "..",
+      "prompts",
+      "patch",
+      "rules.md",
+    ),
     "utf8",
   ).trim();
 }

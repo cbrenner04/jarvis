@@ -37,7 +37,12 @@ export function renderTemplateWithDeclarations(
 ): string {
   const allowed = new Map(declarations.map((d) => [d.name, d]));
   const placeholderPattern = /(?<!<)<([A-Z_][A-Z_0-9]{1,})>(?!>)/g;
-  const matches: Array<{ token: string; name: string; index: number; length: number }> = [];
+  const matches: Array<{
+    token: string;
+    name: string;
+    index: number;
+    length: number;
+  }> = [];
 
   let match = placeholderPattern.exec(template);
   while (match !== null) {
@@ -63,7 +68,11 @@ export function renderTemplateWithDeclarations(
       );
     }
     const value = values[name];
-    if (value !== undefined && declaration.type === "string" && typeof value !== "string") {
+    if (
+      value !== undefined &&
+      declaration.type === "string" &&
+      typeof value !== "string"
+    ) {
       throw new PromptRenderingError(
         "type_mismatch",
         `Placeholder \`${token}\` expects string but received ${typeof value}`,
@@ -114,7 +123,11 @@ export function assemblePrompt(args: {
     ...args.behaviorFragmentIds,
     ...added,
   ].filter((id) => !remove.has(id));
-  const fragmentBodies = orderedIds.map((id) => args.registry.getById(id).body.trim());
+  const fragmentBodies = orderedIds.map((id) =>
+    args.registry.getById(id).body.trim(),
+  );
   const stepBody = args.registry.getById(args.stepPromptId).body.trim();
-  return [...fragmentBodies, stepBody].filter((part) => part.length > 0).join("\n\n");
+  return [...fragmentBodies, stepBody]
+    .filter((part) => part.length > 0)
+    .join("\n\n");
 }

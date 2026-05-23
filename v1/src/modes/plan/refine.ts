@@ -4,14 +4,14 @@ import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
+import { loadPromptRegistry } from "../../prompts/registry.ts";
+import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
-import { loadPromptRegistry } from "../../prompts/registry.ts";
-import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 
 /** Level-2 heading for explicit no-op refine outcome (append-only). */
 export const REFINE_SKIP_HEADING = "## Refine skip";

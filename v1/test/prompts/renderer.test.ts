@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import type {
+  PromptArtifact,
+  PromptRegistry,
+} from "../../src/prompts/registry.ts";
 import {
-  PromptRenderingError,
   assemblePrompt,
   enforceDelimiterPolicy,
+  PromptRenderingError,
   renderTemplateWithDeclarations,
 } from "../../src/prompts/renderer.ts";
-import type { PromptArtifact, PromptRegistry } from "../../src/prompts/registry.ts";
 
 function makeRegistry(artifacts: PromptArtifact[]): PromptRegistry {
   const byId = new Map(artifacts.map((a) => [a.metadata.id, a]));
@@ -96,13 +99,18 @@ describe("renderTemplateWithDeclarations", () => {
 
   test("enforces required placeholder presence", () => {
     expect(() =>
-      renderTemplateWithDeclarations("x <AA> y <BB>", declarations, { AA: "1" }),
+      renderTemplateWithDeclarations("x <AA> y <BB>", declarations, {
+        AA: "1",
+      }),
     ).toThrow("Required placeholder `<BB>` has no value");
   });
 
   test("enforces placeholder type", () => {
     expect(() =>
-      renderTemplateWithDeclarations("x <AA>", declarations, { AA: 1, BB: "ok" }),
+      renderTemplateWithDeclarations("x <AA>", declarations, {
+        AA: 1,
+        BB: "ok",
+      }),
     ).toThrow("expects string");
   });
 

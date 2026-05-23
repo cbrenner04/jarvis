@@ -4,6 +4,8 @@ import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
+import { loadPromptRegistry } from "../../prompts/registry.ts";
+import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
@@ -11,8 +13,6 @@ import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
-import { loadPromptRegistry } from "../../prompts/registry.ts";
-import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 
 export type DraftPhaseOptions = {
   worktreePath: string;

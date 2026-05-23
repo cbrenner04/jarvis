@@ -38,7 +38,10 @@ describe("rendered prompt snapshots", () => {
     const reviewStepTwoKey = `${registry.getById("plan.prompt.review").metadata.id}@r${registry.getById("plan.prompt.review").metadata.revision}.pass-2.shared.txt`;
     const refineKey = `${registry.getById("plan.prompt.refine").metadata.id}@r${registry.getById("plan.prompt.refine").metadata.revision}.shared.txt`;
 
-    const patch = buildPrompt("v1/spec/example/index.md", ["../shared-lib", "../infra"]);
+    const patch = buildPrompt("v1/spec/example/index.md", [
+      "../shared-lib",
+      "../infra",
+    ]);
     const draft = buildDraftPrompt({
       name: "prompt-registry",
       intent: "Intent with <SPEC_GUIDANCE> token",
@@ -48,7 +51,8 @@ describe("rendered prompt snapshots", () => {
       name: "prompt-registry",
       intent: "Intent",
       specGuidance: "Guide",
-      currentSpec: '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
+      currentSpec:
+        '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
       passNumber: 1,
       totalPasses: 2,
     });
@@ -56,7 +60,8 @@ describe("rendered prompt snapshots", () => {
       name: "prompt-registry",
       intent: "Intent",
       specGuidance: "Guide",
-      currentSpec: '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
+      currentSpec:
+        '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
       passNumber: 2,
       totalPasses: 2,
     });

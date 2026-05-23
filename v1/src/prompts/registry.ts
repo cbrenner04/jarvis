@@ -37,7 +37,12 @@ const PROMPT_ARTIFACT_FILES = [
   join(import.meta.dir, "..", "modes", "plan", "prompts", "refine.md"),
 ] as const;
 
-const REQUIRED_METADATA_FIELDS = ["id", "behavior", "kind", "revision"] as const;
+const REQUIRED_METADATA_FIELDS = [
+  "id",
+  "behavior",
+  "kind",
+  "revision",
+] as const;
 
 function parseListValue(value: string): string[] {
   if (value.startsWith("[") && value.endsWith("]")) {

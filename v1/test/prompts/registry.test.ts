@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createPromptRegistry } from "../../src/prompts/registry.ts";
 
 function withFrontmatter(meta: string, body = "Body"): string {
@@ -72,12 +72,12 @@ describe("prompt registry load validation", () => {
       "<WORKDIR> <NAME>",
     );
     const registry = createPromptRegistry([writePromptFixture(entry)]);
-    expect(registry.getById("placeholders.prompt").metadata.placeholders).toEqual(
-      [
-        { name: "WORKDIR", type: "string", required: true },
-        { name: "NAME", type: "string", required: true },
-      ],
-    );
+    expect(
+      registry.getById("placeholders.prompt").metadata.placeholders,
+    ).toEqual([
+      { name: "WORKDIR", type: "string", required: true },
+      { name: "NAME", type: "string", required: true },
+    ]);
   });
 
   test("invalid placeholder declarations fail during load", () => {

@@ -1,8 +1,10 @@
-# V2 Musings
+# Jarvis v2 — Architecture
 
-Working notes for the v2 design. This complements `v2-vision.md`: the vision owns
-the behavior-loop vocabulary and rollout strategy; this doc works out the
-prompt / workflow / config layering and records what's decided vs still open.
+The decided v2 architecture, worked out through design interviews. Companion to
+`v2-vision.md`: the vision owns the *why*, the rollout strategy, and the
+constraints/guiding principles that govern the design; this doc owns the *how* —
+the layered model, prompts, workflows, config, the execution model, and the
+runtime. It reuses the behavior-loop vocabulary defined in the vision.
 
 ## The layered model
 
@@ -316,66 +318,10 @@ repos" principle change is smaller:
   the same root** — no worktree means no isolation, so they'd clobber each other
   (v1 never hit this because it was one-shot).
 
-## Constraints
+## Constraints & guiding principles
 
-### Cost Efficiency
-
-We will need to be conscientious about cost. Some of the workflows can have many
-agent interactions in it. We should be optimizing prompts, agent choices, and
-orchestration to get the results we are looking for without unnecessary agent
-use. If something can be deterministic, it should be.
-
-### Memory Efficiency
-
-Running agents takes up memory. There will also be a local model running at the
-same time. We don't want our workflows bogging down the machine.
-
-### Configurable
-
-Much of what Jarvis does should have a data layer, part of which comes from
-configuration. If it seems like it shouldn't be hardcoded in Jarvis, don't
-ignore that - put it in the config.
-
-### Composable
-
-Not every project needs the same workflows. Some projects are very sensitive and
-they need more human-in-the-loop blocks and more review blocks. Others can have a
-"YOLO" posture. Even still, not every change needs a massive plan/review cycle -
-even in a sensitive project.
-
-### Extendible
-
-Updates need to be easy to make and easy to review. This will make them more cost
-effective but also improve our trust in them.
-
-### Reliable
-
-Testing will be important. Unit testing any business logic is a must. We should
-have code coverage measured and blocking changes when dropped. We will need
-integration testing. Workflows should be well covered with integration tests.
-Finally, we are going to need evals. We want to know when our changes will result
-in outcome drift, what that drift is, how big of an impact it has. Since this is
-expense, they need to be on demand only and we need heuristics for when to run
-them.
-
-## Guiding Principles
-
-### Be terse
-
-This is a big one. It goes to cost effectiveness but also human review
-effectiveness. LLMs can be verbose. We need to be clear that that is not what we
-want. We want to be as terse as possible. If we can reduce the verbosity and keep
-the outcomes very close to the same, we should always do that. This goes for
-planning, implementation, and review. This applies in Jarvis source code as well
-as target projects.
-
-### Small PRs
-
-PRs should be reviewable. That means <1000 lines touched. 600 is a sweet spot.
-That means we have to be clear about being terse for every action an agent takes.
-
-### Strong architectural decisions
-
-Even if the user is in "YOLO" mode, the outcome should be based on well
-considered architectural decisions. Nothing should be "just get it working". That
-will just cause more iterations which won't be cost effective or terse.
+The constraints and guiding principles that govern this architecture — cost,
+memory, configurability, composability, extendibility, reliability; terseness,
+capped PR size, strong architectural decisions — are the canonical list in
+[`v2-vision.md`](v2-vision.md). They are not duplicated here, to avoid drift; this
+doc is checked against them.

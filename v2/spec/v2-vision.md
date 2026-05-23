@@ -1,6 +1,6 @@
 # Jarvis v2 — Vision
 
-This is a long-lived reference doc, not a plan intent. It captures the *why* and the open questions for the v2 rewrite. Individual v2 work items live as their own intents and reference this doc.
+This is a long-lived reference doc, not a plan intent. It captures the *why*, the rollout strategy, and the constraints and guiding principles for the v2 rewrite. The decided architecture — the *how* — lives in [`v2-architecture.md`](v2-architecture.md). Individual v2 work items live as their own intents and reference these docs.
 
 ## Repo layout (target)
 
@@ -30,8 +30,10 @@ Prompts are a top-level peer, not owned by either engine (see "Core premise" and
 - **Behavior is the source of truth.** v1's *implementation* is mostly disposable; its *behaviors and user workflows* are what v2 must preserve.
 - **Documented in code.** Inline documentation is a first-class output, not an afterthought. Separate higher-level docs keep the big picture coherent.
 - **Tests beside v2 source.** v2 tests live next to the source they cover instead of in a parallel `v2/test/` tree. Keep test-only fixtures near their owning code unless a genuinely shared fixture earns a shared home.
-- **Composable over modal.** "mode" (plan / patch / review / yolo) is probably the wrong primitive — see open questions below.
+- **Composable over modal.** "mode" (plan / patch / review / yolo) is not a source-code primitive — modes are user-defined workflow presets composed from a small behavior vocabulary. Settled; the concrete model lives in [`v2-architecture.md`](v2-architecture.md).
 - **No tech-stack churn.** bun + biome + typescript stay.
+- **Be terse.** Verbosity costs money and review effort. Minimize it across planning, implementation, and review — in Jarvis source and target repos alike. If verbosity can drop with near-identical outcomes, drop it.
+- **Strong architectural decisions.** Even in YOLO, outcomes rest on considered architecture, never "just get it working" — that only causes more iterations, which is neither cost-effective nor terse.
 
 ## Naming clean-up
 
@@ -109,7 +111,7 @@ Or
 3. "Write" loop `N` times with an implementation prompt.
 4. "Human" loop `N` times for final review and merge.
 
-This points toward a v2 architecture where "plan", "implement", "review", and "yolo" are not hardcoded modes in Jarvis source. They are user favorites or named workflow presets composed from the smaller behavior vocabulary Jarvis exposes. Prompts and model choices become step inputs, not hardcoded mode internals. The host/runner owns sequencing, bounded repeats, state handoff, quota fallback, telemetry, and human checkpoints.
+This is the v2 architecture: "plan", "implement", "review", and "yolo" are not hardcoded modes in Jarvis source. They are named workflow presets composed from the smaller behavior vocabulary Jarvis exposes. Prompts and model choices become step inputs, not hardcoded mode internals. The host/runner owns sequencing, bounded repeats, state handoff, quota fallback, telemetry, and human checkpoints. The concrete workflow/step/config model, the execution model (output contract, runs, state, the human loop), concurrency, and git mechanics are worked out in [`v2-architecture.md`](v2-architecture.md).
 
 ## Architectural constraints
 
@@ -119,6 +121,12 @@ Constraints v2's architecture must satisfy. Some are forward-looking (server, UI
 - **Structured logging.** First-class, structured, queryable — not ad-hoc stdout. The runtime should produce a log stream that something else can consume.
 - **A long-running server.** A host process that hosts orchestrations rather than each run living in its own terminal window. v2's core should be embeddable, not assume a one-shot CLI lifecycle.
 - **An orchestration UI.** One interface to launch, monitor, and steer many concurrent jarvis runs. Implies a programmatic surface (API/IPC) over each operation, not just CLI flags.
+- **Cost-efficient.** Workflows can chain many agent calls. Optimize prompts, agent choice, and orchestration to hit the target without wasted agent use. Anything that can be deterministic should be.
+- **Memory-efficient.** Concurrent agents plus a local model must not bog down the machine. Drives the adaptive admission and on-demand local model in `v2-architecture.md`.
+- **Configurable.** If something shouldn't be hardcoded, it belongs in config (the data layer). Don't ignore that instinct.
+- **Composable.** Different projects need different postures — sensitive projects want more human/review steps, others run YOLO — and even sensitive projects don't need a full plan/review cycle for every small change.
+- **Extendible.** Changes should be easy to make and easy to review. Cheaper, and it builds trust in them.
+- **Reliable.** Unit-test business logic; measure coverage and block on drops; integration-test workflows. Evals (on-demand only, with heuristics for when to run) catch outcome drift — deferred for now.
 
 ## Coexistence, not replacement
 
@@ -137,6 +145,6 @@ Install is intentionally not fancy — symlinks on two machines (personal + work
 2. **Rename binary `jarvis` → `jarvis1`, reserve `jarvis` for v2.** *(See `v2-rename-binary.txt`.)*
 3. **Catalog v1 behaviors** — one high-level doc covering every user-facing behavior, produced by reading source exhaustively, then iterated on with review. *(See `v2-catalog.txt`.)*
    While v1 remains active during rollout, parity-relevant v1 behavior changes should update `v2/spec/v1-behaviors.md` in the same change window to keep v2 planning grounded in current behavior.
-4. **Design v2 architecture** — composable operations + host. Must satisfy the constraints above. Update this doc with the chosen model once decided.
+4. **Design v2 architecture** — composable operations + host. Must satisfy the constraints above. The decided model is captured in [`v2-architecture.md`](v2-architecture.md).
 5. **Build v2 incrementally**, behavior-by-behavior. `jarvis` (v2) becomes usable as features land; `jarvis1` remains the daily-driver until v2 reaches parity.
 6. **No deletion of v1.** Both commands stay installed indefinitely.

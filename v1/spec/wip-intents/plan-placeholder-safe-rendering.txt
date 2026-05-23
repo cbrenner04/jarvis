@@ -1,0 +1,104 @@
+Design a v1 implementation spec for fixing plan-mode prompt rendering so
+literal placeholder-looking text in user or agent-authored content is safe.
+
+Context:
+
+- `jarvis1 plan v2/spec/wip-intents/v2-prompts.txt` failed during the refine
+  phase after the first refine turn.
+- The initial intent was clean, but the refine agent appended useful notes that
+  inventoried existing prompt placeholders such as `<INTENT>`,
+  `<SPEC_GUIDANCE>`, `<NAME>`, `<WORKDIR>`, `<CURRENT_SPEC>`, and
+  `<REVIEW_PASS_CONTEXT>`.
+- The next refine turn rejected the refined `intent.md` with:
+  `intent contains the literal token ...; this would corrupt the prompt`.
+- This is a valid planning topic: prompt-governance specs need to be able to
+  discuss exact placeholder tokens. Jarvis should not fail merely because
+  injected content mentions them as data.
+
+Problem:
+
+- Plan prompt builders currently protect against prompt corruption by scanning
+  injected values for literal placeholder tokens before running sequential
+  `replaceAll` calls over template text.
+- That collision check prevents recursive substitution corruption, but it also
+  makes legitimate content unrepresentable.
+- The failure is especially bad in refine mode because Jarvis can generate the
+  offending content itself on turn 1, then reject its own intermediate
+  `intent.md` on turn 2.
+- The error is also reported as `plan: model configuration error`, which is
+  misleading for a prompt-rendering validation failure.
+
+Goal:
+
+- Produce a concrete, atomic implementation spec that replaces the over-broad
+  placeholder-collision approach with a renderer that only substitutes
+  placeholders from the original template source.
+- Literal placeholder-looking strings inside injected values must remain data,
+  not become template syntax and not cause hard failure.
+- Keep the change focused on plan-mode prompt rendering and its tests/docs.
+
+Expected design decisions for the generated implementation spec:
+
+- Add or adopt a small shared prompt-template rendering helper for v1 plan mode.
+- The renderer should perform non-recursive substitution:
+  - identify supported placeholders in the template,
+  - replace each placeholder from a provided value map,
+  - never scan or rewrite inserted values after insertion.
+- The renderer should still fail if the template references an unknown or
+  missing placeholder, because that indicates a harness/template mismatch.
+- The renderer should not fail merely because a provided value contains strings
+  like `<INTENT>` or `<SPEC_GUIDANCE>`.
+- Keep delimiter protections such as `<<<INTENT_BEGIN>>>` /
+  `<<<INTENT_END>>>`; this change is only about placeholder substitution.
+- Preserve existing prompt output for normal inputs as much as practical.
+- Do not rewrite prompt wording unless a small clarification is needed for the
+  new renderer behavior.
+
+Prompt surfaces to cover:
+
+- plan refine prompt
+- plan name-only prompt, if it uses similar substitution
+- plan draft prompt
+- plan review prompt
+- inline draft prompt, if it uses similar substitution
+
+Tests to require:
+
+- Unit tests for the shared renderer:
+  - replaces known placeholders from the original template,
+  - preserves literal placeholder-looking strings inside inserted values,
+  - fails on missing template values,
+  - fails on unknown placeholders in template source if the renderer supports
+    that validation.
+- Regression test for the reproduced failure shape:
+  - build a refine prompt with an `intent` value that includes exact strings
+    such as `<INTENT>` and `<SPEC_GUIDANCE>`,
+  - assert prompt building succeeds and the strings appear in the injected
+    intent block as data.
+- Update existing tests that currently expect `PlaceholderCollisionError` for
+  placeholder-looking content in intent/current spec/name values.
+- Keep or replace any tests needed to prove ordinary placeholders are still
+  fully substituted from templates.
+
+Documentation updates:
+
+- Update v1 plan-mode docs where they currently describe placeholder collisions
+  as a fatal configuration/model-config error.
+- Update any v1 docs that mention prompt rendering, placeholder hardening, or
+  plan exit semantics if they become inaccurate.
+- Update v2 documentation where needed, especially prompt-governance or
+  behavior-catalog material that discusses prompt rendering, placeholder
+  validation, or exact prompt artifact mechanics.
+- If the v2 prompt-governance design or related wip intent is affected, note
+  that literal prompt placeholder tokens are allowed inside prompt data because
+  rendering is non-recursive.
+
+Acceptance criteria for the generated spec:
+
+- It is atomic and implementable independently.
+- It includes exact files or file areas likely to change.
+- It requires `bun run typecheck` and `bun test`.
+- It includes documentation updates as part of the implementation work, not as
+  a follow-up.
+- It does not authorize broader prompt relocation, prompt-governance design, or
+  v2 architecture work beyond docs needed to keep this behavior accurate.

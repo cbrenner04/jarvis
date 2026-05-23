@@ -11,6 +11,7 @@ import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
+import { loadPromptRegistry } from "../../prompts/registry.ts";
 
 export type DraftPhaseOptions = {
   worktreePath: string;
@@ -42,8 +43,7 @@ export function buildDraftPrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  const promptFile = join(import.meta.dir, "prompts", "draft.md");
-  let template = readFileSync(promptFile, "utf8");
+  let template = loadPromptRegistry().getById("plan.prompt.draft").body;
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";

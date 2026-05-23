@@ -10,6 +10,7 @@ import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
+import { loadPromptRegistry } from "../../prompts/registry.ts";
 
 /** Level-2 heading for explicit no-op refine outcome (append-only). */
 export const REFINE_SKIP_HEADING = "## Refine skip";
@@ -49,8 +50,7 @@ export function buildRefinePrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  const promptFile = join(import.meta.dir, "prompts", "refine.md");
-  let template = readFileSync(promptFile, "utf8");
+  let template = loadPromptRegistry().getById("plan.prompt.refine").body;
 
   const targetDir = opts.targetDir ?? "spec";
   template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);

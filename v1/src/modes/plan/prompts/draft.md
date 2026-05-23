@@ -1,3 +1,9 @@
+---
+id: plan.prompt.draft
+behavior: agent-facing
+kind: template
+revision: 1
+---
 # Plan Mode — Draft Phase
 
 You are helping to create a Jarvis spec tree. This is the **draft** phase: read the intent and target repo context, then produce a complete spec tree with an index and one or more atomic subspecs.

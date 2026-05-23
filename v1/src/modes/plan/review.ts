@@ -12,6 +12,7 @@ import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
+import { loadPromptRegistry } from "../../prompts/registry.ts";
 
 export type ReviewPhaseOptions = {
   worktreePath: string;
@@ -50,8 +51,7 @@ export function buildReviewPrompt(opts: {
       ? "This is the first review pass. The spec snapshot below is the original draft."
       : `This is review pass ${passNumber} of ${totalPasses}. The spec snapshot below reflects the prior pass.`;
 
-  const promptFile = join(import.meta.dir, "prompts", "review.md");
-  let template = readFileSync(promptFile, "utf8");
+  let template = loadPromptRegistry().getById("plan.prompt.review").body;
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";

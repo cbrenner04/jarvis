@@ -1,3 +1,9 @@
+---
+id: patch.rules
+behavior: agent-facing
+kind: rules
+revision: 1
+---
 # Patch Mode
 
 Execute active spec only.

@@ -1,3 +1,9 @@
+---
+id: plan.prompt.review
+behavior: agent-facing
+kind: template
+revision: 1
+---
 # Plan Mode — Self-Review Phase
 
 You are helping to review and refine a Jarvis spec tree. This is a **review** pass: read the original intent and current spec files, critique them against the spec guidance, and rewrite the files in place to address the most important issues.

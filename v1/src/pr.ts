@@ -234,9 +234,7 @@ function stripTrailerBlock(body: string): string {
  */
 export function renderAttribution(opts: { cwd: string; base: string }): string {
   const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
-  const subspecCommits = commits.filter((c) =>
-    c.firstBodyLine.startsWith(SUBSPEC_FIRST_BODY_LINE_PREFIX),
-  );
+  const subspecCommits = getSubspecCommits(commits);
   if (subspecCommits.length === 0) {
     return "";
   }
@@ -265,6 +263,49 @@ export function renderAttribution(opts: { cwd: string; base: string }): string {
     lines.push(`Written by ${labelOrder.join(", ")} through Jarvis.`);
   }
   return lines.join("\n");
+}
+
+/**
+ * Render only the compact attribution summary line for subspec commits.
+ *
+ * Returns `""` when there are no subspec commits or when no subspec commit
+ * has a non-empty `Jarvis-Agent` trailer.
+ */
+export function renderAttributionSummary(opts: {
+  cwd: string;
+  base: string;
+}): string {
+  const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
+  const subspecCommits = getSubspecCommits(commits);
+  if (subspecCommits.length === 0) {
+    return "";
+  }
+  const labels = collectLabelOrder(subspecCommits);
+  if (labels.length === 0) {
+    return "";
+  }
+  return `Written by ${labels.join(", ")} through Jarvis.`;
+}
+
+function getSubspecCommits(commits: CommitInfo[]): CommitInfo[] {
+  return commits.filter((c) =>
+    c.firstBodyLine.startsWith(SUBSPEC_FIRST_BODY_LINE_PREFIX),
+  );
+}
+
+function collectLabelOrder(commits: CommitInfo[]): string[] {
+  const labelOrder: string[] = [];
+  const seenLabels = new Set<string>();
+  for (const commit of commits) {
+    for (const label of commit.jarvisAgentTrailers) {
+      if (label === "" || seenLabels.has(label)) {
+        continue;
+      }
+      seenLabels.add(label);
+      labelOrder.push(label);
+    }
+  }
+  return labelOrder;
 }
 
 export function extractNarrative(prBody: string): string | null {

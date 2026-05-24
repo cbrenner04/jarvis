@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 describe("buildPrBody", () => {
-  test("renders header with H1, progress, and verbatim subspec checklist", () => {
+  test("renders header with H1 only", () => {
     writeFileSync(
       indexPath,
       [
@@ -57,24 +57,10 @@ describe("buildPrBody", () => {
     );
 
     const body = buildPrBody({ indexPath, narrative: null });
-    expect(body).toBe(
-      [
-        "# Big Feature",
-        "",
-        "## Progress",
-        "",
-        "1 of 3 subspecs complete",
-        "",
-        "## Subspecs",
-        "",
-        "- [x] [00 - first](./00-first.md)",
-        "- [ ] [01 - second](./01-second.md)",
-        "- [ ] [02 - third](./02-third.md)",
-      ].join("\n"),
-    );
+    expect(body).toBe("# Big Feature");
   });
 
-  test("excludes non-.md linked items from the checklist and progress count", () => {
+  test("ignores linked checklist content", () => {
     writeFileSync(
       indexPath,
       [
@@ -87,9 +73,7 @@ describe("buildPrBody", () => {
     );
 
     const body = buildPrBody({ indexPath, narrative: null });
-    expect(body).toContain("1 of 1 subspecs complete");
-    expect(body).toContain("- [x] [00 - md](./00-md.md)");
-    expect(body).not.toContain("https://example.com");
+    expect(body).toBe("# Spec");
   });
 
   test("includes narrative bracketed by markers when narrative is non-null", () => {
@@ -115,8 +99,7 @@ describe("buildPrBody", () => {
   test("renders header with no H1 when index has none", () => {
     writeFileSync(indexPath, "- [ ] [00 - one](./00-one.md)\n");
     const body = buildPrBody({ indexPath, narrative: null });
-    expect(body.startsWith("## Progress\n")).toBe(true);
-    expect(body).toContain("0 of 1 subspecs complete");
+    expect(body).toBe("");
   });
 });
 
@@ -193,13 +176,47 @@ describe("updatePrBody", () => {
     });
 
     expect(writtenBody).toContain("# Spec");
-    expect(writtenBody).toContain("1 of 2 subspecs complete");
     expect(writtenBody).toContain(
       `${NARRATIVE_START_MARKER}\npreserved narrative\n${NARRATIVE_END_MARKER}`,
     );
     expect(writtenBody).toContain(
       "\n\n---\n\n- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
     );
+  });
+
+  test("uses compact attribution by default", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+    execSync("git add -A", { cwd: dir, stdio: "pipe" });
+    execSync(
+      "git commit -q -m 'one' -m 'Spec: spec/00-one.md' -m 'Jarvis-Agent: Agent A'",
+      { cwd: dir, stdio: "pipe" },
+    );
+    execSync("echo x >> seed.txt", { cwd: dir, stdio: "pipe" });
+    execSync("git add -A", { cwd: dir, stdio: "pipe" });
+    execSync(
+      "git commit -q -m 'retry same subspec' -m 'Spec: spec/00-one.md' -m 'Jarvis-Agent: Agent A'",
+      { cwd: dir, stdio: "pipe" },
+    );
+
+    let writtenBody = "";
+    updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => "",
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+    });
+
+    expect(writtenBody).toContain("Written by Agent A through Jarvis.");
+    expect(
+      writtenBody
+        .split("\n")
+        .filter((line) => line === "Written by Agent A through Jarvis."),
+    ).toHaveLength(1);
+    expect(writtenBody).not.toContain("retry same subspec");
   });
 
   test("omits narrative section when markers missing in current body", () => {

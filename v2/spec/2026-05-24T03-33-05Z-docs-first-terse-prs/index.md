@@ -8,4 +8,4 @@ PR bodies terse. Foundation -> ordering -> output.
 
 - [x] [00 - Define documentation placement and inline standard](./00-define-documentation-placement-and-inline-standard.md)
 - [x] [01 - Restore documentation-first agent guidance](./01-restore-documentation-first-agent-guidance.md)
-- [ ] [02 - Make patch PR bodies terse](./02-make-patch-pr-bodies-terse.md)
+- [x] [02 - Make patch PR bodies terse](./02-make-patch-pr-bodies-terse.md)

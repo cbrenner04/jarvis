@@ -33,7 +33,11 @@ import {
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
-import { checkPrExists, ensureDraftPr, renderAttribution } from "../../pr.ts";
+import {
+  checkPrExists,
+  ensureDraftPr,
+  renderAttributionSummary,
+} from "../../pr.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -1193,7 +1197,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 if (!state.draftPrEnsured) {
                   const prBody = async (): Promise<string> =>
                     getDeterministicPrBody(afterSpecPath);
-                  const footer = renderAttribution({
+                  const footer = renderAttributionSummary({
                     cwd: agentWorkingDir,
                     base,
                   });

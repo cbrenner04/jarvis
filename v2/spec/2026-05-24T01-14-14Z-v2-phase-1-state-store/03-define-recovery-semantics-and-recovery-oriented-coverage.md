@@ -74,19 +74,19 @@ store boundary without inventing mid-step snapshots or structured log history.
 
 ## Acceptance criteria
 
-- [ ] A tested recovery read classifies a run into exactly
+- [x] A tested recovery read classifies a run into exactly
       `start-next-boundary`, `replay-last-boundary`, or `run-terminal`, derived
       only from `runs.next_step_id` plus `step_attempts`/`step_outcomes` history.
-- [ ] Tests cover four cases: `no-attempt-yet` → start-next,
+- [x] Tests cover four cases: `no-attempt-yet` → start-next,
       `attempt-without-checkpoint` → replay-last, `boundary-committed` →
       advanced exactly once, `crash-before-checkpoint` → still replayable and
       not reported committed.
-- [ ] Re-invoking `commitStepBoundary` for an already-committed boundary is
+- [x] Re-invoking `commitStepBoundary` for an already-committed boundary is
       idempotent: a test asserts no second checkpoint advancement and no
       duplicate outcome row.
-- [ ] No mid-step snapshot, event/log history, human-steering, or daemon
+- [x] No mid-step snapshot, event/log history, human-steering, or daemon
       lifecycle state is introduced by this subspec.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

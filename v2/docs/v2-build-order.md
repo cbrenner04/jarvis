@@ -50,6 +50,8 @@ or daemon lock policy. Recovery is step-boundary only: recovery reads derive
 is one transactional effect (attempt terminal + outcome + checkpoint
 advancement). Retires: state-model risk in isolation, before anything depends on
 it.
+Later daemon phases do not redefine these semantics; they only trigger the same
+Phase 1 recovery reads through daemon/IPC surfaces.
 
 ### Phase 2 — Daemon shell + IPC + structured logging
 

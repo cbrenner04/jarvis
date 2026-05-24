@@ -4,6 +4,7 @@ export {
   createRun,
   listStepHistory,
   loadRunForResume,
+  readRecoveryAction,
   recordStepStart,
 } from "./state-store.ts";
 export type {
@@ -18,6 +19,9 @@ export type {
   LoadRunForResumeInput,
   LoadRunForResumeResult,
   OutcomeClass,
+  ReadRecoveryActionInput,
+  ReadRecoveryActionResult,
+  RecoveryAction,
   RecordStepStartInput,
   RecordStepStartResult,
   ResumeAttempt,

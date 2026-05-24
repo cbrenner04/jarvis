@@ -13,6 +13,7 @@ import {
   createRun,
   listStepHistory,
   loadRunForResume,
+  readRecoveryAction,
   recordStepStart,
   type AttemptStatus,
   type OutcomeClass,
@@ -134,6 +135,7 @@ describe("state-store repository operations", () => {
       "createRun",
       "listStepHistory",
       "loadRunForResume",
+      "readRecoveryAction",
       "recordStepStart",
     ]);
   });
@@ -287,6 +289,140 @@ describe("state-store repository operations", () => {
     expect(runRow?.next_step_id).toBe("step_1");
 
     db.close(false);
+    store.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test("recovery read returns start-next-boundary when no attempt exists for next checkpoint", () => {
+    const { tempDir, dbPath } = mkTempDbPath();
+    const store = bootstrapStateStore({ dbPath });
+    createRun(store, {
+      runId: "run_1",
+      projectId: "jarvis",
+      workflowName: "v2",
+      specPath: "v2/spec/index.md",
+      worktreePath: "/tmp/wt",
+      branch: "feature/v2",
+      initialStepId: "step_1",
+    });
+    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe("start-next-boundary");
+    store.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test("recovery read returns replay-last-boundary when attempt exists without committed boundary", () => {
+    const { tempDir, dbPath } = mkTempDbPath();
+    const store = bootstrapStateStore({ dbPath });
+    createRun(store, {
+      runId: "run_1",
+      projectId: "jarvis",
+      workflowName: "v2",
+      specPath: "v2/spec/index.md",
+      worktreePath: "/tmp/wt",
+      branch: "feature/v2",
+      initialStepId: "step_1",
+    });
+    recordStepStart(store, {
+      runId: "run_1",
+      stepId: "step_1",
+      startedAt: "2026-05-24T00:00:01Z",
+    });
+    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe("replay-last-boundary");
+    store.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test("committed boundary advances once and repeated commit is idempotent", () => {
+    const { tempDir, dbPath } = mkTempDbPath();
+    const store = bootstrapStateStore({ dbPath });
+    createRun(store, {
+      runId: "run_1",
+      projectId: "jarvis",
+      workflowName: "v2",
+      specPath: "v2/spec/index.md",
+      worktreePath: "/tmp/wt",
+      branch: "feature/v2",
+      initialStepId: "step_1",
+    });
+    const attempt = recordStepStart(store, {
+      runId: "run_1",
+      stepId: "step_1",
+      startedAt: "2026-05-24T00:00:01Z",
+    });
+
+    const first = commitStepBoundary(store, {
+      runId: "run_1",
+      attemptId: attempt.attemptId,
+      stepId: "step_1",
+      terminalStatus: "succeeded",
+      outcomeClass: "progress",
+      nextStepId: "step_2",
+      finishedAt: "2026-05-24T00:00:02Z",
+    });
+    const second = commitStepBoundary(store, {
+      runId: "run_1",
+      attemptId: attempt.attemptId,
+      stepId: "step_1",
+      terminalStatus: "succeeded",
+      outcomeClass: "progress",
+      nextStepId: "step_3",
+      finishedAt: "2026-05-24T00:00:03Z",
+    });
+
+    const db = new Database(dbPath, { readonly: true, strict: true });
+    const runRow = db
+      .query<{ next_step_id: string | null }, [string]>(
+        "SELECT next_step_id FROM runs WHERE run_id = ?1",
+      )
+      .get("run_1");
+    const outcomeRows = db
+      .query<{ count: number }, [string]>(
+        "SELECT COUNT(*) AS count FROM step_outcomes WHERE attempt_id = ?1",
+      )
+      .get(attempt.attemptId);
+
+    expect(first.outcomeId).toBe(second.outcomeId);
+    expect(runRow?.next_step_id).toBe("step_2");
+    expect(outcomeRows?.count).toBe(1);
+    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe("start-next-boundary");
+
+    db.close(false);
+    store.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test("recovery read remains replayable after crash before checkpoint advancement", () => {
+    const { tempDir, dbPath } = mkTempDbPath();
+    const store = bootstrapStateStore({ dbPath });
+    createRun(store, {
+      runId: "run_1",
+      projectId: "jarvis",
+      workflowName: "v2",
+      specPath: "v2/spec/index.md",
+      worktreePath: "/tmp/wt",
+      branch: "feature/v2",
+      initialStepId: "step_1",
+    });
+    const attempt = recordStepStart(store, {
+      runId: "run_1",
+      stepId: "step_1",
+      startedAt: "2026-05-24T00:00:01Z",
+    });
+
+    expect(() =>
+      commitStepBoundary(store, {
+        runId: "run_1",
+        attemptId: attempt.attemptId,
+        stepId: "step_1",
+        terminalStatus: "failed",
+        outcomeClass: "error",
+        nextStepId: "step_2",
+        finishedAt: "2026-05-24T00:00:02Z",
+        forceFailAfterAttemptFinish: true,
+      }),
+    ).toThrow("forced failure");
+
+    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe("replay-last-boundary");
     store.close();
     rmSync(tempDir, { recursive: true, force: true });
   });

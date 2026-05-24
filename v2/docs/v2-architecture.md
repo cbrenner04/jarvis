@@ -245,6 +245,8 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
 - **Kill-resume == crash-recovery at the same boundary.** Phase 1 treats both as
   the same recovery path: never resume mid-step; replay from the last durable
   pre-step checkpoint.
+- **Ownership boundary is Phase 1.** Daemon/runtime phases may invoke recovery
+  through IPC/control surfaces, but they do not redefine checkpoint semantics.
 - **One concrete checkpoint model.** Recovery derives from `runs.next_step_id`
   (or terminal run status when no next step remains) plus durable
   `step_attempts`/`step_outcomes` history, not mutable in-memory flags.

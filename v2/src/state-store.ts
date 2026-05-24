@@ -85,6 +85,22 @@ export type LoadRunForResumeInput = {
   runId: string;
 };
 
+export const RECOVERY_ACTIONS = [
+  "start-next-boundary",
+  "replay-last-boundary",
+  "run-terminal",
+] as const;
+export type RecoveryAction = (typeof RECOVERY_ACTIONS)[number];
+
+export type ReadRecoveryActionInput = {
+  runId: string;
+};
+
+export type ReadRecoveryActionResult = {
+  run: ResumeRun;
+  action: RecoveryAction;
+};
+
 export type ResumeRun = {
   runId: string;
   projectId: string;
@@ -307,8 +323,24 @@ export function commitStepBoundary(
   input: CommitStepBoundaryInput,
 ): CommitStepBoundaryResult {
   const db = getDb(store);
-  const outcomeId = randomUUID();
+  let result: CommitStepBoundaryResult | null = null;
   db.transaction(() => {
+    const existingOutcome = db
+      .query<{ outcome_id: string; recorded_at: string }, [string]>(
+        "SELECT outcome_id, recorded_at FROM step_outcomes WHERE attempt_id = ?1",
+      )
+      .get(input.attemptId);
+    if (existingOutcome) {
+      result = {
+        attemptId: input.attemptId,
+        finishedAt: existingOutcome.recorded_at,
+        nextStepId: input.nextStepId,
+        outcomeId: existingOutcome.outcome_id,
+      };
+      return;
+    }
+
+    const outcomeId = randomUUID();
     const updated = db
       .query(
         "UPDATE step_attempts SET attempt_status = ?1, ended_at = ?2 WHERE attempt_id = ?3 AND run_id = ?4 AND step_id = ?5",
@@ -338,13 +370,18 @@ export function commitStepBoundary(
     db.query(
       "UPDATE runs SET next_step_id = ?1, run_status = CASE WHEN ?1 IS NULL THEN 'completed' ELSE run_status END WHERE run_id = ?2",
     ).run(input.nextStepId, input.runId);
+
+    result = {
+      attemptId: input.attemptId,
+      finishedAt: input.finishedAt,
+      nextStepId: input.nextStepId,
+      outcomeId,
+    };
   })();
-  return {
-    attemptId: input.attemptId,
-    finishedAt: input.finishedAt,
-    nextStepId: input.nextStepId,
-    outcomeId,
-  };
+  if (!result) {
+    throw new Error("boundary commit failed");
+  }
+  return result;
 }
 
 export function loadRunForResume(
@@ -460,6 +497,25 @@ export function loadRunForResume(
     latestAttemptsByStep,
     latestOutcomeByAttempt,
   };
+}
+
+export function readRecoveryAction(
+  store: StateStore,
+  input: ReadRecoveryActionInput,
+): ReadRecoveryActionResult {
+  const resume = loadRunForResume(store, { runId: input.runId });
+  if (resume.run.nextStepId === null) {
+    return { run: resume.run, action: "run-terminal" };
+  }
+  const latestAttempt = resume.latestAttemptsByStep[resume.run.nextStepId];
+  if (!latestAttempt) {
+    return { run: resume.run, action: "start-next-boundary" };
+  }
+  const latestOutcome = resume.latestOutcomeByAttempt[latestAttempt.attemptId];
+  if (latestOutcome) {
+    return { run: resume.run, action: "start-next-boundary" };
+  }
+  return { run: resume.run, action: "replay-last-boundary" };
 }
 
 export function listStepHistory(

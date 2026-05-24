@@ -11,7 +11,7 @@ Specs authored with `jarvis1 plan` under `modes.plan.commit: true` (the default)
 
 `<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
 
-where `<targetDir>` defaults to `spec` (canonical layout: `spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/`). Repositories can override the root with a per-project `plan.targetDir` setting (see [config.md](./config.md#targetdir-plan-mode-committrue-only) for details). For example, a repository might use `v1/spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/` if configured with `plan.targetDir = "v1/spec"`.
+where `<targetDir>` defaults to `spec` (canonical layout: `spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/`). Repositories can override the root with a per-project `plan.targetDir` setting (see [config.md](./config.md#targetdir-plan-mode-committrue-only) for details). For example, a repository might use `v1/spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/` if configured with `plan.targetDir = "v1/spec"`. You can also override per run with `jarvis1 plan --target-dir <dir> ...` (same validation and highest precedence for that run).
 
 The prefix converts `Date.prototype.toISOString()` (`:` → `-`, no milliseconds): for
 example `2026-05-17T22-14-03Z-my-feature`. Omitting the timestamp matches older

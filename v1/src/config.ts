@@ -653,7 +653,7 @@ function validateQuotaFallback(
   failWith('quotaFallback must be "strict" or "lenient"');
 }
 
-function validateTargetDir(
+export function validateTargetDir(
   value: unknown,
   name: string,
   failWith: (message: string) => never,

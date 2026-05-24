@@ -30,15 +30,15 @@ one default, so specs for the non-default root land in the wrong directory.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 plan --target-dir v1/spec <intent>` writes the spec tree under
+- [x] `jarvis1 plan --target-dir v1/spec <intent>` writes the spec tree under
   `v1/spec/<timestamp>-<slug>/` regardless of the resolved config `targetDir`.
-- [ ] With no `--target-dir`, behavior is unchanged (config/default resolution).
-- [ ] An invalid value (absolute path, or one containing `..`) exits 1 with the
+- [x] With no `--target-dir`, behavior is unchanged (config/default resolution).
+- [x] An invalid value (absolute path, or one containing `..`) exits 1 with the
   `validateTargetDir` error message; no spec dir is created.
-- [ ] `--target-dir` with no value exits 1 with `plan: missing value for --target-dir`.
-- [ ] `parsePlanArgs` unit tests cover: flag parsed, default when absent, missing
+- [x] `--target-dir` with no value exits 1 with `plan: missing value for --target-dir`.
+- [x] `parsePlanArgs` unit tests cover: flag parsed, default when absent, missing
   value, invalid value.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

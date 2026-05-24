@@ -30,6 +30,7 @@ const PROMPT_ARTIFACT_FILES = [
   // - patch prompt body/rules
   // - plan draft/review/refine
   // Deferred for now: plan name-only/inline-draft and human-facing prompts.
+  join(import.meta.dir, "..", "..", "..", "prompts", "global", "terse.md"),
   join(
     import.meta.dir,
     "..",

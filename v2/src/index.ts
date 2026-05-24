@@ -1,12 +1,3 @@
-export {
-  bootstrapStateStore,
-  commitStepBoundary,
-  createRun,
-  listStepHistory,
-  loadRunForResume,
-  readRecoveryAction,
-  recordStepStart,
-} from "./state-store.ts";
 export type {
   AttemptStatus,
   BootstrapStateStoreOptions,
@@ -21,13 +12,22 @@ export type {
   OutcomeClass,
   ReadRecoveryActionInput,
   ReadRecoveryActionResult,
-  RecoveryAction,
   RecordStepStartInput,
   RecordStepStartResult,
+  RecoveryAction,
   ResumeAttempt,
   ResumeOutcome,
   ResumeRun,
   RunStatus,
   StateStore,
   StepKind,
+} from "./state-store.ts";
+export {
+  bootstrapStateStore,
+  commitStepBoundary,
+  createRun,
+  listStepHistory,
+  loadRunForResume,
+  readRecoveryAction,
+  recordStepStart,
 } from "./state-store.ts";

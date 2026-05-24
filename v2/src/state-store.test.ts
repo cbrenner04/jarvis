@@ -1,26 +1,26 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import * as publicApi from "./index.ts";
 import {
   ATTEMPT_STATUSES,
-  OUTCOME_CLASSES,
-  RUN_STATUSES,
-  STEP_KINDS,
+  type AttemptStatus,
   bootstrapStateStore,
   commitStepBoundary,
   createRun,
   listStepHistory,
   loadRunForResume,
+  OUTCOME_CLASSES,
+  type OutcomeClass,
+  RUN_STATUSES,
+  type RunStatus,
   readRecoveryAction,
   recordStepStart,
-  type AttemptStatus,
-  type OutcomeClass,
-  type RunStatus,
+  STEP_KINDS,
   type StepKind,
 } from "./state-store.ts";
-import * as publicApi from "./index.ts";
 
 function mkTempDbPath(): { tempDir: string; dbPath: string } {
   const tempDir = mkdtempSync(join(tmpdir(), "jarvis-v2-state-store-"));
@@ -45,7 +45,10 @@ describe("bootstrapStateStore", () => {
     const second = bootstrapStateStore({ dbPath });
     second.close();
 
-    const dbAfterSecond = new Database(dbPath, { readonly: true, strict: true });
+    const dbAfterSecond = new Database(dbPath, {
+      readonly: true,
+      strict: true,
+    });
     const secondRows = dbAfterSecond
       .query<{ version: number; applied_at: string }, []>(
         "SELECT version, applied_at FROM state_store_migrations ORDER BY version ASC",
@@ -66,7 +69,9 @@ describe("bootstrapStateStore", () => {
 
     const db = new Database(dbPath, { readonly: true, strict: true });
     const tables = db
-      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type = 'table'",
+      )
       .all()
       .map((row) => row.name);
     expect(tables).toContain("runs");
@@ -106,7 +111,9 @@ describe("bootstrapStateStore", () => {
     const allColumns = ["runs", "step_attempts", "step_outcomes"]
       .flatMap((table) =>
         db
-          .query<{ name: string }, []>(`SELECT name FROM pragma_table_info('${table}')`)
+          .query<{ name: string }, []>(
+            `SELECT name FROM pragma_table_info('${table}')`,
+          )
           .all()
           .map((row) => row.name),
       )
@@ -187,10 +194,17 @@ describe("state-store repository operations", () => {
       nextStepId: "step_2",
       runStatus: "running",
     });
-    expect(resume.latestAttemptsByStep.step_1?.attemptId).toBe(firstAttempt.attemptId);
-    expect(resume.latestOutcomeByAttempt[firstAttempt.attemptId]?.outcomeClass).toBe("progress");
+    expect(resume.latestAttemptsByStep.step_1?.attemptId).toBe(
+      firstAttempt.attemptId,
+    );
+    expect(
+      resume.latestOutcomeByAttempt[firstAttempt.attemptId]?.outcomeClass,
+    ).toBe("progress");
 
-    const history = listStepHistory(store, { runId: "run_1", stepId: "step_1" });
+    const history = listStepHistory(store, {
+      runId: "run_1",
+      stepId: "step_1",
+    });
     expect(history.attempts).toHaveLength(1);
     expect(history.attempts[0]?.attemptOrdinal).toBe(1);
     expect(history.attempts[0]?.outcome?.outcomeClass).toBe("progress");
@@ -229,7 +243,9 @@ describe("state-store repository operations", () => {
       startedAt: "2026-05-24T00:00:03Z",
     });
 
-    expect([a1.attemptOrdinal, a2.attemptOrdinal, a3.attemptOrdinal]).toEqual([1, 2, 3]);
+    expect([a1.attemptOrdinal, a2.attemptOrdinal, a3.attemptOrdinal]).toEqual([
+      1, 2, 3,
+    ]);
 
     store.close();
     rmSync(tempDir, { recursive: true, force: true });
@@ -284,7 +300,10 @@ describe("state-store repository operations", () => {
       )
       .get("run_1");
 
-    expect(attemptRow).toEqual({ attempt_status: "succeeded", ended_at: "2026-05-24T00:00:01Z" });
+    expect(attemptRow).toEqual({
+      attempt_status: "succeeded",
+      ended_at: "2026-05-24T00:00:01Z",
+    });
     expect(outcomeCount?.count).toBe(0);
     expect(runRow?.next_step_id).toBe("step_1");
 
@@ -305,7 +324,9 @@ describe("state-store repository operations", () => {
       branch: "feature/v2",
       initialStepId: "step_1",
     });
-    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe("start-next-boundary");
+    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe(
+      "start-next-boundary",
+    );
     store.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
@@ -327,7 +348,9 @@ describe("state-store repository operations", () => {
       stepId: "step_1",
       startedAt: "2026-05-24T00:00:01Z",
     });
-    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe("replay-last-boundary");
+    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe(
+      "replay-last-boundary",
+    );
     store.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
@@ -384,7 +407,9 @@ describe("state-store repository operations", () => {
     expect(first.outcomeId).toBe(second.outcomeId);
     expect(runRow?.next_step_id).toBe("step_2");
     expect(outcomeRows?.count).toBe(1);
-    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe("start-next-boundary");
+    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe(
+      "start-next-boundary",
+    );
 
     db.close(false);
     store.close();
@@ -422,7 +447,9 @@ describe("state-store repository operations", () => {
       }),
     ).toThrow("forced failure");
 
-    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe("replay-last-boundary");
+    expect(readRecoveryAction(store, { runId: "run_1" }).action).toBe(
+      "replay-last-boundary",
+    );
     store.close();
     rmSync(tempDir, { recursive: true, force: true });
   });

@@ -21,10 +21,21 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export const STEP_KINDS = ["implementation", "review", "human"] as const;
 export type StepKind = (typeof STEP_KINDS)[number];
 
-export const ATTEMPT_STATUSES = ["succeeded", "blocked", "killed", "failed"] as const;
+export const ATTEMPT_STATUSES = [
+  "succeeded",
+  "blocked",
+  "killed",
+  "failed",
+] as const;
 export type AttemptStatus = (typeof ATTEMPT_STATUSES)[number];
 
-export const OUTCOME_CLASSES = ["progress", "done", "no_work", "blocked", "error"] as const;
+export const OUTCOME_CLASSES = [
+  "progress",
+  "done",
+  "no_work",
+  "blocked",
+  "error",
+] as const;
 export type OutcomeClass = (typeof OUTCOME_CLASSES)[number];
 
 export type StateStore = {
@@ -159,7 +170,12 @@ type Migration = {
   sql: string;
 };
 
-const DEFAULT_DB_PATH = join(process.env.HOME ?? "~", ".jarvis", "state", "v2.sqlite");
+const DEFAULT_DB_PATH = join(
+  process.env.HOME ?? "~",
+  ".jarvis",
+  "state",
+  "v2.sqlite",
+);
 const MIGRATIONS: readonly Migration[] = [
   {
     version: 1,
@@ -227,7 +243,9 @@ const MIGRATIONS: readonly Migration[] = [
 
 const storeDb = new WeakMap<StateStore, Database>();
 
-export function bootstrapStateStore(options?: BootstrapStateStoreOptions): StateStore {
+export function bootstrapStateStore(
+  options?: BootstrapStateStoreOptions,
+): StateStore {
   const dbPath = options?.dbPath ?? DEFAULT_DB_PATH;
   const dir = dirname(dbPath);
   mkdirSync(dir, { recursive: true });
@@ -257,7 +275,9 @@ export function bootstrapStateStore(options?: BootstrapStateStoreOptions): State
 
     db.transaction(() => {
       db.exec(migration.sql);
-      db.query("INSERT INTO state_store_migrations (version) VALUES (?1)").run(migration.version);
+      db.query("INSERT INTO state_store_migrations (version) VALUES (?1)").run(
+        migration.version,
+      );
     })();
   }
 
@@ -277,7 +297,10 @@ function getDb(store: StateStore): Database {
   return db;
 }
 
-export function createRun(store: StateStore, input: CreateRunInput): CreateRunResult {
+export function createRun(
+  store: StateStore,
+  input: CreateRunInput,
+): CreateRunResult {
   const db = getDb(store);
   const createdAt = new Date().toISOString();
   db.query(
@@ -314,7 +337,14 @@ export function recordStepStart(
     `INSERT INTO step_attempts (
       attempt_id, run_id, step_id, attempt_ordinal, step_kind, attempt_status, started_at, ended_at
     ) VALUES (?1, ?2, ?3, ?4, 'implementation', 'succeeded', ?5, ?6)`,
-  ).run(attemptId, input.runId, input.stepId, attemptOrdinal, input.startedAt, input.startedAt);
+  ).run(
+    attemptId,
+    input.runId,
+    input.stepId,
+    attemptOrdinal,
+    input.startedAt,
+    input.startedAt,
+  );
   return { attemptId, attemptOrdinal, startedAt: input.startedAt };
 }
 
@@ -345,7 +375,13 @@ export function commitStepBoundary(
       .query(
         "UPDATE step_attempts SET attempt_status = ?1, ended_at = ?2 WHERE attempt_id = ?3 AND run_id = ?4 AND step_id = ?5",
       )
-      .run(input.terminalStatus, input.finishedAt, input.attemptId, input.runId, input.stepId);
+      .run(
+        input.terminalStatus,
+        input.finishedAt,
+        input.attemptId,
+        input.runId,
+        input.stepId,
+      );
     if (updated.changes === 0) {
       throw new Error("attempt not found");
     }

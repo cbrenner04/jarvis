@@ -35,12 +35,23 @@ covering both `v1/tsconfig.json` and `v2/tsconfig.json`, plus Biome import-bound
 overrides that ban `v1/** -> v2/**` and `v2/** -> v1/**` cross-tree imports.
 No behavior beyond `--version` and "not ready". Retires: build/tooling wiring risk.
 
-### Phase 1 — State store (SQLite)
+### Phase 1 — State store (SQLite, pure library)
 
-The spine everything writes to. Schema for runs, steps, outcomes, and the
-orchestration-state-vs-work split; boundary-checkpoint semantics; kill-resume ==
-crash-recovery defined here. Pure library, no daemon. Retires: state-model risk
-in isolation, before anything depends on it.
+The spine everything writes to. Phase 1 starts as a pure library under `v2/`,
+not a daemon-owned persistence shell. Library-owned bootstrap opens
+`~/.jarvis/state/v2.sqlite` (or explicit caller override) and applies
+idempotent forward-only migrations before repository operations exist. Schema
+for runs, steps, outcomes, and the orchestration-state-vs-work split;
+boundary-checkpoint semantics; kill-resume == crash-recovery defined here.
+Phase 1 correctness does not depend on WAL, singleton-writer daemon ownership,
+or daemon lock policy. Recovery is step-boundary only: recovery reads derive
+`start-next-boundary` / `replay-last-boundary` / `run-terminal` from
+`runs.next_step_id` plus durable attempt/outcome rows, and boundary commit proof
+is one transactional effect (attempt terminal + outcome + checkpoint
+advancement). Retires: state-model risk in isolation, before anything depends on
+it.
+Later daemon phases do not redefine these semantics; they only trigger the same
+Phase 1 recovery reads through daemon/IPC surfaces.
 
 ### Phase 2 — Daemon shell + IPC + structured logging
 

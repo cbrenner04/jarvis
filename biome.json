@@ -35,5 +35,47 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["v1/src/**/*.ts", "v1/test/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["v2/**"],
+                    "message": "v1 code must not import from v2."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["v2/src/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["v1/**"],
+                    "message": "v2 code must not import from v1."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

@@ -27,9 +27,13 @@ while there is slack to absorb the rework.
 
 ### Phase 0 — v2 project scaffold
 
-Stand up `v2/` as its own tsconfig project that compiles to an empty `src` tree
-with co-located tests, and a `jarvis` binary entry that resolves and reports
-version/"not ready". No behavior. Retires: build/tooling wiring risk.
+Stand up `v2/` as its own tsconfig project with `v2/tsconfig.json`, a minimal
+CLI entry at `v2/src/cli.ts`, and a co-located test shape under `v2/src/*.test.ts`.
+Wire the root `bin/jarvis` shim to the v2 CLI while keeping `jarvis1` on v1.
+At the repo boundary, root verification must include v2 via `bun run typecheck`
+covering both `v1/tsconfig.json` and `v2/tsconfig.json`, plus Biome import-boundary
+overrides that ban `v1/** -> v2/**` and `v2/** -> v1/**` cross-tree imports.
+No behavior beyond `--version` and "not ready". Retires: build/tooling wiring risk.
 
 ### Phase 1 — State store (SQLite)
 

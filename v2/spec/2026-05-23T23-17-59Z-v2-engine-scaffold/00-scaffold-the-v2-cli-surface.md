@@ -52,32 +52,32 @@ next subspec.
 
 ## Acceptance criteria
 
-- [ ] `v2/tsconfig.json` exists, extends `../tsconfig.base.json`, and scopes the
+- [x] `v2/tsconfig.json` exists, extends `../tsconfig.base.json`, and scopes the
       v2 project to `v2/src/**/*.ts` so Phase 0 starts with a separate strict
       TypeScript tree.
-- [ ] The root `package.json` gains a concrete `version` field, and this
+- [x] The root `package.json` gains a concrete `version` field, and this
       subspec does not otherwise repoint the package default module surface:
       `module`, `start`, and `jarvis1` remain v1-backed.
-- [ ] `v2/src/cli.ts` implements the only required Phase 0 contract:
+- [x] `v2/src/cli.ts` implements the only required Phase 0 contract:
       `jarvis --version` writes the root package version string to stdout,
       writes nothing to stderr, and exits 0.
-- [ ] The same CLI entry implements the no-arg Phase 0 boundary:
+- [x] The same CLI entry implements the no-arg Phase 0 boundary:
       `jarvis` writes the exact `v2 not ready` message to stdout, writes nothing
       to stderr, exits 0, and does not print help text, banners, or stack
       traces.
-- [ ] The subspec does not add any broader CLI contract beyond those two
+- [x] The subspec does not add any broader CLI contract beyond those two
       success paths. Unknown flags or subcommands remain out of scope unless the
       implementation deliberately maps them to the same `v2 not ready`
       stdout/exit-0 response.
-- [ ] `bin/jarvis` mirrors the existing `bin/jarvis1` shim structure
+- [x] `bin/jarvis` mirrors the existing `bin/jarvis1` shim structure
       byte-for-byte where practical, differing only in the final `exec bun run`
       target path, and the root `package.json` `bin` map exposes both
       `jarvis1` and `jarvis`.
-- [ ] A co-located Bun test under `v2/src/*.test.ts` covers the CLI module
+- [x] A co-located Bun test under `v2/src/*.test.ts` covers the CLI module
       directly for the no-arg and `--version` cases, asserting stdout, stderr,
       and exit-code behavior without introducing subprocess wrapper coverage, a
       new test script, or a separate `v2/test/` tree.
-- [ ] One existing root-facing doc note, preferably in `README.md`, is updated
+- [x] One existing root-facing doc note, preferably in `README.md`, is updated
       to say `jarvis1` remains the daily-driver v1 command while bare `jarvis`
       now resolves to the intentionally minimal v2 scaffold.
 

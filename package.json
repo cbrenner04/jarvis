@@ -1,10 +1,12 @@
 {
   "name": "jarvis",
+  "version": "0.0.0",
   "module": "v1/src/index.ts",
   "type": "module",
   "private": true,
   "bin": {
-    "jarvis1": "bin/jarvis1"
+    "jarvis1": "bin/jarvis1",
+    "jarvis": "bin/jarvis"
   },
   "scripts": {
     "check": "bun node_modules/@biomejs/biome/bin/biome check .",
@@ -16,7 +18,7 @@
     "lint": "bun node_modules/@biomejs/biome/bin/biome lint .",
     "lint:fix": "bun node_modules/@biomejs/biome/bin/biome lint --write .",
     "lint:fix:unsafe": "bun node_modules/@biomejs/biome/bin/biome lint --write --unsafe .",
-    "typecheck": "tsc --noEmit -p v1/tsconfig.json",
+    "typecheck": "tsc --noEmit -p v1/tsconfig.json && tsc --noEmit -p v2/tsconfig.json",
     "install-opencode-permissions": "bun run v1/scripts/install-opencode-permissions.ts",
     "test": "bun test --timeout=30000",
     "ready": "bun v1/scripts/ready.ts",

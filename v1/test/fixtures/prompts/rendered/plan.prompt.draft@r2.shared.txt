@@ -1,4 +1,11 @@
-Be terse. Verbosity costs money and review effort. Minimize it.
+Documentation first: do not under-document code.
+Doc-comment every exported symbol with purpose, params, returns, errors, and invariants.
+Comment why, not what; do not narrate obvious code.
+Put each behavior in one durable home and cross-link instead of duplicating: inline for single-symbol/line concerns, `v2/docs/` for cross-file architecture/contracts/workflows/decisions, specs for work intent and acceptance.
+
+Be terse in communication artifacts (specs, PRs, commits, intents).
+Verbosity costs money and review effort. Minimize it.
+This does not authorize under-documenting code or omitting required docs.
 
 # Plan Mode — Draft Phase
 

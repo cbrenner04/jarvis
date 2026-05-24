@@ -59,7 +59,7 @@ export function buildRefinePrompt(opts: {
   const registry = loadPromptRegistry();
   let template = assemblePrompt({
     registry,
-    globalFragmentIds: ["global.terse"],
+    globalFragmentIds: ["global.documentation", "global.terse"],
     behaviorFragmentIds: [],
     stepPromptId: "plan.prompt.refine",
   });

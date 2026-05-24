@@ -5,11 +5,14 @@ agent-facing prompts.
 
 ## First Registry Rollout (Metadata-First)
 
-The first rollout includes shared terse guidance plus prompt artifacts that
+The first rollout includes shared global guidance fragments plus prompt
+artifacts that
 shape agent behavior in patch mode and plan draft/review/refine:
 
 - `global.terse` (`prompts/global/terse.md`) — shared terse fragment layered
   into agent-facing prompts
+- `global.documentation` (`prompts/global/documentation.md`) — shared
+  documentation-first fragment layered into agent-facing prompts
 
 - `patch.prompt.body` (`prompts/patch/instructions.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
@@ -69,8 +72,10 @@ Shared rendering follows this contract:
 - Step definitions may explicitly add or remove named fragments.
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
-- The terse rollout uses one shared fragment (`global.terse`) layered during
-  assembly; terse wording is not duplicated across step prompts or `patch.rules`.
+- Global guidance is layered via shared fragments (`global.documentation`, then
+  `global.terse`) rather than duplicated across step prompts or `patch.rules`.
+- `global.terse` is scoped to communication artifacts (specs, PRs, commits,
+  intents) and does not authorize under-documenting code.
 
 Template substitution is non-recursive:
 

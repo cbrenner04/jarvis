@@ -8,7 +8,7 @@ export function buildPrompt(specPath: string, siblings?: string[]): string {
   const registry = loadPromptRegistry();
   const template = assemblePrompt({
     registry,
-    globalFragmentIds: [],
+    globalFragmentIds: ["global.terse"],
     behaviorFragmentIds: [],
     stepPromptId: "patch.prompt.body",
     addFragmentIds: [],

@@ -59,6 +59,8 @@ export async function runNameOnlyPhase(opts: {
   externalSpecRoot?: string;
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
+  /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
+  onOutboundPrompt?: (prompt: string) => void;
 }): Promise<{ result: AgentResult; agentLabel: string | null }> {
   const targetDir = opts.targetDir ?? "spec";
   const intentPath = opts.externalSpecRoot
@@ -66,6 +68,7 @@ export async function runNameOnlyPhase(opts: {
     : join(opts.worktreePath, targetDir, opts.name, "intent.md");
   const intent = readFileSync(intentPath, "utf8");
   const prompt = buildNameOnlyPrompt({ name: opts.name, intent });
+  opts.onOutboundPrompt?.(prompt);
 
   const agentOrder = opts.config.modes.plan.agentOrder;
   let result: AgentResult | null = null;

@@ -34,6 +34,8 @@ export type RefinePhaseOptions = {
   externalSpecRoot?: string;
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
+  /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
+  onOutboundPrompt?: (prompt: string) => void;
 };
 
 /** Outcome for default CLI reporting after the refine phase completes. */
@@ -121,6 +123,8 @@ export async function runRefineTurn(opts: {
   externalSpecRoot?: string;
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
+  /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
+  onOutboundPrompt?: (prompt: string) => void;
 }): Promise<{
   result: AgentResult;
   agentLabel: string | null;
@@ -167,6 +171,8 @@ export async function runRefineTurn(opts: {
     }
     throw err;
   }
+
+  opts.onOutboundPrompt?.(prompt);
 
   // Try each agent in order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;
@@ -451,6 +457,9 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
         ? { externalSpecRoot: opts.externalSpecRoot }
         : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
+      ...(opts.onOutboundPrompt !== undefined
+        ? { onOutboundPrompt: opts.onOutboundPrompt }
+        : {}),
     });
 
     // Update agent label (use the most recent non-null one)

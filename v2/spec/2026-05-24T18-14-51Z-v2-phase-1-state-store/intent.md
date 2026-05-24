@@ -178,3 +178,14 @@ Keep the public API slice explicit about store construction scope. The spec can
 allow one public bootstrap/open entry that resolves the default path or caller
 override and then exposes only the named repository methods, but it should keep
 raw database handles, migration entrypoints, and transaction control internal.
+
+## Blocker
+
+Review and approve `v2/spec/2026-05-24T18-14-51Z-v2-phase-1-state-store/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-05-24T18-14-51Z-v2-phase-1-state-store/intent.md`

@@ -35,18 +35,18 @@ entry decisions, or root-facing command note decided there.
 
 ## Acceptance criteria
 
-- [ ] The root `package.json` `typecheck` script explicitly runs both
+- [x] The root `package.json` `typecheck` script explicitly runs both
       `tsc --noEmit -p v1/tsconfig.json` and `tsc --noEmit -p v2/tsconfig.json`,
       with no project-reference or package-entry churn beyond that.
-- [ ] `biome.json` contains per-tree `noRestrictedImports` overrides that ban
+- [x] `biome.json` contains per-tree `noRestrictedImports` overrides that ban
       imports from `v1/**` into `v2/**` and from `v2/**` into `v1/**`,
       including co-located test files in both trees, while still allowing shared
       root-level modules and ordinary package imports outside those trees.
-- [ ] The spec’s verification surface is the existing root commands only:
+- [x] The spec’s verification surface is the existing root commands only:
       `bun test` discovers and runs the new co-located `v2/src/*.test.ts` file,
       `bun run typecheck` covers both trees, and `bun run check` enforces the
       import-boundary rules without any new root test or lint scripts.
-- [ ] `v2/docs/v2-build-order.md` is updated so Phase 0 names the concrete
+- [x] `v2/docs/v2-build-order.md` is updated so Phase 0 names the concrete
       scaffold deliverables seeded by this spec: `v2/tsconfig.json`,
       `v2/src/cli.ts`, the co-located v2 test shape, `bin/jarvis`, the root
       `typecheck` coverage, and the Biome import boundary.

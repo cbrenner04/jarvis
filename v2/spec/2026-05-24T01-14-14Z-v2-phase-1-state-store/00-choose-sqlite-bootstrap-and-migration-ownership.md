@@ -62,22 +62,20 @@ to make later subspecs open the same store the same way in tests and real runs.
 
 ## Acceptance criteria
 
-- [x] The subspec names one concrete SQLite dependency for `v2/` and explicitly
-      rejects introducing an ORM, swappable backend abstraction, or daemon-only
-      writer assumptions in Phase 1.
-- [x] The subspec chooses one exact on-disk database location under
-      `~/.jarvis` plus one explicit override path for tests and callers, with no
-      second location policy or environment-specific branching.
-- [x] The subspec defines a single exported library bootstrap path that opens
-      the database and applies schema creation or forward-only migrations
-      idempotently before any repository object or operation is exposed.
-- [x] The subspec defines a minimal migration story owned by the library:
-      ordered schema versions, append-only upgrades, library-owned migration
-      metadata, and no rollback tooling, WAL requirement, singleton-process
-      contract, or daemon lock policy as acceptance criteria.
-- [x] The subspec keeps scope to package/bootstrap/versioning only; the run,
-      step, attempt, and outcome records themselves remain for the next
-      subspec.
+- [ ] `v2/src` exports one `bootstrapStateStore(options?)` that opens a
+      `bun:sqlite` database at `~/.jarvis/state/v2.sqlite` by default and at
+      `options.dbPath` when supplied; no other location or env-branching logic
+      exists.
+- [ ] `bootstrapStateStore` applies forward-only migrations and records applied
+      versions in a library-owned metadata table before returning. A test
+      calling it twice on the same temp `dbPath` asserts migrations are not
+      re-applied (idempotent) and version metadata is unchanged.
+- [ ] No ORM, alternate-backend seam, rollback/down migration, or daemon
+      WAL/singleton-writer/lock requirement is introduced.
+- [ ] Scope stays at bootstrap + versioning: no run/step/attempt/outcome record
+      API is exported from this subspec (schema lands in 01).
+- [ ] `bun run typecheck` and `bun test` pass for the new bootstrap module and
+      its test.
 
 ## Documentation updates
 

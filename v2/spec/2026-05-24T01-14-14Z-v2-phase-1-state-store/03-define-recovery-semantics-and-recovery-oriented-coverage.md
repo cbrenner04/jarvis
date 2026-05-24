@@ -74,32 +74,19 @@ store boundary without inventing mid-step snapshots or structured log history.
 
 ## Acceptance criteria
 
-- [x] The subspec states that kill-resume and crash-recovery are the same at
-      the Phase 1 state boundary: interrupted in-flight work replays from the
-      last durable pre-step checkpoint rather than resuming mid-step.
-- [x] The subspec defines one concrete durable checkpoint model on the run and
-      requires recovery reads to derive replay behavior from that checkpoint
-      plus durable attempt history, not from scattered mutable in-progress
-      fields.
-- [x] The subspec defines the recovery read outcomes explicitly enough to
-      distinguish at least: start the next never-attempted boundary, replay the
-      last interrupted boundary, or report the run terminal.
-- [x] The subspec makes boundary idempotence explicit: retrying the same
-      finished boundary write cannot advance resume state twice or duplicate the
-      durable terminal effect.
-- [x] The subspec states what durable evidence proves a boundary is committed:
-      the checkpoint advancement and terminal attempt/outcome records appear in
-      the same transactional effect, rather than being inferred from an
-      in-memory flag.
-- [x] The subspec requires coverage that distinguishes at least three cases:
-      no attempt recorded yet, attempt recorded but checkpoint not advanced, and
-      boundary fully committed.
-- [x] The subspec requires coverage that proves the transactional boundary
-      behavior from the API layer: a fully committed boundary is advanced once,
-      and a simulated crash before checkpoint advancement remains replayable.
-- [x] The subspec keeps mid-step snapshots, structured log/event history, human
-      steering state, and daemon lifecycle concerns out of scope unless a
-      concrete recovery read requires them.
+- [ ] A tested recovery read classifies a run into exactly
+      `start-next-boundary`, `replay-last-boundary`, or `run-terminal`, derived
+      only from `runs.next_step_id` plus `step_attempts`/`step_outcomes` history.
+- [ ] Tests cover four cases: `no-attempt-yet` → start-next,
+      `attempt-without-checkpoint` → replay-last, `boundary-committed` →
+      advanced exactly once, `crash-before-checkpoint` → still replayable and
+      not reported committed.
+- [ ] Re-invoking `commitStepBoundary` for an already-committed boundary is
+      idempotent: a test asserts no second checkpoint advancement and no
+      duplicate outcome row.
+- [ ] No mid-step snapshot, event/log history, human-steering, or daemon
+      lifecycle state is introduced by this subspec.
+- [ ] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

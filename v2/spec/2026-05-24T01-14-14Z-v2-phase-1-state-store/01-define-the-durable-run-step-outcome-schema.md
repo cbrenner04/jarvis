@@ -81,31 +81,21 @@ later single-step runner without pulling in daemon or observability concerns.
 
 ## Acceptance criteria
 
-- [x] The subspec defines a durable run record that owns identity, lifecycle
-      status, resume checkpoint, and pointers to work artifacts, while keeping
-      mutable execution history out of a single run blob.
-- [x] The subspec decides the Phase 1 execution-history shape explicitly:
-      `runs`, `step_attempts`, and `step_outcomes`, with outcome not left
-      implicit inside a free-form attempt payload.
-- [x] The subspec chooses stable identifiers for runs, workflow step linkage,
-      and attempt ordering such that later resume reads and daemon APIs do not
-      depend on array position or in-memory numbering.
-- [x] The subspec defines one concrete durable checkpoint on the run in terms of
-      stable workflow step identity, and keeps repeat-range position or other
-      richer orchestration bookkeeping out unless required for that checkpoint.
-- [x] The subspec names closed enum sets for at least run status, step kind,
-      attempt terminal status, and outcome classification instead of leaving
-      those semantics to free-form JSON.
-- [x] The subspec makes the attempt/outcome split concrete by stating whether
-      `step_outcomes` is a separate table keyed from `step_attempts` or a
-      separately typed row shape with an equally explicit durable identity.
-- [x] The durable payload for a completed attempt is kept narrow and
-      deterministic: timestamps, terminal status, outcome classification, and
-      only the selected fields later workflow logic must branch on, with raw
-      transcripts, token/cost streams, and event bodies explicitly excluded.
-- [x] The subspec explicitly defers transcript bodies, rich logs/events,
-      daemon/session metadata, quota bookkeeping, and other later-phase fields
-      rather than leaving their Phase 1 status ambiguous.
+- [ ] A forward-only migration creates `runs`, `step_attempts`, and
+      `step_outcomes` with the columns named in "Phase 1 durable model"; a test
+      asserts the three tables and their key columns exist after bootstrap.
+- [ ] Closed TypeScript unions are exported for `run_status`, `step_kind`,
+      `attempt_status`, and `outcome_class` matching the schema; a test (or
+      typecheck) rejects values outside those sets.
+- [ ] `runs` carries exactly one resume checkpoint column (`next_step_id`,
+      nullable) and stores work artifacts as nullable pointer columns only; a
+      test round-trips a created run's checkpoint and pointer fields.
+- [ ] `step_attempts.attempt_ordinal` is unique and monotonic per
+      `(run_id, step_id)`, and `step_outcomes` links one-to-one from
+      `attempt_id`; tests assert the uniqueness constraint and the linkage.
+- [ ] Deferred fields (transcripts, token/cost, event streams, daemon/session
+      metadata, quota) are absent from the Phase 1 schema.
+- [ ] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

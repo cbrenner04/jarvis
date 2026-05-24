@@ -92,23 +92,22 @@ The following stay internal and are not public v2 contracts:
 
 ## Acceptance criteria
 
-- [x] The subspec defines a repository-style API surface with named operations
-      equivalent to create-run, record-step-start, commit-step-boundary,
-      load-run-for-resume, and list-step-history.
-- [x] The subspec does not introduce a generic ORM facade, arbitrary query API,
-      alternate-backend seam, or daemon-coupled singleton object.
-- [x] The subspec defines `commit-step-boundary` or an equivalent single public
-      write path as the only operation allowed to persist attempt completion and
-      checkpoint advancement, so callers cannot split that durable effect across
-      ad hoc writes.
-- [x] The subspec states which identifiers each public operation accepts and
-      returns so later runner and daemon code do not need hidden SQL knowledge
-      to address runs, steps, or attempts.
-- [x] The subspec requires focused round-trip tests that prove schema bootstrap,
-      persisted run creation, persisted attempt history, and recovery-oriented
-      reads against a temporary database.
-- [x] The subspec keeps library visibility tight by identifying what SQL or
-      helper surfaces stay internal rather than becoming public v2 contracts.
+- [ ] `v2/src` exports exactly `createRun`, `recordStepStart`,
+      `commitStepBoundary`, `loadRunForResume`, and `listStepHistory` with the
+      I/O shapes in "Identifiers and operation I/O"; no generic query/exec
+      surface or raw `Database` handle is exported.
+- [ ] `commitStepBoundary` performs attempt-finish + outcome write + checkpoint
+      advance in one transaction; a test forcing a failure mid-operation asserts
+      all three roll back (no partial write).
+- [ ] `recordStepStart` assigns monotonic `attemptOrdinal` per `(runId, stepId)`;
+      a test calling it repeatedly asserts 1, 2, 3…
+- [ ] `loadRunForResume` and `listStepHistory` round-trip durable state by stable
+      IDs after `createRun`/`commitStepBoundary`; tests assert the returned
+      shapes need no SQL knowledge from callers.
+- [ ] SQL text, row mappers, and migration helpers are not exported from the
+      package barrel; a test or the barrel asserts only the five ops, bootstrap,
+      and types are public.
+- [ ] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

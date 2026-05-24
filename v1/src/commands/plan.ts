@@ -669,8 +669,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
     if (inv.mode === "inline" && !inv.resume && !inv.resumeDraft) {
       const inlineIntentPath = join(
-        inv.cwd,
-        "spec",
+        project.root,
+        targetDir,
         "wip-intents",
         `${toKebabCase(inv.intentText.split(" ").slice(0, 4).join(" "))}.md`,
       );
@@ -684,7 +684,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       writeFileSync(inlineIntentPath, `${inv.intentText}\n`, "utf8");
       const inlineCfg = loadConfig(opts.config);
       const inlineResult = await runInlineDraftTurn({
-        worktreePath: inv.cwd,
+        worktreePath: project.root,
         inlineIntent: inv.intentText,
         intentPath: inlineIntentPath,
         config: inlineCfg,

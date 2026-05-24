@@ -39,8 +39,12 @@ No behavior beyond `--version` and "not ready". Retires: build/tooling wiring ri
 
 The spine everything writes to. Schema for runs, steps, outcomes, and the
 orchestration-state-vs-work split; boundary-checkpoint semantics; kill-resume ==
-crash-recovery defined here. Pure library, no daemon. Retires: state-model risk
-in isolation, before anything depends on it.
+crash-recovery defined here. Pure library, no daemon: library-owned bootstrap
+opens `~/.jarvis/state/v2.sqlite` (or explicit caller override) and applies
+idempotent forward-only migrations before repository operations exist. Phase 1
+correctness does not depend on WAL, singleton-writer daemon ownership, or
+daemon lock policy. Retires: state-model risk in isolation, before anything
+depends on it.
 
 ### Phase 2 — Daemon shell + IPC + structured logging
 

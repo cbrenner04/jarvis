@@ -191,9 +191,12 @@ A **run** is a workflow instance carrying:
 
 ### Persistence
 
-- **SQLite under `~/.jarvis`.** The daemon is the single writer; WAL mode gives it
-  one writer + concurrent readers (the TUI's many-runs view). Plus the
-  append-only event/log stream for history and the structured-logging constraint.
+- **SQLite under `~/.jarvis/state/v2.sqlite`.** Phase 1 is a pure library with a
+  library-owned bootstrap path that opens this file (or an explicit caller
+  override for tests/temp stores) and applies forward-only migrations
+  idempotently before repository operations are exposed. Phase 1 correctness
+  does not require WAL, singleton-writer daemon ownership, or daemon lock
+  policy; those are optional runtime tuning details for later daemon phases.
 - **Chosen over Postgres deliberately.** Postgres is available and always-on on
   both machines, so memory/install weren't the deciding factor — keeping the
   daemon **hermetic** was. The tool whose job is reliability shouldn't gain a new

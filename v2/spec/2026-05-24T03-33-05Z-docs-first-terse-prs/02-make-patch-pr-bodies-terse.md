@@ -1,13 +1,15 @@
-# 01 - Make patch PR bodies terse
+# 02 - Make patch PR bodies terse
 
 Patch-mode PR bodies currently restate the index: title, progress count, full
 subspec checklist, and then attribution. For completed multi-subspec work this
 creates long PR bodies that repeat information already visible in the diff and
 spec files. PR #131 made the failure obvious.
 
-Make patch PR bodies concise by default. The PR should say what changed and keep
-machine-maintained metadata compact; it should not dump the full spec routing
-table or repeated per-commit noise into the body.
+This is the communication-output half of the set: 00/01 raise the bar on durable
+documentation; this subspec applies "terse" where it belongs — machine-generated
+PR text, not code or docs. Make patch PR bodies concise by default. The PR should
+say what changed and keep machine-maintained metadata compact; it should not dump
+the full spec routing table or repeated per-commit noise into the body.
 
 ## Task checklist
 

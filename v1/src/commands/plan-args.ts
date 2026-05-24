@@ -1,10 +1,12 @@
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { validateTargetDir } from "../config.ts";
 
 export type PlanInvocationCommon = {
   refineTurns?: number;
   reviewPasses?: number;
   repo?: string;
+  targetDir?: string;
   cwd: string;
   resume: boolean;
   resumeDraft: boolean;
@@ -24,6 +26,7 @@ const FLAGS_WITH_VALUE = new Set([
   "--review-passes",
   "--repo",
   "--cwd",
+  "--target-dir",
 ]);
 
 function parseNonNegativeInteger(
@@ -61,6 +64,7 @@ export function parsePlanArgs(
   let refineTurns: number | undefined;
   let reviewPasses: number | undefined;
   let repo: string | undefined;
+  let targetDir: string | undefined;
   let cwdFlag: string | undefined;
   let resume = false;
   let resumeDraft = false;
@@ -106,6 +110,23 @@ export function parsePlanArgs(
         case "--repo":
           repo = value;
           break;
+        case "--target-dir":
+          try {
+            targetDir = validateTargetDir(
+              value,
+              "--target-dir",
+              (message): never => {
+                throw new Error(message);
+              },
+            );
+          } catch (err) {
+            return {
+              ok: false,
+              exitCode: 1,
+              message: (err as Error).message,
+            };
+          }
+          break;
         case "--cwd":
           cwdFlag = value;
           break;
@@ -148,6 +169,7 @@ export function parsePlanArgs(
   if (refineTurns !== undefined) common.refineTurns = refineTurns;
   if (reviewPasses !== undefined) common.reviewPasses = reviewPasses;
   if (repo !== undefined) common.repo = repo;
+  if (targetDir !== undefined) common.targetDir = targetDir;
 
   if (positional.length === 0) {
     return { ok: true, invocation: { ...common, mode: "interactive" } };

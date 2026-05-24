@@ -747,6 +747,56 @@ describe("parsePlanArgs", () => {
     }
   });
 
+  test("--target-dir captured", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["--target-dir", "v1/spec", "intent"], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.targetDir).toBe("v1/spec");
+    } finally {
+      teardown();
+    }
+  });
+
+  test("--target-dir absent leaves default resolution to command/config", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["intent"], tmp);
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      expect(res.invocation.targetDir).toBeUndefined();
+    } finally {
+      teardown();
+    }
+  });
+
+  test("--target-dir missing value → exit 1", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["--target-dir"], tmp);
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.exitCode).toBe(1);
+      expect(res.message).toContain("missing value for --target-dir");
+    } finally {
+      teardown();
+    }
+  });
+
+  test("--target-dir invalid value → exit 1", () => {
+    setup();
+    try {
+      const res = parsePlanArgs(["--target-dir", "../escape", "intent"], tmp);
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.exitCode).toBe(1);
+      expect(res.message).toContain('--target-dir must not contain ".."');
+    } finally {
+      teardown();
+    }
+  });
+
   test("--resume sets flag inert", () => {
     setup();
     try {

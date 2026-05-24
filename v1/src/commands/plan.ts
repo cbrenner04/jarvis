@@ -94,7 +94,7 @@ export type PlanCommandOptions = {
   skipGhCheck?: boolean;
 };
 
-export const PLAN_USAGE = `Usage: jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
+export const PLAN_USAGE = `Usage: jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
                             Run plan mode (draft specs under spec/…; see docs/plan-mode.md).
 `;
 
@@ -649,10 +649,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     );
 
     const fullProject = cfg.projects[project.key];
-    const { specTimestamp, commit, targetDir } = resolvePlanFlags(
-      cfg,
-      fullProject,
-    );
+    const {
+      specTimestamp,
+      commit,
+      targetDir: resolvedTargetDir,
+    } = resolvePlanFlags(cfg, fullProject);
+    const targetDir = inv.targetDir ?? resolvedTargetDir;
     planHarnessLog(
       planLogClient,
       `plan: resolved flags specTimestamp=${specTimestamp} commit=${commit} targetDir=${targetDir}`,
@@ -747,12 +749,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       let nextReviewIndex = resume.nextReviewIndex;
       opts.io.stderr(`plan: resume ${suffix} started\n`);
 
-      const cfg = loadConfig(opts.config);
-      const resumeProject = findProjectForPath(inv.intentPath);
-      const { targetDir: resumeTargetDir } = resolvePlanFlags(
-        cfg,
-        resumeProject,
-      );
+      const resumeTargetDir = targetDir;
       const resumeIntentPath = resume.externalSpecRoot
         ? join(resume.externalSpecRoot, resume.specDirBasename, "intent.md")
         : join(

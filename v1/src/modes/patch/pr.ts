@@ -7,6 +7,7 @@ import {
   extractNarrative,
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
+  renderAttributionSummary,
   type UpdatePrBodyOpts as SharedUpdatePrBodyOpts,
   updatePrBody as sharedUpdatePrBody,
 } from "../../pr.ts";
@@ -15,12 +16,6 @@ import { parsePatchSpec } from "./spec.ts";
 
 export { NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 
-type LinkedSubspecLine = {
-  checked: boolean;
-  text: string;
-  path: string;
-};
-
 export function buildPrBody(opts: {
   indexPath: string;
   narrative: string | null;
@@ -28,37 +23,16 @@ export function buildPrBody(opts: {
   const indexContent = readFileSync(opts.indexPath, "utf8");
   const parsedIndex = parsePatchSpec(indexContent);
 
-  const linkedForBody: LinkedSubspecLine[] = parsedIndex.linkedSubspecs
-    .filter((linked) => linked.path.endsWith(".md"))
-    .map((linked) => ({
-      checked: linked.checked,
-      text: linked.text,
-      path: linked.path,
-    }));
-
-  const total = linkedForBody.length;
-  const completed = linkedForBody.filter((s) => s.checked).length;
-
   const lines: string[] = [];
   if (parsedIndex.h1) {
     lines.push(`# ${parsedIndex.h1}`);
-    lines.push("");
-  }
-  lines.push("## Progress");
-  lines.push("");
-  lines.push(`${completed} of ${total} subspecs complete`);
-  lines.push("");
-  lines.push("## Subspecs");
-  lines.push("");
-  for (const linked of linkedForBody) {
-    const box = linked.checked ? "[x]" : "[ ]";
-    lines.push(`- ${box} [${linked.text}](${linked.path})`);
   }
 
   let body = lines.join("\n");
 
   if (opts.narrative !== null) {
-    body += `\n\n${NARRATIVE_START_MARKER}\n${opts.narrative}\n${NARRATIVE_END_MARKER}`;
+    const narrativeBlock = `${NARRATIVE_START_MARKER}\n${opts.narrative}\n${NARRATIVE_END_MARKER}`;
+    body = body === "" ? narrativeBlock : `${body}\n\n${narrativeBlock}`;
   }
 
   return body;
@@ -103,6 +77,9 @@ export function updatePrBody(opts: UpdatePrBodyOpts): void {
   }
   if (opts.renderFooter) {
     sharedOpts.renderFooter = opts.renderFooter;
+  } else {
+    sharedOpts.renderFooter = ({ cwd, base }) =>
+      renderAttributionSummary({ cwd, base });
   }
   sharedUpdatePrBody(sharedOpts);
 }

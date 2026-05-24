@@ -41,20 +41,20 @@ Two distinct ideas to capture:
 
 ## Acceptance criteria
 
-- [ ] A durable doc defines the inline standard (doc-comment every exported
+- [x] A durable doc defines the inline standard (doc-comment every exported
       symbol; comment why not what; no narration of obvious code) and a placement
       table mapping each concern to inline, `v2/docs/`, or spec.
-- [ ] The placement policy states each behavior is documented in exactly one
+- [x] The placement policy states each behavior is documented in exactly one
       durable home and cross-linked rather than duplicated.
-- [ ] `v2/docs/v2-vision.md` "Documented in code" cross-links the durable doc as
+- [x] `v2/docs/v2-vision.md` "Documented in code" cross-links the durable doc as
       its operational definition.
-- [ ] A shared prompt fragment encodes the standard and placement rule and is
+- [x] A shared prompt fragment encodes the standard and placement rule and is
       registered and rendered as a layered global fragment per prompt governance.
-- [ ] The terse directive is scoped to communication artifacts and does not read
+- [x] The terse directive is scoped to communication artifacts and does not read
       as license to under-document code.
-- [ ] Rendered prompt snapshot tests fail before the fragment is added and pass
+- [x] Rendered prompt snapshot tests fail before the fragment is added and pass
       after the new wording is accepted.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
 
 ## Documentation updates
 

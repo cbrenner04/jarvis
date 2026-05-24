@@ -30,7 +30,7 @@ Prompts are a top-level peer, not owned by either engine (see "Core premise" and
 ## Guiding principles
 
 - **Behavior is the source of truth.** v1's *implementation* is mostly disposable; its *behaviors and user workflows* are what v2 must preserve.
-- **Documented in code.** Inline documentation is a first-class output, not an afterthought. Separate higher-level docs keep the big picture coherent.
+- **Documented in code.** Follow the operational standard in [`documentation-standard.md`](documentation-standard.md): doc-comment exported symbols and document each behavior in one durable home. Separate higher-level docs keep the big picture coherent.
 - **Tests beside v2 source.** v2 tests live next to the source they cover instead of in a parallel `v2/test/` tree. Keep test-only fixtures near their owning code unless a genuinely shared fixture earns a shared home.
 - **Composable over modal.** "mode" (plan / patch / review / yolo) is not a source-code primitive — modes are user-defined workflow presets composed from a small behavior vocabulary. Settled; the concrete model lives in [`v2-architecture.md`](v2-architecture.md).
 - **No tech-stack churn.** bun + biome + typescript stay.

@@ -160,7 +160,9 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
 
       expect(logged).toHaveLength(1);
       expect(logged[0]).toBe(claude.calls[0]?.prompt);
-      expect(logged[0]).toContain("Be terse.");
+      expect(logged[0]).toContain(
+        "Be terse in communication artifacts (specs, PRs, commits, intents).",
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

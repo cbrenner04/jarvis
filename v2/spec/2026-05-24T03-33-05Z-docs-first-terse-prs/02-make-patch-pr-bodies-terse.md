@@ -24,18 +24,18 @@ the full spec routing table or repeated per-commit noise into the body.
 
 ## Acceptance criteria
 
-- [ ] A generated patch-mode implementation PR body contains the spec title and
+- [x] A generated patch-mode implementation PR body contains the spec title and
       preserved narrative, but no `## Progress` section and no verbatim linked
       subspec checklist.
-- [ ] Patch-mode attribution renders a compact summary line without a
+- [x] Patch-mode attribution renders a compact summary line without a
       per-subspec commit bullet list in the default PR body.
-- [ ] Duplicate implementation attempts for the same subspec cannot create
+- [x] Duplicate implementation attempts for the same subspec cannot create
       duplicated visible attribution lines in the PR body.
-- [ ] Existing narrative marker preservation still works when `updatePrBody`
+- [x] Existing narrative marker preservation still works when `updatePrBody`
       rewrites a body.
-- [ ] Tests cover the terse body shape, narrative preservation, empty-footer
+- [x] Tests cover the terse body shape, narrative preservation, empty-footer
       behavior, and the compact attribution footer.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
 
 ## Documentation updates
 
@@ -43,4 +43,3 @@ Update `AGENTS.md`, `v1/docs/worktrees-and-commits.md`, or the narrower PR
 lifecycle documentation that currently promises the verbose per-commit
 attribution list. The docs should state the new default: terse PR header,
 optional preserved narrative, compact attribution summary.
-

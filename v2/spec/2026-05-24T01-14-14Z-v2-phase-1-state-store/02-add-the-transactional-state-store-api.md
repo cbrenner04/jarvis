@@ -28,24 +28,86 @@ state without a daemon in the loop.
 - Define round-trip test cases for create, resume, and history reads.
 - Define what remains internal.
 
+## Phase 1 repository API contract
+
+Public API is a narrow repository surface with named workflow-boundary
+operations. Phase 1 exports these operations only:
+
+1. `createRun(input) -> { runId, createdAt, nextStepId }`
+2. `recordStepStart(input) -> { attemptId, attemptOrdinal, startedAt }`
+3. `commitStepBoundary(input) -> { attemptId, finishedAt, nextStepId, outcomeId }`
+4. `loadRunForResume(input) -> { run, latestAttemptsByStep, latestOutcomeByAttempt }`
+5. `listStepHistory(input) -> { attempts[] with joined outcomes }`
+
+No generic query surface is exported.
+
+## Identifiers and operation I/O
+
+- `createRun` accepts caller-stable identifiers and workflow pointers needed by
+  later phases: `{ runId, projectId, workflowName, specPath, worktreePath, branch, initialStepId }`.
+  It returns `{ runId, createdAt, nextStepId }`.
+- `recordStepStart` accepts `{ runId, stepId, startedAt }`. It creates the next
+  monotonic `attemptOrdinal` for `(runId, stepId)` and returns
+  `{ attemptId, attemptOrdinal, startedAt }`.
+- `commitStepBoundary` accepts `{ runId, attemptId, stepId, terminalStatus, outcomeClass, nextStepId, finishedAt }`.
+  It returns `{ attemptId, finishedAt, nextStepId, outcomeId }`.
+- `loadRunForResume` accepts `{ runId }` and returns enough durable state for
+  runner/daemon resume without SQL knowledge: run row plus latest attempt/outcome
+  snapshots keyed by stable IDs.
+- `listStepHistory` accepts `{ runId, stepId }` and returns attempt history
+  ordered by `attemptOrdinal`, each row carrying its durable outcome fields.
+
+## Transaction boundary
+
+- `commitStepBoundary` is the only public write path allowed to persist attempt
+  completion and checkpoint advancement.
+- Inside one DB transaction it must:
+  1. mark the targeted attempt finished and terminal,
+  2. insert/update the attempt outcome row,
+  3. update `runs.next_step_id` (or terminal run status when no next step),
+  4. commit atomically or roll back all changes.
+- No public operation may expose partial writes for these fields.
+
+## Required Phase 1 round-trip coverage
+
+Library-local tests run against a temporary SQLite file and verify:
+
+1. bootstrap and forward-only migrations run idempotently before operations,
+2. `createRun` persists and can be reloaded by `loadRunForResume`,
+3. repeated `recordStepStart` calls produce monotonic per-step attempt ordinals,
+4. `commitStepBoundary` writes attempt completion + outcome + checkpoint in one
+   atomic transaction,
+5. `listStepHistory` returns persisted attempts/outcomes in stable ordinal order,
+6. recovery-oriented reads (`loadRunForResume`) return the latest durable
+   checkpoint and attempt/outcome state after committed boundaries.
+
+## Internal-only surfaces
+
+The following stay internal and are not public v2 contracts:
+
+- SQL text, statement builders, and row mappers.
+- Migration planner/executor helpers and bootstrap wiring internals.
+- Raw `Database` handle exposure for arbitrary caller SQL.
+- Any alternate-backend adapter seam or daemon-singleton-owned store wrapper.
+
 ## Acceptance criteria
 
-- [ ] The subspec defines a repository-style API surface with named operations
+- [x] The subspec defines a repository-style API surface with named operations
       equivalent to create-run, record-step-start, commit-step-boundary,
       load-run-for-resume, and list-step-history.
-- [ ] The subspec does not introduce a generic ORM facade, arbitrary query API,
+- [x] The subspec does not introduce a generic ORM facade, arbitrary query API,
       alternate-backend seam, or daemon-coupled singleton object.
-- [ ] The subspec defines `commit-step-boundary` or an equivalent single public
+- [x] The subspec defines `commit-step-boundary` or an equivalent single public
       write path as the only operation allowed to persist attempt completion and
       checkpoint advancement, so callers cannot split that durable effect across
       ad hoc writes.
-- [ ] The subspec states which identifiers each public operation accepts and
+- [x] The subspec states which identifiers each public operation accepts and
       returns so later runner and daemon code do not need hidden SQL knowledge
       to address runs, steps, or attempts.
-- [ ] The subspec requires focused round-trip tests that prove schema bootstrap,
+- [x] The subspec requires focused round-trip tests that prove schema bootstrap,
       persisted run creation, persisted attempt history, and recovery-oriented
       reads against a temporary database.
-- [ ] The subspec keeps library visibility tight by identifying what SQL or
+- [x] The subspec keeps library visibility tight by identifying what SQL or
       helper surfaces stay internal rather than becoming public v2 contracts.
 
 ## Documentation updates

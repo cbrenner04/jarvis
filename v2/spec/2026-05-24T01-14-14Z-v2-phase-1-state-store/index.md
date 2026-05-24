@@ -6,5 +6,5 @@ and boundary-checkpoint recovery semantics.
 
 - [x] [00 - Choose SQLite bootstrap and migration ownership](./00-choose-sqlite-bootstrap-and-migration-ownership.md)
 - [x] [01 - Define the durable run-step-outcome schema](./01-define-the-durable-run-step-outcome-schema.md)
-- [ ] [02 - Add the transactional state-store API](./02-add-the-transactional-state-store-api.md)
+- [x] [02 - Add the transactional state-store API](./02-add-the-transactional-state-store-api.md)
 - [ ] [03 - Define recovery semantics and recovery-oriented coverage](./03-define-recovery-semantics-and-recovery-oriented-coverage.md)

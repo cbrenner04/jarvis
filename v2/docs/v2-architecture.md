@@ -210,6 +210,22 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
   idempotently before repository operations are exposed. Phase 1 correctness
   does not require WAL, singleton-writer daemon ownership, or daemon lock
   policy; those are optional runtime tuning details for later daemon phases.
+- **Repository-style operations, no generic query layer.** Phase 1 exposes only
+  named state-store operations at workflow boundaries:
+  `createRun`, `recordStepStart`, `commitStepBoundary`, `loadRunForResume`,
+  and `listStepHistory`.
+- **Single transactional completion boundary.** `commitStepBoundary` is the only
+  public write path allowed to persist attempt completion, outcome durability,
+  and run checkpoint advancement; those writes commit or roll back together.
+- **Identifier-driven API contract.** Public operations accept/return durable
+  IDs (`runId`, `stepId`, `attemptId`, monotonic `attemptOrdinal`) so caller
+  code never needs direct SQL addressing knowledge.
+- **Library-local round-trip coverage.** Phase 1 tests run against a temporary
+  SQLite database and cover bootstrap/migrations, run create+resume persistence,
+  attempt history reads, and recovery-oriented resume reads from committed
+  boundaries.
+- **Internal-only implementation surfaces.** SQL text, row mappers, migration
+  helpers, and raw DB access stay internal and are not public v2 contracts.
 - **Chosen over Postgres deliberately.** Postgres is available and always-on on
   both machines, so memory/install weren't the deciding factor — keeping the
   daemon **hermetic** was. The tool whose job is reliability shouldn't gain a new

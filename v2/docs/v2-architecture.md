@@ -236,12 +236,23 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
 
 ### Recovery
 
-- **Checkpoint at step/iteration boundaries, not mid-step.** If the daemon
-  crashes while an agent subprocess is in flight, on restart the interrupted step
-  is re-run from the top. This works because of the output-contract model:
-  re-running a finished step yields `no-work` + a passing contract → advance. v1
-  already behaves this way iteration-to-iteration (the worktree holds partial
-  work; the agent resumes from it). No mid-step checkpointing needed.
+- **Kill-resume == crash-recovery at the same boundary.** Phase 1 treats both as
+  the same recovery path: never resume mid-step; replay from the last durable
+  pre-step checkpoint.
+- **One concrete checkpoint model.** Recovery derives from `runs.next_step_id`
+  (or terminal run status when no next step remains) plus durable
+  `step_attempts`/`step_outcomes` history, not mutable in-memory flags.
+- **Explicit recovery read outcomes.** Recovery returns one of:
+  `start-next-boundary` (no attempt yet for current checkpoint),
+  `replay-last-boundary` (attempt recorded but no committed boundary effect),
+  or `run-terminal`.
+- **Transactional boundary proof.** A boundary is committed only when attempt
+  terminal state, terminal outcome row, and checkpoint advancement are durable
+  in the same transaction; retrying the same finished boundary must not advance
+  checkpoint twice or duplicate terminal durable effect.
+- **Out of scope in Phase 1.** Mid-step snapshots, structured event history,
+  human steering state, and daemon lifecycle concerns are deferred unless needed
+  by a concrete recovery read.
 
 ### Steering semantics
 

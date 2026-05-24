@@ -158,13 +158,3 @@ arguing about what durable state means.
   admission/concurrency state should land only if the draft can tie them to a
   concrete Phase 1 recovery invariant rather than later orchestration wishes.
 
-## Blocker
-
-Review and approve `v2/spec/2026-05-24T01-14-14Z-v2-phase-1-state-store/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-05-24T01-14-14Z-v2-phase-1-state-store/intent.md`

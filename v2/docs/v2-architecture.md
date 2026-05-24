@@ -184,16 +184,54 @@ down.
 A **run** is a workflow instance carrying:
 
 - **Identity** — run ID, target project, workflow name, spec/target ref, created-at.
-- **Position** — current step ID, loop budget remaining, location within any repeat-range.
-- **Status** — running / paused / awaiting-human / blocked / done / killed / failed.
+- **Status** — running / paused / awaiting-human / blocked / completed / killed / failed.
+- **Checkpoint** — one durable pointer to the next stable workflow step ID (`next_step_id`).
 - **Pointers to work** — worktree path, branch, spec path, PR. Not their contents.
-- **History** — per-step outcomes, agent attempts, cost/telemetry.
+- **History linkage** — execution history is not embedded on `runs`; it is stored
+  as separate `step_attempts` and `step_outcomes` rows linked by durable IDs.
+
+Phase 1 durable split:
+
+- **`runs`**: orchestration identity/lifecycle/checkpoint plus work pointers.
+- **`step_attempts`**: per-step execution attempts keyed by durable `attempt_id`
+  and monotonic `attempt_ordinal` per `run_id + step_id`.
+- **`step_outcomes`**: separate durable outcome rows keyed from attempts (not a
+  free-form attempt JSON payload), with closed classifications used by runner branching.
+
+Phase 1 keeps payloads narrow and deterministic (timestamps, terminal status,
+outcome classification, and minimal branch fields). Transcript bodies, rich
+logs/events, daemon/session metadata, and token/cost streams are explicitly deferred.
 
 ### Persistence
 
-- **SQLite under `~/.jarvis`.** The daemon is the single writer; WAL mode gives it
-  one writer + concurrent readers (the TUI's many-runs view). Plus the
-  append-only event/log stream for history and the structured-logging constraint.
+- **SQLite under `~/.jarvis/state/v2.sqlite`.** Phase 1 is a pure library with a
+  library-owned bootstrap path that opens this file (or an explicit caller
+  override for tests/temp stores) and applies forward-only migrations
+  idempotently before repository operations are exposed. Phase 1 correctness
+  does not require daemon single-writer ownership, daemon lock policy, or WAL;
+  those are optional runtime tuning details for later daemon phases, not
+  persistence prerequisites.
+- **Repository-style operations, no generic query layer.** Phase 1 exposes only
+  named state-store operations at workflow boundaries:
+  `createRun`, `recordStepStart`, `commitStepBoundary`, `loadRunForResume`,
+  and `listStepHistory`.
+  `createRun` accepts stable run/workflow pointers and returns
+  `{ runId, createdAt, nextStepId }`; `recordStepStart` returns
+  `{ attemptId, attemptOrdinal, startedAt }`; `commitStepBoundary` returns
+  `{ attemptId, finishedAt, nextStepId, outcomeId }`; read paths return durable
+  run + attempt + outcome snapshots keyed by stable IDs.
+- **Single transactional completion boundary.** `commitStepBoundary` is the only
+  public write path allowed to persist attempt completion, outcome durability,
+  and run checkpoint advancement; those writes commit or roll back together.
+- **Identifier-driven API contract.** Public operations accept/return durable
+  IDs (`runId`, `stepId`, `attemptId`, monotonic `attemptOrdinal`) so caller
+  code never needs direct SQL addressing knowledge.
+- **Library-local round-trip coverage.** Phase 1 tests run against a temporary
+  SQLite database and cover bootstrap/migrations, run create+resume persistence,
+  attempt history reads, and recovery-oriented resume reads from committed
+  boundaries.
+- **Internal-only implementation surfaces.** SQL text, row mappers, migration
+  helpers, and raw DB access stay internal and are not public v2 contracts.
 - **Chosen over Postgres deliberately.** Postgres is available and always-on on
   both machines, so memory/install weren't the deciding factor — keeping the
   daemon **hermetic** was. The tool whose job is reliability shouldn't gain a new
@@ -204,12 +242,25 @@ A **run** is a workflow instance carrying:
 
 ### Recovery
 
-- **Checkpoint at step/iteration boundaries, not mid-step.** If the daemon
-  crashes while an agent subprocess is in flight, on restart the interrupted step
-  is re-run from the top. This works because of the output-contract model:
-  re-running a finished step yields `no-work` + a passing contract → advance. v1
-  already behaves this way iteration-to-iteration (the worktree holds partial
-  work; the agent resumes from it). No mid-step checkpointing needed.
+- **Kill-resume == crash-recovery at the same boundary.** Phase 1 treats both as
+  the same recovery path: never resume mid-step; replay from the last durable
+  pre-step checkpoint.
+- **Ownership boundary is Phase 1.** Daemon/runtime phases may invoke recovery
+  through IPC/control surfaces, but they do not redefine checkpoint semantics.
+- **One concrete checkpoint model.** Recovery derives from `runs.next_step_id`
+  (or terminal run status when no next step remains) plus durable
+  `step_attempts`/`step_outcomes` history, not mutable in-memory flags.
+- **Explicit recovery read outcomes.** Recovery returns one of:
+  `start-next-boundary` (no attempt yet for current checkpoint),
+  `replay-last-boundary` (attempt recorded but no committed boundary effect),
+  or `run-terminal`.
+- **Transactional boundary proof.** A boundary is committed only when attempt
+  terminal state, terminal outcome row, and checkpoint advancement are durable
+  in the same transaction; retrying the same finished boundary must not advance
+  checkpoint twice or duplicate terminal durable effect.
+- **Out of scope in Phase 1.** Mid-step snapshots, structured event history,
+  human steering state, and daemon lifecycle concerns are deferred unless needed
+  by a concrete recovery read.
 
 ### Steering semantics
 

@@ -649,10 +649,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     );
 
     const fullProject = cfg.projects[project.key];
-    const { specTimestamp, commit, targetDir: resolvedTargetDir } = resolvePlanFlags(
-      cfg,
-      fullProject,
-    );
+    const {
+      specTimestamp,
+      commit,
+      targetDir: resolvedTargetDir,
+    } = resolvePlanFlags(cfg, fullProject);
     const targetDir = inv.targetDir ?? resolvedTargetDir;
     planHarnessLog(
       planLogClient,

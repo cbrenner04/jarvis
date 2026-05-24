@@ -56,6 +56,8 @@ export async function runInlineDraftTurn(opts: {
   stderr?: (s: string) => void;
   /** For tests only; defaults to real CLI agents. */
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
+  /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
+  onOutboundPrompt?: (prompt: string) => void;
 }): Promise<{ result: AgentResult; agentLabel: string | null }> {
   const agentOrder = opts.config.modes.plan.agentOrder;
   if (agentOrder.length === 0) {
@@ -87,6 +89,8 @@ export async function runInlineDraftTurn(opts: {
     }
     throw err;
   }
+
+  opts.onOutboundPrompt?.(prompt);
 
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
   let result: AgentResult | null = null;

@@ -27,9 +27,9 @@ Add one shared terse directive to the assembled agent-facing prompts so patch mo
 
 ## Acceptance criteria
 
-- [ ] A new registered prompt artifact `global.terse` exists under the shared top-level `prompts/` tree with required governance frontmatter (`id`, `behavior`, `kind: fragment`, `revision`) and concise terseness wording intended for all target repos.
-- [ ] Patch mode prompt construction passes `global.terse` into prompt assembly so the rendered prompt body places the terse fragment before `patch.prompt.body`, and `patch.rules` remains unchanged apart from shifting later in the final assembled text.
-- [ ] `buildDraftPrompt`, `buildRefinePrompt`, and `buildReviewPrompt` use the shared prompt assembler for their step body so `global.terse` appears in each final rendered prompt.
-- [ ] Plan prompt builders preserve their current runtime behavior after the assembly change: committed vs external layouts still rewrite `spec/<NAME>/` wording correctly, review prompts still inject the correct pass context, and existing placeholder substitution semantics stay intact.
-- [ ] Every prompt artifact whose rendered output changes because of the new fragment has an explicit `revision` bump in this subspec, so snapshot fixture names can be updated deterministically in `01`.
-- [ ] The subspec can be implemented and verified without relying on broader prompt-layout migration work under `v2/src` or unrelated prompt rewrites.
+- [x] A new registered prompt artifact `global.terse` exists under the shared top-level `prompts/` tree with required governance frontmatter (`id`, `behavior`, `kind: fragment`, `revision`) and concise terseness wording intended for all target repos.
+- [x] Patch mode prompt construction passes `global.terse` into prompt assembly so the rendered prompt body places the terse fragment before `patch.prompt.body`, and `patch.rules` remains unchanged apart from shifting later in the final assembled text.
+- [x] `buildDraftPrompt`, `buildRefinePrompt`, and `buildReviewPrompt` use the shared prompt assembler for their step body so `global.terse` appears in each final rendered prompt.
+- [x] Plan prompt builders preserve their current runtime behavior after the assembly change: committed vs external layouts still rewrite `spec/<NAME>/` wording correctly, review prompts still inject the correct pass context, and existing placeholder substitution semantics stay intact.
+- [x] Every prompt artifact whose rendered output changes because of the new fragment has an explicit `revision` bump in this subspec, so snapshot fixture names can be updated deterministically in `01`.
+- [x] The subspec can be implemented and verified without relying on broader prompt-layout migration work under `v2/src` or unrelated prompt rewrites.

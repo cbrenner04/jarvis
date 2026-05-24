@@ -5,7 +5,7 @@ import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { loadPromptRegistry } from "../../prompts/registry.ts";
-import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
+import { assemblePrompt, enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
@@ -44,7 +44,13 @@ export function buildDraftPrompt(opts: {
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
-  let template = loadPromptRegistry().getById("plan.prompt.draft").body;
+  const registry = loadPromptRegistry();
+  let template = assemblePrompt({
+    registry,
+    globalFragmentIds: ["global.terse"],
+    behaviorFragmentIds: [],
+    stepPromptId: "plan.prompt.draft",
+  });
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";

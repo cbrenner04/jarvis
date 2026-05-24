@@ -6,7 +6,7 @@ import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { loadPromptRegistry } from "../../prompts/registry.ts";
-import { enforceDelimiterPolicy } from "../../prompts/renderer.ts";
+import { assemblePrompt, enforceDelimiterPolicy } from "../../prompts/renderer.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
@@ -52,7 +52,13 @@ export function buildReviewPrompt(opts: {
       ? "This is the first review pass. The spec snapshot below is the original draft."
       : `This is review pass ${passNumber} of ${totalPasses}. The spec snapshot below reflects the prior pass.`;
 
-  let template = loadPromptRegistry().getById("plan.prompt.review").body;
+  const registry = loadPromptRegistry();
+  let template = assemblePrompt({
+    registry,
+    globalFragmentIds: ["global.terse"],
+    behaviorFragmentIds: [],
+    stepPromptId: "plan.prompt.review",
+  });
 
   const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";

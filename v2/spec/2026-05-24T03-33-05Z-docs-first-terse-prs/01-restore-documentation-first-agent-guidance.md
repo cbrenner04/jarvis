@@ -27,20 +27,20 @@ this subspec's concern, *what* counts as documentation and *where* it lives is
 
 ## Acceptance criteria
 
-- [ ] Rendered implementation prompts include an explicit documentation-first
+- [x] Rendered implementation prompts include an explicit documentation-first
       rule before the task-selection instruction.
-- [ ] The rule requires agents to read relevant durable docs before editing code
+- [x] The rule requires agents to read relevant durable docs before editing code
       and to update docs/specs in the same subspec when behavior, architecture,
       workflow, prompt, or operator-facing semantics change.
-- [ ] The rule routes updates to the home defined by 00's placement policy
+- [x] The rule routes updates to the home defined by 00's placement policy
       (inline vs `v2/docs/` vs spec) rather than duplicating the policy text.
-- [ ] The rule does not authorize speculative documentation churn for purely
+- [x] The rule does not authorize speculative documentation churn for purely
       internal changes whose active subspec says no docs are required.
-- [ ] Prompt governance docs identify the documentation-first directive as an
+- [x] Prompt governance docs identify the documentation-first directive as an
       intentional shared prompt behavior and describe where it is owned.
-- [ ] Rendered prompt snapshot tests fail before the prompt update and pass after
+- [x] Rendered prompt snapshot tests fail before the prompt update and pass after
       the new wording is accepted.
-- [ ] `bun run typecheck`, `bun test`, and `bun run check` pass.
+- [x] `bun run typecheck`, `bun test`, and `bun run check` pass.
 
 ## Documentation updates
 

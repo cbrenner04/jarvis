@@ -12,7 +12,9 @@ shape agent behavior in patch mode and plan draft/review/refine:
 - `global.terse` (`prompts/global/terse.md`) — shared terse fragment layered
   into agent-facing prompts
 - `global.documentation` (`prompts/global/documentation.md`) — shared
-  documentation-first fragment layered into agent-facing prompts
+  documentation-first fragment layered into agent-facing prompts; owns
+  documentation-read/update ordering and routes placement to
+  `v2/docs/documentation-standard.md`
 
 - `patch.prompt.body` (`prompts/patch/instructions.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
@@ -74,6 +76,11 @@ Shared rendering follows this contract:
   best-effort).
 - Global guidance is layered via shared fragments (`global.documentation`, then
   `global.terse`) rather than duplicated across step prompts or `patch.rules`.
+- `global.documentation` requires docs-first execution order: read relevant
+  durable docs/specs before code edits, and update docs/specs in the same
+  subspec when behavior/architecture/workflow/prompt/operator-facing semantics
+  change, unless the active subspec explicitly says no docs are required for a
+  purely internal change.
 - `global.terse` is scoped to communication artifacts (specs, PRs, commits,
   intents) and does not authorize under-documenting code.
 

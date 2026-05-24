@@ -5,7 +5,7 @@ export type Io = {
   stderr: (s: string) => void;
 };
 
-export function run(argv: readonly string[], io?: Io): number {
+export function main(argv: readonly string[], io?: Io): number {
   const out = io ?? {
     stdout: (s) => process.stdout.write(s),
     stderr: (s) => process.stderr.write(s),
@@ -21,5 +21,5 @@ export function run(argv: readonly string[], io?: Io): number {
 }
 
 if (import.meta.main) {
-  process.exit(run(process.argv.slice(2)));
+  process.exit(main(process.argv.slice(2)));
 }

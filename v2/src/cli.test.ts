@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { run } from "./cli.ts";
+import { main } from "./cli.ts";
 
 function captureIo() {
   let stdout = "";
@@ -21,7 +21,7 @@ describe("v2 cli", () => {
   test("no args prints v2 boundary message and exits 0", () => {
     const cap = captureIo();
 
-    const code = run([], cap.io);
+    const code = main([], cap.io);
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "v2 not ready\n", stderr: "" });
@@ -30,7 +30,7 @@ describe("v2 cli", () => {
   test("--version prints package version and exits 0", () => {
     const cap = captureIo();
 
-    const code = run(["--version"], cap.io);
+    const code = main(["--version"], cap.io);
 
     expect(code).toBe(0);
     expect(cap.read().stderr).toBe("");

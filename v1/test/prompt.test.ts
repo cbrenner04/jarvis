@@ -5,6 +5,7 @@ import { loadPromptRegistry } from "../src/prompts/registry.ts";
 describe("buildPrompt", () => {
   test("asks the agent to discover repo guidance and includes Jarvis rules", () => {
     const prompt = buildPrompt("spec/2026-05-11-v1/index.md");
+    const terse = loadPromptRegistry().getById("global.terse").body.trim();
     const rules = loadPromptRegistry().getById("patch.rules").body.trim();
 
     expect(prompt).toContain(
@@ -13,6 +14,8 @@ describe("buildPrompt", () => {
     expect(prompt).toContain("Read the spec at spec/2026-05-11-v1/index.md.");
     expect(prompt).toBe(
       [
+        terse,
+        "",
         "Inspect the target repo for guidance, conventions, and relevant docs.",
         "Read the spec at spec/2026-05-11-v1/index.md.",
         "Follow these Jarvis rules:",
@@ -30,9 +33,12 @@ describe("buildPrompt", () => {
 
   test("keeps sibling-directory block placement and newline joining unchanged", () => {
     const prompt = buildPrompt("spec/path.md", ["../repo-a", "../repo-b"]);
+    const terse = loadPromptRegistry().getById("global.terse").body.trim();
     const rules = loadPromptRegistry().getById("patch.rules").body.trim();
     expect(prompt).toBe(
       [
+        terse,
+        "",
         "Inspect the target repo for guidance, conventions, and relevant docs.",
         "Read the spec at spec/path.md.",
         "Additional project sibling directories are available for this run:",

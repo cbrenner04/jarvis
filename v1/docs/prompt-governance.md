@@ -5,14 +5,17 @@ agent-facing prompts.
 
 ## First Registry Rollout (Metadata-First)
 
-The first rollout includes only prompt artifacts that shape agent behavior in
-patch mode and plan draft/review/refine:
+The first rollout includes shared terse guidance plus prompt artifacts that
+shape agent behavior in patch mode and plan draft/review/refine:
 
-- `patch.prompt.body` (`v1/src/modes/patch/prompts/body.md`)
-- `patch.rules` (`v1/src/modes/patch/rules.md`)
-- `plan.prompt.draft` (`v1/src/modes/plan/prompts/draft.md`)
-- `plan.prompt.review` (`v1/src/modes/plan/prompts/review.md`)
-- `plan.prompt.refine` (`v1/src/modes/plan/prompts/refine.md`)
+- `global.terse` (`prompts/global/terse.md`) — shared terse fragment layered
+  into agent-facing prompts
+
+- `patch.prompt.body` (`prompts/patch/instructions.md`)
+- `patch.rules` (`prompts/patch/rules.md`)
+- `plan.prompt.draft` (`prompts/plan/draft.md`)
+- `plan.prompt.review` (`prompts/plan/review.md`)
+- `plan.prompt.refine` (`prompts/plan/refine.md`)
 
 Deferred in this rollout:
 
@@ -66,6 +69,8 @@ Shared rendering follows this contract:
 - Step definitions may explicitly add or remove named fragments.
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
+- The terse rollout uses one shared fragment (`global.terse`) layered during
+  assembly; terse wording is not duplicated across step prompts or `patch.rules`.
 
 Template substitution is non-recursive:
 
@@ -103,6 +108,10 @@ and reviewed separately from shared prompt body snapshots.
 Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and
 is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 
-- patch prompt body (`patch.prompt.body`)
-- plan draft/review/refine prompts (review includes multiple pass contexts)
+- patch prompt body (`patch.prompt.body`, currently `@r2`)
+- plan draft/review/refine prompts (currently `@r2`; review includes multiple
+  pass contexts)
 - codex transport wrapper variant (`codex.exec.stdin+marker`)
+
+Coverage remains assembled-output focused: tests assert final rendered prompt
+text and wrapper outputs rather than fragment-only snapshots.

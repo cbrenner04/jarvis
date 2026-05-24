@@ -6,7 +6,10 @@ import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { loadPromptRegistry } from "../../prompts/registry.ts";
-import { assemblePrompt, enforceDelimiterPolicy } from "../../prompts/renderer.ts";
+import {
+  assemblePrompt,
+  enforceDelimiterPolicy,
+} from "../../prompts/renderer.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";

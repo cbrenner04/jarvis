@@ -62,19 +62,19 @@ to make later subspecs open the same store the same way in tests and real runs.
 
 ## Acceptance criteria
 
-- [ ] `v2/src` exports one `bootstrapStateStore(options?)` that opens a
+- [x] `v2/src` exports one `bootstrapStateStore(options?)` that opens a
       `bun:sqlite` database at `~/.jarvis/state/v2.sqlite` by default and at
       `options.dbPath` when supplied; no other location or env-branching logic
       exists.
-- [ ] `bootstrapStateStore` applies forward-only migrations and records applied
+- [x] `bootstrapStateStore` applies forward-only migrations and records applied
       versions in a library-owned metadata table before returning. A test
       calling it twice on the same temp `dbPath` asserts migrations are not
       re-applied (idempotent) and version metadata is unchanged.
-- [ ] No ORM, alternate-backend seam, rollback/down migration, or daemon
+- [x] No ORM, alternate-backend seam, rollback/down migration, or daemon
       WAL/singleton-writer/lock requirement is introduced.
-- [ ] Scope stays at bootstrap + versioning: no run/step/attempt/outcome record
+- [x] Scope stays at bootstrap + versioning: no run/step/attempt/outcome record
       API is exported from this subspec (schema lands in 01).
-- [ ] `bun run typecheck` and `bun test` pass for the new bootstrap module and
+- [x] `bun run typecheck` and `bun test` pass for the new bootstrap module and
       its test.
 
 ## Documentation updates

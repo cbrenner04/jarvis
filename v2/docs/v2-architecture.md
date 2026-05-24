@@ -208,8 +208,9 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
   library-owned bootstrap path that opens this file (or an explicit caller
   override for tests/temp stores) and applies forward-only migrations
   idempotently before repository operations are exposed. Phase 1 correctness
-  does not require WAL, singleton-writer daemon ownership, or daemon lock
-  policy; those are optional runtime tuning details for later daemon phases.
+  does not require daemon single-writer ownership, daemon lock policy, or WAL;
+  those are optional runtime tuning details for later daemon phases, not
+  persistence prerequisites.
 - **Repository-style operations, no generic query layer.** Phase 1 exposes only
   named state-store operations at workflow boundaries:
   `createRun`, `recordStepStart`, `commitStepBoundary`, `loadRunForResume`,

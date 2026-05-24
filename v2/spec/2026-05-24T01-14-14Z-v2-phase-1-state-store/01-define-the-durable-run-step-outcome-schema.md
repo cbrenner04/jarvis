@@ -2,44 +2,35 @@
 
 With bootstrap settled, Phase 1 needs the first durable model. This slice
 defines the records, identifiers, closed enums, and narrow payload fields for
-runs, step attempts, and outcomes. Its job is to make the orchestration-state
-vs work-state split explicit and keep the schema biased toward later
-single-step execution without dragging in daemon or observability concerns. The
-most important outcome here is that later phases inherit stable durable
-identities and a concrete checkpoint model instead of reopening them.
+`runs`, `step_attempts`, and `step_outcomes`. Its job is to make the
+orchestration-state vs work-state split explicit and bias the store toward a
+later single-step runner without pulling in daemon or observability concerns.
 
 ## Decisions
 
 - Keep orchestration state on `runs`: identity, workflow pointers, lifecycle
-  status, and the durable boundary checkpoint used for resume.
-- Record execution history separately from runs using explicit attempt and
-  outcome records. A step attempt is the durable execution record; an outcome is
-  the durable classification and selected payload later workflow logic branches
-  on.
-- Use stable, explicit identifiers early: durable run IDs, stable step IDs from
-  workflow source, and ordered attempt numbers or equivalent durable sequencing
-  for per-step history.
-- Keep the run checkpoint concrete and minimal: it points at the next durable
-  step boundary to execute rather than storing mutable in-progress step state.
-- Prefer closed enums over open-ended JSON for run status, step kind, attempt
+  status, terminal summary, and the durable checkpoint used for resume.
+- Record execution history separately from runs. A step attempt is the durable
+  execution record; an outcome is the durable classification and selected
+  payload later workflow logic branches on.
+- Use stable identifiers early: durable run IDs, stable workflow step IDs, and
+  durable attempt numbering or an equivalent per-step history key.
+- Keep the run checkpoint minimal: it names the next durable step boundary to
+  execute rather than storing mutable in-progress state.
+- Prefer closed enums over JSON blobs for run status, step kind, attempt
   status, and outcome classification.
 - Keep work artifacts as pointers only: worktree path, branch, spec path, PR
-  ref, or equivalent references. Do not persist repo contents, prompt bodies,
-  transcript bodies, or live log streams here.
-- Defer fields that belong to later phases: daemon pid/socket data, quota
-  heuristics, structured log/event feeds, human steering prompts, repeat-range
-  position beyond what the checkpoint requires, concurrency/admission state,
-  and token/cost detail.
+  ref, or equivalent references.
+- Defer daemon/session metadata, quota heuristics, transcript bodies, log/event
+  streams, human steering detail, concurrency state, and token/cost detail.
 
 ## Task Checklist
 
-- Define the Phase 1 tables or equivalent durable records.
-- Define the identifier strategy and ordering semantics for run and attempt
-  history.
-- Define the concrete run checkpoint fields and how they link to workflow step
-  identity.
-- Define the closed enum sets and the minimal payload fields each record owns.
-- Document the explicit deferrals so later phases extend the model deliberately.
+- Define the Phase 1 records.
+- Define the identifier strategy and ordering semantics.
+- Define the run checkpoint fields and workflow-step linkage.
+- Define the closed enums and minimal payload fields.
+- Document the explicit deferrals.
 
 ## Acceptance criteria
 
@@ -58,6 +49,9 @@ identities and a concrete checkpoint model instead of reopening them.
 - [ ] The subspec names closed enum sets for at least run status, step kind,
       attempt terminal status, and outcome classification instead of leaving
       those semantics to free-form JSON.
+- [ ] The subspec makes the attempt/outcome split concrete by stating whether
+      `step_outcomes` is a separate table keyed from `step_attempts` or a
+      separately typed row shape with an equally explicit durable identity.
 - [ ] The durable payload for a completed attempt is kept narrow and
       deterministic: timestamps, terminal status, outcome classification, and
       only the selected fields later workflow logic must branch on, with raw

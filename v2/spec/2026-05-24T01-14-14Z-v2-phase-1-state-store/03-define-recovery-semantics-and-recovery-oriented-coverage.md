@@ -5,28 +5,24 @@ concrete enough that later daemon work does not have to rediscover what
 "durable" means. This slice defines the boundary-checkpoint recovery model,
 idempotence rules, and tests that prove kill-resume equals crash-recovery at the
 store boundary without inventing mid-step snapshots or structured log history.
-It closes the phase by defining exactly what recovery reads must conclude from
-durable records alone.
 
 ## Decisions
 
-- Recovery is defined at step boundaries only. An in-flight interrupted attempt
-  is replayed from the last durable pre-step checkpoint.
-- The run owns one concrete durable checkpoint such as the next step to execute
-  or equivalent boundary marker; replay derives from that plus append-only
-  attempt history.
+- Recovery is defined at step boundaries only. An interrupted in-flight attempt
+  replays from the last durable pre-step checkpoint.
+- The run owns one concrete durable checkpoint such as the next step to execute;
+  replay derives from that plus append-only attempt history.
 - A completed boundary advances exactly once. Retrying the same finished
   boundary write must not advance resume state twice.
 - The model must distinguish "attempt recorded but checkpoint not advanced" from
   "boundary fully committed" so recovery reads know whether to replay or
   continue.
 - Keep observability out of the contract. Structured logs, event streams, and
-  daemon steering state remain Phase 2+ work unless needed for a concrete
-  recovery invariant.
+  daemon steering state remain Phase 2+ work.
 
 ## Task Checklist
 
-- Define the exact resume rules for completed, interrupted, and not-yet-started
+- Define the resume rules for completed, interrupted, and not-yet-started
   boundaries.
 - Define the idempotence rules around boundary commit and checkpoint
   advancement.
@@ -49,6 +45,10 @@ durable records alone.
 - [ ] The subspec makes boundary idempotence explicit: retrying the same
       finished boundary write cannot advance resume state twice or duplicate the
       durable terminal effect.
+- [ ] The subspec states what durable evidence proves a boundary is committed:
+      the checkpoint advancement and terminal attempt/outcome records appear in
+      the same transactional effect, rather than being inferred from an
+      in-memory flag.
 - [ ] The subspec requires coverage that distinguishes at least three cases:
       no attempt recorded yet, attempt recorded but checkpoint not advanced, and
       boundary fully committed.

@@ -4,9 +4,7 @@ Once the schema exists, later v2 phases need a narrow library API instead of ad
 hoc SQL access. This slice defines the repository-style operations the rest of
 v2 will call, how those operations compose transactionally at step boundaries,
 and the round-trip coverage that proves the store can persist and read Phase 1
-state without a daemon in the loop. The API should encode the durable boundary
-rules directly instead of exposing low-level write sequences that every caller
-could misuse differently.
+state without a daemon in the loop.
 
 ## Decisions
 
@@ -18,18 +16,17 @@ could misuse differently.
 - Make step-boundary completion one transactional repository operation that
   persists attempt finish, persists outcome data, and advances the durable
   checkpoint together.
-- Keep test scope library-local: schema bootstrap, round-trip persistence, and
-  transactional reads/writes against a temp database.
-- Avoid speculative reads for future UIs or analytics; Phase 1 only exposes the
-  operations later daemon and runner code concretely need.
+- Keep test scope library-local: bootstrap, round-trip persistence, and
+  transactional reads and writes against a temp database.
+- Keep SQL details, row mappers, and migration helpers internal.
 
 ## Task Checklist
 
 - Define the public Phase 1 state-store API surface under `v2/`.
-- Define which operations are single-transaction boundaries and which helper
-  writes stay internal.
-- Define round-trip test cases for create/load/history behavior.
-- Define what remains internal helper or SQL detail rather than public API.
+- Define which operations are transactional boundaries and which writes stay
+  internal.
+- Define round-trip test cases for create, resume, and history reads.
+- Define what remains internal.
 
 ## Acceptance criteria
 
@@ -42,6 +39,9 @@ could misuse differently.
       write path as the only operation allowed to persist attempt completion and
       checkpoint advancement, so callers cannot split that durable effect across
       ad hoc writes.
+- [ ] The subspec states which identifiers each public operation accepts and
+      returns so later runner and daemon code do not need hidden SQL knowledge
+      to address runs, steps, or attempts.
 - [ ] The subspec requires focused round-trip tests that prove schema bootstrap,
       persisted run creation, persisted attempt history, and recovery-oriented
       reads against a temporary database.

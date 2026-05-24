@@ -184,10 +184,23 @@ down.
 A **run** is a workflow instance carrying:
 
 - **Identity** — run ID, target project, workflow name, spec/target ref, created-at.
-- **Position** — current step ID, loop budget remaining, location within any repeat-range.
-- **Status** — running / paused / awaiting-human / blocked / done / killed / failed.
+- **Status** — running / paused / awaiting-human / blocked / completed / killed / failed.
+- **Checkpoint** — one durable pointer to the next stable workflow step ID (`next_step_id`).
 - **Pointers to work** — worktree path, branch, spec path, PR. Not their contents.
-- **History** — per-step outcomes, agent attempts, cost/telemetry.
+- **History linkage** — execution history is not embedded on `runs`; it is stored
+  as separate `step_attempts` and `step_outcomes` rows linked by durable IDs.
+
+Phase 1 durable split:
+
+- **`runs`**: orchestration identity/lifecycle/checkpoint plus work pointers.
+- **`step_attempts`**: per-step execution attempts keyed by durable `attempt_id`
+  and monotonic `attempt_ordinal` per `run_id + step_id`.
+- **`step_outcomes`**: separate durable outcome rows keyed from attempts (not a
+  free-form attempt JSON payload), with closed classifications used by runner branching.
+
+Phase 1 keeps payloads narrow and deterministic (timestamps, terminal status,
+outcome classification, and minimal branch fields). Transcript bodies, rich
+logs/events, daemon/session metadata, and token/cost streams are explicitly deferred.
 
 ### Persistence
 

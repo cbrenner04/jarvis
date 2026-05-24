@@ -105,6 +105,10 @@ The optional `targetDir` setting (default `"spec"`) specifies the relative path 
 
 With this configuration, `jarvis1 plan` creates commits under `v1/spec/<timestamp>-<plan-name>/` instead of `spec/<timestamp>-<plan-name>/`.
 
+`jarvis1 plan --target-dir <dir>` provides a per-run override with higher precedence than config:
+`--target-dir` > `projects[<name>].plan.targetDir` > `modes.plan.targetDir` > `"spec"`.
+The flag uses the same validation as config (`relative` path, no `..` traversal).
+
 **Hand-editing:** Edit `~/.jarvis/config.json` directly, or use `jarvis config edit` to open the config in `$EDITOR`.
 
 ## `Project.origin`

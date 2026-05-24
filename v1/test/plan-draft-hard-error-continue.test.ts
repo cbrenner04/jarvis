@@ -119,4 +119,50 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("draft phase logs the assembled prompt once via onOutboundPrompt", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-outbound-"));
+    try {
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+
+      const name = "p-draft";
+      const specDir = join(dir, "spec", name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(
+        join(specDir, "intent.md"),
+        "---\nname: p-draft\n---\n\n# Intent\n\nseed\n",
+      );
+
+      const claude = new FakeAgent("claude", (_c, _p, opts) => {
+        const d = join(opts.cwd, "spec", name);
+        mkdirSync(d, { recursive: true });
+        writeFileSync(
+          join(d, "index.md"),
+          "# Draft spec\n\n- [ ] [00](./00-one.md)\n",
+        );
+        writeFileSync(
+          join(d, "00-one.md"),
+          "# One\n\n## Acceptance criteria\n\n- [ ] x\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const logged: string[] = [];
+      await runDraftPhase({
+        worktreePath: dir,
+        name,
+        config: testConfig,
+        onOutboundPrompt: (prompt) => logged.push(prompt),
+        createAgent: () => claude,
+      });
+
+      expect(logged).toHaveLength(1);
+      expect(logged[0]).toBe(claude.calls[0]?.prompt);
+      expect(logged[0]).toContain("Be terse.");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

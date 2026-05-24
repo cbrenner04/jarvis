@@ -112,12 +112,16 @@ Resume drafting once approved:
 \`jarvis1 plan --resume-draft spec/<spec-dir>/intent.md\``;
 
 /** Best-effort harness log for plan setup diagnostics (mirrors patch-mode fanout style). */
-function planHarnessLog(logClient: LogClient, text: string): void {
+function planHarnessLog(
+  logClient: LogClient,
+  text: string,
+  tag: "harness" | "outbound" = "harness",
+): void {
   void logClient
     .send({
       namespace: "jarvis",
       text,
-      tag: "harness",
+      tag,
     })
     .catch(() => {});
 }
@@ -637,6 +641,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     }
 
     const planLogClient = entry.logClient;
+    const logOutboundPrompt = (prompt: string): void =>
+      planHarnessLog(planLogClient, prompt, "outbound");
     planHarnessLog(planLogClient, describePlanInvocation(inv));
     if (inv.mode === "interactive") {
       opts.io.stderr("plan: interactive session started\n");
@@ -684,6 +690,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       writeFileSync(inlineIntentPath, `${inv.intentText}\n`, "utf8");
       const inlineCfg = loadConfig(opts.config);
       const inlineResult = await runInlineDraftTurn({
+        onOutboundPrompt: logOutboundPrompt,
         worktreePath: project.root,
         inlineIntent: inv.intentText,
         intentPath: inlineIntentPath,
@@ -795,6 +802,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
         try {
           const refineResult = await runRefinePhase({
+            onOutboundPrompt: logOutboundPrompt,
             worktreePath: resume.worktreePath,
             name: resume.specDirBasename,
             config: cfg,
@@ -900,6 +908,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               );
           const intentBefore = readFileSync(resumeIntentPath, "utf8");
           draftResult = await runDraftPhase({
+            onOutboundPrompt: logOutboundPrompt,
             worktreePath: resume.worktreePath,
             name: resume.specDirBasename,
             ...(resume.externalSpecRoot ? { specDirPath: finalSpecPath } : {}),
@@ -1008,6 +1017,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         const intentPath = join(resumeSpecPath, "intent.md");
         const intentBefore = readFileSync(intentPath, "utf8");
         const result = await runReviewPass({
+          onOutboundPrompt: logOutboundPrompt,
           worktreePath: resume.worktreePath,
           name: resume.specDirBasename,
           ...(resume.externalSpecRoot ? { specDirPath: resumeSpecPath } : {}),
@@ -1306,6 +1316,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
         if (refineBudget > 0) {
           const refineResult = await runRefinePhase({
+            onOutboundPrompt: logOutboundPrompt,
             worktreePath,
             name: specDirBasename,
             config: cfg,
@@ -1352,6 +1363,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
         } else if (inv.mode !== "interactive") {
           const namingResult = await runNameOnlyPhase({
+            onOutboundPrompt: logOutboundPrompt,
             worktreePath,
             name: specDirBasename,
             config: cfg,
@@ -1708,6 +1720,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         const intentBefore = readFileSync(intentPath, "utf8");
 
         draftResult = await runDraftPhase({
+          onOutboundPrompt: logOutboundPrompt,
           worktreePath,
           name: specDirBasename,
           ...(commit ? {} : { specDirPath: finalSpecPath }),
@@ -1988,6 +2001,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
           // Run the review pass
           const reviewResult = await runReviewPass({
+            onOutboundPrompt: logOutboundPrompt,
             worktreePath,
             name: specDirBasename,
             ...(commit ? {} : { specDirPath: finalSpecPath }),

@@ -30,6 +30,8 @@ export type ReviewPhaseOptions = {
   planTelemetry?: PlanTelemetryWriter | undefined;
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
+  /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
+  onOutboundPrompt?: (prompt: string) => void;
 };
 
 /**
@@ -240,6 +242,8 @@ export async function runReviewPass(
     }
     throw err;
   }
+
+  opts.onOutboundPrompt?.(prompt);
 
   // Try each agent in order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;

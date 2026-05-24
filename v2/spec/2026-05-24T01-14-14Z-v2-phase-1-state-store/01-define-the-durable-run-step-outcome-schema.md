@@ -81,21 +81,21 @@ later single-step runner without pulling in daemon or observability concerns.
 
 ## Acceptance criteria
 
-- [ ] A forward-only migration creates `runs`, `step_attempts`, and
+- [x] A forward-only migration creates `runs`, `step_attempts`, and
       `step_outcomes` with the columns named in "Phase 1 durable model"; a test
       asserts the three tables and their key columns exist after bootstrap.
-- [ ] Closed TypeScript unions are exported for `run_status`, `step_kind`,
+- [x] Closed TypeScript unions are exported for `run_status`, `step_kind`,
       `attempt_status`, and `outcome_class` matching the schema; a test (or
       typecheck) rejects values outside those sets.
-- [ ] `runs` carries exactly one resume checkpoint column (`next_step_id`,
+- [x] `runs` carries exactly one resume checkpoint column (`next_step_id`,
       nullable) and stores work artifacts as nullable pointer columns only; a
       test round-trips a created run's checkpoint and pointer fields.
-- [ ] `step_attempts.attempt_ordinal` is unique and monotonic per
+- [x] `step_attempts.attempt_ordinal` is unique and monotonic per
       `(run_id, step_id)`, and `step_outcomes` links one-to-one from
       `attempt_id`; tests assert the uniqueness constraint and the linkage.
-- [ ] Deferred fields (transcripts, token/cost, event streams, daemon/session
+- [x] Deferred fields (transcripts, token/cost, event streams, daemon/session
       metadata, quota) are absent from the Phase 1 schema.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

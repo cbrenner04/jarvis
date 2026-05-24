@@ -39,8 +39,9 @@ jarvis1 help
 The `bin/jarvis1` shim runs `bun v1/src/cli.ts` from this checkout, so keep the
 checkout at a stable path. If `/usr/local/bin` is not writable or is not on
 your `PATH`, symlink into another directory such as `~/.local/bin`.
-v1 installs as `jarvis1` so the bare `jarvis` command remains available for
-the future v2 CLI.
+`jarvis1` remains the daily-driver v1 command. The bare `jarvis` command now
+resolves to an intentionally minimal v2 scaffold (`v2 not ready` or
+`--version`).
 
 ## Quickstart
 
@@ -118,11 +119,11 @@ After the v1/v2 split, the repository has three distinct areas:
 
 - **Root** (`/`): Shared glue and repo-wide guidance. Contains `bin/jarvis1` (shim that runs the v1 engine), the single `package.json`, and documentation files (`README.md`, `AGENTS.md`).
 - **v1** (`v1/`): The shipping harness implementation. Contains `src/`, `test/`, `docs/`, `scripts/`, `data/`, and `spec/`. All current jarvis functionality lives here. The root `bin/jarvis1` shim dispatches to `v1/src/cli.ts`.
-- **v2** (`v2/`): Reserved for v2 planning and future implementation. Contains `spec/wip-intents/` with long-lived planning documents. No implementation code yet.
+- **v2** (`v2/`): Phase-0 scaffold for the future v2 engine. Contains a minimal CLI entry at `v2/src/cli.ts` plus planning docs/specs.
 
-From a user's perspective, v1 commands dispatch through the root shim to the v1
-engine as `jarvis1`. Future v2 development will introduce v2/src and v2/test
-co-located as appropriate and can claim the bare `jarvis` command.
+From a user's perspective, `jarvis1` dispatches to the v1 engine and remains
+the production path. Bare `jarvis` dispatches to the intentionally minimal v2
+scaffold.
 
 ## Commands
 

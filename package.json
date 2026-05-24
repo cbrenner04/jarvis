@@ -1,10 +1,12 @@
 {
   "name": "jarvis",
+  "version": "0.0.0",
   "module": "v1/src/index.ts",
   "type": "module",
   "private": true,
   "bin": {
-    "jarvis1": "bin/jarvis1"
+    "jarvis1": "bin/jarvis1",
+    "jarvis": "bin/jarvis"
   },
   "scripts": {
     "check": "bun node_modules/@biomejs/biome/bin/biome check .",

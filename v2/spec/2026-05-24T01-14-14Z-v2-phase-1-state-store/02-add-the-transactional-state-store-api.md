@@ -92,22 +92,22 @@ The following stay internal and are not public v2 contracts:
 
 ## Acceptance criteria
 
-- [ ] `v2/src` exports exactly `createRun`, `recordStepStart`,
+- [x] `v2/src` exports exactly `createRun`, `recordStepStart`,
       `commitStepBoundary`, `loadRunForResume`, and `listStepHistory` with the
       I/O shapes in "Identifiers and operation I/O"; no generic query/exec
       surface or raw `Database` handle is exported.
-- [ ] `commitStepBoundary` performs attempt-finish + outcome write + checkpoint
+- [x] `commitStepBoundary` performs attempt-finish + outcome write + checkpoint
       advance in one transaction; a test forcing a failure mid-operation asserts
       all three roll back (no partial write).
-- [ ] `recordStepStart` assigns monotonic `attemptOrdinal` per `(runId, stepId)`;
+- [x] `recordStepStart` assigns monotonic `attemptOrdinal` per `(runId, stepId)`;
       a test calling it repeatedly asserts 1, 2, 3…
-- [ ] `loadRunForResume` and `listStepHistory` round-trip durable state by stable
+- [x] `loadRunForResume` and `listStepHistory` round-trip durable state by stable
       IDs after `createRun`/`commitStepBoundary`; tests assert the returned
       shapes need no SQL knowledge from callers.
-- [ ] SQL text, row mappers, and migration helpers are not exported from the
+- [x] SQL text, row mappers, and migration helpers are not exported from the
       package barrel; a test or the barrel asserts only the five ops, bootstrap,
       and types are public.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

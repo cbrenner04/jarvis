@@ -215,6 +215,11 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
   named state-store operations at workflow boundaries:
   `createRun`, `recordStepStart`, `commitStepBoundary`, `loadRunForResume`,
   and `listStepHistory`.
+  `createRun` accepts stable run/workflow pointers and returns
+  `{ runId, createdAt, nextStepId }`; `recordStepStart` returns
+  `{ attemptId, attemptOrdinal, startedAt }`; `commitStepBoundary` returns
+  `{ attemptId, finishedAt, nextStepId, outcomeId }`; read paths return durable
+  run + attempt + outcome snapshots keyed by stable IDs.
 - **Single transactional completion boundary.** `commitStepBoundary` is the only
   public write path allowed to persist attempt completion, outcome durability,
   and run checkpoint advancement; those writes commit or roll back together.

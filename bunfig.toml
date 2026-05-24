@@ -1,2 +1,3 @@
 [test]
 timeout = 30000
+preload = ["./v1/test/setup-fake-agents.ts"]

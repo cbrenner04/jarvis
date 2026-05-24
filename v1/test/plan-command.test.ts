@@ -398,7 +398,7 @@ describe("planCommand target-repo resolution", () => {
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
       const existingInlineIntent = join(
-        dir,
+        projectA,
         "spec",
         "wip-intents",
         "freeform.md",

@@ -48,37 +48,37 @@ recovery matrix coverage. SQL-shaped callers and raw handles stay internal.
 
 ## Acceptance criteria
 
-- [ ] Phase 1 exposes one public open/init entry plus only these repository
+- [x] Phase 1 exposes one public open/init entry plus only these repository
       methods: `createRun`, `recordStepStart`, `commitStepBoundary`,
       `loadRunForResume`, and `listStepHistory`.
-- [ ] `createRun` accepts the durable run/work pointer payload needed by Phase 1
+- [x] `createRun` accepts the durable run/work pointer payload needed by Phase 1
       and persists the initial checkpoint/lifecycle state, returning a typed
       snapshot keyed by `runId` with `createdAt` and initial `nextStepId`.
-- [ ] `recordStepStart` accepts `runId` and `stepId`, allocates exactly one new
+- [x] `recordStepStart` accepts `runId` and `stepId`, allocates exactly one new
       monotonic `attemptOrdinal` for that run-step pair, persists attempt start
       state, and returns a typed attempt snapshot including `attemptId`,
       `attemptOrdinal`, and `startedAt`.
-- [ ] `commitStepBoundary` accepts enough identity to bind the write to exactly
+- [x] `commitStepBoundary` accepts enough identity to bind the write to exactly
       one previously started attempt and one boundary advance, and returns a
       typed boundary snapshot rather than raw row data. The public contract does
       not expose caller-managed transactions or raw SQL handles.
-- [ ] Caller-meaningful failures for missing IDs, run/step/attempt identity
+- [x] Caller-meaningful failures for missing IDs, run/step/attempt identity
       mismatches, or invalid boundary targets resolve through named exported
       store error contracts rather than leaked SQLite/driver exceptions.
-- [ ] `loadRunForResume` returns a typed recovery snapshot shape that is
+- [x] `loadRunForResume` returns a typed recovery snapshot shape that is
       sufficient to encode the Phase 1 recovery outcomes
       (`start-next-boundary`, `replay-last-boundary`, `run-terminal`) without
       leaking internal row shapes. This slice fixes the exported discriminated
       union or equivalent typed shape; the exact replay/terminal proof
       obligations stay in the next subspec.
-- [ ] `listStepHistory` returns typed attempt/outcome history for one run in a
+- [x] `listStepHistory` returns typed attempt/outcome history for one run in a
       deterministic order keyed by durable IDs and ordinals; it does not become
       a generic query surface.
-- [ ] Raw Bun SQLite handles, migration runners, SQL helpers, row mappers, and
+- [x] Raw Bun SQLite handles, migration runners, SQL helpers, row mappers, and
       ad hoc query APIs remain internal and are not exported Phase 1 contracts.
-- [ ] Every exported store symbol added in this slice has an inline doc-comment
+- [x] Every exported store symbol added in this slice has an inline doc-comment
       stating purpose, params, returns, errors, and invariants.
-- [ ] If implementing this slice makes public semantics more concrete than the
+- [x] If implementing this slice makes public semantics more concrete than the
       current durable docs, update `v2/docs/v2-architecture.md` in the same
       subspec and touch `v2/docs/v2-build-order.md` or `v2/spec/v2-meta-index.md`
       only if their wording becomes inaccurate.

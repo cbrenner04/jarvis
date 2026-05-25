@@ -6,6 +6,7 @@ import { Database } from "bun:sqlite";
 import {
   getDefaultPhase1StateStorePath,
   openPhase1StateStore,
+  Phase1StateStoreError,
 } from "./state-store.ts";
 
 const tempDirs: string[] = [];
@@ -83,7 +84,7 @@ describe("phase1 state store bootstrap", () => {
       `);
       db.exec(`
         INSERT INTO step_attempts(attempt_id, run_id, step_id, attempt_ordinal, status, started_at, finished_at)
-        VALUES('attempt-1', 'run-1', 'step-1', 1, 'done', '2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z')
+        VALUES('attempt-1', 'run-1', 'step-1', 1, 'succeeded', '2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z')
       `);
       db.exec(`
         INSERT INTO step_outcomes(outcome_id, attempt_id, outcome_kind, created_at)
@@ -141,5 +142,280 @@ describe("phase1 state store bootstrap", () => {
 
     const bytesAfter = readFileSync(dbPath);
     expect(bytesAfter.equals(bytesBefore)).toBe(true);
+  });
+});
+
+describe("phase1 state store repository api", () => {
+  test("createRun returns durable run snapshot", () => {
+    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    try {
+      const snapshot = store.createRun({
+        runId: "run-1",
+        workflowName: "wf",
+        nextStepId: "step-1",
+        status: "running",
+        specPath: "/tmp/spec.md",
+        worktreePath: "/tmp/worktree",
+        branchName: "feature/x",
+        createdAt: "2026-01-02T03:04:05.000Z",
+      });
+
+      expect(snapshot).toEqual({
+        runId: "run-1",
+        workflowName: "wf",
+        status: "running",
+        nextStepId: "step-1",
+        specPath: "/tmp/spec.md",
+        worktreePath: "/tmp/worktree",
+        branchName: "feature/x",
+        createdAt: "2026-01-02T03:04:05.000Z",
+        updatedAt: "2026-01-02T03:04:05.000Z",
+      });
+
+      expect(() =>
+        store.createRun({
+          runId: "run-1",
+          workflowName: "wf",
+          nextStepId: "step-1",
+          status: "running",
+          specPath: null,
+          worktreePath: null,
+          branchName: null,
+        }),
+      ).toThrowError(Phase1StateStoreError);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("recordStepStart allocates monotonic attempt ordinals", () => {
+    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    try {
+      store.createRun({
+        runId: "run-1",
+        workflowName: "wf",
+        nextStepId: "step-a",
+        status: "running",
+        specPath: null,
+        worktreePath: null,
+        branchName: null,
+      });
+
+      const first = store.recordStepStart({
+        runId: "run-1",
+        stepId: "step-a",
+        startedAt: "2026-01-01T00:00:00.000Z",
+      });
+      const second = store.recordStepStart({
+        runId: "run-1",
+        stepId: "step-a",
+        startedAt: "2026-01-01T00:01:00.000Z",
+      });
+
+      expect(first.attemptOrdinal).toBe(1);
+      expect(second.attemptOrdinal).toBe(2);
+      expect(first.stepId).toBe("step-a");
+      expect(second.status).toBe("started");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("commitStepBoundary atomically finalizes attempt and advances checkpoint", () => {
+    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    try {
+      store.createRun({
+        runId: "run-1",
+        workflowName: "wf",
+        nextStepId: "step-a",
+        status: "running",
+        specPath: null,
+        worktreePath: null,
+        branchName: null,
+      });
+
+      const started = store.recordStepStart({ runId: "run-1", stepId: "step-a" });
+
+      const boundary = store.commitStepBoundary({
+        runId: "run-1",
+        stepId: "step-a",
+        attemptId: started.attemptId,
+        nextStepId: "step-b",
+        runStatus: "running",
+        outcomeKind: "done",
+        outcomeDetail: "ok",
+        finishedAt: "2026-01-01T00:02:00.000Z",
+      });
+
+      expect(boundary.stepId).toBe("step-a");
+      expect(boundary.nextStepId).toBe("step-b");
+      expect(boundary.attemptStatus).toBe("succeeded");
+
+      const resume = store.loadRunForResume("run-1");
+      expect(resume.kind).toBe("start-next-boundary");
+      if (resume.kind === "start-next-boundary") {
+        expect(resume.stepId).toBe("step-b");
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  test("loadRunForResume returns replay and terminal branches", () => {
+    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    try {
+      store.createRun({
+        runId: "run-1",
+        workflowName: "wf",
+        nextStepId: "step-a",
+        status: "running",
+        specPath: null,
+        worktreePath: null,
+        branchName: null,
+      });
+
+      const started = store.recordStepStart({ runId: "run-1", stepId: "step-a" });
+      const replay = store.loadRunForResume("run-1");
+      expect(replay.kind).toBe("replay-last-boundary");
+      if (replay.kind === "replay-last-boundary") {
+        expect(replay.attempt.attemptId).toBe(started.attemptId);
+      }
+
+      store.commitStepBoundary({
+        runId: "run-1",
+        stepId: "step-a",
+        attemptId: started.attemptId,
+        nextStepId: null,
+        runStatus: "completed",
+        outcomeKind: "done",
+        outcomeDetail: null,
+      });
+
+      const terminal = store.loadRunForResume("run-1");
+      expect(terminal.kind).toBe("run-terminal");
+      if (terminal.kind === "run-terminal") {
+        expect(terminal.run.status).toBe("completed");
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  test("listStepHistory is deterministic and typed", () => {
+    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    try {
+      store.createRun({
+        runId: "run-1",
+        workflowName: "wf",
+        nextStepId: "step-a",
+        status: "running",
+        specPath: null,
+        worktreePath: null,
+        branchName: null,
+      });
+
+      const a1 = store.recordStepStart({
+        runId: "run-1",
+        stepId: "step-a",
+        startedAt: "2026-01-01T00:00:00.000Z",
+      });
+      store.commitStepBoundary({
+        runId: "run-1",
+        stepId: "step-a",
+        attemptId: a1.attemptId,
+        nextStepId: "step-b",
+        runStatus: "running",
+        outcomeKind: "done",
+        outcomeDetail: null,
+        finishedAt: "2026-01-01T00:01:00.000Z",
+      });
+
+      const b1 = store.recordStepStart({
+        runId: "run-1",
+        stepId: "step-b",
+        startedAt: "2026-01-01T00:02:00.000Z",
+      });
+      store.commitStepBoundary({
+        runId: "run-1",
+        stepId: "step-b",
+        attemptId: b1.attemptId,
+        nextStepId: null,
+        runStatus: "completed",
+        outcomeKind: "no-work",
+        outcomeDetail: "already done",
+        finishedAt: "2026-01-01T00:03:00.000Z",
+      });
+
+      const history = store.listStepHistory("run-1");
+      expect(history.map((entry) => `${entry.stepId}:${entry.attemptOrdinal}`)).toEqual([
+        "step-a:1",
+        "step-b:1",
+      ]);
+      expect(history[0]?.outcomeKind).toBe("done");
+      expect(history[1]?.outcomeKind).toBe("no-work");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("named errors are thrown for contract failures", () => {
+    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    try {
+      expect(() => store.loadRunForResume("missing")).toThrowError(Phase1StateStoreError);
+
+      store.createRun({
+        runId: "run-1",
+        workflowName: "wf",
+        nextStepId: "step-a",
+        status: "running",
+        specPath: null,
+        worktreePath: null,
+        branchName: null,
+      });
+
+      expect(() =>
+        store.recordStepStart({ runId: "run-1", stepId: "wrong-step" }),
+      ).toThrowError(Phase1StateStoreError);
+
+      const started = store.recordStepStart({ runId: "run-1", stepId: "step-a" });
+
+      expect(() =>
+        store.commitStepBoundary({
+          runId: "run-1",
+          stepId: "step-a",
+          attemptId: "missing",
+          nextStepId: null,
+          runStatus: "completed",
+          outcomeKind: "done",
+          outcomeDetail: null,
+        }),
+      ).toThrowError(Phase1StateStoreError);
+
+      expect(() =>
+        store.commitStepBoundary({
+          runId: "run-1",
+          stepId: "step-a",
+          attemptId: started.attemptId,
+          nextStepId: "not-the-next",
+          runStatus: "running",
+          outcomeKind: "done",
+          outcomeDetail: null,
+        }),
+      ).not.toThrow();
+
+      expect(() =>
+        store.commitStepBoundary({
+          runId: "run-1",
+          stepId: "step-a",
+          attemptId: started.attemptId,
+          nextStepId: null,
+          runStatus: "completed",
+          outcomeKind: "done",
+          outcomeDetail: null,
+        }),
+      ).toThrowError(Phase1StateStoreError);
+    } finally {
+      store.close();
+    }
   });
 });

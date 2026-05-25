@@ -220,6 +220,10 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
   `{ attemptId, attemptOrdinal, startedAt }`; `commitStepBoundary` returns
   `{ attemptId, finishedAt, nextStepId, outcomeId }`; read paths return durable
   run + attempt + outcome snapshots keyed by stable IDs.
+- **Named contract errors for caller-meaningful failures.** Missing durable IDs,
+  run/step/attempt identity mismatches, duplicate/finished attempt commits, and
+  invalid boundary targets surface as stable exported store errors rather than
+  leaked driver exceptions.
 - **Single transactional completion boundary.** `commitStepBoundary` is the only
   public write path allowed to persist attempt completion, outcome durability,
   and run checkpoint advancement; those writes commit or roll back together.

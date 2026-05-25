@@ -56,25 +56,25 @@ decision open.
 
 ## Tasks
 
-- [ ] Create `prompts/plan/defer-to-consumer.md` with fragment frontmatter and body.
-- [ ] Register the new path in `v1/src/prompts/registry.ts`.
-- [ ] Add `plan.defer-to-consumer` to `globalFragmentIds` in
+- [x] Create `prompts/plan/defer-to-consumer.md` with fragment frontmatter and body.
+- [x] Register the new path in `v1/src/prompts/registry.ts`.
+- [x] Add `plan.defer-to-consumer` to `globalFragmentIds` in
   `v1/src/modes/plan/refine.ts`, `draft.ts`, and `review.ts`.
-- [ ] Bump revisions for `plan.prompt.refine`, `plan.prompt.draft`,
+- [x] Bump revisions for `plan.prompt.refine`, `plan.prompt.draft`,
   `plan.prompt.review`; regenerate the rendered-prompt fixtures under
   `v1/test/fixtures/prompts/rendered/` (including the per-pass review variants).
-- [ ] Update revision assertions in `v1/test/prompts/rendered-snapshots.test.ts`.
-- [ ] Run `bun run typecheck` and `bun test`.
+- [x] Update revision assertions in `v1/test/prompts/rendered-snapshots.test.ts`.
+- [x] Run `bun run typecheck` and `bun test`.
 
 ## Acceptance criteria
 
-- [ ] `prompts/plan/defer-to-consumer.md` exists with id `plan.defer-to-consumer`
+- [x] `prompts/plan/defer-to-consumer.md` exists with id `plan.defer-to-consumer`
   and loads via the prompt registry.
-- [ ] Rendered refine, draft, and review prompts include the deferral rule text.
-- [ ] The patch prompt does not include the fragment.
-- [ ] Rendered-prompt snapshot tests pass against regenerated, revision-keyed
+- [x] Rendered refine, draft, and review prompts include the deferral rule text.
+- [x] The patch prompt does not include the fragment.
+- [x] Rendered-prompt snapshot tests pass against regenerated, revision-keyed
   fixtures for all three plan phases.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

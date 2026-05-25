@@ -1,9 +1,14 @@
+import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { Database } from "bun:sqlite";
 
-const DEFAULT_STATE_STORE_PATH = join(homedir(), ".jarvis", "state", "v2.sqlite");
+const DEFAULT_STATE_STORE_PATH = join(
+  homedir(),
+  ".jarvis",
+  "state",
+  "v2.sqlite",
+);
 
 const MIGRATIONS: ReadonlyArray<{ version: number; sql: readonly string[] }> = [
   {
@@ -425,7 +430,10 @@ function createRun(db: Database, input: CreateRunInput): RunSnapshot {
   return mapRunRow(row);
 }
 
-function recordStepStart(db: Database, input: RecordStepStartInput): StepAttemptSnapshot {
+function recordStepStart(
+  db: Database,
+  input: RecordStepStartInput,
+): StepAttemptSnapshot {
   const run = getRunRowOrThrow(db, input.runId);
   if (run.status !== "running" || run.next_step_id !== input.stepId) {
     throw new Phase1StateStoreError(
@@ -457,7 +465,14 @@ function recordStepStart(db: Database, input: RecordStepStartInput): StepAttempt
       INSERT INTO step_attempts(attempt_id, run_id, step_id, attempt_ordinal, status, started_at, finished_at)
       VALUES(?1, ?2, ?3, ?4, ?5, ?6, NULL)
       `,
-    ).run(attemptId, input.runId, input.stepId, attemptOrdinal, "started", startedAt);
+    ).run(
+      attemptId,
+      input.runId,
+      input.stepId,
+      attemptOrdinal,
+      "started",
+      startedAt,
+    );
 
     db.exec("COMMIT;");
 
@@ -476,9 +491,13 @@ function recordStepStart(db: Database, input: RecordStepStartInput): StepAttempt
   }
 }
 
-function commitStepBoundary(db: Database, input: CommitStepBoundaryInput): StepBoundarySnapshot {
+function commitStepBoundary(
+  db: Database,
+  input: CommitStepBoundaryInput,
+): StepBoundarySnapshot {
   const finishedAt = input.finishedAt ?? new Date().toISOString();
-  const attemptStatus = input.attemptStatus ?? toAttemptStatus(input.outcomeKind);
+  const attemptStatus =
+    input.attemptStatus ?? toAttemptStatus(input.outcomeKind);
 
   db.exec("BEGIN IMMEDIATE;");
   try {
@@ -516,10 +535,10 @@ function commitStepBoundary(db: Database, input: CommitStepBoundaryInput): StepB
 
     const existingOutcome =
       db
-      .query<{ outcome_id: string; outcome_kind: string }, [string]>(
-        "SELECT outcome_id, outcome_kind FROM step_outcomes WHERE attempt_id = ?1",
-      )
-      .get(input.attemptId) ?? undefined;
+        .query<{ outcome_id: string; outcome_kind: string }, [string]>(
+          "SELECT outcome_id, outcome_kind FROM step_outcomes WHERE attempt_id = ?1",
+        )
+        .get(input.attemptId) ?? undefined;
 
     if (attempt.finished_at !== null || existingOutcome) {
       return resolveExistingBoundarySnapshot({
@@ -548,14 +567,17 @@ function commitStepBoundary(db: Database, input: CommitStepBoundaryInput): StepB
       INSERT INTO step_outcomes(outcome_id, attempt_id, outcome_kind, detail, created_at)
       VALUES(?1, ?2, ?3, ?4, ?5)
       `,
-    ).run(outcomeId, input.attemptId, input.outcomeKind, input.outcomeDetail, finishedAt);
-
-    db.query("UPDATE runs SET status = ?1, next_step_id = ?2, updated_at = ?3 WHERE run_id = ?4").run(
-      input.runStatus,
-      input.nextStepId,
+    ).run(
+      outcomeId,
+      input.attemptId,
+      input.outcomeKind,
+      input.outcomeDetail,
       finishedAt,
-      input.runId,
     );
+
+    db.query(
+      "UPDATE runs SET status = ?1, next_step_id = ?2, updated_at = ?3 WHERE run_id = ?4",
+    ).run(input.runStatus, input.nextStepId, finishedAt, input.runId);
 
     db.exec("COMMIT;");
 
@@ -581,7 +603,10 @@ function loadRunForResume(db: Database, runId: string): RunResumeSnapshot {
   const run = getRunRowOrThrow(db, runId);
   const runSnapshot = mapRunRow(run);
 
-  if (runSnapshot.nextStepId === null && isTerminalRunStatus(runSnapshot.status)) {
+  if (
+    runSnapshot.nextStepId === null &&
+    isTerminalRunStatus(runSnapshot.status)
+  ) {
     return { kind: "run-terminal", run: runSnapshot };
   }
 
@@ -668,7 +693,8 @@ function listStepHistory(db: Database, runId: string): StepHistoryEntry[] {
       startedAt: row.started_at,
       finishedAt: row.finished_at,
       outcomeId: row.outcome_id,
-      outcomeKind: row.outcome_kind === null ? null : asOutcomeKind(row.outcome_kind),
+      outcomeKind:
+        row.outcome_kind === null ? null : asOutcomeKind(row.outcome_kind),
       outcomeDetail: row.outcome_detail,
       outcomeCreatedAt: row.outcome_created_at,
     }));
@@ -686,7 +712,10 @@ function getRunRowOrThrow(db: Database, runId: string): RunRow {
     .get(runId);
 
   if (!row) {
-    throw new Phase1StateStoreError("RUN_NOT_FOUND", `runId '${runId}' does not exist`);
+    throw new Phase1StateStoreError(
+      "RUN_NOT_FOUND",
+      `runId '${runId}' does not exist`,
+    );
   }
 
   return row;
@@ -748,14 +777,24 @@ function asRunStatus(value: string): RunStatus {
 }
 
 function asAttemptStatus(value: string): AttemptStatus {
-  if (value === "started" || value === "succeeded" || value === "failed" || value === "blocked") {
+  if (
+    value === "started" ||
+    value === "succeeded" ||
+    value === "failed" ||
+    value === "blocked"
+  ) {
     return value;
   }
   throw new Error(`invalid attempt status '${value}'`);
 }
 
 function asOutcomeKind(value: string): StepOutcomeKind {
-  if (value === "progress" || value === "done" || value === "no-work" || value === "blocked") {
+  if (
+    value === "progress" ||
+    value === "done" ||
+    value === "no-work" ||
+    value === "blocked"
+  ) {
     return value;
   }
   throw new Error(`invalid outcome kind '${value}'`);
@@ -823,7 +862,9 @@ function applyMigrations(db: Database): void {
       "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)",
     );
 
-    const getApplied = db.query("SELECT 1 FROM schema_migrations WHERE version = ?1");
+    const getApplied = db.query(
+      "SELECT 1 FROM schema_migrations WHERE version = ?1",
+    );
     const markApplied = db.query(
       "INSERT INTO schema_migrations(version, applied_at) VALUES(?1, ?2)",
     );

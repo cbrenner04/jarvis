@@ -1,8 +1,8 @@
+import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
 import {
   getDefaultPhase1StateStorePath,
   openPhase1StateStore,
@@ -25,7 +25,9 @@ function makeTempDbPath(): string {
 
 describe("phase1 state store bootstrap", () => {
   test("opens with default path contract helper", () => {
-    expect(getDefaultPhase1StateStorePath()).toContain(".jarvis/state/v2.sqlite");
+    expect(getDefaultPhase1StateStorePath()).toContain(
+      ".jarvis/state/v2.sqlite",
+    );
   });
 
   test("fresh bootstrap creates parent directories and schema", () => {
@@ -234,7 +236,10 @@ describe("phase1 state store repository api", () => {
         branchName: null,
       });
 
-      const started = store.recordStepStart({ runId: "run-1", stepId: "step-a" });
+      const started = store.recordStepStart({
+        runId: "run-1",
+        stepId: "step-a",
+      });
 
       const boundary = store.commitStepBoundary({
         runId: "run-1",
@@ -280,7 +285,10 @@ describe("phase1 state store repository api", () => {
         branchName: null,
       });
 
-      const started = store.recordStepStart({ runId: "run-1", stepId: "step-a" });
+      const started = store.recordStepStart({
+        runId: "run-1",
+        stepId: "step-a",
+      });
       const replay = store.loadRunForResume("run-1");
       expect(replay.kind).toBe("replay-last-boundary");
       if (replay.kind === "replay-last-boundary") {
@@ -353,10 +361,9 @@ describe("phase1 state store repository api", () => {
       });
 
       const history = store.listStepHistory("run-1");
-      expect(history.map((entry) => `${entry.stepId}:${entry.attemptOrdinal}`)).toEqual([
-        "step-a:1",
-        "step-b:1",
-      ]);
+      expect(
+        history.map((entry) => `${entry.stepId}:${entry.attemptOrdinal}`),
+      ).toEqual(["step-a:1", "step-b:1"]);
       expect(history[0]?.outcomeKind).toBe("done");
       expect(history[1]?.outcomeKind).toBe("no-work");
     } finally {
@@ -367,7 +374,9 @@ describe("phase1 state store repository api", () => {
   test("named errors are thrown for contract failures", () => {
     const store = openPhase1StateStore({ path: makeTempDbPath() });
     try {
-      expect(() => store.loadRunForResume("missing")).toThrowError(Phase1StateStoreError);
+      expect(() => store.loadRunForResume("missing")).toThrowError(
+        Phase1StateStoreError,
+      );
 
       store.createRun({
         runId: "run-1",
@@ -383,7 +392,10 @@ describe("phase1 state store repository api", () => {
         store.recordStepStart({ runId: "run-1", stepId: "wrong-step" }),
       ).toThrowError(Phase1StateStoreError);
 
-      const started = store.recordStepStart({ runId: "run-1", stepId: "step-a" });
+      const started = store.recordStepStart({
+        runId: "run-1",
+        stepId: "step-a",
+      });
 
       expect(() =>
         store.commitStepBoundary({
@@ -439,7 +451,9 @@ describe("phase1 state store repository api", () => {
         }
       })();
       expect(storeError).toBeInstanceOf(Phase1StateStoreError);
-      expect((storeError as Phase1StateStoreError).code).toBe("INVALID_BOUNDARY_TARGET");
+      expect((storeError as Phase1StateStoreError).code).toBe(
+        "INVALID_BOUNDARY_TARGET",
+      );
     } finally {
       store.close();
     }
@@ -457,7 +471,10 @@ describe("phase1 state store repository api", () => {
         worktreePath: null,
         branchName: null,
       });
-      const started = store.recordStepStart({ runId: "run-1", stepId: "step-a" });
+      const started = store.recordStepStart({
+        runId: "run-1",
+        stepId: "step-a",
+      });
 
       const first = store.commitStepBoundary({
         runId: "run-1",
@@ -508,7 +525,10 @@ describe("phase1 state store repository api", () => {
         worktreePath: null,
         branchName: null,
       });
-      const started = firstStore.recordStepStart({ runId: "run-1", stepId: "step-a" });
+      const started = firstStore.recordStepStart({
+        runId: "run-1",
+        stepId: "step-a",
+      });
       attemptId = started.attemptId;
       const first = firstStore.commitStepBoundary({
         runId: "run-1",

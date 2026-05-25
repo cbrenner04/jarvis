@@ -14,7 +14,7 @@ import { join } from "node:path";
 import {
   installOpencodePermissions,
   SAFE_OPENCODE_PERMISSION,
-} from "../scripts/install-opencode-permissions.ts";
+} from "../../scripts/install-opencode-permissions.ts";
 
 let home: string;
 

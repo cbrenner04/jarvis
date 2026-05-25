@@ -117,8 +117,8 @@ contract.
 
 After the v1/v2 split, the repository has three distinct areas:
 
-- **Root** (`/`): Shared glue and repo-wide guidance. Contains `bin/jarvis1` (shim that runs the v1 engine), the single `package.json`, and documentation files (`README.md`, `AGENTS.md`).
-- **v1** (`v1/`): The shipping harness implementation. Contains `src/`, `test/`, `docs/`, `scripts/`, `data/`, and `spec/`. All current jarvis functionality lives here. The root `bin/jarvis1` shim dispatches to `v1/src/cli.ts`.
+- **Root** (`/`): Shared glue and repo-wide guidance. Contains `bin/jarvis1` (shim that runs the v1 engine), the single `package.json`, version-agnostic `scripts/` (`ready`, opencode permissions) and `data/` (global `prices.json`), and documentation files (`README.md`, `AGENTS.md`).
+- **v1** (`v1/`): The shipping harness implementation. Contains `src/`, `test/`, `docs/`, and `spec/`. All current jarvis functionality lives here. The root `bin/jarvis1` shim dispatches to `v1/src/cli.ts`.
 - **v2** (`v2/`): Phase-0 scaffold for the future v2 engine. Contains a minimal CLI entry at `v2/src/cli.ts` plus planning docs/specs.
 
 From a user's perspective, `jarvis1` dispatches to the v1 engine and remains

@@ -20,7 +20,7 @@ export type Prices = {
 
 export function loadPrices(path?: string): Prices {
   const resolvedPath =
-    path ?? join(import.meta.dir, "..", "..", "data", "prices.json");
+    path ?? join(import.meta.dir, "..", "..", "..", "data", "prices.json");
 
   let content: string;
   try {

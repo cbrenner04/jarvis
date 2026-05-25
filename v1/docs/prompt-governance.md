@@ -15,6 +15,9 @@ shape agent behavior in patch mode and plan draft/review/refine:
   documentation-first fragment layered into agent-facing prompts; owns
   documentation-read/update ordering and routes placement to
   `v2/docs/documentation-standard.md`
+- `plan.defer-to-consumer` (`prompts/plan/defer-to-consumer.md`) — shared
+  plan-only deferral fragment layered into plan draft/review/refine prompts to
+  avoid inventing precision before a first caller exists
 
 - `patch.prompt.body` (`prompts/patch/instructions.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
@@ -74,8 +77,11 @@ Shared rendering follows this contract:
 - Step definitions may explicitly add or remove named fragments.
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
-- Global guidance is layered via shared fragments (`global.documentation`, then
-  `global.terse`) rather than duplicated across step prompts or `patch.rules`.
+- Patch global guidance is layered via shared fragments
+  (`global.documentation`, then `global.terse`) rather than duplicated across
+  step prompts or `patch.rules`.
+- Plan global guidance layers `global.documentation`, `global.terse`, then
+  `plan.defer-to-consumer`.
 - `global.documentation` requires docs-first execution order: read relevant
   durable docs/specs before code edits, and update docs/specs in the same
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics

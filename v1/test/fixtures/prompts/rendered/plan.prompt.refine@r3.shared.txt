@@ -1,24 +1,31 @@
----
-id: plan.prompt.refine
-behavior: agent-facing
-kind: template
-revision: 3
-placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!, TURNS_REMAINING:string!]
----
+Documentation first.
+Before editing code, read the relevant durable docs/specs for the behavior you are changing.
+When behavior, architecture, workflow, prompt, or operator-facing semantics change, update docs/specs in the same subspec in the durable home required by `v2/docs/documentation-standard.md`; do not defer doc alignment to a follow-up.
+If the active subspec explicitly says docs are not required for a purely internal change, do not create speculative doc churn.
+
+Be terse in communication artifacts (specs, PRs, commits, intents).
+Verbosity costs money and review effort. Minimize it.
+This does not authorize under-documenting code or omitting required docs.
+
+When drafting behavior ahead of its first consumer, prefer deferral over invented precision.
+Do not guess answers that belong to the first caller.
+Record each such choice inline as: `Deferred to first consumer: <decision> — pin when a caller needs it`.
+Extra precision on behavior no current code exercises is a warning sign, not rigor.
+
 # Plan Mode — Intent Refinement Phase
 
 You are refining a Jarvis plan **intent** before the draft phase runs. This phase is **not interactive**: you cannot ask the human questions, pause for answers, or record a Q&A. No interactive or poll-style user tooling is available.
 
-**Working directory:** `<WORKDIR>`
+**Working directory:** `prompt-registry`
 
-**Spec directory:** `<NAME>`
+**Spec directory:** `prompt-registry`
 
 ## Current Intent
 
-The text between `<<<INTENT_BEGIN>>>` and `<<<INTENT_END>>>` is the current content of `spec/<NAME>/intent.md`. Treat it as read-only except where the rules below allow changes.
+The text between `<<<INTENT_BEGIN>>>` and `<<<INTENT_END>>>` is the current content of `spec/prompt-registry/intent.md`. Treat it as read-only except where the rules below allow changes.
 
 <<<INTENT_BEGIN>>>
-<INTENT>
+Intent
 <<<INTENT_END>>>
 
 ## Spec Guidance
@@ -26,7 +33,7 @@ The text between `<<<INTENT_BEGIN>>>` and `<<<INTENT_END>>>` is the current cont
 The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is reference material describing the spec structure and conventions to follow.
 
 <<<SPEC_GUIDANCE_BEGIN>>>
-<SPEC_GUIDANCE>
+Guide
 <<<SPEC_GUIDANCE_END>>>
 
 ## Rules
@@ -65,7 +72,7 @@ When turns remain after a refinement turn, a later run may append `## Refine tur
 
 ## Context
 
-Turns remaining: <TURNS_REMAINING>
+Turns remaining: 2
 
 ## Instructions
 

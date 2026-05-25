@@ -51,6 +51,15 @@ const PROMPT_ARTIFACT_FILES = [
   ),
   join(import.meta.dir, "..", "..", "..", "prompts", "patch", "rules.md"),
   join(import.meta.dir, "..", "..", "..", "prompts", "plan", "draft.md"),
+  join(
+    import.meta.dir,
+    "..",
+    "..",
+    "..",
+    "prompts",
+    "plan",
+    "defer-to-consumer.md",
+  ),
   join(import.meta.dir, "..", "..", "..", "prompts", "plan", "review.md"),
   join(import.meta.dir, "..", "..", "..", "prompts", "plan", "refine.md"),
 ] as const;

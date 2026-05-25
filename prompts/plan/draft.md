@@ -2,7 +2,7 @@
 id: plan.prompt.draft
 behavior: agent-facing
 kind: template
-revision: 2
+revision: 3
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!]
 ---
 # Plan Mode — Draft Phase

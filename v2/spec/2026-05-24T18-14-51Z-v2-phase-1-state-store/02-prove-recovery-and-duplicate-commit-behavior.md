@@ -50,6 +50,9 @@ rules without adding daemon lifecycle semantics or mid-step resume.
       second outcome row or a second checkpoint advance.
 - [ ] A committed terminal boundary leaves the run in a terminal status with
       `runs.next_step_id` absent, and later resume reads return `run-terminal`.
+- [ ] Recovery treats `run-terminal` as the combination of terminal
+      `runs.status` plus absent `runs.next_step_id`; `next_step_id` absence by
+      itself does not produce a terminal result.
 - [ ] Public tests prove the duplicate-commit contract through observable store
       behavior, not just by counting rows: the second call returns the same
       durable boundary snapshot the first commit produced.

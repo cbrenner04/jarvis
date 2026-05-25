@@ -57,9 +57,10 @@ for the next slice. SQL-shaped callers and raw handles stay internal.
       typed boundary snapshot rather than raw row data. The public contract does
       not expose caller-managed transactions or raw SQL handles.
 - [ ] `loadRunForResume` returns a typed recovery snapshot shape that is
-      sufficient for the Phase 1 recovery outcomes and does not leak internal
-      row shapes. The exact replay/terminal proof obligations stay in the next
-      subspec.
+      sufficient to encode the Phase 1 recovery outcomes
+      (`start-next-boundary`, `replay-last-boundary`, `run-terminal`) without
+      leaking internal row shapes. The exact replay/terminal proof obligations
+      stay in the next subspec.
 - [ ] `listStepHistory` returns typed attempt/outcome history for one run in a
       deterministic order keyed by durable IDs and ordinals; it does not become
       a generic query surface.

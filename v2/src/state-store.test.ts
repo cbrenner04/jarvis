@@ -25,9 +25,7 @@ function makeTempDbPath(): string {
 
 describe("phase1 state store bootstrap", () => {
   test("opens with default path contract helper", () => {
-    expect(getDefaultStateStorePath()).toContain(
-      ".jarvis/state/v2.sqlite",
-    );
+    expect(getDefaultStateStorePath()).toContain(".jarvis/state/v2.sqlite");
   });
 
   test("fresh bootstrap creates parent directories and schema", () => {

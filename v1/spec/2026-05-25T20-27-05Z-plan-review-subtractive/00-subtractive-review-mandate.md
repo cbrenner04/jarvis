@@ -68,16 +68,16 @@ explicitly so review does not strip decisions to look smaller.
 
 ## Acceptance criteria
 
-- [ ] `prompts/plan/review.md` instructs that a review pass prefers cutting and
+- [x] `prompts/plan/review.md` instructs that a review pass prefers cutting and
   does not grow the spec except to add a missing decision/criterion/doc.
-- [ ] The review prompt states cut prose, never decisions (entry count stays
+- [x] The review prompt states cut prose, never decisions (entry count stays
   uncapped).
-- [ ] The review prompt contains no numeric length cap or target.
-- [ ] `plan.prompt.draft` and `plan.prompt.refine` bodies and revisions are
+- [x] The review prompt contains no numeric length cap or target.
+- [x] `plan.prompt.draft` and `plan.prompt.refine` bodies and revisions are
   unchanged.
-- [ ] Rendered-prompt snapshot tests pass against regenerated, revision-keyed
+- [x] Rendered-prompt snapshot tests pass against regenerated, revision-keyed
   review fixtures (all pass variants).
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

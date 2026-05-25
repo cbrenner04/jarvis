@@ -34,7 +34,7 @@ describe("rendered prompt snapshots", () => {
   test("shared snapshots are keyed by id and revision", () => {
     expect(registry.getById("patch.prompt.body").metadata.revision).toBe("3");
     expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("4");
-    expect(registry.getById("plan.prompt.review").metadata.revision).toBe("4");
+    expect(registry.getById("plan.prompt.review").metadata.revision).toBe("5");
     expect(registry.getById("plan.prompt.refine").metadata.revision).toBe("4");
 
     const patchKey = `${registry.getById("patch.prompt.body").metadata.id}@r${registry.getById("patch.prompt.body").metadata.revision}.shared.txt`;

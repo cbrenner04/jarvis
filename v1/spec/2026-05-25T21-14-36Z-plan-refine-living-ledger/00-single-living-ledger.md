@@ -119,13 +119,13 @@ plan commits, not in the document.
   rejects any change to that seed (beyond the permitted `name:` frontmatter).
 - [x] A skip turn (ledger region unchanged + `## Refine skip`) and a blocker turn
   are both still accepted and classified correctly.
-- [ ] `plan.prompt.draft` and `plan.prompt.review` bodies and revisions are
+- [x] `plan.prompt.draft` and `plan.prompt.review` bodies and revisions are
   unchanged.
-- [ ] Rendered-prompt snapshot tests pass against the regenerated, revision-keyed
+- [x] Rendered-prompt snapshot tests pass against the regenerated, revision-keyed
   refine fixture.
-- [ ] `v1/docs/plan-mode.md` no longer describes refine as append-only / per-turn
+- [x] `v1/docs/plan-mode.md` no longer describes refine as append-only / per-turn
   `## Refine turn N` sections.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

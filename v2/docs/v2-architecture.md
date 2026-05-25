@@ -188,48 +188,43 @@ A **run** is a workflow instance carrying:
 - **Checkpoint** — one durable pointer to the next stable workflow step ID (`next_step_id`).
 - **Pointers to work** — worktree path, branch, spec path, PR. Not their contents.
 - **History linkage** — execution history is not embedded on `runs`; it is stored
-  as separate `step_attempts` and `step_outcomes` rows linked by durable IDs.
+  as separate attempt and outcome rows linked to the run by durable IDs.
 
-Phase 1 durable split:
+Durable split (target shape):
 
 - **`runs`**: orchestration identity/lifecycle/checkpoint plus work pointers.
-- **`step_attempts`**: per-step execution attempts keyed by durable `attempt_id`
-  and monotonic `attempt_ordinal` per `run_id + step_id`.
-- **`step_outcomes`**: separate durable outcome rows keyed from attempts (not a
-  free-form attempt JSON payload), with closed classifications used by runner branching.
+- **execution history**: per-step attempts and their outcomes as rows linked to
+  the run by durable IDs — not a free-form JSON blob on `runs`, so runner
+  branching reads closed outcome classifications rather than parsing payloads.
 
-Phase 1 keeps payloads narrow and deterministic (timestamps, terminal status,
-outcome classification, and minimal branch fields). Transcript bodies, rich
-logs/events, daemon/session metadata, and token/cost streams are explicitly deferred.
+The exact columns are grown behind their consumers, not designed ahead of them:
+the write loop's resume read defines the first attempt/outcome fields, the
+workflow runner adds cross-step history. Payloads stay narrow and deterministic
+(timestamps, terminal status, outcome classification, minimal branch fields);
+transcript bodies, rich logs/events, daemon/session metadata, and token/cost
+streams stay out of the orchestration store.
 
 ### Persistence
 
-- **SQLite under `~/.jarvis/state/v2.sqlite`.** Phase 1 is a pure library with a
-  library-owned bootstrap path that opens this file (or an explicit caller
-  override for tests/temp stores) and applies forward-only migrations
-  idempotently before repository operations are exposed. Phase 1 correctness
-  does not require daemon single-writer ownership, daemon lock policy, or WAL;
-  those are optional runtime tuning details for later daemon phases, not
-  persistence prerequisites.
-- **Repository-style operations, no generic query layer.** Phase 1 exposes only
-  named state-store operations at workflow boundaries:
-  `createRun`, `recordStepStart`, `commitStepBoundary`, `loadRunForResume`,
-  and `listStepHistory`.
-  `createRun` accepts stable run/workflow pointers and returns
-  `{ runId, createdAt, nextStepId }`; `recordStepStart` returns
-  `{ attemptId, attemptOrdinal, startedAt }`; `commitStepBoundary` returns
-  `{ attemptId, finishedAt, nextStepId, outcomeId }`; read paths return durable
-  run + attempt + outcome snapshots keyed by stable IDs.
-- **Single transactional completion boundary.** `commitStepBoundary` is the only
-  public write path allowed to persist attempt completion, outcome durability,
-  and run checkpoint advancement; those writes commit or roll back together.
-- **Identifier-driven API contract.** Public operations accept/return durable
-  IDs (`runId`, `stepId`, `attemptId`, monotonic `attemptOrdinal`) so caller
-  code never needs direct SQL addressing knowledge.
-- **Library-local round-trip coverage.** Phase 1 tests run against a temporary
-  SQLite database and cover bootstrap/migrations, run create+resume persistence,
-  attempt history reads, and recovery-oriented resume reads from committed
-  boundaries.
+- **SQLite under `~/.jarvis/state/v2.sqlite`.** A library-owned bootstrap opens
+  this file (or an explicit caller override for tests/temp stores) and applies
+  forward-only, idempotent migrations before repository operations are exposed.
+  The store is a host-agnostic library: correctness does not require daemon
+  single-writer ownership, lock policy, or WAL — those are runtime tuning the
+  daemon host can add later, not persistence prerequisites. The first durable
+  rows appear when the write loop needs to resume; the store is not built before
+  a consumer reads it.
+- **Repository-style operations, no generic query layer.** The store exposes
+  named operations at workflow boundaries (create a run, record a step start,
+  commit a step boundary, load a run for resume, read step history) keyed by
+  stable IDs — never a generic SQL surface. The exact method set and payloads are
+  settled with the consumers that call them (the loop, then the runner), not
+  specified ahead of them.
+- **Single transactional completion boundary.** One write path persists attempt
+  completion, outcome durability, and checkpoint advancement together — they
+  commit or roll back as a unit, so a boundary is all-or-nothing.
+- **Identifier-driven API contract.** Operations accept and return durable IDs so
+  caller code never needs direct SQL addressing knowledge.
 - **Internal-only implementation surfaces.** SQL text, row mappers, migration
   helpers, and raw DB access stay internal and are not public v2 contracts.
 - **Chosen over Postgres deliberately.** Postgres is available and always-on on
@@ -242,25 +237,20 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
 
 ### Recovery
 
-- **Kill-resume == crash-recovery at the same boundary.** Phase 1 treats both as
-  the same recovery path: never resume mid-step; replay from the last durable
-  pre-step checkpoint.
-- **Ownership boundary is Phase 1.** Daemon/runtime phases may invoke recovery
-  through IPC/control surfaces, but they do not redefine checkpoint semantics.
-- **One concrete checkpoint model.** Recovery derives from `runs.next_step_id`
-  (or terminal run status when no next step remains) plus durable
-  `step_attempts`/`step_outcomes` history, not mutable in-memory flags.
-- **Explicit recovery read outcomes.** Recovery returns one of:
-  `start-next-boundary` (no attempt yet for current checkpoint),
-  `replay-last-boundary` (attempt recorded but no committed boundary effect),
-  or `run-terminal`.
-- **Transactional boundary proof.** A boundary is committed only when attempt
-  terminal state, terminal outcome row, and checkpoint advancement are durable
-  in the same transaction; retrying the same finished boundary must not advance
-  checkpoint twice or duplicate terminal durable effect.
-- **Out of scope in Phase 1.** Mid-step snapshots, structured event history,
-  human steering state, and daemon lifecycle concerns are deferred unless needed
-  by a concrete recovery read.
+- **Kill-resume == crash-recovery at the same boundary.** Both are the same
+  recovery path: never resume mid-step; replay from the last durable pre-step
+  boundary. The write loop is the first consumer to need this; the daemon host
+  later invokes the same recovery through its IPC surface without redefining it.
+- **Recovery derives from durable state, not in-memory flags.** The next-step
+  checkpoint on `runs` (or a terminal run status when nothing remains) plus the
+  durable attempt/outcome history determine where a run resumes.
+- **Idempotent boundary commit.** Because a boundary commits atomically (above),
+  retrying a finished boundary must not advance the checkpoint twice or duplicate
+  durable effect. The concrete recovery-read cases are settled with the loop and
+  runner that consume them, not enumerated ahead of them.
+- **Out of scope until a consumer needs it.** Mid-step snapshots, structured
+  event history, and human-steering state are deferred until a concrete recovery
+  read requires them.
 
 ### Steering semantics
 

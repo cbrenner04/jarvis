@@ -7,21 +7,30 @@ doc; the *how* (the architecture this order builds toward) lives in
 
 ## Ordering principle
 
-**Daemon-shell-first.** Build the long-running host, its IPC/API boundary, and
-the state store *before* any step does real work. First-working-step lands late
-and that is the accepted trade: `jarvis1` stays the daily driver throughout, and
-the honest lifecycle boundary from day one avoids retrofitting a process-owning
-step runner into a daemon later. Slow and steady, fewer reworks.
+**Walking-skeleton-first.** Build the thinnest end-to-end run that does real work
+first, then grow each layer — durable state, the daemon host, project config —
+only behind a concrete consumer that needs it. A layer built ahead of its
+consumer has nothing to constrain its shape and inflates on invented precision;
+deferring to the first consumer is the vision's rule applied to sequencing
+itself.
+
+The honest-from-day-one boundary is the **library**, not the daemon. The
+execution core is a host-agnostic function (cancel via `AbortSignal`, no global
+process-signal ownership). A thin CLI host drives it first; the daemon is a
+*second host* over the same core, added when detached/concurrent runs are a real
+need — additive, not a retrofit. This reverses the earlier daemon-shell-first
+trade: first-working-step lands early, and the speculative state/recovery design
+that has no caller is never written.
 
 Each phase is a small number of subspec-sized chunks (≈ one PR each, capped per
 the vision's PR ceiling). Specs are small on purpose — they exist for human
 review, and small is what a human can actually hold in their head. Phases are
 ordered so each one runs and is testable before the next begins.
 
-The TUI is the one exception to "build the plumbing first": it is seeded as soon
-as there is a run to observe (Phase 4) and then dogfooded through every phase
-after, because it is the biggest unknown and we want it churning in the open
-while there is slack to absorb the rework.
+The TUI is the highest-uncertainty track: seeded as soon as there is a real run
+to observe (once the daemon host exists) and dogfooded through every phase after,
+because we want it churning in the open while there is slack to absorb the
+rework.
 
 ## Phases
 
@@ -35,93 +44,90 @@ covering both `v1/tsconfig.json` and `v2/tsconfig.json`, plus Biome import-bound
 overrides that ban `v1/** -> v2/**` and `v2/** -> v1/**` cross-tree imports.
 No behavior beyond `--version` and "not ready". Retires: build/tooling wiring risk.
 
-### Phase 1 — State store (SQLite, pure library)
+### Phase 1 — First write step, end-to-end (first working step)
 
-The spine everything writes to. Phase 1 starts as a pure library under `v2/`,
-not a daemon-owned persistence shell. Library-owned bootstrap opens
-`~/.jarvis/state/v2.sqlite` (or explicit caller override) and applies
-idempotent forward-only migrations before repository operations exist. Schema
-for runs, steps, outcomes, and the orchestration-state-vs-work split;
-boundary-checkpoint semantics; kill-resume == crash-recovery defined here.
-Phase 1 correctness does not depend on WAL, singleton-writer daemon ownership,
-or daemon lock policy. Recovery is step-boundary only: recovery reads derive
-`start-next-boundary` / `replay-last-boundary` / `run-terminal` from
-`runs.next_step_id` plus durable attempt/outcome rows, and boundary commit proof
-is one transactional effect (attempt terminal + outcome + checkpoint
-advancement). Retires: state-model risk in isolation, before anything depends on
-it.
-Later daemon phases do not redefine these semantics; they only trigger the same
-Phase 1 recovery reads through daemon/IPC surfaces.
+One `write` step, run *once*, driven from the v2 CLI — no daemon: render via the
+shared prompt registry → invoke one agent (one cli+model binding) → capture the
+outcome token → deterministically check the output contract → write into a
+worktree under `~/.jarvis/worktrees`. No loop, no workflow, and no durable state
+— the worktree plus git is the only persistence a single run needs. Includes
+worktree creation, `.jarvis.lock` coexistence, and quota fallback in the
+agent-invocation layer. Built as a host-agnostic core function (cancel via
+`AbortSignal`) behind a thin CLI host — the library/host boundary we keep honest
+from day one. Retires: the core execution path end-to-end, and the library
+boundary.
 
-### Phase 2 — Daemon shell + IPC + structured logging
+### Phase 2 — The write loop (behavior #1)
 
-The long-running host: start/stop, and a programmatic IPC/API surface exposing
-only trivial ops at first (ping, list-runs → empty, shutdown). Structured,
-queryable logging stream lands here and is used by everything after. A minimal
-`jarvis` CLI control surface (start/stop/status/log-tail) talks to the daemon;
-the interactive TUI is seeded later (Phase 4). No step execution yet. Retires:
-the lifecycle/embedding boundary — the thing we most want honest up front.
+Wrap the single step in the write-behavior loop: repeat until the artifact exists
+/ acceptance criteria move / a blocker is declared, with max loop counts and an
+explicit early-stop outcome. This is the first consumer that must *resume*, so
+durable state earns its first rows here — only the columns resume reads, no more
+(SQLite under `~/.jarvis/state/`). Prove kill-resume over a dirty worktree
+(Ctrl-C/crash → re-run resumes from the last step boundary, v1's one-shot resume
+model). Retires: loop + minimal durable state + boundary recovery, on a real
+behavior. *TUI: not yet — runs are still foreground.*
 
-### Phase 3 — Single step execution (first working step)
+### Phase 3 — Daemon host + IPC + structured logging
 
-One `write` step run *once*, inside the daemon: render via the shared prompt
-registry → invoke one agent (one cli+model binding) → capture outcome token →
-check the deterministic output contract → persist run/step state → write into a
-worktree under `~/.jarvis/worktrees`. No loop, no workflow. Includes worktree
-creation and `.jarvis.lock` coexistence, plus quota fallback in the
-agent-invocation layer. Retires: the core execution path end-to-end.
+Introduce the long-running host as a second driver over the existing core, now
+that there is a real looping run worth detaching from the terminal: start/stop, a
+programmatic IPC/API surface (start a run, list runs, tail log, pause/resume/kill
+at the next boundary), and the structured, queryable logging stream consumed by
+everything after. The core library is unchanged — the daemon wires its own
+cancellation into the same `AbortSignal`. A minimal `jarvis` CLI control surface
+(start/stop/status/log-tail) talks to the daemon. Retires: the lifecycle/embedding
+boundary and the multi-window problem.
 
 ### Phase 4 — TUI seed (start dogfooding)
 
-A minimal interactive client over the daemon API: launch a run, watch its live
+The first interactive client over the daemon API: launch a run, watch its live
 state and structured log stream, see the outcome. Seeded here — the first point
-there is a real run to observe — so we dogfood the TUI through every phase that
-follows. Deliberately thin; this is the highest-uncertainty track and *will* be
-reworked as we learn, so it is under-specified ahead of need. Retires: the
+there is a detached run to observe — so we dogfood the TUI through every phase
+that follows. Deliberately thin and under-specified ahead of need; this is the
+highest-uncertainty track and *will* be reworked as we learn. Retires: the
 operator surface, early — when rework is still cheap.
 
-### Phase 5 — The write loop (behavior #1)
+### Phase 5 — Workflow runner + project config binding
 
-Wrap the single step in the write-behavior loop: repeat until artifact exists /
-criteria move / blocker declared, with max loop counts and an explicit early-stop
-outcome. Prove kill-resume over a dirty worktree here. Retires: loop + recovery
-semantics on a real behavior. *TUI:* live loop progress + pass count.
+Linear-with-bounded-loops array of steps. Durable state grows step IDs and
+cross-step attempt history here, behind the runner that reads them. The project
+config layer binds agents (cli+model) per step and defines workflow presets;
+includes the workflow-authoring helper and the config-vs-source validation check.
+Run a two-step write→write workflow. Retires: the source-vs-config seam (steps
+are source, agent bindings are per-project data). *TUI: workflow/step view of a
+run.*
 
-### Phase 6 — Workflow runner + project config binding
-
-Linear-with-bounded-loops array of steps. The project config layer binds agents
-(cli+model) per step and defines workflow presets; includes the workflow-authoring
-helper. Run a two-step write→write workflow. Retires: the source-vs-config seam
-(steps are source, agent bindings are per-project data). *TUI:* workflow/step
-view of a run.
-
-### Phase 7 — Remaining behaviors: review-and-update, human
+### Phase 6 — Remaining behaviors: review-and-update, human
 
 The review-and-update loop, and the human loop (pause graceful / resume / kill
 immediate) — made less clunky than v1, using the daemon steering API from
-Phase 2. Retires: the full behavior vocabulary. *TUI:* approve / resume / kill
-controls — the human loop's home.
+Phase 3. Human-loop and blocked converge on "paused awaiting a human." Retires:
+the full behavior vocabulary. *TUI: approve / revise / resume / kill controls —
+the human loop's home.*
 
-### Phase 8 — Concurrency + admission
+### Phase 7 — Concurrency + admission
 
 Adaptive memory-watermark admission, `queued` status, multiple concurrent runs,
 admission-only (no preemption). Local model (qwen via aider) as the terminal
 entry in agent order, personal machine only. Retires: the memory-efficiency
-constraint. *TUI:* multi-run dashboard + queue view.
+constraint. *TUI: multi-run dashboard + queue view.*
 
-### Phase 9 — PR lifecycle + attribution (runner-owned)
+### Phase 8 — PR lifecycle + attribution (runner-owned)
 
 Worktree → branch → draft PR → ready, with the per-commit `Jarvis-Agent`
 attribution footer. Port v1's PR mechanics onto the v2 runner. Retires: the
-output side of a run. *TUI:* PR status per run.
+output side of a run. *TUI: PR status per run.*
 
 ## Cross-cutting (not phases)
 
-- **Structured logging**: lands in Phase 2, consumed throughout.
+- **Durable state**: first rows in Phase 2 (loop resume), grown behind each
+  consumer (cross-step history in Phase 5). Never built ahead of a caller.
+- **Structured logging**: lands in Phase 3, consumed throughout.
 - **TUI**: seeded at Phase 4, extended by each later phase (the *TUI:* notes
   above). Highest-uncertainty track; specced just-in-time, expected to churn.
-- **Quota fallback**: agent order folds into Phase 3's invocation layer; the
-  configurable order is Phase 6.
+- **Quota fallback**: agent order folds into Phase 1's invocation layer; the
+  configurable order is Phase 5.
 - **Evals**: deferred — on-demand only, no architectural impact yet.
 
 ## Parity & coexistence

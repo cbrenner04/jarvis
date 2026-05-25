@@ -11,4 +11,4 @@ within-append-only brake: a refine turn records only genuinely new decisions, or
 skips. Superseded by the single-living-ledger spec, which deletes the turn
 structure entirely; ship this first as the cheap immediate win.
 
-- [ ] [00 - refine cross-turn dedup directive](./00-refine-cross-turn-dedup.md)
+- [x] [00 - refine cross-turn dedup directive](./00-refine-cross-turn-dedup.md)

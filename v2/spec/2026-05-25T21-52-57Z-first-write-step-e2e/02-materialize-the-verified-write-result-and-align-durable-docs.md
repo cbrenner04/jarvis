@@ -33,15 +33,30 @@
 - Define failure behavior for contract mismatches after a terminal success claim.
 - Define the required doc updates in `v2/docs/` and keep them limited to the statements Phase 1 makes stale.
 
+## Phase 1 contract and boundary
+
+- Phase 1 materializes the write result in a worktree under `~/.jarvis/worktrees`.
+- Phase 1 defers retention policy, worktree reuse, cleanup UX, and broader lifecycle management.
+- Worktree setup preserves `.jarvis.lock` coexistence and confines writes to the materialized worktree, leaving the source checkout untouched.
+- Phase 1 success is inspectable from worktree and git state alone; no metadata files, SQLite rows, or transcript-derived verification are added for this slice.
+- Do not add a new Phase 1 usage guide; durable operator-facing truth for this slice stays in `v2/docs/v2-build-order.md` and `v2/docs/v2-architecture.md`.
+
+## Phase 1 output contract
+
+- The minimal contract is one declared write artifact plus deterministic repository-boundary checks in the materialized worktree.
+- Verification runs only on a terminal success claim.
+- The step passes only when both conditions hold: the agent emits a terminal success token and deterministic contract verification succeeds.
+- A contract mismatch after a terminal success claim is terminal non-success: stop without silent retry.
+
 ## Acceptance criteria
 
-- [ ] The spec states that Phase 1 materializes results in a worktree under `~/.jarvis/worktrees` and explicitly defers retention, reuse, cleanup, and broader lifecycle policy.
-- [ ] The spec defines the minimal Phase 1 output contract as one declared write artifact plus the repository-boundary checks needed to verify it deterministically inside the worktree.
-- [ ] The spec states that Phase 1 passes only when the agent emits a terminal success token and the runner's deterministic contract verification succeeds, and that contract failure after a success claim is terminal non-success without silent retry.
-- [ ] The spec states that success is inspectable from the worktree and git state alone and that Phase 1 does not add metadata files, SQLite rows, or transcript-derived verification.
-- [ ] The spec states that worktree setup preserves `.jarvis.lock` coexistence and keeps writes confined to the materialized worktree, leaving the source checkout untouched.
-- [ ] The spec updates `v2/docs/v2-build-order.md` to reflect the concrete shipped Phase 1 path and updates `v2/docs/v2-architecture.md` to replace daemon-first sequencing with CLI-host-first for Phase 1 while keeping the daemon as a later host.
-- [ ] The spec does not add a new Phase 1 usage guide or speculative operator doc outside the existing durable homes in `v2/docs/`.
+- [x] The spec states that Phase 1 materializes results in a worktree under `~/.jarvis/worktrees` and explicitly defers retention, reuse, cleanup, and broader lifecycle policy.
+- [x] The spec defines the minimal Phase 1 output contract as one declared write artifact plus the repository-boundary checks needed to verify it deterministically inside the worktree.
+- [x] The spec states that Phase 1 passes only when the agent emits a terminal success token and the runner's deterministic contract verification succeeds, and that contract failure after a success claim is terminal non-success without silent retry.
+- [x] The spec states that success is inspectable from the worktree and git state alone and that Phase 1 does not add metadata files, SQLite rows, or transcript-derived verification.
+- [x] The spec states that worktree setup preserves `.jarvis.lock` coexistence and keeps writes confined to the materialized worktree, leaving the source checkout untouched.
+- [x] The spec updates `v2/docs/v2-build-order.md` to reflect the concrete shipped Phase 1 path and updates `v2/docs/v2-architecture.md` to replace daemon-first sequencing with CLI-host-first for Phase 1 while keeping the daemon as a later host.
+- [x] The spec does not add a new Phase 1 usage guide or speculative operator doc outside the existing durable homes in `v2/docs/`.
 
 ## Documentation updates
 

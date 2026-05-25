@@ -150,13 +150,18 @@ Rules:
 To design later: the contract primitive vocabulary, and how a blocker surfaces in
 a server/runner world (pause + route to a human loop vs. process exit).
 
+Phase 1 ships a narrower first contract: one declared write artifact plus
+deterministic repository-boundary checks in a worktree under
+`~/.jarvis/worktrees`. Verification runs only on terminal success claims, and
+the step passes only when both the success token and deterministic verification
+succeed. Contract mismatch after a success claim is terminal non-success without
+silent retry.
+
 ### Interface
 
-- **Daemon-first.** A persistent daemon owns run state and exposes a programmatic
-  API from day one; the CLI, TUI, and any future web UI are thin clients over it.
-  This kills the multi-window problem immediately (runs detach from terminals)
-  and means orchestration logic is never rebuilt to add a surface. Matches the
-  vision's "embeddable, not a one-shot CLI lifecycle."
+- **CLI host first; daemon host later.** Phase 1 runs through a thin CLI host
+  over a host-agnostic core function. The daemon is added later as a second host
+  (Phase 3), reusing the same execution core and cancellation contract.
 - **TUI is the first UI client.** A terminal dashboard to launch / monitor /
   steer runs, with a separate server window streaming logs alongside it. Lighter
   on memory than a web UI (matters with concurrent agents + the local model) and

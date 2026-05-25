@@ -52,7 +52,12 @@ outcome token → deterministically check the output contract → write into a
 worktree under `~/.jarvis/worktrees`. No loop, no workflow, and no durable state
 — the worktree plus git is the only persistence a single run needs. Includes
 worktree creation, `.jarvis.lock` coexistence, and quota fallback in the
-agent-invocation layer. Built as a host-agnostic core function (cancel via
+agent-invocation layer. The output contract is minimal: one declared write
+artifact plus deterministic repository-boundary checks inside the materialized
+worktree. Phase 1 passes only when the agent emits terminal success and that
+contract check passes; mismatch is terminal non-success without silent retry.
+Success is inspectable from worktree and git state alone (no metadata sidecar,
+SQLite rows, or transcript-derived verifier). Built as a host-agnostic core function (cancel via
 `AbortSignal`) behind a thin CLI host — the library/host boundary we keep honest
 from day one. Retires: the core execution path end-to-end, and the library
 boundary.

@@ -220,10 +220,6 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
   `{ attemptId, attemptOrdinal, startedAt }`; `commitStepBoundary` returns
   `{ attemptId, finishedAt, nextStepId, outcomeId }`; read paths return durable
   run + attempt + outcome snapshots keyed by stable IDs.
-- **Named contract errors for caller-meaningful failures.** Missing durable IDs,
-  run/step/attempt identity mismatches, duplicate/finished attempt commits, and
-  invalid boundary targets surface as stable exported store errors rather than
-  leaked driver exceptions.
 - **Single transactional completion boundary.** `commitStepBoundary` is the only
   public write path allowed to persist attempt completion, outcome durability,
   and run checkpoint advancement; those writes commit or roll back together.
@@ -257,13 +253,11 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
 - **Explicit recovery read outcomes.** Recovery returns one of:
   `start-next-boundary` (no attempt yet for current checkpoint),
   `replay-last-boundary` (attempt recorded but no committed boundary effect),
-  or `run-terminal` (terminal `runs.status` plus absent `runs.next_step_id`).
-  `runs.next_step_id` absence alone is not terminal.
+  or `run-terminal`.
 - **Transactional boundary proof.** A boundary is committed only when attempt
   terminal state, terminal outcome row, and checkpoint advancement are durable
-  in the same transaction; retrying the same finished boundary returns the same
-  durable boundary snapshot and must not advance checkpoint twice or duplicate
-  terminal durable effect.
+  in the same transaction; retrying the same finished boundary must not advance
+  checkpoint twice or duplicate terminal durable effect.
 - **Out of scope in Phase 1.** Mid-step snapshots, structured event history,
   human steering state, and daemon lifecycle concerns are deferred unless needed
   by a concrete recovery read.

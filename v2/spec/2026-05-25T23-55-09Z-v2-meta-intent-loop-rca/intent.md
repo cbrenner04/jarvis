@@ -101,3 +101,14 @@ fix first, then run.
 ## Refine skip
 
 No net-new refinement; repo scan only confirmed the existing ledger.
+
+## Blocker
+
+Review and approve `v2/spec/2026-05-25T23-55-09Z-v2-meta-intent-loop-rca/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-05-25T23-55-09Z-v2-meta-intent-loop-rca/intent.md`

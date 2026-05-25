@@ -77,15 +77,15 @@ prose-per-entry, never the number of entries.
 
 ## Acceptance criteria
 
-- [ ] `prompts/plan/decisions-ledger.md` exists with id `plan.decisions-ledger`
+- [x] `prompts/plan/decisions-ledger.md` exists with id `plan.decisions-ledger`
   and loads via the prompt registry.
-- [ ] Rendered refine, draft, and review prompts include the ledger-rule text.
-- [ ] The fragment instructs that entry count is uncapped and contains no numeric
+- [x] Rendered refine, draft, and review prompts include the ledger-rule text.
+- [x] The fragment instructs that entry count is uncapped and contains no numeric
   length limit.
-- [ ] The patch prompt does not include the fragment.
-- [ ] Rendered-prompt snapshot tests pass against regenerated, revision-keyed
+- [x] The patch prompt does not include the fragment.
+- [x] Rendered-prompt snapshot tests pass against regenerated, revision-keyed
   fixtures for all three plan phases.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

@@ -21,6 +21,9 @@ shape agent behavior in patch mode and plan draft/review/refine:
 - `plan.defer-to-consumer` (`prompts/plan/defer-to-consumer.md`) — shared
   plan-only deferral fragment layered into plan draft/review/refine prompts to
   avoid inventing precision before a first caller exists
+- `plan.decisions-ledger` (`prompts/plan/decisions-ledger.md`) — shared
+  plan-only structure fragment layered into plan draft/review/refine prompts to
+  require atomic decision/constraint/assumption ledger entries over narrative prose
 
 - `patch.prompt.body` (`prompts/patch/instructions.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
@@ -85,7 +88,7 @@ Shared rendering follows this contract:
   (`global.documentation`, then `global.naming`, then `global.terse`) rather
   than duplicated across step prompts or `patch.rules`.
 - Plan global guidance layers `global.documentation`, `global.terse`, then
-  `plan.defer-to-consumer`.
+  `plan.decisions-ledger`, then `plan.defer-to-consumer`.
 - `global.documentation` requires docs-first execution order: read relevant
   durable docs/specs before code edits, and update docs/specs in the same
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics

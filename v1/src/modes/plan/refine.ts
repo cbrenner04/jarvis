@@ -62,6 +62,7 @@ export function buildRefinePrompt(opts: {
     globalFragmentIds: [
       "global.documentation",
       "global.terse",
+      "plan.decisions-ledger",
       "plan.defer-to-consumer",
     ],
     behaviorFragmentIds: [],

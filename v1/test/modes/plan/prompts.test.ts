@@ -5,9 +5,9 @@ import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
 import {
   buildRefinePrompt,
   classifyRefineIntentOutcome,
-  REFINE_HEADING,
   isValidRefineSkipAddition,
   isValidRefineTurnAddition,
+  REFINE_HEADING,
   REFINE_SKIP_HEADING,
 } from "../../../src/modes/plan/refine.ts";
 import { buildReviewPrompt } from "../../../src/modes/plan/review.ts";

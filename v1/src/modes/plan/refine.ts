@@ -284,7 +284,9 @@ export async function runRefineTurn(opts: {
         };
       }
 
-      if (!isValidRefineTurnAddition(intentBefore, intentAfter, opts.turnNumber)) {
+      if (
+        !isValidRefineTurnAddition(intentBefore, intentAfter, opts.turnNumber)
+      ) {
         return {
           result: {
             kind: "error",
@@ -355,7 +357,9 @@ function normalizeLines(text: string): string {
 }
 
 function hasHeading(text: string, heading: string): boolean {
-  return normalizeLines(text).split("\n").some((line) => line === heading);
+  return normalizeLines(text)
+    .split("\n")
+    .some((line) => line === heading);
 }
 
 function prefixBeforeHeading(text: string, heading: string): string {
@@ -411,11 +415,14 @@ export function isValidRefineSkipAddition(
   before: string,
   after: string,
 ): boolean {
-  const skipHeaderIndex = normalizeLines(after).lastIndexOf(REFINE_SKIP_HEADING);
+  const skipHeaderIndex =
+    normalizeLines(after).lastIndexOf(REFINE_SKIP_HEADING);
   if (skipHeaderIndex === -1) {
     return false;
   }
-  const afterWithoutSkip = normalizeLines(after).slice(0, skipHeaderIndex).trimEnd();
+  const afterWithoutSkip = normalizeLines(after)
+    .slice(0, skipHeaderIndex)
+    .trimEnd();
   const beforeNormalized = normalizeLines(before).trimEnd();
 
   const beforeLedger = ledgerFromHeading(before, REFINE_HEADING);

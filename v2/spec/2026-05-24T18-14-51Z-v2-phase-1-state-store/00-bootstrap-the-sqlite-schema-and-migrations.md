@@ -33,28 +33,28 @@ repository methods, recovery semantics, and duplicate-commit behavior stay out.
 
 ## Acceptance criteria
 
-- [ ] A public Phase 1 library entry under `v2/src` opens the state store at
+- [x] A public Phase 1 library entry under `v2/src` opens the state store at
       `~/.jarvis/state/v2.sqlite` by default and accepts an explicit caller
       override path for tests/temp databases, with no caller-managed bootstrap
       steps.
-- [ ] First open creates missing parent directories as needed and leaves a fresh
+- [x] First open creates missing parent directories as needed and leaves a fresh
       database at the current schema without requiring caller-managed setup.
-- [ ] Reopening an already-current database reapplies migrations as a no-op and
+- [x] Reopening an already-current database reapplies migrations as a no-op and
       does not mutate previously durable run/attempt/outcome data.
-- [ ] The initial schema includes `runs`, `step_attempts`, and
+- [x] The initial schema includes `runs`, `step_attempts`, and
       `step_outcomes`, with invariants that enforce one run per `runId`,
       monotonic `attemptOrdinal` within `runId + stepId`, and at most one
       durable outcome row per durably completed attempt.
-- [ ] The schema enforces the ownership/linkage the later API depends on:
+- [x] The schema enforces the ownership/linkage the later API depends on:
       attempts belong to runs, outcomes belong to attempts, and the store does
       not rely on caller-side SQL discipline to keep those relations valid.
-- [ ] Migrations are forward-only and idempotent. This slice does not add WAL
+- [x] Migrations are forward-only and idempotent. This slice does not add WAL
       tuning, daemon lock policy, multi-process coordination, or any generic
       persistence abstraction.
-- [ ] Co-located tests under `v2/src/*.test.ts` cover fresh bootstrap,
+- [x] Co-located tests under `v2/src/*.test.ts` cover fresh bootstrap,
       override-path bootstrap, and reopen-on-current-schema behavior against
       temporary SQLite databases.
-- [ ] Every exported bootstrap/store-construction symbol added in this slice has
+- [x] Every exported bootstrap/store-construction symbol added in this slice has
       an inline doc-comment per `v2/docs/documentation-standard.md`.
 
 ## Documentation updates

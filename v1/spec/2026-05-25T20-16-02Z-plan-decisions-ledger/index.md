@@ -10,4 +10,4 @@ length plea: record decisions, constraints, and assumptions as a ledger of atomi
 one-line entries, rationale as a trailing clause, narrative paragraphs banned —
 and the entry *count* explicitly uncapped, so thorough planning stays thorough.
 
-- [ ] [00 - plan.decisions-ledger prompt fragment](./00-plan-decisions-ledger-fragment.md)
+- [x] [00 - plan.decisions-ledger prompt fragment](./00-plan-decisions-ledger-fragment.md)

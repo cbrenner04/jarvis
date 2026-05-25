@@ -18,6 +18,8 @@ import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 /** Level-2 heading for explicit no-op refine outcome (append-only). */
 export const REFINE_SKIP_HEADING = "## Refine skip";
+/** Level-2 heading for the refine-owned single living ledger. */
+export const REFINE_HEADING = "## Refinement";
 
 export type RefinePhaseOptions = {
   worktreePath: string;
@@ -233,7 +235,7 @@ export async function runRefineTurn(opts: {
         };
       }
 
-      // Explicit non-interactive skip (append-only ## Refine skip)
+      // Explicit non-interactive skip.
       if (isValidRefineSkipAddition(intentBefore, intentAfter)) {
         return {
           result,
@@ -245,29 +247,27 @@ export async function runRefineTurn(opts: {
       // Check if intent.md was modified
       const wasModified = intentBefore !== intentAfter;
 
-      // Check if the expected refine turn section was added
-      const expectedTurnHeader = `## Refine turn ${opts.turnNumber}`;
-      const hasNewTurnSection = intentAfter.includes(expectedTurnHeader);
+      const hasRefinementSection = hasHeading(intentAfter, REFINE_HEADING);
 
       if (!wasModified) {
         return {
           result: {
             kind: "error",
             exitCode: 1,
-            stderr: `refine: intent.md unchanged on turn ${opts.turnNumber}; append ${REFINE_SKIP_HEADING}, ## Refine turn ${opts.turnNumber}, or ## Blocker`,
+            stderr: `refine: intent.md unchanged on turn ${opts.turnNumber}; write ${REFINE_HEADING}, append ${REFINE_SKIP_HEADING}, or append ## Blocker`,
           },
           agentLabel,
           continueRefine: false,
         };
       }
 
-      if (wasModified && !hasNewTurnSection) {
+      if (!hasRefinementSection) {
         if (isFrontmatterOnlyChange(intentBefore, intentAfter)) {
           return {
             result: {
               kind: "error",
               exitCode: 1,
-              stderr: `refine: intent.md only changed frontmatter on turn ${opts.turnNumber}; append ${REFINE_SKIP_HEADING} or ## Refine turn ${opts.turnNumber} to the body`,
+              stderr: `refine: intent.md only changed frontmatter on turn ${opts.turnNumber}; write ${REFINE_HEADING} or append ${REFINE_SKIP_HEADING} to the body`,
             },
             agentLabel,
             continueRefine: false,
@@ -277,29 +277,23 @@ export async function runRefineTurn(opts: {
           result: {
             kind: "error",
             exitCode: 1,
-            stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; expected append-only ## Refine turn ${opts.turnNumber} or ${REFINE_SKIP_HEADING}`,
+            stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; expected ${REFINE_HEADING}, ${REFINE_SKIP_HEADING}, or ## Blocker`,
           },
           agentLabel,
           continueRefine: false,
         };
       }
 
-      // If intent was modified, validate that it's a valid modification
-      if (wasModified) {
-        // Check if the modification is valid: only new turn section added, nothing else modified
-        if (
-          !isValidRefineTurnAddition(intentBefore, intentAfter, opts.turnNumber)
-        ) {
-          return {
-            result: {
-              kind: "error",
-              exitCode: 1,
-              stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; preserve the existing intent body exactly, optionally update only the leading name frontmatter, and append ## Refine turn ${opts.turnNumber}, ${REFINE_SKIP_HEADING}, or ## Blocker`,
-            },
-            agentLabel,
-            continueRefine: false,
-          };
-        }
+      if (!isValidRefineTurnAddition(intentBefore, intentAfter, opts.turnNumber)) {
+        return {
+          result: {
+            kind: "error",
+            exitCode: 1,
+            stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; preserve the human-authored seed above ${REFINE_HEADING} exactly (except permitted name frontmatter), then consolidate from ${REFINE_HEADING} downward`,
+          },
+          agentLabel,
+          continueRefine: false,
+        };
       }
 
       // Continue the refine phase
@@ -356,31 +350,57 @@ function isFrontmatterOnlyChange(before: string, after: string): boolean {
   );
 }
 
+function normalizeLines(text: string): string {
+  return text.replace(/\r\n/g, "\n");
+}
+
+function hasHeading(text: string, heading: string): boolean {
+  return normalizeLines(text).split("\n").some((line) => line === heading);
+}
+
+function prefixBeforeHeading(text: string, heading: string): string {
+  const normalized = normalizeLines(text);
+  const marker = `\n${heading}\n`;
+  if (normalized.startsWith(`${heading}\n`)) {
+    return "";
+  }
+  const index = normalized.indexOf(marker);
+  if (index === -1) {
+    return normalized;
+  }
+  return normalized.slice(0, index);
+}
+
+function ledgerFromHeading(text: string, heading: string): string | null {
+  const normalized = normalizeLines(text);
+  if (normalized.startsWith(`${heading}\n`)) {
+    return normalized;
+  }
+  const marker = `\n${heading}\n`;
+  const index = normalized.indexOf(marker);
+  if (index === -1) {
+    return null;
+  }
+  return normalized.slice(index + 1);
+}
+
 /**
- * Validate that the only change to intent.md is appending a new refine turn section.
+ * Validate refine consolidation: preserve frozen seed above first ledger heading.
  */
 export function isValidRefineTurnAddition(
   before: string,
   after: string,
-  turnNumber: number,
+  _turnNumber: number,
 ): boolean {
-  const expectedTurnHeader = `## Refine turn ${turnNumber}`;
-
-  // Find the appended turn header in the after version. Use the last
-  // occurrence so user-supplied seed text can mention the heading literally.
-  const turnHeaderIndex = after.lastIndexOf(expectedTurnHeader);
-  if (turnHeaderIndex === -1) {
+  const afterLedger = ledgerFromHeading(after, REFINE_HEADING);
+  if (afterLedger === null) {
     return false;
   }
-
-  // Extract everything before the new turn section
-  const afterWithoutNewTurn = after.substring(0, turnHeaderIndex).trimEnd();
-
-  // This should match the previous content, allowing only the leading
-  // frontmatter naming update that the refine prompt permits.
+  const beforePrefix = prefixBeforeHeading(before, REFINE_HEADING);
+  const afterPrefix = prefixBeforeHeading(after, REFINE_HEADING);
   return (
-    stripFrontmatter(afterWithoutNewTurn).trimEnd() ===
-    stripFrontmatter(before).trimEnd()
+    stripFrontmatter(afterPrefix).trimEnd() ===
+    stripFrontmatter(beforePrefix).trimEnd()
   );
 }
 
@@ -391,14 +411,25 @@ export function isValidRefineSkipAddition(
   before: string,
   after: string,
 ): boolean {
-  const skipHeaderIndex = after.lastIndexOf(REFINE_SKIP_HEADING);
+  const skipHeaderIndex = normalizeLines(after).lastIndexOf(REFINE_SKIP_HEADING);
   if (skipHeaderIndex === -1) {
     return false;
   }
-  const afterWithoutSkip = after.substring(0, skipHeaderIndex).trimEnd();
+  const afterWithoutSkip = normalizeLines(after).slice(0, skipHeaderIndex).trimEnd();
+  const beforeNormalized = normalizeLines(before).trimEnd();
+
+  const beforeLedger = ledgerFromHeading(before, REFINE_HEADING);
+  const afterLedger = ledgerFromHeading(afterWithoutSkip, REFINE_HEADING);
+  if (beforeLedger !== null || afterLedger !== null) {
+    if ((beforeLedger ?? "").trimEnd() !== (afterLedger ?? "").trimEnd()) {
+      return false;
+    }
+  }
+  const beforePrefix = prefixBeforeHeading(beforeNormalized, REFINE_HEADING);
+  const afterPrefix = prefixBeforeHeading(afterWithoutSkip, REFINE_HEADING);
   return (
-    stripFrontmatter(afterWithoutSkip).trimEnd() ===
-    stripFrontmatter(before).trimEnd()
+    stripFrontmatter(afterPrefix).trimEnd() ===
+    stripFrontmatter(beforePrefix).trimEnd()
   );
 }
 
@@ -416,6 +447,9 @@ export function classifyRefineIntentOutcome(
     if (line === REFINE_SKIP_HEADING) {
       return "skipped";
     }
+  }
+  if (hasHeading(intent, REFINE_HEADING)) {
+    return "refined";
   }
   return "refined";
 }

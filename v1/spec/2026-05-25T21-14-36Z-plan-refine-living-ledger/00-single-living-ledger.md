@@ -114,10 +114,10 @@ plan commits, not in the document.
   decision unless genuinely superseded.
 - [x] The refine prompt states consolidation cuts restatement/narrative, never
   decisions, and contains no numeric cap or length target.
-- [ ] `v1/src/modes/plan/refine.ts` accepts a turn that rewrites the
+- [x] `v1/src/modes/plan/refine.ts` accepts a turn that rewrites the
   `## Refinement` region while preserving the human-authored seed above it, and
   rejects any change to that seed (beyond the permitted `name:` frontmatter).
-- [ ] A skip turn (ledger region unchanged + `## Refine skip`) and a blocker turn
+- [x] A skip turn (ledger region unchanged + `## Refine skip`) and a blocker turn
   are both still accepted and classified correctly.
 - [ ] `plan.prompt.draft` and `plan.prompt.review` bodies and revisions are
   unchanged.

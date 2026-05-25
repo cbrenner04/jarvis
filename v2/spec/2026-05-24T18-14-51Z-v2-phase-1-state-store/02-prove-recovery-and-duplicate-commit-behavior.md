@@ -21,7 +21,7 @@ rules without adding daemon lifecycle semantics or mid-step resume.
 - Duplicate `commitStepBoundary` calls for the same already committed attempt
   return the existing durable boundary snapshot. They must not create a second
   outcome row or advance `runs.next_step_id` twice.
-- Keep proof coverage library-local with temporary SQLite databases and
+- Proof coverage stays library-local with temporary SQLite databases and
   co-located tests under `v2/src`.
 
 ## Task checklist
@@ -29,7 +29,7 @@ rules without adding daemon lifecycle semantics or mid-step resume.
 - Implement the recovery read mapping for the three explicit Phase 1 outcomes.
 - Add transactional tests for fresh, in-flight, committed, duplicate-commit,
   and terminal-run cases.
-- Prove the duplicate-commit contract from the public API boundary, not only by
+- Prove duplicate-commit behavior from the public API boundary, not only by
   inspecting internal SQL effects.
 - Update durable docs in this slice if the concrete recovery/duplicate-commit
   rule tightens public semantics.

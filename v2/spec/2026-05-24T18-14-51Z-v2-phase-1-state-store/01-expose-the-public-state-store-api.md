@@ -2,30 +2,28 @@
 
 With bootstrap and schema in place, define the narrow public repository surface
 that Phase 1 actually promises. This slice owns the durable store types and the
-named operations `createRun`, `recordStepStart`, `commitStepBoundary`,
-`loadRunForResume`, and `listStepHistory`, plus the open/init entry that returns
-that repository surface. Keep SQL-shaped callers, raw handles, migration
-entrypoints, and ad hoc query helpers internal.
+operations `createRun`, `recordStepStart`, `commitStepBoundary`,
+`loadRunForResume`, and `listStepHistory`, plus the open/init entry that
+returns that repository surface. SQL-shaped callers and raw handles stay
+internal.
 
 ## Decisions
 
-- Keep one public store-construction boundary: caller opens the store and
-  receives only the named repository methods, not a Bun SQLite handle or
-  transaction primitive.
-- Public contracts are identifier-driven. Inputs/outputs are keyed by durable
-  `runId`, `stepId`, `attemptId`, and monotonic `attemptOrdinal`, not row IDs or
-  SQL addressing details.
-- `createRun` owns durable run identity, lifecycle start state, initial
-  `nextStepId`, and minimal work pointers/checkpoint payload.
-- `recordStepStart` is the only public path that allocates a new
-  `attemptOrdinal` for a given `runId + stepId`.
+- One public construction boundary: callers open the store and receive only the
+  named repository methods.
+- Public contracts are keyed by `runId`, `stepId`, `attemptId`, and
+  `attemptOrdinal`, not row IDs or SQL details.
+- `createRun` owns durable run identity, initial lifecycle state,
+  `nextStepId`, and minimal work-pointer/checkpoint payload.
+- `recordStepStart` is the only public allocator of a new `attemptOrdinal` for
+  one `runId + stepId`.
 - `commitStepBoundary` is the only public path that may durably complete an
   attempt, persist an outcome row, and advance `runs.next_step_id`.
-- Keep read outputs explicit and narrow: durable run snapshots for resume and
-  step history snapshots for one run, not generic filters or raw row bags.
-- Keep terminal-run encoding consistent with the durable contract:
-  `run-terminal` is reached when `runs.status` is terminal and
-  `runs.next_step_id` is absent after a committed terminal boundary.
+- Read outputs stay narrow: resume snapshot and deterministic step history for
+  one run, not generic queries.
+- Public terminal encoding must match the durable contract:
+  `run-terminal` requires terminal `runs.status` and absent `runs.next_step_id`
+  after a committed terminal boundary.
 
 ## Task checklist
 
@@ -34,9 +32,9 @@ entrypoints, and ad hoc query helpers internal.
   `loadRunForResume`, and `listStepHistory` on top of the Phase 1 schema.
 - Make creation-time, step-start, and boundary-commit inputs explicit in typed
   contracts.
-- Keep internal-only helpers private: migrations, SQL text, row mappers, raw DB
-  access, and transaction orchestration.
-- Doc-comment every exported symbol added by the store API surface.
+- Keep migrations, SQL text, row mappers, raw DB access, and transaction
+  orchestration internal.
+- Doc-comment every exported API symbol.
 
 ## Acceptance criteria
 
@@ -51,8 +49,8 @@ entrypoints, and ad hoc query helpers internal.
       state, and returns a typed attempt snapshot including `attemptId`,
       `attemptOrdinal`, and `startedAt`.
 - [ ] `commitStepBoundary` accepts enough identity to bind the write to exactly
-      one previously started attempt and one boundary advance, without exposing
-      caller-managed transactions or raw SQL handles.
+      one previously started attempt and one boundary advance. The public
+      contract does not expose caller-managed transactions or raw SQL handles.
 - [ ] `loadRunForResume` returns a typed recovery snapshot that is sufficient for
       the Phase 1 recovery outcomes and does not leak internal row shapes.
 - [ ] `listStepHistory` returns typed attempt/outcome history for one run in a
@@ -70,5 +68,6 @@ entrypoints, and ad hoc query helpers internal.
 ## Documentation updates
 
 - Keep single-symbol contracts inline.
-- Put any newly concrete cross-file API semantics in `v2/docs/v2-architecture.md`
-  in this subspec; do not add a parallel store design doc.
+- Put any newly concrete cross-file API semantics in
+  `v2/docs/v2-architecture.md` in this subspec.
+- Do not add a parallel store design doc.

@@ -1,42 +1,35 @@
 # 00 - Bootstrap the SQLite schema and migrations
 
-Start Phase 1 by making the durable model real without exposing repository
-operations yet. This slice owns store open/bootstrap, database path resolution,
-parent-directory creation, forward-only idempotent migrations, and the stable
-initial schema for `runs`, `step_attempts`, and `step_outcomes`. It should
-establish the invariants later slices depend on, but keep raw DB access,
-repository methods, and recovery reads out of scope.
+Make the durable model real before repository operations exist. This slice owns
+store open/bootstrap, path resolution, parent-directory creation, forward-only
+idempotent migrations, and the initial schema for `runs`, `step_attempts`, and
+`step_outcomes`. It establishes the invariants later slices rely on. Recovery
+reads and repository methods stay out.
 
 ## Decisions
 
-- Keep Phase 1 bootstrap as one public library open/init entry under `v2/src`
-  that resolves the default `~/.jarvis/state/v2.sqlite` path or a caller
-  override for tests/temp stores.
-- Create missing parent directories on first open. Do not add WAL pragmas, lock
-  policy, multi-process coordination, or daemon ownership in this slice.
-- Apply migrations forward-only and idempotently on every open before returning
-  the store surface. Reopening an already-current store must be a no-op for
-  durable data.
-- Keep the schema contract at the invariant level: one row per `runId`,
-  monotonic `attemptOrdinal` scoped to `runId + stepId`, foreign-key linkage
-  from attempts/outcomes back to the owning run/attempt, and at most one
-  terminal outcome row per durably completed attempt.
-- Keep payloads narrow: durable IDs, timestamps, run status/checkpoint fields,
-  minimal work pointers, and outcome classification only. Rich blobs and
-  transcript/log payloads stay out.
-- Keep SQL text, row layout details, migration bookkeeping tables/helpers, and
-  raw Bun SQLite handles internal.
+- One public open/init entry under `v2/src` resolves the default
+  `~/.jarvis/state/v2.sqlite` path or a caller override.
+- First open creates missing parent directories.
+- Every open applies forward-only idempotent migrations before returning.
+- Reopen on current schema is a durable no-op.
+- The schema must enforce, not merely document: one row per `runId`; monotonic
+  `attemptOrdinal` within `runId + stepId`; foreign-key ownership from attempts
+  to runs and outcomes to attempts; one durable outcome row per completed
+  attempt.
+- Payloads stay narrow: durable IDs, timestamps, run status/checkpoint fields,
+  minimal work pointers, outcome classification.
+- WAL, lock policy, multi-process coordination, daemon ownership, raw DB
+  handles, and migration internals stay out of the public contract.
 
 ## Task checklist
 
-- Add the Phase 1 store bootstrap/open path under `v2/src`.
-- Add migration bootstrap and the initial schema for `runs`, `step_attempts`,
-  and `step_outcomes`.
-- Encode the run/attempt/outcome uniqueness and foreign-key invariants needed by
-  later API and recovery work.
-- Add co-located tests for first-open and reopen migration behavior using temp
-  databases.
-- Doc-comment every exported bootstrap/store-construction symbol.
+- Add the Phase 1 open/bootstrap path under `v2/src`.
+- Add migration bootstrap and the initial `runs` / `step_attempts` /
+  `step_outcomes` schema.
+- Encode the run/attempt/outcome invariants later slices depend on.
+- Add co-located temp-db tests for first-open and reopen behavior.
+- Doc-comment exported bootstrap symbols.
 
 ## Acceptance criteria
 
@@ -50,7 +43,7 @@ repository methods, and recovery reads out of scope.
 - [ ] The initial schema includes `runs`, `step_attempts`, and
       `step_outcomes`, with invariants that enforce one run per `runId`,
       monotonic `attemptOrdinal` within `runId + stepId`, and at most one
-      terminal outcome row per durably completed attempt.
+      durable outcome row per completed attempt.
 - [ ] The schema enforces the ownership/linkage the later API depends on:
       attempts belong to runs, outcomes belong to attempts, and the store does
       not rely on caller-side SQL discipline to keep those relations valid.
@@ -65,7 +58,7 @@ repository methods, and recovery reads out of scope.
 
 ## Documentation updates
 
-- Inline only in this slice unless bootstrap semantics become observably
-  different from `v2/docs/v2-architecture.md` or `v2/docs/v2-build-order.md`.
-  If they do, update the existing durable doc in the same subspec rather than
-  creating a new design doc.
+- Inline only unless bootstrap semantics become observably different from
+  `v2/docs/v2-architecture.md` or `v2/docs/v2-build-order.md`.
+- If they do, update the existing durable doc in this subspec. No new design
+  doc.

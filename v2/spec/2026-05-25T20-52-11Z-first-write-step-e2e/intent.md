@@ -158,3 +158,14 @@ Avoid writing broad usage docs for future phases.
 - Subspec 3 should require tests for preflight repo invariant failures before agent invocation when the target repo cannot support worktree materialization.
 - The spec should force an explicit decision on whether `.jarvis.lock` coexistence is validated before worktree creation, after creation, or both; the acceptance criteria should name the chosen boundary.
 - The draft should state that Phase 1 docs update exactly one durable home unless implementation changes both sequencing and architecture facts; duplicate Phase 1 summaries across docs are churn.
+
+## Blocker
+
+Review and approve `v2/spec/2026-05-25T20-52-11Z-first-write-step-e2e/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-05-25T20-52-11Z-first-write-step-e2e/intent.md`

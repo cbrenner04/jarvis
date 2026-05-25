@@ -8,6 +8,7 @@ describe("buildPrompt", () => {
     const documentation = loadPromptRegistry()
       .getById("global.documentation")
       .body.trim();
+    const naming = loadPromptRegistry().getById("global.naming").body.trim();
     const terse = loadPromptRegistry().getById("global.terse").body.trim();
     const rules = loadPromptRegistry().getById("patch.rules").body.trim();
 
@@ -18,6 +19,8 @@ describe("buildPrompt", () => {
     expect(prompt).toBe(
       [
         documentation,
+        "",
+        naming,
         "",
         terse,
         "",
@@ -41,11 +44,14 @@ describe("buildPrompt", () => {
     const documentation = loadPromptRegistry()
       .getById("global.documentation")
       .body.trim();
+    const naming = loadPromptRegistry().getById("global.naming").body.trim();
     const terse = loadPromptRegistry().getById("global.terse").body.trim();
     const rules = loadPromptRegistry().getById("patch.rules").body.trim();
     expect(prompt).toBe(
       [
         documentation,
+        "",
+        naming,
         "",
         terse,
         "",

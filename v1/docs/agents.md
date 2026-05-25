@@ -181,9 +181,10 @@ can serve both patch and plan work.
 Patch/plan prompt maintenance uses a metadata-first registry contract described
 in [prompt-governance.md](./prompt-governance.md). Runtime lookup is by stable
 prompt `id`, while prompt file paths remain organizational detail. The first
-rollout includes the shared `global.terse` fragment plus `patch.prompt.body`,
-`patch.rules`, and plan `draft`/`review`/`refine` prompts; `name-only` and
-`inline-draft` remain outside that shared registry in this stage.
+rollout includes shared `global.documentation`, `global.naming`, and
+`global.terse` fragments plus `patch.prompt.body`, `patch.rules`, and plan
+`draft`/`review`/`refine` prompts; `name-only` and `inline-draft` remain
+outside that shared registry in this stage.
 
 ## Prompt ownership (relocation stage one)
 
@@ -201,8 +202,9 @@ The corresponding `v1/src/...` files now own loader/runtime behavior only
 source text.
 
 This relocation stage moved source files only. Subsequent prompt-governance
-work introduced registry metadata, revisioned snapshots, and a shared
-`global.terse` fragment layered into assembled agent-facing prompts.
+work introduced registry metadata, revisioned snapshots, and shared
+`global.documentation`, `global.naming`, and `global.terse` fragments layered
+into assembled agent-facing prompts.
 Interactive/operator prompt surfaces such as repository
 disambiguation remain in runtime code and are explicitly out of scope for this
 stage.

@@ -40,6 +40,7 @@ const PROMPT_ARTIFACT_FILES = [
     "global",
     "documentation.md",
   ),
+  join(import.meta.dir, "..", "..", "..", "prompts", "global", "naming.md"),
   join(
     import.meta.dir,
     "..",

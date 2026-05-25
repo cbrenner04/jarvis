@@ -22,6 +22,7 @@ describe("prompt registry load validation", () => {
 
     expect(ids).toContain("global.terse");
     expect(ids).toContain("global.documentation");
+    expect(ids).toContain("global.naming");
     expect(ids).toContain("patch.prompt.body");
     expect(ids).toContain("patch.rules");
     expect(ids).toContain("plan.prompt.draft");

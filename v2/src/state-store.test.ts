@@ -4,9 +4,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  getDefaultPhase1StateStorePath,
-  openPhase1StateStore,
-  Phase1StateStoreError,
+  getDefaultStateStorePath,
+  openStateStore,
+  StateStoreError,
 } from "./state-store.ts";
 
 const tempDirs: string[] = [];
@@ -25,7 +25,7 @@ function makeTempDbPath(): string {
 
 describe("phase1 state store bootstrap", () => {
   test("opens with default path contract helper", () => {
-    expect(getDefaultPhase1StateStorePath()).toContain(
+    expect(getDefaultStateStorePath()).toContain(
       ".jarvis/state/v2.sqlite",
     );
   });
@@ -33,7 +33,7 @@ describe("phase1 state store bootstrap", () => {
   test("fresh bootstrap creates parent directories and schema", () => {
     const dbPath = makeTempDbPath();
 
-    const store = openPhase1StateStore({ path: dbPath });
+    const store = openStateStore({ path: dbPath });
     store.close();
 
     expect(existsSync(dbPath)).toBe(true);
@@ -74,7 +74,7 @@ describe("phase1 state store bootstrap", () => {
   test("reopen on current schema is no-op for durable data", () => {
     const dbPath = makeTempDbPath();
 
-    const first = openPhase1StateStore({ path: dbPath });
+    const first = openStateStore({ path: dbPath });
     first.close();
 
     const db = new Database(dbPath, { strict: true });
@@ -106,7 +106,7 @@ describe("phase1 state store bootstrap", () => {
 
     const bytesBefore = readFileSync(dbPath);
 
-    const reopened = openPhase1StateStore({ path: dbPath });
+    const reopened = openStateStore({ path: dbPath });
     reopened.close();
 
     const verify = new Database(dbPath, { strict: true });
@@ -149,7 +149,7 @@ describe("phase1 state store bootstrap", () => {
 
 describe("phase1 state store repository api", () => {
   test("createRun returns durable run snapshot", () => {
-    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    const store = openStateStore({ path: makeTempDbPath() });
     try {
       const snapshot = store.createRun({
         runId: "run-1",
@@ -184,14 +184,14 @@ describe("phase1 state store repository api", () => {
           worktreePath: null,
           branchName: null,
         }),
-      ).toThrowError(Phase1StateStoreError);
+      ).toThrowError(StateStoreError);
     } finally {
       store.close();
     }
   });
 
   test("recordStepStart allocates monotonic attempt ordinals", () => {
-    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    const store = openStateStore({ path: makeTempDbPath() });
     try {
       store.createRun({
         runId: "run-1",
@@ -224,7 +224,7 @@ describe("phase1 state store repository api", () => {
   });
 
   test("commitStepBoundary atomically finalizes attempt and advances checkpoint", () => {
-    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    const store = openStateStore({ path: makeTempDbPath() });
     try {
       store.createRun({
         runId: "run-1",
@@ -273,7 +273,7 @@ describe("phase1 state store repository api", () => {
   });
 
   test("loadRunForResume returns replay and terminal branches", () => {
-    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    const store = openStateStore({ path: makeTempDbPath() });
     try {
       store.createRun({
         runId: "run-1",
@@ -316,7 +316,7 @@ describe("phase1 state store repository api", () => {
   });
 
   test("listStepHistory is deterministic and typed", () => {
-    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    const store = openStateStore({ path: makeTempDbPath() });
     try {
       store.createRun({
         runId: "run-1",
@@ -372,10 +372,10 @@ describe("phase1 state store repository api", () => {
   });
 
   test("named errors are thrown for contract failures", () => {
-    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    const store = openStateStore({ path: makeTempDbPath() });
     try {
       expect(() => store.loadRunForResume("missing")).toThrowError(
-        Phase1StateStoreError,
+        StateStoreError,
       );
 
       store.createRun({
@@ -390,7 +390,7 @@ describe("phase1 state store repository api", () => {
 
       expect(() =>
         store.recordStepStart({ runId: "run-1", stepId: "wrong-step" }),
-      ).toThrowError(Phase1StateStoreError);
+      ).toThrowError(StateStoreError);
 
       const started = store.recordStepStart({
         runId: "run-1",
@@ -407,7 +407,7 @@ describe("phase1 state store repository api", () => {
           outcomeKind: "done",
           outcomeDetail: null,
         }),
-      ).toThrowError(Phase1StateStoreError);
+      ).toThrowError(StateStoreError);
 
       expect(() =>
         store.commitStepBoundary({
@@ -431,7 +431,7 @@ describe("phase1 state store repository api", () => {
           outcomeKind: "done",
           outcomeDetail: null,
         }),
-      ).toThrowError(Phase1StateStoreError);
+      ).toThrowError(StateStoreError);
 
       const storeError = (() => {
         try {
@@ -450,8 +450,8 @@ describe("phase1 state store repository api", () => {
           return error;
         }
       })();
-      expect(storeError).toBeInstanceOf(Phase1StateStoreError);
-      expect((storeError as Phase1StateStoreError).code).toBe(
+      expect(storeError).toBeInstanceOf(StateStoreError);
+      expect((storeError as StateStoreError).code).toBe(
         "INVALID_BOUNDARY_TARGET",
       );
     } finally {
@@ -460,7 +460,7 @@ describe("phase1 state store repository api", () => {
   });
 
   test("duplicate committed boundary returns durable snapshot in-process", () => {
-    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    const store = openStateStore({ path: makeTempDbPath() });
     try {
       store.createRun({
         runId: "run-1",
@@ -512,7 +512,7 @@ describe("phase1 state store repository api", () => {
 
   test("duplicate committed boundary returns durable snapshot after reopen", () => {
     const dbPath = makeTempDbPath();
-    const firstStore = openPhase1StateStore({ path: dbPath });
+    const firstStore = openStateStore({ path: dbPath });
     let attemptId = "";
     let firstOutcomeId = "";
     try {
@@ -544,7 +544,7 @@ describe("phase1 state store repository api", () => {
       firstStore.close();
     }
 
-    const reopened = openPhase1StateStore({ path: dbPath });
+    const reopened = openStateStore({ path: dbPath });
     try {
       const duplicate = reopened.commitStepBoundary({
         runId: "run-1",

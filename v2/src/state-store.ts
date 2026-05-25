@@ -93,8 +93,8 @@ const MIGRATIONS: ReadonlyArray<{ version: number; sql: readonly string[] }> = [
   },
 ];
 
-/** Options for opening the Phase 1 state store database. */
-export type OpenPhase1StateStoreOptions = {
+/** Options for opening the state store database. */
+export type OpenStateStoreOptions = {
   /**
    * Optional absolute or relative sqlite path. Omit to use the default
    * `~/.jarvis/state/v2.sqlite` location.
@@ -103,7 +103,7 @@ export type OpenPhase1StateStoreOptions = {
 };
 
 /** Enumerates caller-meaningful state-store contract failures. */
-export type Phase1StateStoreErrorCode =
+export type StateStoreErrorCode =
   | "RUN_ALREADY_EXISTS"
   | "RUN_NOT_FOUND"
   | "ATTEMPT_NOT_FOUND"
@@ -113,23 +113,23 @@ export type Phase1StateStoreErrorCode =
   | "INVALID_BOUNDARY_TARGET";
 
 /**
- * Named Phase 1 store-contract error for caller-meaningful invariants.
+ * Named store-contract error for caller-meaningful invariants.
  *
  * SQLite/driver failures still throw as-is for non-contract faults.
  */
-export class Phase1StateStoreError extends Error {
+export class StateStoreError extends Error {
   /** Stable machine-readable contract error code. */
-  readonly code: Phase1StateStoreErrorCode;
+  readonly code: StateStoreErrorCode;
 
   /** Constructs a contract error with a stable code and readable message. */
-  constructor(code: Phase1StateStoreErrorCode, message: string) {
+  constructor(code: StateStoreErrorCode, message: string) {
     super(message);
-    this.name = "Phase1StateStoreError";
+    this.name = "StateStoreError";
     this.code = code;
   }
 }
 
-/** Durable run status used by Phase 1 orchestration snapshots. */
+/** Durable run status used by orchestration snapshots. */
 export type RunStatus =
   | "running"
   | "paused"
@@ -269,7 +269,7 @@ export type ReplayLastBoundaryResumeSnapshot = {
 };
 
 /**
- * Phase 1 recovery snapshot union used by callers to resume deterministically.
+ *  recovery snapshot union used by callers to resume deterministically.
  */
 export type RunResumeSnapshot =
   | RunTerminalResumeSnapshot
@@ -277,39 +277,39 @@ export type RunResumeSnapshot =
   | ReplayLastBoundaryResumeSnapshot;
 
 /**
- * Public Phase 1 repository API. This is the full supported contract surface.
+ * Public repository API. This is the full supported contract surface.
  */
-export type Phase1StateStore = {
+export type StateStore = {
   /** Absolute sqlite path backing this store handle. */
   readonly path: string;
 
   /**
    * Persists a new run checkpoint/work-pointer row.
-   * Throws `Phase1StateStoreError` with `RUN_ALREADY_EXISTS` when runId exists.
+   * Throws `StateStoreError` with `RUN_ALREADY_EXISTS` when runId exists.
    */
   createRun: (input: CreateRunInput) => RunSnapshot;
 
   /**
    * Records one new attempt start for a run+step pair.
-   * Throws `Phase1StateStoreError` with `RUN_NOT_FOUND` for unknown `runId`.
+   * Throws `StateStoreError` with `RUN_NOT_FOUND` for unknown `runId`.
    */
   recordStepStart: (input: RecordStepStartInput) => StepAttemptSnapshot;
 
   /**
    * Commits one atomic step boundary: attempt terminal state + outcome + checkpoint.
-   * Throws `Phase1StateStoreError` for identity mismatches, duplicates, or invalid target.
+   * Throws `StateStoreError` for identity mismatches, duplicates, or invalid target.
    */
   commitStepBoundary: (input: CommitStepBoundaryInput) => StepBoundarySnapshot;
 
   /**
-   * Loads the typed Phase 1 recovery snapshot for one run.
-   * Throws `Phase1StateStoreError` with `RUN_NOT_FOUND` for unknown `runId`.
+   * Loads the typed recovery snapshot for one run.
+   * Throws `StateStoreError` with `RUN_NOT_FOUND` for unknown `runId`.
    */
   loadRunForResume: (runId: string) => RunResumeSnapshot;
 
   /**
    * Lists deterministic attempt/outcome history for one run.
-   * Throws `Phase1StateStoreError` with `RUN_NOT_FOUND` for unknown `runId`.
+   * Throws `StateStoreError` with `RUN_NOT_FOUND` for unknown `runId`.
    */
   listStepHistory: (runId: string) => StepHistoryEntry[];
 
@@ -319,19 +319,19 @@ export type Phase1StateStore = {
   close: () => void;
 };
 
-/** Returns the default Phase 1 SQLite state-store path. */
-export function getDefaultPhase1StateStorePath(): string {
+/** Returns the default SQLite state-store path. */
+export function getDefaultStateStorePath(): string {
   return DEFAULT_STATE_STORE_PATH;
 }
 
 /**
- * Opens the Phase 1 SQLite state store and applies idempotent migrations.
+ * Opens the SQLite state store and applies idempotent migrations.
  *
  * This construction boundary hides raw sqlite handles and migration internals.
  */
-export function openPhase1StateStore(
-  options: OpenPhase1StateStoreOptions = {},
-): Phase1StateStore {
+export function openStateStore(
+  options: OpenStateStoreOptions = {},
+): StateStore {
   const dbPath = resolve(options.path ?? DEFAULT_STATE_STORE_PATH);
   mkdirSync(dirname(dbPath), { recursive: true });
 
@@ -419,7 +419,7 @@ function createRun(db: Database, input: CreateRunInput): RunSnapshot {
     );
   } catch (error) {
     if (isSqliteConstraint(error)) {
-      throw new Phase1StateStoreError(
+      throw new StateStoreError(
         "RUN_ALREADY_EXISTS",
         `runId '${input.runId}' already exists`,
       );
@@ -436,7 +436,7 @@ function recordStepStart(
 ): StepAttemptSnapshot {
   const run = getRunRowOrThrow(db, input.runId);
   if (run.status !== "running" || run.next_step_id !== input.stepId) {
-    throw new Phase1StateStoreError(
+    throw new StateStoreError(
       "INVALID_BOUNDARY_TARGET",
       `step start target '${input.stepId}' does not match run checkpoint '${run.next_step_id}'`,
     );
@@ -504,7 +504,7 @@ function commitStepBoundary(
     const run = getRunRowOrThrow(db, input.runId);
 
     if (run.status !== "running") {
-      throw new Phase1StateStoreError(
+      throw new StateStoreError(
         "INVALID_BOUNDARY_TARGET",
         `run '${input.runId}' is not running`,
       );
@@ -520,14 +520,14 @@ function commitStepBoundary(
       .get(input.attemptId);
 
     if (!attempt) {
-      throw new Phase1StateStoreError(
+      throw new StateStoreError(
         "ATTEMPT_NOT_FOUND",
         `attemptId '${input.attemptId}' does not exist`,
       );
     }
 
     if (attempt.run_id !== input.runId || attempt.step_id !== input.stepId) {
-      throw new Phase1StateStoreError(
+      throw new StateStoreError(
         "ATTEMPT_IDENTITY_MISMATCH",
         `attemptId '${input.attemptId}' does not belong to run '${input.runId}' step '${input.stepId}'`,
       );
@@ -551,7 +551,7 @@ function commitStepBoundary(
     }
 
     if (run.next_step_id !== input.stepId) {
-      throw new Phase1StateStoreError(
+      throw new StateStoreError(
         "INVALID_BOUNDARY_TARGET",
         `boundary step '${input.stepId}' does not match run checkpoint '${run.next_step_id}'`,
       );
@@ -611,7 +611,7 @@ function loadRunForResume(db: Database, runId: string): RunResumeSnapshot {
   }
 
   if (runSnapshot.nextStepId === null) {
-    throw new Phase1StateStoreError(
+    throw new StateStoreError(
       "INVALID_BOUNDARY_TARGET",
       `run '${runId}' has no next_step_id but status '${runSnapshot.status}' is not terminal`,
     );
@@ -712,7 +712,7 @@ function getRunRowOrThrow(db: Database, runId: string): RunRow {
     .get(runId);
 
   if (!row) {
-    throw new Phase1StateStoreError(
+    throw new StateStoreError(
       "RUN_NOT_FOUND",
       `runId '${runId}' does not exist`,
     );
@@ -814,7 +814,7 @@ function resolveExistingBoundarySnapshot({
   existingOutcome: { outcome_id: string; outcome_kind: string } | undefined;
 }): StepBoundarySnapshot {
   if (attempt.finished_at === null || !existingOutcome) {
-    throw new Phase1StateStoreError(
+    throw new StateStoreError(
       "OUTCOME_ALREADY_RECORDED",
       `attemptId '${input.attemptId}' has incomplete committed boundary state`,
     );
@@ -831,7 +831,7 @@ function resolveExistingBoundarySnapshot({
     run.next_step_id === input.nextStepId;
 
   if (!boundaryMatchesInput) {
-    throw new Phase1StateStoreError(
+    throw new StateStoreError(
       "ATTEMPT_ALREADY_FINISHED",
       `attemptId '${input.attemptId}' is already finished with a different boundary`,
     );

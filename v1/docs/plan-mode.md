@@ -211,7 +211,7 @@ After `plan: draft` is pushed, jarvis runs zero or more review passes (default: 
 
 - Inlines the current `intent.md` and all spec files.
 - Inlines `docs/spec-guidance.md`.
-- Asks the agent to critique the current spec tree against the intent and guidance, then rewrite files in place to address the most important issues.
+- Asks the agent to critique the current spec tree against the intent and guidance, then rewrite files in place with a subtractive bias: prefer cutting over adding; do not grow the spec unless adding a genuinely missing decision, acceptance criterion, or required doc update; cut prose, never decisions.
 - Forbids creation of new files (except for new subspec files to replace existing ones) and forbids deletion of `index.md`.
 - Forbids modifications to `intent.md` except for appending a `## Blocker` section.
 

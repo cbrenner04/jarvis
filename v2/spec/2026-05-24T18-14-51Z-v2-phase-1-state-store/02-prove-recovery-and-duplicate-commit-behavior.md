@@ -19,8 +19,9 @@ rules without adding daemon lifecycle semantics or mid-step resume.
   absent after a committed terminal boundary. `next_step_id` absence alone is
   not enough.
 - Duplicate `commitStepBoundary` calls for the same already committed attempt
-  return the existing durable boundary snapshot. They must not create a second
-  outcome row or advance `runs.next_step_id` twice.
+  return the existing durable boundary snapshot. This must hold both in-process
+  and after reopening the store against the same durable database. They must
+  not create a second outcome row or advance `runs.next_step_id` twice.
 - Proof coverage stays library-local with temporary SQLite databases and
   co-located tests under `v2/src`.
 
@@ -33,6 +34,8 @@ rules without adding daemon lifecycle semantics or mid-step resume.
   and terminal-run cases.
 - Prove duplicate-commit behavior from the public API boundary, not only by
   inspecting internal SQL effects.
+- Include at least one reopen-and-retry proof so crash-recovery and
+  same-process replay collapse to one public contract.
 - Update durable docs in this slice if the concrete recovery/duplicate-commit
   rule tightens public semantics.
 
@@ -48,6 +51,10 @@ rules without adding daemon lifecycle semantics or mid-step resume.
 - [ ] A repeat `commitStepBoundary` call for the same already committed attempt
       returns the existing durable boundary snapshot and does not create a
       second outcome row or a second checkpoint advance.
+- [ ] At least one duplicate-commit proof reopens the store on the same
+      database between the first and second `commitStepBoundary` calls and still
+      returns the existing durable boundary snapshot with no second outcome row
+      or checkpoint advance.
 - [ ] A committed terminal boundary leaves the run in a terminal status with
       `runs.next_step_id` absent, and later resume reads return `run-terminal`.
 - [ ] Recovery treats `run-terminal` as the combination of terminal

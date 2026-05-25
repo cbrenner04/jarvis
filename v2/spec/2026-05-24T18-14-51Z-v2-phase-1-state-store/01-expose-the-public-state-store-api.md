@@ -5,8 +5,9 @@ that Phase 1 actually promises. This slice owns the durable store types and the
 operations `createRun`, `recordStepStart`, `commitStepBoundary`,
 `loadRunForResume`, and `listStepHistory`, plus the open/init entry that
 returns that repository surface. This slice sets the typed contracts and the
-normal non-replay path. Final recovery semantics and duplicate-commit proof stay
-for the next slice. SQL-shaped callers and raw handles stay internal.
+normal non-replay path. It names the public snapshot/error shapes the recovery
+slice will later prove, but it does not yet own duplicate-commit proof or
+recovery matrix coverage. SQL-shaped callers and raw handles stay internal.
 
 ## Decisions
 
@@ -22,6 +23,9 @@ for the next slice. SQL-shaped callers and raw handles stay internal.
   attempt, persist an outcome row, and advance `runs.next_step_id`.
 - Read outputs stay narrow: resume snapshot and deterministic step history for
   one run, not generic queries.
+- Public errors are named store-contract errors, not leaked SQLite/driver
+  failures for caller-meaningful cases like missing durable IDs or invalid
+  run/attempt identity.
 - Public construction can expose one store object or repository value, but not
   raw Bun SQLite handles, migration entrypoints, or caller-managed transaction
   control.
@@ -36,6 +40,8 @@ for the next slice. SQL-shaped callers and raw handles stay internal.
   `loadRunForResume`, and `listStepHistory` on top of the Phase 1 schema.
 - Make creation-time, step-start, and boundary-commit inputs explicit in typed
   contracts.
+- Define the public snapshot and named error types those operations return or
+  throw for caller-meaningful failures.
 - Keep migrations, SQL text, row mappers, raw DB access, and transaction
   orchestration internal.
 - Doc-comment every exported API symbol.
@@ -56,11 +62,15 @@ for the next slice. SQL-shaped callers and raw handles stay internal.
       one previously started attempt and one boundary advance, and returns a
       typed boundary snapshot rather than raw row data. The public contract does
       not expose caller-managed transactions or raw SQL handles.
+- [ ] Caller-meaningful failures for missing IDs, run/step/attempt identity
+      mismatches, or invalid boundary targets resolve through named exported
+      store error contracts rather than leaked SQLite/driver exceptions.
 - [ ] `loadRunForResume` returns a typed recovery snapshot shape that is
       sufficient to encode the Phase 1 recovery outcomes
       (`start-next-boundary`, `replay-last-boundary`, `run-terminal`) without
-      leaking internal row shapes. The exact replay/terminal proof obligations
-      stay in the next subspec.
+      leaking internal row shapes. This slice fixes the exported discriminated
+      union or equivalent typed shape; the exact replay/terminal proof
+      obligations stay in the next subspec.
 - [ ] `listStepHistory` returns typed attempt/outcome history for one run in a
       deterministic order keyed by durable IDs and ordinals; it does not become
       a generic query surface.

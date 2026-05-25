@@ -15,7 +15,7 @@ repository methods, recovery semantics, and duplicate-commit behavior stay out.
 - Reopen on current schema is a durable no-op.
 - The schema must enforce, not merely document: one row per `runId`; monotonic
   `attemptOrdinal` within `runId + stepId`; foreign-key ownership from attempts
-  to runs and outcomes to attempts; one terminal durable outcome row per
+  to runs and outcomes to attempts; at most one durable outcome row per
   durably completed attempt.
 - Payloads stay narrow: durable IDs, timestamps, run status/checkpoint fields,
   minimal work pointers, outcome classification.
@@ -44,7 +44,7 @@ repository methods, recovery semantics, and duplicate-commit behavior stay out.
 - [ ] The initial schema includes `runs`, `step_attempts`, and
       `step_outcomes`, with invariants that enforce one run per `runId`,
       monotonic `attemptOrdinal` within `runId + stepId`, and at most one
-      terminal durable outcome row per durably completed attempt.
+      durable outcome row per durably completed attempt.
 - [ ] The schema enforces the ownership/linkage the later API depends on:
       attempts belong to runs, outcomes belong to attempts, and the store does
       not rely on caller-side SQL discipline to keep those relations valid.

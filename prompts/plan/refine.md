@@ -42,7 +42,8 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
   ```
 
 - Name rules: lowercase kebab-case only (`[a-z0-9-]+`), reasonably short (max 40 chars), descriptive, and not reserved (`index`, `intent`).
-- **Only append** new sections to the intent body. **Do not** change, delete, or reorder any pre-existing non-frontmatter text.
+- Preserve the human-authored seed exactly: everything above the first `## Refinement` heading is frozen and must not be rewritten, except the permitted `name:` frontmatter write on the final pass.
+- Refine owns everything from `## Refinement` onward. Rewrite/consolidate that region in place each turn.
 - Do not commit or push.
 - Do not run tests.
 - Do not write any other files.
@@ -51,17 +52,17 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 
 You must leave the intent in a state that honestly reflects this non-interactive pass:
 
-1. **Refinement** — Append a `## Refine turn <N>` section (exact heading, level 2, matching the current turn number `<N>`). Put inferred constraints, assumptions, scope boundaries, risks, or notes that improve the handoff to drafting. This is not a transcript; summarize your own analysis only.
+1. **Refinement** — Leave one `## Refinement` section (exact heading, level 2). Consolidate new analysis into this single ledger: sharpen existing entries directly, merge duplicates, and fold restated points together. Preserve every prior decision/constraint/assumption/risk unless genuinely superseded; when superseding, keep the sharpened form.
 
-2. **Explicit skip** — If the intent is already sufficient and you have nothing useful to add, append a `## Refine skip` section (exact heading, level 2). Briefly state that no refinement was applied (one short paragraph or a single line is enough).
+2. **Explicit skip** — If the intent is already sufficient and you have nothing useful to add, include `## Refine skip` (exact heading, level 2). Briefly state that no refinement was applied (one short paragraph or a single line is enough). Keep the existing `## Refinement` region unchanged if present.
 
-3. **Blocker** — If drafting would be irresponsible without human clarification you cannot infer from the repo, append a `## Blocker` section (exact heading, level 2) describing what is needed. Do not invent facts or fake answers.
+3. **Blocker** — If drafting would be irresponsible without human clarification you cannot infer from the repo, include `## Blocker` (exact heading, level 2) describing what is needed. Do not invent facts or fake answers.
 
-Never finish this phase with only a frontmatter tweak and no `## Refine turn`, `## Refine skip`, or `## Blocker` body section as above.
+Never finish this phase with only a frontmatter tweak and no `## Refinement`, `## Refine skip`, or `## Blocker` body section as above.
 
 ## Multi-turn budget
 
-When turns remain after a refinement turn, a later run may append `## Refine turn <N+1>` if more refinement is useful. Do not duplicate `## Refine skip` across turns; use a skip only when you are done and no further refinement is warranted.
+When turns remain after a refinement turn, later runs continue consolidating the same `## Refinement` ledger. Cut restatement and narrative; never drop decisions unless genuinely superseded. No numeric cap or target length applies.
 
 ## Context
 
@@ -69,4 +70,4 @@ Turns remaining: <TURNS_REMAINING>
 
 ## Instructions
 
-Read the intent and the repo context. Either append useful planning notes under `## Refine turn <N>`, append `## Refine skip` if nothing should change, or append `## Blocker` if human input is required. Follow the heading contracts exactly (`## Refine turn <N>`, `## Refine skip`, `## Blocker`).
+Read the intent and repo context. Either consolidate useful planning notes in `## Refinement`, include `## Refine skip` if nothing should change, or include `## Blocker` if human input is required. Follow heading contracts exactly (`## Refinement`, `## Refine skip`, `## Blocker`).

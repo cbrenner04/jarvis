@@ -109,10 +109,10 @@ plan commits, not in the document.
 
 ## Acceptance criteria
 
-- [ ] `prompts/plan/refine.md` contains no append-only directive and instructs
+- [x] `prompts/plan/refine.md` contains no append-only directive and instructs
   refine to consolidate a single `## Refinement` ledger, preserving every prior
   decision unless genuinely superseded.
-- [ ] The refine prompt states consolidation cuts restatement/narrative, never
+- [x] The refine prompt states consolidation cuts restatement/narrative, never
   decisions, and contains no numeric cap or length target.
 - [ ] `v1/src/modes/plan/refine.ts` accepts a turn that rewrites the
   `## Refinement` region while preserving the human-authored seed above it, and

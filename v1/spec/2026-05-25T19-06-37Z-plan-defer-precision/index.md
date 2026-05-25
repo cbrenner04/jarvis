@@ -9,4 +9,4 @@ duplicate-commit semantics, terminal encoding, and seven run statuses with no
 caller). Give the loop the brake it lacks — a shared fragment that tells every
 plan phase to defer decisions to the first consumer instead of guessing.
 
-- [ ] [00 - plan.defer-to-consumer prompt fragment](./00-plan-defer-to-consumer-fragment.md)
+- [x] [00 - plan.defer-to-consumer prompt fragment](./00-plan-defer-to-consumer-fragment.md)

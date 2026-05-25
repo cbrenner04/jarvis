@@ -3,8 +3,8 @@
 Make the durable model real before repository operations exist. This slice owns
 store open/bootstrap, path resolution, parent-directory creation, forward-only
 idempotent migrations, and the initial schema for `runs`, `step_attempts`, and
-`step_outcomes`. It establishes the invariants later slices rely on. Recovery
-reads and repository methods stay out.
+`step_outcomes`. It establishes the invariants later slices rely on. Public
+repository methods, recovery semantics, and duplicate-commit behavior stay out.
 
 ## Decisions
 
@@ -35,7 +35,8 @@ reads and repository methods stay out.
 
 - [ ] A public Phase 1 library entry under `v2/src` opens the state store at
       `~/.jarvis/state/v2.sqlite` by default and accepts an explicit caller
-      override path for tests/temp databases.
+      override path for tests/temp databases, with no caller-managed bootstrap
+      steps.
 - [ ] First open creates missing parent directories as needed and leaves a fresh
       database at the current schema without requiring caller-managed setup.
 - [ ] Reopening an already-current database reapplies migrations as a no-op and

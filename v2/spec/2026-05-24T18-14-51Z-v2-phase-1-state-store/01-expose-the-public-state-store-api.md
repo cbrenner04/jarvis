@@ -4,8 +4,9 @@ With bootstrap and schema in place, define the narrow public repository surface
 that Phase 1 actually promises. This slice owns the durable store types and the
 operations `createRun`, `recordStepStart`, `commitStepBoundary`,
 `loadRunForResume`, and `listStepHistory`, plus the open/init entry that
-returns that repository surface. SQL-shaped callers and raw handles stay
-internal.
+returns that repository surface. This slice sets the typed contracts and the
+normal non-replay path. Final recovery semantics and duplicate-commit proof stay
+for the next slice. SQL-shaped callers and raw handles stay internal.
 
 ## Decisions
 
@@ -21,9 +22,12 @@ internal.
   attempt, persist an outcome row, and advance `runs.next_step_id`.
 - Read outputs stay narrow: resume snapshot and deterministic step history for
   one run, not generic queries.
-- Public terminal encoding must match the durable contract:
-  `run-terminal` requires terminal `runs.status` and absent `runs.next_step_id`
-  after a committed terminal boundary.
+- Public construction can expose one store object or repository value, but not
+  raw Bun SQLite handles, migration entrypoints, or caller-managed transaction
+  control.
+- If this slice makes a cross-file public contract more concrete than the
+  current durable docs, the owning update belongs in `v2/docs/v2-architecture.md`
+  here.
 
 ## Task checklist
 
@@ -49,10 +53,13 @@ internal.
       state, and returns a typed attempt snapshot including `attemptId`,
       `attemptOrdinal`, and `startedAt`.
 - [ ] `commitStepBoundary` accepts enough identity to bind the write to exactly
-      one previously started attempt and one boundary advance. The public
-      contract does not expose caller-managed transactions or raw SQL handles.
-- [ ] `loadRunForResume` returns a typed recovery snapshot that is sufficient for
-      the Phase 1 recovery outcomes and does not leak internal row shapes.
+      one previously started attempt and one boundary advance, and returns a
+      typed boundary snapshot rather than raw row data. The public contract does
+      not expose caller-managed transactions or raw SQL handles.
+- [ ] `loadRunForResume` returns a typed recovery snapshot shape that is
+      sufficient for the Phase 1 recovery outcomes and does not leak internal
+      row shapes. The exact replay/terminal proof obligations stay in the next
+      subspec.
 - [ ] `listStepHistory` returns typed attempt/outcome history for one run in a
       deterministic order keyed by durable IDs and ordinals; it does not become
       a generic query surface.

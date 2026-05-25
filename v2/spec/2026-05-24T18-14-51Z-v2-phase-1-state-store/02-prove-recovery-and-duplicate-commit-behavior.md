@@ -27,6 +27,8 @@ rules without adding daemon lifecycle semantics or mid-step resume.
 ## Task checklist
 
 - Implement the recovery read mapping for the three explicit Phase 1 outcomes.
+- Finish the public `loadRunForResume` and `commitStepBoundary` semantics where
+  the previous slice intentionally left proof obligations open.
 - Add transactional tests for fresh, in-flight, committed, duplicate-commit,
   and terminal-run cases.
 - Prove duplicate-commit behavior from the public API boundary, not only by
@@ -48,6 +50,9 @@ rules without adding daemon lifecycle semantics or mid-step resume.
       second outcome row or a second checkpoint advance.
 - [ ] A committed terminal boundary leaves the run in a terminal status with
       `runs.next_step_id` absent, and later resume reads return `run-terminal`.
+- [ ] Public tests prove the duplicate-commit contract through observable store
+      behavior, not just by counting rows: the second call returns the same
+      durable boundary snapshot the first commit produced.
 - [ ] Recovery and duplicate-commit tests run through the public store API
       against temporary SQLite databases under `v2/src/*.test.ts`; they do not
       depend on daemon lifecycle code, IPC, worktrees, or step execution.

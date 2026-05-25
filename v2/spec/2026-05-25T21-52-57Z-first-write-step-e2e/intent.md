@@ -103,13 +103,3 @@ Avoid writing broad usage docs for future phases.
 - Materialize the verified write result in a worktree under `~/.jarvis/worktrees`; defer retention policy, reuse policy, and cleanup UX to the first lifecycle consumer that needs them.
 - Phase-1 worktree setup must preserve `.jarvis.lock` coexistence as a repository invariant; defer broader multi-run locking/admission policy to Phase 7.
 
-## Blocker
-
-Review and approve `v2/spec/2026-05-25T21-52-57Z-first-write-step-e2e/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-05-25T21-52-57Z-first-write-step-e2e/intent.md`

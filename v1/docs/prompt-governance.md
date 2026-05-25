@@ -18,6 +18,9 @@ shape agent behavior in patch mode and plan draft/review/refine:
 - `global.naming` (`prompts/global/naming.md`) — shared naming fragment layered
   into patch-mode prompts; forbids planning labels in code identifiers,
   filenames, types, and public API
+- `plan.defer-to-consumer` (`prompts/plan/defer-to-consumer.md`) — shared
+  plan-only deferral fragment layered into plan draft/review/refine prompts to
+  avoid inventing precision before a first caller exists
 
 - `patch.prompt.body` (`prompts/patch/instructions.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
@@ -78,6 +81,11 @@ Shared rendering follows this contract:
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
 - Global guidance is layered via shared fragments (`global.documentation`, then `global.naming`, then `global.terse`) rather than duplicated across step prompts or `patch.rules`.
+- Patch global guidance is layered via shared fragments
+  (`global.documentation`, then `global.naming`, then `global.terse`) rather
+  than duplicated across step prompts or `patch.rules`.
+- Plan global guidance layers `global.documentation`, `global.terse`, then
+  `plan.defer-to-consumer`.
 - `global.documentation` requires docs-first execution order: read relevant
   durable docs/specs before code edits, and update docs/specs in the same
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics
@@ -123,7 +131,7 @@ Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and
 is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 
 - patch prompt body (`patch.prompt.body`, currently `@r3`)
-- plan draft/review/refine prompts (currently `@r2`; review includes multiple
+- plan draft/review/refine prompts (currently `@r3`; review includes multiple
   pass contexts)
 - codex transport wrapper variant (`codex.exec.stdin+marker`)
 

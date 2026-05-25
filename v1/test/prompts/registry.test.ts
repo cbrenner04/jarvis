@@ -26,6 +26,7 @@ describe("prompt registry load validation", () => {
     expect(ids).toContain("patch.prompt.body");
     expect(ids).toContain("patch.rules");
     expect(ids).toContain("plan.prompt.draft");
+    expect(ids).toContain("plan.defer-to-consumer");
     expect(ids).toContain("plan.prompt.review");
     expect(ids).toContain("plan.prompt.refine");
   });

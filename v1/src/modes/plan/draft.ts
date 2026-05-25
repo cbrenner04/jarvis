@@ -52,7 +52,11 @@ export function buildDraftPrompt(opts: {
   const registry = loadPromptRegistry();
   let template = assemblePrompt({
     registry,
-    globalFragmentIds: ["global.documentation", "global.terse"],
+    globalFragmentIds: [
+      "global.documentation",
+      "global.terse",
+      "plan.defer-to-consumer",
+    ],
     behaviorFragmentIds: [],
     stepPromptId: "plan.prompt.draft",
   });

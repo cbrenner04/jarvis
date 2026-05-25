@@ -2,16 +2,18 @@
 
 ## Decisions
 
-- Expose Phase 1 through one explicit foreground CLI entrypoint for a single `write` step; do not add workflow selection, step arrays, or detached-run controls.
+- Expose this slice through one explicit foreground CLI entrypoint: `jarvis write`; do not add workflow selection, step arrays, detached-run controls, daemon controls, or multi-step authoring.
 - Keep the CLI host thin: argv parsing, config lookup, foreground progress text, process exit mapping, and `AbortSignal` wiring live in the CLI host; execution semantics live in the v2 core library.
-- Define one host-agnostic core entry for the Phase 1 run path; it accepts explicit inputs and an `AbortSignal` and does not own global process state.
-- Treat the Phase 1 source unit as one concrete `write` step contract, not a workflow runner, step graph, or reusable workflow authoring surface.
+- Define one host-agnostic core entry for this run path: `runWriteStep(input, signal) -> WriteStepResult`; it accepts explicit inputs and an `AbortSignal` and does not own global process state or process-signal handlers.
+- Define `RunWriteStepInput` explicitly: target-repo/worktree context, rendered prompt input, effective agent order, and run metadata needed for one foreground execution.
+- Define `WriteStepResult` as a closed union: `done`, `progress`, `blocked`, `failed`; result classification is machine-checkable and host-consumable without transcript parsing.
+- Treat the source unit as one concrete `write` step contract, not a workflow runner, step graph, or reusable workflow authoring surface.
 - Reuse the shared prompt registry and rendering contract; do not add a v2-only prompt store, prompt DSL, or prompt assembly layer.
 - Sequence the core path as render prompt -> invoke agent layer -> inspect declared outcome -> verify output contract on terminal success -> materialize result in the worktree.
-- Treat `progress` as non-success in Phase 1; the one-shot runner stops immediately without retrying because loop semantics belong to Phase 2.
+- Treat `progress` as non-success in this slice; the one-shot runner stops immediately without retrying because loop semantics belong to Phase 2.
 - Treat `blocked` as a terminal non-success outcome from the core; the CLI surfaces it tersely and exits without fallback.
 - Require cancellation to flow through the supplied `AbortSignal` before or during invocation; signal ownership and resume semantics stay out of scope.
-- Keep Phase 1 persistence to worktree and git state only; do not add SQLite, metadata files, daemon state, or resume bookkeeping.
+- Keep persistence to worktree and git state only; do not add SQLite, metadata files, daemon state, or resume bookkeeping.
 - Deferred to first consumer: whether the CLI distinguishes `progress` from other non-terminal outcomes in its public exit surface — pin when the Phase 2 loop consumes it.
 
 ## Constraints
@@ -27,20 +29,20 @@
 
 ## Task checklist
 
-- Define the Phase 1 CLI surface and its foreground-only contract.
+- Define the CLI surface and its foreground-only contract.
 - Define the host-agnostic core run API, inputs, outputs, and cancellation contract.
 - Define how the one-shot runner maps core outcomes to terminal status without introducing loop or resume behavior.
-- Define which shared prompt-rendering seam Phase 1 reuses and which v1-only plumbing stays out.
+- Define which shared prompt-rendering seam this slice reuses and which v1-only plumbing stays out.
 
 ## Acceptance criteria
 
-- [ ] The spec names one explicit v2 CLI entrypoint for a foreground, one-shot `write` step and excludes workflow selection, detached execution, daemon controls, and multi-step authoring from Phase 1.
-- [ ] The spec defines a host-agnostic core run contract behind that CLI host with explicit inputs, explicit result types, and an `AbortSignal` parameter, and it states that the core does not own global process state or process-signal handlers.
-- [ ] The Phase 1 run path is ordered as shared prompt render, agent invocation, outcome inspection, terminal-contract verification, and worktree materialization, with no hidden loop or resume branch.
-- [ ] The spec states that `progress` stops the one-shot runner as non-success without retry and that Phase 2 owns loop semantics.
-- [ ] The spec states that Phase 1 persistence is the worktree plus git state only and excludes SQLite, metadata files, daemon state, and resume bookkeeping from this slice.
-- [ ] The spec keeps operator output to terse foreground progress and terminal outcome text only and defers structured logging and richer event schemas.
-- [ ] The spec identifies the shared prompt registry/rendering seam as the reuse point and explicitly excludes a v2-local prompt system from this phase.
+- [x] The spec names one explicit v2 CLI entrypoint for a foreground, one-shot `write` step and excludes workflow selection, detached execution, daemon controls, and multi-step authoring from this slice.
+- [x] The spec defines a host-agnostic core run contract behind that CLI host with explicit inputs, explicit result types, and an `AbortSignal` parameter, and it states that the core does not own global process state or process-signal handlers.
+- [x] The run path is ordered as shared prompt render, agent invocation, outcome inspection, terminal-contract verification, and worktree materialization, with no hidden loop or resume branch.
+- [x] The spec states that `progress` stops the one-shot runner as non-success without retry and that Phase 2 owns loop semantics.
+- [x] The spec states that persistence is the worktree plus git state only and excludes SQLite, metadata files, daemon state, and resume bookkeeping from this slice.
+- [x] The spec keeps operator output to terse foreground progress and terminal outcome text only and defers structured logging and richer event schemas.
+- [x] The spec identifies the shared prompt registry/rendering seam as the reuse point and explicitly excludes a v2-local prompt system from this slice.
 
 ## Documentation updates
 

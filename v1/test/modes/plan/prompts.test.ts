@@ -7,6 +7,7 @@ import {
   classifyRefineIntentOutcome,
   isValidRefineSkipAddition,
   isValidRefineTurnAddition,
+  REFINE_HEADING,
   REFINE_SKIP_HEADING,
 } from "../../../src/modes/plan/refine.ts";
 import { buildReviewPrompt } from "../../../src/modes/plan/review.ts";
@@ -181,49 +182,45 @@ describe("refine/name-only prompts", () => {
 });
 
 describe("refine intent validation", () => {
-  test("accepts frontmatter naming plus appended refine turn", () => {
+  test("accepts frontmatter naming plus rewritten refinement ledger", () => {
     const before =
-      "jarvis should move completed spec to spec/completed/ when 'jarvis cleanup' is used\n";
+      "jarvis should move completed spec to spec/completed/ when 'jarvis cleanup' is used\n\n## Refinement\n\n- prior decision\n";
     const after = `---
 name: cleanup-completed-specs
 ---
 
 ${before}
-## Refine turn 1
-
-### Scope
-Notes: inferred constraint.
+- updated constraint
 `;
 
     expect(isValidRefineTurnAddition(before, after, 1)).toBe(true);
   });
 
-  test("rejects non-frontmatter edits before appended refine turn", () => {
-    const before = "initial intent\n";
+  test("rejects non-frontmatter edits before refinement heading", () => {
+    const before = "initial intent\n\n## Refinement\n\n- one\n";
     const after = `---
 name: renamed
 ---
 
 changed intent
 
-## Refine turn 1
+## Refinement
 
-### Scope
-- x
+- two
 `;
 
     expect(isValidRefineTurnAddition(before, after, 1)).toBe(false);
   });
 
-  test("accepts append-only refine skip section", () => {
-    const before = "seed intent\n";
+  test("accepts refine skip when existing refinement ledger is unchanged", () => {
+    const before = `seed intent\n\n${REFINE_HEADING}\n\n- keep\n`;
     const after = `${before}\n${REFINE_SKIP_HEADING}\n\nNo further refinement.\n`;
     expect(isValidRefineSkipAddition(before, after)).toBe(true);
   });
 
-  test("rejects refine skip when prior body was altered", () => {
-    const before = "seed intent\n";
-    const after = `changed\n${REFINE_SKIP_HEADING}\n\nx\n`;
+  test("rejects refine skip when refinement ledger was altered", () => {
+    const before = `seed intent\n\n${REFINE_HEADING}\n\n- keep\n`;
+    const after = `seed intent\n\n${REFINE_HEADING}\n\n- changed\n\n${REFINE_SKIP_HEADING}\n\nx\n`;
     expect(isValidRefineSkipAddition(before, after)).toBe(false);
   });
 
@@ -241,9 +238,9 @@ changed intent
     ).toBe("skipped");
   });
 
-  test("classifyRefineIntentOutcome defaults to refined when no blocker or skip heading", () => {
+  test("classifyRefineIntentOutcome treats refinement heading as refined", () => {
     expect(
-      classifyRefineIntentOutcome("# Intent\n\n## Refine turn 1\n\nx"),
+      classifyRefineIntentOutcome(`# Intent\n\n${REFINE_HEADING}\n\nx`),
     ).toBe("refined");
   });
 });

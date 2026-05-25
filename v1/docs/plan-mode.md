@@ -153,7 +153,7 @@ as project disambiguation remain out of scope for this stage.
 
 Each turn is one non-interactive agent invocation. The prompt asks the agent to inspect the target repo as needed and refine `intent.md` by appending useful planning context: inferred constraints, assumptions, scope boundaries, risks, or draft-shaping notes. It cannot ask the terminal user questions or record a Q&A transcript. With `quotaFallback: "lenient"`, weak-quota fallback to the next agent runs only when **`git status --porcelain`** matches before and after that invocation (no disk mutations during the attempt); see [quota-signals.md](./quota-signals.md).
 
-After each turn, jarvis validates that `intent.md` preserves existing non-frontmatter content and appends one permitted outcome: `## Refine turn N` for refinement notes, `## Refine skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification.
+After each turn, jarvis validates that `intent.md` preserves the human-authored seed above the first `## Refinement` heading (except the permitted `name:` frontmatter write) and then leaves one permitted outcome: consolidated `## Refinement` ledger content, `## Refine skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification.
 
 Intent refinement also requires the agent to propose a kebab-case spec name by writing `name: <kebab-case>` in a leading frontmatter-ish block in `intent.md`. If the budget is `0` in file/inline modes, jarvis still runs one naming-only agent invocation; if no name is proposed, jarvis falls back to deterministic derivation and logs a stderr note.
 
@@ -343,8 +343,7 @@ Resume runs additional phases against an existing plan branch:
   initial invocation.
 - Runs no intent-refinement turns by default.
 - If `--refine-turns <n>` is passed with `n > 0`, runs intent refinement first and
-  appends new sections to `intent.md` as `## Refine turn <N>` continuing
-  prior numbering.
+  continues consolidating the single `## Refinement` ledger in `intent.md`.
 
 Resume commit subjects carry an `r<n>` suffix where `<n>` is the resume
 invocation number for that plan branch:

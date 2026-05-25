@@ -109,23 +109,23 @@ plan commits, not in the document.
 
 ## Acceptance criteria
 
-- [ ] `prompts/plan/refine.md` contains no append-only directive and instructs
+- [x] `prompts/plan/refine.md` contains no append-only directive and instructs
   refine to consolidate a single `## Refinement` ledger, preserving every prior
   decision unless genuinely superseded.
-- [ ] The refine prompt states consolidation cuts restatement/narrative, never
+- [x] The refine prompt states consolidation cuts restatement/narrative, never
   decisions, and contains no numeric cap or length target.
-- [ ] `v1/src/modes/plan/refine.ts` accepts a turn that rewrites the
+- [x] `v1/src/modes/plan/refine.ts` accepts a turn that rewrites the
   `## Refinement` region while preserving the human-authored seed above it, and
   rejects any change to that seed (beyond the permitted `name:` frontmatter).
-- [ ] A skip turn (ledger region unchanged + `## Refine skip`) and a blocker turn
+- [x] A skip turn (ledger region unchanged + `## Refine skip`) and a blocker turn
   are both still accepted and classified correctly.
-- [ ] `plan.prompt.draft` and `plan.prompt.review` bodies and revisions are
+- [x] `plan.prompt.draft` and `plan.prompt.review` bodies and revisions are
   unchanged.
-- [ ] Rendered-prompt snapshot tests pass against the regenerated, revision-keyed
+- [x] Rendered-prompt snapshot tests pass against the regenerated, revision-keyed
   refine fixture.
-- [ ] `v1/docs/plan-mode.md` no longer describes refine as append-only / per-turn
+- [x] `v1/docs/plan-mode.md` no longer describes refine as append-only / per-turn
   `## Refine turn N` sections.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

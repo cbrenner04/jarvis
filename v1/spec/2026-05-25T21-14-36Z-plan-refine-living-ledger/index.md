@@ -11,4 +11,4 @@ as one artifact, not a changelog. Applies the "cut prose, never decisions"
 principle (already in the ledger fragment and subtractive review) to refine's own
 output. Depends on / supersedes the cross-turn dedup spec.
 
-- [ ] [00 - single living ledger](./00-single-living-ledger.md)
+- [x] [00 - single living ledger](./00-single-living-ledger.md)

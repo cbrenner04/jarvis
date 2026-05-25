@@ -19,6 +19,7 @@
 - Keep the subspec limited to invocation semantics and fallback; do not pull worktree creation, artifact verification, or CLI contract sprawl into this slice.
 - Reuse existing quota heuristics where they already exist; do not redesign per-agent signal detection in Phase 1 unless a seam is needed to call it from v2.
 - Keep fallback host-agnostic so a later daemon host can reuse it unchanged.
+- Reuse v1 seams directly in Phase 1: agent process execution/classification from `v1/src/agents/spawn.ts` plus quota classification from `v1/src/agents/quota.ts`; add only a thin v2 invocation seam that returns closed classifications to the runner.
 
 ## Assumptions
 
@@ -32,15 +33,36 @@
 - Define cancellation behavior across fallback attempts.
 - Define the minimal reuse seam for existing quota-detection and agent-launch plumbing.
 
+## Invocation outcome taxonomy
+
+- `done`: terminal success outcome from the invocation layer.
+- `blocked`: terminal blocked outcome from the invocation layer; never fallback-eligible.
+- `progress`: non-terminal work-made outcome surfaced to the runner unchanged; Phase 1 stops non-success without retry.
+- `quota-exhausted`: terminal non-success classification meaning the attempt failed due to quota and the next configured agent may be tried.
+- `process-failed`: terminal non-success classification for non-quota process failures; fallback-ineligible even when later agents remain.
+
+## Fallback and cancellation rules
+
+- Fallback is allowed only for `quota-exhausted`.
+- `done`, `blocked`, `progress`, and `process-failed` all stop the Phase 1 run immediately.
+- A non-zero process result is fallback-eligible only when quota heuristics classify it as quota exhaustion; no broader retry policy is allowed.
+- `AbortSignal` cancellation interrupts the active attempt and suppresses all later fallback attempts.
+
+## Reused seams
+
+- Reuse `v1/src/agents/spawn.ts` for CLI process launch, cancellation wiring, and result classification surface.
+- Reuse `v1/src/agents/quota.ts` for quota detection/classification heuristics.
+- Keep a minimal host-agnostic v2 invocation seam that exposes only machine-checkable outcome classes to the runner; no transcript parsing at runner call sites.
+
 ## Acceptance criteria
 
-- [ ] The spec defines a closed invocation outcome taxonomy that separates `blocked`, `progress`, quota exhaustion, terminal `done`, and non-quota process failure.
-- [ ] The spec states that only quota exhaustion advances to the next agent in the effective order and that every other outcome class stops the Phase 1 run without retry.
-- [ ] The spec states that non-quota process failures are terminal even when later agents remain in the order and that fallback never masks ordinary execution breakage.
-- [ ] The spec states that `progress` is surfaced as a non-success runner outcome without retry and that `blocked` is surfaced as terminal blocked without fallback.
-- [ ] The spec requires the invocation layer to expose machine-checkable classifications to the runner so fallback decisions do not depend on transcript parsing.
-- [ ] The spec requires `AbortSignal` cancellation to stop the active attempt and suppress any further fallback attempts.
-- [ ] The spec identifies which existing quota-detection or agent-launch seams are reused and keeps any new v2 seam host-agnostic and minimal.
+- [x] The spec defines a closed invocation outcome taxonomy that separates `blocked`, `progress`, quota exhaustion, terminal `done`, and non-quota process failure.
+- [x] The spec states that only quota exhaustion advances to the next agent in the effective order and that every other outcome class stops the Phase 1 run without retry.
+- [x] The spec states that non-quota process failures are terminal even when later agents remain in the order and that fallback never masks ordinary execution breakage.
+- [x] The spec states that `progress` is surfaced as a non-success runner outcome without retry and that `blocked` is surfaced as terminal blocked without fallback.
+- [x] The spec requires the invocation layer to expose machine-checkable classifications to the runner so fallback decisions do not depend on transcript parsing.
+- [x] The spec requires `AbortSignal` cancellation to stop the active attempt and suppress any further fallback attempts.
+- [x] The spec identifies which existing quota-detection or agent-launch seams are reused and keeps any new v2 seam host-agnostic and minimal.
 
 ## Documentation updates
 

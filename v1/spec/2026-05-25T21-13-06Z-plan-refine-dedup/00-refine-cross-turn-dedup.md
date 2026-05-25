@@ -63,16 +63,16 @@ inside the existing append-only contract — prompt-only, no code change.
 
 ## Acceptance criteria
 
-- [ ] `prompts/plan/refine.md` instructs that a refine turn records only
+- [x] `prompts/plan/refine.md` instructs that a refine turn records only
   decisions not already recorded in an earlier turn, and to take `## Refine skip`
   rather than append a restating turn.
-- [ ] The refine prompt contains no numeric cap on turns or entries.
-- [ ] `v1/src/modes/plan/refine.ts` is unchanged (append-only validation intact).
-- [ ] `plan.prompt.draft` and `plan.prompt.review` bodies and revisions are
+- [x] The refine prompt contains no numeric cap on turns or entries.
+- [x] `v1/src/modes/plan/refine.ts` is unchanged (append-only validation intact).
+- [x] `plan.prompt.draft` and `plan.prompt.review` bodies and revisions are
   unchanged.
-- [ ] Rendered-prompt snapshot tests pass against the regenerated, revision-keyed
+- [x] Rendered-prompt snapshot tests pass against the regenerated, revision-keyed
   refine fixture.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

@@ -134,7 +134,7 @@ Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and
 is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 
 - patch prompt body (`patch.prompt.body`, currently `@r3`)
-- plan draft/review/refine prompts (draft `@r4`, refine `@r5`, review `@r5`; review
+- plan draft/review/refine prompts (draft `@r4`, refine `@r6`, review `@r5`; review
   includes multiple pass contexts)
 - codex transport wrapper variant (`codex.exec.stdin+marker`)
 

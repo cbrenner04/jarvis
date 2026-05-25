@@ -15,6 +15,9 @@ shape agent behavior in patch mode and plan draft/review/refine:
   documentation-first fragment layered into agent-facing prompts; owns
   documentation-read/update ordering and routes placement to
   `v2/docs/documentation-standard.md`
+- `global.naming` (`prompts/global/naming.md`) — shared naming fragment layered
+  into patch-mode prompts; forbids planning labels in code identifiers,
+  filenames, types, and public API
 
 - `patch.prompt.body` (`prompts/patch/instructions.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
@@ -74,8 +77,7 @@ Shared rendering follows this contract:
 - Step definitions may explicitly add or remove named fragments.
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
-- Global guidance is layered via shared fragments (`global.documentation`, then
-  `global.terse`) rather than duplicated across step prompts or `patch.rules`.
+- Global guidance is layered via shared fragments (`global.documentation`, then `global.naming`, then `global.terse`) rather than duplicated across step prompts or `patch.rules`.
 - `global.documentation` requires docs-first execution order: read relevant
   durable docs/specs before code edits, and update docs/specs in the same
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics
@@ -120,7 +122,7 @@ and reviewed separately from shared prompt body snapshots.
 Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and
 is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 
-- patch prompt body (`patch.prompt.body`, currently `@r2`)
+- patch prompt body (`patch.prompt.body`, currently `@r3`)
 - plan draft/review/refine prompts (currently `@r2`; review includes multiple
   pass contexts)
 - codex transport wrapper variant (`codex.exec.stdin+marker`)

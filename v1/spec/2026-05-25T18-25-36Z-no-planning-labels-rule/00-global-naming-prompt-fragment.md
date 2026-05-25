@@ -28,23 +28,23 @@ global code-craft fragment, alongside `global.terse` and `global.documentation`.
 
 ## Tasks
 
-- [ ] Create `prompts/global/naming.md` with the fragment frontmatter and body.
-- [ ] Register the new path in `v1/src/prompts/registry.ts`.
-- [ ] Add `global.naming` to `globalFragmentIds` in `v1/src/modes/patch/prompt.ts`.
-- [ ] Bump `patch.prompt.body` revision and regenerate the shared + wrapper
+- [x] Create `prompts/global/naming.md` with the fragment frontmatter and body.
+- [x] Register the new path in `v1/src/prompts/registry.ts`.
+- [x] Add `global.naming` to `globalFragmentIds` in `v1/src/modes/patch/prompt.ts`.
+- [x] Bump `patch.prompt.body` revision and regenerate the shared + wrapper
   rendered-prompt fixtures under `v1/test/fixtures/prompts/rendered/`.
-- [ ] Update revision assertions in `v1/test/prompts/rendered-snapshots.test.ts`.
-- [ ] Run `bun run typecheck` and `bun test`.
+- [x] Update revision assertions in `v1/test/prompts/rendered-snapshots.test.ts`.
+- [x] Run `bun run typecheck` and `bun test`.
 
 ## Acceptance criteria
 
-- [ ] `prompts/global/naming.md` exists with id `global.naming` and loads via the
+- [x] `prompts/global/naming.md` exists with id `global.naming` and loads via the
   prompt registry.
-- [ ] The rendered patch prompt includes the naming rule text.
-- [ ] Plan-mode rendered prompts do not include the naming fragment.
-- [ ] Rendered-prompt snapshot tests pass against regenerated, revision-keyed
+- [x] The rendered patch prompt includes the naming rule text.
+- [x] Plan-mode rendered prompts do not include the naming fragment.
+- [x] Rendered-prompt snapshot tests pass against regenerated, revision-keyed
   fixtures.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

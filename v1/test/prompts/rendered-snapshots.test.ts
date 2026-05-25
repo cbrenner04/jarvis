@@ -32,7 +32,7 @@ describe("rendered prompt snapshots", () => {
   const registry = loadPromptRegistry();
 
   test("shared snapshots are keyed by id and revision", () => {
-    expect(registry.getById("patch.prompt.body").metadata.revision).toBe("2");
+    expect(registry.getById("patch.prompt.body").metadata.revision).toBe("3");
     expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("2");
     expect(registry.getById("plan.prompt.review").metadata.revision).toBe("2");
     expect(registry.getById("plan.prompt.refine").metadata.revision).toBe("2");

@@ -39,6 +39,7 @@ Multi-file specs go in `v1/spec/<UTC-timestamp>-<name>/` with an `index.md`. The
 - **Do not** edit `index.md` or run `git commit` — Jarvis owns the index checkbox and all commits (`git add -A` would absorb manual ones unexpectedly).
 - Blocked or ambiguous? Append a `## Blocker` to the subspec and stop, rather than guess.
 - Keep changes minimal and within the active subspec's scope — no speculative refactors, no unauthorized harness changes.
+- **No planning labels in code.** Phase/milestone/slice names are sequencing artifacts — never bake them into identifiers, filenames, or public API. A spec saying "Phase 1 state store" names *the state store*; call it that.
 
 ## PR attribution
 

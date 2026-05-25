@@ -140,6 +140,13 @@ export type AttemptStatus = "started" | "succeeded" | "failed" | "blocked";
 /** Closed outcome classification persisted in `step_outcomes`. */
 export type StepOutcomeKind = "progress" | "done" | "no-work" | "blocked";
 
+const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "completed",
+  "blocked",
+  "killed",
+  "failed",
+]);
+
 /**
  * Input contract for creating a run row and its initial checkpoint pointers.
  */
@@ -483,13 +490,6 @@ function commitStepBoundary(db: Database, input: CommitStepBoundaryInput): StepB
         `run '${input.runId}' is not running`,
       );
     }
-    if (run.next_step_id !== input.stepId) {
-      throw new Phase1StateStoreError(
-        "INVALID_BOUNDARY_TARGET",
-        `boundary step '${input.stepId}' does not match run checkpoint '${run.next_step_id}'`,
-      );
-    }
-
     const attempt = db
       .query<AttemptRow, [string]>(
         `
@@ -514,23 +514,27 @@ function commitStepBoundary(db: Database, input: CommitStepBoundaryInput): StepB
       );
     }
 
-    if (attempt.finished_at !== null) {
-      throw new Phase1StateStoreError(
-        "ATTEMPT_ALREADY_FINISHED",
-        `attemptId '${input.attemptId}' is already finished`,
-      );
+    const existingOutcome =
+      db
+      .query<{ outcome_id: string; outcome_kind: string }, [string]>(
+        "SELECT outcome_id, outcome_kind FROM step_outcomes WHERE attempt_id = ?1",
+      )
+      .get(input.attemptId) ?? undefined;
+
+    if (attempt.finished_at !== null || existingOutcome) {
+      return resolveExistingBoundarySnapshot({
+        input,
+        run,
+        attempt,
+        attemptStatus,
+        existingOutcome,
+      });
     }
 
-    const existingOutcome = db
-      .query<{ outcome_id: string }, [string]>(
-        "SELECT outcome_id FROM step_outcomes WHERE attempt_id = ?1",
-      )
-      .get(input.attemptId);
-
-    if (existingOutcome) {
+    if (run.next_step_id !== input.stepId) {
       throw new Phase1StateStoreError(
-        "OUTCOME_ALREADY_RECORDED",
-        `attemptId '${input.attemptId}' already has outcome '${existingOutcome.outcome_id}'`,
+        "INVALID_BOUNDARY_TARGET",
+        `boundary step '${input.stepId}' does not match run checkpoint '${run.next_step_id}'`,
       );
     }
 
@@ -577,8 +581,15 @@ function loadRunForResume(db: Database, runId: string): RunResumeSnapshot {
   const run = getRunRowOrThrow(db, runId);
   const runSnapshot = mapRunRow(run);
 
-  if (runSnapshot.nextStepId === null || runSnapshot.status !== "running") {
+  if (runSnapshot.nextStepId === null && isTerminalRunStatus(runSnapshot.status)) {
     return { kind: "run-terminal", run: runSnapshot };
+  }
+
+  if (runSnapshot.nextStepId === null) {
+    throw new Phase1StateStoreError(
+      "INVALID_BOUNDARY_TARGET",
+      `run '${runId}' has no next_step_id but status '${runSnapshot.status}' is not terminal`,
+    );
   }
 
   const latestAttempt = db
@@ -717,6 +728,10 @@ function toAttemptStatus(outcomeKind: StepOutcomeKind): AttemptStatus {
   return "failed";
 }
 
+function isTerminalRunStatus(status: RunStatus): boolean {
+  return TERMINAL_RUN_STATUSES.has(status);
+}
+
 function asRunStatus(value: string): RunStatus {
   if (
     value === "running" ||
@@ -744,6 +759,57 @@ function asOutcomeKind(value: string): StepOutcomeKind {
     return value;
   }
   throw new Error(`invalid outcome kind '${value}'`);
+}
+
+function resolveExistingBoundarySnapshot({
+  input,
+  run,
+  attempt,
+  attemptStatus,
+  existingOutcome,
+}: {
+  input: CommitStepBoundaryInput;
+  run: RunRow;
+  attempt: AttemptRow;
+  attemptStatus: AttemptStatus;
+  existingOutcome: { outcome_id: string; outcome_kind: string } | undefined;
+}): StepBoundarySnapshot {
+  if (attempt.finished_at === null || !existingOutcome) {
+    throw new Phase1StateStoreError(
+      "OUTCOME_ALREADY_RECORDED",
+      `attemptId '${input.attemptId}' has incomplete committed boundary state`,
+    );
+  }
+
+  const durableOutcomeKind = asOutcomeKind(existingOutcome.outcome_kind);
+  const durableAttemptStatus = asAttemptStatus(attempt.status);
+  const durableRunStatus = asRunStatus(run.status);
+
+  const boundaryMatchesInput =
+    durableAttemptStatus === attemptStatus &&
+    durableOutcomeKind === input.outcomeKind &&
+    durableRunStatus === input.runStatus &&
+    run.next_step_id === input.nextStepId;
+
+  if (!boundaryMatchesInput) {
+    throw new Phase1StateStoreError(
+      "ATTEMPT_ALREADY_FINISHED",
+      `attemptId '${input.attemptId}' is already finished with a different boundary`,
+    );
+  }
+
+  return {
+    runId: input.runId,
+    stepId: input.stepId,
+    attemptId: input.attemptId,
+    attemptOrdinal: attempt.attempt_ordinal,
+    finishedAt: attempt.finished_at,
+    attemptStatus: durableAttemptStatus,
+    nextStepId: run.next_step_id,
+    runStatus: durableRunStatus,
+    outcomeId: existingOutcome.outcome_id,
+    outcomeKind: durableOutcomeKind,
+  };
 }
 
 function isSqliteConstraint(error: unknown): boolean {

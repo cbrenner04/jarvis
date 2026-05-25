@@ -41,36 +41,36 @@ rules without adding daemon lifecycle semantics or mid-step resume.
 
 ## Acceptance criteria
 
-- [ ] A fresh run with no recorded attempt for its current `nextStepId` resumes
+- [x] A fresh run with no recorded attempt for its current `nextStepId` resumes
       as `start-next-boundary`.
-- [ ] A run with a recorded step attempt and no committed boundary effect for
+- [x] A run with a recorded step attempt and no committed boundary effect for
       that attempt resumes as `replay-last-boundary`.
-- [ ] A committed non-terminal boundary durably completes exactly one attempt,
+- [x] A committed non-terminal boundary durably completes exactly one attempt,
       persists exactly one outcome row for that attempt, and advances
       `runs.next_step_id` exactly once.
-- [ ] A repeat `commitStepBoundary` call for the same already committed attempt
+- [x] A repeat `commitStepBoundary` call for the same already committed attempt
       returns the existing durable boundary snapshot and does not create a
       second outcome row or a second checkpoint advance.
-- [ ] At least one duplicate-commit proof reopens the store on the same
+- [x] At least one duplicate-commit proof reopens the store on the same
       database between the first and second `commitStepBoundary` calls and still
       returns the existing durable boundary snapshot with no second outcome row
       or checkpoint advance.
-- [ ] A committed terminal boundary leaves the run in a terminal status with
+- [x] A committed terminal boundary leaves the run in a terminal status with
       `runs.next_step_id` absent, and later resume reads return `run-terminal`.
-- [ ] Recovery treats `run-terminal` as the combination of terminal
+- [x] Recovery treats `run-terminal` as the combination of terminal
       `runs.status` plus absent `runs.next_step_id`; `next_step_id` absence by
       itself does not produce a terminal result.
-- [ ] Public tests prove the duplicate-commit contract through observable store
+- [x] Public tests prove the duplicate-commit contract through observable store
       behavior, not just by counting rows: the second call returns the same
       durable boundary snapshot the first commit produced.
-- [ ] Recovery and duplicate-commit tests run through the public store API
+- [x] Recovery and duplicate-commit tests run through the public store API
       against temporary SQLite databases under `v2/src/*.test.ts`; they do not
       depend on daemon lifecycle code, IPC, worktrees, or step execution.
-- [ ] If this slice makes recovery or terminal-run encoding more concrete than
+- [x] If this slice makes recovery or terminal-run encoding more concrete than
       the current durable docs, `v2/docs/v2-architecture.md` is updated in the
       same subspec, with `v2/docs/v2-build-order.md` or `v2/spec/v2-meta-index.md`
       touched only where wording is no longer accurate.
-- [ ] Every exported recovery-facing symbol added or changed in this slice keeps
+- [x] Every exported recovery-facing symbol added or changed in this slice keeps
       inline doc-comments aligned with the durable semantics.
 
 ## Documentation updates

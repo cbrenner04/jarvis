@@ -13,4 +13,4 @@ standalone docs slice unless an implementation subspec would stop being atomic.
 
 - [x] [00 - Bootstrap the SQLite schema and migrations](./00-bootstrap-the-sqlite-schema-and-migrations.md)
 - [x] [01 - Expose the public state-store API](./01-expose-the-public-state-store-api.md)
-- [ ] [02 - Prove recovery and duplicate-commit behavior](./02-prove-recovery-and-duplicate-commit-behavior.md)
+- [x] [02 - Prove recovery and duplicate-commit behavior](./02-prove-recovery-and-duplicate-commit-behavior.md)

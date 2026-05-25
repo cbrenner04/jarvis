@@ -257,11 +257,13 @@ logs/events, daemon/session metadata, and token/cost streams are explicitly defe
 - **Explicit recovery read outcomes.** Recovery returns one of:
   `start-next-boundary` (no attempt yet for current checkpoint),
   `replay-last-boundary` (attempt recorded but no committed boundary effect),
-  or `run-terminal`.
+  or `run-terminal` (terminal `runs.status` plus absent `runs.next_step_id`).
+  `runs.next_step_id` absence alone is not terminal.
 - **Transactional boundary proof.** A boundary is committed only when attempt
   terminal state, terminal outcome row, and checkpoint advancement are durable
-  in the same transaction; retrying the same finished boundary must not advance
-  checkpoint twice or duplicate terminal durable effect.
+  in the same transaction; retrying the same finished boundary returns the same
+  durable boundary snapshot and must not advance checkpoint twice or duplicate
+  terminal durable effect.
 - **Out of scope in Phase 1.** Mid-step snapshots, structured event history,
   human steering state, and daemon lifecycle concerns are deferred unless needed
   by a concrete recovery read.

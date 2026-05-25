@@ -250,6 +250,12 @@ describe("phase1 state store repository api", () => {
       expect(boundary.stepId).toBe("step-a");
       expect(boundary.nextStepId).toBe("step-b");
       expect(boundary.attemptStatus).toBe("succeeded");
+      expect(boundary.outcomeKind).toBe("done");
+
+      const history = store.listStepHistory("run-1");
+      expect(history).toHaveLength(1);
+      expect(history[0]?.attemptStatus).toBe("succeeded");
+      expect(history[0]?.outcomeKind).toBe("done");
 
       const resume = store.loadRunForResume("run-1");
       expect(resume.kind).toBe("start-next-boundary");
@@ -414,8 +420,128 @@ describe("phase1 state store repository api", () => {
           outcomeDetail: null,
         }),
       ).toThrowError(Phase1StateStoreError);
+
+      const storeError = (() => {
+        try {
+          store.createRun({
+            runId: "run-2",
+            workflowName: "wf",
+            nextStepId: null,
+            status: "paused",
+            specPath: null,
+            worktreePath: null,
+            branchName: null,
+          });
+          store.loadRunForResume("run-2");
+          return null;
+        } catch (error) {
+          return error;
+        }
+      })();
+      expect(storeError).toBeInstanceOf(Phase1StateStoreError);
+      expect((storeError as Phase1StateStoreError).code).toBe("INVALID_BOUNDARY_TARGET");
     } finally {
       store.close();
+    }
+  });
+
+  test("duplicate committed boundary returns durable snapshot in-process", () => {
+    const store = openPhase1StateStore({ path: makeTempDbPath() });
+    try {
+      store.createRun({
+        runId: "run-1",
+        workflowName: "wf",
+        nextStepId: "step-a",
+        status: "running",
+        specPath: null,
+        worktreePath: null,
+        branchName: null,
+      });
+      const started = store.recordStepStart({ runId: "run-1", stepId: "step-a" });
+
+      const first = store.commitStepBoundary({
+        runId: "run-1",
+        stepId: "step-a",
+        attemptId: started.attemptId,
+        nextStepId: "step-b",
+        runStatus: "running",
+        outcomeKind: "done",
+        outcomeDetail: null,
+      });
+      const second = store.commitStepBoundary({
+        runId: "run-1",
+        stepId: "step-a",
+        attemptId: started.attemptId,
+        nextStepId: "step-b",
+        runStatus: "running",
+        outcomeKind: "done",
+        outcomeDetail: "ignored on idempotent replay",
+      });
+
+      expect(second).toEqual(first);
+      const history = store.listStepHistory("run-1");
+      expect(history).toHaveLength(1);
+      expect(history[0]?.outcomeId).toBe(first.outcomeId);
+      expect(history[0]?.outcomeKind).toBe("done");
+      const resume = store.loadRunForResume("run-1");
+      expect(resume.kind).toBe("start-next-boundary");
+      if (resume.kind === "start-next-boundary") {
+        expect(resume.stepId).toBe("step-b");
+      }
+    } finally {
+      store.close();
+    }
+  });
+
+  test("duplicate committed boundary returns durable snapshot after reopen", () => {
+    const dbPath = makeTempDbPath();
+    const firstStore = openPhase1StateStore({ path: dbPath });
+    let attemptId = "";
+    let firstOutcomeId = "";
+    try {
+      firstStore.createRun({
+        runId: "run-1",
+        workflowName: "wf",
+        nextStepId: "step-a",
+        status: "running",
+        specPath: null,
+        worktreePath: null,
+        branchName: null,
+      });
+      const started = firstStore.recordStepStart({ runId: "run-1", stepId: "step-a" });
+      attemptId = started.attemptId;
+      const first = firstStore.commitStepBoundary({
+        runId: "run-1",
+        stepId: "step-a",
+        attemptId,
+        nextStepId: "step-b",
+        runStatus: "running",
+        outcomeKind: "done",
+        outcomeDetail: null,
+      });
+      firstOutcomeId = first.outcomeId;
+    } finally {
+      firstStore.close();
+    }
+
+    const reopened = openPhase1StateStore({ path: dbPath });
+    try {
+      const duplicate = reopened.commitStepBoundary({
+        runId: "run-1",
+        stepId: "step-a",
+        attemptId,
+        nextStepId: "step-b",
+        runStatus: "running",
+        outcomeKind: "done",
+        outcomeDetail: null,
+      });
+      expect(duplicate.outcomeId).toBe(firstOutcomeId);
+
+      const history = reopened.listStepHistory("run-1");
+      expect(history).toHaveLength(1);
+      expect(history[0]?.outcomeId).toBe(firstOutcomeId);
+    } finally {
+      reopened.close();
     }
   });
 });

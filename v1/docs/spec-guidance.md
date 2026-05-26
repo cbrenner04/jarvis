@@ -144,14 +144,14 @@ For a default repository this is `spec/…`; for a configured root this is e.g. 
 From `jarvis1 run`'s perspective, hand-edited specs and plan-generated specs are
 equivalent once merged to `main`.
 
-When operators start work from a phase checklist (for example `v2/spec/v2-meta-index.md`), the workflow semantics are:
+When operators start work from a structured index (such as a feature checklist or work queue), the workflow semantics are:
 
-1. Treat the phase line plus matching build-order section as source input.
+1. Treat the work item plus matching context docs as source input.
 2. Write a concise build brief for the implementation to ship.
 3. Use `jarvis1 plan "<build brief>"` as the drafting step.
 4. Use `jarvis1 run ...` as the implementation step.
 
-Do not frame phase-start prompts as "draft a spec." Phase done is merged implementation code, not generated intent/spec artifacts.
+Do not frame work-start prompts as "draft a spec." Done is merged implementation code, not generated intent/spec artifacts.
 
 ## Subspecs
 

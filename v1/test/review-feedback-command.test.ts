@@ -95,16 +95,21 @@ function fakeAgent(
 }
 
 describe("review-feedback command", () => {
-  test("missing worktree exits non-zero with clear name", async () => {
+  test("missing worktree without branch throws no-branch error", async () => {
     const cap = captureIo();
     const code = await reviewFeedbackCommand({
       projectRoot,
       worktreeName: "missing-one",
       io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+      ensurePatchWorktreeFn: async () => {
+        throw new Error(
+          "no local or remote branch named missing-one; cannot create worktree",
+        );
+      },
     });
     expect(code).toBe(1);
-    expect(cap.err()).toContain("unknown worktree");
-    expect(cap.err()).toContain("missing-one");
+    expect(cap.err()).toContain("no local or remote branch named missing-one");
   });
 
   test("plan-* worktree is rejected in v1", async () => {
@@ -114,9 +119,115 @@ describe("review-feedback command", () => {
       projectRoot,
       worktreeName: "plan-my-worktree",
       io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
     });
     expect(code).toBe(1);
     expect(cap.err()).toContain("only supports patch worktrees");
+  });
+
+  test("branch on origin with missing worktree creates it and runs review", async () => {
+    const worktreePath = createGitWorktree("feature-branch");
+    // Remove the worktree directory to simulate a missing worktree that needs to be created
+    rmSync(worktreePath, { recursive: true, force: true });
+    expect(existsSync(worktreePath)).toBe(false);
+
+    // Track whether ensurePatchWorktreeForExistingBranch was called from the command
+    let createdFromCommand = false;
+
+    const cap = captureIo();
+    const _code = await reviewFeedbackCommand({
+      projectRoot,
+      worktreeName: "feature-branch",
+      io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+      ensurePatchWorktreeFn: async (_projRoot, _name) => {
+        createdFromCommand = true;
+        // Recreate the worktree for the test
+        mkdirSync(worktreePath, { recursive: true });
+        execSync("git init", { cwd: worktreePath, stdio: "pipe" });
+        execSync("git config user.email test@example.com", {
+          cwd: worktreePath,
+          stdio: "pipe",
+        });
+        execSync("git config user.name Test", {
+          cwd: worktreePath,
+          stdio: "pipe",
+        });
+        writeFileSync(join(worktreePath, "README.md"), "test\n");
+        execSync("git add README.md", { cwd: worktreePath, stdio: "pipe" });
+        execSync("git commit -m initial", { cwd: worktreePath, stdio: "pipe" });
+        execSync("git checkout -b feature-branch", {
+          cwd: worktreePath,
+          stdio: "pipe",
+        });
+        return {
+          path: worktreePath,
+          source: "origin",
+        };
+      },
+      assertGhReadyFn: async () => {},
+      checkPrExistsFn: () => 123,
+      collectReviewFeedbackFn: async () => ({
+        inlineThreads: [{ comments: [] }],
+        topLevelComments: [],
+      }),
+      readPatchRulesFn: () => "rules",
+      createAgentFn: () =>
+        fakeAgent("claude", () => {
+          writeFileSync(join(worktreePath, "changed.txt"), "changed\n");
+          return { kind: "ok", stdout: "ok", stderr: "" };
+        }),
+      commitAllFn: () => {},
+      pushCurrentFn: () => {},
+    });
+
+    // The function should call our stubbed ensurePatchWorktreeFn
+    expect(createdFromCommand).toBe(true);
+    // Should emit the creation message
+    expect(cap.out()).toContain("worktree missing; creating");
+    expect(cap.out()).toContain("from origin/");
+  });
+
+  test("no branch local or remote errors with no-branch message", async () => {
+    const cap = captureIo();
+    const code = await reviewFeedbackCommand({
+      projectRoot,
+      worktreeName: "nonexistent-branch",
+      io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
+      ensurePatchWorktreeFn: async () => {
+        throw new Error(
+          "no local or remote branch named nonexistent-branch; cannot create worktree",
+        );
+      },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain(
+      "no local or remote branch named nonexistent-branch",
+    );
+  });
+
+  test("git disabled and worktree missing uses unknown-worktree error", async () => {
+    const cap = captureIo();
+    let ensureCalled = false;
+    const code = await reviewFeedbackCommand({
+      projectRoot,
+      worktreeName: "missing-git-disabled",
+      io: cap.io,
+      loadConfigFn: () => {
+        const c = cfg([{ agent: "claude", model: "haiku" }]);
+        c.git = false;
+        return c;
+      },
+      ensurePatchWorktreeFn: async () => {
+        ensureCalled = true;
+        throw new Error("should not be called");
+      },
+    });
+    expect(code).toBe(1);
+    expect(ensureCalled).toBe(false);
+    expect(cap.err()).toContain("unknown worktree");
+    expect(cap.err()).toContain("missing-git-disabled");
   });
 
   test("detached HEAD is rejected before gh lookup", async () => {
@@ -129,6 +240,7 @@ describe("review-feedback command", () => {
       projectRoot,
       worktreeName: "detached",
       io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
       assertGhReadyFn: async () => {
         ghCalled = true;
       },
@@ -155,6 +267,7 @@ describe("review-feedback command", () => {
       projectRoot,
       worktreeName: "locked",
       io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
     });
     expect(code).toBe(9);
     expect(cap.err()).toContain("worktree is in use by process");
@@ -170,6 +283,7 @@ describe("review-feedback command", () => {
       projectRoot,
       worktreeName: "dirty",
       io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
       assertGhReadyFn: async () => {
         ghCalled = true;
       },
@@ -186,6 +300,7 @@ describe("review-feedback command", () => {
       projectRoot,
       worktreeName: "gh-failure",
       io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
       assertGhReadyFn: async () => {
         throw new Error("gh auth failure text");
       },
@@ -203,6 +318,7 @@ describe("review-feedback command", () => {
       projectRoot,
       worktreeName: "detached-release",
       io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
     });
     expect(existsSync(getWorktreeLockPath(worktreePath))).toBe(false);
   });
@@ -215,6 +331,7 @@ describe("review-feedback command", () => {
       projectRoot,
       worktreeName: "no-pr",
       io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
       assertGhReadyFn: async () => {},
       checkPrExistsFn: () => null,
       collectReviewFeedbackFn: async () => {
@@ -234,6 +351,7 @@ describe("review-feedback command", () => {
       projectRoot,
       worktreeName: "no-comments",
       io: cap.io,
+      loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
       assertGhReadyFn: async () => {},
       checkPrExistsFn: () => 123,
       collectReviewFeedbackFn: async () => ({

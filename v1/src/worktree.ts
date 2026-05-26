@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { getBaseBranch } from "./gh.ts";
 
@@ -27,14 +33,7 @@ export async function ensureWorktree(
     return projectRoot;
   }
 
-  try {
-    execFileSync("git", ["fetch", "origin"], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
-  } catch {
-    // fetch might fail if no origin or no network, but we continue anyway
-  }
+  bestEffortFetch(projectRoot);
 
   const branchExists = branchExistsLocal(projectRoot, specName);
   const branchExistsRemote = branchExistsOnOrigin(projectRoot, specName);
@@ -91,14 +90,7 @@ export async function createPlanWorktree(
   );
   const branchName = branchPrefix + opts.name;
 
-  try {
-    execFileSync("git", ["fetch", "origin"], {
-      cwd: opts.projectRoot,
-      stdio: "pipe",
-    });
-  } catch {
-    // fetch might fail if no origin or no network, but we continue anyway
-  }
+  bestEffortFetch(opts.projectRoot);
 
   // Fail loudly if the plan worktree already exists
   if (existsSync(worktreePath)) {
@@ -141,6 +133,47 @@ export async function createPlanWorktree(
   return worktreePath;
 }
 
+export async function ensurePatchWorktreeForExistingBranch(
+  projectRoot: string,
+  worktreeName: string,
+): Promise<{ path: string; source: "origin" | "local" }> {
+  const worktreePath = join(projectRoot, ".worktree", worktreeName);
+
+  bestEffortFetch(projectRoot);
+
+  const branchExists = branchExistsLocal(projectRoot, worktreeName);
+  const branchExistsRemote = branchExistsOnOrigin(projectRoot, worktreeName);
+
+  if (!branchExists && !branchExistsRemote) {
+    throw new Error(
+      `no local or remote branch named ${worktreeName}; cannot create worktree`,
+    );
+  }
+
+  mkdirSync(join(projectRoot, ".worktree"), { recursive: true });
+
+  if (!branchExists && branchExistsRemote) {
+    execFileSync("git", ["branch", worktreeName, `origin/${worktreeName}`], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+  }
+
+  execFileSync(
+    "git",
+    ["worktree", "add", "--checkout", worktreePath, worktreeName],
+    {
+      cwd: projectRoot,
+      stdio: "pipe",
+    },
+  );
+
+  return {
+    path: worktreePath,
+    source: branchExistsRemote ? "origin" : "local",
+  };
+}
+
 function branchExistsLocal(projectRoot: string, branchName: string): boolean {
   try {
     execFileSync("git", ["rev-parse", "--verify", branchName], {
@@ -165,6 +198,17 @@ function branchExistsOnOrigin(
     return true;
   } catch {
     return false;
+  }
+}
+
+function bestEffortFetch(projectRoot: string): void {
+  try {
+    execFileSync("git", ["fetch", "origin"], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+  } catch {
+    // fetch might fail if no origin or no network, but we continue anyway
   }
 }
 

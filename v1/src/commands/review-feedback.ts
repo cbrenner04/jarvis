@@ -18,7 +18,11 @@ import {
   readPatchRulesText,
   renderReviewPrompt,
 } from "../review-feedback.ts";
-import { hasUpstream, pushCurrent } from "../worktree.ts";
+import {
+  ensurePatchWorktreeForExistingBranch,
+  hasUpstream,
+  pushCurrent,
+} from "../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../worktree-lock.ts";
 
 export type ReviewIo = {
@@ -40,6 +44,10 @@ export type ReviewCommandOptions = {
   readPatchRulesFn?: () => string;
   createAgentFn?: (agentName: AgentName, model: string) => Agent;
   loadConfigFn?: (opts?: ConfigOptions) => Config;
+  ensurePatchWorktreeFn?: (
+    projectRoot: string,
+    name: string,
+  ) => Promise<{ path: string; source: "origin" | "local" }>;
   commitAllFn?: (cwd: string, message: string) => void;
   pushCurrentFn?: (opts: { cwd: string; firstPush: boolean }) => void;
 };
@@ -47,18 +55,45 @@ export type ReviewCommandOptions = {
 export async function reviewFeedbackCommand(
   opts: ReviewCommandOptions,
 ): Promise<number> {
-  const worktreePath = join(opts.projectRoot, ".worktree", opts.worktreeName);
-  if (!existsSync(worktreePath)) {
-    opts.io.stderr(
-      `jarvis1 review-feedback: unknown worktree ${JSON.stringify(opts.worktreeName)}\n`,
-    );
-    return 1;
-  }
+  // Reject plan worktrees before any other checks
   if (opts.worktreeName.startsWith("plan-")) {
     opts.io.stderr(
       "jarvis1 review-feedback: plan worktrees are unsupported in v1; review-feedback only supports patch worktrees\n",
     );
     return 1;
+  }
+
+  // Load config immediately after plan-prefix guard
+  const config = (opts.loadConfigFn ?? loadConfig)(opts.config);
+
+  const worktreePath = join(opts.projectRoot, ".worktree", opts.worktreeName);
+
+  // Auto-create worktree from branch if missing and git is enabled
+  if (!existsSync(worktreePath)) {
+    if (config.git === false) {
+      // git disabled: use existing "unknown worktree" path
+      opts.io.stderr(
+        `jarvis1 review-feedback: unknown worktree ${JSON.stringify(opts.worktreeName)}\n`,
+      );
+      return 1;
+    }
+
+    // Attempt auto-create
+    try {
+      const result = await (
+        opts.ensurePatchWorktreeFn ?? ensurePatchWorktreeForExistingBranch
+      )(opts.projectRoot, opts.worktreeName);
+      const sourceText =
+        result.source === "origin"
+          ? `from origin/${opts.worktreeName}`
+          : `from local branch ${opts.worktreeName}`;
+      opts.io.stdout(
+        `jarvis1 review-feedback: worktree missing; creating .worktree/${opts.worktreeName} ${sourceText}\n`,
+      );
+    } catch (err) {
+      opts.io.stderr(`jarvis1 review-feedback: ${(err as Error).message}\n`);
+      return 1;
+    }
   }
 
   const lockResult = acquireWorktreeLock(worktreePath);
@@ -136,7 +171,6 @@ export async function reviewFeedbackCommand(
       `jarvis1 review-feedback: review prompt prepared (${prompt.length} chars)\n`,
     );
 
-    const config = (opts.loadConfigFn ?? loadConfig)(opts.config);
     const resolveAgent = opts.createAgentFn ?? createAgent;
     let success: {
       entry: (typeof config.modes.patch.agentOrder)[number];

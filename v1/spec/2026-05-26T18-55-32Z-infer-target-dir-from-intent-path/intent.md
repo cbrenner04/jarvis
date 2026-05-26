@@ -73,3 +73,14 @@ Precedence becomes: `--target-dir` flag > inferred-from-intent-path > `projects[
 ## Refine skip
 
 Prior refinement turn captured inference site, trigger, resume bypass, path resolution, containment, match rule, empty-result handling, validation reuse, logging channel, case sensitivity, no-commit interaction, no disable flag/config, test seam, integration coverage, docs scope, backward-compat note, and two explicit deferrals. No net-new decisions surfaced from re-reading `plan.ts` (inferred value flows transparently through downstream `targetDir` consumers) or `config.ts` (`validateTargetDir` is exported at line 656, reusable as planned).
+
+## Blocker
+
+Review and approve `v1/spec/2026-05-26T18-55-32Z-infer-target-dir-from-intent-path/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v1/spec/2026-05-26T18-55-32Z-infer-target-dir-from-intent-path/intent.md`

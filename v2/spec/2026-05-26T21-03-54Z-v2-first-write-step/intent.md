@@ -174,3 +174,14 @@ When Phase 1 is done, all of these should be objectively checkable against merge
 - Decision: the new subcommand is invoked as `jarvis <subcommand> <spec-path>` via the root `bin/jarvis` shim (not `jarvis1`); `bin/jarvis1` and all `jarvis1 <verb>` commands remain v1-only and untouched. Rationale: README and `bin/` shims already wire it this way; making it explicit pre-empts the drafter shipping `jarvis1 write`.
 - Decision: per-attempt log filename uses the same `:`→`-` ISO-timestamp substitution v1 uses for spec directories (`2026-05-23T23-17-59Z` style), not raw `toISOString()`. Rationale: `:` in filenames breaks on case-insensitive/FAT-derived filesystems and confuses some shells; v1 already standardized on the substituted form so v2 should match.
 - Constraint: the Phase 1 subspec that lands the write subcommand must also remove or amend the `v2 not ready` assertion in `v2/src/cli.test.ts` only for the new subcommand path; the no-arg and `--version` assertions stay intact. Rationale: drafter risks deleting the whole file when extending it; the scope is additive plus one narrow edit.
+
+## Blocker
+
+Review and approve `v2/spec/2026-05-26T21-03-54Z-v2-first-write-step/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-05-26T21-03-54Z-v2-first-write-step/intent.md`

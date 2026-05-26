@@ -43,8 +43,8 @@ When re-running a spec:
 
 ## Review-feedback worktrees
 
-`jarvis review-feedback <worktree-name>` operates on an existing patch worktree at
-`.worktree/<worktree-name>/`. In v1 it does not infer the target worktree from
+`jarvis1 review-feedback <worktree-name>` auto-materializes the patch worktree at
+`.worktree/<worktree-name>/` from `origin/<worktree-name>` (or a local branch if no remote exists) when missing and `git: true` in config. In v1 it does not infer the target worktree from
 the current working directory and does not support plan worktrees
 (`plan-*` / `plan/<name>`). The target worktree must start clean (empty
 `git status --porcelain`) before the review-feedback command proceeds.

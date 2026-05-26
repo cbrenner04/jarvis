@@ -21,8 +21,8 @@
 ## Task checklist
 
 - Add matching anti-meta guidance to the inline-draft, refine, and draft prompt templates.
-- Update the prompt tests/snapshots that exercise those templates.
-- Align the durable docs with the new plan-mode rule.
+- Update the prompt tests and snapshots that exercise those templates.
+- Align the durable docs.
 
 ## Acceptance criteria
 

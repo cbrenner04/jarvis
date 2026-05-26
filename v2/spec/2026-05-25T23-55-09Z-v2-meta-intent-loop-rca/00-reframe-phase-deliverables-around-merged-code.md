@@ -21,10 +21,9 @@
 
 ## Task checklist
 
-- Reframe the `v2/spec/v2-meta-index.md` header around merged implementation.
-- Align `v1/docs/spec-guidance.md` with the phase-start workflow.
-- Align `v2/docs/v1-behaviors.md` with the same operator-facing framing.
-- Run one post-fix inline plan invocation and inspect the generated `v2/spec/wip-intents/*.md` artifact for execution-voiced framing.
+- Reframe `v2/spec/v2-meta-index.md`.
+- Align `v1/docs/spec-guidance.md` and `v2/docs/v1-behaviors.md`.
+- Run one post-fix inline plan invocation and inspect the generated `v2/spec/wip-intents/*.md` artifact.
 
 ## Acceptance criteria
 

@@ -14,9 +14,9 @@
 - Shared internals: `branchExistsLocal`, `branchExistsOnOrigin`, best-effort `git fetch origin` are module-private helpers in `v1/src/worktree.ts` shared by `ensureWorktree` and the new helper. No public API change for existing helpers.
 - Reorder in `reviewFeedbackCommand`: plan-prefix guard (`worktreeName.startsWith("plan-")`) runs before the worktree existence check. Existing error text and exit code 1 preserved.
 - `loadConfig` is lifted to immediately after the plan-prefix guard and threaded to its existing usage site. Inject via `opts.loadConfigFn ?? loadConfig`; called at most once per invocation.
-- `cfg.git === false` and worktree missing: skip auto-create entirely; existing "unknown worktree" path runs. No new error text.
+- `cfg.git === false` and worktree missing: skip auto-create entirely; existing "unknown worktree" path runs.
 - Auto-create runs before `acquireWorktreeLock`. Rationale: cannot lock a directory that does not exist.
-- Command emits one stdout line via `opts.io.stdout` before invoking the helper: `jarvis1 review-feedback: worktree missing; creating .worktree/<name> from origin/<name>` when `source === "origin"`, or `... from local branch <name>` when `source === "local"`. Helper returns `source` so command picks wording without re-checking. (Command computes wording from the eventual source by pre-checking via the helper's lookup; if pre-check would duplicate work, accept emitting the line after the helper returns — pick during implementation, but emit exactly one line.)
+- Command emits exactly one stdout line via `opts.io.stdout` after the helper returns: `jarvis1 review-feedback: worktree missing; creating .worktree/<name> from origin/<name>` when `source === "origin"`, or `... from local branch <name>` when `source === "local"`. Rationale: helper returns `source` as single source of truth; emitting after avoids a duplicate branch-existence pre-check.
 - Helper is io-agnostic; all user-facing output stays in the command.
 - No symlink replay (`createWorktreeSymlinks`) on auto-create. Deferred to first consumer: pin when a caller needs build artifacts during review.
 - No new CLI flag, no `--create` / `--no-create`, no new config keys, no new exit codes.

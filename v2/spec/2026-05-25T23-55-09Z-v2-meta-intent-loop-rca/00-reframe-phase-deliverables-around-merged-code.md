@@ -27,10 +27,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/v2-meta-index.md` says a phase delivers merged `v2/src` code, treats `jarvis1 plan` as drafting, and treats done as implementation merged.
-- [ ] `v2/spec/v2-meta-index.md` tells operators to start from the phase line plus the matching `v2/docs/v2-build-order.md` section and to write a build brief, not a "draft a spec" request.
-- [ ] `v1/docs/spec-guidance.md` and `v2/docs/v1-behaviors.md` record the same operator-facing workflow semantics.
-- [ ] One post-fix inline `jarvis1 plan "the next phase of .../v2/spec/v2-meta-index.md"` run produces a generated `v2/spec/wip-intents/*.md` artifact framed as building code, not drafting another spec.
+- [x] `v2/spec/v2-meta-index.md` says a phase delivers merged `v2/src` code, treats `jarvis1 plan` as drafting, and treats done as implementation merged.
+- [x] `v2/spec/v2-meta-index.md` tells operators to start from the phase line plus the matching `v2/docs/v2-build-order.md` section and to write a build brief, not a "draft a spec" request.
+- [x] `v1/docs/spec-guidance.md` and `v2/docs/v1-behaviors.md` record the same operator-facing workflow semantics.
+- [x] One post-fix inline `jarvis1 plan "the next phase of .../v2/spec/v2-meta-index.md"` run produces a generated `v2/spec/wip-intents/*.md` artifact framed as building code, not drafting another spec.
 
 ## Documentation updates
 

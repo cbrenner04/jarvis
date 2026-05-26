@@ -21,3 +21,4 @@ Rules:
 - Do not create `index.md` or numbered subspec files.
 - Do not run draft/review workflows.
 - Do not ask interactive questions.
+- Do not propose self-referential deliverables that only grade spec prose in this active spec tree; acceptance criteria must verify target state outside the active spec directory (code, tests, docs, operator behavior, or generated evidence).

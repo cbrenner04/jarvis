@@ -1,6 +1,15 @@
 # Jarvis v2 — Meta index
 
-Top-level progress checklist for v2, built from [`v2-build-order.md`](../docs/v2-build-order.md). One item per phase; each phase becomes its own dated spec under `v2/spec/` when implementation begins. Check a phase when its spec is complete and merged.
+Top-level progress checklist for v2, built from [`v2-build-order.md`](../docs/v2-build-order.md). One item per phase. A phase delivers merged implementation code in `v2/src`, not a merged dated spec.
+
+Phase-start workflow:
+
+1. Read the phase line below and the matching section in [`v2/docs/v2-build-order.md`](../docs/v2-build-order.md).
+2. Write a short build brief describing the code to ship for that phase.
+3. Run `jarvis1 plan "<build brief>"` to draft execution intent artifacts.
+4. Run `jarvis1 run ...` to implement and merge the code.
+
+`v2/spec/wip-intents/*.md` and dated intent/spec trees are generated execution evidence. They are not the durable done condition for a phase.
 
 - [x] Phase 0 — v2 project scaffold: tsconfig project, CLI entry, bin shim, cross-tree import boundaries
 - [ ] Phase 1 — First write step, end-to-end: one `write` step run once from the CLI (render → invoke → outcome → output contract → worktree), host-agnostic core behind a thin CLI host, quota fallback

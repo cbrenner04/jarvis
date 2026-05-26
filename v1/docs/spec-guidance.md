@@ -124,6 +124,8 @@ When using `jarvis1 plan [<intent-file|"inline text">]` to generate a spec, plan
 
 The generated spec tree is opened as a draft PR for review and editing. After you review the generated index and subspecs on the PR, you can edit the files directly (plan mode preserves manual edits across review passes) and merge the PR to `main`. Once merged, the spec becomes available to `jarvis1 run` for implementation work.
 
+Plan-mode prompts forbid self-referential deliverables: do not write acceptance criteria that only grade prose inside the active spec directory. Criteria must verify target state outside that directory (code, tests, docs, operator behavior, or generated evidence).
+
 Plan mode also supports no-argument sessions (`jarvis1 plan`) for fuzzy intents:
 Jarvis seeds `intent.md` with `# Intent`, then runs a non-interactive
 intent-refinement pass before drafting. The agent can append inferred scope,
@@ -141,6 +143,15 @@ resume still attaches to **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/
 For a default repository this is `spec/…`; for a configured root this is e.g. `v1/spec/…`.
 From `jarvis1 run`'s perspective, hand-edited specs and plan-generated specs are
 equivalent once merged to `main`.
+
+When operators start work from a structured index (such as a feature checklist or work queue), the workflow semantics are:
+
+1. Treat the work item plus matching context docs as source input.
+2. Write a concise build brief for the implementation to ship.
+3. Use `jarvis1 plan "<build brief>"` as the drafting step.
+4. Use `jarvis1 run ...` as the implementation step.
+
+Do not frame work-start prompts as "draft a spec." Done is merged implementation code, not generated intent/spec artifacts.
 
 ## Subspecs
 

@@ -2,7 +2,7 @@
 id: plan.prompt.draft
 behavior: agent-facing
 kind: template
-revision: 4
+revision: 5
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!]
 ---
 # Plan Mode — Draft Phase
@@ -38,6 +38,7 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 - Do not modify `intent.md` unless appending a `## Blocker` section.
 - Produce `index.md` plus at least one numbered subspec (`00-*.md`, `01-*.md`, etc.).
 - Each subspec must have an exact `## Acceptance criteria` section with checkboxes.
+- Do not propose self-referential deliverables that only grade spec prose in this active spec tree; acceptance criteria must verify target state outside the active spec directory (code, tests, docs, operator behavior, or generated evidence).
 - If you identify a blocker that prevents you from drafting the spec, append an exact `## Blocker` section to `intent.md` describing what you need. Do not invent answers; ask for human input. Do not include a `## Blocker` section unless there is a genuine blocker.
 - Follow the heading contracts from the spec guidance: exact `## Acceptance criteria` and `## Blocker` headings (level 2, case-sensitive).
 

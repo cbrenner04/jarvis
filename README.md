@@ -171,8 +171,7 @@ Unknown subcommands print usage and exit non-zero. Every invocation bootstraps
 
 ### `jarvis1 review-feedback` workflow
 
-`jarvis1 review-feedback <worktree-name>` runs inside an existing patch worktree at
-`.worktree/<worktree-name>/` and performs one harness-controlled pass:
+`jarvis1 review-feedback <worktree-name>` auto-materializes `.worktree/<worktree-name>/` from `origin/<worktree-name>` (or a local branch if no remote exists) when the worktree is missing and `git: true` in config. It errors with `no local or remote branch named <name>` if neither exists. The worktree must start clean and performs one harness-controlled pass:
 
 1. Require a clean starting worktree and an open PR for the current branch.
 2. Collect actionable open feedback (unresolved inline threads + eligible

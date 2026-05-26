@@ -70,6 +70,16 @@ describe("buildInlineDraftPrompt", () => {
     expect(prompt).toContain("/repo/intent.md");
     expect(prompt).toContain("Add a basic login flow");
   });
+
+  test("includes anti-self-reference acceptance criteria contract", () => {
+    const prompt = buildInlineDraftPrompt({
+      workdir: "/repo",
+      intentPath: "/repo/intent.md",
+      inlineIntent: "x",
+    });
+    expect(prompt).toContain("Do not propose self-referential deliverables");
+    expect(prompt).toContain("outside the active spec directory");
+  });
 });
 
 describe("buildReviewPrompt", () => {
@@ -157,6 +167,18 @@ describe("refine/name-only prompts", () => {
     expect(prompt).toContain("name: <kebab-case>");
     expect(prompt).toContain("max 40 chars");
     expect(prompt).toContain("reserved (`index`, `intent`)");
+    expect(prompt).toContain("Do not propose self-referential deliverables");
+    expect(prompt).toContain("outside the active spec directory");
+  });
+
+  test("draft prompt includes anti-self-reference acceptance criteria contract", () => {
+    const prompt = buildDraftPrompt({
+      name: "test-name",
+      intent: "intent",
+      specGuidance: "guidance",
+    });
+    expect(prompt).toContain("Do not propose self-referential deliverables");
+    expect(prompt).toContain("outside the active spec directory");
   });
 
   test("refine prompt does not describe interactive questions or question tools", () => {

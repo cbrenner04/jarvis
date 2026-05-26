@@ -26,10 +26,10 @@
 
 ## Acceptance criteria
 
-- [ ] `prompts/plan/inline-draft.md`, `prompts/plan/draft.md`, and `prompts/plan/refine.md` all instruct the planner to avoid self-referential spec deliverables and to ground acceptance criteria in target state outside the active spec tree.
-- [ ] The rule text is strong enough that criteria grading only prose inside the active spec directory are out of bounds even when phrased without the words "the spec".
-- [ ] `v1/test/modes/plan/prompts.test.ts` and any checked-in prompt snapshots/fixtures covering these templates are updated to assert the new anti-meta contract.
-- [ ] `v1/docs/spec-guidance.md` and `v2/docs/v1-behaviors.md` record the new anti-self-reference rule.
+- [x] `prompts/plan/inline-draft.md`, `prompts/plan/draft.md`, and `prompts/plan/refine.md` all instruct the planner to avoid self-referential spec deliverables and to ground acceptance criteria in target state outside the active spec tree.
+- [x] The rule text is strong enough that criteria grading only prose inside the active spec directory are out of bounds even when phrased without the words "the spec".
+- [x] `v1/test/modes/plan/prompts.test.ts` and any checked-in prompt snapshots/fixtures covering these templates are updated to assert the new anti-meta contract.
+- [x] `v1/docs/spec-guidance.md` and `v2/docs/v1-behaviors.md` record the new anti-self-reference rule.
 
 ## Documentation updates
 

@@ -124,6 +124,8 @@ When using `jarvis1 plan [<intent-file|"inline text">]` to generate a spec, plan
 
 The generated spec tree is opened as a draft PR for review and editing. After you review the generated index and subspecs on the PR, you can edit the files directly (plan mode preserves manual edits across review passes) and merge the PR to `main`. Once merged, the spec becomes available to `jarvis1 run` for implementation work.
 
+Plan-mode prompts forbid self-referential deliverables: do not write acceptance criteria that only grade prose inside the active spec directory. Criteria must verify target state outside that directory (code, tests, docs, operator behavior, or generated evidence).
+
 Plan mode also supports no-argument sessions (`jarvis1 plan`) for fuzzy intents:
 Jarvis seeds `intent.md` with `# Intent`, then runs a non-interactive
 intent-refinement pass before drafting. The agent can append inferred scope,

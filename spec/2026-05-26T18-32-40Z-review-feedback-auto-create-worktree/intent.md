@@ -91,3 +91,14 @@ Cleanup is left to the user via `jarvis1 cleanup` later, same as today. No new f
 ## Refine skip
 
 No net-new refinement on this pass. The ledger above already pins helper signature/source, ordering (plan-prefix guard, loadConfig lift, auto-create before lock), error text, stdout wording, git-disabled behavior, test fixtures and injection points, doc homes, deferrals, and the behavior-change call-out. Further entries would restate.
+
+## Blocker
+
+Review and approve `spec/2026-05-26T18-32-40Z-review-feedback-auto-create-worktree/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft spec/2026-05-26T18-32-40Z-review-feedback-auto-create-worktree/intent.md`

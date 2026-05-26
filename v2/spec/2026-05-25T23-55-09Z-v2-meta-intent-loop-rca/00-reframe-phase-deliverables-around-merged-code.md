@@ -19,26 +19,19 @@
 - Do not scrap PR #153 or delete the evidence tree here; cleanup is follow-on work.
 - Do not run a baseline reproduction before the fix; existing evidence already captures the failure.
 
-## Assumptions
-
-- The current meta-index header is the upstream source of the meta-intent loop.
-- `v1/docs/spec-guidance.md` and `v2/docs/v1-behaviors.md` are the durable workflow homes for this framing change.
-- The first validation run is a leading indicator, not the whole acceptance gate.
-
 ## Task checklist
 
 - Reframe the `v2/spec/v2-meta-index.md` header around merged implementation.
-- Align `v1/docs/spec-guidance.md` with the new phase-start workflow and anti-meta intent wording.
-- Align `v2/docs/v1-behaviors.md` anywhere the old "spec first" phase framing is recorded as operator guidance.
+- Align `v1/docs/spec-guidance.md` with the phase-start workflow.
+- Align `v2/docs/v1-behaviors.md` with the same operator-facing framing.
 - Run one post-fix inline plan invocation and inspect the generated `v2/spec/wip-intents/*.md` artifact for execution-voiced framing.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/v2-meta-index.md` says each phase delivers merged code in `v2/src`, identifies `jarvis1 plan` as the drafting step rather than the deliverable, and says phase completion is implementation merged.
-- [ ] `v2/spec/v2-meta-index.md` tells operators to start a phase from the phase line plus the matching `v2/docs/v2-build-order.md` section and to write intents as build briefs rather than "draft a spec" requests.
-- [ ] `v1/docs/spec-guidance.md` records the same workflow semantics in its durable operator guidance, including that specs are drafting artifacts and implementation is the phase deliverable.
-- [ ] `v2/docs/v1-behaviors.md` is updated anywhere the old phase framing would leave v2 parity review with a stale operator workflow record.
-- [ ] One post-fix inline `jarvis1 plan "the next phase of .../v2/spec/v2-meta-index.md"` run produces a generated `v2/spec/wip-intents/*.md` artifact whose top-level framing is execution-voiced for building code rather than drafting another spec.
+- [ ] `v2/spec/v2-meta-index.md` says a phase delivers merged `v2/src` code, treats `jarvis1 plan` as drafting, and treats done as implementation merged.
+- [ ] `v2/spec/v2-meta-index.md` tells operators to start from the phase line plus the matching `v2/docs/v2-build-order.md` section and to write a build brief, not a "draft a spec" request.
+- [ ] `v1/docs/spec-guidance.md` and `v2/docs/v1-behaviors.md` record the same operator-facing workflow semantics.
+- [ ] One post-fix inline `jarvis1 plan "the next phase of .../v2/spec/v2-meta-index.md"` run produces a generated `v2/spec/wip-intents/*.md` artifact framed as building code, not drafting another spec.
 
 ## Documentation updates
 

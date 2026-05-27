@@ -68,7 +68,11 @@ import { ensureDraftPr, renderAttribution, updatePrBody } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import type { resolveTargetRepo } from "../repo.ts";
 import { planSummary } from "../run-summary.ts";
-import { createPlanWorktree, createWorktreeSymlinks } from "../worktree.ts";
+import {
+  createPlanWorktree,
+  createWorktreeSymlinks,
+  ensureExistingBranchWorktree,
+} from "../worktree.ts";
 import {
   describePlanInvocation,
   type PlanInvocation,
@@ -242,12 +246,30 @@ type ResumePrep = {
   worktreePath: string;
   nextResumeIndex: number;
   nextReviewIndex: number;
+  recreatedFrom?: "local" | "origin";
   /**
    * For no-commit specs, the external spec root path where the spec lives.
    * When set, refine/draft/review operations read/write from here instead of worktreePath/spec/.
    */
   externalSpecRoot?: string;
 };
+
+class ResumePrepError extends Error {
+  worktreePath?: string;
+  recreatedFrom?: "local" | "origin";
+
+  constructor(
+    message: string,
+    recreated?: { worktreePath: string; recreatedFrom: "local" | "origin" },
+  ) {
+    super(message);
+    this.name = "ResumePrepError";
+    if (recreated !== undefined) {
+      this.worktreePath = recreated.worktreePath;
+      this.recreatedFrom = recreated.recreatedFrom;
+    }
+  }
+}
 
 const RESUME_SUBJECT_RE = /^plan: (refine|review \d+|blocker)(?: r(\d+))?$/;
 const REVIEW_SUBJECT_RE = /^plan: review (\d+)(?: r\d+)?$/;
@@ -345,7 +367,7 @@ function prepareResume(args: {
   config?: PlanCommandOptions["config"];
 }): ResumePrep {
   const cfg = loadConfig(args.config);
-  const project = findProjectForPath(args.specPath);
+  const project = findProjectForPath(args.specPath, args.config);
   if (project === undefined) {
     throw new Error(
       `could not determine project for spec path: ${args.specPath}`,
@@ -378,34 +400,54 @@ function prepareResume(args: {
 
   // For commit: true, use the original logic
   const worktreePath = join(args.projectRoot, ".worktree", `plan-${planName}`);
+  let recreatedFrom: "local" | "origin" | undefined;
   if (!existsSync(worktreePath)) {
-    throw new Error(`plan worktree missing at ${worktreePath}`);
+    try {
+      const recreated = ensureExistingBranchWorktree({
+        projectRoot: args.projectRoot,
+        worktreeName: `plan-${planName}`,
+        branchName: `plan/${planName}`,
+        missingBranchMessage: `plan worktree missing at ${worktreePath}`,
+      });
+      recreatedFrom = recreated.source;
+    } catch (err) {
+      throw new Error((err as Error).message);
+    }
   }
   const branch = `plan/${planName}`;
+  const recreated =
+    recreatedFrom !== undefined ? { worktreePath, recreatedFrom } : undefined;
   if (currentBranch(worktreePath) !== branch) {
-    throw new Error(`${worktreePath} is not checked out on ${branch}`);
+    throw new ResumePrepError(
+      `${worktreePath} is not checked out on ${branch}`,
+      recreated,
+    );
   }
   if (!existsSync(join(worktreePath, targetDir, specDir, "intent.md"))) {
-    throw new Error(
+    throw new ResumePrepError(
       `missing ${targetDir}/${specDir}/intent.md in ${worktreePath}`,
+      recreated,
     );
   }
   if (
     args.mode === "resume" &&
     !existsSync(join(worktreePath, targetDir, specDir, "index.md"))
   ) {
-    throw new Error(
+    throw new ResumePrepError(
       `missing ${targetDir}/${specDir}/index.md in ${worktreePath}`,
+      recreated,
     );
   }
   if (!isWorktreeClean(worktreePath)) {
-    throw new Error(
+    throw new ResumePrepError(
       `the worktree is not clean; inspect with \`jarvis1 triage plan-${planName}\` and re-run`,
+      recreated,
     );
   }
   if (!remoteSpecBranchExists(args.projectRoot, planName)) {
-    throw new Error(
+    throw new ResumePrepError(
       `plan branch plan/${planName} is not on origin; cannot resume`,
+      recreated,
     );
   }
   const counters = computeResumeCounters(worktreePath);
@@ -415,6 +457,7 @@ function prepareResume(args: {
     worktreePath,
     nextResumeIndex: counters.nextResumeIndex,
     nextReviewIndex: counters.nextReviewIndex,
+    ...(recreatedFrom !== undefined ? { recreatedFrom } : {}),
   };
 }
 
@@ -747,6 +790,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           ...(opts.config !== undefined ? { config: opts.config } : {}),
         });
       } catch (err) {
+        if (
+          err instanceof ResumePrepError &&
+          err.recreatedFrom !== undefined &&
+          err.worktreePath !== undefined
+        ) {
+          opts.io.stderr(
+            `plan: recreated worktree at ${err.worktreePath} from ${err.recreatedFrom}\n`,
+          );
+        }
         opts.io.stderr(`${(err as Error).message}\n`);
         return 1;
       }
@@ -755,6 +807,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const suffix = `r${resume.nextResumeIndex}`;
       let nextReviewIndex = resume.nextReviewIndex;
       opts.io.stderr(`plan: resume ${suffix} started\n`);
+      if (resume.recreatedFrom !== undefined) {
+        opts.io.stderr(
+          `plan: recreated worktree at ${resume.worktreePath} from ${resume.recreatedFrom}\n`,
+        );
+      }
 
       const resumeTargetDir = targetDir;
       const resumeIntentPath = resume.externalSpecRoot

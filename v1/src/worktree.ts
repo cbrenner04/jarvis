@@ -137,33 +137,52 @@ export async function ensurePatchWorktreeForExistingBranch(
   projectRoot: string,
   worktreeName: string,
 ): Promise<{ path: string; source: "origin" | "local" }> {
-  const worktreePath = join(projectRoot, ".worktree", worktreeName);
+  return ensureExistingBranchWorktree({
+    projectRoot,
+    worktreeName,
+    branchName: worktreeName,
+    missingBranchMessage: `no local or remote branch named ${worktreeName}; cannot create worktree`,
+  });
+}
 
-  bestEffortFetch(projectRoot);
+export function ensureExistingBranchWorktree(opts: {
+  projectRoot: string;
+  worktreeName: string;
+  branchName: string;
+  missingBranchMessage: string;
+}): { path: string; source: "origin" | "local" } {
+  const worktreePath = join(opts.projectRoot, ".worktree", opts.worktreeName);
 
-  const branchExists = branchExistsLocal(projectRoot, worktreeName);
-  const branchExistsRemote = branchExistsOnOrigin(projectRoot, worktreeName);
+  bestEffortFetch(opts.projectRoot);
+
+  const branchExists = branchExistsLocal(opts.projectRoot, opts.branchName);
+  const branchExistsRemote = branchExistsOnOrigin(
+    opts.projectRoot,
+    opts.branchName,
+  );
 
   if (!branchExists && !branchExistsRemote) {
-    throw new Error(
-      `no local or remote branch named ${worktreeName}; cannot create worktree`,
-    );
+    throw new Error(opts.missingBranchMessage);
   }
 
-  mkdirSync(join(projectRoot, ".worktree"), { recursive: true });
+  mkdirSync(join(opts.projectRoot, ".worktree"), { recursive: true });
 
   if (!branchExists && branchExistsRemote) {
-    execFileSync("git", ["branch", worktreeName, `origin/${worktreeName}`], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
+    execFileSync(
+      "git",
+      ["branch", opts.branchName, `origin/${opts.branchName}`],
+      {
+        cwd: opts.projectRoot,
+        stdio: "pipe",
+      },
+    );
   }
 
   execFileSync(
     "git",
-    ["worktree", "add", "--checkout", worktreePath, worktreeName],
+    ["worktree", "add", "--checkout", worktreePath, opts.branchName],
     {
-      cwd: projectRoot,
+      cwd: opts.projectRoot,
       stdio: "pipe",
     },
   );

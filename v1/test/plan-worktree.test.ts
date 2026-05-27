@@ -9,7 +9,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPlanWorktree, ensureWorktree } from "../src/worktree.ts";
+import {
+  createPlanWorktree,
+  ensureExistingBranchWorktree,
+  ensureWorktree,
+} from "../src/worktree.ts";
 
 describe("createPlanWorktree", () => {
   test("creates worktree at .worktree/plan-<name>/ on plan/<name> branch", async () => {
@@ -143,6 +147,125 @@ describe("ensureWorktree (patch-mode)", () => {
 
       expect(worktreePath).toBe(dir);
       expect(existsSync(join(dir, ".worktree", "feature"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("ensureExistingBranchWorktree", () => {
+  test("creates from local+remote and reports origin", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-both-"));
+    const origin = mkdtempSync(
+      join(tmpdir(), "jarvis-existing-branch-origin-"),
+    );
+    try {
+      execSync("git init --bare", { cwd: origin });
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      execSync(`git remote add origin "${origin}"`, { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "test");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'initial'", { cwd: dir });
+      execSync("git checkout -b plan/test", { cwd: dir });
+      execSync("git push -u origin plan/test", { cwd: dir });
+      execSync("git checkout main", { cwd: dir });
+
+      const out = ensureExistingBranchWorktree({
+        projectRoot: dir,
+        worktreeName: "plan-test",
+        branchName: "plan/test",
+        missingBranchMessage: "missing",
+      });
+      expect(existsSync(out.path)).toBe(true);
+      expect(out.source).toBe("origin");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
+  test("creates from remote-only and reports origin", () => {
+    const origin = mkdtempSync(
+      join(tmpdir(), "jarvis-existing-branch-origin-"),
+    );
+    const seed = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-seed-"));
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-local-"));
+    try {
+      execSync("git init --bare", { cwd: origin });
+      execSync("git init -b main", { cwd: seed });
+      execSync("git config user.email 'test@example.com'", { cwd: seed });
+      execSync("git config user.name 'Test User'", { cwd: seed });
+      execSync(`git remote add origin "${origin}"`, { cwd: seed });
+      writeFileSync(join(seed, "README.md"), "test");
+      execSync("git add README.md", { cwd: seed });
+      execSync("git commit -m 'initial'", { cwd: seed });
+      execSync("git checkout -b plan/test", { cwd: seed });
+      execSync("git push -u origin plan/test", { cwd: seed });
+
+      execSync(`git clone "${origin}" "${dir}"`, { cwd: tmpdir() });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+
+      const out = ensureExistingBranchWorktree({
+        projectRoot: dir,
+        worktreeName: "plan-test",
+        branchName: "plan/test",
+        missingBranchMessage: "missing",
+      });
+      expect(existsSync(out.path)).toBe(true);
+      expect(out.source).toBe("origin");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(seed, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
+  test("creates from local-only and reports local", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-local-"));
+    try {
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "test");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'initial'", { cwd: dir });
+      execSync("git checkout -b plan/test", { cwd: dir });
+      execSync("git checkout main", { cwd: dir });
+
+      const out = ensureExistingBranchWorktree({
+        projectRoot: dir,
+        worktreeName: "plan-test",
+        branchName: "plan/test",
+        missingBranchMessage: "missing",
+      });
+      expect(existsSync(out.path)).toBe(true);
+      expect(out.source).toBe("local");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails when no local/remote branch exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-none-"));
+    try {
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      writeFileSync(join(dir, "README.md"), "test");
+      execSync("git add README.md", { cwd: dir });
+      execSync("git commit -m 'initial'", { cwd: dir });
+
+      expect(() =>
+        ensureExistingBranchWorktree({
+          projectRoot: dir,
+          worktreeName: "plan-test",
+          branchName: "plan/test",
+          missingBranchMessage: "custom missing",
+        }),
+      ).toThrow("custom missing");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

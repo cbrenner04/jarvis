@@ -308,9 +308,14 @@ Validation rules:
 
 - `<spec-path>` must point at `spec/<spec-dir>/index.md` on disk.
 - The sibling `spec/<spec-dir>/intent.md` must exist.
-- Local branch **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`
-  must both exist (basename derived **without** the UTC prefix via `YYYY-MM-DDTHH-mm-ssZ-` stripping when present).
+- If `.worktree/plan-<plan-name>/` is missing, jarvis tries to recreate it from
+  local `plan/<plan-name>` or `origin/plan/<plan-name>` and logs
+  `plan: recreated worktree at <path> from <local|origin>`.
+- If neither local nor remote plan branch exists, resume still fails with the
+  same missing-worktree error.
 - The plan worktree must have **`plan/<plan-name>`** checked out.
+- `origin/plan/<plan-name>` must exist; local-only plan branches still fail the
+  preserved origin requirement after any worktree recreation.
 
 Resume does not accept positional intent text/file and does not require
 `--repo`; it operates entirely from the existing plan worktree state.
@@ -328,9 +333,14 @@ Validation rules:
 
 - `<intent-path>` must point at `spec/<spec-dir>/intent.md` on disk.
 - `intent.md` must not contain a `## Blocker` section.
-- Local branch **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`
-  must both exist (basename derived **without** the UTC prefix via `YYYY-MM-DDTHH-mm-ssZ-` stripping when present).
+- If `.worktree/plan-<plan-name>/` is missing, jarvis tries to recreate it from
+  local `plan/<plan-name>` or `origin/plan/<plan-name>` and logs
+  `plan: recreated worktree at <path> from <local|origin>`.
+- If neither local nor remote plan branch exists, resume still fails with the
+  same missing-worktree error.
 - The plan worktree must have **`plan/<plan-name>`** checked out.
+- `origin/plan/<plan-name>` must exist; local-only plan branches still fail the
+  preserved origin requirement after any worktree recreation.
 
 `--resume-draft` resumes with Phase 1 draft and then review passes. It does not
 accept positional inline intent text and does not require `--repo`.

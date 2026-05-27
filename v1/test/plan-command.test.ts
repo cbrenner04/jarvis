@@ -211,6 +211,127 @@ describe("planCommand", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("resume-draft recreates missing committed plan worktree from local branch, then preserves origin check failure", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    const specDir = "2026-05-27T03-59-56Z-test-resume";
+    const planName = "test-resume";
+    const worktreePath = join(project, ".worktree", `plan-${planName}`);
+    try {
+      execSync("git init -b main", { cwd: project });
+      execSync("git config user.email 'test@example.com'", { cwd: project });
+      execSync("git config user.name 'Test User'", { cwd: project });
+      writeFileSync(join(project, "README.md"), "base\n");
+      execSync("git add README.md", { cwd: project });
+      execSync("git commit -m 'initial'", { cwd: project });
+      execSync(`git checkout -b plan/${planName}`, { cwd: project });
+      mkdirSync(join(project, "spec", specDir), { recursive: true });
+      writeFileSync(join(project, "spec", specDir, "intent.md"), "# Intent\n");
+      writeFileSync(join(project, "spec", specDir, "index.md"), "# Index\n");
+      execSync("git add spec", { cwd: project });
+      execSync("git commit -m 'add plan spec'", { cwd: project });
+      execSync("git checkout main", { cwd: project });
+
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: [
+          "--resume-draft",
+          join(worktreePath, "spec", specDir, "intent.md"),
+        ],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(
+        `plan: recreated worktree at ${worktreePath} from local`,
+      );
+      expect(cap.err()).toContain(
+        `plan branch plan/${planName} is not on origin; cannot resume`,
+      );
+      expect(existsSync(worktreePath)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume-draft with missing worktree and no local/remote plan branch preserves missing-worktree error", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    const specDir = "2026-05-27T03-59-56Z-test-no-branch";
+    const planName = "test-no-branch";
+    const worktreePath = join(project, ".worktree", `plan-${planName}`);
+    try {
+      execSync("git init -b main", { cwd: project });
+      execSync("git config user.email 'test@example.com'", { cwd: project });
+      execSync("git config user.name 'Test User'", { cwd: project });
+      writeFileSync(join(project, "README.md"), "base\n");
+      execSync("git add README.md", { cwd: project });
+      execSync("git commit -m 'initial'", { cwd: project });
+
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: [
+          "--resume-draft",
+          join(worktreePath, "spec", specDir, "intent.md"),
+        ],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(`plan worktree missing at ${worktreePath}`);
+      expect(cap.err()).not.toContain("plan: recreated worktree");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume-draft with present committed plan worktree skips recreate logging", async () => {
+    const { dir, cfgDir, project } = setupRegisteredProject();
+    const specDir = "2026-05-27T03-59-56Z-test-present";
+    const planName = "test-present";
+    const worktreePath = join(project, ".worktree", `plan-${planName}`);
+    try {
+      execSync("git init -b main", { cwd: project });
+      execSync("git config user.email 'test@example.com'", { cwd: project });
+      execSync("git config user.name 'Test User'", { cwd: project });
+      writeFileSync(join(project, "README.md"), "base\n");
+      execSync("git add README.md", { cwd: project });
+      execSync("git commit -m 'initial'", { cwd: project });
+      execSync(`git checkout -b plan/${planName}`, { cwd: project });
+      mkdirSync(join(project, "spec", specDir), { recursive: true });
+      writeFileSync(join(project, "spec", specDir, "intent.md"), "# Intent\n");
+      writeFileSync(join(project, "spec", specDir, "index.md"), "# Index\n");
+      execSync("git add spec", { cwd: project });
+      execSync("git commit -m 'add plan spec'", { cwd: project });
+      execSync("git checkout main", { cwd: project });
+      execSync(
+        `git worktree add --checkout "${worktreePath}" "plan/${planName}"`,
+        { cwd: project },
+      );
+
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: [
+          "--resume-draft",
+          join(worktreePath, "spec", specDir, "intent.md"),
+        ],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain(
+        `plan branch plan/${planName} is not on origin; cannot resume`,
+      );
+      expect(cap.err()).not.toContain("plan: recreated worktree");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("planCommand target-repo resolution", () => {

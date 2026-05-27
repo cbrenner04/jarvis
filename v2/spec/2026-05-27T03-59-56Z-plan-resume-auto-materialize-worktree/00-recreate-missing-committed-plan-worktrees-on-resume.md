@@ -30,13 +30,13 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 plan --resume <index.md>` and `--resume-draft <intent.md>` recreate a missing committed plan worktree from `plan/<name>` when the branch exists locally or on `origin`, then continue resume from the restored worktree.
-- [ ] The shared helper creates the `.worktree/` parent as needed, fetches before remote-branch detection, and returns source provenance so plan resume can emit `plan: recreated worktree at <path> from <local|origin>` without duplicating branch checks.
-- [ ] When the worktree already exists, committed plan resume skips helper invocation, fetch side effects, and recreate logging.
-- [ ] When the plan branch exists only locally and not on `origin`, committed plan resume recreates the worktree if missing, then still fails on the preserved later origin check.
-- [ ] When neither the local nor remote plan branch exists, committed plan resume still fails with the current missing-worktree semantics.
-- [ ] Unit tests cover the present-worktree fast path, local+remote recreation success, remote-only recreation success, local-only recreation plus preserved origin failure, and no-branch failure.
-- [ ] `v1/docs/plan-mode.md` and `v2/docs/v1-behaviors.md` record the committed plan-resume auto-materialization behavior and its preserved origin requirement.
+- [x] `jarvis1 plan --resume <index.md>` and `--resume-draft <intent.md>` recreate a missing committed plan worktree from `plan/<name>` when the branch exists locally or on `origin`, then continue resume from the restored worktree.
+- [x] The shared helper creates the `.worktree/` parent as needed, fetches before remote-branch detection, and returns source provenance so plan resume can emit `plan: recreated worktree at <path> from <local|origin>` without duplicating branch checks.
+- [x] When the worktree already exists, committed plan resume skips helper invocation, fetch side effects, and recreate logging.
+- [x] When the plan branch exists only locally and not on `origin`, committed plan resume recreates the worktree if missing, then still fails on the preserved later origin check.
+- [x] When neither the local nor remote plan branch exists, committed plan resume still fails with the current missing-worktree semantics.
+- [x] Unit tests cover the present-worktree fast path, local+remote recreation success, remote-only recreation success, local-only recreation plus preserved origin failure, and no-branch failure.
+- [x] `v1/docs/plan-mode.md` and `v2/docs/v1-behaviors.md` record the committed plan-resume auto-materialization behavior and its preserved origin requirement.
 
 ## Documentation updates
 

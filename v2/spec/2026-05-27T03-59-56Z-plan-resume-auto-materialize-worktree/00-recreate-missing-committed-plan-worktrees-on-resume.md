@@ -5,7 +5,7 @@
 - Limit scope to `jarvis1 plan --resume` and `--resume-draft` with `commit: true`.
 - Recreate the missing `.worktree/plan-<name>` only on the existing `existsSync(worktreePath)` miss path.
 - Reuse one shared existing-branch-only helper for plan resume and review-feedback; do not add a third recreation flow.
-- Helper input must support `plan-<name>` worktree naming and `plan/<name>` branch naming.
+- Pass `plan-<name>` worktree naming and `plan/<name>` branch naming into that helper.
 - Helper must best-effort `git fetch origin` before probing for `origin/<branch>`.
 - Helper must create the `.worktree/` parent before `git worktree add`.
 - Helper must return recreated-path provenance as data so callers own log wording.
@@ -13,8 +13,7 @@
 - Already-present worktrees stay on the current fast path with no fetch and no recreate log.
 - If neither local nor origin plan branch exists, preserve the current missing-worktree failure behavior.
 - If only the local plan branch exists, recreate the worktree, then preserve the later `origin` requirement failure unchanged.
-- If the origin plan branch exists, recreate the worktree and let the existing post-checks continue unchanged.
-- Cover the shared-helper change with unit tests through the plan-resume entrypoint.
+- If a local and/or origin plan branch exists, recreate the worktree, then leave the existing post-checks unchanged.
 
 ## Constraints
 

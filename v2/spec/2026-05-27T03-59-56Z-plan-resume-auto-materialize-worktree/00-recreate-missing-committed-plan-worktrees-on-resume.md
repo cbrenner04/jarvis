@@ -14,9 +14,6 @@
 - If neither local nor origin plan branch exists, preserve the current missing-worktree failure behavior.
 - If only the local plan branch exists, recreate the worktree, then preserve the later `origin` requirement failure unchanged.
 - If a local and/or origin plan branch exists, recreate the worktree, then leave the existing post-checks unchanged.
-
-## Constraints
-
 - Keep patch-mode `ensureWorktree` behavior unchanged.
 - Keep review-feedback semantics unchanged apart from any helper extraction needed to share logic.
 - Do not change no-commit plan resume; it does not use plan worktrees.

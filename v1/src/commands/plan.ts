@@ -68,7 +68,11 @@ import { ensureDraftPr, renderAttribution, updatePrBody } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import type { resolveTargetRepo } from "../repo.ts";
 import { planSummary } from "../run-summary.ts";
-import { createPlanWorktree, createWorktreeSymlinks } from "../worktree.ts";
+import {
+  createPlanWorktree,
+  createWorktreeSymlinks,
+  ensureExistingBranchWorktree,
+} from "../worktree.ts";
 import {
   describePlanInvocation,
   type PlanInvocation,
@@ -242,6 +246,7 @@ type ResumePrep = {
   worktreePath: string;
   nextResumeIndex: number;
   nextReviewIndex: number;
+  recreatedFrom?: "local" | "origin";
   /**
    * For no-commit specs, the external spec root path where the spec lives.
    * When set, refine/draft/review operations read/write from here instead of worktreePath/spec/.
@@ -378,8 +383,19 @@ function prepareResume(args: {
 
   // For commit: true, use the original logic
   const worktreePath = join(args.projectRoot, ".worktree", `plan-${planName}`);
+  let recreatedFrom: "local" | "origin" | undefined;
   if (!existsSync(worktreePath)) {
-    throw new Error(`plan worktree missing at ${worktreePath}`);
+    try {
+      const recreated = ensureExistingBranchWorktree({
+        projectRoot: args.projectRoot,
+        worktreeName: `plan-${planName}`,
+        branchName: `plan/${planName}`,
+        missingBranchMessage: `plan worktree missing at ${worktreePath}`,
+      });
+      recreatedFrom = recreated.source;
+    } catch (err) {
+      throw new Error((err as Error).message);
+    }
   }
   const branch = `plan/${planName}`;
   if (currentBranch(worktreePath) !== branch) {
@@ -415,6 +431,7 @@ function prepareResume(args: {
     worktreePath,
     nextResumeIndex: counters.nextResumeIndex,
     nextReviewIndex: counters.nextReviewIndex,
+    ...(recreatedFrom !== undefined ? { recreatedFrom } : {}),
   };
 }
 
@@ -755,6 +772,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const suffix = `r${resume.nextResumeIndex}`;
       let nextReviewIndex = resume.nextReviewIndex;
       opts.io.stderr(`plan: resume ${suffix} started\n`);
+      if (resume.recreatedFrom !== undefined) {
+        opts.io.stderr(
+          `plan: recreated worktree at ${resume.worktreePath} from ${resume.recreatedFrom}\n`,
+        );
+      }
 
       const resumeTargetDir = targetDir;
       const resumeIntentPath = resume.externalSpecRoot

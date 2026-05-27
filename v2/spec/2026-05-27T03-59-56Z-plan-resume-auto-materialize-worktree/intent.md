@@ -51,3 +51,14 @@ If neither the local nor origin branch exists, fail with the current "worktree m
 ## Refine skip
 
 No net-new refinement on this pass.
+
+## Blocker
+
+Review and approve `v2/spec/2026-05-27T03-59-56Z-plan-resume-auto-materialize-worktree/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-05-27T03-59-56Z-plan-resume-auto-materialize-worktree/intent.md`

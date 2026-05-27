@@ -235,13 +235,18 @@ describe("planCommand", () => {
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: ["--resume-draft", join(worktreePath, "spec", specDir, "intent.md")],
+        args: [
+          "--resume-draft",
+          join(worktreePath, "spec", specDir, "intent.md"),
+        ],
         cwd: project,
         config: { dir: cfgDir },
         logClient: okLogClient,
       });
       expect(code).toBe(1);
-      expect(cap.err()).toContain(`plan: recreated worktree at ${worktreePath} from local`);
+      expect(cap.err()).toContain(
+        `plan: recreated worktree at ${worktreePath} from local`,
+      );
       expect(cap.err()).toContain(
         `plan branch plan/${planName} is not on origin; cannot resume`,
       );
@@ -267,7 +272,10 @@ describe("planCommand", () => {
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: ["--resume-draft", join(worktreePath, "spec", specDir, "intent.md")],
+        args: [
+          "--resume-draft",
+          join(worktreePath, "spec", specDir, "intent.md"),
+        ],
         cwd: project,
         config: { dir: cfgDir },
         logClient: okLogClient,
@@ -307,7 +315,10 @@ describe("planCommand", () => {
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: ["--resume-draft", join(worktreePath, "spec", specDir, "intent.md")],
+        args: [
+          "--resume-draft",
+          join(worktreePath, "spec", specDir, "intent.md"),
+        ],
         cwd: project,
         config: { dir: cfgDir },
         logClient: okLogClient,

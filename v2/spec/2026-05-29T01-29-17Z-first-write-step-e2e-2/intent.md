@@ -94,3 +94,14 @@ the spec tree, for example:
 - Do not treat `v1/src/worktree.ts` as reusable Phase 1 materialization code; it hard-codes repo-local `.worktree/<spec>` and v1 branch flow, so the external `~/.jarvis/worktrees/<project>/<branch>/` path needs its own helper that only reuses compatible semantics.
 - The first runnable write-step subspec must add one shared `write` prompt artifact under top-level `prompts/` and register it through the explicit registry seed list; the repo has no existing write-step prompt to render today.
 - Deferred to first consumer: whether shared-source extraction for prompt rendering, quota fallback, and lock semantics lands as one plumbing subspec or is split by seam — pin when draft sizing chooses the smallest reviewable PRs.
+
+## Blocker
+
+Review and approve `v2/spec/2026-05-29T01-29-17Z-first-write-step-e2e-2/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-05-29T01-29-17Z-first-write-step-e2e-2/intent.md`

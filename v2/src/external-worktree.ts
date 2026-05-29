@@ -62,9 +62,14 @@ export function getExternalWorktreePath(args: ExternalWorktreeInput): string {
   return join(jarvisRoot, "worktrees", args.projectName, args.branchName);
 }
 
-/** Return the lock path for an external worktree root. */
-export function getExternalWorktreeLockPath(worktreeDir: string): string {
-  return join(worktreeDir, ".jarvis.lock");
+/**
+ * Return the `.jarvis.lock` path inside a lock directory.
+ *
+ * Locks live in a dedicated tree (`~/.jarvis/worktree-locks/...`) so a run can
+ * serialize on the branch before its worktree exists.
+ */
+export function getExternalWorktreeLockPath(lockDir: string): string {
+  return join(lockDir, ".jarvis.lock");
 }
 
 /**
@@ -79,7 +84,6 @@ export async function withExternalWorktree<T>(
   const lock = acquireExternalWorktreeLock(lockRoot);
   try {
     const worktree = ensureExternalWorktree(args);
-    ensureLockExcluded(worktree.path);
     const value = await run(worktree);
     return { worktree, lock, value };
   } finally {
@@ -151,9 +155,8 @@ export function isProcessAlive(pid: number): boolean {
 }
 
 /** Acquire `.jarvis.lock` with v1-compatible stale/busy semantics. */
-export function acquireExternalWorktreeLock(worktreeDir: string): LockStatus {
-  const lockPath = getExternalWorktreeLockPath(worktreeDir);
-  ensureLockExcluded(worktreeDir);
+export function acquireExternalWorktreeLock(lockDir: string): LockStatus {
+  const lockPath = getExternalWorktreeLockPath(lockDir);
 
   if (existsSync(lockPath)) {
     let existingLock: WorktreeLock | null = null;
@@ -179,8 +182,8 @@ export function acquireExternalWorktreeLock(worktreeDir: string): LockStatus {
 }
 
 /** Best-effort lock-file cleanup. */
-export function releaseExternalWorktreeLock(worktreeDir: string): void {
-  const lockPath = getExternalWorktreeLockPath(worktreeDir);
+export function releaseExternalWorktreeLock(lockDir: string): void {
+  const lockPath = getExternalWorktreeLockPath(lockDir);
   if (!existsSync(lockPath)) return;
   try {
     unlinkSync(lockPath);
@@ -196,51 +199,6 @@ function writeLock(lockPath: string): void {
     host: hostname(),
   };
   writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
-}
-
-function ensureLockExcluded(worktreeDir: string): void {
-  let excludePath: string;
-  try {
-    const out = execFileSync(
-      "git",
-      ["rev-parse", "--git-path", "info/exclude"],
-      {
-        cwd: worktreeDir,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    ).trim();
-    if (!out) return;
-    excludePath = out.startsWith("/") ? out : join(worktreeDir, out);
-  } catch {
-    return;
-  }
-
-  try {
-    mkdirSync(dirname(excludePath), { recursive: true });
-  } catch {
-    return;
-  }
-
-  let existing = "";
-  try {
-    existing = readFileSync(excludePath, "utf8");
-  } catch {
-    // File may not exist yet.
-  }
-
-  const hasEntry = existing
-    .split("\n")
-    .some((line) => line.trim() === ".jarvis.lock");
-  if (hasEntry) return;
-
-  const needsLeadingNewline = existing.length > 0 && !existing.endsWith("\n");
-  const addition = `${needsLeadingNewline ? "\n" : ""}.jarvis.lock\n`;
-  try {
-    writeFileSync(excludePath, existing + addition, "utf8");
-  } catch {
-    // Best-effort.
-  }
 }
 
 function ensureExternalWorktreeLockRoot(args: ExternalWorktreeInput): string {

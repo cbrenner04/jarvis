@@ -8,7 +8,8 @@ Contract:
 - Input: behavior prompt + ordered invocation bindings + deterministic contracts.
 - Invocation is executed exactly once through shared quota fallback.
 - Token parsing happens once in runner code and accepts only `done`, `no-work`,
-  `blocked`, `progress`.
+  `blocked`, `progress`. It tolerates agent prose: an exact match wins, else the
+  last line that is itself a bare token, else a lenient last-word scan.
 - `done` and `no-work` run contract checks in order.
 - `progress` skips contract checks and returns a typed non-complete result.
 - `blocked` returns a typed blocked result and never runs contracts.

@@ -7,6 +7,10 @@ For shipped v1 runtime details and tests, see [v1/docs/prompt-governance.md](../
 ## Scope and authority
 
 - `prompts/` is the shared prompt source.
+- Artifacts are discovered by scanning `prompts/**/*.md`; a file is an artifact
+  iff it begins with a frontmatter block. Frontmatter-less templates (e.g.
+  `plan/name-only.md`, `plan/inline-draft.md`) are loaded directly by their call
+  sites and skipped by the registry. Adding an artifact needs no code change.
 - Runtime lookup is by prompt `id`, not file path.
 - First rollout scope: patch body/rules, plan draft/review/refine, and shared global/plan fragments.
 - Deferred from rollout: human-facing chooser/confirmation strings plus `plan/name-only.md` and `plan/inline-draft.md`.
@@ -23,6 +27,8 @@ Each rollout artifact has required frontmatter:
 Optional relationship fields:
 
 - `placeholders`: `NAME:string` or `NAME:string!`
+- `order`: integer assembly rank within a behavior layer; lower renders first,
+  unranked fragments sort last by `id`
 - `add`: ordered fragment IDs appended before step body
 - `remove`: fragment IDs removed from inherited global/behavior sets
 
@@ -44,7 +50,8 @@ Rendering a step is metadata-driven by step `id`:
 
 Rules:
 
-- Assembly order is deterministic: `global -> behavior -> step`.
+- Assembly order is deterministic: `global -> behavior -> step`; within a layer,
+  fragments sort by the `order` frontmatter field (unranked last, by `id`).
 - Callers pass step `id` + placeholder values, not explicit fragment lists.
 - Placeholder substitution is non-recursive.
 - Delimiter policy for injected user data is runtime-enforced.

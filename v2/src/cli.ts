@@ -1,6 +1,5 @@
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import packageJson from "../../package.json";
+import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
@@ -13,22 +12,26 @@ type CliDeps = {
   executeWrite: (
     input: WriteExecuteInput,
   ) => Promise<Awaited<ReturnType<typeof executeWrite>>>;
+  createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[];
 };
 
 const DEFAULT_STEP_RULES =
   "Return exactly one terminal token: done|no-work|blocked|progress.";
+const DEFAULT_AGENTS = ["claude"] as const;
 
 export async function main(
   argv: readonly string[],
   io?: Io,
-  deps?: CliDeps,
+  deps?: Partial<CliDeps>,
 ): Promise<number> {
   const out = io ?? {
     stdout: (s) => process.stdout.write(s),
     stderr: (s) => process.stderr.write(s),
   };
-  const runtimeDeps: CliDeps = deps ?? {
+  const runtimeDeps: CliDeps = {
     executeWrite,
+    createBindings: createAgentBindings,
+    ...deps,
   };
 
   if (argv.length === 1 && argv[0] === "--version") {
@@ -40,7 +43,7 @@ export async function main(
     const parsed = parseWriteArgs(argv.slice(1));
     if (parsed === null) {
       out.stderr(
-        "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> --agent-outcomes <csv> [--emit-artifact true]\n",
+        "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>]\n",
       );
       return 1;
     }
@@ -55,11 +58,7 @@ export async function main(
       specPath: parsed.specPath,
       stepRules: DEFAULT_STEP_RULES,
       expectedArtifactPath: parsed.artifactPath,
-      bindings: createCliBindings(
-        parsed.agentOutcomes,
-        parsed.artifactPath,
-        parsed.emitArtifact,
-      ),
+      bindings: runtimeDeps.createBindings(parsed.agents),
     });
 
     out.stdout(
@@ -88,18 +87,8 @@ type ParsedWriteArgs = {
   baseRef: string;
   specPath: string;
   artifactPath: string;
-  agentOutcomes: readonly CliOutcome[];
-  emitArtifact: boolean;
+  agents: readonly string[];
 };
-
-type CliOutcome =
-  | "quota"
-  | "model_config"
-  | "error"
-  | "done"
-  | "no-work"
-  | "blocked"
-  | "progress";
 
 function parseWriteArgs(argv: readonly string[]): ParsedWriteArgs | null {
   const values: Record<string, string> = {};
@@ -118,19 +107,18 @@ function parseWriteArgs(argv: readonly string[]): ParsedWriteArgs | null {
   const baseRef = values.base;
   const specPath = values.spec;
   const artifactPath = values.artifact;
-  const agentOutcomes = parseAgentOutcomes(values["agent-outcomes"]);
-  const emitArtifact = values["emit-artifact"] === "true";
   if (
     projectRoot === undefined ||
     projectName === undefined ||
     branchName === undefined ||
     baseRef === undefined ||
     specPath === undefined ||
-    artifactPath === undefined ||
-    agentOutcomes === null
+    artifactPath === undefined
   ) {
     return null;
   }
+  const agents = parseAgents(values.agents);
+  if (agents === null) return null;
   return {
     projectRoot,
     projectName,
@@ -138,55 +126,17 @@ function parseWriteArgs(argv: readonly string[]): ParsedWriteArgs | null {
     baseRef,
     specPath,
     artifactPath,
-    agentOutcomes,
-    emitArtifact,
+    agents,
   };
 }
 
-function parseAgentOutcomes(
-  raw: string | undefined,
-): readonly CliOutcome[] | null {
-  if (raw === undefined || raw.trim().length === 0) return null;
-  const parsed: CliOutcome[] = [];
-  for (const part of raw.split(",")) {
-    const token = part.trim();
-    if (
-      token !== "quota" &&
-      token !== "model_config" &&
-      token !== "error" &&
-      token !== "done" &&
-      token !== "no-work" &&
-      token !== "blocked" &&
-      token !== "progress"
-    ) {
-      return null;
-    }
-    parsed.push(token);
-  }
-  return parsed.length === 0 ? null : parsed;
-}
-
-function createCliBindings(
-  outcomes: readonly CliOutcome[],
-  artifactPath: string,
-  emitArtifact: boolean,
-): readonly InvocationBinding[] {
-  return outcomes.map((outcome, index) => ({
-    id: `cli.${index + 1}`,
-    invoke: async ({ cwd }) => {
-      if (outcome === "quota")
-        return { kind: "quota", stderr: "quota" } as const;
-      if (outcome === "model_config") {
-        return { kind: "model_config", stderr: "model-config" } as const;
-      }
-      if (outcome === "error")
-        return { kind: "error", exitCode: 1, stderr: "error" } as const;
-      if (emitArtifact && (outcome === "done" || outcome === "no-work")) {
-        writeFileSync(join(cwd, artifactPath), "ok\n", "utf8");
-      }
-      return { kind: "ok", stdout: outcome, stderr: "" } as const;
-    },
-  }));
+function parseAgents(raw: string | undefined): readonly string[] | null {
+  if (raw === undefined) return DEFAULT_AGENTS;
+  const agents = raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return agents.length === 0 ? null : agents;
 }
 
 if (import.meta.main) {

@@ -36,51 +36,56 @@ export type StepRunInput = {
 };
 
 /** Classified result for one shared step-runner invocation. */
-export type StepRunResult =
-  | {
-      kind: "complete";
-      token: "done" | "no-work";
-      invocation: InvocationExecution;
-    }
-  | {
-      kind: "progress";
-      token: "progress";
-      invocation: InvocationExecution;
-    }
-  | {
-      kind: "blocked";
-      token: "blocked";
-      invocation: InvocationExecution;
-    }
+export type StepRunResult = { invocation: InvocationExecution } & (
+  | { kind: "complete"; token: "done" | "no-work" }
+  | { kind: "progress"; token: "progress" }
+  | { kind: "blocked"; token: "blocked" }
   | {
       kind: "contract_miss";
       token: "done" | "no-work";
       failedContractId: string;
-      invocation: InvocationExecution;
     }
-  | {
-      kind: "invalid_token";
-      tokenText: string;
-      invocation: InvocationExecution;
-    }
+  | { kind: "invalid_token"; tokenText: string }
   | {
       kind: "invocation_failure";
       failureKind: "quota" | "model_config" | "error" | "no_binding";
-      invocation: InvocationExecution;
-    };
+    }
+);
 
-/** Parse an invocation stdout payload into an accepted terminal outcome token. */
+const TOKEN_WORD_PATTERN = new RegExp(
+  `\\b(${TERMINAL_TOKENS.join("|")})\\b`,
+  "g",
+);
+
+function asToken(value: string): StepOutcomeToken | null {
+  return TERMINAL_TOKENS.includes(value as StepOutcomeToken)
+    ? (value as StepOutcomeToken)
+    : null;
+}
+
+/**
+ * Parse an invocation stdout payload into an accepted terminal outcome token.
+ *
+ * Real agents emit prose, so we prefer the most explicit signal available: an
+ * exact match, then the last line that is itself a bare token, and only then a
+ * lenient last-word scan over the whole output.
+ */
 export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
-  const trimmed = stdout.trim();
-  if (TERMINAL_TOKENS.includes(trimmed as StepOutcomeToken)) {
-    return trimmed as StepOutcomeToken;
+  const exact = asToken(stdout.trim());
+  if (exact !== null) return exact;
+
+  const lines = stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const token = asToken(lines[i] ?? "");
+    if (token !== null) return token;
   }
 
-  const matches = [...trimmed.matchAll(/\b(done|no-work|blocked|progress)\b/g)];
-  if (matches.length === 0) return null;
+  const matches = [...stdout.matchAll(TOKEN_WORD_PATTERN)];
   const last = matches[matches.length - 1]?.[1];
-  if (last === undefined) return null;
-  return last as StepOutcomeToken;
+  return last === undefined ? null : (last as StepOutcomeToken);
 }
 
 /**

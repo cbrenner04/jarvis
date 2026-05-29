@@ -12,6 +12,16 @@ Contract:
 - Output returns ordered attempts plus the final attempt (or `null` when no
   bindings are configured).
 
+Fallback is quota-only by design: `model_config` and `error` are terminal,
+since a misconfigured or crashing agent is not recoverable by the next binding.
+
+Bindings:
+
+- `createAgentBindings(agentIds)` in `shared/invocation/agents.ts` builds the
+  ordered bindings. It is the seam where real `claude`/`codex`/`cursor` process
+  spawning and quota classification land; until then each binding returns a
+  terminal `error`, and tests inject their own bindings.
+
 Boundary:
 
 - This module owns fallback iteration and ordering.

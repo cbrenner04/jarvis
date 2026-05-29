@@ -42,6 +42,13 @@ export type InvocationExecution<T extends InvocationResult = InvocationResult> =
     final: InvocationAttempt<T> | null;
   };
 
+/**
+ * Run bindings in order, advancing to the next only on `quota`.
+ *
+ * Fallback is quota-only by design: `model_config` and `error` are terminal and
+ * stop the chain, since a misconfigured or crashing agent is not something the
+ * next agent can paper over. Mirrors v1 fallback semantics.
+ */
 export async function executeWithQuotaFallback<
   T extends InvocationResult = InvocationResult,
 >(args: {

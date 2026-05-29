@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type PromptMetadata = {
@@ -6,6 +6,8 @@ export type PromptMetadata = {
   behavior: string;
   kind: "step" | "fragment";
   revision: string;
+  /** Assembly rank within a behavior; lower renders first, `null` sorts last by id. */
+  order: number | null;
   fragmentOf: string[];
   overrides: string[];
   add: string[];
@@ -27,26 +29,20 @@ export type PromptArtifact = {
   body: string;
 };
 
-const PROMPT_ARTIFACT_FILES = [
-  join(import.meta.dir, "..", "..", "prompts", "global", "terse.md"),
-  join(import.meta.dir, "..", "..", "prompts", "global", "documentation.md"),
-  join(import.meta.dir, "..", "..", "prompts", "global", "naming.md"),
-  join(import.meta.dir, "..", "..", "prompts", "patch", "instructions.md"),
-  join(import.meta.dir, "..", "..", "prompts", "patch", "rules.md"),
-  join(import.meta.dir, "..", "..", "prompts", "plan", "draft.md"),
-  join(import.meta.dir, "..", "..", "prompts", "plan", "decisions-ledger.md"),
-  join(import.meta.dir, "..", "..", "prompts", "plan", "defer-to-consumer.md"),
-  join(import.meta.dir, "..", "..", "prompts", "plan", "review.md"),
-  join(import.meta.dir, "..", "..", "prompts", "plan", "refine.md"),
-  join(import.meta.dir, "..", "..", "prompts", "write", "execute.md"),
-] as const;
+const PROMPTS_DIR = join(import.meta.dir, "..", "..", "prompts");
 
-const REQUIRED_METADATA_FIELDS = [
-  "id",
-  "behavior",
-  "kind",
-  "revision",
-] as const;
+/**
+ * Discover every registry artifact under `prompts/`, sorted for deterministic
+ * load order. An artifact is a `.md` file with a leading frontmatter block;
+ * frontmatter-less templates (loaded directly by other call sites) are skipped.
+ */
+function discoverPromptArtifactFiles(dir: string = PROMPTS_DIR): string[] {
+  return readdirSync(dir, { recursive: true, encoding: "utf8" })
+    .filter((entry) => entry.endsWith(".md"))
+    .map((entry) => join(dir, entry))
+    .filter((path) => readFileSync(path, "utf8").startsWith("---\n"))
+    .sort();
+}
 
 function parseListValue(value: string): string[] {
   if (value.startsWith("[") && value.endsWith("]")) {
@@ -114,37 +110,42 @@ function parseFrontmatter(text: string): {
   return { fields, body };
 }
 
+function requireField(
+  fields: Map<string, string>,
+  field: string,
+  sourcePath: string,
+): string {
+  const value = fields.get(field);
+  if (value === undefined || value.length === 0) {
+    throw new Error(
+      `missing required metadata \`${field}\` in prompt artifact ${sourcePath}`,
+    );
+  }
+  return value;
+}
+
+function parseOrderValue(
+  value: string | undefined,
+  sourcePath: string,
+): number | null {
+  if (value === undefined || value.length === 0) return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    throw new Error(
+      `invalid order \`${value}\` in prompt artifact ${sourcePath}; expected an integer`,
+    );
+  }
+  return parsed;
+}
+
 function readPromptArtifact(sourcePath: string): PromptArtifact {
   const raw = readFileSync(sourcePath, "utf8");
   const { fields, body } = parseFrontmatter(raw);
 
-  for (const field of REQUIRED_METADATA_FIELDS) {
-    const value = fields.get(field);
-    if (value === undefined || value.length === 0) {
-      throw new Error(
-        `missing required metadata \`${field}\` in prompt artifact ${sourcePath}`,
-      );
-    }
-  }
-
-  const id = fields.get("id");
-  const behavior = fields.get("behavior");
-  const kind = fields.get("kind");
-  const revision = fields.get("revision");
-  if (
-    id === undefined ||
-    behavior === undefined ||
-    kind === undefined ||
-    revision === undefined
-  ) {
-    throw new Error(`invalid metadata state in prompt artifact ${sourcePath}`);
-  }
-
-  const fragmentOf = parseListValue(fields.get("fragmentOf") ?? "");
-  const overrides = parseListValue(fields.get("overrides") ?? "");
-  const add = parseListValue(fields.get("add") ?? "");
-  const remove = parseListValue(fields.get("remove") ?? "");
-  const placeholders = parsePlaceholdersValue(fields.get("placeholders") ?? "");
+  const id = requireField(fields, "id", sourcePath);
+  const behavior = requireField(fields, "behavior", sourcePath);
+  const kind = requireField(fields, "kind", sourcePath);
+  const revision = requireField(fields, "revision", sourcePath);
   if (kind !== "step" && kind !== "fragment") {
     throw new Error(
       `invalid kind \`${kind}\` in prompt artifact ${sourcePath}; expected step|fragment`,
@@ -157,11 +158,12 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
       behavior,
       kind,
       revision,
-      fragmentOf,
-      overrides,
-      add,
-      remove,
-      placeholders,
+      order: parseOrderValue(fields.get("order"), sourcePath),
+      fragmentOf: parseListValue(fields.get("fragmentOf") ?? ""),
+      overrides: parseListValue(fields.get("overrides") ?? ""),
+      add: parseListValue(fields.get("add") ?? ""),
+      remove: parseListValue(fields.get("remove") ?? ""),
+      placeholders: parsePlaceholdersValue(fields.get("placeholders") ?? ""),
     },
     sourcePath,
     body,
@@ -174,7 +176,7 @@ export type PromptRegistry = {
 };
 
 export function createPromptRegistry(
-  sourcePaths: readonly string[] = PROMPT_ARTIFACT_FILES,
+  sourcePaths: readonly string[] = discoverPromptArtifactFiles(),
 ): PromptRegistry {
   const artifacts = sourcePaths.map((path) => readPromptArtifact(path));
   const byId = new Map<string, PromptArtifact>();
@@ -375,20 +377,14 @@ export function assemblePromptForStep(args: {
   registry: PromptRegistry;
   stepPromptId: string;
 }): string {
-  const ORDER_INDEX: Record<string, number> = {
-    "global.documentation": 0,
-    "global.naming": 1,
-    "global.terse": 2,
-    "plan.decisions-ledger": 0,
-    "plan.defer-to-consumer": 1,
-    // write currently has no behavior fragments; write.execute is the step prompt.
-  };
+  // Fragment ordering is declared per-artifact via the `order` frontmatter field;
+  // unranked fragments sort last by id. See v2/docs/prompts.md.
   const sortByContractOrder = (a: string, b: string): number => {
-    const ai = ORDER_INDEX[a];
-    const bi = ORDER_INDEX[b];
-    if (ai !== undefined && bi !== undefined) return ai - bi;
-    if (ai !== undefined) return -1;
-    if (bi !== undefined) return 1;
+    const ao = args.registry.getById(a).metadata.order;
+    const bo = args.registry.getById(b).metadata.order;
+    if (ao !== null && bo !== null) return ao - bo || a.localeCompare(b);
+    if (ao !== null) return -1;
+    if (bo !== null) return 1;
     return a.localeCompare(b);
   };
   const step = args.registry.getById(args.stepPromptId);

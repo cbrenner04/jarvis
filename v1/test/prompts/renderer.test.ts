@@ -33,6 +33,7 @@ function fakeArtifact(id: string, body: string): PromptArtifact {
       behavior: "plan",
       kind: "step",
       revision: "1",
+      order: null,
       fragmentOf: [],
       overrides: [],
       add: [],

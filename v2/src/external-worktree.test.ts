@@ -1,12 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -75,13 +69,8 @@ describe("external worktree helper", () => {
     const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     expect(existsSync(lockPath)).toBe(false);
 
-    const excludePath = execFileSync(
-      "git",
-      ["-C", result.worktree.path, "rev-parse", "--git-path", "info/exclude"],
-      { encoding: "utf8", stdio: "pipe" },
-    ).trim();
-    const excludeText = readFileSync(excludePath, "utf8");
-    expect(excludeText.includes(".jarvis.lock")).toBe(true);
+    // Locks live in the dedicated lock tree, never inside the worktree.
+    expect(existsSync(join(result.worktree.path, ".jarvis.lock"))).toBe(false);
   });
 
   test("recovers stale lock and reports recovered status", async () => {

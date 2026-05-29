@@ -1,6 +1,6 @@
 ---
 id: write.execute
-behavior: agent-facing
+behavior: write
 kind: step
 revision: 1
 placeholders: [SPEC_PATH:string!, STEP_RULES:string!]

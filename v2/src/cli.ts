@@ -1,5 +1,6 @@
 import packageJson from "../../package.json";
 import { runWriteStep, type WriteStepDeps, type WriteStepResult } from "./write-step.ts";
+import { acquireExternalWorktree, currentBranch } from "./worktree.ts";
 
 export type Io = {
   stdout: (s: string) => void;
@@ -9,8 +10,14 @@ export type Io = {
 export type CliDeps = WriteStepDeps;
 
 function createDefaultDeps(): CliDeps {
+  const projectRoot = process.cwd();
   return {
-    acquireWorktree: async () => ({ path: process.cwd(), release: () => {} }),
+    acquireWorktree: async (signal) =>
+      acquireExternalWorktree({
+        projectRoot,
+        branch: currentBranch(projectRoot),
+        ...(signal === undefined ? {} : { signal }),
+      }),
     invoke: async () => ({ kind: "error", stderr: "no agent adapter configured" }),
     checkOutputContract: async () => ({ ok: true }),
   };

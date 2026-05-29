@@ -25,7 +25,7 @@
 
 ## Acceptance criteria
 
-- [ ] A successful Phase 1 write-step test materializes output in an external worktree under `~/.jarvis/worktrees/<project>/<branch>/`, with automated coverage proving create-or-reuse behavior.
-- [ ] Phase 1 worktree acquisition uses the reused `.jarvis.lock` contract rather than a new v2-only format, and automated coverage proves busy-lock coexistence for the external worktree path.
-- [ ] No Phase 1 code path persists run state outside the external worktree and git checkout; no SQLite bootstrap or run ledger lands in this subspec.
-- [ ] Durable docs in `v2/docs/` describe the external worktree location and the lock behavior operators can observe during a one-shot Phase 1 run.
+- [x] A successful Phase 1 write-step test materializes output in an external worktree under `~/.jarvis/worktrees/<project>/<branch>/`, with automated coverage proving create-or-reuse behavior.
+- [x] Phase 1 worktree acquisition uses the reused `.jarvis.lock` contract rather than a new v2-only format, and automated coverage proves busy-lock coexistence for the external worktree path.
+- [x] No Phase 1 code path persists run state outside the external worktree and git checkout; no SQLite bootstrap or run ledger lands in this subspec.
+- [x] Durable docs in `v2/docs/` describe the external worktree location and the lock behavior operators can observe during a one-shot Phase 1 run.

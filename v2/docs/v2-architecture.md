@@ -348,12 +348,15 @@ repos" principle change is smaller:
   metadata, invisible in normal diffs, so the working tree stays pristine. This
   extends the same no-artifacts reasoning that drove config out of target repos —
   it matters most on work repos where coworkers don't want personal artifacts.
+  Phase-1 operator details live in [`worktree-and-locking.md`](worktree-and-locking.md).
 - **Locking suits a single daemon.** The daemon is the sole orchestrator, so for
   its own runs it tracks worktree ownership in-memory — no two runs share a
   worktree, no PID-lock dance among daemon runs. The on-disk `.jarvis.lock` stays
   for **cross-process coexistence** (`jarvis1`, your editor, manual git). The lock
   is held for the **whole run lifetime, including while paused/awaiting-human** —
   the worktree is "checked out" to that run until done or killed.
+  In Phase 1 one-shot `write`, lock lifetime is acquisition through result
+  materialization.
 - **Git/PR lifecycle is runner-owned, not composable.** Commits/PRs are baked into
   the runner, keyed off behavior type, rather than exposed as composable steps
   (that would be flexibility for its own sake). Write/review behaviors that mutate

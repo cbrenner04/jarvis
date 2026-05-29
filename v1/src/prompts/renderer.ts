@@ -1,5 +1,6 @@
 export {
   assemblePrompt,
+  assemblePromptForStep,
   enforceDelimiterPolicy,
   PromptRenderingError,
   renderArtifactTemplate,

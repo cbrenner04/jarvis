@@ -1,6 +1,6 @@
 ---
 id: global.terse
-behavior: agent-facing
+behavior: global
 kind: fragment
 revision: 2
 ---

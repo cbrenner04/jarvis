@@ -1,22 +1,14 @@
 import { loadPromptRegistry } from "../../prompts/registry.ts";
 import {
-  assemblePrompt,
+  assemblePromptForStep,
   renderTemplateWithDeclarations,
 } from "../../prompts/renderer.ts";
 
 export function buildPrompt(specPath: string, siblings?: string[]): string {
   const registry = loadPromptRegistry();
-  const template = assemblePrompt({
+  const template = assemblePromptForStep({
     registry,
-    globalFragmentIds: [
-      "global.documentation",
-      "global.naming",
-      "global.terse",
-    ],
-    behaviorFragmentIds: [],
     stepPromptId: "patch.prompt.body",
-    addFragmentIds: [],
-    removeFragmentIds: [],
   });
 
   let siblingsBlock = "";

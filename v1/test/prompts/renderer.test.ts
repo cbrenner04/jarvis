@@ -30,11 +30,13 @@ function fakeArtifact(id: string, body: string): PromptArtifact {
   return {
     metadata: {
       id,
-      behavior: "agent-facing",
-      kind: "template",
+      behavior: "plan",
+      kind: "step",
       revision: "1",
       fragmentOf: [],
       overrides: [],
+      add: [],
+      remove: [],
       placeholders: [],
     },
     sourcePath: `/tmp/${id}.md`,

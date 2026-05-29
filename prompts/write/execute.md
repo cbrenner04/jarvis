@@ -1,7 +1,7 @@
 ---
 id: write.execute
 behavior: agent-facing
-kind: template
+kind: step
 revision: 1
 placeholders: [SPEC_PATH:string!, STEP_RULES:string!]
 ---

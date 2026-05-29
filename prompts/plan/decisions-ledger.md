@@ -1,6 +1,6 @@
 ---
 id: plan.decisions-ledger
-behavior: agent-facing
+behavior: plan
 kind: fragment
 revision: 1
 ---

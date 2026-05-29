@@ -4,10 +4,12 @@ import { join } from "node:path";
 export type PromptMetadata = {
   id: string;
   behavior: string;
-  kind: string;
+  kind: "step" | "fragment";
   revision: string;
   fragmentOf: string[];
   overrides: string[];
+  add: string[];
+  remove: string[];
   placeholders: PromptPlaceholderDeclaration[];
 };
 
@@ -140,7 +142,14 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
 
   const fragmentOf = parseListValue(fields.get("fragmentOf") ?? "");
   const overrides = parseListValue(fields.get("overrides") ?? "");
+  const add = parseListValue(fields.get("add") ?? "");
+  const remove = parseListValue(fields.get("remove") ?? "");
   const placeholders = parsePlaceholdersValue(fields.get("placeholders") ?? "");
+  if (kind !== "step" && kind !== "fragment") {
+    throw new Error(
+      `invalid kind \`${kind}\` in prompt artifact ${sourcePath}; expected step|fragment`,
+    );
+  }
 
   return {
     metadata: {
@@ -150,6 +159,8 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
       revision,
       fragmentOf,
       overrides,
+      add,
+      remove,
       placeholders,
     },
     sourcePath,
@@ -190,6 +201,20 @@ export function createPromptRegistry(
       if (!byId.has(targetId)) {
         throw new Error(
           `unknown explicit override target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`,
+        );
+      }
+    }
+    for (const targetId of artifact.metadata.add) {
+      if (!byId.has(targetId)) {
+        throw new Error(
+          `unknown add target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`,
+        );
+      }
+    }
+    for (const targetId of artifact.metadata.remove) {
+      if (!byId.has(targetId)) {
+        throw new Error(
+          `unknown remove target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`,
         );
       }
     }
@@ -344,4 +369,53 @@ export function assemblePrompt(args: {
   return [...fragmentBodies, stepBody]
     .filter((part) => part.length > 0)
     .join("\n\n");
+}
+
+export function assemblePromptForStep(args: {
+  registry: PromptRegistry;
+  stepPromptId: string;
+}): string {
+  const ORDER_INDEX: Record<string, number> = {
+    "global.documentation": 0,
+    "global.naming": 1,
+    "global.terse": 2,
+    "plan.decisions-ledger": 0,
+    "plan.defer-to-consumer": 1,
+  };
+  const sortByContractOrder = (a: string, b: string): number => {
+    const ai = ORDER_INDEX[a];
+    const bi = ORDER_INDEX[b];
+    if (ai !== undefined && bi !== undefined) return ai - bi;
+    if (ai !== undefined) return -1;
+    if (bi !== undefined) return 1;
+    return a.localeCompare(b);
+  };
+  const step = args.registry.getById(args.stepPromptId);
+  const stepBehavior = step.metadata.behavior;
+  const globalFragmentIds = args.registry
+    .all()
+    .filter(
+      (artifact) =>
+        artifact.metadata.kind === "fragment" &&
+        artifact.metadata.behavior === "global",
+    )
+    .map((artifact) => artifact.metadata.id)
+    .sort(sortByContractOrder);
+  const behaviorFragmentIds = args.registry
+    .all()
+    .filter(
+      (artifact) =>
+        artifact.metadata.kind === "fragment" &&
+        artifact.metadata.behavior === stepBehavior,
+    )
+    .map((artifact) => artifact.metadata.id)
+    .sort(sortByContractOrder);
+  return assemblePrompt({
+    registry: args.registry,
+    globalFragmentIds,
+    behaviorFragmentIds,
+    stepPromptId: args.stepPromptId,
+    addFragmentIds: step.metadata.add,
+    removeFragmentIds: step.metadata.remove,
+  });
 }

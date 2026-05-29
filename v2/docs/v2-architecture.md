@@ -131,6 +131,11 @@ Outcome tokens:
 - **`blocked`** — agent declares it's blocked. Never counts as `done`; runner
   stops and routes to a human loop.
 
+Phase 1 shipped shape:
+
+- The first `jarvis` v2 write path runs one step only (no automatic loop).
+- `progress` is returned as a non-complete outcome and the process exits.
+
 Rules:
 
 - **Contract is per-step.** Each step declares its own expected artifacts in the

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { main } from "./cli.ts";
+import { main, type CliDeps } from "./cli.ts";
 
 function captureIo() {
   let stdout = "";
@@ -17,20 +17,37 @@ function captureIo() {
   };
 }
 
+function makeDeps(): CliDeps {
+  return {
+    acquireWorktree: async () => ({ path: "/tmp/worktree", release: () => {} }),
+    invoke: async () => ({ kind: "ok", stdout: "done\n", stderr: "" }),
+    checkOutputContract: async () => ({ ok: true }),
+  };
+}
+
 describe("v2 cli", () => {
-  test("no args prints v2 boundary message and exits 0", () => {
+  test("write runs one step end to end", async () => {
     const cap = captureIo();
 
-    const code = main([], cap.io);
+    const code = await main(["write", "--task", "Finish acceptance item."], cap.io, makeDeps());
 
     expect(code).toBe(0);
-    expect(cap.read()).toEqual({ stdout: "v2 not ready\n", stderr: "" });
+    expect(cap.read()).toEqual({ stdout: "done /tmp/worktree\n", stderr: "" });
   });
 
-  test("--version prints package version and exits 0", () => {
+  test("unknown command prints usage and exits 1", async () => {
     const cap = captureIo();
 
-    const code = main(["--version"], cap.io);
+    const code = await main([], cap.io, makeDeps());
+
+    expect(code).toBe(1);
+    expect(cap.read()).toEqual({ stdout: "usage: jarvis write [--task <text>]\n", stderr: "" });
+  });
+
+  test("--version prints package version and exits 0", async () => {
+    const cap = captureIo();
+
+    const code = await main(["--version"], cap.io, makeDeps());
 
     expect(code).toBe(0);
     expect(cap.read().stderr).toBe("");

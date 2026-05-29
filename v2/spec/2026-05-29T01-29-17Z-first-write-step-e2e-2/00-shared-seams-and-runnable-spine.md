@@ -29,7 +29,7 @@
 
 ## Acceptance criteria
 
-- [ ] `v2/src` contains a host-agnostic one-step write entrypoint that accepts cancellation via `AbortSignal` and returns typed `done` / `no-work` / `blocked` / `progress` results without process-coupled fields.
-- [ ] The top-level prompt registry contains a shared `write` prompt artifact and v2 tests prove the Phase 1 step renders through that shared registry path rather than a v2-local prompt source.
-- [ ] The v2 CLI can execute one successful single write-step test path end to end through parse → render → invoke → typed result reporting, with automated coverage in `v2/src/*.test.ts` and stubbed worktree acquisition.
-- [ ] Root verification remains green after the slice lands: `bun run typecheck` and `bun test`.
+- [x] `v2/src` contains a host-agnostic one-step write entrypoint that accepts cancellation via `AbortSignal` and returns typed `done` / `no-work` / `blocked` / `progress` results without process-coupled fields.
+- [x] The top-level prompt registry contains a shared `write` prompt artifact and v2 tests prove the Phase 1 step renders through that shared registry path rather than a v2-local prompt source.
+- [x] The v2 CLI can execute one successful single write-step test path end to end through parse → render → invoke → typed result reporting, with automated coverage in `v2/src/*.test.ts` and stubbed worktree acquisition.
+- [x] Root verification remains green after the slice lands: `bun run typecheck` and `bun test`.

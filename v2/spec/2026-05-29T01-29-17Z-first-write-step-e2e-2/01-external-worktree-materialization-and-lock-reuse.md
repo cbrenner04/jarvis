@@ -16,7 +16,7 @@
 - Add the v2 worktree helper for create-or-reuse under `~/.jarvis/worktrees`.
 - Extract or duplicate only the compatible lock semantics needed to share `.jarvis.lock` behavior without cross-tree imports.
 - Wire the Phase 1 core to acquire the external worktree before invocation and keep it through result materialization.
-- Add isolated tests for worktree path selection, create-vs-reuse behavior, lock coexistence, and cleanup of observable side effects expected in Phase 1.
+- Add isolated tests for worktree path selection, create-vs-reuse behavior, busy-lock coexistence, and the Phase 1 observable side effects.
 
 ## Documentation updates
 

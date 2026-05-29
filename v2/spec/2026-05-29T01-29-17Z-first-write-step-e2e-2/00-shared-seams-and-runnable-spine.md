@@ -20,7 +20,7 @@
 - Add the first shared `write` prompt and registry entry.
 - Implement the host-agnostic one-step write core in `v2/src`.
 - Implement the thin v2 CLI path that drives one write step once.
-- Add tests for prompt render wiring, typed outcome mapping, abort propagation, and one successful single-step run through the CLI/core seam using test doubles where worktree materialization is not yet under review.
+- Add tests for prompt render wiring, typed outcome mapping, abort propagation, and one successful single-step run through the CLI/core seam; worktree materialization stays stubbed here.
 
 ## Documentation updates
 
@@ -31,5 +31,5 @@
 
 - [ ] `v2/src` contains a host-agnostic one-step write entrypoint that accepts cancellation via `AbortSignal` and returns typed `done` / `no-work` / `blocked` / `progress` results without process-coupled fields.
 - [ ] The top-level prompt registry contains a shared `write` prompt artifact and v2 tests prove the Phase 1 step renders through that shared registry path rather than a v2-local prompt source.
-- [ ] The v2 CLI can execute one successful single write-step test path end to end through parse → render → invoke → typed result reporting, with automated coverage in `v2/src/*.test.ts`.
+- [ ] The v2 CLI can execute one successful single write-step test path end to end through parse → render → invoke → typed result reporting, with automated coverage in `v2/src/*.test.ts` and no real worktree dependency.
 - [ ] Root verification remains green after the slice lands: `bun run typecheck` and `bun test`.

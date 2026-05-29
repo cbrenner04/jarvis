@@ -21,15 +21,21 @@ function setupRepo(): { repoRoot: string; jarvisRoot: string } {
   const jarvisRoot = join(root, "jarvis-home");
 
   execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], {
-    stdio: "pipe",
-  });
+  execFileSync(
+    "git",
+    ["-C", repoRoot, "config", "user.email", "test@example.com"],
+    {
+      stdio: "pipe",
+    },
+  );
   execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], {
     stdio: "pipe",
   });
   writeFileSync(join(repoRoot, "spec.md"), "- [ ] work\n", "utf8");
   execFileSync("git", ["-C", repoRoot, "add", "spec.md"], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], {
+    stdio: "pipe",
+  });
 
   return { repoRoot, jarvisRoot };
 }
@@ -103,7 +109,12 @@ describe("write behavior", () => {
     const result = await runWrite({
       repoRoot,
       jarvisRoot,
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }) }],
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => ({ kind: "ok", stdout: "done", stderr: "" }),
+        },
+      ],
     });
 
     expect(result.result.kind).toBe("contract_miss");
@@ -114,7 +125,12 @@ describe("write behavior", () => {
     const result = await runWrite({
       repoRoot,
       jarvisRoot,
-      bindings: [{ id: "agent", invoke: async () => ({ kind: "ok", stdout: "blocked", stderr: "" }) }],
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => ({ kind: "ok", stdout: "blocked", stderr: "" }),
+        },
+      ],
     });
 
     expect(result.result.kind).toBe("blocked");

@@ -97,14 +97,21 @@ export function ensureExternalWorktree(
   mkdirSync(dirname(worktreePath), { recursive: true });
 
   const branchExists = branchExistsLocal(args.projectRoot, args.branchName);
-  const branchExistsRemote = branchExistsOnOrigin(args.projectRoot, args.branchName);
+  const branchExistsRemote = branchExistsOnOrigin(
+    args.projectRoot,
+    args.branchName,
+  );
 
   if (branchExists || branchExistsRemote) {
     if (!branchExists && branchExistsRemote) {
-      execFileSync("git", ["branch", args.branchName, `origin/${args.branchName}`], {
-        cwd: args.projectRoot,
-        stdio: "pipe",
-      });
+      execFileSync(
+        "git",
+        ["branch", args.branchName, `origin/${args.branchName}`],
+        {
+          cwd: args.projectRoot,
+          stdio: "pipe",
+        },
+      );
     }
     execFileSync(
       "git",
@@ -189,11 +196,15 @@ function writeLock(lockPath: string): void {
 function ensureLockExcluded(worktreeDir: string): void {
   let excludePath: string;
   try {
-    const out = execFileSync("git", ["rev-parse", "--git-path", "info/exclude"], {
-      cwd: worktreeDir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    const out = execFileSync(
+      "git",
+      ["rev-parse", "--git-path", "info/exclude"],
+      {
+        cwd: worktreeDir,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ).trim();
     if (!out) return;
     excludePath = out.startsWith("/") ? out : join(worktreeDir, out);
   } catch {
@@ -239,7 +250,10 @@ function branchExistsLocal(projectRoot: string, branchName: string): boolean {
   }
 }
 
-function branchExistsOnOrigin(projectRoot: string, branchName: string): boolean {
+function branchExistsOnOrigin(
+  projectRoot: string,
+  branchName: string,
+): boolean {
   try {
     execFileSync("git", ["rev-parse", "--verify", `origin/${branchName}`], {
       cwd: projectRoot,

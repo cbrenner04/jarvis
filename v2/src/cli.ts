@@ -1,6 +1,6 @@
-import packageJson from "../../package.json";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import packageJson from "../../package.json";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
@@ -10,10 +10,13 @@ export type Io = {
 };
 
 type CliDeps = {
-  executeWrite: (input: WriteExecuteInput) => Promise<Awaited<ReturnType<typeof executeWrite>>>;
+  executeWrite: (
+    input: WriteExecuteInput,
+  ) => Promise<Awaited<ReturnType<typeof executeWrite>>>;
 };
 
-const DEFAULT_STEP_RULES = "Return exactly one terminal token: done|no-work|blocked|progress.";
+const DEFAULT_STEP_RULES =
+  "Return exactly one terminal token: done|no-work|blocked|progress.";
 
 export async function main(
   argv: readonly string[],
@@ -140,7 +143,9 @@ function parseWriteArgs(argv: readonly string[]): ParsedWriteArgs | null {
   };
 }
 
-function parseAgentOutcomes(raw: string | undefined): readonly CliOutcome[] | null {
+function parseAgentOutcomes(
+  raw: string | undefined,
+): readonly CliOutcome[] | null {
   if (raw === undefined || raw.trim().length === 0) return null;
   const parsed: CliOutcome[] = [];
   for (const part of raw.split(",")) {
@@ -169,11 +174,13 @@ function createCliBindings(
   return outcomes.map((outcome, index) => ({
     id: `cli.${index + 1}`,
     invoke: async ({ cwd }) => {
-      if (outcome === "quota") return { kind: "quota", stderr: "quota" } as const;
+      if (outcome === "quota")
+        return { kind: "quota", stderr: "quota" } as const;
       if (outcome === "model_config") {
         return { kind: "model_config", stderr: "model-config" } as const;
       }
-      if (outcome === "error") return { kind: "error", exitCode: 1, stderr: "error" } as const;
+      if (outcome === "error")
+        return { kind: "error", exitCode: 1, stderr: "error" } as const;
       if (emitArtifact && (outcome === "done" || outcome === "no-work")) {
         writeFileSync(join(cwd, artifactPath), "ok\n", "utf8");
       }

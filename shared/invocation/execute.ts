@@ -36,10 +36,11 @@ export type InvocationAttempt<T extends InvocationResult = InvocationResult> = {
   result: T;
 };
 
-export type InvocationExecution<T extends InvocationResult = InvocationResult> = {
-  attempts: InvocationAttempt<T>[];
-  final: InvocationAttempt<T> | null;
-};
+export type InvocationExecution<T extends InvocationResult = InvocationResult> =
+  {
+    attempts: InvocationAttempt<T>[];
+    final: InvocationAttempt<T> | null;
+  };
 
 export async function executeWithQuotaFallback<
   T extends InvocationResult = InvocationResult,
@@ -65,7 +66,8 @@ export async function executeWithQuotaFallback<
     return { attempts, final: attempt };
   }
 
-  const final = attempts.length === 0 ? null : (attempts[attempts.length - 1] ?? null);
+  const final =
+    attempts.length === 0 ? null : (attempts[attempts.length - 1] ?? null);
   return {
     attempts,
     final,

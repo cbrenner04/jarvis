@@ -27,41 +27,13 @@ export type PromptArtifact = {
 
 const PROMPT_ARTIFACT_FILES = [
   join(import.meta.dir, "..", "..", "prompts", "global", "terse.md"),
-  join(
-    import.meta.dir,
-    "..",
-    "..",
-    "prompts",
-    "global",
-    "documentation.md",
-  ),
+  join(import.meta.dir, "..", "..", "prompts", "global", "documentation.md"),
   join(import.meta.dir, "..", "..", "prompts", "global", "naming.md"),
-  join(
-    import.meta.dir,
-    "..",
-    "..",
-    "prompts",
-    "patch",
-    "instructions.md",
-  ),
+  join(import.meta.dir, "..", "..", "prompts", "patch", "instructions.md"),
   join(import.meta.dir, "..", "..", "prompts", "patch", "rules.md"),
   join(import.meta.dir, "..", "..", "prompts", "plan", "draft.md"),
-  join(
-    import.meta.dir,
-    "..",
-    "..",
-    "prompts",
-    "plan",
-    "decisions-ledger.md",
-  ),
-  join(
-    import.meta.dir,
-    "..",
-    "..",
-    "prompts",
-    "plan",
-    "defer-to-consumer.md",
-  ),
+  join(import.meta.dir, "..", "..", "prompts", "plan", "decisions-ledger.md"),
+  join(import.meta.dir, "..", "..", "prompts", "plan", "defer-to-consumer.md"),
   join(import.meta.dir, "..", "..", "prompts", "plan", "review.md"),
   join(import.meta.dir, "..", "..", "prompts", "plan", "refine.md"),
   join(import.meta.dir, "..", "..", "prompts", "write", "execute.md"),
@@ -80,7 +52,7 @@ function parseListValue(value: string): string[] {
     if (inner.length === 0) return [];
     return inner
       .split(",")
-      .map((part) => part.trim().replace(/^['\"]|['\"]$/g, ""))
+      .map((part) => part.trim().replace(/^['"]|['"]$/g, ""))
       .filter((part) => part.length > 0);
   }
   return value

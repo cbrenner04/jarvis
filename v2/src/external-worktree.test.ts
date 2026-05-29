@@ -1,12 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  WorktreeBusyError,
   getExternalWorktreeLockPath,
   getExternalWorktreePath,
+  WorktreeBusyError,
   withExternalWorktree,
 } from "./external-worktree.ts";
 
@@ -25,15 +31,21 @@ function setupRepo(): { repoRoot: string; jarvisRoot: string } {
   const jarvisRoot = join(root, "jarvis-home");
 
   execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], {
-    stdio: "pipe",
-  });
+  execFileSync(
+    "git",
+    ["-C", repoRoot, "config", "user.email", "test@example.com"],
+    {
+      stdio: "pipe",
+    },
+  );
   execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], {
     stdio: "pipe",
   });
   writeFileSync(join(repoRoot, "README.md"), "seed\n", "utf8");
   execFileSync("git", ["-C", repoRoot, "add", "README.md"], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], {
+    stdio: "pipe",
+  });
 
   return { repoRoot, jarvisRoot };
 }

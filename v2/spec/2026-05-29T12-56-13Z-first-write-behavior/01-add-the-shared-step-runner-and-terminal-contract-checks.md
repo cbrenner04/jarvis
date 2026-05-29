@@ -30,11 +30,11 @@
 
 ## Acceptance criteria
 
-- [ ] A shared step runner consumes a behavior prompt/contract bundle plus invocation dependencies and owns token parsing, contract dispatch, and typed result classification.
-- [ ] The runner recognizes `done`, `no-work`, `blocked`, and `progress` exactly once in shared code; write-specific code does not duplicate that logic.
-- [ ] `done` and `no-work` run deterministic contract checks, `progress` skips contract checks and returns a typed non-complete result, and `blocked` returns a typed blocked result without contract evaluation.
-- [ ] A contract miss after `done` or `no-work` surfaces as a hard non-success result distinct from agent-declared `blocked`, with no hidden retry and no second invocation.
-- [ ] Tests cover terminal token parsing, the `progress` non-loop path, and at least one contract-pass plus contract-fail case.
+- [x] A shared step runner consumes a behavior prompt/contract bundle plus invocation dependencies and owns token parsing, contract dispatch, and typed result classification.
+- [x] The runner recognizes `done`, `no-work`, `blocked`, and `progress` exactly once in shared code; write-specific code does not duplicate that logic.
+- [x] `done` and `no-work` run deterministic contract checks, `progress` skips contract checks and returns a typed non-complete result, and `blocked` returns a typed blocked result without contract evaluation.
+- [x] A contract miss after `done` or `no-work` surfaces as a hard non-success result distinct from agent-declared `blocked`, with no hidden retry and no second invocation.
+- [x] Tests cover terminal token parsing, the `progress` non-loop path, and at least one contract-pass plus contract-fail case.
 
 ## Documentation updates
 

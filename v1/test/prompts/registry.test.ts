@@ -30,6 +30,7 @@ describe("prompt registry load validation", () => {
     expect(ids).toContain("plan.defer-to-consumer");
     expect(ids).toContain("plan.prompt.review");
     expect(ids).toContain("plan.prompt.refine");
+    expect(ids).toContain("write.execute");
   });
 
   test("missing required metadata is a load-time error", () => {

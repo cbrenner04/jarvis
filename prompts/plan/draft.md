@@ -2,7 +2,7 @@
 id: plan.prompt.draft
 behavior: plan
 kind: step
-revision: 5
+revision: 6
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!]
 remove: [global.naming]
 ---

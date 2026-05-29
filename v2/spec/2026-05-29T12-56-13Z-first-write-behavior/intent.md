@@ -147,13 +147,3 @@ workflows, human-loop/review behavior, concurrency/admission.
 
 No net-new refinement: `v2/docs/documentation-standard.md`, `v2/docs/v2-build-order.md`, `v2/docs/v2-architecture.md`, `v2/docs/prompts.md`, and `v2/spec/v2-meta-index.md` align with the current ledger.
 
-## Blocker
-
-Review and approve `v2/spec/2026-05-29T12-56-13Z-first-write-behavior/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-05-29T12-56-13Z-first-write-behavior/intent.md`

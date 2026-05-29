@@ -90,3 +90,14 @@ never reconciled.
 - Preserve the shipped first-rollout fragment inventory and order unless the concrete `patch.prompt.body` consumer proves a different order is required: patch globals stay `global.documentation -> global.naming -> global.terse`; plan layering stays `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer`.
 - Keep runtime lookup and composition keyed by prompt `id`, not by prompt file path or legacy `prompts/fragments|steps` directory taxonomy from `v2/docs/prompts.md`; the historical doc's layout example is context, not a contract to resurrect.
 - Preserve the existing validation split unless a concrete failing caller forces otherwise: metadata/relationship/schema errors stay registry-load failures; unknown runtime IDs and placeholder-value errors stay render-time failures.
+
+## Blocker
+
+Review and approve `v2/spec/2026-05-29T12-53-28Z-prompt-layering-reconcile/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-05-29T12-53-28Z-prompt-layering-reconcile/intent.md`

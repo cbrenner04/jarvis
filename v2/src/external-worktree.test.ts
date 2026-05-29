@@ -206,8 +206,8 @@ describe("external worktree helper", () => {
       ),
     ).rejects.toThrow("boom");
 
-    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(
-      false,
-    );
+    expect(
+      existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot))),
+    ).toBe(false);
   });
 });

@@ -169,18 +169,18 @@ describe("v2 cli", () => {
     expect(captured).toBeDefined();
     if (captured === undefined) return;
     const cwd = mkdtempSync(join(tmpdir(), "jarvis-cli-bindings-"));
-    await expect(captured.bindings[0]?.invoke({ prompt: "p", cwd })).resolves.toEqual(
-      { kind: "quota", stderr: "quota" },
-    );
-    await expect(captured.bindings[1]?.invoke({ prompt: "p", cwd })).resolves.toEqual(
-      { kind: "model_config", stderr: "model-config" },
-    );
-    await expect(captured.bindings[2]?.invoke({ prompt: "p", cwd })).resolves.toEqual(
-      { kind: "error", exitCode: 1, stderr: "error" },
-    );
-    await expect(captured.bindings[3]?.invoke({ prompt: "p", cwd })).resolves.toEqual(
-      { kind: "ok", stdout: "done", stderr: "" },
-    );
+    await expect(
+      captured.bindings[0]?.invoke({ prompt: "p", cwd }),
+    ).resolves.toEqual({ kind: "quota", stderr: "quota" });
+    await expect(
+      captured.bindings[1]?.invoke({ prompt: "p", cwd }),
+    ).resolves.toEqual({ kind: "model_config", stderr: "model-config" });
+    await expect(
+      captured.bindings[2]?.invoke({ prompt: "p", cwd }),
+    ).resolves.toEqual({ kind: "error", exitCode: 1, stderr: "error" });
+    await expect(
+      captured.bindings[3]?.invoke({ prompt: "p", cwd }),
+    ).resolves.toEqual({ kind: "ok", stdout: "done", stderr: "" });
     expect(readFileSync(join(cwd, "proof.txt"), "utf8")).toBe("ok\n");
   });
 });

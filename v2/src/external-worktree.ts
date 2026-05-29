@@ -258,15 +258,11 @@ function ensureExternalWorktreeLockRoot(args: ExternalWorktreeInput): string {
 function isValidGitWorktree(worktreePath: string): boolean {
   if (!existsSync(worktreePath)) return false;
   try {
-    const output = execFileSync(
-      "git",
-      ["rev-parse", "--is-inside-work-tree"],
-      {
-        cwd: worktreePath,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    ).trim();
+    const output = execFileSync("git", ["rev-parse", "--is-inside-work-tree"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
     return output === "true";
   } catch {
     return false;

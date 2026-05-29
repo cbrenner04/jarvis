@@ -26,9 +26,9 @@ describe("step runner token parsing", () => {
   });
 
   test("extracts token from prose output", () => {
-    expect(parseStepOutcomeToken("I updated the file.\nFinal: progress\n")).toBe(
-      "progress",
-    );
+    expect(
+      parseStepOutcomeToken("I updated the file.\nFinal: progress\n"),
+    ).toBe("progress");
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { loadPromptRegistry } from "../../shared/prompts/api.ts";
+import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
 import { renderWriteExecutePrompt } from "./write-prompt.ts";
 
 describe("write prompt", () => {

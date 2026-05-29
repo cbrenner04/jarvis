@@ -63,9 +63,9 @@ Rollout layering inventory:
 - Plan: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`
 - `patch.rules` remains step-owned injected body content (not always-layered global/behavior text).
 
-As shipped, the prompt registry/renderer surface is root-shared in
-`shared/prompts/api.ts` and consumed by both engines (`jarvis1` through
-`v1/src/prompts/*` re-exports, and v2 directly).
+As shipped, the prompt surface is root-shared under `shared/prompts/`
+(`types.ts`, `registry.ts`, `render.ts`, `assemble.ts`) and consumed by both
+engines (`jarvis1` through `v1/src/prompts/*` re-exports, and v2 directly).
 
 For mixed builders, only stable instruction text relocates in pass one; interpolation, conditional line construction, and control semantics stay in code.
 

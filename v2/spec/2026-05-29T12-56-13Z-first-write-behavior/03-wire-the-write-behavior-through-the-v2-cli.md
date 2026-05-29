@@ -21,11 +21,11 @@
 
 ## Task checklist
 
-- Add the thin `write` behavior wiring over the shared runner and worktree helper.
-- Add the first v2 CLI path that runs one `write` behavior invocation.
-- Map shared results to the CLI surface without pushing CLI concerns down into the core.
-- Add end-to-end tests for the happy path and key failure edges.
-- Add the durable operator doc for running and verifying `write`.
+- Add the thin `write` wiring over the shared runner and worktree helper.
+- Add one v2 CLI path that runs `write` once.
+- Map shared results to the CLI surface without pushing CLI concerns into the core.
+- Add end-to-end tests for the happy path and stop edges.
+- Add the durable operator doc for `write`.
 
 ## Acceptance criteria
 
@@ -37,5 +37,7 @@
 
 ## Documentation updates
 
-- Add the durable operator doc for the `write` behavior in `v2/docs/`.
-- Update any existing durable v2 doc that must cross-link to the new operator home; do not add sequencing status to `v2/docs/v2-build-order.md` or implementation narrative to `v2/docs/v2-architecture.md`.
+- Add one behavior-named operator doc in `v2/docs/` for running and verifying `write`.
+- Update only the durable docs that must cross-link to that operator home.
+- Do not add status to `v2/docs/v2-build-order.md`.
+- Do not add implementation narrative to `v2/docs/v2-architecture.md`.

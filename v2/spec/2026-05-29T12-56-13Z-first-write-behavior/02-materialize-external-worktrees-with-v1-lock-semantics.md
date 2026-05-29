@@ -20,11 +20,11 @@
 
 ## Task checklist
 
-- Add the v2 worktree acquisition/materialization helper.
-- Implement lock acquisition, stale-lock handling, and release with the existing `.jarvis.lock` contract.
+- Add one external worktree acquisition/materialization helper.
+- Implement lock acquire, stale-lock recovery, and release with the existing `.jarvis.lock` contract.
 - Materialize and reuse worktrees under `~/.jarvis/worktrees/<project>/<branch>/`.
-- Add tests for fresh-lock, stale-lock, and busy-lock behavior.
-- Document the operator-visible worktree location and verification surface only when the live `write` flow exists.
+- Add fresh-lock, stale-lock, and busy-lock tests.
+- Leave operator docs to the live `write` slice unless this helper creates a standalone durable contract.
 
 ## Acceptance criteria
 
@@ -36,4 +36,5 @@
 
 ## Documentation updates
 
-- No standalone durable doc in this subspec unless the worktree helper exposes new operator-facing semantics on its own; otherwise document the location and verification flow in `03`.
+- No standalone operator doc in this subspec unless the helper exposes operator-facing semantics on its own.
+- Document worktree location and verification flow in `03`.

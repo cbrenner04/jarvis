@@ -22,11 +22,11 @@
 
 ## Task checklist
 
-- Add the shared step-runner surface over the shared invocation layer.
-- Parse and validate the terminal outcome token once in the runner.
-- Add deterministic contract evaluation and typed result classification for terminal claims.
-- Add tests for each token path and the contract-miss edge.
-- Document the runner-owned cross-file contract in its durable home.
+- Add one shared runner surface over shared invocation.
+- Parse and validate the outcome token once in shared code.
+- Add deterministic terminal contract evaluation and typed result classification.
+- Add tests for each token path and a contract miss.
+- Document the runner-owned boundary in one durable home.
 
 ## Acceptance criteria
 
@@ -38,4 +38,5 @@
 
 ## Documentation updates
 
-- Update the durable v2 docs with the runner-owned token and contract boundary if the existing architecture doc is insufficient as an implementation contract.
+- Add or update one `v2/docs/` contract doc for runner-owned token parsing and contract dispatch.
+- Do not edit `v2/docs/v2-architecture.md`.

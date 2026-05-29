@@ -23,11 +23,11 @@
 
 ## Task checklist
 
-- Extract the shared prompt registry surface to a root-shared module used by both engines.
-- Add the `write.execute` prompt artifact and register it through the explicit shared seed list.
-- Extract the shared agent invocation layer with ordered-binding quota fallback.
-- Add focused tests for prompt rendering and invocation fallback semantics.
-- Update durable docs only where the shared prompt or shared invocation contract becomes a real cross-file boundary.
+- Extract one root-shared prompt registry surface used by both engines.
+- Add `write.execute` to top-level `prompts/` through the explicit seed list.
+- Extract one shared invocation layer with ordered-binding quota fallback.
+- Add focused prompt-render and fallback tests.
+- Update only the durable homes this slice changes.
 
 ## Acceptance criteria
 
@@ -39,5 +39,5 @@
 
 ## Documentation updates
 
-- Update the durable prompt-governance doc if the shared prompt artifact inventory or registry boundary changes.
-- Add or update one durable cross-file contract note for the shared invocation layer only if the new module surface would otherwise be undocumented.
+- Update `v2/docs/prompts.md` only if the shared prompt inventory or registry boundary changes.
+- Add one `v2/docs/` contract note for shared invocation only if no existing durable doc owns that boundary.

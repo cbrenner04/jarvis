@@ -1,5 +1,5 @@
 ---
-id: write.step
+id: write.execute
 description: agent-facing
 behavior: agent-facing
 kind: template

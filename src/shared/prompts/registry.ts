@@ -38,7 +38,7 @@ export const DEFAULT_SHARED_PROMPT_ARTIFACT_FILES = [
   join(PROMPTS_ROOT, "plan", "defer-to-consumer.md"),
   join(PROMPTS_ROOT, "plan", "review.md"),
   join(PROMPTS_ROOT, "plan", "refine.md"),
-  join(PROMPTS_ROOT, "write", "step.md"),
+  join(PROMPTS_ROOT, "write", "execute.md"),
 ] as const;
 
 const REQUIRED_METADATA_FIELDS = [

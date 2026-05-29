@@ -38,7 +38,7 @@ export type WriteStepDeps = {
 
 export function createWritePrompt(task: string): string {
   const registry = loadPromptRegistry();
-  const artifact = registry.getById("write.step");
+  const artifact = registry.getById("write.execute");
   return renderArtifactTemplate(artifact, { TASK: task });
 }
 

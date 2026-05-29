@@ -29,11 +29,11 @@
 
 ## Acceptance criteria
 
-- [ ] The v2 CLI can invoke one `write` behavior run end-to-end: render `write.execute`, materialize the worktree, invoke one configured agent with fallback semantics from shared code, capture the outcome token, run the declared terminal contract when required, and surface the typed result.
-- [ ] Write-specific runtime code only supplies its prompt identity and contract plus minimal wiring; it does not own an invocation loop, token parsing, or contract dispatch.
-- [ ] The first terminal contract deterministically proves the expected write artifact in the worktree, and a contract miss surfaces as a distinct non-success result.
-- [ ] End-to-end coverage proves the happy path plus the key stop edges: quota fallback success, terminal contract miss, agent-declared `blocked`, and `progress` with no retry.
-- [ ] A durable operator doc under `v2/docs/` explains how to run the Phase 1 `write` behavior and how to verify success from the worktree/result surface without editing the architecture doc.
+- [x] The v2 CLI can invoke one `write` behavior run end-to-end: render `write.execute`, materialize the worktree, invoke one configured agent with fallback semantics from shared code, capture the outcome token, run the declared terminal contract when required, and surface the typed result.
+- [x] Write-specific runtime code only supplies its prompt identity and contract plus minimal wiring; it does not own an invocation loop, token parsing, or contract dispatch.
+- [x] The first terminal contract deterministically proves the expected write artifact in the worktree, and a contract miss surfaces as a distinct non-success result.
+- [x] End-to-end coverage proves the happy path plus the key stop edges: quota fallback success, terminal contract miss, agent-declared `blocked`, and `progress` with no retry.
+- [x] A durable operator doc under `v2/docs/` explains how to run the Phase 1 `write` behavior and how to verify success from the worktree/result surface without editing the architecture doc.
 
 ## Documentation updates
 

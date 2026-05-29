@@ -23,3 +23,6 @@ Boundary:
   dispatch.
 - Runner does not own workflow looping, CLI exit mapping/formatting, or
   git/worktree side effects.
+
+Operator flow for the first `write` consumer is documented in
+[`write-behavior.md`](./write-behavior.md).

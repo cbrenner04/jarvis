@@ -1,15 +1,24 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
-import { acquireExternalWorktree, getExternalWorktreePath } from "./worktree.ts";
+import {
+  acquireExternalWorktree,
+  getExternalWorktreePath,
+} from "./worktree.ts";
 import { getWorktreeLockPath } from "./worktree-lock.ts";
 
 function initRepo(root: string): void {
   execFileSync("git", ["init", "-b", "main"], { cwd: root, stdio: "pipe" });
-  execFileSync("git", ["config", "user.name", "Jarvis"], { cwd: root, stdio: "pipe" });
-  execFileSync("git", ["config", "user.email", "jarvis@example.com"], { cwd: root, stdio: "pipe" });
+  execFileSync("git", ["config", "user.name", "Jarvis"], {
+    cwd: root,
+    stdio: "pipe",
+  });
+  execFileSync("git", ["config", "user.email", "jarvis@example.com"], {
+    cwd: root,
+    stdio: "pipe",
+  });
   writeFileSync(join(root, "README.md"), "init\n", "utf8");
   execFileSync("git", ["add", "README.md"], { cwd: root, stdio: "pipe" });
   execFileSync("git", ["commit", "-m", "init"], { cwd: root, stdio: "pipe" });
@@ -27,7 +36,9 @@ describe("external worktree", () => {
 
   test("creates then reuses an external worktree", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-root-"));
-    const worktreeHome = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-home-"));
+    const worktreeHome = mkdtempSync(
+      join(tmpdir(), "jarvis-v2-worktree-home-"),
+    );
     try {
       initRepo(root);
       const first = await acquireExternalWorktree({
@@ -55,7 +66,9 @@ describe("external worktree", () => {
         .split("\n")
         .filter((line) => line.startsWith("worktree "))
         .map((line) => realpathSync(line.slice("worktree ".length)));
-      const occurrences = worktreeLines.filter((path) => path === expectedPath).length;
+      const occurrences = worktreeLines.filter(
+        (path) => path === expectedPath,
+      ).length;
       expect(occurrences).toBe(1);
     } finally {
       rmSync(root, { force: true, recursive: true });
@@ -65,7 +78,9 @@ describe("external worktree", () => {
 
   test("busy lock blocks second acquisition and lock is excluded from staging", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-lock-root-"));
-    const worktreeHome = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-lock-home-"));
+    const worktreeHome = mkdtempSync(
+      join(tmpdir(), "jarvis-v2-worktree-lock-home-"),
+    );
     try {
       initRepo(root);
       const acquired = await acquireExternalWorktree({
@@ -76,11 +91,15 @@ describe("external worktree", () => {
 
       const lockPath = getWorktreeLockPath(acquired.path);
       expect(Bun.file(lockPath).size).toBeGreaterThan(0);
-      const excludePath = execFileSync("git", ["rev-parse", "--git-path", "info/exclude"], {
-        cwd: acquired.path,
-        encoding: "utf8",
-        stdio: "pipe",
-      }).trim();
+      const excludePath = execFileSync(
+        "git",
+        ["rev-parse", "--git-path", "info/exclude"],
+        {
+          cwd: acquired.path,
+          encoding: "utf8",
+          stdio: "pipe",
+        },
+      ).trim();
       const resolvedExclude = excludePath.startsWith("/")
         ? excludePath
         : join(acquired.path, excludePath);

@@ -14,7 +14,8 @@ export function getExternalWorktreePath(args: {
   branch: string;
   worktreeHome?: string;
 }): string {
-  const worktreeHome = args.worktreeHome ?? join(homedir(), ".jarvis", "worktrees");
+  const worktreeHome =
+    args.worktreeHome ?? join(homedir(), ".jarvis", "worktrees");
   const project = basename(args.projectRoot);
   return join(worktreeHome, project, args.branch);
 }
@@ -47,10 +48,14 @@ function materializeWorktree(args: {
   if (existsSync(args.path)) return;
   mkdirSync(dirname(args.path), { recursive: true });
   if (branchExists(args.projectRoot, args.branch)) {
-    execFileSync("git", ["worktree", "add", "--checkout", args.path, args.branch], {
-      cwd: args.projectRoot,
-      stdio: "pipe",
-    });
+    execFileSync(
+      "git",
+      ["worktree", "add", "--checkout", args.path, args.branch],
+      {
+        cwd: args.projectRoot,
+        stdio: "pipe",
+      },
+    );
     return;
   }
   execFileSync("git", ["worktree", "add", "-b", args.branch, args.path], {
@@ -67,7 +72,11 @@ export async function acquireExternalWorktree(args: {
 }): Promise<AcquiredWorktree> {
   args.signal?.throwIfAborted();
   const path = getExternalWorktreePath(args);
-  materializeWorktree({ projectRoot: args.projectRoot, branch: args.branch, path });
+  materializeWorktree({
+    projectRoot: args.projectRoot,
+    branch: args.branch,
+    path,
+  });
   const lock = acquireWorktreeLock(path);
   if (lock.kind === "busy") {
     throw new Error(

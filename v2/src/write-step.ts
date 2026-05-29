@@ -22,13 +22,18 @@ export type WriteStepRequest = {
 };
 
 export type WriteStepDeps = {
-  acquireWorktree: (signal?: AbortSignal) => Promise<{ path: string; release: () => Promise<void> | void }>;
+  acquireWorktree: (
+    signal?: AbortSignal,
+  ) => Promise<{ path: string; release: () => Promise<void> | void }>;
   invoke: (
     prompt: string,
     args: { cwd: string; signal?: AbortSignal; invocationIndex: number },
   ) => Promise<InvokeResult>;
   invocationCount: number;
-  checkOutputContract: (args: { token: "done" | "no-work"; cwd: string }) => Promise<{ ok: boolean; reason?: string }>;
+  checkOutputContract: (args: {
+    token: "done" | "no-work";
+    cwd: string;
+  }) => Promise<{ ok: boolean; reason?: string }>;
 };
 
 export function createWritePrompt(task: string): string {
@@ -57,7 +62,10 @@ export async function runWriteStep(
   const checkout = await deps.acquireWorktree(request.signal);
   try {
     const prompt = createWritePrompt(request.task);
-    let invokeResult: InvokeResult = { kind: "error", stderr: HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED };
+    let invokeResult: InvokeResult = {
+      kind: "error",
+      stderr: HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
+    };
     for (let i = 0; i < deps.invocationCount; i += 1) {
       invokeResult = await deps.invoke(prompt, {
         cwd: checkout.path,
@@ -72,11 +80,15 @@ export async function runWriteStep(
     if (invokeResult.kind === "quota") {
       return { kind: "error", message: HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED };
     }
-    if (invokeResult.kind === "error") return { kind: "error", message: invokeResult.stderr };
+    if (invokeResult.kind === "error")
+      return { kind: "error", message: invokeResult.stderr };
 
     const token = readOutcomeToken(invokeResult.stdout);
     if (token === null) {
-      return { kind: "error", message: "agent did not return a valid outcome token" };
+      return {
+        kind: "error",
+        message: "agent did not return a valid outcome token",
+      };
     }
 
     if (token === "blocked") {
@@ -91,7 +103,10 @@ export async function runWriteStep(
       return { kind: "progress", worktreePath: checkout.path };
     }
 
-    const contract = await deps.checkOutputContract({ token, cwd: checkout.path });
+    const contract = await deps.checkOutputContract({
+      token,
+      cwd: checkout.path,
+    });
     if (!contract.ok) {
       return {
         kind: "error",

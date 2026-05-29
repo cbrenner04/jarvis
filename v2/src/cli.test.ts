@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { main, type CliDeps } from "./cli.ts";
+import { type CliDeps, main } from "./cli.ts";
 
 function captureIo() {
   let stdout = "";
@@ -30,7 +30,11 @@ describe("v2 cli", () => {
   test("write runs one step end to end", async () => {
     const cap = captureIo();
 
-    const code = await main(["write", "--task", "Finish acceptance item."], cap.io, makeDeps());
+    const code = await main(
+      ["write", "--task", "Finish acceptance item."],
+      cap.io,
+      makeDeps(),
+    );
 
     expect(code).toBe(0);
     expect(cap.read()).toEqual({ stdout: "done /tmp/worktree\n", stderr: "" });
@@ -42,7 +46,10 @@ describe("v2 cli", () => {
     const code = await main([], cap.io, makeDeps());
 
     expect(code).toBe(1);
-    expect(cap.read()).toEqual({ stdout: "usage: jarvis write [--task <text>]\n", stderr: "" });
+    expect(cap.read()).toEqual({
+      stdout: "usage: jarvis write [--task <text>]\n",
+      stderr: "",
+    });
   });
 
   test("--version prints package version and exits 0", async () => {

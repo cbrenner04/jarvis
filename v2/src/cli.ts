@@ -1,6 +1,10 @@
 import packageJson from "../../package.json";
-import { runWriteStep, type WriteStepDeps, type WriteStepResult } from "./write-step.ts";
 import { acquireExternalWorktree, currentBranch } from "./worktree.ts";
+import {
+  runWriteStep,
+  type WriteStepDeps,
+  type WriteStepResult,
+} from "./write-step.ts";
 
 export type Io = {
   stdout: (s: string) => void;
@@ -18,7 +22,10 @@ function createDefaultDeps(): CliDeps {
         branch: currentBranch(projectRoot),
         ...(signal === undefined ? {} : { signal }),
       }),
-    invoke: async () => ({ kind: "error", stderr: "no agent adapter configured" }),
+    invoke: async () => ({
+      kind: "error",
+      stderr: "no agent adapter configured",
+    }),
     invocationCount: 1,
     checkOutputContract: async () => ({ ok: true }),
   };

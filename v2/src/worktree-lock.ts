@@ -22,11 +22,15 @@ export function getWorktreeLockPath(worktreeDir: string): string {
 function ensureLockExcluded(worktreeDir: string): void {
   let excludePath: string;
   try {
-    const out = execFileSync("git", ["rev-parse", "--git-path", "info/exclude"], {
-      cwd: worktreeDir,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    const out = execFileSync(
+      "git",
+      ["rev-parse", "--git-path", "info/exclude"],
+      {
+        cwd: worktreeDir,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ).trim();
     if (!out) return;
     excludePath = out.startsWith("/") ? out : join(worktreeDir, out);
   } catch {
@@ -44,7 +48,9 @@ function ensureLockExcluded(worktreeDir: string): void {
     existing = readFileSync(excludePath, "utf8");
   } catch {}
 
-  const hasEntry = existing.split("\n").some((line) => line.trim() === ".jarvis.lock");
+  const hasEntry = existing
+    .split("\n")
+    .some((line) => line.trim() === ".jarvis.lock");
   if (hasEntry) return;
 
   const needsLeadingNewline = existing.length > 0 && !existing.endsWith("\n");

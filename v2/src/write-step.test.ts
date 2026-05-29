@@ -16,7 +16,10 @@ describe("runWriteStep", () => {
     const result = await runWriteStep(
       { task: "Do work." },
       {
-        acquireWorktree: async () => ({ path: "/tmp/worktree", release: () => {} }),
+        acquireWorktree: async () => ({
+          path: "/tmp/worktree",
+          release: () => {},
+        }),
         invoke: async () => ({ kind: "ok", stdout: "done\n", stderr: "" }),
         invocationCount: 1,
         checkOutputContract: async ({ token }) => {
@@ -35,7 +38,10 @@ describe("runWriteStep", () => {
     const result = await runWriteStep(
       { task: "Do work." },
       {
-        acquireWorktree: async () => ({ path: "/tmp/worktree", release: () => {} }),
+        acquireWorktree: async () => ({
+          path: "/tmp/worktree",
+          release: () => {},
+        }),
         invoke: async () => ({ kind: "ok", stdout: "progress\n", stderr: "" }),
         invocationCount: 1,
         checkOutputContract: async () => {
@@ -79,10 +85,14 @@ describe("runWriteStep", () => {
     const result = await runWriteStep(
       { task: "Do work." },
       {
-        acquireWorktree: async () => ({ path: "/tmp/worktree", release: () => {} }),
+        acquireWorktree: async () => ({
+          path: "/tmp/worktree",
+          release: () => {},
+        }),
         invoke: async (_prompt, args) => {
           seen.push(args.invocationIndex);
-          if (args.invocationIndex === 0) return { kind: "quota", stderr: "limit hit" };
+          if (args.invocationIndex === 0)
+            return { kind: "quota", stderr: "limit hit" };
           return { kind: "ok", stdout: "no-work\n", stderr: "" };
         },
         invocationCount: 3,
@@ -98,28 +108,43 @@ describe("runWriteStep", () => {
     const result = await runWriteStep(
       { task: "Do work." },
       {
-        acquireWorktree: async () => ({ path: "/tmp/worktree", release: () => {} }),
+        acquireWorktree: async () => ({
+          path: "/tmp/worktree",
+          release: () => {},
+        }),
         invoke: async () => ({ kind: "quota", stderr: "limit hit" }),
         invocationCount: 2,
         checkOutputContract: async () => ({ ok: true }),
       },
     );
 
-    expect(result).toEqual({ kind: "error", message: "all agents quota-exhausted" });
+    expect(result).toEqual({
+      kind: "error",
+      message: "all agents quota-exhausted",
+    });
   });
 
   test("contract miss after terminal token returns hard error", async () => {
     const result = await runWriteStep(
       { task: "Do work." },
       {
-        acquireWorktree: async () => ({ path: "/tmp/worktree", release: () => {} }),
+        acquireWorktree: async () => ({
+          path: "/tmp/worktree",
+          release: () => {},
+        }),
         invoke: async () => ({ kind: "ok", stdout: "done\n", stderr: "" }),
         invocationCount: 1,
-        checkOutputContract: async () => ({ ok: false, reason: "expected file not found" }),
+        checkOutputContract: async () => ({
+          ok: false,
+          reason: "expected file not found",
+        }),
       },
     );
 
-    expect(result).toEqual({ kind: "error", message: "expected file not found" });
+    expect(result).toEqual({
+      kind: "error",
+      message: "expected file not found",
+    });
   });
 
   test("blocked stops immediately with blocker outcome", async () => {
@@ -127,8 +152,15 @@ describe("runWriteStep", () => {
     const result = await runWriteStep(
       { task: "Do work." },
       {
-        acquireWorktree: async () => ({ path: "/tmp/worktree", release: () => {} }),
-        invoke: async () => ({ kind: "ok", stdout: "blocked\n", stderr: "need approval" }),
+        acquireWorktree: async () => ({
+          path: "/tmp/worktree",
+          release: () => {},
+        }),
+        invoke: async () => ({
+          kind: "ok",
+          stdout: "blocked\n",
+          stderr: "need approval",
+        }),
         invocationCount: 2,
         checkOutputContract: async () => {
           checked = true;

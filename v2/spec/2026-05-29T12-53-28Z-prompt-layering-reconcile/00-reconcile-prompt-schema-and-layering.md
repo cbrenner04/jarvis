@@ -2,7 +2,7 @@
 
 ## Decisions
 
-- Keep one slice: schema reconciliation, layered rendering, snapshot updates, and durable doc alignment share one prompt-contract surface and one first consumer.
+- Keep one slice: schema reconciliation, layered rendering, snapshot updates, and doc alignment share one prompt-contract surface and one first consumer.
 - Durable contract home: `v1/docs/prompt-governance.md`.
 - Historical context home: `v2/docs/prompts.md`; align it to the shipped contract and cross-link the v1 doc.
 - Scope only the first rollout artifacts already in the registry; exclude `plan/name-only.md` and `plan/inline-draft.md`.
@@ -22,22 +22,21 @@
 
 ## Work items
 
-- Update prompt source frontmatter, registry parsing, and validation in `v1/src/prompts/registry.ts` and registered prompt files to the reconciled schema.
-- Implement layered renderer behavior in `v1/src/prompts/renderer.ts` for deterministic `global -> behavior -> step` assembly plus step `add` and `remove`.
-- Make `patch.prompt.body` the first concrete layered consumer without expanding rollout inventory.
-- Update `v1/test/prompts/registry.test.ts`, `v1/test/prompts/renderer.test.ts`, and rendered snapshot fixtures to assert the reconciled schema, validation split, layered output, and revision policy.
-- Update `v1/docs/prompt-governance.md` to the canonical shipped schema, delimiter, placeholder, renderer, revision, and validation contract.
-- Update `v2/docs/prompts.md` to historical-context status only, removing alternate live-contract wording and linking back to the v1 canonical contract.
+- Reconcile rollout prompt frontmatter, registry parsing, and validation to the shipped schema.
+- Implement deterministic `global -> behavior -> step` rendering with step `add` and `remove`.
+- Route `patch.prompt.body` through the layered renderer as the first consumer.
+- Update registry, renderer, and rendered snapshot coverage for schema, layering, validation split, and per-ID revision policy.
+- Align `v1/docs/prompt-governance.md` as canonical and `v2/docs/prompts.md` as historical context.
 
 ## Documentation updates
 
-- `v1/docs/prompt-governance.md`: shipped prompt schema, layering semantics, placeholder contract, delimiter syntax, revision policy, validation split, rollout inventory.
-- `v2/docs/prompts.md`: historical design context, explicit supersession notes, cross-links to `v1/docs/prompt-governance.md`.
+- `v1/docs/prompt-governance.md`: shipped schema, layering, placeholders, delimiters, validation, revisions, rollout scope.
+- `v2/docs/prompts.md`: historical context, supersession note, cross-link to `v1/docs/prompt-governance.md`.
 - No other durable doc updates unless implementation changes another operator-facing prompt workflow contract.
 
 ## Acceptance criteria
 
-- [ ] Registered first-rollout prompt artifacts use one reconciled schema in source, parser, and tests: `kind: step|fragment`, real behavior grouping, one placeholder format, and one delimiter contract; no stored `agent-facing`, `template`, `rules`, or active dual placeholder parsing remain in rollout scope.
-- [ ] Rendering a step by prompt `id` assembles `global -> behavior -> step` deterministically, honors step `add` and `remove`, and uses artifact metadata rather than caller-supplied fragment lists; `patch.prompt.body` renders through this path as the first concrete consumer.
-- [ ] `v1/test/prompts/registry.test.ts`, `v1/test/prompts/renderer.test.ts`, and rendered snapshot coverage assert the reconciled schema, validation boundary, layered output, and revision bumps only for IDs whose rendered bytes changed.
-- [ ] `v1/docs/prompt-governance.md` is the canonical shipped contract for schema, renderer, placeholders, delimiters, validation, revisions, and rollout scope; `v2/docs/prompts.md` no longer states an alternate live contract.
+- [ ] Rollout prompt artifacts, parser, and tests use one schema: `kind: step|fragment`, real behavior grouping, one placeholder format, and one delimiter contract; no stored `agent-facing`, `template`, `rules`, or active dual placeholder parsing remain in scope.
+- [ ] Rendering a step by prompt `id` assembles `global -> behavior -> step`, honors step `add` and `remove`, and uses artifact metadata rather than caller-supplied fragment lists; `patch.prompt.body` is the first consumer.
+- [ ] Registry, renderer, and rendered snapshot coverage assert the schema, validation split, layered output, and per-ID revision bumps only where rendered bytes changed.
+- [ ] `v1/docs/prompt-governance.md` is the canonical shipped contract; `v2/docs/prompts.md` no longer states an alternate live contract.

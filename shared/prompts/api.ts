@@ -381,6 +381,7 @@ export function assemblePromptForStep(args: {
     "global.terse": 2,
     "plan.decisions-ledger": 0,
     "plan.defer-to-consumer": 1,
+    // write currently has no behavior fragments; write.execute is the step prompt.
   };
   const sortByContractOrder = (a: string, b: string): number => {
     const ai = ORDER_INDEX[a];

@@ -30,7 +30,7 @@
 
 - [x] Phase 1 code can create or reuse a worktree under `~/.jarvis/worktrees/<project>/<branch>/` from explicit naming inputs supplied by the caller.
 - [x] The helper writes and reads the same `.jarvis.lock` JSON payload shape and enforces the same busy-vs-stale behavior v1 already uses.
-- [x] Lock lifetime spans worktree acquisition through result materialization, and release happens on both success and failure paths.
+- [x] Lock lifetime spans callback execution through result materialization, and release happens on both success and failure paths.
 - [x] Best-effort `info/exclude` handling matches the compatible v1 semantics for the external worktree path.
 - [x] Tests cover at least one fresh acquisition, one stale-lock recovery, and one busy-lock refusal.
 

@@ -2,6 +2,10 @@
 
 `jarvis write` runs one `write` behavior turn.
 
+Current scope: this CLI path is a walking skeleton. It does not spawn real
+`claude`/`codex`/`cursor` processes yet. `--agent-outcomes` provides simulated
+invocation results for coverage and control-flow verification.
+
 ## Command
 
 ```
@@ -19,6 +23,8 @@ jarvis write \
 - Worktree path: `~/.jarvis/worktrees/<project>/<branch>/`.
 - Locking uses v1-compatible `.jarvis.lock` semantics.
 - One invocation pass only; no automatic retry loop for `progress`.
+- `--agent-outcomes` maps to simulated invocation results:
+  `quota,model_config,error,done,no-work,blocked,progress`.
 
 ## Outcomes
 

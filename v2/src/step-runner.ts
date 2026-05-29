@@ -71,10 +71,16 @@ export type StepRunResult =
 
 /** Parse an invocation stdout payload into an accepted terminal outcome token. */
 export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
-  const token = stdout.trim();
-  return TERMINAL_TOKENS.includes(token as StepOutcomeToken)
-    ? (token as StepOutcomeToken)
-    : null;
+  const trimmed = stdout.trim();
+  if (TERMINAL_TOKENS.includes(trimmed as StepOutcomeToken)) {
+    return trimmed as StepOutcomeToken;
+  }
+
+  const matches = [...trimmed.matchAll(/\b(done|no-work|blocked|progress)\b/g)];
+  if (matches.length === 0) return null;
+  const last = matches[matches.length - 1]?.[1];
+  if (last === undefined) return null;
+  return last as StepOutcomeToken;
 }
 
 /**

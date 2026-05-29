@@ -50,6 +50,10 @@ function setupRepo(): { repoRoot: string; jarvisRoot: string } {
   return { repoRoot, jarvisRoot };
 }
 
+function getLockRoot(jarvisRoot: string): string {
+  return join(jarvisRoot, "worktree-locks", "demo", "write-run");
+}
+
 describe("external worktree helper", () => {
   test("creates a fresh external worktree and releases lock on success", async () => {
     const { repoRoot, jarvisRoot } = setupRepo();
@@ -68,7 +72,7 @@ describe("external worktree helper", () => {
     expect(result.worktree.reused).toBe(false);
     expect(existsSync(result.worktree.path)).toBe(true);
 
-    const lockPath = getExternalWorktreeLockPath(result.worktree.path);
+    const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     expect(existsSync(lockPath)).toBe(false);
 
     const excludePath = execFileSync(
@@ -82,13 +86,6 @@ describe("external worktree helper", () => {
 
   test("recovers stale lock and reports recovered status", async () => {
     const { repoRoot, jarvisRoot } = setupRepo();
-    const path = getExternalWorktreePath({
-      projectRoot: repoRoot,
-      projectName: "demo",
-      branchName: "write-run",
-      baseRef: "HEAD",
-      jarvisRoot,
-    });
 
     await withExternalWorktree(
       {
@@ -101,7 +98,7 @@ describe("external worktree helper", () => {
       () => undefined,
     );
 
-    const lockPath = getExternalWorktreeLockPath(path);
+    const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     writeFileSync(
       lockPath,
       `${JSON.stringify({
@@ -129,13 +126,6 @@ describe("external worktree helper", () => {
 
   test("refuses busy lock with v1-compatible payload", async () => {
     const { repoRoot, jarvisRoot } = setupRepo();
-    const path = getExternalWorktreePath({
-      projectRoot: repoRoot,
-      projectName: "demo",
-      branchName: "write-run",
-      baseRef: "HEAD",
-      jarvisRoot,
-    });
 
     await withExternalWorktree(
       {
@@ -148,7 +138,7 @@ describe("external worktree helper", () => {
       () => undefined,
     );
 
-    const lockPath = getExternalWorktreeLockPath(path);
+    const lockPath = getExternalWorktreeLockPath(getLockRoot(jarvisRoot));
     writeFileSync(
       lockPath,
       `${JSON.stringify({
@@ -173,7 +163,7 @@ describe("external worktree helper", () => {
     ).rejects.toBeInstanceOf(WorktreeBusyError);
   });
 
-  test("releases lock when callback fails", async () => {
+  test("refuses reusing a non-worktree directory", async () => {
     const { repoRoot, jarvisRoot } = setupRepo();
     const path = getExternalWorktreePath({
       projectRoot: repoRoot,
@@ -182,6 +172,24 @@ describe("external worktree helper", () => {
       baseRef: "HEAD",
       jarvisRoot,
     });
+    execFileSync("mkdir", ["-p", path], { stdio: "pipe" });
+
+    await expect(
+      withExternalWorktree(
+        {
+          projectRoot: repoRoot,
+          projectName: "demo",
+          branchName: "write-run",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        () => "never",
+      ),
+    ).rejects.toThrow(`existing path is not a git worktree: ${path}`);
+  });
+
+  test("releases lock when callback fails", async () => {
+    const { repoRoot, jarvisRoot } = setupRepo();
 
     await expect(
       withExternalWorktree(
@@ -198,6 +206,8 @@ describe("external worktree helper", () => {
       ),
     ).rejects.toThrow("boom");
 
-    expect(existsSync(getExternalWorktreeLockPath(path))).toBe(false);
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(
+      false,
+    );
   });
 });

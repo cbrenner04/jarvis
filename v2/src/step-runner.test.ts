@@ -24,6 +24,12 @@ describe("step runner token parsing", () => {
   test("rejects unknown token", () => {
     expect(parseStepOutcomeToken("finished")).toBeNull();
   });
+
+  test("extracts token from prose output", () => {
+    expect(parseStepOutcomeToken("I updated the file.\nFinal: progress\n")).toBe(
+      "progress",
+    );
+  });
 });
 
 describe("step runner classification", () => {

@@ -34,7 +34,7 @@ export type ExternalWorktree = {
 /** Lock acquisition classification reused for reporting and tests. */
 export type LockStatus =
   | { kind: "acquired" }
-  | { kind: "recovered"; stalePid: number };
+  | { kind: "recovered"; stalepid: number };
 
 /** Busy lock error preserving the existing lock payload. */
 export class WorktreeBusyError extends Error {
@@ -75,13 +75,15 @@ export async function withExternalWorktree<T>(
   args: ExternalWorktreeInput,
   run: (worktree: ExternalWorktree) => Promise<T> | T,
 ): Promise<WithExternalWorktreeResult<T>> {
-  const worktree = ensureExternalWorktree(args);
-  const lock = acquireExternalWorktreeLock(worktree.path);
+  const lockRoot = ensureExternalWorktreeLockRoot(args);
+  const lock = acquireExternalWorktreeLock(lockRoot);
   try {
+    const worktree = ensureExternalWorktree(args);
+    ensureLockExcluded(worktree.path);
     const value = await run(worktree);
     return { worktree, lock, value };
   } finally {
-    releaseExternalWorktreeLock(worktree.path);
+    releaseExternalWorktreeLock(lockRoot);
   }
 }
 
@@ -90,8 +92,11 @@ export function ensureExternalWorktree(
   args: ExternalWorktreeInput,
 ): ExternalWorktree {
   const worktreePath = getExternalWorktreePath(args);
-  if (existsSync(worktreePath)) {
+  if (isValidGitWorktree(worktreePath)) {
     return { path: worktreePath, reused: true };
+  }
+  if (existsSync(worktreePath)) {
+    throw new Error(`existing path is not a git worktree: ${worktreePath}`);
   }
 
   mkdirSync(dirname(worktreePath), { recursive: true });
@@ -162,10 +167,10 @@ export function acquireExternalWorktreeLock(worktreeDir: string): LockStatus {
       if (isProcessAlive(existingLock.pid)) {
         throw new WorktreeBusyError(existingLock);
       }
-      const stalePid = existingLock.pid;
+      const stalepid = existingLock.pid;
       unlinkSync(lockPath);
       writeLock(lockPath);
-      return { kind: "recovered", stalePid };
+      return { kind: "recovered", stalepid };
     }
   }
 
@@ -235,6 +240,36 @@ function ensureLockExcluded(worktreeDir: string): void {
     writeFileSync(excludePath, existing + addition, "utf8");
   } catch {
     // Best-effort.
+  }
+}
+
+function ensureExternalWorktreeLockRoot(args: ExternalWorktreeInput): string {
+  const jarvisRoot = args.jarvisRoot ?? join(homedir(), ".jarvis");
+  const lockRoot = join(
+    jarvisRoot,
+    "worktree-locks",
+    args.projectName,
+    args.branchName,
+  );
+  mkdirSync(lockRoot, { recursive: true });
+  return lockRoot;
+}
+
+function isValidGitWorktree(worktreePath: string): boolean {
+  if (!existsSync(worktreePath)) return false;
+  try {
+    const output = execFileSync(
+      "git",
+      ["rev-parse", "--is-inside-work-tree"],
+      {
+        cwd: worktreePath,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ).trim();
+    return output === "true";
+  } catch {
+    return false;
   }
 }
 

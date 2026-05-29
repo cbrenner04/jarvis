@@ -21,6 +21,7 @@ function makeDeps(): CliDeps {
   return {
     acquireWorktree: async () => ({ path: "/tmp/worktree", release: () => {} }),
     invoke: async () => ({ kind: "ok", stdout: "done\n", stderr: "" }),
+    invocationCount: 1,
     checkOutputContract: async () => ({ ok: true }),
   };
 }

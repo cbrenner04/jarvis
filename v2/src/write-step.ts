@@ -1,5 +1,6 @@
 import { loadPromptRegistry } from "../../src/shared/prompts/registry.ts";
 import { renderArtifactTemplate } from "../../src/shared/prompts/renderer.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../v1/src/quota-harness-messages.ts";
 
 export type WriteStepToken = "done" | "no-work" | "blocked" | "progress";
 
@@ -12,6 +13,7 @@ export type WriteStepResult =
 
 export type InvokeResult =
   | { kind: "ok"; stdout: string; stderr: string }
+  | { kind: "quota"; stderr: string }
   | { kind: "error"; stderr: string };
 
 export type WriteStepRequest = {
@@ -21,7 +23,11 @@ export type WriteStepRequest = {
 
 export type WriteStepDeps = {
   acquireWorktree: (signal?: AbortSignal) => Promise<{ path: string; release: () => Promise<void> | void }>;
-  invoke: (prompt: string, args: { cwd: string; signal?: AbortSignal }) => Promise<InvokeResult>;
+  invoke: (
+    prompt: string,
+    args: { cwd: string; signal?: AbortSignal; invocationIndex: number },
+  ) => Promise<InvokeResult>;
+  invocationCount: number;
   checkOutputContract: (args: { token: "done" | "no-work"; cwd: string }) => Promise<{ ok: boolean; reason?: string }>;
 };
 
@@ -51,14 +57,22 @@ export async function runWriteStep(
   const checkout = await deps.acquireWorktree(request.signal);
   try {
     const prompt = createWritePrompt(request.task);
-    const invokeResult = await deps.invoke(prompt, {
-      cwd: checkout.path,
-      ...(request.signal === undefined ? {} : { signal: request.signal }),
-    });
-
-    if (invokeResult.kind === "error") {
-      return { kind: "error", message: invokeResult.stderr };
+    let invokeResult: InvokeResult = { kind: "error", stderr: HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED };
+    for (let i = 0; i < deps.invocationCount; i += 1) {
+      invokeResult = await deps.invoke(prompt, {
+        cwd: checkout.path,
+        invocationIndex: i,
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+      });
+      if (invokeResult.kind !== "quota") {
+        break;
+      }
     }
+
+    if (invokeResult.kind === "quota") {
+      return { kind: "error", message: HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED };
+    }
+    if (invokeResult.kind === "error") return { kind: "error", message: invokeResult.stderr };
 
     const token = readOutcomeToken(invokeResult.stdout);
     if (token === null) {
@@ -80,9 +94,8 @@ export async function runWriteStep(
     const contract = await deps.checkOutputContract({ token, cwd: checkout.path });
     if (!contract.ok) {
       return {
-        kind: "blocked",
-        reason: contract.reason ?? "output contract failed",
-        worktreePath: checkout.path,
+        kind: "error",
+        message: contract.reason ?? "output contract failed",
       };
     }
 

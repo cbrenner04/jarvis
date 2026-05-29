@@ -19,6 +19,7 @@ function createDefaultDeps(): CliDeps {
         ...(signal === undefined ? {} : { signal }),
       }),
     invoke: async () => ({ kind: "error", stderr: "no agent adapter configured" }),
+    invocationCount: 1,
     checkOutputContract: async () => ({ ok: true }),
   };
 }

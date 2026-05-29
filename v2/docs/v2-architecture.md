@@ -134,7 +134,12 @@ Outcome tokens:
 Phase 1 shipped shape:
 
 - The first `jarvis` v2 write path runs one step only (no automatic loop).
+- Invocation uses one configured ordered fallback list and retries only on
+  quota-classified failures.
 - `progress` is returned as a non-complete outcome and the process exits.
+- `blocked` stops immediately and surfaces the blocker outcome.
+- A `done`/`no-work` contract miss is a hard non-success result (not a hidden
+  retry and not reclassified as `blocked`).
 
 Rules:
 
@@ -147,8 +152,9 @@ Rules:
   Don't block mid-loop — an agent may still clean things up on a
   later iteration. A deterministic check is cheap, but checking mid-loop would
   block on artifacts that legitimately don't exist yet.
-- **Mismatch → blocker, not silent retry.** Agent says terminal but the contract
-  fails ⇒ add a blocker and stop, rather than quietly looping again.
+- **Mismatch → hard non-success, not silent retry.** Agent says terminal but the
+  contract fails ⇒ stop with a surfaced failure result rather than quietly
+  looping again.
 - **Budget exhausted while still `progress` → soft stop**, matching v1's
   max-iterations (exit `5`): resumable, not a blocker.
 

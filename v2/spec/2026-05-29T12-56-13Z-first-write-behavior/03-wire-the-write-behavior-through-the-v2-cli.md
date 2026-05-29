@@ -1,15 +1,15 @@
-# 03 - Wire the write behavior through the v2 CLI
+# 03 - Wire write through the v2 CLI
 
 ## Decisions
 
-- Keep `write` thin: it supplies `write.execute` plus its output contract and delegates invocation, token parsing, contract dispatch, and worktree lifecycle to shared layers.
+- Keep `write` thin: supply `write.execute` plus its output contract and delegate invocation, token parsing, contract dispatch, and worktree lifecycle to shared layers.
 - Land the first live Phase 1 path as one CLI-triggered run with one agent turn total.
 - Keep the core entry host-agnostic and abortable; the CLI owns argv parsing, stdio, and exit mapping only.
-- Record the durable operator flow in a behavior-named v2 doc, not in `v2/docs/v2-architecture.md` or a phase-named file.
+- Record the operator flow in a behavior-named `v2/docs/` home, not `v2/docs/v2-architecture.md` or a phase-named file.
 - Keep the first contract deterministic and minimal: prove the expected artifact exists in the materialized worktree.
-- Update `v2/docs/prompts.md` only if the prompt contract itself changes beyond adding the first live `write.execute` artifact.
-- Deferred to first consumer: exact CLI spelling and argument shape beyond the first tested command surface — pin when CLI tests force the choice.
-- Deferred to first consumer: any broader operator workflow beyond run-once invocation and local verification — pin when looping or workflows exist.
+- Update `v2/docs/prompts.md` only if the prompt contract changes beyond adding the first live `write.execute` artifact.
+- Deferred to first consumer: exact CLI spelling and argument shape beyond the first tested command surface — pin when CLI tests force it.
+- Deferred to first consumer: broader operator workflow beyond run-once invocation and local verification — pin when looping or workflows exist.
 
 ## Constraints
 

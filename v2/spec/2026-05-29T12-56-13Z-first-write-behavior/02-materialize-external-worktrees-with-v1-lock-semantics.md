@@ -1,22 +1,22 @@
-# 02 - Materialize external worktrees with v1 lock semantics
+# 02 - External worktrees with v1 lock semantics
 
 ## Decisions
 
 - Build a v2 worktree helper for external materialization under `~/.jarvis/worktrees`; do not reuse `v1/src/worktree.ts`.
-- Keep worktree lifecycle outside the `write` behavior; the runner call site supplies naming inputs and receives a prepared checkout.
+- Keep worktree lifecycle outside `write`; the runner call site supplies naming inputs and receives a prepared checkout.
 - Reuse the v1 `.jarvis.lock` JSON payload and busy-vs-stale semantics exactly.
 - Hold the lock from acquisition through result materialization.
 - Apply best-effort `info/exclude` handling compatible with v1.
-- Make the helper accept explicit project/worktree naming inputs instead of deriving names from spec-path conventions.
-- Keep branch naming and slug policy intentionally narrow to the first live materialization call site.
-- Deferred to first consumer: collision suffixing and any broader naming normalization beyond the first passing call path — pin when a caller needs it.
+- Accept explicit project/worktree naming inputs instead of deriving names from spec-path conventions.
+- Keep branch naming and slug policy narrow to the first live materialization call site.
+- Deferred to first consumer: collision suffixing and broader naming normalization beyond the first passing path — pin when a caller needs it.
 
 ## Constraints
 
-- Do not move worktree ownership into the `write` behavior.
+- Do not move worktree ownership into `write`.
 - Do not add durable state, resume metadata, or branch/PR lifecycle.
 - Keep the helper usable by a host-agnostic runner.
-- Match existing stale-lock handling rather than inventing a v2-only format or recovery rule.
+- Match existing stale-lock handling; do not invent a v2-only format or recovery rule.
 
 ## Task checklist
 

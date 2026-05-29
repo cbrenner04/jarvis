@@ -3,7 +3,7 @@ import {
   executeWithQuotaFallback,
   type InvocationBinding,
   type InvocationResult,
-} from "../../shared/invocation/execute.ts";
+} from "./execute.ts";
 
 describe("shared invocation fallback", () => {
   test("advances only on quota and preserves binding order", async () => {

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { createPromptRegistry } from "./registry.ts";
 
 function withFrontmatter(meta: string, body = "Body"): string {
   return `---\n${meta}\n---\n${body}\n`;

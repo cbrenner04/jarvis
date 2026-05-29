@@ -1,0 +1,39 @@
+# 02 - Materialize external worktrees with v1 lock semantics
+
+## Decisions
+
+- Build a v2 worktree helper for external materialization under `~/.jarvis/worktrees`; do not reuse `v1/src/worktree.ts`.
+- Keep worktree lifecycle outside the `write` behavior; the runner call site supplies naming inputs and receives a prepared checkout.
+- Reuse the v1 `.jarvis.lock` JSON payload and busy-vs-stale semantics exactly.
+- Hold the lock from acquisition through result materialization.
+- Apply best-effort `info/exclude` handling compatible with v1.
+- Make the helper accept explicit project/worktree naming inputs instead of deriving names from spec-path conventions.
+- Keep branch naming and slug policy intentionally narrow to the first live materialization call site.
+- Deferred to first consumer: collision suffixing and any broader naming normalization beyond the first passing call path — pin when a caller needs it.
+
+## Constraints
+
+- Do not move worktree ownership into the `write` behavior.
+- Do not add durable state, resume metadata, or branch/PR lifecycle.
+- Keep the helper usable by a host-agnostic runner.
+- Match existing stale-lock handling rather than inventing a v2-only format or recovery rule.
+
+## Task checklist
+
+- Add the v2 worktree acquisition/materialization helper.
+- Implement lock acquisition, stale-lock handling, and release with the existing `.jarvis.lock` contract.
+- Materialize and reuse worktrees under `~/.jarvis/worktrees/<project>/<branch>/`.
+- Add tests for fresh-lock, stale-lock, and busy-lock behavior.
+- Document the operator-visible worktree location and verification surface only when the live `write` flow exists.
+
+## Acceptance criteria
+
+- [ ] Phase 1 code can create or reuse a worktree under `~/.jarvis/worktrees/<project>/<branch>/` from explicit naming inputs supplied by the caller.
+- [ ] The helper writes and reads the same `.jarvis.lock` JSON payload shape and enforces the same busy-vs-stale behavior v1 already uses.
+- [ ] Lock lifetime spans worktree acquisition through result materialization, and release happens on both success and failure paths.
+- [ ] Best-effort `info/exclude` handling matches the compatible v1 semantics for the external worktree path.
+- [ ] Tests cover at least one fresh acquisition, one stale-lock recovery, and one busy-lock refusal.
+
+## Documentation updates
+
+- No standalone durable doc in this subspec unless the worktree helper exposes new operator-facing semantics on its own; otherwise document the location and verification flow in `03`.

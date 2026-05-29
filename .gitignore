@@ -6,3 +6,4 @@ dist/
 !.worktree/.keep
 .claude/
 .aider*
+running-thoughts.md

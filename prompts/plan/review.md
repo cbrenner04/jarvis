@@ -1,9 +1,10 @@
 ---
 id: plan.prompt.review
-behavior: agent-facing
-kind: template
+behavior: plan
+kind: step
 revision: 5
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, REVIEW_PASS_CONTEXT:string!]
+remove: [global.naming]
 ---
 # Plan Mode — Self-Review Phase
 

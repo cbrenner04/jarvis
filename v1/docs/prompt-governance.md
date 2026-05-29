@@ -1,7 +1,6 @@
 # Prompt Governance
 
-This document defines prompt identity and validation for Jarvis-managed
-agent-facing prompts.
+This document defines prompt identity and validation for Jarvis-managed prompts.
 
 ## First Registry Rollout (Metadata-First)
 
@@ -44,8 +43,8 @@ Each registered prompt artifact must start with leading frontmatter and include
 all required fields:
 
 - `id` (stable runtime lookup key)
-- `behavior` (prompt behavior class)
-- `kind` (artifact type, for example `template` or `rules`)
+- `behavior` (real grouping key: `global`, `patch`, `plan`, or another scoped class)
+- `kind` (artifact type: `step` or `fragment`)
 - `revision` (change-visible revision marker)
 
 Optional relationship fields used during validation:
@@ -80,15 +79,13 @@ Validation and rendering failures are intentionally split:
 Shared rendering follows this contract:
 
 - Assembly order is deterministic: `global -> behavior -> step`.
+- Rendering is metadata-driven by step `id`; callers do not pass explicit fragment lists.
 - Step definitions may explicitly add or remove named fragments.
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
-- Global guidance is layered via shared fragments (`global.documentation`, then `global.naming`, then `global.terse`) rather than duplicated across step prompts or `patch.rules`.
-- Patch global guidance is layered via shared fragments
-  (`global.documentation`, then `global.naming`, then `global.terse`) rather
-  than duplicated across step prompts or `patch.rules`.
-- Plan global guidance layers `global.documentation`, `global.terse`, then
-  `plan.decisions-ledger`, then `plan.defer-to-consumer`.
+- Patch layering is `global.documentation -> global.naming -> global.terse -> patch.prompt.body`.
+- Plan layering is `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`.
+- `patch.rules` remains step-owned injected content, not an always-layered patch fragment.
 - `global.documentation` requires docs-first execution order: read relevant
   durable docs/specs before code edits, and update docs/specs in the same
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics

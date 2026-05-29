@@ -34,18 +34,18 @@ describe("prompt registry load validation", () => {
 
   test("missing required metadata is a load-time error", () => {
     const entry = withFrontmatter(
-      "id: example.prompt\nbehavior: agent-facing\nkind: template",
+      "id: example.prompt\nbehavior: plan\nkind: step",
     );
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow();
   });
 
   test("duplicate ids are rejected during load", () => {
     const a = withFrontmatter(
-      "id: dup.prompt\nbehavior: agent-facing\nkind: template\nrevision: 1",
+      "id: dup.prompt\nbehavior: plan\nkind: step\nrevision: 1",
       "A",
     );
     const b = withFrontmatter(
-      "id: dup.prompt\nbehavior: agent-facing\nkind: template\nrevision: 2",
+      "id: dup.prompt\nbehavior: plan\nkind: step\nrevision: 2",
       "B",
     );
     expect(() =>
@@ -55,7 +55,7 @@ describe("prompt registry load validation", () => {
 
   test("unknown fragment membership reference is rejected during load", () => {
     const entry = withFrontmatter(
-      "id: fragment.prompt\nbehavior: agent-facing\nkind: template\nrevision: 1\nfragmentOf: [missing.parent]",
+      "id: fragment.prompt\nbehavior: plan\nkind: fragment\nrevision: 1\nfragmentOf: [missing.parent]",
     );
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow(
       "unknown fragment membership reference",
@@ -64,7 +64,7 @@ describe("prompt registry load validation", () => {
 
   test("unknown explicit override target is rejected during load", () => {
     const entry = withFrontmatter(
-      "id: override.prompt\nbehavior: agent-facing\nkind: template\nrevision: 1\noverrides: [missing.target]",
+      "id: override.prompt\nbehavior: plan\nkind: step\nrevision: 1\noverrides: [missing.target]",
     );
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow(
       "unknown explicit override target",
@@ -73,7 +73,7 @@ describe("prompt registry load validation", () => {
 
   test("parses placeholder declarations from frontmatter", () => {
     const entry = withFrontmatter(
-      "id: placeholders.prompt\nbehavior: agent-facing\nkind: template\nrevision: 1\nplaceholders: [WORKDIR:string!, NAME:string!]",
+      "id: placeholders.prompt\nbehavior: plan\nkind: step\nrevision: 1\nplaceholders: [WORKDIR:string!, NAME:string!]",
       "<WORKDIR> <NAME>",
     );
     const registry = createPromptRegistry([writePromptFixture(entry)]);
@@ -87,7 +87,7 @@ describe("prompt registry load validation", () => {
 
   test("invalid placeholder declarations fail during load", () => {
     const entry = withFrontmatter(
-      "id: bad.placeholders\nbehavior: agent-facing\nkind: template\nrevision: 1\nplaceholders: [WORKDIR:number!]",
+      "id: bad.placeholders\nbehavior: plan\nkind: step\nrevision: 1\nplaceholders: [WORKDIR:number!]",
       "<WORKDIR>",
     );
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow(

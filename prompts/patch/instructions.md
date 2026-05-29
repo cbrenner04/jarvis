@@ -1,7 +1,7 @@
 ---
 id: patch.prompt.body
-behavior: agent-facing
-kind: template
+behavior: patch
+kind: step
 revision: 3
 placeholders: [SPEC_PATH:string!, SIBLINGS_BLOCK:string!, PATCH_RULES:string!]
 ---

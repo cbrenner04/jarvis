@@ -4,10 +4,12 @@ import { join } from "node:path";
 export type PromptMetadata = {
   id: string;
   behavior: string;
-  kind: string;
+  kind: "step" | "fragment";
   revision: string;
   fragmentOf: string[];
   overrides: string[];
+  add: string[];
+  remove: string[];
   placeholders: PromptPlaceholderDeclaration[];
 };
 
@@ -175,7 +177,14 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
 
   const fragmentOf = parseListValue(fields.get("fragmentOf") ?? "");
   const overrides = parseListValue(fields.get("overrides") ?? "");
+  const add = parseListValue(fields.get("add") ?? "");
+  const remove = parseListValue(fields.get("remove") ?? "");
   const placeholders = parsePlaceholdersValue(fields.get("placeholders") ?? "");
+  if (kind !== "step" && kind !== "fragment") {
+    throw new Error(
+      `invalid kind \`${kind}\` in prompt artifact ${sourcePath}; expected step|fragment`,
+    );
+  }
 
   return {
     metadata: {
@@ -185,6 +194,8 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
       revision,
       fragmentOf,
       overrides,
+      add,
+      remove,
       placeholders,
     },
     sourcePath,
@@ -225,6 +236,20 @@ export function createPromptRegistry(
       if (!byId.has(targetId)) {
         throw new Error(
           `unknown explicit override target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`,
+        );
+      }
+    }
+    for (const targetId of artifact.metadata.add) {
+      if (!byId.has(targetId)) {
+        throw new Error(
+          `unknown add target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`,
+        );
+      }
+    }
+    for (const targetId of artifact.metadata.remove) {
+      if (!byId.has(targetId)) {
+        throw new Error(
+          `unknown remove target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`,
         );
       }
     }

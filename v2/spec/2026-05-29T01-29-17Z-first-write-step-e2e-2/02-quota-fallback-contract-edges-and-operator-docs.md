@@ -28,5 +28,5 @@
 
 - [ ] Automated coverage proves Phase 1 retries the next configured agent only on quota-classified failure and surfaces the first non-quota result without loop semantics.
 - [ ] Automated coverage proves `done` and `no-work` run deterministic contract checks, a contract miss surfaces as a hard result, `blocked` stops immediately, and `progress` returns non-complete with no retry.
-- [ ] Durable operator docs in `v2/docs/` describe one concrete Phase 1 CLI invocation, the expected worktree/output side effects, and how each surfaced outcome should be interpreted.
+- [ ] Durable operator docs in `v2/docs/` pin one concrete Phase 1 CLI invocation, the expected worktree/output side effects, and the meaning of each surfaced outcome.
 - [ ] Root verification remains green after the full Phase 1 slice lands: `bun run typecheck` and `bun test`.

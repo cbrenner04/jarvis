@@ -1,14 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import type {
-  PromptArtifact,
-  PromptRegistry,
-} from "../../src/prompts/registry.ts";
+import { assemblePrompt } from "../../../shared/prompts/assemble.ts";
 import {
-  assemblePrompt,
   enforceDelimiterPolicy,
   PromptRenderingError,
   renderTemplateWithDeclarations,
-} from "../../src/prompts/renderer.ts";
+} from "../../../shared/prompts/render.ts";
+import type {
+  PromptArtifact,
+  PromptRegistry,
+} from "../../../shared/prompts/types.ts";
 
 function makeRegistry(artifacts: PromptArtifact[]): PromptRegistry {
   const byId = new Map(artifacts.map((a) => [a.metadata.id, a]));

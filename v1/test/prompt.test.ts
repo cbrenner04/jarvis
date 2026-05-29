@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
 import { buildPrompt } from "../src/modes/patch/prompt.ts";
-import { loadPromptRegistry } from "../src/prompts/registry.ts";
 
 describe("buildPrompt", () => {
   test("asks the agent to discover repo guidance and includes Jarvis rules", () => {

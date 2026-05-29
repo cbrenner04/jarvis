@@ -69,4 +69,4 @@ export function renderTemplate(
 import {
   PromptRenderingError,
   renderTemplateWithDeclarations,
-} from "../../prompts/renderer.ts";
+} from "../../../../shared/prompts/render.ts";

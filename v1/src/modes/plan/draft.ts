@@ -1,14 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
+import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
+import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
-import { loadPromptRegistry } from "../../prompts/registry.ts";
-import {
-  assemblePromptForStep,
-  enforceDelimiterPolicy,
-} from "../../prompts/renderer.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";

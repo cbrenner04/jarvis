@@ -1,8 +1,6 @@
-import { loadPromptRegistry } from "../../prompts/registry.ts";
-import {
-  assemblePromptForStep,
-  renderTemplateWithDeclarations,
-} from "../../prompts/renderer.ts";
+import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
+import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
+import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
 
 export function buildPrompt(specPath: string, siblings?: string[]): string {
   const registry = loadPromptRegistry();

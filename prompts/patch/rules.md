@@ -1,7 +1,7 @@
 ---
 id: patch.rules
-behavior: agent-facing
-kind: rules
+behavior: patch-rules
+kind: fragment
 revision: 1
 ---
 # Patch Mode

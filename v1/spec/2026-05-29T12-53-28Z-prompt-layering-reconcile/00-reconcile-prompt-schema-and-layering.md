@@ -37,7 +37,7 @@
 
 ## Acceptance criteria
 
-- [ ] Rollout prompt artifacts, parser, and tests use one schema: `kind: step|fragment`, real behavior grouping, one placeholder format, and one delimiter contract; no stored `agent-facing`, `template`, `rules`, or active dual placeholder parsing remain in scope.
-- [ ] Rendering a step by prompt `id` assembles `global -> behavior -> step`, honors step `add` and `remove`, and uses artifact metadata rather than caller-supplied fragment lists; `patch.prompt.body` is the first consumer.
-- [ ] Registry, renderer, and rendered snapshot coverage assert the schema, validation split, layered output, and per-ID revision bumps only where rendered bytes changed.
-- [ ] `v2/docs/prompts.md` is the durable layering contract, `v1/docs/prompt-governance.md` is the aligned shipped v1 reference, and neither doc states an alternate live schema or renderer contract.
+- [x] Rollout prompt artifacts, parser, and tests use one schema: `kind: step|fragment`, real behavior grouping, one placeholder format, and one delimiter contract; no stored `agent-facing`, `template`, `rules`, or active dual placeholder parsing remain in scope.
+- [x] Rendering a step by prompt `id` assembles `global -> behavior -> step`, honors step `add` and `remove`, and uses artifact metadata rather than caller-supplied fragment lists; `patch.prompt.body` is the first consumer.
+- [x] Registry, renderer, and rendered snapshot coverage assert the schema, validation split, layered output, and per-ID revision bumps only where rendered bytes changed.
+- [x] `v2/docs/prompts.md` is the durable layering contract, `v1/docs/prompt-governance.md` is the aligned shipped v1 reference, and neither doc states an alternate live schema or renderer contract.

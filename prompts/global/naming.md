@@ -1,6 +1,6 @@
 ---
 id: global.naming
-behavior: agent-facing
+behavior: global
 kind: fragment
 revision: 1
 ---

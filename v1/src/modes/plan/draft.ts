@@ -6,7 +6,7 @@ import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { loadPromptRegistry } from "../../prompts/registry.ts";
 import {
-  assemblePrompt,
+  assemblePromptForStep,
   enforceDelimiterPolicy,
 } from "../../prompts/renderer.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
@@ -50,15 +50,8 @@ export function buildDraftPrompt(opts: {
   targetDir?: string;
 }): string {
   const registry = loadPromptRegistry();
-  let template = assemblePrompt({
+  let template = assemblePromptForStep({
     registry,
-    globalFragmentIds: [
-      "global.documentation",
-      "global.terse",
-      "plan.decisions-ledger",
-      "plan.defer-to-consumer",
-    ],
-    behaviorFragmentIds: [],
     stepPromptId: "plan.prompt.draft",
   });
 

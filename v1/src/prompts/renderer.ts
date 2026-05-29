@@ -131,3 +131,52 @@ export function assemblePrompt(args: {
     .filter((part) => part.length > 0)
     .join("\n\n");
 }
+
+export function assemblePromptForStep(args: {
+  registry: PromptRegistry;
+  stepPromptId: string;
+}): string {
+  const ORDER_INDEX: Record<string, number> = {
+    "global.documentation": 0,
+    "global.naming": 1,
+    "global.terse": 2,
+    "plan.decisions-ledger": 0,
+    "plan.defer-to-consumer": 1,
+  };
+  const sortByContractOrder = (a: string, b: string): number => {
+    const ai = ORDER_INDEX[a];
+    const bi = ORDER_INDEX[b];
+    if (ai !== undefined && bi !== undefined) return ai - bi;
+    if (ai !== undefined) return -1;
+    if (bi !== undefined) return 1;
+    return a.localeCompare(b);
+  };
+  const step = args.registry.getById(args.stepPromptId);
+  const stepBehavior = step.metadata.behavior;
+  const globalFragmentIds = args.registry
+    .all()
+    .filter(
+      (artifact) =>
+        artifact.metadata.kind === "fragment" &&
+        artifact.metadata.behavior === "global",
+    )
+    .map((artifact) => artifact.metadata.id)
+    .sort(sortByContractOrder);
+  const behaviorFragmentIds = args.registry
+    .all()
+    .filter(
+      (artifact) =>
+        artifact.metadata.kind === "fragment" &&
+        artifact.metadata.behavior === stepBehavior,
+    )
+    .map((artifact) => artifact.metadata.id)
+    .sort(sortByContractOrder);
+  return assemblePrompt({
+    registry: args.registry,
+    globalFragmentIds,
+    behaviorFragmentIds,
+    stepPromptId: args.stepPromptId,
+    addFragmentIds: step.metadata.add,
+    removeFragmentIds: step.metadata.remove,
+  });
+}

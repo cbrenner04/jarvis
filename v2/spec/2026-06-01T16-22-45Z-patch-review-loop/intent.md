@@ -122,3 +122,14 @@ finally marking the PR ready.
 ## Refine skip
 
 No net-new load-bearing decision found beyond the existing `## Refinement` ledger.
+
+## Blocker
+
+Review and approve `v2/spec/2026-06-01T16-22-45Z-patch-review-loop/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-06-01T16-22-45Z-patch-review-loop/intent.md`

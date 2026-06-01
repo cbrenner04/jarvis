@@ -7,10 +7,11 @@ For shipped v1 runtime details and tests, see [v1/docs/prompt-governance.md](../
 ## Scope and authority
 
 - `prompts/` is the shared prompt source.
-- Artifacts are discovered by scanning `prompts/**/*.md`; a file is an artifact
-  iff it begins with a frontmatter block. Frontmatter-less templates (e.g.
-  `plan/name-only.md`, `plan/inline-draft.md`) are loaded directly by their call
-  sites and skipped by the registry. Adding an artifact needs no code change.
+- Registration is an explicit seed list, not path scanning: `prompts/registry.txt`
+  lists one artifact path per line, relative to `prompts/`. The whole file is the
+  manifest, so the registered set is auditable at a glance. Adding an artifact is a
+  one-line edit (no code change); frontmatter-less templates (e.g. `plan/name-only.md`,
+  `plan/inline-draft.md`) stay off the list and are loaded directly by their call sites.
 - Runtime lookup is by prompt `id`, not file path.
 - First rollout scope: patch body/rules, plan draft/review/refine, and shared global/plan fragments.
 - Deferred from rollout: human-facing chooser/confirmation strings plus `plan/name-only.md` and `plan/inline-draft.md`.

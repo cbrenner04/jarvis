@@ -1,0 +1,11 @@
+global/terse.md
+global/documentation.md
+global/naming.md
+plan/decisions-ledger.md
+plan/defer-to-consumer.md
+plan/draft.md
+plan/review.md
+plan/refine.md
+patch/instructions.md
+patch/rules.md
+write/execute.md

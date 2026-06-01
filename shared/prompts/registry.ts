@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type {
   PromptArtifact,
@@ -8,18 +8,19 @@ import type {
 } from "./types.ts";
 
 const PROMPTS_DIR = join(import.meta.dir, "..", "..", "prompts");
+const REGISTRY_MANIFEST = join(PROMPTS_DIR, "registry.txt");
 
 /**
- * Discover every registry artifact under `prompts/`, sorted for deterministic
- * load order. An artifact is a `.md` file with a leading frontmatter block;
- * frontmatter-less templates (loaded directly by other call sites) are skipped.
+ * Read the explicit prompt seed list from `prompts/registry.txt`: one artifact
+ * path per line, relative to `prompts/`. No path scanning — registration is an
+ * auditable manifest so adding a prompt is a deliberate one-line edit.
  */
-function discoverPromptArtifactFiles(dir: string = PROMPTS_DIR): string[] {
-  return readdirSync(dir, { recursive: true, encoding: "utf8" })
-    .filter((entry) => entry.endsWith(".md"))
-    .map((entry) => join(dir, entry))
-    .filter((path) => readFileSync(path, "utf8").startsWith("---\n"))
-    .sort();
+function seededPromptArtifactFiles(dir: string = PROMPTS_DIR): string[] {
+  return readFileSync(REGISTRY_MANIFEST, "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((entry) => join(dir, entry));
 }
 
 function parseListValue(value: string): string[] {
@@ -149,7 +150,7 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
 }
 
 export function createPromptRegistry(
-  sourcePaths: readonly string[] = discoverPromptArtifactFiles(),
+  sourcePaths: readonly string[] = seededPromptArtifactFiles(),
 ): PromptRegistry {
   const artifacts = sourcePaths.map((path) => readPromptArtifact(path));
   const byId = new Map<string, PromptArtifact>();

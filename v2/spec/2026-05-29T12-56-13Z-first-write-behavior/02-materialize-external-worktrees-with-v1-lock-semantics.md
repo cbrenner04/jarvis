@@ -6,7 +6,7 @@
 - Keep worktree lifecycle outside `write`; the runner call site supplies naming inputs and receives a prepared checkout.
 - Reuse the v1 `.jarvis.lock` JSON payload and busy-vs-stale semantics exactly.
 - Hold the lock from acquisition through result materialization.
-- Apply best-effort `info/exclude` handling compatible with v1.
+- Keep the lock out of the worktree (dedicated `~/.jarvis/worktree-locks/` tree) so it can serialize on the branch before the checkout exists; this removes v1's `info/exclude` need rather than reproducing it.
 - Accept explicit project/worktree naming inputs instead of deriving names from spec-path conventions.
 - Keep branch naming and slug policy narrow to the first live materialization call site.
 - Deferred to first consumer: collision suffixing and broader naming normalization beyond the first passing path — pin when a caller needs it.
@@ -31,7 +31,7 @@
 - [x] Phase 1 code can create or reuse a worktree under `~/.jarvis/worktrees/<project>/<branch>/` from explicit naming inputs supplied by the caller.
 - [x] The helper writes and reads the same `.jarvis.lock` JSON payload shape and enforces the same busy-vs-stale behavior v1 already uses.
 - [x] Lock lifetime spans callback execution through result materialization, and release happens on both success and failure paths.
-- [x] Best-effort `info/exclude` handling matches the compatible v1 semantics for the external worktree path.
+- [x] The lock lives in a dedicated `~/.jarvis/worktree-locks/` tree, never inside the worktree, so `git add -A` cannot stage it and no `info/exclude` entry is needed.
 - [x] Tests cover at least one fresh acquisition, one stale-lock recovery, and one busy-lock refusal.
 
 ## Documentation updates

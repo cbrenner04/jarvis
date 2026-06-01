@@ -3,6 +3,11 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
+  branchExistsLocal,
+  branchExistsOnOrigin,
+  getCurrentBranch,
+} from "../../shared/git.ts";
+import {
   acquireLock,
   releaseLock,
   type WorktreeLock,
@@ -195,7 +200,7 @@ function assertReusableWorktreeMatches(
     );
   }
 
-  const currentBranch = gitCurrentBranch(worktreePath);
+  const currentBranch = getCurrentBranch(worktreePath);
   if (currentBranch !== args.branchName) {
     throw new Error(
       `existing worktree ${worktreePath} is on branch ${currentBranch}, expected ${args.branchName}`,
@@ -215,39 +220,4 @@ function gitCommonDir(cwd: string): string {
       },
     ).trim(),
   );
-}
-
-function gitCurrentBranch(cwd: string): string {
-  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  }).trim();
-}
-
-function branchExistsLocal(projectRoot: string, branchName: string): boolean {
-  try {
-    execFileSync("git", ["rev-parse", "--verify", branchName], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function branchExistsOnOrigin(
-  projectRoot: string,
-  branchName: string,
-): boolean {
-  try {
-    execFileSync("git", ["rev-parse", "--verify", `origin/${branchName}`], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
-    return true;
-  } catch {
-    return false;
-  }
 }

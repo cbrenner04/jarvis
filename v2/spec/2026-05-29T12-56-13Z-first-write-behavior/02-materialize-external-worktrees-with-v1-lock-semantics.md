@@ -4,7 +4,7 @@
 
 - Build a v2 worktree helper for external materialization under `~/.jarvis/worktrees`; do not reuse `v1/src/worktree.ts`.
 - Keep worktree lifecycle outside `write`; the runner call site supplies naming inputs and receives a prepared checkout.
-- Reuse the v1 `.jarvis.lock` JSON payload and busy-vs-stale semantics exactly.
+- Reuse the v1 `.jarvis.lock` JSON payload and busy-vs-stale semantics exactly, via a shared path-based lock core (`shared/worktree-lock.ts`) that both engines consume; v1 keeps only its in-worktree `info/exclude` wrapper.
 - Hold the lock from acquisition through result materialization.
 - Keep the lock out of the worktree (dedicated `~/.jarvis/worktree-locks/` tree) so it can serialize on the branch before the checkout exists; this removes v1's `info/exclude` need rather than reproducing it.
 - Accept explicit project/worktree naming inputs instead of deriving names from spec-path conventions.

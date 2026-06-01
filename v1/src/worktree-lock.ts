@@ -1,19 +1,14 @@
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { hostname } from "node:os";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import {
+  acquireLock,
+  isProcessAlive,
+  releaseLock,
+  type WorktreeLock,
+} from "../../shared/worktree-lock.ts";
 
-export type WorktreeLock = {
-  pid: number;
-  started_at: string;
-  host: string;
-};
+export { isProcessAlive, type WorktreeLock };
 
 export function getWorktreeLockPath(worktreeDir: string): string {
   return join(worktreeDir, ".jarvis.lock");
@@ -72,67 +67,21 @@ function ensureLockExcluded(worktreeDir: string): void {
   }
 }
 
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
+/**
+ * Acquire `.jarvis.lock` for a worktree. The lock lives inside the worktree
+ * root, so we also ensure it is excluded from `git add -A`. Lock semantics are
+ * the shared path-based core; only the in-worktree location is v1-specific.
+ */
 export function acquireWorktreeLock(
   worktreeDir: string,
 ):
   | { kind: "acquired" }
   | { kind: "busy"; existingLock: WorktreeLock }
   | { kind: "recovered"; stalepid: number } {
-  const lockPath = getWorktreeLockPath(worktreeDir);
   ensureLockExcluded(worktreeDir);
-
-  if (existsSync(lockPath)) {
-    let existingLock: WorktreeLock | null = null;
-    try {
-      const raw = readFileSync(lockPath, "utf8");
-      existingLock = JSON.parse(raw);
-    } catch {
-      unlinkSync(lockPath);
-      // Fall through to create new lock
-    }
-
-    if (existingLock !== null) {
-      if (isProcessAlive(existingLock.pid)) {
-        return { kind: "busy", existingLock };
-      }
-      const stalepid = existingLock.pid;
-      unlinkSync(lockPath);
-      // Fall through to create new lock and return recovered
-      const lock: WorktreeLock = {
-        pid: process.pid,
-        started_at: new Date().toISOString(),
-        host: hostname(),
-      };
-      writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
-      return { kind: "recovered", stalepid };
-    }
-  }
-
-  const lock: WorktreeLock = {
-    pid: process.pid,
-    started_at: new Date().toISOString(),
-    host: hostname(),
-  };
-  writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
-  return { kind: "acquired" };
+  return acquireLock(getWorktreeLockPath(worktreeDir));
 }
 
 export function releaseWorktreeLock(worktreeDir: string): void {
-  const lockPath = getWorktreeLockPath(worktreeDir);
-  if (existsSync(lockPath)) {
-    try {
-      unlinkSync(lockPath);
-    } catch {
-      // Best-effort cleanup
-    }
-  }
+  releaseLock(getWorktreeLockPath(worktreeDir));
 }

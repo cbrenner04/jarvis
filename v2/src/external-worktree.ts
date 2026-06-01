@@ -1,20 +1,14 @@
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { homedir, hostname } from "node:os";
+import { existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import {
+  acquireLock,
+  releaseLock,
+  type WorktreeLock,
+} from "../../shared/worktree-lock.ts";
 
-/** `.jarvis.lock` payload shared with v1 lock semantics. */
-export type WorktreeLock = {
-  pid: number;
-  started_at: string;
-  host: string;
-};
+export type { WorktreeLock };
 
 /** Caller-supplied naming and git inputs for external worktree materialization. */
 export type ExternalWorktreeInput = {
@@ -145,61 +139,22 @@ export function ensureExternalWorktree(
   return { path: worktreePath, reused: false };
 }
 
-/** Return true when a process id is currently alive. */
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Acquire `.jarvis.lock` with v1-compatible stale/busy semantics. */
+/**
+ * Acquire the lock with shared stale/busy semantics, surfacing a busy holder as
+ * a thrown {@link WorktreeBusyError} (the external materialization contract
+ * refuses rather than queues).
+ */
 export function acquireExternalWorktreeLock(lockDir: string): LockStatus {
-  const lockPath = getExternalWorktreeLockPath(lockDir);
-
-  if (existsSync(lockPath)) {
-    let existingLock: WorktreeLock | null = null;
-    try {
-      existingLock = JSON.parse(readFileSync(lockPath, "utf8")) as WorktreeLock;
-    } catch {
-      unlinkSync(lockPath);
-    }
-
-    if (existingLock !== null) {
-      if (isProcessAlive(existingLock.pid)) {
-        throw new WorktreeBusyError(existingLock);
-      }
-      const stalepid = existingLock.pid;
-      unlinkSync(lockPath);
-      writeLock(lockPath);
-      return { kind: "recovered", stalepid };
-    }
+  const acquisition = acquireLock(getExternalWorktreeLockPath(lockDir));
+  if (acquisition.kind === "busy") {
+    throw new WorktreeBusyError(acquisition.existingLock);
   }
-
-  writeLock(lockPath);
-  return { kind: "acquired" };
+  return acquisition;
 }
 
 /** Best-effort lock-file cleanup. */
 export function releaseExternalWorktreeLock(lockDir: string): void {
-  const lockPath = getExternalWorktreeLockPath(lockDir);
-  if (!existsSync(lockPath)) return;
-  try {
-    unlinkSync(lockPath);
-  } catch {
-    // Best-effort cleanup.
-  }
-}
-
-function writeLock(lockPath: string): void {
-  const lock: WorktreeLock = {
-    pid: process.pid,
-    started_at: new Date().toISOString(),
-    host: hostname(),
-  };
-  writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`, "utf8");
+  releaseLock(getExternalWorktreeLockPath(lockDir));
 }
 
 function ensureExternalWorktreeLockRoot(args: ExternalWorktreeInput): string {

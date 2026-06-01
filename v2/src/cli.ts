@@ -19,6 +19,8 @@ type CliDeps = {
 const DEFAULT_STEP_RULES =
   "Return exactly one terminal token: done|no-work|blocked|progress.";
 const DEFAULT_AGENTS = ["claude"] as const;
+const WRITE_USAGE =
+  "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>]\n";
 
 export async function main(
   argv: readonly string[],
@@ -41,25 +43,58 @@ export async function main(
   }
 
   if (argv[0] === "write") {
-    const parsed = parseWriteArgs(argv.slice(1));
-    if (parsed === null) {
-      out.stderr(
-        "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>]\n",
-      );
+    let values: Record<string, string | boolean | string[] | undefined>;
+    try {
+      values = parseArgs({
+        args: [...argv.slice(1)],
+        allowPositionals: false,
+        strict: true,
+        options: {
+          "project-root": { type: "string" },
+          project: { type: "string" },
+          branch: { type: "string" },
+          base: { type: "string" },
+          spec: { type: "string" },
+          artifact: { type: "string" },
+          agents: { type: "string" },
+        },
+      }).values;
+    } catch {
+      out.stderr(WRITE_USAGE);
+      return 1;
+    }
+
+    const projectRoot = stringValue(values["project-root"]);
+    const projectName = stringValue(values.project);
+    const branchName = stringValue(values.branch);
+    const baseRef = stringValue(values.base);
+    const specPath = stringValue(values.spec);
+    const artifactPath = stringValue(values.artifact);
+    const agents = parseAgents(stringValue(values.agents));
+    if (
+      projectRoot === undefined ||
+      projectName === undefined ||
+      branchName === undefined ||
+      baseRef === undefined ||
+      specPath === undefined ||
+      artifactPath === undefined ||
+      agents === null
+    ) {
+      out.stderr(WRITE_USAGE);
       return 1;
     }
 
     const writeResult = await runtimeDeps.executeWrite({
       worktree: {
-        projectRoot: parsed.projectRoot,
-        projectName: parsed.projectName,
-        branchName: parsed.branchName,
-        baseRef: parsed.baseRef,
+        projectRoot,
+        projectName,
+        branchName,
+        baseRef,
       },
-      specPath: parsed.specPath,
+      specPath,
       stepRules: DEFAULT_STEP_RULES,
-      expectedArtifactPath: parsed.artifactPath,
-      bindings: runtimeDeps.createBindings(parsed.agents),
+      expectedArtifactPath: artifactPath,
+      bindings: runtimeDeps.createBindings(agents),
     });
 
     out.stdout(
@@ -79,66 +114,6 @@ export async function main(
 
   out.stdout("v2 not ready\n");
   return 0;
-}
-
-type ParsedWriteArgs = {
-  projectRoot: string;
-  projectName: string;
-  branchName: string;
-  baseRef: string;
-  specPath: string;
-  artifactPath: string;
-  agents: readonly string[];
-};
-
-function parseWriteArgs(argv: readonly string[]): ParsedWriteArgs | null {
-  let values: Record<string, string | boolean | string[] | undefined>;
-  try {
-    values = parseArgs({
-      args: [...argv],
-      allowPositionals: false,
-      strict: true,
-      options: {
-        "project-root": { type: "string" },
-        project: { type: "string" },
-        branch: { type: "string" },
-        base: { type: "string" },
-        spec: { type: "string" },
-        artifact: { type: "string" },
-        agents: { type: "string" },
-      },
-    }).values;
-  } catch {
-    return null;
-  }
-
-  const projectRoot = stringValue(values["project-root"]);
-  const projectName = stringValue(values.project);
-  const branchName = stringValue(values.branch);
-  const baseRef = stringValue(values.base);
-  const specPath = stringValue(values.spec);
-  const artifactPath = stringValue(values.artifact);
-  if (
-    projectRoot === undefined ||
-    projectName === undefined ||
-    branchName === undefined ||
-    baseRef === undefined ||
-    specPath === undefined ||
-    artifactPath === undefined
-  ) {
-    return null;
-  }
-  const agents = parseAgents(stringValue(values.agents));
-  if (agents === null) return null;
-  return {
-    projectRoot,
-    projectName,
-    branchName,
-    baseRef,
-    specPath,
-    artifactPath,
-    agents,
-  };
 }
 
 function stringValue(

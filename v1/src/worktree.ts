@@ -7,6 +7,11 @@ import {
   symlinkSync,
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import {
+  branchExistsLocal,
+  branchExistsOnOrigin,
+  getCurrentBranch,
+} from "../../shared/git.ts";
 import { getBaseBranch } from "./gh.ts";
 
 export function getSpecName(specPath: string): string {
@@ -193,33 +198,6 @@ export function ensureExistingBranchWorktree(opts: {
   };
 }
 
-function branchExistsLocal(projectRoot: string, branchName: string): boolean {
-  try {
-    execFileSync("git", ["rev-parse", "--verify", branchName], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function branchExistsOnOrigin(
-  projectRoot: string,
-  branchName: string,
-): boolean {
-  try {
-    execFileSync("git", ["rev-parse", "--verify", `origin/${branchName}`], {
-      cwd: projectRoot,
-      stdio: "pipe",
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function bestEffortFetch(projectRoot: string): void {
   try {
     execFileSync("git", ["fetch", "origin"], {
@@ -306,15 +284,6 @@ export function hasUpstream(cwd: string): boolean {
   } catch {
     return false;
   }
-}
-
-function getCurrentBranch(cwd: string): string {
-  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd,
-    encoding: "utf8",
-    env: process.env,
-    stdio: "pipe",
-  }).trim();
 }
 
 function getProcessStderr(err: unknown): string {

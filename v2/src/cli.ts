@@ -36,13 +36,14 @@ export async function main(
     createBindings: createAgentBindings,
     ...deps,
   };
+  const command = argv[0];
 
-  if (argv.length === 1 && argv[0] === "--version") {
+  if (argv.length === 1 && command === "--version") {
     out.stdout(`${packageJson.version}\n`);
     return 0;
   }
 
-  if (argv[0] === "write") {
+  if (command === "write") {
     let values: Record<string, string | boolean | string[] | undefined>;
     try {
       values = parseArgs({

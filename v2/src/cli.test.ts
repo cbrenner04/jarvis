@@ -81,6 +81,16 @@ describe("v2 cli", () => {
     expect(cap.read().stderr).toContain("usage: jarvis write");
   });
 
+  test("unknown write args print usage and exit 1", async () => {
+    const cap = captureIo();
+
+    const code = await main([...WRITE_ARGS, "--unknown", "x"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read().stdout).toBe("");
+    expect(cap.read().stderr).toContain("usage: jarvis write");
+  });
+
   test("write command maps complete result to exit 0", async () => {
     const cap = captureIo();
 

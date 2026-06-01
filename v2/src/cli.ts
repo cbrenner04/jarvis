@@ -1,3 +1,4 @@
+import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
@@ -91,22 +92,32 @@ type ParsedWriteArgs = {
 };
 
 function parseWriteArgs(argv: readonly string[]): ParsedWriteArgs | null {
-  const values: Record<string, string> = {};
-  for (let i = 0; i < argv.length; i += 1) {
-    const key = argv[i];
-    if (key === undefined || !key.startsWith("--")) return null;
-    const value = argv[i + 1];
-    if (value === undefined || value.startsWith("--")) return null;
-    values[key.slice(2)] = value;
-    i += 1;
+  let values: Record<string, string | boolean | string[] | undefined>;
+  try {
+    values = parseArgs({
+      args: [...argv],
+      allowPositionals: false,
+      strict: true,
+      options: {
+        "project-root": { type: "string" },
+        project: { type: "string" },
+        branch: { type: "string" },
+        base: { type: "string" },
+        spec: { type: "string" },
+        artifact: { type: "string" },
+        agents: { type: "string" },
+      },
+    }).values;
+  } catch {
+    return null;
   }
 
-  const projectRoot = values["project-root"];
-  const projectName = values.project;
-  const branchName = values.branch;
-  const baseRef = values.base;
-  const specPath = values.spec;
-  const artifactPath = values.artifact;
+  const projectRoot = stringValue(values["project-root"]);
+  const projectName = stringValue(values.project);
+  const branchName = stringValue(values.branch);
+  const baseRef = stringValue(values.base);
+  const specPath = stringValue(values.spec);
+  const artifactPath = stringValue(values.artifact);
   if (
     projectRoot === undefined ||
     projectName === undefined ||
@@ -117,7 +128,7 @@ function parseWriteArgs(argv: readonly string[]): ParsedWriteArgs | null {
   ) {
     return null;
   }
-  const agents = parseAgents(values.agents);
+  const agents = parseAgents(stringValue(values.agents));
   if (agents === null) return null;
   return {
     projectRoot,
@@ -128,6 +139,12 @@ function parseWriteArgs(argv: readonly string[]): ParsedWriteArgs | null {
     artifactPath,
     agents,
   };
+}
+
+function stringValue(
+  value: string | boolean | string[] | undefined,
+): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function parseAgents(raw: string | undefined): readonly string[] | null {

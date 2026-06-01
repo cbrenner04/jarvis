@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 /** `.jarvis.lock` payload shared with v1 lock semantics. */
 export type WorktreeLock = {
@@ -97,6 +97,7 @@ export function ensureExternalWorktree(
 ): ExternalWorktree {
   const worktreePath = getExternalWorktreePath(args);
   if (isValidGitWorktree(worktreePath)) {
+    assertReusableWorktreeMatches(args, worktreePath);
     return { path: worktreePath, reused: true };
   }
   if (existsSync(worktreePath)) {
@@ -225,6 +226,48 @@ function isValidGitWorktree(worktreePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+function assertReusableWorktreeMatches(
+  args: ExternalWorktreeInput,
+  worktreePath: string,
+): void {
+  const expectedRepo = gitCommonDir(args.projectRoot);
+  const actualRepo = gitCommonDir(worktreePath);
+  if (expectedRepo !== actualRepo) {
+    throw new Error(
+      `existing worktree ${worktreePath} belongs to a different repository`,
+    );
+  }
+
+  const currentBranch = gitCurrentBranch(worktreePath);
+  if (currentBranch !== args.branchName) {
+    throw new Error(
+      `existing worktree ${worktreePath} is on branch ${currentBranch}, expected ${args.branchName}`,
+    );
+  }
+}
+
+function gitCommonDir(cwd: string): string {
+  return resolve(
+    execFileSync(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      {
+        cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ).trim(),
+  );
+}
+
+function gitCurrentBranch(cwd: string): string {
+  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }
 
 function branchExistsLocal(projectRoot: string, branchName: string): boolean {

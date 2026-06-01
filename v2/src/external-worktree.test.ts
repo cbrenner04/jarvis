@@ -113,6 +113,67 @@ describe("external worktree helper", () => {
     expect(result.lock.kind).toBe("recovered");
   });
 
+  test("refuses to reuse a worktree from a different repository", async () => {
+    const { repoRoot, jarvisRoot } = setupRepo();
+    const other = setupRepo();
+
+    await withExternalWorktree(
+      {
+        projectRoot: repoRoot,
+        projectName: "demo",
+        branchName: "write-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      () => undefined,
+    );
+
+    await expect(
+      withExternalWorktree(
+        {
+          projectRoot: other.repoRoot,
+          projectName: "demo",
+          branchName: "write-run",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        () => "never",
+      ),
+    ).rejects.toThrow("belongs to a different repository");
+  });
+
+  test("refuses to reuse a worktree on a different branch", async () => {
+    const { repoRoot, jarvisRoot } = setupRepo();
+
+    const result = await withExternalWorktree(
+      {
+        projectRoot: repoRoot,
+        projectName: "demo",
+        branchName: "write-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      () => undefined,
+    );
+    execFileSync("git", ["checkout", "-b", "other-branch"], {
+      cwd: result.worktree.path,
+      stdio: "pipe",
+    });
+
+    await expect(
+      withExternalWorktree(
+        {
+          projectRoot: repoRoot,
+          projectName: "demo",
+          branchName: "write-run",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        () => "never",
+      ),
+    ).rejects.toThrow("is on branch other-branch, expected write-run");
+  });
+
   test("refuses busy lock with v1-compatible payload", async () => {
     const { repoRoot, jarvisRoot } = setupRepo();
 

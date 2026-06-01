@@ -7,26 +7,14 @@ import {
 
 const TERMINAL_TOKENS = ["done", "no-work", "blocked", "progress"] as const;
 
-/** Agent-declared terminal outcome tokens accepted by the shared step runner. */
 export type StepOutcomeToken = (typeof TERMINAL_TOKENS)[number];
 
-/**
- * Deterministic contract primitive evaluated by the shared step runner.
- *
- * Contracts must not mutate state. They return a boolean pass/fail signal for
- * the current workspace state.
- */
+/** A deterministic, side-effect-free pass/fail check run after a terminal token. */
 export type StepContract = {
   id: string;
   check: (args: { cwd: string }) => boolean | Promise<boolean>;
 };
 
-/**
- * Runner-owned input bundle.
- *
- * The behavior prompt and terminal contracts are caller input; token parsing,
- * invocation fallback dispatch, and result classification are runner-owned.
- */
 export type StepRunInput = {
   prompt: string;
   cwd: string;
@@ -63,13 +51,8 @@ function asToken(value: string): StepOutcomeToken | null {
     : null;
 }
 
-/**
- * Parse an invocation stdout payload into an accepted terminal outcome token.
- *
- * Real agents emit prose, so we prefer the most explicit signal available: an
- * exact match, then the last line that is itself a bare token, and only then a
- * lenient last-word scan over the whole output.
- */
+// Agents emit prose, so prefer the most explicit signal: exact match, then a
+// bare-token line, then a lenient last-word scan.
 export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
   const exact = asToken(stdout.trim());
   if (exact !== null) return exact;
@@ -88,12 +71,7 @@ export function parseStepOutcomeToken(stdout: string): StepOutcomeToken | null {
   return last === undefined ? null : (last as StepOutcomeToken);
 }
 
-/**
- * Run one behavior step over shared invocation fallback and classify the result.
- *
- * This function performs exactly one invocation pass through the ordered
- * bindings and never performs hidden retries on contract misses.
- */
+/** One invocation pass through the ordered bindings, then classify; no hidden retries. */
 export async function runStep(args: StepRunInput): Promise<StepRunResult> {
   const invocation = await executeWithQuotaFallback({
     prompt: args.prompt,

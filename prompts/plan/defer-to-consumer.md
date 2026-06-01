@@ -3,6 +3,7 @@ id: plan.defer-to-consumer
 behavior: plan
 kind: fragment
 revision: 1
+order: 1
 ---
 When drafting behavior ahead of its first consumer, prefer deferral over invented precision.
 Do not guess answers that belong to the first caller.

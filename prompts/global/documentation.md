@@ -3,6 +3,7 @@ id: global.documentation
 behavior: global
 kind: fragment
 revision: 2
+order: 0
 ---
 Documentation first.
 Before editing code, read the relevant durable docs/specs for the behavior you are changing.

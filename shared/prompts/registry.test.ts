@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createPromptRegistry } from "../../src/prompts/registry.ts";
+import { createPromptRegistry } from "./registry.ts";
 
 function withFrontmatter(meta: string, body = "Body"): string {
   return `---\n${meta}\n---\n${body}\n`;
@@ -30,6 +30,7 @@ describe("prompt registry load validation", () => {
     expect(ids).toContain("plan.defer-to-consumer");
     expect(ids).toContain("plan.prompt.review");
     expect(ids).toContain("plan.prompt.refine");
+    expect(ids).toContain("write.execute");
   });
 
   test("missing required metadata is a load-time error", () => {

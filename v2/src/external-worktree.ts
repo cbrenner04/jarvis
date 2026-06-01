@@ -15,7 +15,7 @@ import {
 
 export type { WorktreeLock };
 
-/** Caller-supplied naming and git inputs for external worktree materialization. */
+/** Naming and git inputs for materialization. */
 export type ExternalWorktreeInput = {
   projectRoot: string;
   projectName: string;
@@ -30,12 +30,12 @@ export type ExternalWorktree = {
   reused: boolean;
 };
 
-/** Lock acquisition classification reused for reporting and tests. */
+/** Lock acquisition outcome. */
 export type LockStatus =
   | { kind: "acquired" }
   | { kind: "recovered"; stalepid: number };
 
-/** Busy lock error preserving the existing lock payload. */
+/** Raised when the lock is held by a live process. */
 export class WorktreeBusyError extends Error {
   existingLock: WorktreeLock;
 
@@ -48,7 +48,7 @@ export class WorktreeBusyError extends Error {
   }
 }
 
-/** Result envelope returned from the lock-scoped worktree operation. */
+/** Result of a lock-scoped worktree operation. */
 export type WithExternalWorktreeResult<T> = {
   worktree: ExternalWorktree;
   lock: LockStatus;
@@ -62,19 +62,15 @@ export function getExternalWorktreePath(args: ExternalWorktreeInput): string {
 }
 
 /**
- * Return the `.jarvis.lock` path inside a lock directory.
- *
- * Locks live in a dedicated tree (`~/.jarvis/worktree-locks/...`) so a run can
- * serialize on the branch before its worktree exists.
+ * `.jarvis.lock` path in `lockDir`. Locks live in a dedicated
+ * `~/.jarvis/worktree-locks/` tree so a run can serialize on the branch before
+ * its worktree exists.
  */
 export function getExternalWorktreeLockPath(lockDir: string): string {
   return join(lockDir, ".jarvis.lock");
 }
 
-/**
- * Acquire lock, materialize/reuse external worktree, run the callback, then
- * always release lock.
- */
+/** Lock, materialize/reuse the worktree, run the callback, always release. */
 export async function withExternalWorktree<T>(
   args: ExternalWorktreeInput,
   run: (worktree: ExternalWorktree) => Promise<T> | T,
@@ -144,11 +140,7 @@ export function ensureExternalWorktree(
   return { path: worktreePath, reused: false };
 }
 
-/**
- * Acquire the lock with shared stale/busy semantics, surfacing a busy holder as
- * a thrown {@link WorktreeBusyError} (the external materialization contract
- * refuses rather than queues).
- */
+/** Acquire the lock; a live holder throws {@link WorktreeBusyError} (refuse, don't queue). */
 export function acquireExternalWorktreeLock(lockDir: string): LockStatus {
   const acquisition = acquireLock(getExternalWorktreeLockPath(lockDir));
   if (acquisition.kind === "busy") {

@@ -9,6 +9,7 @@ Conventions for working in this repo — humans and coding agents alike. **BE TE
 Work here is work on the harness itself. Layout:
 
 - root — shared glue, config, public docs, version-agnostic `scripts/` and `data/` (global `prices.json`)
+- `shared/` — version-agnostic runtime code consumed by both `v1` and `v2`; `shared/**` must not import from `v1/**` or `v2/**`
 - `v1/` — current shipping implementation (src, test, spec, docs)
 - `v2/` — planning materials; future implementation lands under `v2/src`, with tests co-located next to the source files they cover
 

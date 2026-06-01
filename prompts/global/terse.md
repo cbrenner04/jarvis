@@ -3,6 +3,7 @@ id: global.terse
 behavior: global
 kind: fragment
 revision: 2
+order: 2
 ---
 Be terse in communication artifacts (specs, PRs, commits, intents).
 Verbosity costs money and review effort. Minimize it.

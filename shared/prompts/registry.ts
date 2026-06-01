@@ -1,87 +1,27 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type {
+  PromptArtifact,
+  PromptPlaceholderDeclaration,
+  PromptPlaceholderType,
+  PromptRegistry,
+} from "./types.ts";
 
-export type PromptMetadata = {
-  id: string;
-  behavior: string;
-  kind: "step" | "fragment";
-  revision: string;
-  fragmentOf: string[];
-  overrides: string[];
-  add: string[];
-  remove: string[];
-  placeholders: PromptPlaceholderDeclaration[];
-};
+const PROMPTS_DIR = join(import.meta.dir, "..", "..", "prompts");
+const REGISTRY_MANIFEST = join(PROMPTS_DIR, "registry.txt");
 
-export type PromptPlaceholderType = "string";
-
-export type PromptPlaceholderDeclaration = {
-  name: string;
-  type: PromptPlaceholderType;
-  required: boolean;
-};
-
-export type PromptArtifact = {
-  metadata: PromptMetadata;
-  sourcePath: string;
-  body: string;
-};
-
-const PROMPT_ARTIFACT_FILES = [
-  // Included in first rollout:
-  // - patch prompt body/rules
-  // - plan draft/review/refine
-  // Deferred for now: plan name-only/inline-draft and human-facing prompts.
-  join(import.meta.dir, "..", "..", "..", "prompts", "global", "terse.md"),
-  join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "prompts",
-    "global",
-    "documentation.md",
-  ),
-  join(import.meta.dir, "..", "..", "..", "prompts", "global", "naming.md"),
-  join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "prompts",
-    "patch",
-    "instructions.md",
-  ),
-  join(import.meta.dir, "..", "..", "..", "prompts", "patch", "rules.md"),
-  join(import.meta.dir, "..", "..", "..", "prompts", "plan", "draft.md"),
-  join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "prompts",
-    "plan",
-    "decisions-ledger.md",
-  ),
-  join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "prompts",
-    "plan",
-    "defer-to-consumer.md",
-  ),
-  join(import.meta.dir, "..", "..", "..", "prompts", "plan", "review.md"),
-  join(import.meta.dir, "..", "..", "..", "prompts", "plan", "refine.md"),
-] as const;
-
-const REQUIRED_METADATA_FIELDS = [
-  "id",
-  "behavior",
-  "kind",
-  "revision",
-] as const;
+/**
+ * Read the explicit prompt seed list from `prompts/registry.txt`: one artifact
+ * path per line, relative to `prompts/`. No path scanning — registration is an
+ * auditable manifest so adding a prompt is a deliberate one-line edit.
+ */
+function seededPromptArtifactFiles(dir: string = PROMPTS_DIR): string[] {
+  return readFileSync(REGISTRY_MANIFEST, "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((entry) => join(dir, entry));
+}
 
 function parseListValue(value: string): string[] {
   if (value.startsWith("[") && value.endsWith("]")) {
@@ -149,37 +89,42 @@ function parseFrontmatter(text: string): {
   return { fields, body };
 }
 
+function requireField(
+  fields: Map<string, string>,
+  field: string,
+  sourcePath: string,
+): string {
+  const value = fields.get(field);
+  if (value === undefined || value.length === 0) {
+    throw new Error(
+      `missing required metadata \`${field}\` in prompt artifact ${sourcePath}`,
+    );
+  }
+  return value;
+}
+
+function parseOrderValue(
+  value: string | undefined,
+  sourcePath: string,
+): number | null {
+  if (value === undefined || value.length === 0) return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    throw new Error(
+      `invalid order \`${value}\` in prompt artifact ${sourcePath}; expected an integer`,
+    );
+  }
+  return parsed;
+}
+
 function readPromptArtifact(sourcePath: string): PromptArtifact {
   const raw = readFileSync(sourcePath, "utf8");
   const { fields, body } = parseFrontmatter(raw);
 
-  for (const field of REQUIRED_METADATA_FIELDS) {
-    const value = fields.get(field);
-    if (value === undefined || value.length === 0) {
-      throw new Error(
-        `missing required metadata \`${field}\` in prompt artifact ${sourcePath}`,
-      );
-    }
-  }
-
-  const id = fields.get("id");
-  const behavior = fields.get("behavior");
-  const kind = fields.get("kind");
-  const revision = fields.get("revision");
-  if (
-    id === undefined ||
-    behavior === undefined ||
-    kind === undefined ||
-    revision === undefined
-  ) {
-    throw new Error(`invalid metadata state in prompt artifact ${sourcePath}`);
-  }
-
-  const fragmentOf = parseListValue(fields.get("fragmentOf") ?? "");
-  const overrides = parseListValue(fields.get("overrides") ?? "");
-  const add = parseListValue(fields.get("add") ?? "");
-  const remove = parseListValue(fields.get("remove") ?? "");
-  const placeholders = parsePlaceholdersValue(fields.get("placeholders") ?? "");
+  const id = requireField(fields, "id", sourcePath);
+  const behavior = requireField(fields, "behavior", sourcePath);
+  const kind = requireField(fields, "kind", sourcePath);
+  const revision = requireField(fields, "revision", sourcePath);
   if (kind !== "step" && kind !== "fragment") {
     throw new Error(
       `invalid kind \`${kind}\` in prompt artifact ${sourcePath}; expected step|fragment`,
@@ -192,24 +137,20 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
       behavior,
       kind,
       revision,
-      fragmentOf,
-      overrides,
-      add,
-      remove,
-      placeholders,
+      order: parseOrderValue(fields.get("order"), sourcePath),
+      fragmentOf: parseListValue(fields.get("fragmentOf") ?? ""),
+      overrides: parseListValue(fields.get("overrides") ?? ""),
+      add: parseListValue(fields.get("add") ?? ""),
+      remove: parseListValue(fields.get("remove") ?? ""),
+      placeholders: parsePlaceholdersValue(fields.get("placeholders") ?? ""),
     },
     sourcePath,
     body,
   };
 }
 
-export type PromptRegistry = {
-  getById(id: string): PromptArtifact;
-  all(): ReadonlyArray<PromptArtifact>;
-};
-
 export function createPromptRegistry(
-  sourcePaths: readonly string[] = PROMPT_ARTIFACT_FILES,
+  sourcePaths: readonly string[] = seededPromptArtifactFiles(),
 ): PromptRegistry {
   const artifacts = sourcePaths.map((path) => readPromptArtifact(path));
   const byId = new Map<string, PromptArtifact>();

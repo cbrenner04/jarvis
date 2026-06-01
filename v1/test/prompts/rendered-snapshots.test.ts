@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
 import { buildRefinePrompt } from "../../src/modes/plan/refine.ts";
 import { buildReviewPrompt } from "../../src/modes/plan/review.ts";
-import { loadPromptRegistry } from "../../src/prompts/registry.ts";
 
 type WrapperVariant = "codex.exec.stdin+marker";
 

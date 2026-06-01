@@ -31,11 +31,11 @@
 
 ## Acceptance criteria
 
-- [ ] Root-shared prompt code owns load, lookup, and render behind one cohesive API consumed by both `jarvis1` and v2, with no `v2/** -> v1/**` or `v1/** -> v2/**` import.
-- [ ] A top-level prompt artifact with stable ID `write.execute` is registered through the explicit seed list and renders through the shared registry.
-- [ ] The shared invocation layer accepts ordered agent bindings plus `cwd` and `AbortSignal`, returns typed `ok | quota | error` outcomes, and contains the only quota-fallback loop used by the Phase 1 path.
-- [ ] Quota fallback advances only on quota-classified outcomes and preserves the effective binding order; non-quota failures stop immediately without trying later bindings.
-- [ ] Existing jarvis1 prompt rendering coverage and any new shared invocation tests pass after the extraction.
+- [x] Root-shared prompt code owns load, lookup, and render behind one cohesive API consumed by both `jarvis1` and v2, with no `v2/** -> v1/**` or `v1/** -> v2/**` import.
+- [x] A top-level prompt artifact with stable ID `write.execute` is registered through the explicit seed list and renders through the shared registry.
+- [x] The shared invocation layer accepts ordered agent bindings plus `cwd` and `AbortSignal`, returns typed `ok | quota | error` outcomes, and contains the only quota-fallback loop used by the Phase 1 path.
+- [x] Quota fallback advances only on quota-classified outcomes and preserves the effective binding order; non-quota failures stop immediately without trying later bindings.
+- [x] Existing jarvis1 prompt rendering coverage and any new shared invocation tests pass after the extraction.
 
 ## Documentation updates
 

@@ -3,6 +3,7 @@ id: plan.decisions-ledger
 behavior: plan
 kind: fragment
 revision: 2
+order: 0
 ---
 Record decisions, constraints, and assumptions as a ledger of atomic entries, one per line; do not write narrative paragraphs.
 For each entry, state the decision; add a one-line trailing rationale clause only when the why is non-obvious.

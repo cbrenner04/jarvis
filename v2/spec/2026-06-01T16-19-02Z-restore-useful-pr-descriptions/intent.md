@@ -106,3 +106,14 @@ without needing to infer everything from the branch name or commit list.
 
 Existing refinement already captures the load-bearing product choices.
 This pass found no net-new decision worth freezing.
+
+## Blocker
+
+Review and approve `v2/spec/2026-06-01T16-19-02Z-restore-useful-pr-descriptions/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-06-01T16-19-02Z-restore-useful-pr-descriptions/intent.md`

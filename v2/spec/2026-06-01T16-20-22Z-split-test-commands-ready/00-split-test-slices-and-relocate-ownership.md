@@ -10,7 +10,6 @@
 
 - Add root scripts for `test:v1`, `test:v2`, `test:shared`, and the aggregate `test` path.
 - Relocate root/shared-owned tests now living under `v1/test/` into their owning tree so each tsconfig project owns its own test directory.
-- Keep `test:v1` scoped to v1-owned tests after relocation rather than carrying temporary shared exceptions in the aggregate only.
 - Add regression tests that fail when script names or per-slice routing drift.
 
 ## Documentation updates

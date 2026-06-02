@@ -44,41 +44,52 @@ the requested category.
 This is documentation + planning work. No v1 or v2 source changes here — it sets
 up the phase(s) that will later implement v2 config to do it correctly.
 
-## Proposed categories
+## Categories
 
-Starting set (open to refinement — suggestions invited):
+Exactly three. Treat these as the only categories that exist; the code is built
+so more *could* be added later, but the set is not up for debate here.
 
 - **thinking** — heavyweight reasoning: plan drafting/refinement, hard design.
 - **reviewing** — critique passes: plan review, the patch review loop.
 - **executing** — routine implementation: the write/patch loop's per-task work.
 
-Alternatives to weigh: `planning` as its own category vs. folding it into
-`thinking`; `drafting` vs `thinking`; whether `reviewing` and `thinking` ever
-collapse. Keep the set small — every category multiplies per-agent config.
-
 ## Shape to document in v2
 
-- A v2 config concept: a top-level `agents` fallback order plus a `models` map
-  keyed by category, each category holding per-agent model assignments.
-  Strawman:
+The two axes live in **different places**, because they have different
+lifecycles:
+
+- **Agents → per-machine config** (`~/.jarvis/config.json`). The agent fallback
+  order genuinely differs between machines (different agents installed/licensed
+  on the personal vs. work machine), so it belongs in machine-local config.
   ```
-  "agents": ["claude", "codex", "cursor", "aider"],
-  "models": {
-    "thinking":  { "claude": "opus",   "codex": "gpt-5.3-codex", ... },
-    "reviewing": { "claude": "sonnet", "codex": "gpt-5.3-codex", ... },
-    "executing": { "claude": "haiku",  "codex": "gpt-5.3-codex", ... }
-  }
+  "agents": ["claude", "codex", "cursor", "aider"]
   ```
+- **Models → a separate, machine-independent store** — *not* `config.json`. The
+  category→agent→model assignments are the same on every machine, change
+  frequently, and would bloat per-machine config. Store them somewhere shared
+  and version-controlled, easy to update (strawman: a checked-in data file
+  alongside the global `data/prices.json`). Shape:
+  ```
+  "thinking":  { "claude": "opus",   "codex": "gpt-5.3-codex", "cursor": "...", "aider": "..." },
+  "reviewing": { "claude": "sonnet", "codex": "gpt-5.3-codex", "cursor": "...", "aider": "..." },
+  "executing": { "claude": "haiku",  "codex": "gpt-5.3-codex", "cursor": "...", "aider": "..." }
+  ```
+- **Exactly one model per (category, agent).** Every category × every configured
+  agent must have a model defined; a missing assignment is a **hard error at
+  load** — no skipping, no default fallback.
 - Each run step declares the category it needs; the runner resolves
-  `(agent-from-fallback-order, category) → model`.
+  `(agent-from-fallback-order, category) → model` from the model store.
+- A **command-line override** (just `--agent` / `--model`, the override already
+  being built for the single write step) bypasses the resolution for that run.
 - Price/model validation still happens per agent+model pair, now per category.
 
 ## Scope (docs + plan)
 
 - Update the relevant v2 docs to describe the agents-vs-models separation and
   the model-category model:
-  - `v2/docs/v2-architecture.md` — config/runner model: agent fallback order vs.
-    model categories, and how a step resolves its model.
+  - `v2/docs/v2-architecture.md` — config/runner model: agent fallback order
+    (per-machine config) vs. the category→agent→model store (separate,
+    machine-independent), and how a step resolves its model.
   - `v2/docs/v2-vision.md` — record the separation as an intended v2 capability.
   - `v2/docs/v2-build-order.md` — fold the config shape into whichever phase owns
     v2 config / per-step agent binding (today Phase 5, "project config binding /
@@ -87,39 +98,46 @@ collapse. Keep the set small — every category multiplies per-agent config.
     intentionally *not* carried forward; v2 splits the axes.
 - Update `v2/spec/v2-meta-index.md` if a phase line needs to mention the split.
 
+## Decisions (locked)
+
+- **Composition.** Agent order is the outer loop (availability); a category does
+  not reorder agents. Once the agent is fixed, the category selects its single
+  model. Exactly one model per (category, agent).
+- **Step → category mapping.** write/patch loop = executing; plan draft/refine =
+  thinking; review loops = reviewing.
+- **Override.** The only override is a command-line `--agent` / `--model` pair
+  (the one already being built for the single write step). No per-step config
+  override.
+- **Missing assignments.** Every category × agent must be defined; a gap is a
+  hard error at load — no skip, no default.
+- **Category set.** The three above are it. Code allows adding more later, but
+  the set is fixed for this work.
+- **Storage split.** Agents live in per-machine `config.json`; the
+  category→agent→model assignments live in a separate machine-independent,
+  version-controlled store.
+
 ## Open questions to resolve while drafting
 
-- **Composition of the two axes.** Agent order is the outer loop (availability).
-  Within a category, is model preference just "the chosen agent's model for this
-  category," or can a category independently *re-order* which model/agent it
-  prefers? Default: category does not reorder agents — agent order is global and
-  authoritative; category only selects the model once the agent is fixed.
-- **Step → category mapping.** Concretely: write/patch loop = executing; plan
-  draft/refine = thinking; review loops = reviewing. Confirm and enumerate.
-- **Per-mode/per-step override.** Is one global agent order enough, or do some
-  steps need their own order? If overrides stay, where do they live.
-- **Partial categories.** What if an agent has no model configured for a
-  category — skip that agent for that category, fall back to a default, or hard
-  error at load.
-- **Category set is final?** Lock the names before any v2 config lands; renaming
-  a category is a config break.
-- **Which build phase owns it.** Confirm the config shape belongs in the config
-  binding phase vs. earlier when quota fallback first needs a model.
+- Exact home and format of the model store (e.g. a checked-in `data/` file
+  beside `prices.json`) and how it's loaded/validated.
+- Which build phase wires each piece (config-binding phase for the agent order;
+  the write step for resolution + CLI override).
 
 ## Acceptance criteria (rough)
 
-- v2 docs describe a single agent fallback order separated from model
-  assignments grouped by named categories — not one combined `{agent, model}`
-  list.
+- v2 docs describe the agent fallback order (per-machine config) as separate
+  from the category→agent→model store (machine-independent) — not one combined
+  `{agent, model}` list, and models not in `config.json`.
+- The docs fix the three categories (thinking/reviewing/executing), one model
+  per (category, agent), with missing assignments a hard error at load.
 - The docs explain how a run step resolves its model via
-  `(agent fallback order, category)`.
-- `v2/docs/v2-build-order.md` (and `v2-meta-index.md` if needed) place this
-  config shape in a concrete phase, so the eventual implementation inherits the
-  separation rather than v1's combined list.
+  `(agent fallback order, category)`, and that the only override is a CLI
+  `--agent`/`--model` pair.
+- `v2/docs/v2-build-order.md` (and `v2-meta-index.md` if needed) place the agent
+  config and model store in concrete phases, so the eventual implementation
+  inherits the separation rather than v1's combined list.
 - The docs note the deliberate divergence from v1's combined order in
   `v2/docs/v1-behaviors.md`.
-- The category set and the two-axis composition rule are written down clearly
-  enough that an implementer doesn't have to re-derive them.
 
 ## Out of scope
 

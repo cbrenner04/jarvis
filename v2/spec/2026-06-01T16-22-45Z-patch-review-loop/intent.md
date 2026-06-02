@@ -33,20 +33,28 @@ implementation (patch) models — see "Review models" below.
 
 - New phase in `jarvis1 run`, after the checklist is complete and the worktree
   is clean. Gate ordering: run the readiness gate (`bun run ready`) once to
-  establish a green baseline, then the review passes, then re-run the readiness
-  gate, then `gh pr ready`. No per-pass validation (that would boil the ocean);
-  the two gates bracket the loop instead.
+  establish a green baseline, then the review passes, then the existing
+  full ready transition (`bun run ready` → commit `check:fix` → `gh pr ready`).
+  No per-pass validation (that would boil the ocean); the two gates bracket the
+  loop instead.
+- The pre-review baseline gate is **not** `maybeMarkReady` (which would mark the
+  PR ready too early). It needs its own helper that runs `bun run ready`,
+  commits and pushes any `check:fix` output, leaves the PR draft, and guarantees
+  a clean worktree before pass 1 — i.e. `maybeMarkReady` minus the `gh pr ready`
+  step. The post-review gate is the existing `maybeMarkReady`.
 - Configurable number of passes via `modes.review.passes` (default `2`, matching
   plan). `0` skips the phase entirely — current behavior.
 - Each pass = one non-interactive agent invocation. The agent gets:
   - The final spec tree (`index.md` + all subspecs, including ticked
     acceptance criteria).
-  - The full diff for the branch vs. its merge-base on `main` (or the
-    push-base) so it can see what actually shipped.
+  - The full diff for the branch against its PR/base comparison range so it
+    can critique the exact change set headed for review.
   - A short review prompt living in `prompts/patch/review.md` that mirrors
     the wording and rules of `prompts/plan/review.md` — subtractive bias,
     keep changes scoped to the spec, raise a blocker only under a very
-    limited set of conditions, don't touch the spec checklist.
+    limited set of conditions. The active spec tree (`index.md` + linked
+    subspecs) is **read-only** during review: passes must not edit any spec
+    file — not the checklist, not prose, docs sections, or acceptance text.
 - Each successful pass that modifies files results in one harness commit on
   the patch branch (e.g. `review N` analogous to `plan: review N`), with the
   usual `Jarvis-Agent:` trailer and PR-body refresh. A no-op pass commits
@@ -75,9 +83,10 @@ implementation (patch) models — see "Review models" below.
   and `passes` count. Review passes select their agent via the existing fallback
   semantics but from `modes.review.agentOrder`. When unset, fall back to
   `modes.plan.agentOrder` (review is critique work, closer to plan than patch).
-  `modes.review.agentOrder` entries are validated against priced models at load,
-  exactly like `modes.patch`/`modes.plan` — an unpriced model is a load-time
-  error, not a runtime cost/telemetry break.
+  `modes.review.agentOrder` runs through the **same `validateAgentOrder`
+  contract as `modes.patch`/`modes.plan`** at load — no stricter, no looser — so
+  an entry valid for patch/plan is valid for review and a bad one fails at load,
+  not as a runtime cost/telemetry break.
 - Keep it minimal and additive; this is a stopgap that the eventual v2 model
   categories can subsume.
 
@@ -142,8 +151,10 @@ implementation (patch) models — see "Review models" below.
 - Review passes are a separate post-completion budget and do not consume `maxIterations`; do not exit `5` after the checklist-closing implementation iteration just because review pass count would exceed the patch-loop cap.
 - The flow is strictly ordered: do N review-and-update passes, then end the loop, then mark the PR ready; do not interleave the ready handoff with the passes or mark ready before all N (or a stopping condition) complete.
 - Review config is a top-level `modes.review` block (sibling to `modes.plan`/`modes.patch`) with its own `agentOrder` and `passes`, falling back to `modes.plan.agentOrder` when `agentOrder` is unset (review is critique work, closer to plan than patch); landed in v1 now. Do not reuse the patch implementation models for review and do not defer this to the v2 model/agent rework.
-- `modes.review.agentOrder` entries are priced-model-validated at load, exactly like `modes.patch`/`modes.plan`; do not skip the price-key check, because review invocations are priced for the run summary and an unpriced model must fail at load, not as a runtime cost/telemetry break.
+- `modes.review.agentOrder` runs through the same `validateAgentOrder` contract as `modes.patch`/`modes.plan` at load — no stricter, no looser; do not invent a review-only rule that rejects model paths patch/plan accept (e.g. blanket-rejecting `cost_source: "no-price"`), and do not skip validation so a bad entry breaks at runtime instead of load.
 - The readiness gate brackets the review loop: `bun run ready` runs once after completion (green baseline), then the passes, then `bun run ready` again, then `gh pr ready`; do not validate between every pass (boils the ocean) and do not mark the PR ready on unvalidated review output.
+- The pre-review baseline gate is its own helper (`maybeMarkReady` minus the `gh pr ready` step): it runs `bun run ready`, commits and pushes any `check:fix` output, leaves the PR draft, and guarantees a clean worktree before pass 1; do not reuse `maybeMarkReady` for it (marks the PR ready too early) and do not call only `bun run ready` (leaves `check:fix` mutations uncommitted/dirty going into pass 1).
+- The active spec tree (`index.md` + linked subspecs) is read-only during review: passes must not edit any spec file — not the checklist, not prose, docs sections, or acceptance text; do not narrow this to "checklist only" because prose/criteria edits undermine the review input and drift later index/PR-body rendering.
 - On a blocker the harness posts a `gh pr comment` (net-new helper) and exits `7`; the PR is guaranteed to exist by review time (the run exits earlier if PR creation was skipped/failed), a failed comment post is a generic error with no new exit code, and there is no dedup because patch runs are fresh per invocation.
 - Review-agent quota exhaustion mid-phase exits `2` (mirroring patch-mode exhaustion) with the PR left draft; do not fall through to another mode's agents and do not auto-ready on quota.
 - The per-pass PR-body refresh is only the standard attribution-footer re-render every commit already performs; it does not regenerate the model-authored description ([[restore-useful-pr-descriptions]] / #176 owns that block inside the narrative markers), so there is no collision.

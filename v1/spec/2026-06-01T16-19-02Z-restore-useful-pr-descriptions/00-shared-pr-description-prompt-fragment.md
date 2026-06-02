@@ -7,7 +7,7 @@
 ## Decisions
 
 - Add one prompt-registry fragment for PR descriptions and have patch and plan inherit it; do not keep mode-local body-shape text.
-- Keep the fragment to the visible shape only: short description, blank line, `Decisions:`, unordered list; do not ask for attribution, progress, or spec dumps.
+- Keep the fragment to the visible body shape only: short description, blank line, `Decisions:`, unordered list; do not ask for attribution or progress text.
 
 ## Tasks
 
@@ -19,8 +19,8 @@
 
 - [ ] One prompt-registry fragment exists as the single source for PR-description instructions used by both patch and plan PR-body generation.
 - [ ] The fragment asks only for a short description plus a `Decisions:` unordered list.
-- [ ] Rendered patch and plan PR-description prompts both include the shared fragment and do not carry divergent mode-local body-shape wording.
-- [ ] Rendered-prompt snapshots and prompt-registry tests cover the new shared fragment and pass.
+- [ ] Rendered patch and plan PR-description prompts include the same shared fragment text rather than divergent mode-local body-shape wording.
+- [ ] Rendered-prompt snapshots and prompt-registry tests cover the shared fragment.
 
 ## Documentation updates
 

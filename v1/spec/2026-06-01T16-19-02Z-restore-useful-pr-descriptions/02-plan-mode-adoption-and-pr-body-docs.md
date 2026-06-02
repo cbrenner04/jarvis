@@ -8,7 +8,6 @@
 
 - Make plan-mode PR-body generation consume the same shared PR-description fragment and body-shape validator as patch mode; do not keep a plan-only empty narrative contract.
 - Keep plan-mode narrative preservation semantics aligned with patch mode so operators get one marker contract across modes; do not define mode-specific rewrite rules.
-- Update durable PR-body docs only once plan mode also ships the shared shape; do not leave shared docs describing mixed old/new mode behavior after this subspec lands.
 
 ## Tasks
 

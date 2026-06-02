@@ -164,6 +164,12 @@ has:
 - acceptance criteria
 - required documentation updates
 
+Any spec that changes **existing functionality** (not purely net-new work) must
+include updating `v2/docs/v1-behaviors.md` in its documentation updates — that
+catalog is the v1 parity baseline v2 review reads, so a behavior change that
+skips it silently rots the baseline. Record what the behavior now is, so the v2
+plans can later be reconciled against it.
+
 Keep subspecs atomic. If one unchecked item requires unrelated code paths,
 multiple product decisions, or verification that cannot run independently, split
 it into separate numbered subspec files and link each one from `index.md`.

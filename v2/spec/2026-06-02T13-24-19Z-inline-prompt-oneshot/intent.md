@@ -80,3 +80,14 @@ full work side effects.
 - No diff means success with no branch publication: print the agent response and exit 0, reject empty commit/PR creation and reject treating question-style prompts as failures.
 - Specless-run commit subject and initial PR title/body derive deterministically from the inline prompt text, using a trimmed first-line excerpt for the subject/title and the full prompt in the body plus standard attribution; reject agent-authored PR metadata and reject opaque timestamp-only metadata because reviewers still need human-readable context without a spec.
 - Operator/workflow semantics for `jarvis1 --prompt` land in `v2/docs/`; reject a v1-only durable doc home because `v2/docs/documentation-standard.md` assigns operator behavior there.
+
+## Blocker
+
+Review and approve `v2/spec/2026-06-02T13-24-19Z-inline-prompt-oneshot/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-06-02T13-24-19Z-inline-prompt-oneshot/intent.md`

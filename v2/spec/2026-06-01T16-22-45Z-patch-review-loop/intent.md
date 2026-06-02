@@ -5,10 +5,16 @@ name: patch-review-loop
 
 Add a self-review / refinement loop to patch mode (`jarvis1 run`), mirroring
 the existing plan-mode self-review phase. Once the active spec checklist is
-satisfied and Jarvis would normally hand off to `gh pr ready`, instead run one
-or more agent-driven review passes over the work produced on the patch branch,
-let the agent rewrite code/tests/docs in place, and commit each pass before
-finally marking the PR ready.
+satisfied and Jarvis would normally hand off to `gh pr ready`, the flow is:
+
+1. **Do N times**: run one agent-driven review-and-update pass over the work on
+   the patch branch — the agent critiques the diff and rewrites
+   code/tests/docs in place — and commit the pass.
+2. **End** the loop.
+3. **Mark the PR ready**.
+
+Review passes use their own model configuration, distinct from the
+implementation (patch) models — see "Review models" below.
 
 ## Why
 
@@ -46,8 +52,21 @@ finally marking the PR ready.
 - Blocker handling matches plan mode: appending `## Blocker` stops the loop,
   commits whatever the pass changed, leaves the PR draft, and exits with the
   blocker exit code.
-- Quota / model-config / agent fallback all reuse existing patch-mode
-  classification (no new error paths invented).
+- Quota / agent fallback all reuse existing patch-mode classification (no new
+  error paths invented).
+
+### Review models
+
+- Review passes must be able to use **different models than the implementation
+  (patch) models**. Add a config surface for this now in v1 — do not wait on
+  the larger v2 model/agent rework (see the `separate-models-from-agents`
+  intent), which is taking too long.
+- Strawman: a `modes.patch.reviewAgentOrder` key with the same
+  `{ agent, model }[]` shape as `agentOrder`. Review passes select their agent
+  via the existing fallback semantics but from this list. When unset, fall back
+  to `modes.patch.agentOrder` so current behavior is preserved.
+- Keep it minimal and additive; this is a stopgap that the eventual v2 model
+  categories can subsume.
 
 ## Open questions to resolve while drafting
 
@@ -67,6 +86,9 @@ finally marking the PR ready.
   pre-ready check:fix` commit path handles it; we should not duplicate it.
 - CLI surface: a `--review-passes <n>` flag mirroring plan mode, plus the
   config key above.
+- Exact key/shape for review models and its fallback: confirm
+  `modes.patch.reviewAgentOrder` (reusing `{ agent, model }[]`) vs. a slimmer
+  form, and that unset means "fall back to `agentOrder`."
 - Telemetry: review attempts emit invocation rows with a new
   `patch_phase: "review"` (or similar) so end-of-run summaries can show
   review cost alongside implementation cost without double-counting.
@@ -76,9 +98,11 @@ finally marking the PR ready.
 - `jarvis1 run` performs N review passes (default 2, config + flag
   configurable, `0` opts out) after the checklist is complete and the
   worktree is clean, before `gh pr ready`.
-- Each pass invokes one agent from `modes.patch.agentOrder`, with a prompt
-  derived from a new `prompts/patch/review.md` template that inlines the
-  spec tree and the branch diff.
+- Each pass invokes one agent from the review model config
+  (`modes.patch.reviewAgentOrder` or equivalent, falling back to
+  `modes.patch.agentOrder` when unset), with a prompt derived from a new
+  `prompts/patch/review.md` template that inlines the spec tree and the branch
+  diff.
 - Each non-empty pass commits as `review <N>` (or equivalent harness
   subject) on the patch branch with the standard `Jarvis-Agent:` trailer
   and triggers a PR-body refresh; empty passes do not commit.
@@ -95,7 +119,8 @@ finally marking the PR ready.
   - `v1/docs/run-loop.md` — new "Review phase" section, updated exit-code
     table if needed, updated end-of-run summary description.
   - `v1/docs/workflows.md` — patch-mode diagram includes the review loop.
-  - `v1/docs/config.md` — new `modes.patch.reviewPasses` key documented.
+  - `v1/docs/config.md` — new `modes.patch.reviewPasses` and review model
+    config (`modes.patch.reviewAgentOrder`) keys documented.
   - `README.md` — short mention in the run flow overview.
   - `prompts/patch/review.md` — new prompt file checked in.
   - `v2/docs/v1-behaviors.md` (and any other v2 reference docs that
@@ -118,6 +143,8 @@ finally marking the PR ready.
 - Review diff input uses the branch's PR/base comparison range; do not switch between `main` merge-base and a separate push-only base because the agent should critique the exact change set headed for review.
 - Configured review passes run through pass `N` unless a blocker/quota/error stops the run; do not short-circuit on the first no-op pass because `--review-passes` should bound cost predictably like plan review.
 - Review passes are a separate post-completion budget and do not consume `maxIterations`; do not exit `5` after the checklist-closing implementation iteration just because review pass count would exceed the patch-loop cap.
+- The flow is strictly ordered: do N review-and-update passes, then end the loop, then mark the PR ready; do not interleave the ready handoff with the passes or mark ready before all N (or a stopping condition) complete.
+- Review passes use a review-specific model config (`modes.patch.reviewAgentOrder`, same `{ agent, model }[]` shape, falling back to `modes.patch.agentOrder` when unset), landed in v1 now; do not reuse the patch implementation models for review and do not defer this to the v2 model/agent rework.
 
 ## Refine skip
 

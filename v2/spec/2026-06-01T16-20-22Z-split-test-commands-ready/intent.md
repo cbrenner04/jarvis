@@ -11,14 +11,16 @@ shape and the ready gate.
 ## Desired outcome
 
 The root `package.json` exposes clear test commands for `v1`, `v2`, and
-shared/root-owned tests, plus an aggregate command that runs the full required
-set. `bun run ready` uses that aggregate path so the release gate reflects the
-repo's ownership boundaries.
+`shared`, plus an aggregate command that runs the full suite. `bun run ready`
+uses that aggregate path so the release gate reflects the repo's ownership
+boundaries.
 
-Each tsconfig project (`v1`, `v2`, `shared`) owns its own test directory.
-Tests currently misplaced — root/shared-owned tests living under `v1/test/` —
-are relocated to their owner, so each `test:*` command is a simple directory
-rule rather than an ownership-aware filter over a shared folder.
+Each tsconfig project (`v1`, `v2`, `shared`) already owns its own test
+directory (shared tests in `shared/`, v2 tests co-located in `v2/src`, v1 tests
+in `v1/test`); the split is already clean, so there is nothing to relocate. The
+work is to add per-slice scripts scoped by *exact* directory root and an
+aggregate, and to guard the boundary so a shared-owned test can't later drift
+into `v1/test/`. `scripts/` has no tests and `test:shared` is `shared/` only.
 
 ## Why this matters
 
@@ -33,41 +35,46 @@ rule rather than an ownership-aware filter over a shared folder.
 
 ## Scope
 
-- Define explicit root scripts for:
-  - `test:v1`
-  - `test:v2`
-  - `test:shared`
-  - an aggregate path such as `test` or `test:all`
-- Preserve or intentionally replace the existing `bun test` behavior.
-- Decide what counts as shared/root-owned tests, then **relocate** those
-  currently under `v1/test/` into their owning tree so each command routes by
-  directory, not by an ownership filter.
-- Update `scripts/ready.ts` so `bun run ready` runs the aggregate required test
-  set.
+- Define explicit root scripts, each scoped to an **exact** directory root
+  (e.g. `bun test ./v1/`, not `bun test v1` which substring-matches):
+  - `test:v1` → `./v1/`
+  - `test:v2` → `./v2/`
+  - `test:shared` → `./shared/`
+  - aggregate `test` → bare `bun test` (independent whole-repo discovery, which
+    already runs all three slices). Timeout comes from `bunfig.toml`
+    (`[test] timeout = 30000`), so every invocation inherits it — no
+    `--timeout` flag needed.
+- Add a guard test asserting the exact-scoped slices don't overlap (no test
+  file resolves into two slices), keeping the already-clean split from drifting.
+  No relocation: there is nothing mislocated today.
+- Relocate the global test preload `v1/test/setup-fake-agents.ts` to a neutral
+  root home (it is repo-wide agent-spawn safety infra, not v1-owned) and
+  repoint `bunfig.toml`'s `preload`. It stays global on purpose — shared and v2
+  tests can spawn agents too — so the only change is honest ownership of the
+  file's location.
+- Update `scripts/ready.ts` so `bun run ready` runs the aggregate `test`.
 - Document the commands and the shared-test boundary.
 - Add tests for command wiring and ready-gate behavior.
 
 ## Likely decision points
 
-- Whether `test` remains the aggregate command or becomes a compatibility alias
-  to a new `test:all`.
-- Whether `test:v1` is exactly today's suite minus v2/shared files, or whether
-  any legacy tests stay temporarily in the aggregate until they can be sorted.
-- What belongs in the shared slice today. Likely candidates are repo-root
-  scripts, prompt-related tests that exercise top-level prompt artifacts, and
-  any source moved out of `v1/` and `v2/`.
+- Where the relocated preload lives (e.g. root `test/` or `scripts/`). Pick one
+  neutral home and repoint `bunfig.toml`.
 - Whether `ready` should call only the aggregate test command or each slice
   explicitly for clearer logs.
 
 ## Acceptance criteria
 
-- Root `package.json` exposes separate runnable test commands for `v1`, `v2`,
-  and shared/root-owned tests.
-- No root/shared-owned tests remain under `v1/test/`; each tsconfig project owns
-  its own test directory and its `test:*` command resolves by directory.
-- A top-level aggregate command runs all required test slices.
-- `bun run ready` runs the full required test set across `v1`, `v2`, and shared
-  slices.
+- Root `package.json` exposes separate runnable test commands `test:v1`,
+  `test:v2`, `test:shared`, each scoped to its exact directory root, plus an
+  aggregate `test`.
+- Each slice command targets an exact root path (`./v1/`, `./v2/`, `./shared/`),
+  not a substring filter; the aggregate `test` is bare `bun test`.
+- A guard test asserts the exact-scoped slices don't overlap.
+- The 30s test timeout is preserved via `bunfig.toml` across every command.
+- The agent-spawn safety preload lives at a neutral root home and `bunfig.toml`
+  points at it; no test slice depends on a file under another slice's tree.
+- `bun run ready` runs the aggregate `test`.
 - Docs explain the new commands and what the shared slice includes.
 - Automated tests cover the command wiring and ready-gate behavior enough to
   catch regressions in script names or execution order.
@@ -75,8 +82,7 @@ rule rather than an ownership-aware filter over a shared folder.
 ## Out of scope
 
 - Adding or enforcing coverage reporting.
-- Moving *correctly-owned* tests around for cosmetics. (Relocating the
-  mis-owned tests out of `v1/test/` to their owner is in scope, above.)
+- Relocating *tests* (none are mislocated); only the global preload file moves.
 - Changing `jarvis1` runtime behavior.
 - Large prompt/test architecture changes beyond what is needed to define the
   shared slice clearly.
@@ -85,13 +91,16 @@ rule rather than an ownership-aware filter over a shared folder.
 
 - Keep the operator contract simple: obvious command names beat clever test
   discovery.
-- Relocating the mis-owned tests to their owner is expected; beyond that, do not
-  invent a new source layout just for the command split.
+- The test tree is already cleanly split by owner; do not invent a new source
+  layout. Only the global preload file moves.
 
 ## Refinement
 
 - Keep `test` as the aggregate operator entrypoint and add any `test:all` name only as a compatibility alias if wanted; making `test:all` the sole aggregate and changing `test` away from full-repo execution is the wrong alternative.
-- Tests live with the code they cover: relocate the root/shared-owned tests currently under `v1/test/` into their owning tree so each tsconfig project (`v1`/`v2`/`shared`) owns its test directory and its `test:*` command is a simple directory rule. Leaving them misplaced and routing around them with ownership-aware globs is the wrong alternative — it bakes the misplacement in.
+- Scope each slice command to an exact directory root (`bun test ./v1/`, `./v2/`, `./shared/`); a bare `bun test shared` is a substring path filter that cross-contaminates slices and is the wrong alternative.
+- The test tree is already cleanly owner-split (shared in `shared/`, v2 in `v2/src`, v1 in `v1/test`), so there is nothing to relocate; add a guard test that the exact-scoped slices don't overlap instead. Asserting a `union(slices) == aggregate` invariant is unnecessary — the aggregate is independent whole-repo discovery and forthcoming coverage work catches any missed test.
+- The 30s timeout is supplied by `bunfig.toml` (`[test] timeout = 30000`) and inherited by every `bun test` invocation including scoped slices; re-adding a per-script `--timeout` flag is redundant and the wrong alternative.
+- The agent-spawn safety preload is repo-wide infra and must load for all slices; relocate it from `v1/test/` to a neutral root home and repoint `bunfig.toml` rather than leaving it under a single slice's tree or dropping it from non-v1 slices.
 - Make `ready` invoke the aggregate test script once instead of spelling out per-slice test commands in `scripts/ready.ts`; duplicating the slice list inside `ready` is the wrong alternative because the release gate would drift from the operator entrypoint.
 - Record the root test-command contract and the new ready gate test step in `v2/docs/v1-behaviors.md`, with any procedural wording in `v1/docs/worktrees-and-commits.md` kept aligned by cross-reference rather than treated as the sole durable home; documenting this only in legacy `v1/docs/` pages or only in the subspec is the wrong alternative.
 

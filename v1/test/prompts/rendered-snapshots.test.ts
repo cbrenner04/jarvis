@@ -6,6 +6,8 @@ import { buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
 import { buildRefinePrompt } from "../../src/modes/plan/refine.ts";
 import { buildReviewPrompt } from "../../src/modes/plan/review.ts";
+import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../../src/modes/patch/pr-description-prompt.ts";
+import { buildPrDescriptionPrompt as buildPlanPrDescriptionPrompt } from "../../src/modes/plan/pr-description-prompt.ts";
 
 type WrapperVariant = "codex.exec.stdin+marker";
 
@@ -99,5 +101,30 @@ describe("rendered prompt snapshots", () => {
     expect(applyWrapper("codex.exec.stdin+marker", rendered)).toContain(
       "jarvis-codex-invocation",
     );
+  });
+
+  test("patch and plan PR-description prompts include shared fragment", () => {
+    expect(registry.getById("patch.prompt.pr-description").metadata.revision).toBe("1");
+    expect(registry.getById("plan.prompt.pr-description").metadata.revision).toBe("1");
+
+    const patchKey = `patch.prompt.pr-description@r1.shared.txt`;
+    const planKey = `plan.prompt.pr-description@r1.shared.txt`;
+
+    const patch = buildPatchPrDescriptionPrompt({
+      specPath: "v1/spec/example/index.md",
+      specContext: "Example spec context",
+    });
+    const plan = buildPlanPrDescriptionPrompt({
+      intent: "Example intent",
+      specContext: "Example spec context",
+    });
+
+    expect(patch).toBe(readFixture(patchKey));
+    expect(plan).toBe(readFixture(planKey));
+
+    // Verify both include the shared fragment text
+    const sharedFragmentMarker = "Author a PR description consisting of a short summary";
+    expect(patch).toContain(sharedFragmentMarker);
+    expect(plan).toContain(sharedFragmentMarker);
   });
 });

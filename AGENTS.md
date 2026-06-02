@@ -16,7 +16,7 @@ Work here is work on the harness itself. Layout:
 ## Core decisions
 
 - **Stack**: TypeScript on Bun, strict typing (`strict`, `noUncheckedIndexedAccess`).
-- **Distribution**: personal use — clone and symlink the binary onto `PATH`. No npm publish.
+- **Distribution**: personal use — clone and symlink the binary onto `PATH`. No npm publish. **Single operator**: the repo owner is the only user — "every user" means one person, so don't design for multi-user config, onboarding, or required-by-default setup.
 - **Config**: `~/.jarvis/config.json`, auto-bootstrapped each run; edit via `jarvis config`. Holds a project registry: `jarvis init` records a target repo's root; `jarvis run <spec>` resolves cwd by matching the spec path against it. See [v1/docs/config.md](v1/docs/config.md).
 - **Agent fallback order**: `claude → codex → cursor`, configurable. See [v1/docs/agents.md](v1/docs/agents.md).
 - **Spec format** (target repos): Markdown with `- [ ]` task lists. Complete = zero unchecked items.
@@ -32,6 +32,7 @@ Multi-file specs go in `v1/spec/<UTC-timestamp>-<name>/` with an `index.md`. The
 
 ## Working rules for agents
 
+- Do work on a git worktree, not the primary checkout.
 - A spec must exist before any change. None yet? Create one first ([spec-guidance.md](v1/docs/spec-guidance.md)), merge it to `main` via PR, *then* start a separate implementation run. Specs already on disk get run through `jarvis`, not implemented by hand.
 - Read `index.md` to pick the next unchecked subspec, then read that subspec before editing.
 - Run `bun run typecheck` and `bun test` before ticking the acceptance criteria they cover.

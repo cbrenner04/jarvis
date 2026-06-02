@@ -71,16 +71,6 @@ Decisions:
 
 - One shared, lean PR-description prompt fragment is inherited by all modes; this supersedes the prior patch-mode-only, fixed-template framing.
 - The prompt asks the model only for a Description and a `Decisions:` unordered list; the model decides what content is appropriate — not deterministic derivation from subspec headings or commit metadata.
+- The model-authored Description + Decisions replace the current narrative payload inside `jarvis:narrative` markers; do not introduce a second generated section outside the markers, because rewrites already preserve only marker contents.
 - Attributions are appended by the existing footer mechanism, unchanged, and are not part of the prompt.
 - Deferred to first consumer: whether removing `jarvis:narrative` markers should be treated as an intentional opt-out or auto-repaired with a regenerated machine summary — pin when a caller needs it.
-
-## Blocker
-
-Review and approve `v1/spec/2026-06-01T16-19-02Z-restore-useful-pr-descriptions/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v1/spec/2026-06-01T16-19-02Z-restore-useful-pr-descriptions/intent.md`

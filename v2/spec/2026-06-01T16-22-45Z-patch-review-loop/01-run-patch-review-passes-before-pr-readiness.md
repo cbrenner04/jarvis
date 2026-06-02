@@ -2,7 +2,7 @@
 
 ## Problem
 
-Patch mode goes straight from completion to readiness. It needs a review loop first.
+Patch mode goes straight from completion to readiness.
 
 ## Decisions
 
@@ -26,13 +26,11 @@ On a review blocker, post a PR comment, commit that pass's changes, keep the PR 
 
 ## Documentation updates
 
-- [ ] Update `v1/docs/run-loop.md` with a patch-review phase description, the `git: false` skip behavior, and the blocker/ready ordering.
-- [ ] Update `v1/docs/workflows.md` so the patch-mode diagram shows completion → review loop → ready gate, rather than completion → ready gate directly.
 - [ ] Update inline docs near patch prompt assembly, completion, or PR-ready helpers where the new phase changes their contract.
 
 ## Acceptance criteria
 
-- [ ] In normal `git: true` patch runs, `jarvis1 run` performs the configured review passes after the checklist is complete and the worktree is clean, then runs the ready gate only after those passes finish.
+- [ ] In normal `git: true` patch runs, `jarvis1 run` performs the configured review passes after the checklist is complete and the worktree is clean, then runs the ready gate.
 - [ ] Review passes use the completed spec tree and the branch PR/base diff as prompt inputs, and the agent is not asked to edit the spec checklist itself.
 - [ ] A review pass that edits files creates one harness commit on the patch branch with subject `review <N>` and refreshes the draft PR body; a pass with no file changes creates no commit.
 - [ ] Patch review continues through pass `N` even if an earlier pass is a no-op.

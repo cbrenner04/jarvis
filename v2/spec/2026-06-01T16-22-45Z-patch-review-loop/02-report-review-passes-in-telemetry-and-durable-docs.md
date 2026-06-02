@@ -16,11 +16,12 @@ Record shipped behavior in the existing durable homes: `README.md`, `v1/docs/run
 - [ ] Update the human-readable end-of-run summary so review attempts/cost appear alongside implementation attempts without inflating iteration counts or totals.
 - [ ] Update tests for telemetry enrichment and run-summary rendering so mixed implementation/review runs report stable counts and costs.
 - [ ] Update durable docs that describe shipped run behavior: `v1/docs/run-loop.md`, `v1/docs/workflows.md`, `README.md`, and `v2/docs/v1-behaviors.md`.
-- [ ] Review adjacent v2 durable docs that enumerate v1 behavior surfaces and update them only if they would otherwise misstate patch-mode completion semantics.
 
 ## Documentation updates
 
 - [ ] Update `README.md` with a short run-flow mention only.
+- [ ] Update `v1/docs/run-loop.md` for the review phase, `git: false` skip, blocker handling, and ready ordering.
+- [ ] Update `v1/docs/workflows.md` so the patch-mode diagram shows completion → review loop → ready gate.
 - [ ] Update `v2/docs/v1-behaviors.md` where patch-mode workflow, git/loop-only behavior, PR lifecycle, or telemetry would otherwise be wrong.
 
 ## Acceptance criteria

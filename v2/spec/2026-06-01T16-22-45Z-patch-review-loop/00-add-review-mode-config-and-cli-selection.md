@@ -2,7 +2,7 @@
 
 ## Problem
 
-Patch review needs its own model/order config and pass-count override.
+Patch review needs separate model selection and pass-count resolution.
 
 ## Decisions
 
@@ -13,11 +13,11 @@ Effective `git: false` skips patch review entirely, not a loop-only review varia
 
 ## Task Checklist
 
-- [ ] Extend the v1 config schema and defaults so `modes.review` is a sibling of `modes.patch` and `modes.plan`, with `passes` and optional `agentOrder`, plus validation for non-negative pass counts and non-empty `agentOrder` entries when provided.
-- [ ] Update patch-mode option parsing so `jarvis1 run` accepts `--review-passes <n>` with the same non-negative integer validation style as plan mode.
-- [ ] Add a single resolver for patch review settings that computes the effective pass count and effective review agent order from CLI overrides, `modes.review`, and `modes.patch.agentOrder`.
-- [ ] Keep model-config and quota behavior aligned with existing patch-mode selection semantics once a concrete review agent/model pair has been resolved.
-- [ ] Add or update unit coverage for config loading and CLI parsing so malformed `modes.review` values fail before any agent invocation and so `--review-passes` overrides config predictably.
+- [ ] Extend the v1 config schema/defaults with `modes.review.{passes,agentOrder}` and validation for non-negative `passes` plus non-empty `agentOrder` entries when provided.
+- [ ] Add `jarvis1 run --review-passes <n>` with the same non-negative integer validation style as plan mode.
+- [ ] Add one resolver for effective review passes and review agent order from CLI overrides, `modes.review`, and `modes.patch.agentOrder`.
+- [ ] Reuse existing patch-mode model/quota selection once a review agent/model pair is resolved.
+- [ ] Add unit coverage for config loading and CLI parsing failures and override precedence.
 
 ## Documentation updates
 
@@ -26,7 +26,7 @@ Effective `git: false` skips patch review entirely, not a loop-only review varia
 ## Acceptance criteria
 
 - [ ] `jarvis1 run --review-passes 0 <spec>` disables the review loop without changing implementation iteration behavior or requiring config edits.
-- [ ] Without `--review-passes`, patch mode uses `modes.review.passes` when set and otherwise defaults to `2`.
-- [ ] When `modes.review.agentOrder` is unset, patch review uses `modes.patch.agentOrder`; when it is set, review agent selection uses that order instead.
+- [ ] Without `--review-passes`, review passes resolve from `modes.review.passes` and otherwise default to `2`.
+- [ ] When `modes.review.agentOrder` is unset, patch review uses `modes.patch.agentOrder`; when set, it uses the review order instead.
 - [ ] Invalid `modes.review` config values or invalid `--review-passes` input fail before any agent CLI invocation.
 - [ ] Effective `git: false` runs do not attempt patch review even when review passes are configured.

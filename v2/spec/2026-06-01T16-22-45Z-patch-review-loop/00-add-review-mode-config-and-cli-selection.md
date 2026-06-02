@@ -2,17 +2,14 @@
 
 ## Problem
 
-Patch mode has one model-selection surface today: `modes.patch.agentOrder`.
-That is not enough for a post-completion review loop whose cost and model mix
-need to diverge from implementation work, and there is no patch-mode flag for
-overriding the review pass count.
+Patch review needs its own model/order config and pass-count override.
 
 ## Decisions
 
-- Review model selection lives in a new top-level `modes.review` block, not in `modes.patch` and not as a plan-mode reuse.
-- `modes.review` owns `passes` and `agentOrder`; `agentOrder` may be unset so patch review can fall back to `modes.patch.agentOrder` instead of duplicating config.
-- Effective review-pass count resolves as `--review-passes` → `modes.review.passes` → default `2`; do not reuse plan-mode review settings because patch review is a separate operator contract.
-- Effective `git: false` skips the entire review phase even when review config is present; do not define a loop-only review mode because it has no branch diff, review commits, or PR handoff.
+`modes.review` is a top-level sibling of `modes.patch` and `modes.plan`, not a nested patch override.
+`modes.review.agentOrder` may be unset; fall back to `modes.patch.agentOrder` rather than requiring duplicated review config.
+Effective review passes resolve as `--review-passes` -> `modes.review.passes` -> `2`, not from plan-mode settings.
+Effective `git: false` skips patch review entirely, not a loop-only review variant.
 
 ## Task Checklist
 
@@ -25,7 +22,6 @@ overriding the review pass count.
 ## Documentation updates
 
 - [ ] Update `v1/docs/config.md` for the new `modes.review` block, its fallback to `modes.patch.agentOrder`, and the default review-pass count.
-- [ ] Update `README.md` only where run-flow configuration is summarized so patch review no longer appears to share implementation models implicitly.
 
 ## Acceptance criteria
 

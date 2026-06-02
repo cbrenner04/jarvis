@@ -2,20 +2,16 @@
 
 ## Problem
 
-Today patch mode exits its implementation loop as soon as the active spec has
-zero unchecked boxes and the worktree is clean, then immediately runs the
-ready gate and `gh pr ready`. There is no dedicated post-completion review
-phase that critiques the shipped diff against the completed spec before the PR
-leaves draft.
+Patch mode goes straight from completion to readiness. It needs a review loop first.
 
 ## Decisions
 
-- Patch review starts only after the implementation loop reaches zero unchecked boxes and a clean git worktree; do not interleave review with implementation iterations or run it before completion.
-- Review passes are a separate post-completion budget and do not consume `maxIterations`; do not let the checklist-closing implementation iteration force exit `5` before configured review passes run.
-- Each review prompt inlines the completed spec tree plus the branch's PR/base diff range; do not switch to a merge-base-only diff that can diverge from the exact change set headed for review.
-- Configured review passes run through pass `N` unless a blocker, quota exhaustion, model-config failure, or existing patch-mode hard error stops the run; do not short-circuit on the first no-op pass.
-- A non-empty review pass commits as `review <N>` and refreshes the draft PR body; a no-op pass commits nothing and only logs completion.
-- A review blocker is raised through the harness, not through spec-file edits: post a PR comment, commit that pass's file changes, keep the PR draft, exit `7`, and skip `gh pr ready`.
+Run patch review only after zero unchecked boxes and a clean worktree, not interleaved with implementation iterations.
+Patch review does not consume `maxIterations`; do not exit `5` after the checklist-closing implementation pass before review runs.
+Each review prompt includes the completed spec tree plus the branch PR/base diff, not a merge-base-only diff that can miss shipped changes.
+Run configured passes through `N` unless a blocker, quota stop, or existing hard error stops the run; do not stop on the first no-op pass.
+Non-empty review passes commit as `review <N>` and refresh the draft PR body; no-op passes do not commit.
+On a review blocker, post a PR comment, commit that pass's changes, keep the PR draft, exit `7`, and do not write `## Blocker` into spec files.
 
 ## Task Checklist
 

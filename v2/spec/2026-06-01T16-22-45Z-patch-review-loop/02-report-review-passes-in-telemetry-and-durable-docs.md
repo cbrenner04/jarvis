@@ -2,16 +2,13 @@
 
 ## Problem
 
-Patch review adds a new post-completion agent phase with its own cost, token,
-and stop semantics. Without explicit telemetry and doc updates, end-of-run
-reporting will either hide review cost inside implementation totals or leave
-v1/v2 durable references describing the old completion flow.
+Patch review changes run telemetry and operator-visible workflow docs.
 
 ## Decisions
 
-- Telemetry distinguishes implementation and review invocations with an explicit patch-phase field; do not infer review rows later from commit subjects or prompt IDs.
-- End-of-run summaries aggregate review usage into the same run total while labeling review attempts separately; do not double-count review rows as extra implementation iterations.
-- Durable operator docs stay in the existing v1 workflow pages, and v2 parity tracking is updated in `v2/docs/v1-behaviors.md`; do not add a second competing behavior catalog for this change.
+Tag review invocations with an explicit patch-phase field, not inferred later from commit subjects or prompt names.
+Show review attempts and cost separately in the run summary while keeping one correct run total, not inflated implementation counts.
+Record shipped behavior in the existing durable homes: `README.md`, `v1/docs/run-loop.md`, `v1/docs/workflows.md`, and `v2/docs/v1-behaviors.md`, not a new behavior catalog.
 
 ## Task Checklist
 
@@ -23,8 +20,8 @@ v1/v2 durable references describing the old completion flow.
 
 ## Documentation updates
 
-- [ ] In `v2/docs/v1-behaviors.md`, add the review-loop behavior to the patch-mode run workflow, git/loop-only distinctions, PR lifecycle, and telemetry sections that now change observably.
-- [ ] Keep `README.md` to a short run-flow mention; the detailed contract remains in `v1/docs/run-loop.md` and `v1/docs/workflows.md`.
+- [ ] Update `README.md` with a short run-flow mention only.
+- [ ] Update `v2/docs/v1-behaviors.md` where patch-mode workflow, git/loop-only behavior, PR lifecycle, or telemetry would otherwise be wrong.
 
 ## Acceptance criteria
 

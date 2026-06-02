@@ -7,8 +7,8 @@
 
 ## Tasks
 
-- Update `scripts/ready.ts` so its test step runs the aggregate root test script instead of an independent slice list.
-- Add ready-script regression coverage for command order and the aggregate test invocation name.
+- Update `scripts/ready.ts` so the test step runs the aggregate root test script.
+- Add regression coverage for ready-step order and the aggregate test invocation name.
 - Align `v1/docs/worktrees-and-commits.md` with that durable entry.
 
 ## Documentation updates
@@ -19,6 +19,6 @@
 ## Acceptance criteria
 
 - [ ] `scripts/ready.ts` keeps the existing ready order and runs the test phase through `bun run test`.
-- [ ] Automated tests fail if `ready` stops using the aggregate test script or reorders the ready steps unexpectedly.
+- [ ] Automated tests fail if `ready` stops using `bun run test` or reorders the ready steps.
 - [ ] `v2/docs/v1-behaviors.md` records that `bun run ready` reaches tests through the aggregate root `test` command.
 - [ ] `v1/docs/worktrees-and-commits.md` cross-references the durable behavior entry instead of carrying the only operator contract for the ready test step.

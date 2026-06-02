@@ -53,8 +53,12 @@ into `v1/test/`. `scripts/` has no tests and `test:shared` is `shared/` only.
   tests can spawn agents too — so the only change is honest ownership of the
   file's location.
 - Update `scripts/ready.ts` so `bun run ready` runs the aggregate `test`.
-- Document the commands and the shared-test boundary.
-- Add tests for command wiring and ready-gate behavior.
+- Document the commands and the shared-test boundary, and fix README's
+  "Per-test timeout" section — the 30s budget now comes from `bunfig.toml`, not
+  a `--timeout` script flag.
+- Add tests for command wiring and ready-gate behavior, including a regression
+  that a *scoped* slice run still observes the agent-spawn preload (not just that
+  `bunfig.toml`'s text changed).
 
 ## Likely decision points
 
@@ -68,12 +72,23 @@ into `v1/test/`. `scripts/` has no tests and `test:shared` is `shared/` only.
 - Root `package.json` exposes separate runnable test commands `test:v1`,
   `test:v2`, `test:shared`, each scoped to its exact directory root, plus an
   aggregate `test`.
-- Each slice command targets an exact root path (`./v1/`, `./v2/`, `./shared/`),
-  not a substring filter; the aggregate `test` is bare `bun test`.
-- A guard test asserts the exact-scoped slices don't overlap.
+- A regression asserts the exact script strings — `bun test ./v1/`,
+  `bun test ./v2/`, `bun test ./shared/` (trailing slashes required), and
+  `test` = bare `bun test` — so a later "simplification" to `./shared` (which
+  reintroduces substring matching) fails the test.
+- A guard test enumerates test files and asserts the `v1/**`, `v2/**`, and
+  `shared/**` roots are disjoint (no file resolves into two slices). No fuzzy
+  "shared-owned" heuristic — disjoint roots is the observable rule.
 - The 30s test timeout is preserved via `bunfig.toml` across every command.
-- The agent-spawn safety preload lives at a neutral root home and `bunfig.toml`
-  points at it; no test slice depends on a file under another slice's tree.
+- The agent-spawn safety preload no longer lives under `v1/test/` — it sits at a
+  neutral root home with `bunfig.toml` pointing at it — and shared-owned *tests*
+  live under `shared/`. (v1/v2 tests may still import `shared/**` runtime code;
+  that is fine and not forbidden.)
+- A scoped slice run (e.g. `test:v2` or `test:shared`) still loads the
+  agent-spawn preload — proven by a test exercising the protected spawn path
+  under a scoped invocation, not by config text alone.
+- README's "Per-test timeout" section attributes the 30s budget to
+  `bunfig.toml`, not a `--timeout` script flag.
 - `bun run ready` runs the aggregate `test`.
 - Docs explain the new commands and what the shared slice includes.
 - Automated tests cover the command wiring and ready-gate behavior enough to
@@ -98,9 +113,12 @@ into `v1/test/`. `scripts/` has no tests and `test:shared` is `shared/` only.
 
 - Keep `test` as the aggregate operator entrypoint and add any `test:all` name only as a compatibility alias if wanted; making `test:all` the sole aggregate and changing `test` away from full-repo execution is the wrong alternative.
 - Scope each slice command to an exact directory root (`bun test ./v1/`, `./v2/`, `./shared/`); a bare `bun test shared` is a substring path filter that cross-contaminates slices and is the wrong alternative.
-- The test tree is already cleanly owner-split (shared in `shared/`, v2 in `v2/src`, v1 in `v1/test`), so there is nothing to relocate; add a guard test that the exact-scoped slices don't overlap instead. Asserting a `union(slices) == aggregate` invariant is unnecessary — the aggregate is independent whole-repo discovery and forthcoming coverage work catches any missed test.
+- The test tree is already cleanly owner-split (shared in `shared/`, v2 in `v2/src`, v1 in `v1/test`), so there is nothing to relocate; add a guard test that enumerates test files and asserts the `v1/**`/`v2/**`/`shared/**` roots are disjoint. Do not add a fuzzy "no shared-owned test under `v1/test/`" heuristic (not mechanically knowable) and do not assert `union(slices) == aggregate` (unnecessary — the aggregate is whole-repo discovery and coverage work catches misses).
+- The slice ownership rule is narrow: the global preload must not live under `v1/test/`, and shared-owned *tests* must live under `shared/`. Do not forbid v1/v2 tests from importing `shared/**` runtime code — that is valid shared coverage, not a boundary violation.
+- The script regression asserts exact strings with trailing slashes (`bun test ./v1/`, `./v2/`, `./shared/`, and `test` = bare `bun test`); asserting only "contains the root name" is the wrong alternative because `bun test ./shared` would pass while keeping the substring-filter risk.
 - The 30s timeout is supplied by `bunfig.toml` (`[test] timeout = 30000`) and inherited by every `bun test` invocation including scoped slices; re-adding a per-script `--timeout` flag is redundant and the wrong alternative.
-- The agent-spawn safety preload is repo-wide infra and must load for all slices; relocate it from `v1/test/` to a neutral root home and repoint `bunfig.toml` rather than leaving it under a single slice's tree or dropping it from non-v1 slices.
+- The agent-spawn safety preload is repo-wide infra and must load for all slices; relocate it from `v1/test/` to a neutral root home and repoint `bunfig.toml` rather than leaving it under a single slice's tree or dropping it from non-v1 slices. Prove it with a regression that a scoped slice run still observes the preload (exercise the protected spawn path under a scoped invocation); asserting only that `bunfig.toml` text changed is the wrong alternative because a scoped slice could silently lose the preload while aggregate `test` still passes.
+- README's "Per-test timeout" section is part of this work: it currently credits the `--timeout=30000` script flag, which this spec removes, so it must be repointed to `bunfig.toml`. Leaving README untouched is the wrong alternative — public operator docs would contradict the new package scripts.
 - Make `ready` invoke the aggregate test script once instead of spelling out per-slice test commands in `scripts/ready.ts`; duplicating the slice list inside `ready` is the wrong alternative because the release gate would drift from the operator entrypoint.
 - Record the root test-command contract and the new ready gate test step in `v2/docs/v1-behaviors.md`, with any procedural wording in `v1/docs/worktrees-and-commits.md` kept aligned by cross-reference rather than treated as the sole durable home; documenting this only in legacy `v1/docs/` pages or only in the subspec is the wrong alternative.
 

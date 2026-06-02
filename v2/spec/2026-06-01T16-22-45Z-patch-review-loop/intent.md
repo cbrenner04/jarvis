@@ -32,7 +32,10 @@ implementation (patch) models — see "Review models" below.
 ## Rough shape
 
 - New phase in `jarvis1 run`, after the checklist is complete and the worktree
-  is clean, before `gh pr ready` and the readiness gate.
+  is clean. Gate ordering: run the readiness gate (`bun run ready`) once to
+  establish a green baseline, then the review passes, then re-run the readiness
+  gate, then `gh pr ready`. No per-pass validation (that would boil the ocean);
+  the two gates bracket the loop instead.
 - Configurable number of passes via `modes.review.passes` (default `2`, matching
   plan). `0` skips the phase entirely — current behavior.
 - Each pass = one non-interactive agent invocation. The agent gets:
@@ -49,11 +52,17 @@ implementation (patch) models — see "Review models" below.
   usual `Jarvis-Agent:` trailer and PR-body refresh. A no-op pass commits
   nothing and is logged.
 - Blocker handling: blockers can be raised only under very limited conditions.
-  On a blocker, the harness posts a PR comment calling it out, commits whatever
-  the pass changed, leaves the PR draft, and exits with the blocker exit code.
-  No `## Blocker` file writes.
-- Quota / agent fallback all reuse existing patch-mode classification (no new
-  error paths invented).
+  On a blocker, the harness posts a PR comment (net-new `gh pr comment` helper)
+  calling it out, commits whatever the pass changed, leaves the PR draft, and
+  exits with the blocker exit code (`7`). No `## Blocker` file writes. The PR is
+  guaranteed to exist by review time (the run exits earlier if PR
+  creation was skipped or failed), so no PR-absent branch is needed. A failed
+  comment post is a generic error (no new exit code, no special handling). No
+  dedup: patch runs are fresh each invocation, so re-running after the blocker
+  is fixed won't re-post; a re-hit of the same blocker re-posting is acceptable.
+- Quota: if every agent in the review order is exhausted mid-phase, the run
+  exits `2` (same as patch-mode exhaustion) and the PR stays draft — never
+  auto-readied on quota. No mid-phase fall-through to a different mode's agents.
 
 ### Review models
 
@@ -65,16 +74,15 @@ implementation (patch) models — see "Review models" below.
   `modes.patch`: `modes.review` with its own `agentOrder` (`{ agent, model }[]`)
   and `passes` count. Review passes select their agent via the existing fallback
   semantics but from `modes.review.agentOrder`. When unset, fall back to
-  `modes.patch.agentOrder`.
+  `modes.plan.agentOrder` (review is critique work, closer to plan than patch).
+  `modes.review.agentOrder` entries are validated against priced models at load,
+  exactly like `modes.patch`/`modes.plan` — an unpriced model is a load-time
+  error, not a runtime cost/telemetry break.
 - Keep it minimal and additive; this is a stopgap that the eventual v2 model
   categories can subsume.
 
 ## Open questions to resolve while drafting
 
-- Interaction with the readiness gate (`bun run ready`): readiness still
-  runs after the last review pass. If review-induced edits cause `bun run
-  ready` to mutate files (e.g., `check:fix`), the existing `chore: apply
-  pre-ready check:fix` commit path handles it; we should not duplicate it.
 - CLI surface: a `--review-passes <n>` flag mirroring plan mode, plus the
   `modes.review` config above.
 - Telemetry: review attempts emit invocation rows with a new
@@ -85,18 +93,22 @@ implementation (patch) models — see "Review models" below.
 
 - `jarvis1 run` performs N review passes (default 2 via `modes.review.passes`,
   flag-overridable, `0` opts out) after the checklist is complete and the
-  worktree is clean, before `gh pr ready`.
+  worktree is clean. Gate ordering: `bun run ready` (baseline) → passes →
+  `bun run ready` (re-validate) → `gh pr ready`.
 - Each pass invokes one agent from `modes.review.agentOrder` (falling back to
-  `modes.patch.agentOrder` when unset), with a prompt derived from a new
+  `modes.plan.agentOrder` when unset), with a prompt derived from a new
   `prompts/patch/review.md` template that inlines the spec tree and the branch
-  diff.
+  diff. `modes.review.agentOrder` is priced-model-validated at load like the
+  other mode orders.
 - Each non-empty pass commits as `review <N>` (or equivalent harness
   subject) on the patch branch with the standard `Jarvis-Agent:` trailer
-  and triggers a PR-body refresh; empty passes do not commit.
+  and the standard attribution-footer PR-body refresh (footer only — it does
+  not regenerate the model-authored description); empty passes do not commit.
 - A blocker (raised only under very limited conditions) stops the loop, posts a
   PR comment calling it out, commits the pass's work, leaves the PR draft, and
   exits with the existing blocker exit code (`7`) — no new exit codes, no
   `## Blocker` file writes.
+- Review-agent quota exhaustion mid-phase exits `2` and leaves the PR draft.
 - Telemetry rows for review invocations are distinguishable from
   implementation iterations in `~/.jarvis/runs.jsonl` and in the end-of-run
   summary; cost and tokens are aggregated without double-counting.
@@ -129,7 +141,12 @@ implementation (patch) models — see "Review models" below.
 - Configured review passes run through pass `N` unless a blocker/quota/error stops the run; do not short-circuit on the first no-op pass because `--review-passes` should bound cost predictably like plan review.
 - Review passes are a separate post-completion budget and do not consume `maxIterations`; do not exit `5` after the checklist-closing implementation iteration just because review pass count would exceed the patch-loop cap.
 - The flow is strictly ordered: do N review-and-update passes, then end the loop, then mark the PR ready; do not interleave the ready handoff with the passes or mark ready before all N (or a stopping condition) complete.
-- Review config is a top-level `modes.review` block (sibling to `modes.plan`/`modes.patch`) with its own `agentOrder` and `passes`, falling back to `modes.patch.agentOrder` when `agentOrder` is unset; landed in v1 now. Do not reuse the patch implementation models for review and do not defer this to the v2 model/agent rework.
+- Review config is a top-level `modes.review` block (sibling to `modes.plan`/`modes.patch`) with its own `agentOrder` and `passes`, falling back to `modes.plan.agentOrder` when `agentOrder` is unset (review is critique work, closer to plan than patch); landed in v1 now. Do not reuse the patch implementation models for review and do not defer this to the v2 model/agent rework.
+- `modes.review.agentOrder` entries are priced-model-validated at load, exactly like `modes.patch`/`modes.plan`; do not skip the price-key check, because review invocations are priced for the run summary and an unpriced model must fail at load, not as a runtime cost/telemetry break.
+- The readiness gate brackets the review loop: `bun run ready` runs once after completion (green baseline), then the passes, then `bun run ready` again, then `gh pr ready`; do not validate between every pass (boils the ocean) and do not mark the PR ready on unvalidated review output.
+- On a blocker the harness posts a `gh pr comment` (net-new helper) and exits `7`; the PR is guaranteed to exist by review time (the run exits earlier if PR creation was skipped/failed), a failed comment post is a generic error with no new exit code, and there is no dedup because patch runs are fresh per invocation.
+- Review-agent quota exhaustion mid-phase exits `2` (mirroring patch-mode exhaustion) with the PR left draft; do not fall through to another mode's agents and do not auto-ready on quota.
+- The per-pass PR-body refresh is only the standard attribution-footer re-render every commit already performs; it does not regenerate the model-authored description ([[restore-useful-pr-descriptions]] / #176 owns that block inside the narrative markers), so there is no collision.
 
 ## Refine skip
 

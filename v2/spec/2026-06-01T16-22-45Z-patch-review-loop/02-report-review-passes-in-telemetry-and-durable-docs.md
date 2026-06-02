@@ -20,7 +20,7 @@ Record shipped behavior in the existing durable homes: `README.md`, `v1/docs/run
 ## Documentation updates
 
 - [ ] Update `README.md` with a short run-flow mention only.
-- [ ] Update `v1/docs/run-loop.md` for the review phase, `git: false` skip, blocker handling, and ready ordering.
+- [ ] Update `v1/docs/run-loop.md` for the review phase, `git: false` skip, blocker handling (PR comment, exit `7`), review-agent quota exhaustion (exit `2`, PR draft), and the bracketed gate ordering (`bun run ready` → passes → `bun run ready` → `gh pr ready`).
 - [ ] Update `v1/docs/workflows.md` so the patch-mode diagram shows completion → review loop → ready gate.
 - [ ] Update `v2/docs/v1-behaviors.md` where patch-mode workflow, git/loop-only behavior, PR lifecycle, or telemetry would otherwise be wrong.
 

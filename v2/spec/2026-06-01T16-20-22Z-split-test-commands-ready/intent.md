@@ -95,13 +95,3 @@ rule rather than an ownership-aware filter over a shared folder.
 - Make `ready` invoke the aggregate test script once instead of spelling out per-slice test commands in `scripts/ready.ts`; duplicating the slice list inside `ready` is the wrong alternative because the release gate would drift from the operator entrypoint.
 - Record the root test-command contract and the new ready gate test step in `v2/docs/v1-behaviors.md`, with any procedural wording in `v1/docs/worktrees-and-commits.md` kept aligned by cross-reference rather than treated as the sole durable home; documenting this only in legacy `v1/docs/` pages or only in the subspec is the wrong alternative.
 
-## Blocker
-
-Review and approve `v2/spec/2026-06-01T16-20-22Z-split-test-commands-ready/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-06-01T16-20-22Z-split-test-commands-ready/intent.md`

@@ -1,7 +1,5 @@
 # 00 - Coverage scripts and docs
 
-Wire `bun test --coverage` for v1, v2, and shared/root; document; lock with a test.
-
 ## Decisions
 
 - Four parallel scripts mirroring `test:*`, not one script with env flags:
@@ -11,8 +9,7 @@ Wire `bun test --coverage` for v1, v2, and shared/root; document; lock with a te
   - `coverage:shared` — `bun test --coverage ./shared/ ./scripts/ ./test/`
 - `coverage:shared` includes root `./test/`; rules out treating root tests as v1-owned.
 - Stdout-only via Bun's default text reporter; no `coverage/` artifacts. Rules out lcov/html wiring.
-- Docs home: `v1/docs/test-coverage.md`, linked from `README.md`. Rules out splitting across `v1/docs` + `v2/docs`.
-- Wiring lock: `test/coverage-scripts.test.ts` asserts the four script command strings exactly. Rules out shell grep of `package.json`.
+- Wiring lock test asserts the four script command strings exactly. Rules out shell-grepping `package.json`.
 
 Deferred to first consumer: report persistence/format — pin when a reviewer, dashboard, or CI gate needs durable artifacts.
 Deferred to first consumer: per-slice thresholds — pin when the first no-drop guard lands.
@@ -37,5 +34,5 @@ Deferred to first consumer: per-slice thresholds — pin when the first no-drop 
 
 ## Documentation updates
 
-- Create `v1/docs/test-coverage.md` (v1 workflow doc home per `v2/docs/documentation-standard.md`).
+- Create `v1/docs/test-coverage.md`.
 - Update `README.md` to link it.

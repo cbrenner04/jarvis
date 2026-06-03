@@ -23,10 +23,15 @@ shape agent behavior in patch mode and plan draft/review/refine:
 - `plan.decisions-ledger` (`prompts/plan/decisions-ledger.md`) — shared
   plan-only structure fragment layered into plan draft/review/refine prompts to
   require atomic decision/constraint/assumption ledger entries over narrative prose
+- `shared.pr-description` (`prompts/shared/pr-description.md`) — shared
+  PR-description fragment used by patch and plan PR-body generation steps to
+  request model-authored Description and Decisions list
 
 - `patch.prompt.body` (`prompts/patch/instructions.md`)
+- `patch.prompt.pr-description` (`prompts/patch/pr-description.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
+- `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review` (`prompts/plan/review.md`)
 - `plan.prompt.refine` (`prompts/plan/refine.md`)
 

@@ -42,7 +42,7 @@ class FakeAgent implements Agent {
   }
 }
 
-const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
+const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.4" };
 
 class FakeCodexNoUsd implements Agent {
   readonly name: AgentName = "codex";
@@ -185,10 +185,10 @@ describe("run summary integration", () => {
     expect(code).toBe(0);
     const out = cap.out();
     expect(out).toContain("computed");
-    expect(out).toContain("$1.75");
+    expect(out).toContain("$2.50");
     const telemetry = readFileSync(join(cfgDir, "runs.jsonl"), "utf8");
     expect(telemetry).toContain('"cost_source":"computed"');
-    expect(telemetry).toContain('"configured_model":"gpt-5.3-codex"');
+    expect(telemetry).toContain('"configured_model":"gpt-5.4"');
     rmSync(dir, { recursive: true, force: true });
   });
 

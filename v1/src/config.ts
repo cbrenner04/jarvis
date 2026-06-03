@@ -278,7 +278,10 @@ function validateConfig(input: unknown, file: string): Config {
     typeof reviewMode !== "object" ||
     Array.isArray(reviewMode)
   ) {
-    fail(file, 'modes.review must be an object with "passes" and optional "agentOrder"');
+    fail(
+      file,
+      'modes.review must be an object with "passes" and optional "agentOrder"',
+    );
   }
   const reviewModeObj = reviewMode as Record<string, unknown>;
   let reviewAgentOrder: AgentEntry[] | undefined;
@@ -538,7 +541,9 @@ function validateConfig(input: unknown, file: string): Config {
       },
       review: {
         passes: reviewPasses,
-        ...(reviewAgentOrder !== undefined ? { agentOrder: reviewAgentOrder } : {}),
+        ...(reviewAgentOrder !== undefined
+          ? { agentOrder: reviewAgentOrder }
+          : {}),
       },
     },
     quotaFallback,
@@ -888,10 +893,7 @@ export function resolvePlanFlags(
   };
 }
 
-export function resolveReviewPasses(
-  cfg: Config,
-  cliOverride?: number,
-): number {
+export function resolveReviewPasses(cfg: Config, cliOverride?: number): number {
   if (cliOverride !== undefined) {
     return cliOverride;
   }

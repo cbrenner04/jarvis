@@ -1714,9 +1714,9 @@ exit 1
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY] },
-        
-      review: { passes: 2 },
-    },
+
+          review: { passes: 2 },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
@@ -1760,9 +1760,9 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY] },
-        
-      review: { passes: 2 },
-    },
+
+          review: { passes: 2 },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1853,9 +1853,9 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY] },
-        
-      review: { passes: 2 },
-    },
+
+          review: { passes: 2 },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
@@ -1923,9 +1923,9 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-        
-      review: { passes: 2 },
-    },
+
+          review: { passes: 2 },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1965,9 +1965,9 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-        
-      review: { passes: 2 },
-    },
+
+          review: { passes: 2 },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -2016,9 +2016,9 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-        
-      review: { passes: 2 },
-    },
+
+          review: { passes: 2 },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -2067,9 +2067,9 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-        
-      review: { passes: 2 },
-    },
+
+          review: { passes: 2 },
+        },
         quotaFallback: "strict",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -2111,9 +2111,9 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-        
-      review: { passes: 2 },
-    },
+
+          review: { passes: 2 },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -2176,9 +2176,9 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-        
-      review: { passes: 2 },
-    },
+
+          review: { passes: 2 },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -3118,9 +3118,9 @@ exit 0
           modes: {
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
-          
-      review: { passes: 2 },
-    },
+
+            review: { passes: 2 },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -3158,9 +3158,9 @@ exit 0
           modes: {
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
-          
-      review: { passes: 2 },
-    },
+
+            review: { passes: 2 },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -3234,9 +3234,9 @@ wait
           modes: {
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
-          
-      review: { passes: 2 },
-    },
+
+            review: { passes: 2 },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -3315,9 +3315,9 @@ wait
           modes: {
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
-          
-      review: { passes: 2 },
-    },
+
+            review: { passes: 2 },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,

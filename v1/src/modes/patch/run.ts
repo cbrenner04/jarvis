@@ -31,7 +31,7 @@ import {
   type ProjectMatch,
   setProjectOrigin,
 } from "../../config.ts";
-import { assertGhReady, getBaseBranch, postPrComment, runGhCommand } from "../../gh.ts";
+import { assertGhReady, getBaseBranch, postPrComment } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import {
   checkPrExists,
@@ -1561,7 +1561,8 @@ async function tryFinishSpecIfDone(
 
   // Determine if review should run
   // Use CLI flag if provided, otherwise fall back to configured passes
-  const reviewPasses = ctx.opts.reviewPasses ?? preflight.cfg.modes.review.passes;
+  const reviewPasses =
+    ctx.opts.reviewPasses ?? preflight.cfg.modes.review.passes;
   const shouldRunReview =
     preflight.gitEnabled &&
     reviewPasses > 0 &&
@@ -1852,11 +1853,7 @@ async function runReviewPhase(opts: {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      fanout(
-        "harness",
-        `review baseline gate failed: ${message}\n`,
-        "stderr",
-      );
+      fanout("harness", `review baseline gate failed: ${message}\n`, "stderr");
       return 1;
     }
 
@@ -1917,9 +1914,10 @@ async function runReviewPhase(opts: {
           },
         });
 
-        const configuredPatchModelEntry = preflight.cfg.modes.patch.agentOrder.find(
-          (entry) => entry.agent === agent.name,
-        );
+        const configuredPatchModelEntry =
+          preflight.cfg.modes.patch.agentOrder.find(
+            (entry) => entry.agent === agent.name,
+          );
         const telemetryMeta =
           configuredPatchModelEntry?.model !== undefined
             ? { configured_model: configuredPatchModelEntry.model }
@@ -1942,10 +1940,16 @@ async function runReviewPhase(opts: {
 
           // Check for new blocker BEFORE reverting spec edits so we can extract content
           const specDir = dirname(opts.specPath);
-          const blockerContent = detectNewBlockerInSpec(opts.specPath, opts.agentWorkingDir);
+          const blockerContent = detectNewBlockerInSpec(
+            opts.specPath,
+            opts.agentWorkingDir,
+          );
 
           // Check for spec-tree edits and revert if found
-          const editedSpecFiles = detectSpecTreeEdits(specDir, opts.agentWorkingDir);
+          const editedSpecFiles = detectSpecTreeEdits(
+            specDir,
+            opts.agentWorkingDir,
+          );
           if (editedSpecFiles.length > 0) {
             fanout(
               "harness",
@@ -1956,7 +1960,11 @@ async function runReviewPhase(opts: {
               revertSpecTreeEdits(specDir, opts.agentWorkingDir);
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              fanout("harness", `review: revert failed: ${message}\n`, "stderr");
+              fanout(
+                "harness",
+                `review: revert failed: ${message}\n`,
+                "stderr",
+              );
               return 1;
             }
           }
@@ -1977,7 +1985,11 @@ async function runReviewPhase(opts: {
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              fanout("harness", `review: blocker commit failed: ${message}\n`, "stderr");
+              fanout(
+                "harness",
+                `review: blocker commit failed: ${message}\n`,
+                "stderr",
+              );
               // Continue to PR comment posting anyway
             }
 
@@ -1986,12 +1998,24 @@ async function runReviewPhase(opts: {
               const prNum = checkPrExists(branch, opts.agentWorkingDir);
               if (prNum) {
                 const blockerComment = `## Review Pass ${pass} Blocker\n\n${blockerContent}`;
-                await postPrComment(prNum, blockerComment, opts.agentWorkingDir);
-                fanout("harness", `review: blocker reported in PR comment\n`, "stdout");
+                await postPrComment(
+                  prNum,
+                  blockerComment,
+                  opts.agentWorkingDir,
+                );
+                fanout(
+                  "harness",
+                  `review: blocker reported in PR comment\n`,
+                  "stdout",
+                );
               }
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              fanout("harness", `review: failed to post PR comment: ${message}\n`, "stderr");
+              fanout(
+                "harness",
+                `review: failed to post PR comment: ${message}\n`,
+                "stderr",
+              );
               // Don't fail the phase if comment posting fails
             }
 
@@ -2051,7 +2075,11 @@ async function runReviewPhase(opts: {
             return 2;
           }
         } else {
-          fanout("harness", `review: pass ${pass} error (${result.kind})\n`, "stderr");
+          fanout(
+            "harness",
+            `review: pass ${pass} error (${result.kind})\n`,
+            "stderr",
+          );
           if (result.stderr.length > 0) {
             fanout("harness", result.stderr, "stderr");
           }
@@ -2087,22 +2115,14 @@ async function runReviewPhase(opts: {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      fanout(
-        "harness",
-        `review final ready failed: ${message}\n`,
-        "stderr",
-      );
+      fanout("harness", `review final ready failed: ${message}\n`, "stderr");
       return 1;
     }
 
     return 0;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    ctx.logging.fanout(
-      "harness",
-      `review phase error: ${message}\n`,
-      "stderr",
-    );
+    ctx.logging.fanout("harness", `review phase error: ${message}\n`, "stderr");
     return 1;
   }
 }

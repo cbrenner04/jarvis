@@ -94,9 +94,7 @@ let originalPath: string | undefined;
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
 
-function disableReviewByDefault(
-  opts: RunCommandOptions,
-): RunCommandOptions {
+function disableReviewByDefault(opts: RunCommandOptions): RunCommandOptions {
   return {
     ...opts,
     reviewPasses: opts.reviewPasses ?? 0,

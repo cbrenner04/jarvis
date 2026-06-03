@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
@@ -171,13 +171,7 @@ function getBaseBranch(cwd: string): string {
   try {
     return execFileSync(
       "git",
-      [
-        "config",
-        "--default",
-        "main",
-        "--get",
-        "jarvis.baseBranch",
-      ],
+      ["config", "--default", "main", "--get", "jarvis.baseBranch"],
       {
         cwd,
         encoding: "utf8",

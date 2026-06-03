@@ -106,8 +106,6 @@ export async function postPrComment(
   );
   if (result.exitCode !== 0) {
     const errorMessage = result.stderr || result.stdout;
-    throw new Error(
-      `failed to post PR comment: ${errorMessage.trim()}`,
-    );
+    throw new Error(`failed to post PR comment: ${errorMessage.trim()}`);
   }
 }

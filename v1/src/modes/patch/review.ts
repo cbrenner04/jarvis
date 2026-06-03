@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { dirname, join, relative } from "node:path";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import { postPrComment } from "../../gh.ts";
 import { pushCurrent } from "../../worktree.ts";
 import { updatePrBody } from "./pr.ts";
 
@@ -13,7 +12,7 @@ export function getSpecFilesToProtect(specPath: string): string[] {
   try {
     // Get all .md files in the spec directory recursively
     const walkDir = (dir: string) => {
-      const fs = require("fs");
+      const fs = require("node:fs");
       const entries = fs.readdirSync(dir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.name === ".git" || entry.name === "node_modules") {
@@ -36,10 +35,7 @@ export function getSpecFilesToProtect(specPath: string): string[] {
   return specFiles;
 }
 
-export function detectSpecTreeEdits(
-  specDir: string,
-  cwd: string,
-): string[] {
+export function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
   // Return list of spec files that were modified since last commit
   try {
     const output = execFileSync("git", ["diff", "--name-only", "HEAD"], {
@@ -48,21 +44,21 @@ export function detectSpecTreeEdits(
       stdio: "pipe",
     });
 
-    const modifiedFiles = output.trim().split("\n").filter((f) => f.length > 0);
+    const modifiedFiles = output
+      .trim()
+      .split("\n")
+      .filter((f) => f.length > 0);
     const specRelPath = relative(cwd, specDir);
 
-    return modifiedFiles.filter((file) =>
-      file === specRelPath || file.startsWith(specRelPath + "/")
+    return modifiedFiles.filter(
+      (file) => file === specRelPath || file.startsWith(`${specRelPath}/`),
     );
   } catch {
     return [];
   }
 }
 
-export function revertSpecTreeEdits(
-  specDir: string,
-  cwd: string,
-): void {
+export function revertSpecTreeEdits(specDir: string, cwd: string): void {
   const editedFiles = detectSpecTreeEdits(specDir, cwd);
   if (editedFiles.length === 0) {
     return;
@@ -102,7 +98,7 @@ export function detectNewBlockerInSpec(
         const blockerLines: string[] = [];
         for (let i = blockerIndex + 1; i < lines.length; i++) {
           if (lines[i]?.startsWith("+")) {
-            blockerLines.push(lines[i]!.substring(1));
+            blockerLines.push(lines[i]?.substring(1) as string);
           } else if (!lines[i]?.startsWith("-")) {
             break;
           }

@@ -255,14 +255,18 @@ No summary is printed for configuration or project-resolution failures that occu
 
 ## PR body updates
 
-The draft PR opens after `plan: draft` is pushed (via the same `updatePrBody` helper patch mode uses). Each subsequent `plan: ...` commit triggers a PR-body rewrite that:
+The draft PR opens after `plan: draft` is pushed. The PR body contains:
 
-1. Rebuilds the deterministic header (spec title and file references).
-2. Rebuilds the attribution footer from `Jarvis-Agent` trailers on all plan commits on the branch (including `plan: refine`, `plan: draft`, and `plan: review N`).
-3. Preserves the narrative section between `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers unchanged.
+1. **Header**: The spec title (from `index.md` if available) plus file references.
+2. **Narrative section**: A model-authored short description followed by `Decisions:` and an unordered list of notable decisions. This section is bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers for preservation.
+3. **Attribution footer**: Sourced from `Jarvis-Agent` trailers on all plan commits on the branch (including `plan: refine`, `plan: draft`, and `plan: review N`).
 
-Plan mode does not write into the narrative section itself; jarvis preserves
-whatever humans or agents add between the narrative markers across rewrites.
+Each subsequent `plan: ...` commit triggers a PR-body rewrite that rebuilds the header and footer while:
+
+- Preserving human-written narrative inside the markers verbatim.
+- Regenerating the narrative when the section is empty or still machine-owned (no human edits detected).
+
+This contract mirrors patch mode's narrative preservation semantics: humans can edit the narrative between markers across rewrite cycles, and the markers protect those edits from being overwritten by automated regeneration.
 
 ## Configuration: `modes.plan.commit`
 
@@ -444,7 +448,7 @@ There is no fallback to patch-mode order; both must be configured.
 After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. GitHub renders the draft bit until **`gh pr ready` succeeds**. The PR title stays **`plan: <plan-name>`** — i.e., the slug shared with the branch (**not** the leading UTC segment of **`spec/`** paths when present). PR body internals:
 
 1. **Deterministic header**: the H1 from `spec/<spec-dir>/index.md` (or `# Plan: <plan-name>` when the index does not yet exist), followed by bullets that cite **`spec/<spec-dir>/intent.md`** and **`spec/<spec-dir>/index.md`**.
-2. **Narrative section**: currently empty, preserved for future edits (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers).
+2. **Narrative section**: a model-authored short description followed by `Decisions:` and an unordered list of notable decisions (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers). Humans can edit the narrative between the markers; edits are preserved verbatim during PR body rewrites.
 3. **Attribution footer**: rendered from `Jarvis-Agent` trailers on every plan commit on the branch. Plan-mode meta-commits (`plan: refine`, `plan: draft`, `plan: review N`, `plan: blocker`) are collapsed into a single summary line listing the count of collapsed commits and the deduped set of agents involved. Subspec commits are rendered individually, one bullet per commit, with a deduped summary line of all contributing agents.
 
 ### Auto-mark ready on success

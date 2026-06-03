@@ -389,6 +389,8 @@ details, including cleanup and triage behavior.
   conventions.
 - [v1/docs/agent-cli-failure-pipeline.md](v1/docs/agent-cli-failure-pipeline.md):
   classification pipeline for agent CLI failures.
+- [v1/docs/test-coverage.md](v1/docs/test-coverage.md): coverage measurement
+  scripts and how to read Bun's output.
 
 Agents working in this repository should also read [AGENTS.md](AGENTS.md).
 

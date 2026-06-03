@@ -1,8 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 // Stable HTML comments delimiting the manually editable PR narrative section.
 export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
 export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";
+const GENERATED_NARRATIVE_HASH_PREFIX =
+  "<!-- jarvis:narrative:generated-sha256:";
 
 export type EnsureDraftPrOpts = {
   branch: string;
@@ -319,6 +322,34 @@ export function extractNarrative(prBody: string): string | null {
     return null;
   }
   return prBody.slice(afterStart, endIdx).trim();
+}
+
+export function markGeneratedNarrative(narrative: string): string {
+  const content = narrative.trim();
+  return `${content}\n${GENERATED_NARRATIVE_HASH_PREFIX}${hashNarrative(content)} -->`;
+}
+
+export function extractGeneratedNarrativeContent(
+  narrative: string,
+): string | null {
+  const lines = narrative.replace(/\r\n/g, "\n").split("\n");
+  const marker = lines.at(-1)?.trim();
+  const markerMatch = marker?.match(
+    /^<!-- jarvis:narrative:generated-sha256:([a-f0-9]{64}) -->$/,
+  );
+  if (!markerMatch?.[1]) {
+    return null;
+  }
+
+  const content = lines.slice(0, -1).join("\n").trim();
+  if (hashNarrative(content) !== markerMatch[1]) {
+    return null;
+  }
+  return content;
+}
+
+function hashNarrative(narrative: string): string {
+  return createHash("sha256").update(narrative).digest("hex");
 }
 
 export type UpdatePrBodyOpts = {

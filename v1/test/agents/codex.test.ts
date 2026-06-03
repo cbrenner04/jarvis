@@ -134,12 +134,12 @@ describe("CodexAgent", () => {
 
   test("includes model flag when model is configured", async () => {
     const bin = fakeBinary({ exit: 0 });
-    const agent = new CodexAgent({ binary: bin, model: "gpt-5.3-codex" });
+    const agent = new CodexAgent({ binary: bin, model: "gpt-5.4" });
 
     await agent.run("the prompt", { cwd });
 
     expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      'exec\0--color\0never\0--sandbox\0workspace-write\0-c\0approval_policy="on-request"\0--model\0gpt-5.3-codex\0',
+      'exec\0--color\0never\0--sandbox\0workspace-write\0-c\0approval_policy="on-request"\0--model\0gpt-5.4\0',
     );
   });
 
@@ -178,7 +178,7 @@ describe("CodexAgent", () => {
   test("unsupported model signal maps to model_config", async () => {
     const stderr = "error: model is not available";
     const bin = fakeBinary({ exit: 1, stderr });
-    const agent = new CodexAgent({ binary: bin, model: "gpt-5.3-codex" });
+    const agent = new CodexAgent({ binary: bin, model: "gpt-5.4" });
 
     const result = await agent.run("p", { cwd });
 
@@ -255,7 +255,7 @@ describe("CodexAgent", () => {
     const sessionPath = join(sessionDir, "rollout-1.jsonl");
     const bin = bunCodexFakeWithSession(sessionPath, sessionDir);
 
-    const agent = new CodexAgent({ binary: bin, model: "gpt-5.3-codex" });
+    const agent = new CodexAgent({ binary: bin, model: "gpt-5.4" });
     const result = await agent.run("prompt", { cwd });
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {
@@ -361,7 +361,7 @@ console.log("ok");
     writeFileSync(binPath, script);
     chmodSync(binPath, 0o755);
 
-    const agent = new CodexAgent({ binary: binPath, model: "gpt-5.3-codex" });
+    const agent = new CodexAgent({ binary: binPath, model: "gpt-5.4" });
     const result = await agent.run("prompt", { cwd });
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {

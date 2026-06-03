@@ -14,6 +14,7 @@ import {
   findProjectMatchForPath,
   loadConfig,
   resolvePlanFlags,
+  validateNonNegativeInteger,
   validatePositiveInteger,
 } from "./config.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
@@ -37,6 +38,7 @@ export type ParsedArgs =
       kind: "run";
       specPath: string;
       maxIterations?: string;
+      reviewPasses?: string;
       repo?: string;
       cwd?: string;
     }
@@ -59,7 +61,7 @@ export type Io = {
 const USAGE = `Usage: jarvis1 <command> [args]
 
 Commands:
-  run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
+  run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
                     Run the loop against a spec file in a registered project.
   init              Register the current target repo.
   config            View or edit the jarvis config.
@@ -89,6 +91,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   switch (first) {
     case "run": {
       let maxIterations: string | undefined;
+      let reviewPasses: string | undefined;
       let repo: string | undefined;
       let cwd: string | undefined;
       const args = [...rest];
@@ -102,6 +105,19 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
             };
           }
           maxIterations = value;
+          args.splice(i, 2);
+          i -= 1;
+          continue;
+        }
+        if (args[i] === "--review-passes") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "run: missing value for --review-passes",
+            };
+          }
+          reviewPasses = value;
           args.splice(i, 2);
           i -= 1;
           continue;
@@ -139,6 +155,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       const parsed: ParsedArgs = { kind: "run", specPath };
       if (maxIterations !== undefined) {
         parsed.maxIterations = maxIterations;
+      }
+      if (reviewPasses !== undefined) {
+        parsed.reviewPasses = reviewPasses;
       }
       if (repo !== undefined) {
         parsed.repo = repo;
@@ -222,6 +241,19 @@ export function run(
           return 1;
         }
       }
+      let reviewPasses: number | undefined;
+      if (parsed.reviewPasses !== undefined) {
+        const parsedReview = Number(parsed.reviewPasses);
+        try {
+          reviewPasses = validateNonNegativeInteger(
+            parsedReview,
+            "--review-passes",
+          );
+        } catch (err) {
+          io.stderr(`jarvis1: ${(err as Error).message}\n`);
+          return 1;
+        }
+      }
       const runOpts: RunCommandOptions = {
         specPath: parsed.specPath,
         io,
@@ -231,6 +263,9 @@ export function run(
       }
       if (maxIterations !== undefined) {
         runOpts.config = { ...runOpts.config, maxIterations };
+      }
+      if (reviewPasses !== undefined) {
+        runOpts.reviewPasses = reviewPasses;
       }
       if (parsed.repo !== undefined) {
         runOpts.repoFlag = parsed.repo;

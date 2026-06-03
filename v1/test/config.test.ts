@@ -35,6 +35,22 @@ const DEFAULT_AGENT_ORDER: AgentEntry[] = [
 
 const CLAUDE_ONLY: AgentEntry[] = [{ agent: "claude", model: "haiku" }];
 
+function testConfig(modes: Config["modes"], overrides: Partial<Config> = {}): Config {
+  return {
+    version: 2,
+    quotaFallback: "lenient",
+    weakQuotaExitCodes: [],
+    maxIterations: 10,
+    iterationTimeoutMs: 30 * 60_000,
+    logServerUrl: "http://x/",
+    logServerBind: "x",
+    git: true,
+    projects: {},
+    modes,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "jarvis-config-"));
 });
@@ -55,6 +71,7 @@ describe("loadConfig", () => {
       modes: {
         patch: { agentOrder: DEFAULT_AGENT_ORDER },
         plan: { agentOrder: DEFAULT_AGENT_ORDER, targetDir: "spec" },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -94,6 +111,7 @@ describe("loadConfig", () => {
             ],
           },
           plan: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+          review: { passes: 2 },
         },
         quotaFallback: "strict",
         maxIterations: 7,
@@ -127,6 +145,7 @@ describe("loadConfig", () => {
             agentOrder: [{ agent: "aider", model: "ollama/llama3.1:8b" }],
           },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -146,6 +165,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -162,6 +182,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -178,6 +199,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         quotaFallback: "off",
         projects: {},
@@ -194,6 +216,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 0,
         projects: {},
@@ -210,6 +233,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         iterationTimeoutMs: -1,
@@ -227,6 +251,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
@@ -245,6 +270,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         telemetryPath: null,
@@ -262,6 +288,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         iterationTimeoutMs: 30 * 60_000,
@@ -282,6 +309,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         patchModels: { claude: "haiku" },
         projects: {},
@@ -298,6 +326,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "claude" }] },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -315,6 +344,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "claude", model: "  " }] },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -332,6 +362,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "aider", model: "  " }] },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -349,6 +380,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "claude", model: 1 }] },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -366,6 +398,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: ["claude"] },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -396,6 +429,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -412,6 +446,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -437,6 +472,7 @@ describe("loadConfig", () => {
         version: 2,
         modes: {
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -469,6 +505,7 @@ describe("loadConfig", () => {
             agents: { claude: { outputFormat: "text" } },
           },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -486,6 +523,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [] },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -525,6 +563,7 @@ describe("loadConfig", () => {
             ],
           },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -547,6 +586,7 @@ describe("loadConfig", () => {
             ],
           },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -587,6 +627,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "gpt", model: "x" }] },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -601,6 +642,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {},
       }),
@@ -616,6 +658,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: { foo: { root: "relative/path" } },
       }),
@@ -631,6 +674,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           a: { root: "/tmp/shared" },
@@ -655,6 +699,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         projects: {
@@ -680,6 +725,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         projects: { "app-a": { root: "/tmp/jarvis-legacy" } },
@@ -697,6 +743,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         projects: { "app-a": { root: "/tmp/jarvis-bad", origin: 42 } },
@@ -910,6 +957,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         projects: {},
@@ -927,6 +975,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         git: false,
@@ -946,6 +995,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         git: "yes",
@@ -964,6 +1014,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         projects: { app: { root: "/tmp/jarvis-git-app", git: false } },
@@ -985,6 +1036,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         projects: { app: { root: "/tmp/jarvis-git-bad", git: "no" } },
@@ -995,40 +1047,26 @@ describe("git toggle", () => {
   });
 
   test("effectiveGit returns project override when set", () => {
-    const cfg: Config = {
-      version: 2,
-      modes: {
+    const cfg = testConfig(
+      {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
       },
-      quotaFallback: "lenient",
-      weakQuotaExitCodes: [],
-      maxIterations: 10,
-      iterationTimeoutMs: 30 * 60_000,
-      logServerUrl: "http://x/",
-      logServerBind: "x",
-      git: true,
-      projects: { app: { root: "/tmp/a", git: false } },
-    };
+      { projects: { app: { root: "/tmp/a", git: false } } }
+    );
     expect(effectiveGit(cfg, "app")).toBe(false);
   });
 
   test("effectiveGit falls back to top-level value when no override", () => {
-    const cfg: Config = {
-      version: 2,
-      modes: {
+    const cfg = testConfig(
+      {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
       },
-      quotaFallback: "lenient",
-      weakQuotaExitCodes: [],
-      maxIterations: 10,
-      iterationTimeoutMs: 30 * 60_000,
-      logServerUrl: "http://x/",
-      logServerBind: "x",
-      git: false,
-      projects: { app: { root: "/tmp/a" } },
-    };
+      { git: false, projects: { app: { root: "/tmp/a" } } }
+    );
     expect(effectiveGit(cfg, "app")).toBe(false);
   });
 
@@ -1038,6 +1076,7 @@ describe("git toggle", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1125,6 +1164,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1150,6 +1190,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1172,6 +1213,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1194,6 +1236,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1216,6 +1259,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1283,6 +1327,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         maxIterations: 10,
         projects: {
@@ -1318,6 +1363,7 @@ describe("plan flags", () => {
             specTimestamp: true,
             commit: false,
           },
+          review: { passes: 2 },
         },
         projects: {},
       }),
@@ -1335,6 +1381,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: { app: { root: "/tmp/jarvis-no-flags" } },
       }),
@@ -1352,6 +1399,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1376,6 +1424,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1398,6 +1447,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1419,6 +1469,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1440,6 +1491,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1461,6 +1513,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           myproject: {
@@ -1483,6 +1536,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           myproject: {
@@ -1505,6 +1559,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           myproject: {
@@ -1529,6 +1584,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           myproject: {
@@ -1552,6 +1608,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
         },
         projects: {
           app: {
@@ -1582,6 +1639,7 @@ describe("resolvePlanFlags", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1609,6 +1667,7 @@ describe("resolvePlanFlags", () => {
           specTimestamp: true,
           commit: true,
         },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1642,6 +1701,7 @@ describe("resolvePlanFlags", () => {
           specTimestamp: false,
           commit: true,
         },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1670,6 +1730,7 @@ describe("resolvePlanFlags", () => {
           specTimestamp: true,
           commit: true,
         },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1703,6 +1764,7 @@ describe("resolvePlanFlags", () => {
           specTimestamp: false,
           commit: true,
         },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1732,6 +1794,7 @@ describe("resolvePlanFlags", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1756,6 +1819,7 @@ describe("resolvePlanFlags", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1782,6 +1846,7 @@ describe("resolvePlanFlags", () => {
           agentOrder: CLAUDE_ONLY,
           targetDir: "spec",
         },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1814,6 +1879,7 @@ describe("resolvePlanFlags", () => {
           agentOrder: CLAUDE_ONLY,
           targetDir: "specs",
         },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1894,6 +1960,7 @@ describe("targetDir validation", () => {
           plan: {
             agentOrder: [{ agent: "claude", model: "haiku" }],
           },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         projects: {
@@ -1920,6 +1987,7 @@ describe("targetDir validation", () => {
           plan: {
             agentOrder: [{ agent: "claude", model: "haiku" }],
           },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         projects: {
@@ -1947,6 +2015,7 @@ describe("targetDir validation", () => {
             agentOrder: [{ agent: "claude", model: "haiku" }],
             targetDir: "v1/spec",
           },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         projects: {},

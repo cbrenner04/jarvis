@@ -108,6 +108,8 @@ export type RunCommandOptions = {
   cwdFlag?: string;
   /** Override the disambiguation prompt (for tests). */
   disambiguate?: DisambiguateFn;
+  /** Value of the `--review-passes` CLI flag, if given. */
+  reviewPasses?: number;
   /**
    * Test-only override for the watchdog/abort SIGKILL grace period in
    * milliseconds. Lets timing tests bound their wall-clock cost without

@@ -91,3 +91,14 @@ surface regressed below the chosen bar.
 ## Refine skip
 
 No net-new load-bearing decision this turn. Tool, scope, shared-globs, enforcement policy, `ready` wiring, and the two report/runs deferrals are already recorded. Remaining choices (CI integration, exact script names, bunfig vs CLI mechanics) are inferable defaults or belong to the drafting spec's first consumer.
+
+## Blocker
+
+Review and approve `v1/spec/2026-06-03T04-31-37Z-test-coverage/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v1/spec/2026-06-03T04-31-37Z-test-coverage/intent.md`

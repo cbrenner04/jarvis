@@ -42,13 +42,3 @@ Coverage commands produce readable output and durable reports for:
 - Reorganizing unrelated tests or source files.
 - Adding repo-wide coverage thresholds.
 
-## Blocker
-
-Review and approve `v1/spec/2026-06-03T04-31-37Z-test-coverage/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v1/spec/2026-06-03T04-31-37Z-test-coverage/intent.md`

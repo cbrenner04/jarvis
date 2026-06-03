@@ -238,11 +238,12 @@ What loops vs. what's a distinct path:
   the same loop with the next agent. Unlike plan mode, a generic `error`
   *does not* rotate — it exits 3 — except when `quotaFallback: "lenient"`
   upgrades the classification.
-- **Determinism**: the agent's edits are non-deterministic, but everything
-  downstream (acceptance-criteria diff, commit-shape selection, PR body
-  rewrite from `generatePrBodyFromSpec`, ready-flip on completion) is pure
-  function of files on disk. Re-running an iteration against the same disk
-  state would commit the same thing.
+- **Determinism**: the agent's edits and the model-authored PR narrative
+  (Description + Decisions) are non-deterministic, but the rest of the
+  downstream (acceptance-criteria diff, commit-shape selection, the PR-body
+  header/footer rewrite, ready-flip on completion) is a pure function of files
+  on disk. The narrative is generated once and then preserved inside the
+  `jarvis:narrative` markers across rewrites.
 - **Readiness transition**: when the spec is complete, `jarvis1 run` invokes
   `bun run ready`, which first runs `bun install --frozen-lockfile` so Biome is
   available, then applies `bun run check:fix` (Biome's mutating format/lint

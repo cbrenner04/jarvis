@@ -3,13 +3,17 @@ import { execFileSync, execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Agent, AgentResult } from "../../../src/agents/types.ts";
 import {
   buildPlanPrHeader,
+  generatePrDescription,
   maybeMarkPlanPrReady,
   renderPlanAttribution,
+  updatePlanPrBody,
 } from "../../../src/modes/plan/pr.ts";
 import {
   extractNarrative,
+  markGeneratedNarrative,
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
 } from "../../../src/pr.ts";
@@ -329,5 +333,312 @@ describe("renderPlanAttribution", () => {
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
     expect(out).toContain("3 spec commits (refine, draft, review)");
     expect(out).toContain("Claude Opus 4.7, Claude Sonnet 4.6");
+  });
+});
+
+describe("updatePlanPrBody", () => {
+  function mockAgent(
+    response: string = "Generated body\n\nDecisions:\n- Did the thing",
+  ): Agent {
+    return {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return { kind: "ok", stdout: response, stderr: "" };
+      },
+      attributionLabel: () => "test-agent",
+    };
+  }
+
+  function writeSpec(targetDir: string): string {
+    const specDirPath = join(gitDir, targetDir, "my-feat");
+    execSync(`mkdir -p ${specDirPath}`, { stdio: "pipe" });
+    writeFileSync(
+      join(specDirPath, "index.md"),
+      "# Real Spec Title\n\n- [x] [00 - a](./00-a.md)\n",
+    );
+    writeFileSync(join(specDirPath, "intent.md"), "intent body\n");
+    return specDirPath;
+  }
+
+  test("threads targetDir so the header keeps the real title and pointers", async () => {
+    const specDirPath = writeSpec("v1/spec");
+    let written = "";
+    await updatePlanPrBody({
+      indexPath: join(specDirPath, "index.md"),
+      specDirPath,
+      branch: "feature",
+      base: "base",
+      cwd: gitDir,
+      targetDir: "v1/spec",
+      fetchPrBody: () => "",
+      writePrBody: (_b, body) => {
+        written = body;
+      },
+      renderFooter: () => "",
+    });
+    // Regression: without targetDir threading the header fell back to
+    // "# Plan: my-feat" and "spec/..." pointers.
+    expect(written).toContain("# Real Spec Title");
+    expect(written).toContain("`v1/spec/my-feat/intent.md`");
+    expect(written).toContain("`v1/spec/my-feat/index.md`");
+    expect(written).not.toContain("# Plan: my-feat");
+  });
+
+  test("regenerates the narrative when empty and an agent is provided", async () => {
+    const specDirPath = writeSpec("v1/spec");
+    let written = "";
+    await updatePlanPrBody({
+      indexPath: join(specDirPath, "index.md"),
+      specDirPath,
+      branch: "feature",
+      base: "base",
+      cwd: gitDir,
+      targetDir: "v1/spec",
+      intentContent: "intent body",
+      agent: mockAgent(),
+      fetchPrBody: () => "",
+      writePrBody: (_b, body) => {
+        written = body;
+      },
+      renderFooter: () => "",
+    });
+    expect(written).toContain(NARRATIVE_START_MARKER);
+    expect(written).toContain("Generated body");
+    expect(written).toContain("Decisions:");
+    expect(written).toContain(NARRATIVE_END_MARKER);
+  });
+
+  test("regenerates machine-owned narrative when hash still matches", async () => {
+    const specDirPath = writeSpec("v1/spec");
+    let written = "";
+    await updatePlanPrBody({
+      indexPath: join(specDirPath, "index.md"),
+      specDirPath,
+      branch: "feature",
+      base: "base",
+      cwd: gitDir,
+      targetDir: "v1/spec",
+      intentContent: "intent body",
+      agent: mockAgent("Fresh body\n\nDecisions:\n- Fresh choice"),
+      fetchPrBody: () =>
+        `${NARRATIVE_START_MARKER}\n${markGeneratedNarrative("Old body\n\nDecisions:\n- Old choice")}\n${NARRATIVE_END_MARKER}`,
+      writePrBody: (_b, body) => {
+        written = body;
+      },
+      renderFooter: () => "",
+    });
+    expect(written).toContain("Fresh body");
+    expect(written).not.toContain("Old body");
+  });
+
+  test("preserves human-edited narrative verbatim and does not call the agent", async () => {
+    const specDirPath = writeSpec("v1/spec");
+    let ran = false;
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        ran = true;
+        return { kind: "ok", stdout: "REGEN\n\nDecisions:\n- x", stderr: "" };
+      },
+      attributionLabel: () => "test-agent",
+    };
+    const existing = `# Real Spec Title\n\n${NARRATIVE_START_MARKER}\nHuman wrote this\n${NARRATIVE_END_MARKER}`;
+    let written = "";
+    await updatePlanPrBody({
+      indexPath: join(specDirPath, "index.md"),
+      specDirPath,
+      branch: "feature",
+      base: "base",
+      cwd: gitDir,
+      targetDir: "v1/spec",
+      intentContent: "intent body",
+      agent,
+      fetchPrBody: () => existing,
+      writePrBody: (_b, body) => {
+        written = body;
+      },
+      renderFooter: () => "",
+    });
+    expect(ran).toBe(false);
+    expect(written).toContain("Human wrote this");
+    expect(written).not.toContain("REGEN");
+  });
+
+  test("preserves edited generated narrative when hash no longer matches", async () => {
+    const specDirPath = writeSpec("v1/spec");
+    let ran = false;
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        ran = true;
+        return { kind: "ok", stdout: "REGEN\n\nDecisions:\n- x", stderr: "" };
+      },
+      attributionLabel: () => "test-agent",
+    };
+    const edited = markGeneratedNarrative(
+      "Old body\n\nDecisions:\n- Old choice",
+    ).replace("Old body", "Human edited body");
+    let written = "";
+    await updatePlanPrBody({
+      indexPath: join(specDirPath, "index.md"),
+      specDirPath,
+      branch: "feature",
+      base: "base",
+      cwd: gitDir,
+      targetDir: "v1/spec",
+      intentContent: "intent body",
+      agent,
+      fetchPrBody: () =>
+        `${NARRATIVE_START_MARKER}\n${edited}\n${NARRATIVE_END_MARKER}`,
+      writePrBody: (_b, body) => {
+        written = body;
+      },
+      renderFooter: () => "",
+    });
+    expect(ran).toBe(false);
+    expect(written).toContain("Human edited body");
+    expect(written).not.toContain("REGEN");
+  });
+});
+
+describe("generatePrDescription", () => {
+  function createMockAgent(
+    response: string = "Updated plan\n\nDecisions:\n- Use async generation",
+  ): Agent {
+    return {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout: response,
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+  }
+
+  test("generates description with model when provided valid spec", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent = createMockAgent();
+    const result = await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent,
+      cwd: gitDir,
+    });
+
+    expect(result).toContain("Updated plan");
+    expect(result).toContain("Decisions:");
+  });
+
+  test("includes linked subspec content in the prompt", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [x] [00 - one](./00-one.md)\n");
+    writeFileSync(
+      join(gitDir, "00-one.md"),
+      "# One\n\nPlanned useful details.\n",
+    );
+
+    let prompt = "";
+    const agent: Agent = {
+      name: "claude",
+      async run(receivedPrompt): Promise<AgentResult> {
+        prompt = receivedPrompt;
+        return {
+          kind: "ok",
+          stdout: "Updated plan\n\nDecisions:\n- Use details",
+          stderr: "",
+        };
+      },
+      attributionLabel: () => "test-agent",
+    };
+
+    await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent,
+      cwd: gitDir,
+    });
+
+    expect(prompt).toContain("## ./00-one.md");
+    expect(prompt).toContain("Planned useful details.");
+  });
+
+  test("passes run options through to the agent", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | undefined;
+    const agent: Agent = {
+      name: "claude",
+      async run(_prompt, opts): Promise<AgentResult> {
+        seenSignal = opts.signal;
+        return {
+          kind: "ok",
+          stdout: "Updated plan\n\nDecisions:\n- Signal",
+          stderr: "",
+        };
+      },
+      attributionLabel: () => "test-agent",
+    };
+
+    await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent,
+      cwd: gitDir,
+      runOptions: { signal: controller.signal },
+    });
+
+    expect(seenSignal).toBe(controller.signal);
+  });
+
+  test("returns null when model response lacks Decisions section", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent = createMockAgent("Just a description without decisions");
+    const result = await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent,
+      cwd: gitDir,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null when agent fails", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const failingAgent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "error",
+          exitCode: 1,
+          stderr: "Agent failed",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
+    const result = await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent: failingAgent,
+      cwd: gitDir,
+    });
+
+    expect(result).toBeNull();
   });
 });

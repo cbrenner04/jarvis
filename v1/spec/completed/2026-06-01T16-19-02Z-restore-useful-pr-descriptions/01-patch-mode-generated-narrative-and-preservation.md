@@ -17,12 +17,12 @@
 
 ## Acceptance criteria
 
-- [ ] Patch-mode draft PR creation produces a body whose narrative section is a model-authored short description followed by `Decisions:` and an unordered list.
-- [ ] Patch-mode PR rewrites preserve human-written narrative inside `jarvis:narrative` markers unchanged.
-- [ ] Patch-mode PR rewrites regenerate the generated `Description` + `Decisions:` block when no human-authored narrative exists.
-- [ ] Automated tests cover the near-empty regression path, regeneration without human edits, and preservation with human edits.
+- [x] Patch-mode draft PR creation produces a body whose narrative section is a model-authored short description followed by `Decisions:` and an unordered list.
+- [x] Patch-mode PR rewrites preserve human-written narrative inside `jarvis:narrative` markers unchanged.
+- [x] Patch-mode PR rewrites regenerate the generated `Description` + `Decisions:` block when no human-authored narrative exists.
+- [x] Automated tests cover the near-empty regression path, regeneration without human edits, and preservation with human edits.
 
 ## Documentation updates
 
-- [ ] Update `v1/docs/run-loop.md` to replace the deterministic/near-empty patch PR-body description with the shipped generated `Description` + `Decisions:` behavior.
-- [ ] Update `v2/docs/v1-behaviors.md` for the shipped patch-mode PR-body behavior.
+- [x] Update `v1/docs/run-loop.md` to replace the deterministic/near-empty patch PR-body description with the shipped generated `Description` + `Decisions:` behavior.
+- [x] Update `v2/docs/v1-behaviors.md` for the shipped patch-mode PR-body behavior.

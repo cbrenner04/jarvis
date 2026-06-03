@@ -1,7 +1,5 @@
 # Specless one-shot run
 
-End-to-end execution of `jarvis1 --prompt`: worktree, one agent pass through the existing quota-fallback path, telemetry, and the post-pass diff vs. no-diff branch.
-
 ## Decisions
 
 - Branch and worktree are `jarvis/prompt-<UTC-timestamp>-<short-nonce>` and `.worktree/prompt-<UTC-timestamp>-<short-nonce>/` — rules out ref names built from prompt text (long, unstable, possibly sensitive).

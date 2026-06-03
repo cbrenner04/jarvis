@@ -182,10 +182,10 @@ describe("loadPrices", () => {
 
   it("checked-in seed data includes the default Codex model", () => {
     const prices = loadPrices();
-    expect(prices.models["gpt-5.3-codex"]).toMatchObject({
-      input_per_mtok: 1.75,
-      output_per_mtok: 14.0,
-      cache_read_per_mtok: 0.175,
+    expect(prices.models["gpt-5.4"]).toMatchObject({
+      input_per_mtok: 2.5,
+      output_per_mtok: 15.0,
+      cache_read_per_mtok: 0.25,
     });
   });
 });

@@ -1529,7 +1529,7 @@ exit 1
         encoding: "utf8",
       }).trim(),
     ).toBe("false");
-    expect(claude.calls).toHaveLength(2);
+    expect(claude.calls).toHaveLength(3);
     const subjects = execSync("git log --format=%s main..feature", {
       cwd: projectRoot,
       encoding: "utf8",
@@ -1658,7 +1658,7 @@ exit 1
     });
 
     expect(code).toBe(0);
-    expect(claude.calls).toHaveLength(1);
+    expect(claude.calls).toHaveLength(2);
     expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual([
       "ready-gate",
     ]);

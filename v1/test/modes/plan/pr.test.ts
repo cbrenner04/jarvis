@@ -3,8 +3,11 @@ import { execFileSync, execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Agent, AgentResult } from "../../../src/agents/types.ts";
 import {
+  buildPlanPrBody,
   buildPlanPrHeader,
+  generatePrDescription,
   maybeMarkPlanPrReady,
   renderPlanAttribution,
 } from "../../../src/modes/plan/pr.ts";
@@ -329,5 +332,123 @@ describe("renderPlanAttribution", () => {
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
     expect(out).toContain("3 spec commits (refine, draft, review)");
     expect(out).toContain("Claude Opus 4.7, Claude Sonnet 4.6");
+  });
+});
+
+describe("buildPlanPrBody", () => {
+  test("renders header with narrative when provided", () => {
+    const body = buildPlanPrBody({
+      name: "my-feature",
+      narrative: "Feature description\n\nDecisions:\n- Approach A",
+    });
+    expect(body).toContain("# Plan: my-feature");
+    expect(body).toContain(NARRATIVE_START_MARKER);
+    expect(body).toContain("Feature description");
+    expect(body).toContain(NARRATIVE_END_MARKER);
+  });
+
+  test("renders header without narrative markers when narrative is null", () => {
+    const body = buildPlanPrBody({
+      name: "my-feature",
+      narrative: null,
+    });
+    expect(body).toContain("# Plan: my-feature");
+    expect(body).not.toContain(NARRATIVE_START_MARKER);
+    expect(body).not.toContain(NARRATIVE_END_MARKER);
+  });
+
+  test("includes intent and index references", () => {
+    const body = buildPlanPrBody({
+      name: "feature",
+      narrative: null,
+    });
+    expect(body).toContain("spec/feature/intent.md");
+    expect(body).toContain("spec/feature/index.md");
+  });
+});
+
+describe("generatePrDescription", () => {
+  interface MockAgentResult {
+    kind: "ok" | "error" | "quota" | "model_config";
+    stdout?: string;
+    stderr?: string;
+    exitCode?: number;
+  }
+
+  function createMockAgent(
+    response: string = "Updated plan\n\nDecisions:\n- Use async generation",
+  ): Agent {
+    return {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout: response,
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+  }
+
+  test("generates description with model when provided valid spec", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent = createMockAgent();
+    const result = await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent,
+      cwd: gitDir,
+    });
+
+    expect(result).toContain("Updated plan");
+    expect(result).toContain("Decisions:");
+  });
+
+  test("returns null when model response lacks Decisions section", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent = createMockAgent("Just a description without decisions");
+    const result = await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent,
+      cwd: gitDir,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null when agent fails", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const failingAgent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "error",
+          exitCode: 1,
+          stderr: "Agent failed",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
+    const result = await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent: failingAgent,
+      cwd: gitDir,
+    });
+
+    expect(result).toBeNull();
   });
 });

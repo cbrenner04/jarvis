@@ -41,9 +41,13 @@ import {
   type PlanTelemetryWriter,
 } from "../modes/plan/plan-telemetry.ts";
 import {
+  buildPlanPrBody,
   buildPlanPrHeader,
+  generatePrDescription,
   maybeMarkPlanPrReady,
   type OpenPrInfo,
+  updatePlanPrBody,
+  type UpdatePlanPrBodyOpts,
 } from "../modes/plan/pr.ts";
 import {
   type RefineTerminalOutcome,
@@ -2462,7 +2466,7 @@ function getPrUrl(cwd: string, branch: string): string {
 }
 
 /**
- * Wrap `updatePrBody` with the warn-and-continue pattern used throughout
+ * Wrap `updatePlanPrBody` with the warn-and-continue pattern used throughout
  * plan mode so the caller doesn't repeat the try/catch four times.
  */
 function safeUpdatePrBody(args: {
@@ -2472,22 +2476,18 @@ function safeUpdatePrBody(args: {
   worktreePath: string;
   name: string;
   specDirBasename: string;
+  specDirPath?: string;
   targetDir?: string;
 }): void {
   try {
-    updatePrBody({
+    const specDirPath = args.specDirPath ?? join(args.worktreePath, args.targetDir ?? "spec", args.specDirBasename);
+    const indexPath = join(specDirPath, "index.md");
+    void updatePlanPrBody({
+      indexPath,
+      specDirPath,
       branch: args.branch,
       base: args.base,
       cwd: args.worktreePath,
-      headerBuilder: () =>
-        buildPlanPrHeader({
-          name: args.name,
-          specDirBasename: args.specDirBasename,
-          worktreePath: args.worktreePath,
-          ...(args.targetDir !== undefined
-            ? { targetDir: args.targetDir }
-            : {}),
-        }),
     });
   } catch (err) {
     args.io.stderr(

@@ -18,14 +18,14 @@
 
 ## Acceptance criteria
 
-- [ ] Plan-mode draft PR creation produces a body whose narrative section is a model-authored short description followed by `Decisions:` and an unordered list.
-- [ ] Plan-mode PR rewrites preserve human-written narrative inside `jarvis:narrative` markers unchanged and regenerate the generated block when no human-owned narrative exists.
-- [ ] Patch and plan tests prove both modes use the same shared PR-description fragment rather than separate prompt wording.
-- [ ] Durable docs describe what is generated, what is preserved, and where human edits belong for both modes.
-- [ ] `v2/docs/v1-behaviors.md` records the shipped cross-mode PR-body behavior.
+- [x] Plan-mode draft PR creation produces a body whose narrative section is a model-authored short description followed by `Decisions:` and an unordered list.
+- [x] Plan-mode PR rewrites preserve human-written narrative inside `jarvis:narrative` markers unchanged and regenerate the generated block when no human-owned narrative exists.
+- [x] Patch and plan tests prove both modes use the same shared PR-description fragment rather than separate prompt wording.
+- [x] Durable docs describe what is generated, what is preserved, and where human edits belong for both modes.
+- [x] `v2/docs/v1-behaviors.md` records the shipped cross-mode PR-body behavior.
 
 ## Documentation updates
 
-- [ ] Update `v1/docs/plan-mode.md` PR lifecycle and PR-body sections for generated `Description` + `Decisions:` plus narrative-preservation behavior.
-- [ ] Update `v1/docs/worktrees-and-commits.md` PR-body section so its shared contract matches both modes after plan adoption.
-- [ ] Update `v2/docs/v1-behaviors.md` PR-body bullets for patch and plan behavior.
+- [x] Update `v1/docs/plan-mode.md` PR lifecycle and PR-body sections for generated `Description` + `Decisions:` plus narrative-preservation behavior.
+- [x] Update `v1/docs/worktrees-and-commits.md` PR-body section so its shared contract matches both modes after plan adoption.
+- [x] Update `v2/docs/v1-behaviors.md` PR-body bullets for patch and plan behavior.

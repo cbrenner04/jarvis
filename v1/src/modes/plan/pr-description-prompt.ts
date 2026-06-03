@@ -1,7 +1,6 @@
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
-import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 
 export function buildPrDescriptionPrompt(opts: {
   intent: string;
@@ -11,13 +10,6 @@ export function buildPrDescriptionPrompt(opts: {
   const template = assemblePromptForStep({
     registry,
     stepPromptId: "plan.prompt.pr-description",
-  });
-
-  enforceDelimiterPolicy({
-    value: opts.intent,
-    begin: "<<<INTENT_BEGIN>>>",
-    end: "<<<INTENT_END>>>",
-    placeholderName: "INTENT",
   });
 
   const rendered = renderTemplateWithDeclarations(

@@ -138,12 +138,14 @@ The PR body has three sections, in order:
 
    ```
    <!-- jarvis:narrative:start -->
-   …agent-authored summary…
+   <Description — short summary of the work>
+
+   Decisions:
+   <unordered list of notable decisions>
    <!-- jarvis:narrative:end -->
    ```
 
-   Reviewers may edit text *inside* the markers; jarvis preserves whatever
-   lives between them on subsequent rewrites.
+   The narrative is model-authored and contains a short description followed by a `Decisions:` section with an unordered list of notable decisions. Reviewers may edit text *inside* the markers; jarvis preserves human edits verbatim on subsequent rewrites and regenerates the narrative only when it is empty or still machine-owned.
 3. **Attribution footer** rendered from the `Jarvis-Agent` git trailers on
    the PR-branch subspec commits, separated from the body by a `---` rule.
    The footer is one compact deduped summary line:
@@ -167,9 +169,9 @@ the create-time body already has the right shape — so each iteration calls
 `gh pr edit` at most once.
 
 Each rewrite fetches the current PR body, extracts the narrative section
-between the markers (so reviewer edits inside the markers survive), rebuilds
+between the markers (so reviewer edits inside the markers survive unchanged), rebuilds
 the deterministic header from `index.md`, renders the attribution footer
-from git trailers, and reassembles the body. If the markers are missing
+from git trailers, and reassembles the body. If the markers are present but the narrative is empty and an agent is available, jarvis regenerates the narrative by calling the model with the current spec. If the markers are missing
 (legacy PRs or manual edits removed them), the narrative section is omitted
 on that update; it does not repopulate automatically.
 

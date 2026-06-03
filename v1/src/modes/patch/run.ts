@@ -1914,7 +1914,11 @@ async function runReviewPhase(opts: {
             );
             // Commit the blocker
             try {
-              commitReviewPass(pass, "review-blocker", opts.agentWorkingDir);
+              commitReviewPass(pass, "review-blocker", opts.agentWorkingDir, {
+                specPath: opts.specPath,
+                branch: getCurrentBranch(opts.agentWorkingDir),
+                base,
+              });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
               fanout("harness", `review: blocker commit failed: ${message}\n`, "stderr");
@@ -1926,7 +1930,11 @@ async function runReviewPhase(opts: {
 
           // Commit review pass if there are changes
           try {
-            commitReviewPass(pass, agent.name, opts.agentWorkingDir);
+            commitReviewPass(pass, agent.name, opts.agentWorkingDir, {
+              specPath: opts.specPath,
+              branch,
+              base,
+            });
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             fanout("harness", `review: commit failed: ${message}\n`, "stderr");

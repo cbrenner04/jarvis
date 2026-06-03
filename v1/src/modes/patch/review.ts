@@ -122,6 +122,7 @@ export function commitReviewPass(
   passNumber: number,
   agentLabel: string,
   cwd: string,
+  opts?: { branch?: string; base?: string; specPath?: string },
 ): void {
   // Check if there are any changes to commit
   const porcelain = execFileSync("git", ["status", "--porcelain"], {
@@ -154,6 +155,20 @@ export function commitReviewPass(
 
   // Push
   pushCurrent({ cwd, firstPush: false });
+
+  // Refresh PR footer if spec path is provided
+  if (opts?.specPath && opts?.branch && opts?.base) {
+    try {
+      updatePrBody({
+        indexPath: opts.specPath,
+        branch: opts.branch,
+        base: opts.base,
+        cwd,
+      });
+    } catch {
+      // Ignore footer refresh errors, they're not critical
+    }
+  }
 }
 
 export async function runReviewPhase(opts: {

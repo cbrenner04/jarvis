@@ -8,5 +8,5 @@
 - Deferred to first consumer: whether removing `jarvis:narrative` markers is an explicit opt-out or an auto-repair case — pin when a caller needs it.
 
 - [x] [00 - Shared PR-description prompt fragment](./00-shared-pr-description-prompt-fragment.md)
-- [ ] [01 - Patch-mode generated narrative and preservation](./01-patch-mode-generated-narrative-and-preservation.md)
+- [x] [01 - Patch-mode generated narrative and preservation](./01-patch-mode-generated-narrative-and-preservation.md)
 - [ ] [02 - Plan-mode adoption and PR-body docs](./02-plan-mode-adoption-and-pr-body-docs.md)

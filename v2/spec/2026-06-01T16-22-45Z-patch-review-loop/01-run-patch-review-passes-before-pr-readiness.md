@@ -6,41 +6,41 @@ Patch mode goes straight from completion to readiness.
 
 ## Decisions
 
-Run review only after zero unchecked boxes and a clean worktree, never interleaved with implementation.
-Two gates bracket the passes: `bun run ready` (baseline) → passes → `bun run ready` → `gh pr ready`. No per-pass validation.
-The baseline gate is its own helper — `maybeMarkReady` minus `gh pr ready`: runs `bun run ready`, commits/pushes any `check:fix` output, leaves the PR draft, guarantees a clean worktree before pass 1. (Reusing `maybeMarkReady` readies too early; calling only `bun run ready` leaves `check:fix` dirty.)
-The active spec tree (`index.md` + linked subspecs) is read-only during review — no edits to checklist, prose, docs, or acceptance text. The harness enforces this (plan mode's write-boundary check, inverted); an offending pass is reverted/rejected, not committed.
-Review does not consume `maxIterations` — do not exit `5` before review runs.
-Each prompt gets the completed spec tree plus the branch PR/base diff, not a merge-base-only diff that can miss shipped changes.
-Run all `N` passes unless a blocker, quota stop, or hard error halts the run; do not stop on the first no-op.
-Non-empty passes commit as `review <N>` and refresh the PR body (attribution footer only, no description regen); no-op passes do not commit.
-Blocker: post a PR comment via a new `gh pr comment` helper, commit the pass's changes, keep the PR draft, exit `7`, write no `## Blocker` into specs. (The PR exists by review time; a failed post is a generic error; no dedup.)
-Review-agent quota exhaustion mid-phase: exit `2`, leave the PR draft — no fall-through to other modes, no auto-ready.
+Review runs only after zero unchecked boxes and a clean worktree, never interleaved.
+Gates bracket the passes: `bun run ready` → passes → `bun run ready` → `gh pr ready`. No per-pass validation.
+Baseline gate = `maybeMarkReady` minus `gh pr ready`: runs ready, commits/pushes `check:fix`, leaves PR draft + clean worktree. (`maybeMarkReady` readies too early; bare `bun run ready` leaves `check:fix` dirty.)
+Spec tree is read-only during review — no edits to checklist, prose, docs, or acceptance text. Harness enforces it (plan's write-boundary check, inverted); offending passes are reverted.
+Review does not consume `maxIterations` — do not exit `5` before it runs.
+Each prompt gets the spec tree + branch PR/base diff (merge-base-only can miss shipped changes).
+Run all `N` passes unless a blocker, quota stop, or hard error halts; never stop on the first no-op.
+Non-empty passes commit `review <N>` and refresh the PR footer (no description regen); no-ops don't commit.
+Blocker: post a PR comment (new `gh pr comment` helper), commit the pass, keep draft, exit `7`, write no `## Blocker`. (PR exists by now; failed post is a generic error; no dedup.)
+Quota exhaustion mid-review: exit `2`, leave draft — no fall-through, no auto-ready.
 
 ## Task Checklist
 
-- [ ] Add a `prompts/patch/review.md` template that mirrors plan review's subtractive bias, forbids any edit to the active spec tree, and scopes work to the completed spec.
-- [ ] Add prompt assembly and diff-snapshot plumbing so each pass receives the current spec tree and the branch PR/base diff.
-- [ ] Add the baseline-gate helper (`maybeMarkReady` minus `gh pr ready`).
-- [ ] Insert the review phase into `jarvis1 run` after completion + clean-tree validation: baseline gate → `N` passes (unless an allowed stop fires) → existing `maybeMarkReady`.
-- [ ] Enforce the spec-tree read-only boundary during passes (revert/reject any pass that edits a spec file).
-- [ ] Reuse patch-mode agent classification and fallback for passes — no review-only outcome kinds or exit codes; quota exhaustion exits `2`, PR left draft.
-- [ ] Commit non-empty passes with the `Jarvis-Agent:` trailer and the attribution-footer refresh; leave no-op passes uncommitted.
-- [ ] Add a `gh pr comment` helper in `v1/src/gh.ts` and blocker handling: post the comment, commit the pass work, leave the PR draft, exit `7`, write no `## Blocker`.
-- [ ] Share the `bun run ready` + `check:fix` commit logic between the baseline helper and `maybeMarkReady` (which keeps the `gh pr ready` transition) rather than duplicating it.
-- [ ] Add/update tests for: gate ordering, the baseline gate committing `check:fix` while leaving PR draft + clean worktree, the read-only boundary, no-op passes, blocker exit (`7`, comment posted), quota exhaustion (`2`, draft), commit shape, and `maxIterations` separation.
+- [ ] `prompts/patch/review.md`: subtractive bias like plan review, forbids spec-tree edits, scoped to the completed spec.
+- [ ] Prompt + diff-snapshot plumbing feeding each pass the spec tree and branch PR/base diff.
+- [ ] Baseline-gate helper (`maybeMarkReady` minus `gh pr ready`).
+- [ ] Wire the phase into `jarvis1 run` after completion + clean-tree checks: baseline → `N` passes → `maybeMarkReady`.
+- [ ] Enforce the spec-tree read-only boundary (revert passes that touch a spec file).
+- [ ] Reuse patch-mode agent classification/fallback — no review-only kinds or codes; quota exits `2`, PR draft.
+- [ ] Commit non-empty passes with the `Jarvis-Agent:` trailer + footer refresh; leave no-ops uncommitted.
+- [ ] `gh pr comment` helper in `v1/src/gh.ts` + blocker handling: comment, commit, draft, exit `7`, no `## Blocker`.
+- [ ] Share `bun run ready` + `check:fix` commit logic between the baseline helper and `maybeMarkReady`.
+- [ ] Tests: gate order, baseline committing `check:fix` (draft + clean), read-only boundary, no-ops, blocker (`7`), quota (`2`), commit shape, `maxIterations` separation.
 
 ## Documentation updates
 
-- [ ] Update inline docs near patch prompt assembly, completion, or PR-ready helpers where the new phase changes their contract.
+- [ ] Update inline docs near patch prompt assembly, completion, or PR-ready helpers the phase touches.
 
 ## Acceptance criteria
 
-- [ ] In `git: true` runs, after completion + clean worktree, `jarvis1 run` runs `bun run ready` → review passes → `bun run ready` → `gh pr ready`.
-- [ ] Passes use the completed spec tree and branch PR/base diff; the spec tree is read-only and a pass editing any spec file is reverted/rejected.
-- [ ] The baseline gate runs `bun run ready`, commits/pushes any `check:fix`, leaves the PR draft, and leaves a clean worktree before pass 1.
-- [ ] A pass that edits files makes one `review <N>` commit and refreshes the draft PR body; a no-op pass makes no commit.
-- [ ] Review continues through pass `N` even after an earlier no-op.
-- [ ] A blocker posts a PR comment, commits that pass's changes, leaves the PR draft, exits `7`, and writes no `## Blocker` into any spec file.
-- [ ] Review passes still run after the checklist-closing iteration even when `maxIterations` is exhausted.
-- [ ] When every review-order agent is quota-exhausted, the run exits `2` and the PR is left draft.
+- [ ] `git: true` runs do `bun run ready` → passes → `bun run ready` → `gh pr ready` after completion + clean worktree.
+- [ ] Passes get the spec tree + branch PR/base diff; the spec tree is read-only and edits are reverted.
+- [ ] Baseline gate runs ready, commits/pushes `check:fix`, leaves PR draft + clean worktree before pass 1.
+- [ ] An editing pass makes one `review <N>` commit + footer refresh; a no-op makes none.
+- [ ] Review runs through pass `N` past an earlier no-op.
+- [ ] A blocker posts a PR comment, commits the pass, leaves draft, exits `7`, writes no `## Blocker`.
+- [ ] Passes still run after the checklist-closing iteration even when `maxIterations` is exhausted.
+- [ ] All review agents quota-exhausted → exit `2`, PR draft.

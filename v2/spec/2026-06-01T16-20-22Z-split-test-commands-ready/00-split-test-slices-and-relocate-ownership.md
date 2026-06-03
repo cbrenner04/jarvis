@@ -8,6 +8,7 @@
 - The ownership rule is narrow: the preload must not live under `v1/test/`, and shared-owned *tests* live under `shared/`. v1/v2 tests importing `shared/**` runtime code is valid coverage, not a violation.
 - The 30s timeout comes from `bunfig.toml` and is inherited by every `bun test`; do not re-add a per-script `--timeout` flag.
 - The agent-spawn safety preload (`v1/test/setup-fake-agents.ts`) is repo-wide infra; relocate it to a neutral root home and repoint `bunfig.toml`'s `preload`, keeping it global for all slices. Prove it loads under a scoped slice run, not just in config text.
+- `ready` already runs the aggregate via `bun run test`, and that command stays whole-repo `bun test`, so no `scripts/ready.ts` change is needed — only pin the contract with a regression and document it. Rewiring `ready` is the wrong alternative: it already reaches the aggregate.
 
 ## Tasks
 
@@ -15,10 +16,12 @@
 - Move `v1/test/setup-fake-agents.ts` to a neutral root home and update `bunfig.toml`'s `preload` path.
 - Add a disjoint-roots guard test (enumerate test files; assert `v1/**`/`v2/**`/`shared/**` don't overlap), plus a regression asserting the exact script strings with trailing slashes (`bun test ./v1/`, `./v2/`, `./shared/`, `test` = bare `bun test`).
 - Add a regression that a scoped slice run (`test:v2`/`test:shared`) still observes the agent-spawn preload — exercise the protected spawn path under a scoped invocation.
+- Add a regression pinning `scripts/ready.ts` to reach tests via `bun run test` (the aggregate) and keep its step order, so a later refactor can't drop or reorder the test gate.
 
 ## Documentation updates
 
-- Update `v2/docs/v1-behaviors.md` with the root test-command contract, exact-root scoping, the `shared` slice boundary, and the relocated preload.
+- Update `v2/docs/v1-behaviors.md` with the root test-command contract, exact-root scoping, the `shared` slice boundary, the relocated preload, and that `bun run ready` reaches tests through the aggregate root `test` command.
+- Update `v1/docs/worktrees-and-commits.md` to cross-reference that durable behavior entry when describing `bun run ready`, rather than carrying the only operator contract for the ready test step.
 - Fix README's "Per-test timeout" section to credit `bunfig.toml` (`[test] timeout = 30000`) instead of the removed `--timeout=30000` script flag.
 
 ## Acceptance criteria
@@ -30,3 +33,5 @@
 - [ ] A regression asserts the exact script strings with trailing slashes (`bun test ./v1/`, `./v2/`, `./shared/`) and `test` = bare `bun test`, so dropping a trailing slash fails.
 - [ ] A regression proves a scoped slice run (`test:v2`/`test:shared`) still loads the agent-spawn preload via the protected spawn path.
 - [ ] `v2/docs/v1-behaviors.md` records the operator-facing test-command contract and shared-slice ownership rule; README's "Per-test timeout" section credits `bunfig.toml`, not the `--timeout` flag.
+- [ ] `scripts/ready.ts` reaches the test phase through `bun run test` (the aggregate) with its existing step order; a regression fails if `ready` stops using `bun run test` or reorders the ready steps.
+- [ ] `v2/docs/v1-behaviors.md` records that `bun run ready` reaches tests through the aggregate root `test` command, and `v1/docs/worktrees-and-commits.md` cross-references that entry instead of carrying the only operator contract for the ready test step.

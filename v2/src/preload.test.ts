@@ -5,7 +5,8 @@ import { basename, join } from "node:path";
 
 test("agent-spawn preload is active for the v2 slice", () => {
   const [fakeBinDir] = (process.env.PATH ?? "").split(":");
+  const fakeCodex = join(fakeBinDir ?? "", "codex");
   expect(basename(fakeBinDir ?? "")).toStartWith("jarvis-test-fake-agents-");
-  expect(existsSync(join(fakeBinDir ?? "", "codex"))).toBeTrue();
-  expect(spawnSync("codex", ["--version"]).status).toBe(0);
+  expect(existsSync(fakeCodex)).toBeTrue();
+  expect(spawnSync(fakeCodex, ["--version"]).status).toBe(0);
 });

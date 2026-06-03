@@ -1,10 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import type { Agent } from "../../agents/types.ts";
+import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import type { CommitInfo } from "../../pr.ts";
 import {
+  extractGeneratedNarrativeContent,
   extractNarrative,
+  markGeneratedNarrative,
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
   readBranchCommits,
@@ -19,6 +21,8 @@ export type IndexSubspec = {
   line: string;
   /** True iff the checkbox is checked (`[x]` or `[X]`). */
   checked: boolean;
+  /** Linked subspec path from the checklist item. */
+  path: string;
 };
 
 /**
@@ -52,10 +56,10 @@ export function parseIndex(indexPath: string): {
       }
     }
     // Match GitHub-style task list items whose text contains a Markdown link.
-    const checklist = rawLine.match(/^\s*-\s+\[( |x|X)\]\s+\[.+?\]\(.+?\)/);
+    const checklist = rawLine.match(/^\s*-\s+\[( |x|X)\]\s+\[.+?\]\((.+?)\)/);
     if (checklist) {
       const checked = checklist[1] !== " ";
-      subspecs.push({ line: rawLine, checked });
+      subspecs.push({ line: rawLine, checked, path: checklist[2] ?? "" });
     }
   }
   return { title, subspecs };
@@ -360,6 +364,8 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
 
 export { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 
+const PR_DESCRIPTION_CONTEXT_MAX_CHARS = 40_000;
+
 /**
  * Generate the PR description by calling the model with the PR description prompt.
  * Returns the model's response containing Description + Decisions section.
@@ -372,16 +378,17 @@ export async function generatePrDescription(opts: {
   intent: string;
   agent: Agent;
   cwd: string;
+  runOptions?: Partial<Omit<AgentRunOptions, "cwd">>;
 }): Promise<string | null> {
   try {
-    const indexContent = readFileSync(opts.indexPath, "utf8");
     const prompt = buildPrDescriptionPrompt({
       intent: opts.intent,
-      specContext: indexContent,
+      specContext: buildSpecContext(opts.indexPath),
     });
 
     const result = await opts.agent.run(prompt, {
       cwd: opts.cwd,
+      ...opts.runOptions,
     });
 
     if (result.kind !== "ok") {
@@ -399,6 +406,43 @@ export async function generatePrDescription(opts: {
   }
 }
 
+function buildSpecContext(indexPath: string): string {
+  const indexContent = readFileSync(indexPath, "utf8");
+  const specDir = dirnameFromPath(indexPath);
+  const sections = [`## index.md\n\n${indexContent.trim()}`];
+  const parsed = parseIndex(indexPath);
+  const linkedPaths = parsed.subspecs
+    .map((subspec) => subspec.path)
+    .filter((path) => path.length > 0);
+  const paths =
+    linkedPaths.length > 0
+      ? linkedPaths
+      : readdirSync(specDir).filter((path) => /^\d{2}-.*\.md$/.test(path));
+  for (const path of paths) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
+      continue;
+    }
+    const filePath = join(specDir, path);
+    if (!existsSync(filePath)) {
+      continue;
+    }
+    sections.push(`## ${path}\n\n${readFileSync(filePath, "utf8").trim()}`);
+  }
+  return truncateContext(sections.join("\n\n"));
+}
+
+function dirnameFromPath(path: string): string {
+  const idx = path.lastIndexOf("/");
+  return idx === -1 ? "." : path.slice(0, idx);
+}
+
+function truncateContext(context: string): string {
+  if (context.length <= PR_DESCRIPTION_CONTEXT_MAX_CHARS) {
+    return context;
+  }
+  return `${context.slice(0, PR_DESCRIPTION_CONTEXT_MAX_CHARS)}\n\n[truncated]`;
+}
+
 export type UpdatePlanPrBodyOpts = {
   indexPath: string;
   specDirPath: string;
@@ -409,6 +453,7 @@ export type UpdatePlanPrBodyOpts = {
   targetDir?: string;
   intentContent?: string;
   agent?: Agent;
+  runOptions?: Partial<Omit<AgentRunOptions, "cwd">>;
   /** Test seam: fetch the current PR body. Defaults to `gh pr view`. */
   fetchPrBody?: (branch: string, cwd: string) => string;
   /** Test seam: write the new PR body. Defaults to `gh pr edit --body-file -`. */
@@ -437,14 +482,27 @@ export async function updatePlanPrBody(
 
   const currentBody = fetchPrBody(opts.branch, opts.cwd);
   let narrative = extractNarrative(currentBody);
+  const generatedNarrative =
+    narrative === null ? null : extractGeneratedNarrativeContent(narrative);
 
-  if (!narrative && opts.agent && opts.intentContent) {
-    narrative = await generatePrDescription({
+  if (
+    (!narrative || generatedNarrative !== null) &&
+    opts.agent &&
+    opts.intentContent
+  ) {
+    const generateOpts: Parameters<typeof generatePrDescription>[0] = {
       indexPath: opts.indexPath,
       intent: opts.intentContent,
       agent: opts.agent,
       cwd: opts.cwd,
-    });
+    };
+    if (opts.runOptions !== undefined) {
+      generateOpts.runOptions = opts.runOptions;
+    }
+    const generated = await generatePrDescription(generateOpts);
+    if (generated !== null) {
+      narrative = markGeneratedNarrative(generated);
+    }
   }
 
   const specDirBasename = basename(opts.specDirPath);

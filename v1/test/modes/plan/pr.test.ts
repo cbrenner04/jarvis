@@ -13,6 +13,7 @@ import {
 } from "../../../src/modes/plan/pr.ts";
 import {
   extractNarrative,
+  markGeneratedNarrative,
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
 } from "../../../src/pr.ts";
@@ -407,6 +408,29 @@ describe("updatePlanPrBody", () => {
     expect(written).toContain(NARRATIVE_END_MARKER);
   });
 
+  test("regenerates machine-owned narrative when hash still matches", async () => {
+    const specDirPath = writeSpec("v1/spec");
+    let written = "";
+    await updatePlanPrBody({
+      indexPath: join(specDirPath, "index.md"),
+      specDirPath,
+      branch: "feature",
+      base: "base",
+      cwd: gitDir,
+      targetDir: "v1/spec",
+      intentContent: "intent body",
+      agent: mockAgent("Fresh body\n\nDecisions:\n- Fresh choice"),
+      fetchPrBody: () =>
+        `${NARRATIVE_START_MARKER}\n${markGeneratedNarrative("Old body\n\nDecisions:\n- Old choice")}\n${NARRATIVE_END_MARKER}`,
+      writePrBody: (_b, body) => {
+        written = body;
+      },
+      renderFooter: () => "",
+    });
+    expect(written).toContain("Fresh body");
+    expect(written).not.toContain("Old body");
+  });
+
   test("preserves human-edited narrative verbatim and does not call the agent", async () => {
     const specDirPath = writeSpec("v1/spec");
     let ran = false;
@@ -437,6 +461,42 @@ describe("updatePlanPrBody", () => {
     });
     expect(ran).toBe(false);
     expect(written).toContain("Human wrote this");
+    expect(written).not.toContain("REGEN");
+  });
+
+  test("preserves edited generated narrative when hash no longer matches", async () => {
+    const specDirPath = writeSpec("v1/spec");
+    let ran = false;
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        ran = true;
+        return { kind: "ok", stdout: "REGEN\n\nDecisions:\n- x", stderr: "" };
+      },
+      attributionLabel: () => "test-agent",
+    };
+    const edited = markGeneratedNarrative(
+      "Old body\n\nDecisions:\n- Old choice",
+    ).replace("Old body", "Human edited body");
+    let written = "";
+    await updatePlanPrBody({
+      indexPath: join(specDirPath, "index.md"),
+      specDirPath,
+      branch: "feature",
+      base: "base",
+      cwd: gitDir,
+      targetDir: "v1/spec",
+      intentContent: "intent body",
+      agent,
+      fetchPrBody: () =>
+        `${NARRATIVE_START_MARKER}\n${edited}\n${NARRATIVE_END_MARKER}`,
+      writePrBody: (_b, body) => {
+        written = body;
+      },
+      renderFooter: () => "",
+    });
+    expect(ran).toBe(false);
+    expect(written).toContain("Human edited body");
     expect(written).not.toContain("REGEN");
   });
 });
@@ -474,6 +534,69 @@ describe("generatePrDescription", () => {
 
     expect(result).toContain("Updated plan");
     expect(result).toContain("Decisions:");
+  });
+
+  test("includes linked subspec content in the prompt", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [x] [00 - one](./00-one.md)\n");
+    writeFileSync(
+      join(gitDir, "00-one.md"),
+      "# One\n\nPlanned useful details.\n",
+    );
+
+    let prompt = "";
+    const agent: Agent = {
+      name: "claude",
+      async run(receivedPrompt): Promise<AgentResult> {
+        prompt = receivedPrompt;
+        return {
+          kind: "ok",
+          stdout: "Updated plan\n\nDecisions:\n- Use details",
+          stderr: "",
+        };
+      },
+      attributionLabel: () => "test-agent",
+    };
+
+    await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent,
+      cwd: gitDir,
+    });
+
+    expect(prompt).toContain("## ./00-one.md");
+    expect(prompt).toContain("Planned useful details.");
+  });
+
+  test("passes run options through to the agent", async () => {
+    const indexPath = join(gitDir, "index.md");
+    writeFileSync(indexPath, "# Plan\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | undefined;
+    const agent: Agent = {
+      name: "claude",
+      async run(_prompt, opts): Promise<AgentResult> {
+        seenSignal = opts.signal;
+        return {
+          kind: "ok",
+          stdout: "Updated plan\n\nDecisions:\n- Signal",
+          stderr: "",
+        };
+      },
+      attributionLabel: () => "test-agent",
+    };
+
+    await generatePrDescription({
+      indexPath,
+      intent: "Test intent",
+      agent,
+      cwd: gitDir,
+      runOptions: { signal: controller.signal },
+    });
+
+    expect(seenSignal).toBe(controller.signal);
   });
 
   test("returns null when model response lacks Decisions section", async () => {

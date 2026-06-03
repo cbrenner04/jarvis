@@ -942,6 +942,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
             await safeUpdatePrBody({
               agent: prDescAgent,
+              timeoutMs: cfg.iterationTimeoutMs,
               io: opts.io,
               branch,
               base: getCurrentBranch(project.root),
@@ -1035,6 +1036,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           });
           await safeUpdatePrBody({
             agent: prDescAgent,
+            timeoutMs: cfg.iterationTimeoutMs,
             io: opts.io,
             branch,
             base: getCurrentBranch(project.root),
@@ -1055,6 +1057,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
             await safeUpdatePrBody({
               agent: prDescAgent,
+              timeoutMs: cfg.iterationTimeoutMs,
               io: opts.io,
               branch,
               base: getCurrentBranch(project.root),
@@ -1160,6 +1163,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           });
           await safeUpdatePrBody({
             agent: prDescAgent,
+            timeoutMs: cfg.iterationTimeoutMs,
             io: opts.io,
             branch,
             base: getCurrentBranch(project.root),
@@ -1184,6 +1188,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         });
         await safeUpdatePrBody({
           agent: prDescAgent,
+          timeoutMs: cfg.iterationTimeoutMs,
           io: opts.io,
           branch,
           base: getCurrentBranch(project.root),
@@ -1658,6 +1663,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
             await safeUpdatePrBody({
               agent: prDescAgent,
+              timeoutMs: cfg.iterationTimeoutMs,
               io: opts.io,
               branch: planBranch,
               base: baseBranch as string,
@@ -1762,6 +1768,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           opts.io.stderr(`plan: draft PR #${prResult.number} opened\n`);
           await safeUpdatePrBody({
             agent: prDescAgent,
+            timeoutMs: cfg.iterationTimeoutMs,
             io: opts.io,
             branch: planBranch,
             base: baseBranch as string,
@@ -1925,6 +1932,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
             await safeUpdatePrBody({
               agent: prDescAgent,
+              timeoutMs: cfg.iterationTimeoutMs,
               io: opts.io,
               branch: planBranch,
               base: baseBranch as string,
@@ -2019,6 +2027,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
             await safeUpdatePrBody({
               agent: prDescAgent,
+              timeoutMs: cfg.iterationTimeoutMs,
               io: opts.io,
               branch: planBranch,
               base: baseBranch as string,
@@ -2046,6 +2055,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       if (commit) {
         await safeUpdatePrBody({
           agent: prDescAgent,
+          timeoutMs: cfg.iterationTimeoutMs,
           io: opts.io,
           branch: planBranch,
           base: baseBranch as string,
@@ -2212,6 +2222,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
                   await safeUpdatePrBody({
                     agent: prDescAgent,
+                    timeoutMs: cfg.iterationTimeoutMs,
                     io: opts.io,
                     branch: planBranch,
                     base: baseBranch as string,
@@ -2250,6 +2261,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
                 await safeUpdatePrBody({
                   agent: prDescAgent,
+                  timeoutMs: cfg.iterationTimeoutMs,
                   io: opts.io,
                   branch: planBranch,
                   base: baseBranch as string,
@@ -2327,6 +2339,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
                 await safeUpdatePrBody({
                   agent: prDescAgent,
+                  timeoutMs: cfg.iterationTimeoutMs,
                   io: opts.io,
                   branch: planBranch,
                   base: baseBranch as string,
@@ -2365,6 +2378,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
               await safeUpdatePrBody({
                 agent: prDescAgent,
+                timeoutMs: cfg.iterationTimeoutMs,
                 io: opts.io,
                 branch: planBranch,
                 base: baseBranch as string,
@@ -2505,7 +2519,17 @@ async function safeUpdatePrBody(args: {
   specDirPath?: string;
   targetDir?: string;
   agent?: Agent | undefined;
+  timeoutMs?: number | undefined;
 }): Promise<void> {
+  const controller = new AbortController();
+  const timeout =
+    args.timeoutMs === undefined
+      ? null
+      : setTimeout(
+          () => controller.abort("pr-description-timeout"),
+          args.timeoutMs,
+        );
+  timeout?.unref();
   try {
     const specDirPath =
       args.specDirPath ??
@@ -2526,11 +2550,18 @@ async function safeUpdatePrBody(args: {
       ...(args.targetDir !== undefined ? { targetDir: args.targetDir } : {}),
       ...(args.agent !== undefined ? { agent: args.agent } : {}),
       ...(intentContent !== undefined ? { intentContent } : {}),
+      runOptions: {
+        signal: controller.signal,
+      },
     });
   } catch (err) {
     args.io.stderr(
       `warning: could not update PR body: ${(err as Error).message}\n`,
     );
+  } finally {
+    if (timeout !== null) {
+      clearTimeout(timeout);
+    }
   }
 }
 

@@ -1,10 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import type { Agent } from "../../agents/types.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import {
   checkPrExists,
+  extractGeneratedNarrativeContent,
   extractNarrative,
+  markGeneratedNarrative,
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
   renderAttributionSummary,
@@ -18,6 +21,7 @@ export { NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 export function buildPrBody(opts: {
   indexPath: string;
   narrative: string | null;
+  generatedNarrative?: boolean;
 }): string {
   const indexContent = readFileSync(opts.indexPath, "utf8");
   const parsedIndex = parsePatchSpec(indexContent);
@@ -30,7 +34,10 @@ export function buildPrBody(opts: {
   let body = lines.join("\n");
 
   if (opts.narrative !== null) {
-    const narrativeBlock = `${NARRATIVE_START_MARKER}\n${opts.narrative}\n${NARRATIVE_END_MARKER}`;
+    const narrative = opts.generatedNarrative
+      ? markGeneratedNarrative(opts.narrative)
+      : opts.narrative;
+    const narrativeBlock = `${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
     body = body === "" ? narrativeBlock : `${body}\n\n${narrativeBlock}`;
   }
 
@@ -38,6 +45,8 @@ export function buildPrBody(opts: {
 }
 
 export { extractNarrative };
+
+const PR_DESCRIPTION_CONTEXT_MAX_CHARS = 40_000;
 
 /**
  * Generate the PR description by calling the model with the PR description prompt.
@@ -50,16 +59,17 @@ export async function generatePrDescription(opts: {
   specPath: string;
   agent: Agent;
   cwd: string;
+  runOptions?: Partial<Omit<AgentRunOptions, "cwd">>;
 }): Promise<string | null> {
   try {
-    const specContent = readFileSync(opts.specPath, "utf8");
     const prompt = buildPrDescriptionPrompt({
       specPath: opts.specPath,
-      specContext: specContent,
+      specContext: buildSpecContext(opts.specPath),
     });
 
     const result = await opts.agent.run(prompt, {
       cwd: opts.cwd,
+      ...opts.runOptions,
     });
 
     if (result.kind !== "ok") {
@@ -77,12 +87,39 @@ export async function generatePrDescription(opts: {
   }
 }
 
+function buildSpecContext(indexPath: string): string {
+  const indexContent = readFileSync(indexPath, "utf8");
+  const sections = [`## index.md\n\n${indexContent.trim()}`];
+  const parsed = parsePatchSpec(indexContent);
+  for (const subspec of parsed.linkedSubspecs) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(subspec.path)) {
+      continue;
+    }
+    const subspecPath = resolve(dirname(indexPath), subspec.path);
+    if (!existsSync(subspecPath)) {
+      continue;
+    }
+    sections.push(
+      `## ${subspec.path}\n\n${readFileSync(subspecPath, "utf8").trim()}`,
+    );
+  }
+  return truncateContext(sections.join("\n\n"));
+}
+
+function truncateContext(context: string): string {
+  if (context.length <= PR_DESCRIPTION_CONTEXT_MAX_CHARS) {
+    return context;
+  }
+  return `${context.slice(0, PR_DESCRIPTION_CONTEXT_MAX_CHARS)}\n\n[truncated]`;
+}
+
 export type UpdatePrBodyOpts = {
   indexPath: string;
   branch: string;
   base: string;
   cwd: string;
   agent?: Agent;
+  runOptions?: Partial<Omit<AgentRunOptions, "cwd">>;
   /** Test seam: fetch the current PR body. Defaults to `gh pr view`. */
   fetchPrBody?: (branch: string, cwd: string) => string;
   /** Test seam: write the new PR body. Defaults to `gh pr edit --body-file -`. */
@@ -109,13 +146,22 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
 
   const currentBody = fetchPrBody(opts.branch, opts.cwd);
   let narrative = extractNarrative(currentBody);
+  const generatedNarrative =
+    narrative === null ? null : extractGeneratedNarrativeContent(narrative);
 
-  if (!narrative && opts.agent) {
-    narrative = await generatePrDescription({
+  if ((!narrative || generatedNarrative !== null) && opts.agent) {
+    const generateOpts: Parameters<typeof generatePrDescription>[0] = {
       specPath: opts.indexPath,
       agent: opts.agent,
       cwd: opts.cwd,
-    });
+    };
+    if (opts.runOptions !== undefined) {
+      generateOpts.runOptions = opts.runOptions;
+    }
+    const generated = await generatePrDescription(generateOpts);
+    if (generated !== null) {
+      narrative = markGeneratedNarrative(generated);
+    }
   }
 
   const header = buildPrBody({ indexPath: opts.indexPath, narrative: null });

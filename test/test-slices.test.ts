@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { execSync } from "node:child_process";
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { basename, join } from "node:path";
 
 describe("Test slice boundaries", () => {
   it("test files are scoped to owner directories", () => {
-    const getTestFilePaths = (dir: string): string[] => {
-      const files: string[] = [];
+    const getTestFiles = (dir: string): { logical: string; real: string }[] => {
+      const files: { logical: string; real: string }[] = [];
       const walk = (current: string, prefix: string) => {
         try {
           const entries = readdirSync(current, { withFileTypes: true });
@@ -16,7 +16,7 @@ describe("Test slice boundaries", () => {
             if (entry.isDirectory()) {
               walk(fullPath, `${rel}/`);
             } else if (entry.name.endsWith(".test.ts")) {
-              files.push(rel);
+              files.push({ logical: rel, real: realpathSync(fullPath) });
             }
           }
         } catch {
@@ -27,27 +27,31 @@ describe("Test slice boundaries", () => {
       return files;
     };
 
-    const v1Files = getTestFilePaths("v1/test");
-    const v2Files = getTestFilePaths("v2");
-    const sharedFiles = getTestFilePaths("shared");
+    const filesByOwner = {
+      v1: getTestFiles("v1/test").map((file) => ({
+        ...file,
+        logical: `v1/test/${file.logical}`,
+      })),
+      v2: getTestFiles("v2").map((file) => ({
+        ...file,
+        logical: `v2/${file.logical}`,
+      })),
+      shared: getTestFiles("shared").map((file) => ({
+        ...file,
+        logical: `shared/${file.logical}`,
+      })),
+    };
 
-    // Verify no file path appears under more than one root directory
-    const allPaths = [...v1Files, ...v2Files, ...sharedFiles];
-    const pathsByRoot = new Map<string, number>();
-    for (const path of allPaths) {
-      const root = path.split("/")[0];
-      pathsByRoot.set(root, (pathsByRoot.get(root) ?? 0) + 1);
-    }
+    expect(filesByOwner.v1.length).toBeGreaterThan(0);
+    expect(filesByOwner.v2.length).toBeGreaterThan(0);
+    expect(filesByOwner.shared.length).toBeGreaterThan(0);
 
-    // Each root should have its own tests, not mix with others
-    const roots = ["v1", "v2", "shared"];
-    for (const root of roots) {
-      if (root === "v1") {
-        expect(v1Files.every((f) => f.startsWith("."))).toBeFalsy();
-      } else if (root === "v2") {
-        expect(v2Files.length).toBeGreaterThan(0);
-      } else if (root === "shared") {
-        expect(sharedFiles.length).toBeGreaterThan(0);
+    const seen = new Map<string, string>();
+    for (const [owner, files] of Object.entries(filesByOwner)) {
+      for (const file of files) {
+        const previousOwner = seen.get(file.real);
+        expect(previousOwner).toBeUndefined();
+        seen.set(file.real, owner);
       }
     }
   });
@@ -58,12 +62,29 @@ describe("Test slice boundaries", () => {
     expect(pkgJson.scripts["test:v1"]).toBe("bun test ./v1/");
     expect(pkgJson.scripts["test:v2"]).toBe("bun test ./v2/");
     expect(pkgJson.scripts["test:shared"]).toBe("bun test ./shared/");
-    expect(pkgJson.scripts["test"]).toBe("bun test");
+    expect(pkgJson.scripts.test).toBe("bun test");
   });
 
   it("bunfig.toml preload points to relocated setup file", async () => {
     const bunfigText = await Bun.file("bunfig.toml").text();
     expect(bunfigText).toContain("./test/setup-fake-agents.ts");
+    expect(existsSync("test/setup-fake-agents.ts")).toBeTrue();
+    expect(existsSync("v1/test/setup-fake-agents.ts")).toBeFalse();
+  });
+
+  it("scoped slice runs load the agent-spawn preload", () => {
+    const env = {
+      ...process.env,
+      PATH: (process.env.PATH ?? "")
+        .split(":")
+        .filter(
+          (entry) => !basename(entry).startsWith("jarvis-test-fake-agents-"),
+        )
+        .join(":"),
+    };
+
+    execSync("bun run test:v2", { env, stdio: "pipe" });
+    execSync("bun run test:shared", { env, stdio: "pipe" });
   });
 
   it("ready script uses aggregate test command", async () => {

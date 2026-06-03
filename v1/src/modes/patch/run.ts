@@ -31,7 +31,7 @@ import {
   type ProjectMatch,
   setProjectOrigin,
 } from "../../config.ts";
-import { assertGhReady, getBaseBranch } from "../../gh.ts";
+import { assertGhReady, getBaseBranch, postPrComment, runGhCommand } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import {
   checkPrExists,
@@ -1930,7 +1930,20 @@ async function runReviewPhase(opts: {
               fanout("harness", `review: blocker commit failed: ${message}\n`, "stderr");
               // Continue to PR comment posting anyway
             }
-            // TODO: Post PR comment with blocker
+
+            // Post PR comment with blocker
+            try {
+              const prNum = checkPrExists(branch, opts.agentWorkingDir);
+              if (prNum) {
+                const blockerComment = `## Review Pass ${pass} Blocker\n\n${blockerContent}`;
+                await postPrComment(prNum, blockerComment, opts.agentWorkingDir);
+                fanout("harness", `review: blocker reported in PR comment\n`, "stdout");
+              }
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout("harness", `review: failed to post PR comment: ${message}\n`, "stderr");
+              // Don't fail the phase if comment posting fails
+            }
             return 7;
           }
 

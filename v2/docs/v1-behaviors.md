@@ -255,6 +255,14 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 - Log-server connectivity is a hard gate for both patch and plan modes even though post-preflight log delivery failures are ignored; this makes local observability service availability stricter than later per-message reliability. Sources: `v1/src/mode-entry.ts`, `v1/src/log-server-preflight.ts`, `v1/src/modes/patch/run.ts`
 - The fallback non-index prompt defaults to `exit` on empty or unrecognized input, so a mistaken Enter can terminate `jarvis1 run` without any agent attempt. Sources: `v1/src/modes/patch/run.ts`
 
+## Test execution and development workflows
+
+- Root package.json exposes runnable test commands: `test` (aggregate, bare `bun test`), `test:v1` (`bun test ./v1/`), `test:v2` (`bun test ./v2/`), and `test:shared` (`bun test ./shared/`). Each scoped slice targets its exact owner root with a trailing slash to prevent fuzzy substring filtering. Sources: `package.json`, `bunfig.toml`, `test/test-slices.test.ts`
+- The 30-second timeout for all test runs is inherited from `bunfig.toml` (`[test] timeout = 30000`) and applies to every slice invocation (aggregate, `test:v1`, `test:v2`, `test:shared`); no per-script `--timeout` flag is needed or added. Sources: `bunfig.toml`
+- Test file ownership is enforced by disjoint-roots: v1 tests live under `v1/test/`, v2 tests co-locate next to v2 source under `v2/`, and shared-owned tests live under `shared/`. v1/v2 tests may import `shared/**` runtime code; this is coverage, not ownership violation. Sources: `test/test-slices.test.ts`, `v2/src`, `shared/`
+- Agent-spawn safety preload (`test/setup-fake-agents.ts`) is repo-wide infrastructure loaded globally via `bunfig.toml` preload for all test slice runs, preventing accidental real-agent-CLI spawns under any slice invocation. Sources: `bunfig.toml`, `test/setup-fake-agents.ts`
+- `bun run ready` reaches the test phase via `bun run test` (the aggregate command) and does not use scoped slices; the ready pipeline order (install → check:fix → typecheck → test → check) is enforced by regression tests. Sources: `scripts/ready.ts`, `test/test-slices.test.ts`
+
 ## Maintenance requirement for future v1 changes
 
 - Any v1 bug fix or user-observable behavior change that can affect v2 parity decisions must update this catalog in the same change window, so v2 design/review never relies on stale v1 behavior documentation. Sources: `v1/spec/completed/2026-05-22T04-09-01Z-v1-behavior-catalog/05-maintenance-reminder-and-final-verification.md`

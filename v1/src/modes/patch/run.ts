@@ -82,6 +82,7 @@ import {
 } from "./pr.ts";
 import { buildPrompt, buildReviewPrompt } from "./prompt.ts";
 import {
+  commitReviewPass,
   detectNewBlockerInSpec,
   detectSpecTreeEdits,
   revertSpecTreeEdits,
@@ -1911,12 +1912,28 @@ async function runReviewPhase(opts: {
               `review: pass ${pass} encountered blocker\n`,
               "stderr",
             );
-            // TODO: Post PR comment with blocker, commit, keep draft, exit 7
+            // Commit the blocker
+            try {
+              commitReviewPass(pass, "review-blocker", opts.agentWorkingDir);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout("harness", `review: blocker commit failed: ${message}\n`, "stderr");
+              // Continue to PR comment posting anyway
+            }
+            // TODO: Post PR comment with blocker
             return 7;
           }
 
+          // Commit review pass if there are changes
+          try {
+            commitReviewPass(pass, agent.name, opts.agentWorkingDir);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            fanout("harness", `review: commit failed: ${message}\n`, "stderr");
+            // Don't fail the whole phase on commit error
+          }
+
           fanout("harness", `review: pass ${pass} completed\n`, "stdout");
-          // TODO: Handle review pass commits with trailers
         } else if (result.kind === "quota") {
           ctx.activeAgents.shift();
           fanout("harness", "review: agent quota exhausted\n", "stderr");

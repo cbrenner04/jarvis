@@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { Agent } from "../../agents/types.ts";
+import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { postPrComment } from "../../gh.ts";
+import { pushCurrent } from "../../worktree.ts";
 import { updatePrBody } from "./pr.ts";
 import { buildReviewPrompt } from "./prompt.ts";
 
@@ -114,6 +116,44 @@ export function detectNewBlockerInSpec(
   }
 
   return null;
+}
+
+export function commitReviewPass(
+  passNumber: number,
+  agentLabel: string,
+  cwd: string,
+): void {
+  // Check if there are any changes to commit
+  const porcelain = execFileSync("git", ["status", "--porcelain"], {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+
+  if (porcelain === "") {
+    // No changes, skip commit
+    return;
+  }
+
+  // Stage all changes
+  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+
+  // Create commit message
+  const commitMessage = appendAgentTrailer(
+    `review: pass ${passNumber}`,
+    agentLabel,
+  );
+
+  // Commit
+  execFileSync("git", ["commit", "-F", "-"], {
+    cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: commitMessage,
+  });
+
+  // Push
+  pushCurrent({ cwd, firstPush: false });
 }
 
 export async function runReviewPhase(opts: {

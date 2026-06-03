@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
+import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../../src/modes/patch/pr-description-prompt.ts";
 import { buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
+import { buildPrDescriptionPrompt as buildPlanPrDescriptionPrompt } from "../../src/modes/plan/pr-description-prompt.ts";
 import { buildRefinePrompt } from "../../src/modes/plan/refine.ts";
 import { buildReviewPrompt } from "../../src/modes/plan/review.ts";
-import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../../src/modes/patch/pr-description-prompt.ts";
-import { buildPrDescriptionPrompt as buildPlanPrDescriptionPrompt } from "../../src/modes/plan/pr-description-prompt.ts";
 
 type WrapperVariant = "codex.exec.stdin+marker";
 
@@ -104,8 +104,12 @@ describe("rendered prompt snapshots", () => {
   });
 
   test("patch and plan PR-description prompts include shared fragment", () => {
-    expect(registry.getById("patch.prompt.pr-description").metadata.revision).toBe("1");
-    expect(registry.getById("plan.prompt.pr-description").metadata.revision).toBe("1");
+    expect(
+      registry.getById("patch.prompt.pr-description").metadata.revision,
+    ).toBe("1");
+    expect(
+      registry.getById("plan.prompt.pr-description").metadata.revision,
+    ).toBe("1");
 
     const patchKey = `patch.prompt.pr-description@r1.shared.txt`;
     const planKey = `plan.prompt.pr-description@r1.shared.txt`;
@@ -123,7 +127,8 @@ describe("rendered prompt snapshots", () => {
     expect(plan).toBe(readFixture(planKey));
 
     // Verify both include the shared fragment text
-    const sharedFragmentMarker = "Author a PR description consisting of a short summary";
+    const sharedFragmentMarker =
+      "Author a PR description consisting of a short summary";
     expect(patch).toContain(sharedFragmentMarker);
     expect(plan).toContain(sharedFragmentMarker);
   });

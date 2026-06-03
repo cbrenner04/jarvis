@@ -46,8 +46,8 @@ import {
   generatePrDescription,
   maybeMarkPlanPrReady,
   type OpenPrInfo,
-  updatePlanPrBody,
   type UpdatePlanPrBodyOpts,
+  updatePlanPrBody,
 } from "../modes/plan/pr.ts";
 import {
   type RefineTerminalOutcome,
@@ -2480,7 +2480,9 @@ function safeUpdatePrBody(args: {
   targetDir?: string;
 }): void {
   try {
-    const specDirPath = args.specDirPath ?? join(args.worktreePath, args.targetDir ?? "spec", args.specDirBasename);
+    const specDirPath =
+      args.specDirPath ??
+      join(args.worktreePath, args.targetDir ?? "spec", args.specDirBasename);
     const indexPath = join(specDirPath, "index.md");
     void updatePlanPrBody({
       indexPath,

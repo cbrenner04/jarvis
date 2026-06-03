@@ -358,7 +358,7 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
   mark(opts.branch, opts.cwd);
 }
 
-export { NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, extractNarrative };
+export { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 
 /**
  * Build the plan-mode PR body with header, narrative section, and index.

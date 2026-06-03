@@ -25,6 +25,14 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - Default implementation runs are index-routed: operators are expected to run against an `index.md` tree where one unchecked linked subspec is selected per agent iteration. Sources: `v1/docs/spec-guidance.md`, `v1/docs/run-loop.md`
 - Non-index spec runs prompt for explicit operator action instead of silently proceeding as a normal index loop. Sources: `v1/docs/spec-guidance.md`, `v1/docs/run-loop.md`
 
+### Patch-mode review phase
+
+- After implementation is complete (zero unchecked boxes) and `git: true`, a post-completion review phase runs when `modes.review.passes` is greater than 0 (default 2). The phase is skipped when `git: false`, `passes: 0`, or all agents are quota-exhausted. Sources: `v1/src/modes/patch/run.ts`, `v1/docs/run-loop.md`
+- Review phase flow is: baseline `bun run ready` (install → check:fix → typecheck → test → check) → N review passes (agent critique/rewrite, spec-tree edits reverted, non-empty changes committed per pass) → final `bun run ready` → `gh pr ready`. Sources: `v1/src/modes/patch/run.ts`, `v1/docs/run-loop.md`
+- Blockers in review (a `## Blocker` section appended to the active subspec) stop the phase and exit `7`, with blocker content posted as a PR comment. Sources: `v1/src/modes/patch/run.ts`, `v1/src/modes/patch/review.ts`
+- Quota exhaustion during any review pass triggers agent fallback to the next configured agent; if all agents are exhausted, exit `2`. Sources: `v1/src/modes/patch/run.ts`
+- Telemetry records review pass invocations with `patch_phase: "review"` so they are distinguishable from implementation iterations in `~/.jarvis/runs.jsonl`. The run summary shows review attempts separately from implementation attempts while preserving correct totals. Sources: `v1/src/telemetry.ts`, `v1/src/modes/patch/run.ts`, `v1/src/run-summary.ts`
+
 ### Git and loop-only runs
 
 - Effective `git` resolves per-run from the top-level `git` flag overlaid by the resolved project's `projects.<key>.git` override; `--repo`/`--cwd` and ad-hoc resolution all funnel through the same effective value. Sources: `v1/src/config.ts` (`effectiveGit`), `v1/src/modes/patch/run.ts`

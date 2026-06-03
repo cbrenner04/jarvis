@@ -47,6 +47,7 @@ import { runSummary } from "../../run-summary.ts";
 import {
   appendTelemetryLine,
   type CostSource,
+  type PatchTelemetryPhase,
   type TelemetryKind,
   type TelemetryRecordRole,
   type UsageSource,
@@ -153,6 +154,7 @@ type WriteTelemetry = (record: {
   exitReason: string;
   record_role?: TelemetryRecordRole;
   configured_model?: string;
+  patch_phase?: PatchTelemetryPhase;
   usage?: {
     input_tokens: number | null;
     output_tokens: number | null;
@@ -654,6 +656,9 @@ function setupLogging(
           : {}),
         ...(record.configured_model !== undefined
           ? { configured_model: record.configured_model }
+          : {}),
+        ...(record.patch_phase !== undefined
+          ? { patch_phase: record.patch_phase }
           : {}),
         ...(record.watchdog_pgid !== undefined
           ? { watchdog_pgid: record.watchdog_pgid }
@@ -1888,6 +1893,8 @@ async function runReviewPhase(opts: {
       // Create per-pass abort controller
       const passController = new AbortController();
       let watchdogPgid: number | null = null;
+      const passStartedMs = Date.now();
+      const passDurationMs = (): number => Date.now() - passStartedMs;
       const passTimeoutHandle = setTimeout(() => {
         if (watchdogPgid !== null) {
           try {
@@ -1909,6 +1916,14 @@ async function runReviewPhase(opts: {
           },
         });
 
+        const configuredPatchModelEntry = preflight.cfg.modes.patch.agentOrder.find(
+          (entry) => entry.agent === agent.name,
+        );
+        const telemetryMeta =
+          configuredPatchModelEntry?.model !== undefined
+            ? { configured_model: configuredPatchModelEntry.model }
+            : {};
+
         if (result.kind === "ok") {
           if (result.stdout.length > 0) {
             fanout("inbound_stdout", result.stdout, null, { pass });
@@ -1916,6 +1931,13 @@ async function runReviewPhase(opts: {
           if (result.stderr.length > 0) {
             fanout("inbound_stderr", result.stderr, null, { pass });
           }
+
+          // Extract usage and cost
+          const usageAndCost = extractUsageAndCost(
+            result,
+            agent.name,
+            configuredPatchModelEntry?.model,
+          );
 
           // Check for new blocker BEFORE reverting spec edits so we can extract content
           const specDir = dirname(opts.specPath);
@@ -1971,6 +1993,17 @@ async function runReviewPhase(opts: {
               fanout("harness", `review: failed to post PR comment: ${message}\n`, "stderr");
               // Don't fail the phase if comment posting fails
             }
+
+            writeTelemetry({
+              agent: agent.name,
+              iteration: pass,
+              durationMs: passDurationMs(),
+              kind: "blocked",
+              exitReason: "blocker-detected",
+              patch_phase: "review",
+              ...usageAndCost,
+              ...telemetryMeta,
+            });
             return 7;
           }
 
@@ -1988,9 +2021,31 @@ async function runReviewPhase(opts: {
           }
 
           fanout("harness", `review: pass ${pass} completed\n`, "stdout");
+
+          writeTelemetry({
+            agent: agent.name,
+            iteration: pass,
+            durationMs: passDurationMs(),
+            kind: "ok",
+            exitReason: "ok",
+            patch_phase: "review",
+            ...usageAndCost,
+            ...telemetryMeta,
+          });
         } else if (result.kind === "quota") {
           ctx.activeAgents.shift();
           fanout("harness", "review: agent quota exhausted\n", "stderr");
+
+          writeTelemetry({
+            agent: agent.name,
+            iteration: pass,
+            durationMs: passDurationMs(),
+            kind: "quota",
+            exitReason: "quota-exhausted",
+            patch_phase: "review",
+            ...telemetryMeta,
+          });
+
           if (ctx.activeAgents.length === 0) {
             return 2;
           }
@@ -1999,6 +2054,17 @@ async function runReviewPhase(opts: {
           if (result.stderr.length > 0) {
             fanout("harness", result.stderr, "stderr");
           }
+
+          writeTelemetry({
+            agent: agent.name,
+            iteration: pass,
+            durationMs: passDurationMs(),
+            kind: "error",
+            exitReason: result.kind,
+            patch_phase: "review",
+            ...telemetryMeta,
+          });
+
           return 1;
         }
       } finally {

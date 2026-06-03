@@ -84,6 +84,16 @@ export function updatePrBody(opts: UpdatePrBodyOpts): void {
   sharedUpdatePrBody(sharedOpts);
 }
 
+export type RunReadyAndCommitOpts = {
+  cwd: string;
+  /** Test seam: agent label for the commit trailer. Threaded to the `commitCheckFix` seam. */
+  agentLabel?: string;
+  /** Seam for just `bun run ready`. Defaults to execFileSync call. */
+  runReady?: (cwd: string) => void;
+  /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only when tree is dirty after runReady. */
+  commitCheckFix?: (cwd: string, agentLabel: string) => void;
+};
+
 export type MaybeMarkReadyOpts = {
   indexPath: string;
   cwd: string;
@@ -101,26 +111,7 @@ export type MaybeMarkReadyOpts = {
   ghPrReady?: (branch: string, cwd: string) => void;
 };
 
-export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
-  if (!linkedSubspecsAreComplete(readFileSync(opts.indexPath, "utf8"))) {
-    return;
-  }
-
-  const branch = getCurrentBranch(opts.cwd);
-  const checkPr = opts.checkPrExists ?? checkPrExists;
-  const prExists = checkPr(branch, opts.cwd);
-  if (!prExists) {
-    throw new Error(
-      `cannot mark PR ready: no PR found for branch ${branch}. This should not happen after opening a draft PR.`,
-    );
-  }
-
-  // Short-circuit: if markReady is provided, use it and skip all other seams
-  if (opts.markReady) {
-    opts.markReady(branch, opts.cwd);
-    return;
-  }
-
+export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   // Default implementations
   const realBunRunReady = (cwd: string) => {
     try {
@@ -176,18 +167,8 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
     pushCurrent({ cwd, firstPush: false });
   };
 
-  const realGhPrReady = (branch: string, cwd: string) => {
-    execFileSync("gh", ["pr", "ready", branch], {
-      cwd,
-      env: process.env,
-      stdio: "pipe",
-    });
-  };
-
-  // Four-seam sequence
   const runReadyFn = opts.runReady ?? realBunRunReady;
   const commitCheckFixFn = opts.commitCheckFix ?? realCommitCheckFix;
-  const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
 
   runReadyFn(opts.cwd);
 
@@ -201,7 +182,48 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   if (porcelain !== "") {
     commitCheckFixFn(opts.cwd, opts.agentLabel ?? "");
   }
+}
 
+export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
+  if (!linkedSubspecsAreComplete(readFileSync(opts.indexPath, "utf8"))) {
+    return;
+  }
+
+  const branch = getCurrentBranch(opts.cwd);
+  const checkPr = opts.checkPrExists ?? checkPrExists;
+  const prExists = checkPr(branch, opts.cwd);
+  if (!prExists) {
+    throw new Error(
+      `cannot mark PR ready: no PR found for branch ${branch}. This should not happen after opening a draft PR.`,
+    );
+  }
+
+  // Short-circuit: if markReady is provided, use it and skip all other seams
+  if (opts.markReady) {
+    opts.markReady(branch, opts.cwd);
+    return;
+  }
+
+  const realGhPrReady = (branch: string, cwd: string) => {
+    execFileSync("gh", ["pr", "ready", branch], {
+      cwd,
+      env: process.env,
+      stdio: "pipe",
+    });
+  };
+
+  // Run ready and commit logic
+  runReadyAndCommit({
+    cwd: opts.cwd,
+    ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
+    ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+    ...(opts.commitCheckFix !== undefined
+      ? { commitCheckFix: opts.commitCheckFix }
+      : {}),
+  });
+
+  // Then mark ready
+  const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
   ghPrReadyFn(branch, opts.cwd);
 }
 

@@ -77,9 +77,15 @@ import {
   buildPrBody,
   generatePrBodyFromSpec,
   maybeMarkReady,
+  runReadyAndCommit,
   updatePrBody,
 } from "./pr.ts";
-import { buildPrompt } from "./prompt.ts";
+import { buildPrompt, buildReviewPrompt } from "./prompt.ts";
+import {
+  detectNewBlockerInSpec,
+  detectSpecTreeEdits,
+  revertSpecTreeEdits,
+} from "./review.ts";
 import { parsePatchSpec } from "./spec.ts";
 import {
   type AcceptanceCriterion,
@@ -1532,6 +1538,28 @@ async function tryFinishSpecIfDone(
   }
   logging.fanout("harness", "spec complete\n", "stdout");
 
+  // Determine if review should run
+  // Only run review if explicitly configured or requested via CLI
+  const reviewPasses = ctx.opts.reviewPasses;
+  const shouldRunReview =
+    preflight.gitEnabled &&
+    reviewPasses !== undefined &&
+    reviewPasses > 0 &&
+    ctx.activeAgents.length > 0;
+
+  if (shouldRunReview) {
+    // Run review phase after completion
+    const reviewExitCode = await runReviewPhase({
+      ctx,
+      specPath: preflight.specPath,
+      agentWorkingDir: preflight.agentWorkingDir,
+      reviewPasses,
+    });
+    if (reviewExitCode !== 0) {
+      return reviewExitCode;
+    }
+  }
+
   // Try to look up and print the PR URL
   if (preflight.gitEnabled) {
     try {
@@ -1760,5 +1788,183 @@ function copyMissingRecursive(sourceDir: string, targetDir: string): void {
       force: false,
       errorOnExist: false,
     });
+  }
+}
+
+async function runReviewPhase(opts: {
+  ctx: IterationContext;
+  specPath: string;
+  agentWorkingDir: string;
+  reviewPasses: number;
+}): Promise<number> {
+  const { ctx } = opts;
+  const { fanout, writeTelemetry } = ctx.logging;
+  const { preflight } = ctx;
+
+  try {
+    const branch = getCurrentBranch(opts.agentWorkingDir);
+    const base = await getBaseBranch(opts.agentWorkingDir);
+
+    // Run baseline gate: bun run ready → commit check:fix if needed
+    fanout("harness", "review: running baseline gate\n", "stdout");
+    try {
+      runReadyAndCommit({
+        cwd: opts.agentWorkingDir,
+        agentLabel: "review-baseline",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      fanout(
+        "harness",
+        `review baseline gate failed: ${message}\n`,
+        "stderr",
+      );
+      return 1;
+    }
+
+    // Run review passes
+    for (let pass = 1; pass <= opts.reviewPasses; pass++) {
+      fanout(
+        "harness",
+        `review: pass ${pass}/${opts.reviewPasses}\n`,
+        "stdout",
+      );
+
+      if (ctx.activeAgents.length === 0) {
+        fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
+        return 2;
+      }
+
+      const agent = ctx.activeAgents[0];
+      if (agent === undefined) {
+        fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
+        return 2;
+      }
+
+      const prompt = buildReviewPrompt({
+        specPath: opts.specPath,
+        cwd: opts.agentWorkingDir,
+        passNumber: pass,
+        totalPasses: opts.reviewPasses,
+      });
+
+      fanout("outbound", prompt, null, {
+        pass,
+        agent: agent.name,
+      });
+
+      // Create per-pass abort controller
+      const passController = new AbortController();
+      let watchdogPgid: number | null = null;
+      const passTimeoutHandle = setTimeout(() => {
+        if (watchdogPgid !== null) {
+          try {
+            process.kill(-watchdogPgid, "SIGTERM");
+          } catch {
+            // best-effort
+          }
+        }
+        passController.abort("review-pass-timeout");
+      }, preflight.cfg.iterationTimeoutMs);
+
+      try {
+        const result = await agent.run(prompt, {
+          cwd: opts.agentWorkingDir,
+          signal: passController.signal,
+          abortKillGraceMs: 5000,
+          onSpawned: ({ pid }) => {
+            watchdogPgid = pid;
+          },
+        });
+
+        if (result.kind === "ok") {
+          if (result.stdout.length > 0) {
+            fanout("inbound_stdout", result.stdout, null, { pass });
+          }
+          if (result.stderr.length > 0) {
+            fanout("inbound_stderr", result.stderr, null, { pass });
+          }
+
+          // Check for spec-tree edits and revert if found
+          const specDir = dirname(opts.specPath);
+          const editedSpecFiles = detectSpecTreeEdits(specDir, opts.agentWorkingDir);
+          if (editedSpecFiles.length > 0) {
+            fanout(
+              "harness",
+              `review: pass ${pass} edited spec files (reverting): ${editedSpecFiles.join(", ")}\n`,
+              "stderr",
+            );
+            try {
+              revertSpecTreeEdits(specDir, opts.agentWorkingDir);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout("harness", `review: revert failed: ${message}\n`, "stderr");
+              return 1;
+            }
+          }
+
+          // Check for new blocker
+          const blockerContent = detectNewBlockerInSpec(opts.specPath, opts.agentWorkingDir);
+          if (blockerContent !== null) {
+            fanout(
+              "harness",
+              `review: pass ${pass} encountered blocker\n`,
+              "stderr",
+            );
+            // TODO: Post PR comment with blocker, commit, keep draft, exit 7
+            return 7;
+          }
+
+          fanout("harness", `review: pass ${pass} completed\n`, "stdout");
+          // TODO: Handle review pass commits with trailers
+        } else if (result.kind === "quota") {
+          ctx.activeAgents.shift();
+          fanout("harness", "review: agent quota exhausted\n", "stderr");
+          if (ctx.activeAgents.length === 0) {
+            return 2;
+          }
+        } else {
+          fanout("harness", `review: pass ${pass} error (${result.kind})\n`, "stderr");
+          if (result.stderr.length > 0) {
+            fanout("harness", result.stderr, "stderr");
+          }
+          return 1;
+        }
+      } finally {
+        clearTimeout(passTimeoutHandle);
+      }
+    }
+
+    // Run final ready + gh pr ready
+    fanout("harness", "review: running final ready\n", "stdout");
+    try {
+      runReadyAndCommit({
+        cwd: opts.agentWorkingDir,
+        agentLabel: "review-final",
+      });
+      execFileSync("gh", ["pr", "ready", branch], {
+        cwd: opts.agentWorkingDir,
+        env: process.env,
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      fanout(
+        "harness",
+        `review final ready failed: ${message}\n`,
+        "stderr",
+      );
+      return 1;
+    }
+
+    return 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.logging.fanout(
+      "harness",
+      `review phase error: ${message}\n`,
+      "stderr",
+    );
+    return 1;
   }
 }

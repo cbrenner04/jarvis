@@ -94,3 +94,20 @@ export async function getBaseBranch(cwd?: string): Promise<string> {
   }
   return result.stdout.trim();
 }
+
+export async function postPrComment(
+  prNumber: number,
+  body: string,
+  cwd?: string,
+): Promise<void> {
+  const result = await runGhCommand(
+    ["pr", "comment", String(prNumber), "--body", body],
+    cwd,
+  );
+  if (result.exitCode !== 0) {
+    const errorMessage = result.stderr || result.stdout;
+    throw new Error(
+      `failed to post PR comment: ${errorMessage.trim()}`,
+    );
+  }
+}

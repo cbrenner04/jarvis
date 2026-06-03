@@ -30,4 +30,4 @@ Effective `git: false` skips patch review entirely, not a loop-only review varia
 - [x] Without `--review-passes`, review passes resolve from `modes.review.passes` and otherwise default to `2`.
 - [x] When `modes.review.agentOrder` is unset, patch review uses `modes.plan.agentOrder`; when set, it uses the review order instead.
 - [x] A `modes.review.agentOrder` that fails the shared `validateAgentOrder` contract, or invalid `--review-passes` input, fails at load before any agent CLI invocation; an entry valid for `modes.patch`/`modes.plan` is equally valid for review.
-- [ ] Effective `git: false` runs do not attempt patch review even when review passes are configured.
+- [x] Effective `git: false` runs do not attempt patch review even when review passes are configured.

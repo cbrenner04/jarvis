@@ -1555,11 +1555,10 @@ async function tryFinishSpecIfDone(
   logging.fanout("harness", "spec complete\n", "stdout");
 
   // Determine if review should run
-  // Only run review if explicitly configured or requested via CLI
-  const reviewPasses = ctx.opts.reviewPasses;
+  // Use CLI flag if provided, otherwise fall back to configured passes
+  const reviewPasses = ctx.opts.reviewPasses ?? preflight.cfg.modes.review.passes;
   const shouldRunReview =
     preflight.gitEnabled &&
-    reviewPasses !== undefined &&
     reviewPasses > 0 &&
     ctx.activeAgents.length > 0;
 
@@ -1918,8 +1917,11 @@ async function runReviewPhase(opts: {
             fanout("inbound_stderr", result.stderr, null, { pass });
           }
 
-          // Check for spec-tree edits and revert if found
+          // Check for new blocker BEFORE reverting spec edits so we can extract content
           const specDir = dirname(opts.specPath);
+          const blockerContent = detectNewBlockerInSpec(opts.specPath, opts.agentWorkingDir);
+
+          // Check for spec-tree edits and revert if found
           const editedSpecFiles = detectSpecTreeEdits(specDir, opts.agentWorkingDir);
           if (editedSpecFiles.length > 0) {
             fanout(
@@ -1936,8 +1938,7 @@ async function runReviewPhase(opts: {
             }
           }
 
-          // Check for new blocker
-          const blockerContent = detectNewBlockerInSpec(opts.specPath, opts.agentWorkingDir);
+          // Handle blocker if one was detected
           if (blockerContent !== null) {
             fanout(
               "harness",

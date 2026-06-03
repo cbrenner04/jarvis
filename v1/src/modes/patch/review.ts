@@ -1,12 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
-import type { Agent } from "../../agents/types.ts";
+import { dirname, join, relative } from "node:path";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { postPrComment } from "../../gh.ts";
 import { pushCurrent } from "../../worktree.ts";
 import { updatePrBody } from "./pr.ts";
-import { buildReviewPrompt } from "./prompt.ts";
 
 export function getSpecFilesToProtect(specPath: string): string[] {
   // Return a list of spec files that should not be edited during review
@@ -52,9 +49,11 @@ export function detectSpecTreeEdits(
     });
 
     const modifiedFiles = output.trim().split("\n").filter((f) => f.length > 0);
-    const specRelPath = dirname(specDir).substring(cwd.length).replace(/^\//, "");
+    const specRelPath = relative(cwd, specDir);
 
-    return modifiedFiles.filter((file) => file.startsWith(specRelPath));
+    return modifiedFiles.filter((file) =>
+      file === specRelPath || file.startsWith(specRelPath + "/")
+    );
   } catch {
     return [];
   }
@@ -169,39 +168,4 @@ export function commitReviewPass(
       // Ignore footer refresh errors, they're not critical
     }
   }
-}
-
-export async function runReviewPhase(opts: {
-  specPath: string;
-  agentWorkingDir: string;
-  branch: string;
-  base: string;
-  agents: Agent[];
-  reviewPasses: number;
-  cwd: string;
-}): Promise<{ exitCode: number; reason: string }> {
-  if (opts.reviewPasses === 0 || opts.agents.length === 0) {
-    return { exitCode: 0, reason: "review-skipped" };
-  }
-
-  for (let pass = 1; pass <= opts.reviewPasses; pass++) {
-    const agent = opts.agents[0];
-    if (agent === undefined) {
-      return { exitCode: 2, reason: "quota-exhausted" };
-    }
-
-    const prompt = buildReviewPrompt({
-      specPath: opts.specPath,
-      cwd: opts.cwd,
-      passNumber: pass,
-      totalPasses: opts.reviewPasses,
-    });
-
-    // Run the review pass
-    // TODO: implement agent execution and handle results
-
-    // For now, return a placeholder
-  }
-
-  return { exitCode: 0, reason: "review-complete" };
 }

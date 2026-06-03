@@ -94,14 +94,23 @@ let originalPath: string | undefined;
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
 
-async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
-  return runCommand({
+function disableReviewByDefault(
+  opts: RunCommandOptions,
+): RunCommandOptions {
+  return {
     ...opts,
-    skipGhCheck: true,
-    logClient: {
+    reviewPasses: opts.reviewPasses ?? 0,
+    logClient: opts.logClient ?? {
       assertReachable: async () => {},
       send: async () => {},
     },
+  };
+}
+
+async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
+  return runCommand({
+    ...disableReviewByDefault(opts),
+    skipGhCheck: true,
   });
 }
 
@@ -384,20 +393,22 @@ describe("runCommand", () => {
       stderr: "",
     }));
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      skipGhCheck: true,
-      logClient: {
-        assertReachable: async () => {
-          throw new Error("connect ECONNREFUSED 127.0.0.1:4310");
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        skipGhCheck: true,
+        logClient: {
+          assertReachable: async () => {
+            throw new Error("connect ECONNREFUSED 127.0.0.1:4310");
+          },
+          send: async () => {},
         },
-        send: async () => {},
-      },
-      handleSignals: false,
-    });
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(1);
     expect(cap.err()).toContain("log server unreachable");
@@ -422,15 +433,17 @@ describe("runCommand", () => {
     };
 
     const startedAt = Date.now();
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      skipGhCheck: true,
-      logClient: slowLogClient,
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        skipGhCheck: true,
+        logClient: slowLogClient,
+        handleSignals: false,
+      }),
+    );
     const elapsedMs = Date.now() - startedAt;
 
     expect(code).toBe(0);
@@ -455,15 +468,17 @@ describe("runCommand", () => {
       },
     };
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      skipGhCheck: true,
-      logClient: throwingLogClient,
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        skipGhCheck: true,
+        logClient: throwingLogClient,
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(0);
   });
@@ -884,15 +899,17 @@ describe("runCommand", () => {
       },
     };
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      skipGhCheck: true,
-      logClient,
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        skipGhCheck: true,
+        logClient,
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(0);
     const firstOutbound = messages.findIndex((m) => m.tag === "outbound");
@@ -1475,17 +1492,19 @@ exit 1
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      logClient: {
-        assertReachable: async () => {},
-        send: async () => {},
-      },
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        logClient: {
+          assertReachable: async () => {},
+          send: async () => {},
+        },
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(0);
     expect(readFileSync(pushLog, "utf8").trim().split("\n")).toEqual([
@@ -1649,17 +1668,19 @@ exit 1
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      logClient: {
-        assertReachable: async () => {},
-        send: async () => {},
-      },
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        logClient: {
+          assertReachable: async () => {},
+          send: async () => {},
+        },
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(2);

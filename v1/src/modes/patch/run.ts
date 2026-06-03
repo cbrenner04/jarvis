@@ -1565,7 +1565,8 @@ async function tryFinishSpecIfDone(
   const shouldRunReview =
     preflight.gitEnabled &&
     reviewPasses > 0 &&
-    ctx.activeAgents.length > 0;
+    ctx.activeAgents.length > 0 &&
+    logging.patchIterationsCompletedForSummary() > 0;
 
   if (shouldRunReview) {
     // Run review phase after completion

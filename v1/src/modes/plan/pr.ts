@@ -361,42 +361,6 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
 export { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 
 /**
- * Build the plan-mode PR body with header, narrative section, and index.
- *
- * The header includes the spec title (from index.md if available) plus
- * intent and index file pointers. The narrative is wrapped in markers
- * for preservation during rewrite cycles.
- */
-export function buildPlanPrBody(opts: {
-  name: string;
-  worktreePath?: string;
-  targetDir?: string;
-  narrative: string | null;
-}): string {
-  const headerOpts: {
-    name: string;
-    worktreePath?: string;
-    targetDir?: string;
-  } = { name: opts.name };
-  if (opts.worktreePath !== undefined) {
-    headerOpts.worktreePath = opts.worktreePath;
-  }
-  if (opts.targetDir !== undefined) {
-    headerOpts.targetDir = opts.targetDir;
-  }
-  const header = buildPlanPrHeader(headerOpts);
-
-  let body = header;
-
-  if (opts.narrative !== null) {
-    const narrativeBlock = `${NARRATIVE_START_MARKER}\n${opts.narrative}\n${NARRATIVE_END_MARKER}`;
-    body = `${body}\n\n${narrativeBlock}`;
-  }
-
-  return body;
-}
-
-/**
  * Generate the PR description by calling the model with the PR description prompt.
  * Returns the model's response containing Description + Decisions section.
  *
@@ -441,6 +405,8 @@ export type UpdatePlanPrBodyOpts = {
   branch: string;
   base: string;
   cwd: string;
+  /** Committed spec root (e.g. `v1/spec`). Defaults to `spec`. Threaded into the header so the title and file pointers resolve correctly. */
+  targetDir?: string;
   intentContent?: string;
   agent?: Agent;
   /** Test seam: fetch the current PR body. Defaults to `gh pr view`. */
@@ -485,11 +451,15 @@ export async function updatePlanPrBody(
   const headerOpts: {
     name: string;
     worktreePath?: string;
+    targetDir?: string;
   } = {
     name: specDirBasename,
   };
   if (opts.cwd !== undefined) {
     headerOpts.worktreePath = opts.cwd;
+  }
+  if (opts.targetDir !== undefined) {
+    headerOpts.targetDir = opts.targetDir;
   }
   const header = buildPlanPrHeader(headerOpts);
   let headerAndNarrative = header;

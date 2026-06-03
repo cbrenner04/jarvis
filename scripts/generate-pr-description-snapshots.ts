@@ -21,11 +21,11 @@ console.log(planPrompt);
 const fixtureDir = "./v1/test/fixtures/prompts/rendered";
 writeFileSync(
   join(fixtureDir, "patch.prompt.pr-description@r1.shared.txt"),
-  patchPrompt + "\n",
+  `${patchPrompt}\n`,
 );
 writeFileSync(
   join(fixtureDir, "plan.prompt.pr-description@r1.shared.txt"),
-  planPrompt + "\n",
+  `${planPrompt}\n`,
 );
 
 console.log("\nSnapshots written to:");

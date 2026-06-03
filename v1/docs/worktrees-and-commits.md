@@ -169,11 +169,14 @@ the create-time body already has the right shape — so each iteration calls
 `gh pr edit` at most once.
 
 Each rewrite fetches the current PR body, extracts the narrative section
-between the markers (so reviewer edits inside the markers survive unchanged), rebuilds
-the deterministic header from `index.md`, renders the attribution footer
-from git trailers, and reassembles the body. If the markers are present but the narrative is empty and an agent is available, jarvis regenerates the narrative by calling the model with the current spec. If the markers are missing
-(legacy PRs or manual edits removed them), the narrative section is omitted
-on that update; it does not repopulate automatically.
+between the markers (so reviewer edits inside the markers survive unchanged),
+rebuilds the deterministic header from `index.md`, renders the attribution
+footer from git trailers, and reassembles the body. Whenever the narrative is
+empty — the markers are present but blank, or missing entirely (legacy PRs or
+manual edits removed them) — and an agent is available, jarvis regenerates the
+narrative by calling the model with the current spec and re-wraps it in fresh
+markers. With no agent available, an empty/missing narrative is simply omitted
+on that update.
 
 If `gh pr edit` fails (network, rate-limit, permissions), jarvis emits a
 `harness` warning to stderr naming the active subspec and continues the

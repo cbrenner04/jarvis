@@ -9,6 +9,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { createAgent } from "../agents/factory.ts";
+import type { Agent } from "../agents/types.ts";
 import {
   CONFIG_DIR,
   findProjectForPath,
@@ -41,12 +43,9 @@ import {
   type PlanTelemetryWriter,
 } from "../modes/plan/plan-telemetry.ts";
 import {
-  buildPlanPrBody,
   buildPlanPrHeader,
-  generatePrDescription,
   maybeMarkPlanPrReady,
   type OpenPrInfo,
-  type UpdatePlanPrBodyOpts,
   updatePlanPrBody,
 } from "../modes/plan/pr.ts";
 import {
@@ -68,7 +67,7 @@ import {
   formatPlanSpecTimestamp,
   stripPlanSpecTimestampPrefix,
 } from "../modes/plan/spec-paths.ts";
-import { ensureDraftPr, renderAttribution, updatePrBody } from "../pr.ts";
+import { ensureDraftPr, renderAttribution } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import type { resolveTargetRepo } from "../repo.ts";
 import { planSummary } from "../run-summary.ts";
@@ -651,6 +650,13 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const candidatePath =
       inv.mode === "file" ? inv.intentPath : join(inv.cwd, "intent");
     const cfg = loadConfig(opts.config);
+    // Agent used to author the model-written PR narrative (Description +
+    // Decisions). Resolved from the head of the plan agent order; generation
+    // degrades gracefully to no narrative if it fails or is unavailable.
+    const prAgentEntry = cfg.modes.plan.agentOrder[0];
+    const prDescAgent = prAgentEntry
+      ? createAgent(prAgentEntry.agent, prAgentEntry.model)
+      : undefined;
     const entryOpts: Parameters<typeof enterMode>[0] = {
       candidatePath,
       io: { stderr: opts.io.stderr },
@@ -934,7 +940,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               subjectSuffix: suffix,
               targetDir: resumeTargetDir,
             });
-            safeUpdatePrBody({
+            await safeUpdatePrBody({
+              agent: prDescAgent,
               io: opts.io,
               branch,
               base: getCurrentBranch(project.root),
@@ -1026,7 +1033,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             subjectSuffix: suffix,
             targetDir: resumeTargetDir,
           });
-          safeUpdatePrBody({
+          await safeUpdatePrBody({
+            agent: prDescAgent,
             io: opts.io,
             branch,
             base: getCurrentBranch(project.root),
@@ -1045,7 +1053,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               subjectSuffix: suffix,
               targetDir: resumeTargetDir,
             });
-            safeUpdatePrBody({
+            await safeUpdatePrBody({
+              agent: prDescAgent,
               io: opts.io,
               branch,
               base: getCurrentBranch(project.root),
@@ -1149,7 +1158,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             subjectSuffix: suffix,
             targetDir: resumeTargetDir,
           });
-          safeUpdatePrBody({
+          await safeUpdatePrBody({
+            agent: prDescAgent,
             io: opts.io,
             branch,
             base: getCurrentBranch(project.root),
@@ -1172,7 +1182,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           subjectSuffix: suffix,
           targetDir: resumeTargetDir,
         });
-        safeUpdatePrBody({
+        await safeUpdatePrBody({
+          agent: prDescAgent,
           io: opts.io,
           branch,
           base: getCurrentBranch(project.root),
@@ -1645,7 +1656,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
             opts.io.stderr(`plan: blocker commit pushed\n`);
 
-            safeUpdatePrBody({
+            await safeUpdatePrBody({
+              agent: prDescAgent,
               io: opts.io,
               branch: planBranch,
               base: baseBranch as string,
@@ -1748,7 +1760,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           const prUrl = getPrUrl(worktreePath as string, planBranch);
           opts.io.stdout(`${prUrl}\n`);
           opts.io.stderr(`plan: draft PR #${prResult.number} opened\n`);
-          safeUpdatePrBody({
+          await safeUpdatePrBody({
+            agent: prDescAgent,
             io: opts.io,
             branch: planBranch,
             base: baseBranch as string,
@@ -1910,7 +1923,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
             opts.io.stderr(`plan: blocker commit pushed\n`);
 
-            safeUpdatePrBody({
+            await safeUpdatePrBody({
+              agent: prDescAgent,
               io: opts.io,
               branch: planBranch,
               base: baseBranch as string,
@@ -2003,7 +2017,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
             opts.io.stderr(`plan: blocker commit pushed\n`);
 
-            safeUpdatePrBody({
+            await safeUpdatePrBody({
+              agent: prDescAgent,
               io: opts.io,
               branch: planBranch,
               base: baseBranch as string,
@@ -2029,7 +2044,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       // Post-draft body refresh (header now reflects the real index.md).
       if (commit) {
-        safeUpdatePrBody({
+        await safeUpdatePrBody({
+          agent: prDescAgent,
           io: opts.io,
           branch: planBranch,
           base: baseBranch as string,
@@ -2194,7 +2210,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                   });
                   opts.io.stderr(`plan: blocker commit pushed\n`);
 
-                  safeUpdatePrBody({
+                  await safeUpdatePrBody({
+                    agent: prDescAgent,
                     io: opts.io,
                     branch: planBranch,
                     base: baseBranch as string,
@@ -2231,7 +2248,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 });
                 opts.io.stderr(`plan: blocker commit pushed\n`);
 
-                safeUpdatePrBody({
+                await safeUpdatePrBody({
+                  agent: prDescAgent,
                   io: opts.io,
                   branch: planBranch,
                   base: baseBranch as string,
@@ -2307,7 +2325,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 });
                 opts.io.stderr(`plan: blocker commit pushed\n`);
 
-                safeUpdatePrBody({
+                await safeUpdatePrBody({
+                  agent: prDescAgent,
                   io: opts.io,
                   branch: planBranch,
                   base: baseBranch as string,
@@ -2344,7 +2363,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                 `plan: review pass ${pass} committed and pushed\n`,
               );
 
-              safeUpdatePrBody({
+              await safeUpdatePrBody({
+                agent: prDescAgent,
                 io: opts.io,
                 branch: planBranch,
                 base: baseBranch as string,
@@ -2467,9 +2487,15 @@ function getPrUrl(cwd: string, branch: string): string {
 
 /**
  * Wrap `updatePlanPrBody` with the warn-and-continue pattern used throughout
- * plan mode so the caller doesn't repeat the try/catch four times.
+ * plan mode so the caller doesn't repeat the try/catch.
+ *
+ * When `agent` is supplied, the rewrite regenerates a model-authored
+ * Description + Decisions narrative whenever the marker section is empty
+ * (e.g., on first body refresh after the draft commit). Existing human-edited
+ * narrative is preserved verbatim. The intent is read best-effort from the
+ * spec dir; a missing intent only disables regeneration.
  */
-function safeUpdatePrBody(args: {
+async function safeUpdatePrBody(args: {
   io: PlanIo;
   branch: string;
   base: string;
@@ -2478,18 +2504,28 @@ function safeUpdatePrBody(args: {
   specDirBasename: string;
   specDirPath?: string;
   targetDir?: string;
-}): void {
+  agent?: Agent | undefined;
+}): Promise<void> {
   try {
     const specDirPath =
       args.specDirPath ??
       join(args.worktreePath, args.targetDir ?? "spec", args.specDirBasename);
     const indexPath = join(specDirPath, "index.md");
-    void updatePlanPrBody({
+    let intentContent: string | undefined;
+    try {
+      intentContent = readFileSync(join(specDirPath, "intent.md"), "utf8");
+    } catch {
+      // best-effort: missing intent just disables regeneration
+    }
+    await updatePlanPrBody({
       indexPath,
       specDirPath,
       branch: args.branch,
       base: args.base,
       cwd: args.worktreePath,
+      ...(args.targetDir !== undefined ? { targetDir: args.targetDir } : {}),
+      ...(args.agent !== undefined ? { agent: args.agent } : {}),
+      ...(intentContent !== undefined ? { intentContent } : {}),
     });
   } catch (err) {
     args.io.stderr(

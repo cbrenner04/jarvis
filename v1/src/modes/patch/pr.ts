@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import type { Agent } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import {
@@ -9,8 +8,6 @@ import {
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
   renderAttributionSummary,
-  type UpdatePrBodyOpts as SharedUpdatePrBodyOpts,
-  updatePrBody as sharedUpdatePrBody,
 } from "../../pr.ts";
 import { pushCurrent } from "../../worktree.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
@@ -270,39 +267,6 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   }
 
   ghPrReadyFn(branch, opts.cwd);
-}
-
-export function generatePrBodyFromSpec(specIndexPath: string): string {
-  const specDir = dirname(specIndexPath);
-  const indexContent = readFileSync(specIndexPath, "utf8");
-  const parsedIndex = parsePatchSpec(indexContent);
-
-  let body = parsedIndex.h1 ? `# ${parsedIndex.h1}\n\n` : "";
-
-  const linkedForBody = parsedIndex.linkedSubspecs.filter(
-    (linked) => !linked.path.endsWith(".md"),
-  );
-
-  if (linkedForBody.length > 0) {
-    body += "## Subspecs\n\n";
-    for (const linked of linkedForBody) {
-      const h1 = extractFirstHeadingFromSpec(resolve(specDir, linked.path));
-      if (h1) {
-        body += `- ${h1}\n`;
-      }
-    }
-  }
-
-  return body;
-}
-
-function extractFirstHeadingFromSpec(specPath: string): string | null {
-  try {
-    const content = readFileSync(specPath, "utf8");
-    return parsePatchSpec(content).h1 ?? null;
-  } catch {
-    return null;
-  }
 }
 
 function linkedSubspecsAreComplete(indexContent: string): boolean {

@@ -75,7 +75,6 @@ import {
 } from "./completion.ts";
 import {
   buildPrBody,
-  generatePrBodyFromSpec,
   generatePrDescription,
   maybeMarkReady,
   updatePrBody,

@@ -416,8 +416,8 @@ Unsafe fix variants are also available as `format:unsafe`,
 
 ### Per-test timeout
 
-The test suite enforces a 30-second per-test timeout via the `bun test` script
-(`--timeout=30000`). If a test genuinely needs more time, pass
+The test suite enforces a 30-second per-test timeout via `bunfig.toml`
+(`[test] timeout = 30000`). If a test genuinely needs more time, pass
 `{ timeout: <ms> }` to `test(name, opts, fn)`:
 
 ```typescript

@@ -26,12 +26,12 @@
 
 ## Acceptance criteria
 
-- [ ] Root `package.json` exposes runnable `test:v1`, `test:v2`, `test:shared`, and aggregate `test` scripts.
-- [ ] Each `test:*` script targets its exact owner root (`./v1/`, `./v2/`, `./shared/`); the aggregate `test` is bare `bun test`.
-- [ ] The agent-spawn preload no longer lives under `v1/test/` (neutral root home, `bunfig.toml` points at it); the 30s timeout still applies to every slice. v1/v2 tests may still import `shared/**` runtime code.
-- [ ] A disjoint-roots guard test fails if any test file resolves into two of `v1/**`/`v2/**`/`shared/**`.
-- [ ] A regression asserts the exact script strings with trailing slashes (`bun test ./v1/`, `./v2/`, `./shared/`) and `test` = bare `bun test`, so dropping a trailing slash fails.
-- [ ] A regression proves a scoped slice run (`test:v2`/`test:shared`) still loads the agent-spawn preload via the protected spawn path.
-- [ ] `v2/docs/v1-behaviors.md` records the operator-facing test-command contract and shared-slice ownership rule; README's "Per-test timeout" section credits `bunfig.toml`, not the `--timeout` flag.
-- [ ] `scripts/ready.ts` reaches the test phase through `bun run test` (the aggregate) with its existing step order; a regression fails if `ready` stops using `bun run test` or reorders the ready steps.
-- [ ] `v2/docs/v1-behaviors.md` records that `bun run ready` reaches tests through the aggregate root `test` command, and `v1/docs/worktrees-and-commits.md` cross-references that entry instead of carrying the only operator contract for the ready test step.
+- [x] Root `package.json` exposes runnable `test:v1`, `test:v2`, `test:shared`, and aggregate `test` scripts.
+- [x] Each `test:*` script targets its exact owner root (`./v1/`, `./v2/`, `./shared/`); the aggregate `test` is bare `bun test`.
+- [x] The agent-spawn preload no longer lives under `v1/test/` (neutral root home, `bunfig.toml` points at it); the 30s timeout still applies to every slice. v1/v2 tests may still import `shared/**` runtime code.
+- [x] A disjoint-roots guard test fails if any test file resolves into two of `v1/**`/`v2/**`/`shared/**`.
+- [x] A regression asserts the exact script strings with trailing slashes (`bun test ./v1/`, `./v2/`, `./shared/`) and `test` = bare `bun test`, so dropping a trailing slash fails.
+- [x] A regression proves a scoped slice run (`test:v2`/`test:shared`) still loads the agent-spawn preload via the protected spawn path.
+- [x] `v2/docs/v1-behaviors.md` records the operator-facing test-command contract and shared-slice ownership rule; README's "Per-test timeout" section credits `bunfig.toml`, not the `--timeout` flag.
+- [x] `scripts/ready.ts` reaches the test phase through `bun run test` (the aggregate) with its existing step order; a regression fails if `ready` stops using `bun run test` or reorders the ready steps.
+- [x] `v2/docs/v1-behaviors.md` records that `bun run ready` reaches tests through the aggregate root `test` command, and `v1/docs/worktrees-and-commits.md` cross-references that entry instead of carrying the only operator contract for the ready test step.

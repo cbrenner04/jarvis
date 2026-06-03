@@ -23,14 +23,14 @@ Deferred to first consumer: per-slice thresholds — pin when the first no-drop 
 
 ## Acceptance criteria
 
-- [ ] `package.json` exposes `coverage`, `coverage:v1`, `coverage:v2`, `coverage:shared` with the exact commands in Decisions.
-- [ ] `bun run coverage:v1` exits 0 and prints a coverage table including a `v1/src/` file.
-- [ ] `bun run coverage:v2` exits 0 and prints a coverage table including a `v2/` source file.
-- [ ] `bun run coverage:shared` exits 0 and prints a coverage table including a `shared/` or `scripts/` file.
-- [ ] `bun run coverage` exits 0 and prints an aggregate coverage table.
-- [ ] `v1/docs/test-coverage.md` documents each script, its slice, how to read Bun's output, stdout-only reports, and that thresholds / `ready` integration / no-drop guards are current non-goals.
-- [ ] `README.md` links to `v1/docs/test-coverage.md`.
-- [ ] `test/coverage-scripts.test.ts` passes and fails if any of the four script command strings drifts.
+- [x] `package.json` exposes `coverage`, `coverage:v1`, `coverage:v2`, `coverage:shared` with the exact commands in Decisions.
+- [x] `bun run coverage:v1` exits 0 and prints a coverage table including a `v1/src/` file.
+- [x] `bun run coverage:v2` exits 0 and prints a coverage table including a `v2/` source file.
+- [x] `bun run coverage:shared` exits 0 and prints a coverage table including a `shared/` or `scripts/` file.
+- [x] `bun run coverage` exits 0 and prints an aggregate coverage table.
+- [x] `v1/docs/test-coverage.md` documents each script, its slice, how to read Bun's output, stdout-only reports, and that thresholds / `ready` integration / no-drop guards are current non-goals.
+- [x] `README.md` links to `v1/docs/test-coverage.md`.
+- [x] `test/coverage-scripts.test.ts` passes and fails if any of the four script command strings drifts.
 
 ## Documentation updates
 

@@ -1,8 +1,17 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import type { CommitInfo } from "../../pr.ts";
-import { readBranchCommits } from "../../pr.ts";
+import {
+  extractGeneratedNarrativeContent,
+  extractNarrative,
+  markGeneratedNarrative,
+  NARRATIVE_END_MARKER,
+  NARRATIVE_START_MARKER,
+  readBranchCommits,
+} from "../../pr.ts";
+import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
 /**
  * A single subspec entry parsed from `index.md`.
@@ -12,6 +21,8 @@ export type IndexSubspec = {
   line: string;
   /** True iff the checkbox is checked (`[x]` or `[X]`). */
   checked: boolean;
+  /** Linked subspec path from the checklist item. */
+  path: string;
 };
 
 /**
@@ -45,10 +56,10 @@ export function parseIndex(indexPath: string): {
       }
     }
     // Match GitHub-style task list items whose text contains a Markdown link.
-    const checklist = rawLine.match(/^\s*-\s+\[( |x|X)\]\s+\[.+?\]\(.+?\)/);
+    const checklist = rawLine.match(/^\s*-\s+\[( |x|X)\]\s+\[.+?\]\((.+?)\)/);
     if (checklist) {
       const checked = checklist[1] !== " ";
-      subspecs.push({ line: rawLine, checked });
+      subspecs.push({ line: rawLine, checked, path: checklist[2] ?? "" });
     }
   }
   return { title, subspecs };
@@ -349,4 +360,191 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
       });
     });
   mark(opts.branch, opts.cwd);
+}
+
+export { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
+
+const PR_DESCRIPTION_CONTEXT_MAX_CHARS = 40_000;
+
+/**
+ * Generate the PR description by calling the model with the PR description prompt.
+ * Returns the model's response containing Description + Decisions section.
+ *
+ * Validates that the response contains the expected shape. Returns null if
+ * generation fails or validation fails.
+ */
+export async function generatePrDescription(opts: {
+  indexPath: string;
+  intent: string;
+  agent: Agent;
+  cwd: string;
+  runOptions?: Partial<Omit<AgentRunOptions, "cwd">>;
+}): Promise<string | null> {
+  try {
+    const prompt = buildPrDescriptionPrompt({
+      intent: opts.intent,
+      specContext: buildSpecContext(opts.indexPath),
+    });
+
+    const result = await opts.agent.run(prompt, {
+      cwd: opts.cwd,
+      ...opts.runOptions,
+    });
+
+    if (result.kind !== "ok") {
+      return null;
+    }
+
+    const description = result.stdout.trim();
+    if (!description.includes("Decisions:")) {
+      return null;
+    }
+
+    return description;
+  } catch {
+    return null;
+  }
+}
+
+function buildSpecContext(indexPath: string): string {
+  const indexContent = readFileSync(indexPath, "utf8");
+  const specDir = dirnameFromPath(indexPath);
+  const sections = [`## index.md\n\n${indexContent.trim()}`];
+  const parsed = parseIndex(indexPath);
+  const linkedPaths = parsed.subspecs
+    .map((subspec) => subspec.path)
+    .filter((path) => path.length > 0);
+  const paths =
+    linkedPaths.length > 0
+      ? linkedPaths
+      : readdirSync(specDir).filter((path) => /^\d{2}-.*\.md$/.test(path));
+  for (const path of paths) {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
+      continue;
+    }
+    const filePath = join(specDir, path);
+    if (!existsSync(filePath)) {
+      continue;
+    }
+    sections.push(`## ${path}\n\n${readFileSync(filePath, "utf8").trim()}`);
+  }
+  return truncateContext(sections.join("\n\n"));
+}
+
+function dirnameFromPath(path: string): string {
+  const idx = path.lastIndexOf("/");
+  return idx === -1 ? "." : path.slice(0, idx);
+}
+
+function truncateContext(context: string): string {
+  if (context.length <= PR_DESCRIPTION_CONTEXT_MAX_CHARS) {
+    return context;
+  }
+  return `${context.slice(0, PR_DESCRIPTION_CONTEXT_MAX_CHARS)}\n\n[truncated]`;
+}
+
+export type UpdatePlanPrBodyOpts = {
+  indexPath: string;
+  specDirPath: string;
+  branch: string;
+  base: string;
+  cwd: string;
+  /** Committed spec root (e.g. `v1/spec`). Defaults to `spec`. Threaded into the header so the title and file pointers resolve correctly. */
+  targetDir?: string;
+  intentContent?: string;
+  agent?: Agent;
+  runOptions?: Partial<Omit<AgentRunOptions, "cwd">>;
+  /** Test seam: fetch the current PR body. Defaults to `gh pr view`. */
+  fetchPrBody?: (branch: string, cwd: string) => string;
+  /** Test seam: write the new PR body. Defaults to `gh pr edit --body-file -`. */
+  writePrBody?: (branch: string, body: string, cwd: string) => void;
+  /** Test seam: render the attribution footer. Defaults to `renderPlanAttribution`. */
+  renderFooter?: (opts: { cwd: string; base: string }) => string;
+};
+
+/**
+ * Rewrite the plan-mode PR body: fetch the current body, preserve the narrative
+ * section between markers (if present), rebuild the header from index.md, render
+ * the attribution footer from git trailers, and pipe the assembled body to
+ * `gh pr edit --body-file -`.
+ *
+ * When the narrative block is empty or missing and an agent is provided,
+ * regenerate the narrative. Otherwise, preserve existing narrative verbatim.
+ *
+ * Throws on `gh` failure; callers wrap with try/catch and warn-and-continue.
+ */
+export async function updatePlanPrBody(
+  opts: UpdatePlanPrBodyOpts,
+): Promise<void> {
+  const fetchPrBody = opts.fetchPrBody ?? defaultFetchPrBody;
+  const writePrBody = opts.writePrBody ?? defaultWritePrBody;
+  const renderFooter = opts.renderFooter ?? renderPlanAttribution;
+
+  const currentBody = fetchPrBody(opts.branch, opts.cwd);
+  let narrative = extractNarrative(currentBody);
+  const generatedNarrative =
+    narrative === null ? null : extractGeneratedNarrativeContent(narrative);
+
+  if (
+    (!narrative || generatedNarrative !== null) &&
+    opts.agent &&
+    opts.intentContent
+  ) {
+    const generateOpts: Parameters<typeof generatePrDescription>[0] = {
+      indexPath: opts.indexPath,
+      intent: opts.intentContent,
+      agent: opts.agent,
+      cwd: opts.cwd,
+    };
+    if (opts.runOptions !== undefined) {
+      generateOpts.runOptions = opts.runOptions;
+    }
+    const generated = await generatePrDescription(generateOpts);
+    if (generated !== null) {
+      narrative = markGeneratedNarrative(generated);
+    }
+  }
+
+  const specDirBasename = basename(opts.specDirPath);
+  const headerOpts: {
+    name: string;
+    worktreePath?: string;
+    targetDir?: string;
+  } = {
+    name: specDirBasename,
+  };
+  if (opts.cwd !== undefined) {
+    headerOpts.worktreePath = opts.cwd;
+  }
+  if (opts.targetDir !== undefined) {
+    headerOpts.targetDir = opts.targetDir;
+  }
+  const header = buildPlanPrHeader(headerOpts);
+  let headerAndNarrative = header;
+  if (narrative) {
+    headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
+  }
+  const footer = renderFooter({ cwd: opts.cwd, base: opts.base });
+  const newBody =
+    footer === ""
+      ? headerAndNarrative
+      : `${headerAndNarrative}\n\n---\n\n${footer}`;
+  writePrBody(opts.branch, newBody, opts.cwd);
+}
+
+function defaultFetchPrBody(branch: string, cwd: string): string {
+  return execFileSync(
+    "gh",
+    ["pr", "view", branch, "--json", "body", "-q", ".body"],
+    { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
+  );
+}
+
+function defaultWritePrBody(branch: string, body: string, cwd: string): void {
+  execFileSync("gh", ["pr", "edit", branch, "--body-file", "-"], {
+    cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: body,
+  });
 }

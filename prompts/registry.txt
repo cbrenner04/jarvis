@@ -1,11 +1,14 @@
 global/terse.md
 global/documentation.md
 global/naming.md
+shared/pr-description.md
 plan/decisions-ledger.md
 plan/defer-to-consumer.md
 plan/draft.md
+plan/pr-description.md
 plan/review.md
 plan/refine.md
 patch/instructions.md
+patch/pr-description.md
 patch/rules.md
 write/execute.md

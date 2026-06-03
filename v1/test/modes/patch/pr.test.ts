@@ -3,14 +3,17 @@ import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Agent, AgentResult } from "../../../src/agents/types.ts";
 import {
   buildPrBody,
   extractNarrative,
+  generatePrDescription,
   maybeMarkReady,
   NARRATIVE_END_MARKER,
   NARRATIVE_START_MARKER,
   updatePrBody,
 } from "../../../src/modes/patch/pr.ts";
+import { markGeneratedNarrative } from "../../../src/pr.ts";
 
 let dir: string;
 let indexPath: string;
@@ -140,7 +143,7 @@ describe("extractNarrative", () => {
 });
 
 describe("updatePrBody", () => {
-  test("composes header + preserved narrative + footer when markers and footer present", () => {
+  test("composes header + preserved narrative + footer when markers and footer present", async () => {
     writeFileSync(
       indexPath,
       [
@@ -162,7 +165,7 @@ describe("updatePrBody", () => {
     ].join("\n");
 
     let writtenBody = "";
-    updatePrBody({
+    await updatePrBody({
       indexPath,
       branch: "feature",
       base: "main",
@@ -184,7 +187,7 @@ describe("updatePrBody", () => {
     );
   });
 
-  test("uses compact attribution by default", () => {
+  test("uses compact attribution by default", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
     execSync(
@@ -199,7 +202,7 @@ describe("updatePrBody", () => {
     );
 
     let writtenBody = "";
-    updatePrBody({
+    await updatePrBody({
       indexPath,
       branch: "feature",
       base: "main",
@@ -219,11 +222,11 @@ describe("updatePrBody", () => {
     expect(writtenBody).not.toContain("retry same subspec");
   });
 
-  test("omits narrative section when markers missing in current body", () => {
+  test("omits narrative section when markers missing in current body", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
 
     let writtenBody = "";
-    updatePrBody({
+    await updatePrBody({
       indexPath,
       branch: "feature",
       base: "main",
@@ -239,11 +242,11 @@ describe("updatePrBody", () => {
     expect(writtenBody).not.toContain(NARRATIVE_END_MARKER);
   });
 
-  test("omits footer separator when renderFooter returns empty string", () => {
+  test("omits footer separator when renderFooter returns empty string", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
 
     let writtenBody = "";
-    updatePrBody({
+    await updatePrBody({
       indexPath,
       branch: "feature",
       base: "main",
@@ -258,12 +261,12 @@ describe("updatePrBody", () => {
     expect(writtenBody).not.toContain("---");
   });
 
-  test("passes branch and cwd through to writer", () => {
+  test("passes branch and cwd through to writer", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
 
     let seenBranch = "";
     let seenCwd = "";
-    updatePrBody({
+    await updatePrBody({
       indexPath,
       branch: "feature-x",
       base: "main",
@@ -280,10 +283,10 @@ describe("updatePrBody", () => {
     expect(seenCwd).toBe(dir);
   });
 
-  test("surfaces gh failures as thrown errors", () => {
+  test("surfaces gh failures as thrown errors", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
 
-    expect(() =>
+    await expect(
       updatePrBody({
         indexPath,
         branch: "feature",
@@ -295,7 +298,7 @@ describe("updatePrBody", () => {
         },
         renderFooter: () => "",
       }),
-    ).toThrow("gh pr edit failed");
+    ).rejects.toThrow("gh pr edit failed");
   });
 });
 
@@ -506,5 +509,304 @@ describe("maybeMarkReady", () => {
     ).toThrow("commitCheckFix failed");
 
     expect(ghPrReadyCalled).toBe(false);
+  });
+});
+
+describe("generatePrDescription", () => {
+  function createMockAgent(
+    response: string = "Updated feature\n\nDecisions:\n- Use async generation\n- Store in markers",
+  ): Agent {
+    return {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout: response,
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+  }
+
+  test("generates description with model when provided valid spec", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent = createMockAgent();
+    const result = await generatePrDescription({
+      specPath: indexPath,
+      agent,
+      cwd: dir,
+    });
+
+    expect(result).toContain("Updated feature");
+    expect(result).toContain("Decisions:");
+  });
+
+  test("includes linked subspec content in the prompt", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+    writeFileSync(
+      join(dir, "spec", "00-one.md"),
+      "# One\n\nImplemented useful details.\n",
+    );
+
+    let prompt = "";
+    const agent: Agent = {
+      name: "claude",
+      async run(receivedPrompt): Promise<AgentResult> {
+        prompt = receivedPrompt;
+        return {
+          kind: "ok",
+          stdout: "Updated feature\n\nDecisions:\n- Use details",
+          stderr: "",
+        };
+      },
+      attributionLabel: () => "test-agent",
+    };
+
+    await generatePrDescription({
+      specPath: indexPath,
+      agent,
+      cwd: dir,
+    });
+
+    expect(prompt).toContain("## ./00-one.md");
+    expect(prompt).toContain("Implemented useful details.");
+  });
+
+  test("passes run options through to the agent", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const controller = new AbortController();
+    let seenSignal: AbortSignal | undefined;
+    const agent: Agent = {
+      name: "claude",
+      async run(_prompt, opts): Promise<AgentResult> {
+        seenSignal = opts.signal;
+        return {
+          kind: "ok",
+          stdout: "Updated feature\n\nDecisions:\n- Signal",
+          stderr: "",
+        };
+      },
+      attributionLabel: () => "test-agent",
+    };
+
+    await generatePrDescription({
+      specPath: indexPath,
+      agent,
+      cwd: dir,
+      runOptions: { signal: controller.signal },
+    });
+
+    expect(seenSignal).toBe(controller.signal);
+  });
+
+  test("returns null when model response lacks Decisions section", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent = createMockAgent("Just a description without decisions");
+    const result = await generatePrDescription({
+      specPath: indexPath,
+      agent,
+      cwd: dir,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null when agent fails", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const failingAgent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "error",
+          exitCode: 1,
+          stderr: "Agent failed",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
+    const result = await generatePrDescription({
+      specPath: indexPath,
+      agent: failingAgent,
+      cwd: dir,
+    });
+
+    expect(result).toBeNull();
+  });
+});
+
+describe("updatePrBody with generation", () => {
+  function createMockAgent(
+    response: string = "Updated feature\n\nDecisions:\n- Use async generation\n- Store in markers",
+  ): Agent {
+    return {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout: response,
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+  }
+
+  test("preserves human-edited narrative when present", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const currentBody = [
+      "# stale header",
+      "",
+      NARRATIVE_START_MARKER,
+      "This is my custom narrative",
+      NARRATIVE_END_MARKER,
+      "",
+      "footer",
+    ].join("\n");
+
+    let writtenBody = "";
+    const agent = createMockAgent();
+
+    await updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => currentBody,
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "",
+      agent,
+    });
+
+    expect(writtenBody).toContain(
+      `${NARRATIVE_START_MARKER}\nThis is my custom narrative\n${NARRATIVE_END_MARKER}`,
+    );
+    expect(writtenBody).not.toContain("Updated feature");
+  });
+
+  test("regenerates narrative when empty and agent provided", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    let writtenBody = "";
+    const agent = createMockAgent();
+
+    await updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => "# stale header",
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "",
+      agent,
+    });
+
+    expect(writtenBody).toContain(
+      `${NARRATIVE_START_MARKER}\nUpdated feature\n\nDecisions:\n- Use async generation\n- Store in markers\n<!-- jarvis:narrative:generated-sha256:`,
+    );
+    expect(writtenBody).toContain(NARRATIVE_END_MARKER);
+  });
+
+  test("regenerates machine-owned narrative when hash still matches", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    let writtenBody = "";
+    const agent = createMockAgent("Fresh feature\n\nDecisions:\n- New choice");
+    const currentBody = [
+      "# stale header",
+      "",
+      NARRATIVE_START_MARKER,
+      markGeneratedNarrative("Old feature\n\nDecisions:\n- Old choice"),
+      NARRATIVE_END_MARKER,
+    ].join("\n");
+
+    await updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => currentBody,
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "",
+      agent,
+    });
+
+    expect(writtenBody).toContain("Fresh feature");
+    expect(writtenBody).not.toContain("Old feature");
+  });
+
+  test("preserves edited generated narrative when hash no longer matches", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    let ran = false;
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        ran = true;
+        return { kind: "ok", stdout: "REGEN\n\nDecisions:\n- x", stderr: "" };
+      },
+      attributionLabel: () => "test-agent",
+    };
+    const edited = markGeneratedNarrative(
+      "Old feature\n\nDecisions:\n- Old choice",
+    ).replace("Old feature", "Human edited feature");
+
+    let writtenBody = "";
+    await updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () =>
+        `${NARRATIVE_START_MARKER}\n${edited}\n${NARRATIVE_END_MARKER}`,
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "",
+      agent,
+    });
+
+    expect(ran).toBe(false);
+    expect(writtenBody).toContain("Human edited feature");
+    expect(writtenBody).not.toContain("REGEN");
+  });
+
+  test("omits narrative section when empty and no agent provided", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    let writtenBody = "";
+
+    await updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => "# stale header",
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "",
+    });
+
+    expect(writtenBody).not.toContain(NARRATIVE_START_MARKER);
+    expect(writtenBody).not.toContain(NARRATIVE_END_MARKER);
   });
 });

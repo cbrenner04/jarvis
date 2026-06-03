@@ -62,6 +62,8 @@ Rollout layering inventory:
 
 - Patch: `global.documentation -> global.naming -> global.terse -> patch.prompt.body`
 - Plan: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`
+- Patch PR description: `global.documentation -> global.naming -> global.terse -> shared.pr-description -> patch.prompt.pr-description`
+- Plan PR description: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> shared.pr-description -> plan.prompt.pr-description`
 - `patch.rules` remains step-owned injected body content (not always-layered global/behavior text).
 
 As shipped, the prompt surface is root-shared under `shared/prompts/`

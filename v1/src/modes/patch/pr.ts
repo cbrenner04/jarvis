@@ -111,6 +111,9 @@ export type MaybeMarkReadyOpts = {
   ghPrReady?: (branch: string, cwd: string) => void;
 };
 
+// Shared baseline gate logic: run bun run ready and commit check:fix if needed.
+// Used by both the baseline gate before review passes and the final ready after review.
+// Leaves tree clean and PR in draft state (no gh pr ready).
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   // Default implementations
   const realBunRunReady = (cwd: string) => {

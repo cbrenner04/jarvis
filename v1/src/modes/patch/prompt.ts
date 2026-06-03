@@ -53,6 +53,9 @@ export type ReviewPromptOpts = {
   totalPasses: number;
 };
 
+// Build review prompt for a critique pass on completed patch work.
+// Provides the agent with: spec tree (read-only data), branch diff vs base, pass context.
+// Bias is subtractive: cut redundancy, simplify, reduce complexity.
 export function buildReviewPrompt(opts: ReviewPromptOpts): string {
   const registry = loadPromptRegistry();
   const template = assemblePromptForStep({
@@ -60,7 +63,9 @@ export function buildReviewPrompt(opts: ReviewPromptOpts): string {
     stepPromptId: "patch.prompt.review",
   });
 
+  // Gather the full spec tree as read-only reference material
   const specTree = buildSpecTree(dirname(opts.specPath), opts.cwd);
+  // Get the branch diff showing what changed vs base
   const branchDiff = getBranchDiff(opts.cwd);
 
   const context =

@@ -1792,6 +1792,12 @@ function copyMissingRecursive(sourceDir: string, targetDir: string): void {
   }
 }
 
+// Review phase: runs after patch completion to critique and refactor the implementation.
+// Flow: baseline-gate → N review passes → final ready + gh pr ready
+// - Baseline gate runs bun run ready + commits check:fix if dirty
+// - Each pass: agent gets spec tree + branch diff, runs critique, commits changes (non-empty only)
+// - Blockers prevent further passes and exit with code 7
+// - Final ready runs bun run ready again + gh pr ready to move PR out of draft
 async function runReviewPhase(opts: {
   ctx: IterationContext;
   specPath: string;
@@ -1806,7 +1812,7 @@ async function runReviewPhase(opts: {
     const branch = getCurrentBranch(opts.agentWorkingDir);
     const base = await getBaseBranch(opts.agentWorkingDir);
 
-    // Run baseline gate: bun run ready → commit check:fix if needed
+    // Baseline gate: run ready and commit check:fix if needed, leave PR draft
     fanout("harness", "review: running baseline gate\n", "stdout");
     try {
       runReadyAndCommit({

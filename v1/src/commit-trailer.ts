@@ -1,7 +1,4 @@
-export function appendAgentTrailer(
-  message: string,
-  agentLabel: string,
-): string {
+export function appendAgentTrailer(message: string, agentLabel: string): string {
   if (agentLabel === "") {
     return message;
   }

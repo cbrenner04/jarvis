@@ -63,14 +63,10 @@ function parseOrder(raw: string): AgentEntry[] {
     const agent = p.slice(0, colon).trim();
     const model = p.slice(colon + 1).trim();
     if (!(AGENT_NAMES as readonly string[]).includes(agent)) {
-      throw new Error(
-        `unknown agent ${JSON.stringify(agent)} (allowed: ${AGENT_NAMES.join(", ")})`,
-      );
+      throw new Error(`unknown agent ${JSON.stringify(agent)} (allowed: ${AGENT_NAMES.join(", ")})`);
     }
     if (model.length === 0) {
-      throw new Error(
-        `agent ${JSON.stringify(agent)}: model must be non-empty`,
-      );
+      throw new Error(`agent ${JSON.stringify(agent)}: model must be non-empty`);
     }
     if (seen.has(agent)) {
       throw new Error(`duplicate agent ${JSON.stringify(agent)}`);
@@ -85,11 +81,7 @@ function formatOrder(order: AgentEntry[]): string {
   return order.map((e) => `${e.agent}:${e.model}`).join(", ");
 }
 
-function setModeOrder(
-  mode: "patch" | "plan",
-  raw: string,
-  opts: ConfigCommandOptions,
-): void {
+function setModeOrder(mode: "patch" | "plan", raw: string, opts: ConfigCommandOptions): void {
   let order: AgentEntry[];
   try {
     order = parseOrder(raw);
@@ -123,17 +115,13 @@ export function configCommand(opts: ConfigCommandOptions): number {
     case "set-patch-order": {
       const arg = rest[0];
       if (arg === undefined) {
-        io.stderr(
-          "jarvis1: set-patch-order: missing <agent:model,agent:model,...>\n",
-        );
+        io.stderr("jarvis1: set-patch-order: missing <agent:model,agent:model,...>\n");
         return 1;
       }
       try {
         setModeOrder("patch", arg, opts);
         const cfg = loadConfig(opts.config);
-        io.stdout(
-          `modes.patch.agentOrder: ${formatOrder(cfg.modes.patch.agentOrder)}\n`,
-        );
+        io.stdout(`modes.patch.agentOrder: ${formatOrder(cfg.modes.patch.agentOrder)}\n`);
         return 0;
       } catch (err) {
         io.stderr(`jarvis1: ${(err as Error).message}\n`);
@@ -143,17 +131,13 @@ export function configCommand(opts: ConfigCommandOptions): number {
     case "set-plan-order": {
       const arg = rest[0];
       if (arg === undefined) {
-        io.stderr(
-          "jarvis1: set-plan-order: missing <agent:model,agent:model,...>\n",
-        );
+        io.stderr("jarvis1: set-plan-order: missing <agent:model,agent:model,...>\n");
         return 1;
       }
       try {
         setModeOrder("plan", arg, opts);
         const cfg = loadConfig(opts.config);
-        io.stdout(
-          `modes.plan.agentOrder: ${formatOrder(cfg.modes.plan.agentOrder)}\n`,
-        );
+        io.stdout(`modes.plan.agentOrder: ${formatOrder(cfg.modes.plan.agentOrder)}\n`);
         return 0;
       } catch (err) {
         io.stderr(`jarvis1: ${(err as Error).message}\n`);
@@ -180,9 +164,7 @@ export function configCommand(opts: ConfigCommandOptions): number {
       }
       const cfg = loadConfig(opts.config);
       if (cfg.projects[name] === undefined) {
-        io.stderr(
-          `jarvis1: remove-project: unknown project ${JSON.stringify(name)}\n`,
-        );
+        io.stderr(`jarvis1: remove-project: unknown project ${JSON.stringify(name)}\n`);
         return 1;
       }
       delete cfg.projects[name];
@@ -197,9 +179,7 @@ export function configCommand(opts: ConfigCommandOptions): number {
         return 1;
       }
       if (arg !== "true" && arg !== "false") {
-        io.stderr(
-          `jarvis1: set-git: expected true or false (got ${JSON.stringify(arg)})\n`,
-        );
+        io.stderr(`jarvis1: set-git: expected true or false (got ${JSON.stringify(arg)})\n`);
         return 1;
       }
       const value = arg === "true";
@@ -211,22 +191,16 @@ export function configCommand(opts: ConfigCommandOptions): number {
       const name = rest[0];
       const valueArg = rest[1];
       if (name === undefined || valueArg === undefined) {
-        io.stderr(
-          "jarvis1: set-project-git: missing <name> <true|false|unset>\n",
-        );
+        io.stderr("jarvis1: set-project-git: missing <name> <true|false|unset>\n");
         return 1;
       }
       if (valueArg !== "true" && valueArg !== "false" && valueArg !== "unset") {
-        io.stderr(
-          `jarvis1: set-project-git: expected true, false, or unset (got ${JSON.stringify(valueArg)})\n`,
-        );
+        io.stderr(`jarvis1: set-project-git: expected true, false, or unset (got ${JSON.stringify(valueArg)})\n`);
         return 1;
       }
       const cfg = loadConfig(opts.config);
       if (cfg.projects[name] === undefined) {
-        io.stderr(
-          `jarvis1: set-project-git: unknown project ${JSON.stringify(name)}\n`,
-        );
+        io.stderr(`jarvis1: set-project-git: unknown project ${JSON.stringify(name)}\n`);
         return 1;
       }
       const next = valueArg === "unset" ? undefined : valueArg === "true";

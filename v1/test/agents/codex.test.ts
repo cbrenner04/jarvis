@@ -1,13 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexAgent } from "../../src/agents/codex.ts";
@@ -33,11 +25,7 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
-function fakeBinary(opts: {
-  exit: number;
-  stdout?: string;
-  stderr?: string;
-}): string {
+function fakeBinary(opts: { exit: number; stdout?: string; stderr?: string }): string {
   const path = join(dir, "codex");
   const out = opts.stdout ?? "";
   const err = opts.stderr ?? "";
@@ -57,10 +45,7 @@ exit ${opts.exit}
 }
 
 /** Bun fake that records argv/stdin/cwd and writes a correlatable Codex session JSONL. */
-function bunCodexFakeWithSession(
-  sessionPath: string,
-  sessionDir: string,
-): string {
+function bunCodexFakeWithSession(sessionPath: string, sessionDir: string): string {
   const binPath = join(dir, "codex");
   const script = `#!/usr/bin/env bun
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -280,9 +265,7 @@ describe("CodexAgent", () => {
       expect(result.usage_source).toBe("unavailable");
       expect(result.cost_source).toBe("no-usage");
       expect(result.cost_usd).toBeNull();
-      expect(
-        result.warnings?.some((w) => w.includes("no session JSONL changed")),
-      ).toBe(true);
+      expect(result.warnings?.some((w) => w.includes("no session JSONL changed"))).toBe(true);
     }
   });
 

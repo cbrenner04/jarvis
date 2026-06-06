@@ -93,14 +93,7 @@ export function buildReviewPrompt(opts: {
   try {
     template = renderTemplate(
       template,
-      new Set([
-        "WORKDIR",
-        "NAME",
-        "INTENT",
-        "SPEC_GUIDANCE",
-        "CURRENT_SPEC",
-        "REVIEW_PASS_CONTEXT",
-      ]),
+      new Set(["WORKDIR", "NAME", "INTENT", "SPEC_GUIDANCE", "CURRENT_SPEC", "REVIEW_PASS_CONTEXT"]),
       {
         WORKDIR: workDir,
         NAME: opts.name,
@@ -129,12 +122,7 @@ export function snapshotSpecFiles(
   specDirPath?: string,
   targetDir?: string,
 ): string {
-  const specDir = resolvePlanSpecDirPath(
-    worktreePath,
-    name,
-    specDirPath,
-    targetDir,
-  );
+  const specDir = resolvePlanSpecDirPath(worktreePath, name, specDirPath, targetDir);
   if (!existsSync(specDir)) {
     return "(spec directory does not exist)";
   }
@@ -164,12 +152,7 @@ export function snapshotSpecFiles(
 export async function runReviewPass(
   opts: ReviewPhaseOptions,
 ): Promise<{ result: AgentResult; agentLabel: string | null }> {
-  const specDirPath = resolvePlanSpecDirPath(
-    opts.worktreePath,
-    opts.name,
-    opts.specDirPath,
-    opts.targetDir,
-  );
+  const specDirPath = resolvePlanSpecDirPath(opts.worktreePath, opts.name, opts.specDirPath, opts.targetDir);
   const flatSpecLayout = opts.specDirPath !== undefined;
   const agentCwd = opts.agentCwd ?? opts.worktreePath;
 
@@ -178,23 +161,11 @@ export async function runReviewPass(
   const intent = readFileSync(intentPath, "utf8");
 
   // Read spec guidance from the main checkout
-  const docsPath = join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "docs",
-    "spec-guidance.md",
-  );
+  const docsPath = join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md");
   const specGuidance = readFileSync(docsPath, "utf8");
 
   // Snapshot all current spec files
-  const currentSpec = snapshotSpecFiles(
-    opts.worktreePath,
-    opts.name,
-    opts.specDirPath,
-    opts.targetDir,
-  );
+  const currentSpec = snapshotSpecFiles(opts.worktreePath, opts.name, opts.specDirPath, opts.targetDir);
 
   // Build the prompt
   let prompt: string;
@@ -214,9 +185,7 @@ export async function runReviewPass(
       intent,
       specGuidance,
       currentSpec,
-      ...(flatSpecLayout
-        ? { flatSpecLayout: true, workDirLabel: specDirPath }
-        : {}),
+      ...(flatSpecLayout ? { flatSpecLayout: true, workDirLabel: specDirPath } : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     };
     if (opts.passNumber !== undefined) {
@@ -248,8 +217,7 @@ export async function runReviewPass(
 
   for (const entry of agentOrder) {
     const agent = createAgent(entry.agent, entry.model);
-    agentLabel =
-      agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
+    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();
@@ -258,9 +226,7 @@ export async function runReviewPass(
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
-      porcelainBefore !== null &&
-      porcelainAfter !== null &&
-      porcelainBefore === porcelainAfter;
+      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
     result = applyQuotaFallbackWhenAllowed(
       entry.agent,
       spawnResult,
@@ -383,12 +349,7 @@ export function validateReviewOutput(
   specDirPath?: string,
   targetDir?: string,
 ): { valid: boolean; error: string | null; blocker?: string | undefined } {
-  const specDir = resolvePlanSpecDirPath(
-    worktreePath,
-    name,
-    specDirPath,
-    targetDir,
-  );
+  const specDir = resolvePlanSpecDirPath(worktreePath, name, specDirPath, targetDir);
   const indexPath = join(specDir, "index.md");
   const intentPath = join(specDir, "intent.md");
 
@@ -414,8 +375,7 @@ export function validateReviewOutput(
     // Otherwise it's an error: blocker was added but so was other content
     return {
       valid: false,
-      error:
-        "intent.md was modified beyond adding a ## Blocker section (frontmatter is immutable)",
+      error: "intent.md was modified beyond adding a ## Blocker section (frontmatter is immutable)",
     };
   }
 

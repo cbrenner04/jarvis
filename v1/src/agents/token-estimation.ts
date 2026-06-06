@@ -3,9 +3,7 @@ import { getEncoding, type Tiktoken } from "js-tiktoken";
 let encoder: Tiktoken | null = null;
 let encoderInitFailed = false;
 
-function getEncoder(
-  loadEncoder: () => Tiktoken = () => getEncoding("cl100k_base"),
-): Tiktoken | null {
+function getEncoder(loadEncoder: () => Tiktoken = () => getEncoding("cl100k_base")): Tiktoken | null {
   if (encoder !== null) return encoder;
   if (encoderInitFailed) return null;
   try {

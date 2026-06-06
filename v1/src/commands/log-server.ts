@@ -7,9 +7,7 @@ export type LogServerCommandOptions = {
   config?: ConfigOptions | undefined;
 };
 
-export async function logServerCommand(
-  opts: LogServerCommandOptions,
-): Promise<number> {
+export async function logServerCommand(opts: LogServerCommandOptions): Promise<number> {
   const cfg = loadConfig(opts.config);
   return runLogServer({
     bind: cfg.logServerBind ?? "127.0.0.1:4310",

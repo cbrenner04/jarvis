@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
-import {
-  parseStepOutcomeToken,
-  runStep,
-  type StepContract,
-} from "./step-runner.ts";
+import { parseStepOutcomeToken, runStep, type StepContract } from "./step-runner.ts";
 
 function okBinding(stdout: string): InvocationBinding {
   return {
@@ -26,9 +22,7 @@ describe("step runner token parsing", () => {
   });
 
   test("extracts token from prose output", () => {
-    expect(
-      parseStepOutcomeToken("I updated the file.\nFinal: progress\n"),
-    ).toBe("progress");
+    expect(parseStepOutcomeToken("I updated the file.\nFinal: progress\n")).toBe("progress");
   });
 });
 

@@ -176,12 +176,8 @@ console.log("command-order-test");
 
     // Verify install appears before check:fix in the commands array (check:fix
     // depends on @biomejs/biome being installed in node_modules).
-    const checkFixIndex = readySource.indexOf(
-      '{ name: "bun", args: ["run", "check:fix"]',
-    );
-    const installIndex = readySource.indexOf(
-      '{ name: "bun", args: ["install",',
-    );
+    const checkFixIndex = readySource.indexOf('{ name: "bun", args: ["run", "check:fix"]');
+    const installIndex = readySource.indexOf('{ name: "bun", args: ["install",');
 
     expect(checkFixIndex).toBeGreaterThan(0);
     expect(installIndex).toBeGreaterThan(0);

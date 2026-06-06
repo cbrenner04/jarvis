@@ -21,12 +21,7 @@ export function parseTimeout(): number {
   return parsed;
 }
 
-export function runCommand(
-  name: string,
-  args: string[],
-  deadlineMs: number,
-  elapsedMs: number,
-): Promise<number> {
+export function runCommand(name: string, args: string[], deadlineMs: number, elapsedMs: number): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(name, args, {
       detached: true,
@@ -44,9 +39,7 @@ export function runCommand(
 
     const timeoutHandle = setTimeout(() => {
       if (!settled) {
-        process.stderr.write(
-          `ready: deadline exceeded after ${deadlineMs}ms; killing child tree\n`,
-        );
+        process.stderr.write(`ready: deadline exceeded after ${deadlineMs}ms; killing child tree\n`);
 
         if (child.pid) {
           try {

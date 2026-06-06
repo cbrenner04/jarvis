@@ -9,38 +9,19 @@ import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
-export function buildInlineDraftPrompt(opts: {
-  workdir: string;
-  intentPath: string;
-  inlineIntent: string;
-}): string {
-  const promptFile = join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "..",
-    "prompts",
-    "plan",
-    "inline-draft.md",
-  );
+export function buildInlineDraftPrompt(opts: { workdir: string; intentPath: string; inlineIntent: string }): string {
+  const promptFile = join(import.meta.dir, "..", "..", "..", "..", "prompts", "plan", "inline-draft.md");
   let template = readFileSync(promptFile, "utf8");
 
   try {
-    template = renderTemplate(
-      template,
-      new Set(["WORKDIR", "INTENT_PATH", "INLINE_INTENT"]),
-      {
-        WORKDIR: opts.workdir,
-        INTENT_PATH: opts.intentPath,
-        INLINE_INTENT: opts.inlineIntent,
-      },
-    );
+    template = renderTemplate(template, new Set(["WORKDIR", "INTENT_PATH", "INLINE_INTENT"]), {
+      WORKDIR: opts.workdir,
+      INTENT_PATH: opts.intentPath,
+      INLINE_INTENT: opts.inlineIntent,
+    });
   } catch (err) {
     if (err instanceof TemplateRenderingError) {
-      throw new Error(
-        `inline-draft prompt configuration error: ${err.details}`,
-      );
+      throw new Error(`inline-draft prompt configuration error: ${err.details}`);
     }
     throw err;
   }
@@ -98,16 +79,13 @@ export async function runInlineDraftTurn(opts: {
 
   for (const entry of agentOrder) {
     const agent = resolveAgent(entry.agent, entry.model);
-    agentLabel =
-      agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
+    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const spawnResult = await agent.run(prompt, { cwd: opts.worktreePath });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
-      porcelainBefore !== null &&
-      porcelainAfter !== null &&
-      porcelainBefore === porcelainAfter;
+      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
     result = applyQuotaFallbackWhenAllowed(
       entry.agent,
       spawnResult,

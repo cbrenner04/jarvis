@@ -1,19 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  Agent,
-  AgentName,
-  AgentResult,
-  AgentRunOptions,
-} from "../src/agents/types.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { RunIo } from "../src/modes/patch/run.ts";
 import { runCommand } from "../src/modes/patch/run.ts";
@@ -198,12 +187,8 @@ describe("run summary integration", () => {
     mkdirSync(cfgDir, { recursive: true });
     registerProject("project", join(dir, "project"), { dir: cfgDir });
     const cfg = loadConfig({ dir: cfgDir });
-    cfg.modes.patch.agentOrder = [
-      { agent: "codex", model: "not-a-priced-model-xyz" },
-    ];
-    expect(() => writeConfig(cfg, { dir: cfgDir })).toThrow(
-      /not a known priced model for agent "codex"/,
-    );
+    cfg.modes.patch.agentOrder = [{ agent: "codex", model: "not-a-priced-model-xyz" }];
+    expect(() => writeConfig(cfg, { dir: cfgDir })).toThrow(/not a known priced model for agent "codex"/);
     rmSync(dir, { recursive: true, force: true });
   });
 });

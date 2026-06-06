@@ -1,10 +1,4 @@
-import {
-  type Dirent,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  statSync,
-} from "node:fs";
+import { type Dirent, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { TelemetryUsage } from "../telemetry.ts";
@@ -62,9 +56,7 @@ export function getCodexSessionsDir(): string {
   return join(process.env.HOME ?? homedir(), ".codex", "sessions");
 }
 
-export function snapshotCodexSessionFiles(
-  sessionsDir: string,
-): CodexSessionsSnapshot {
+export function snapshotCodexSessionFiles(sessionsDir: string): CodexSessionsSnapshot {
   const map: CodexSessionsSnapshot = new Map();
   for (const f of listSessionFileStats(sessionsDir)) {
     map.set(f.path, { mtimeMs: f.mtimeMs, size: f.size });
@@ -75,19 +67,12 @@ export function snapshotCodexSessionFiles(
 /**
  * Session files that did not exist in `before` or whose size/mtime changed.
  */
-export function listChangedCodexSessionFiles(opts: {
-  sessionsDir: string;
-  before: CodexSessionsSnapshot;
-}): string[] {
+export function listChangedCodexSessionFiles(opts: { sessionsDir: string; before: CodexSessionsSnapshot }): string[] {
   const after = snapshotCodexSessionFiles(opts.sessionsDir);
   const changed: string[] = [];
   for (const [path, state] of after) {
     const prev = opts.before.get(path);
-    if (
-      prev === undefined ||
-      prev.mtimeMs !== state.mtimeMs ||
-      prev.size !== state.size
-    ) {
+    if (prev === undefined || prev.mtimeMs !== state.mtimeMs || prev.size !== state.size) {
       changed.push(path);
     }
   }
@@ -106,10 +91,7 @@ function cwdEqual(a: string, b: string): boolean {
  * If any structured cwd field disagrees with `jarvisCwd`, the file cannot be this invocation.
  * When no cwd metadata exists (older Codex), the file is still eligible.
  */
-export function sessionFileCwdsCompatible(
-  content: string,
-  jarvisCwd: string,
-): boolean {
+export function sessionFileCwdsCompatible(content: string, jarvisCwd: string): boolean {
   const lines = content.split(/\r?\n/);
   const seenCwds: string[] = [];
   for (const line of lines) {
@@ -122,21 +104,13 @@ export function sessionFileCwdsCompatible(
     } catch {
       continue;
     }
-    if (
-      parsed === null ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       continue;
     }
     const rec = parsed as Record<string, unknown>;
     const typ = rec.type;
     const payload = rec.payload;
-    if (
-      payload === null ||
-      typeof payload !== "object" ||
-      Array.isArray(payload)
-    ) {
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       continue;
     }
     const p = payload as Record<string, unknown>;
@@ -181,21 +155,14 @@ export function sessionContentHasInvocationMarker(
   return { matched: false, usedRawFallback: false };
 }
 
-function lineIncludesMarkerStructured(
-  event: unknown,
-  invocationMarker: string,
-): boolean {
+function lineIncludesMarkerStructured(event: unknown, invocationMarker: string): boolean {
   if (event === null || typeof event !== "object" || Array.isArray(event)) {
     return false;
   }
   const rec = event as Record<string, unknown>;
   const typ = rec.type;
   const payload = rec.payload;
-  if (
-    payload === null ||
-    typeof payload !== "object" ||
-    Array.isArray(payload)
-  ) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
     return false;
   }
   const p = payload as Record<string, unknown>;
@@ -209,12 +176,7 @@ function lineIncludesMarkerStructured(
     return true;
   }
 
-  if (
-    typ === "response_item" &&
-    p.type === "message" &&
-    p.role === "user" &&
-    Array.isArray(p.content)
-  ) {
+  if (typ === "response_item" && p.type === "message" && p.role === "user" && Array.isArray(p.content)) {
     for (const item of p.content) {
       if (
         item !== null &&
@@ -222,9 +184,7 @@ function lineIncludesMarkerStructured(
         !Array.isArray(item) &&
         (item as Record<string, unknown>).type === "input_text" &&
         typeof (item as Record<string, unknown>).text === "string" &&
-        String((item as Record<string, unknown>).text).includes(
-          invocationMarker,
-        )
+        String((item as Record<string, unknown>).text).includes(invocationMarker)
       ) {
         return true;
       }
@@ -271,9 +231,7 @@ export function resolveCodexSessionUsage(opts: {
   if (changed.length === 0) {
     return {
       usage: null,
-      warnings: [
-        "codex usage unavailable: no session JSONL changed after this invocation",
-      ],
+      warnings: ["codex usage unavailable: no session JSONL changed after this invocation"],
       sessionFile: null,
     };
   }
@@ -289,10 +247,7 @@ export function resolveCodexSessionUsage(opts: {
     if (!sessionFileCwdsCompatible(content, opts.cwd)) {
       continue;
     }
-    const { matched: hasMarker } = sessionContentHasInvocationMarker(
-      content,
-      opts.invocationMarker,
-    );
+    const { matched: hasMarker } = sessionContentHasInvocationMarker(content, opts.invocationMarker);
     if (!hasMarker) {
       continue;
     }
@@ -305,9 +260,7 @@ export function resolveCodexSessionUsage(opts: {
   if (matched.length === 0) {
     return {
       usage: null,
-      warnings: [
-        "codex usage unavailable: no changed session file matched this invocation marker and cwd",
-      ],
+      warnings: ["codex usage unavailable: no changed session file matched this invocation marker and cwd"],
       sessionFile: null,
     };
   }
@@ -326,9 +279,7 @@ export function resolveCodexSessionUsage(opts: {
   if (sessionFile === undefined) {
     return {
       usage: null,
-      warnings: [
-        "codex usage unavailable: no session file could be correlated to this invocation",
-      ],
+      warnings: ["codex usage unavailable: no session file could be correlated to this invocation"],
       sessionFile: null,
     };
   }
@@ -351,9 +302,7 @@ export function parseCodexSessionUsage(filePath: string): {
   } catch (err) {
     return {
       usage: null,
-      warnings: [
-        `failed to read codex session file ${filePath}: ${(err as Error).message}`,
-      ],
+      warnings: [`failed to read codex session file ${filePath}: ${(err as Error).message}`],
     };
   }
 
@@ -391,9 +340,7 @@ export function parseCodexSessionUsage(filePath: string): {
   }
 
   if (malformedJsonlLines > 0) {
-    warnings.push(
-      `skipped ${malformedJsonlLines} malformed JSONL line(s) in codex session file`,
-    );
+    warnings.push(`skipped ${malformedJsonlLines} malformed JSONL line(s) in codex session file`);
   }
 
   if (best === null) {
@@ -412,11 +359,7 @@ function extractTokenUsage(event: unknown): TelemetryUsage | null {
     return null;
   }
   const payload = rec.payload;
-  if (
-    payload === null ||
-    typeof payload !== "object" ||
-    Array.isArray(payload)
-  ) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
     return null;
   }
   const payloadRec = payload as Record<string, unknown>;

@@ -12,15 +12,11 @@ export function buildPrompt(specPath: string, siblings?: string[]): string {
   let siblingsBlock = "";
 
   if (siblings !== undefined && siblings.length > 0) {
-    const lines = [
-      "Additional project sibling directories are available for this run:",
-    ];
+    const lines = ["Additional project sibling directories are available for this run:"];
     for (const sibling of siblings) {
       lines.push(`- ${sibling}`);
     }
-    lines.push(
-      "Treat these directories as part of the target project when the active spec requires cross-repo edits.",
-    );
+    lines.push("Treat these directories as part of the target project when the active spec requires cross-repo edits.");
     siblingsBlock = `${lines.join("\n")}\n`;
   }
 
@@ -38,7 +34,5 @@ export function buildPrompt(specPath: string, siblings?: string[]): string {
     },
   );
 
-  return rendered
-    .replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:")
-    .trim();
+  return rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
 }

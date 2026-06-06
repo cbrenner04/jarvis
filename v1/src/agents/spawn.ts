@@ -17,17 +17,10 @@ export interface SpawnConfig {
   env?: Record<string, string>;
 }
 
-export function runAgent(
-  config: SpawnConfig,
-  prompt: string,
-  opts: AgentRunOptions,
-): Promise<AgentResult> {
+export function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
   return new Promise((resolvePromise) => {
     const argv = config.buildArgv(prompt, opts);
-    const env = { ...process.env, PWD: config.cwd, ...config.env } as Record<
-      string,
-      string
-    >;
+    const env = { ...process.env, PWD: config.cwd, ...config.env } as Record<string, string>;
     delete env.OLDPWD;
     const child = spawn(config.binary, argv, {
       cwd: config.cwd,
@@ -44,11 +37,7 @@ export function runAgent(
     const stdout = child.stdout;
     const stderr = child.stderr;
 
-    if (
-      stdout === null ||
-      stderr === null ||
-      (config.stdio[0] === "pipe" && stdin === null)
-    ) {
+    if (stdout === null || stderr === null || (config.stdio[0] === "pipe" && stdin === null)) {
       resolvePromise({
         kind: "error",
         exitCode: -1,
@@ -158,9 +147,7 @@ export function runAgent(
         } else {
           child.kill("SIGTERM");
         }
-        const reason = opts.signal?.reason
-          ? String(opts.signal.reason)
-          : "aborted";
+        const reason = opts.signal?.reason ? String(opts.signal.reason) : "aborted";
         abortReason = reason;
         checkSettlement();
       };

@@ -67,8 +67,7 @@ export async function runGhCommand(
 export async function assertGhReady(): Promise<void> {
   const result = await runGhCommand(["auth", "status"]);
   if (result.exitCode !== 0) {
-    let errorMessage =
-      "gh: not authenticated or not installed. Run `gh auth login` to proceed.";
+    let errorMessage = "gh: not authenticated or not installed. Run `gh auth login` to proceed.";
     if (result.stderr.length > 0) {
       errorMessage = result.stderr;
     }
@@ -78,14 +77,7 @@ export async function assertGhReady(): Promise<void> {
 
 export async function getBaseBranch(cwd?: string): Promise<string> {
   const result = await runGhCommand(
-    [
-      "repo",
-      "view",
-      "--json",
-      "defaultBranchRef",
-      "-q",
-      ".defaultBranchRef.name",
-    ],
+    ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
     cwd,
   );
   if (result.exitCode !== 0) {

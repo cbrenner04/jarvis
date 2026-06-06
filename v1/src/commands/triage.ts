@@ -2,17 +2,9 @@ import { execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { ConfigOptions } from "../config.ts";
-import {
-  countUnchecked,
-  getActiveLinkedSubspecPath,
-  getFirstUncheckedTask,
-} from "../modes/patch/completion.ts";
+import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
-import {
-  getWorktreeLockPath,
-  isProcessAlive,
-  type WorktreeLock,
-} from "../worktree-lock.ts";
+import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;
@@ -27,13 +19,7 @@ export type TriageCommandOptions = {
 };
 
 export type DirtyKind = "clean" | "untracked-only" | "modified" | "mixed";
-export type PrState =
-  | "none"
-  | "DRAFT"
-  | "OPEN"
-  | "MERGED"
-  | "CLOSED"
-  | "unknown";
+export type PrState = "none" | "DRAFT" | "OPEN" | "MERGED" | "CLOSED" | "unknown";
 
 export type SuggestedMovesInput = {
   dirtyKind: DirtyKind;
@@ -88,19 +74,13 @@ function triageListWorktrees(worktreeDir: string, io: TriageIo): number {
     const prState = getPrState(worktreeName);
     const specProgress = getSpecProgress(worktreePath);
 
-    io.stdout(
-      `${worktreeName}\t\t${dirtyStatus}\t\t${aheadBehind}\t\t${prState}\t\t${specProgress}\n`,
-    );
+    io.stdout(`${worktreeName}\t\t${dirtyStatus}\t\t${aheadBehind}\t\t${prState}\t\t${specProgress}\n`);
   }
 
   return 0;
 }
 
-function triageDrillDown(
-  worktreeDir: string,
-  worktreeName: string,
-  io: TriageIo,
-): number {
+function triageDrillDown(worktreeDir: string, worktreeName: string, io: TriageIo): number {
   const worktreePath = join(worktreeDir, worktreeName);
 
   if (!existsSync(worktreePath)) {
@@ -275,9 +255,7 @@ function renderGit(worktreePath: string): string {
       });
     }
   } catch (err) {
-    lines.push(
-      `  (error: ${err instanceof Error ? err.message : String(err)})`,
-    );
+    lines.push(`  (error: ${err instanceof Error ? err.message : String(err)})`);
     return `${lines.join("\n")}\n`;
   }
 
@@ -330,9 +308,7 @@ function renderGit(worktreePath: string): string {
 
 function renderSpec(worktreePath: string): string {
   const specMarkerPath = join(worktreePath, ".active-spec-path");
-  const specPath = existsSync(specMarkerPath)
-    ? readFileSync(specMarkerPath, "utf8").trim()
-    : undefined;
+  const specPath = existsSync(specMarkerPath) ? readFileSync(specMarkerPath, "utf8").trim() : undefined;
 
   if (!specPath || !existsSync(specPath)) {
     return "  (spec unavailable — pre-marker worktree)\n";
@@ -386,13 +362,10 @@ function renderSpec(worktreePath: string): string {
 
 function renderPr(branchName: string): string {
   try {
-    const fullOutput = execSync(
-      `gh pr view "${branchName}" --json state,url,isDraft,updatedAt,title`,
-      {
-        stdio: "pipe",
-        encoding: "utf8",
-      },
-    );
+    const fullOutput = execSync(`gh pr view "${branchName}" --json state,url,isDraft,updatedAt,title`, {
+      stdio: "pipe",
+      encoding: "utf8",
+    });
     const prData = JSON.parse(fullOutput);
     const lines: string[] = [];
     lines.push(`  State: ${prData.state}`);
@@ -412,9 +385,7 @@ function renderPr(branchName: string): string {
 
 function renderSessionLog(worktreePath: string): string {
   const specMarkerPath = join(worktreePath, ".active-spec-path");
-  const specPath = existsSync(specMarkerPath)
-    ? readFileSync(specMarkerPath, "utf8").trim()
-    : undefined;
+  const specPath = existsSync(specMarkerPath) ? readFileSync(specMarkerPath, "utf8").trim() : undefined;
 
   let namespace: string | undefined;
   if (specPath && existsSync(specPath)) {
@@ -439,12 +410,7 @@ function renderSessionLog(worktreePath: string): string {
   try {
     const entries = readdirSync(logDir, { withFileTypes: true });
     const logFiles = entries
-      .filter(
-        (e) =>
-          e.isFile() &&
-          e.name.startsWith(`${namespace}-`) &&
-          e.name.endsWith(".log"),
-      )
+      .filter((e) => e.isFile() && e.name.startsWith(`${namespace}-`) && e.name.endsWith(".log"))
       .sort((a, b) => {
         const aTime = statSync(join(logDir, a.name)).mtimeMs;
         const bTime = statSync(join(logDir, b.name)).mtimeMs;
@@ -495,9 +461,7 @@ function renderSuggestedMoves(worktreePath: string): string {
 
 function buildSuggestedMovesInput(worktreePath: string): SuggestedMovesInput {
   const specMarkerPath = join(worktreePath, ".active-spec-path");
-  const specPath = existsSync(specMarkerPath)
-    ? readFileSync(specMarkerPath, "utf8").trim()
-    : undefined;
+  const specPath = existsSync(specMarkerPath) ? readFileSync(specMarkerPath, "utf8").trim() : undefined;
 
   const dirtyKind = computeDirtyKind(worktreePath);
   const unpushed = computeUnpushed(worktreePath);
@@ -575,11 +539,7 @@ function computePrState(worktreePath: string): PrState {
       encoding: "utf8",
     }).trim();
 
-    const state = output.toUpperCase() as
-      | "DRAFT"
-      | "OPEN"
-      | "MERGED"
-      | "CLOSED";
+    const state = output.toUpperCase() as "DRAFT" | "OPEN" | "MERGED" | "CLOSED";
     if (["DRAFT", "OPEN", "MERGED", "CLOSED"].includes(state)) {
       return state;
     }
@@ -624,18 +584,14 @@ const suggestedMovesRules: Array<{
   // Rule 1: clean + unpushed > 0 + prState in {none, DRAFT, OPEN}
   {
     match: (input) =>
-      input.dirtyKind === "clean" &&
-      input.unpushed > 0 &&
-      ["none", "DRAFT", "OPEN"].includes(input.prState),
+      input.dirtyKind === "clean" && input.unpushed > 0 && ["none", "DRAFT", "OPEN"].includes(input.prState),
     format: (input) => [`1. git -C ${input.worktreePath} push`],
   },
 
   // Rule 2: clean + prState = MERGED
   {
     match: (input) => input.dirtyKind === "clean" && input.prState === "MERGED",
-    format: (_input) => [
-      `1. PR is merged. Safe to remove with: jarvis1 cleanup`,
-    ],
+    format: (_input) => [`1. PR is merged. Safe to remove with: jarvis1 cleanup`],
   },
 
   // Rule 3: untracked-only (in spec dir) + suggested push
@@ -688,9 +644,7 @@ const suggestedMovesRules: Array<{
 
   // Rule 4: modified or mixed + prState = MERGED
   {
-    match: (input) =>
-      ["modified", "mixed"].includes(input.dirtyKind) &&
-      input.prState === "MERGED",
+    match: (input) => ["modified", "mixed"].includes(input.dirtyKind) && input.prState === "MERGED",
     format: (input) => [
       `1. PR is merged but this tree has uncommitted work — probably orphaned.`,
       `2. Inspect: git -C ${input.worktreePath} diff`,
@@ -700,9 +654,7 @@ const suggestedMovesRules: Array<{
 
   // Rule 5: modified or mixed + specComplete = true
   {
-    match: (input) =>
-      ["modified", "mixed"].includes(input.dirtyKind) &&
-      input.specComplete === true,
+    match: (input) => ["modified", "mixed"].includes(input.dirtyKind) && input.specComplete === true,
     format: (input) => [
       `1. Spec checklists are complete. Commit and push so the PR reflects:`,
       `   git -C ${input.worktreePath} add -A && git -C ${input.worktreePath} commit && git -C ${input.worktreePath} push`,
@@ -711,9 +663,7 @@ const suggestedMovesRules: Array<{
 
   // Rule 6: modified or mixed + specComplete = false
   {
-    match: (input) =>
-      ["modified", "mixed"].includes(input.dirtyKind) &&
-      input.specComplete === false,
+    match: (input) => ["modified", "mixed"].includes(input.dirtyKind) && input.specComplete === false,
     format: (input) => [
       `1. Inspect: git -C ${input.worktreePath} diff`,
       `2. Resume: jarvis1 run ${input.specPath || "(spec path unknown)"}`,
@@ -723,9 +673,7 @@ const suggestedMovesRules: Array<{
 ];
 
 function defaultSuggestedMove(input: SuggestedMovesInput): string[] {
-  return [
-    `1. Inspect: git -C ${input.worktreePath} diff and the session log above`,
-  ];
+  return [`1. Inspect: git -C ${input.worktreePath} diff and the session log above`];
 }
 
 function buildNamespace(specPath: string): string {

@@ -1,13 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -201,9 +194,7 @@ describe("boundary", () => {
     const result = assertTargetRepoPlanBoundary(repoDir);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.offendingPaths.some((p) => p.startsWith("spec/"))).toBe(
-        true,
-      );
+      expect(result.offendingPaths.some((p) => p.startsWith("spec/"))).toBe(true);
     }
   });
 
@@ -212,11 +203,7 @@ describe("boundary", () => {
     const nonGitDir = join(tempDir, "non-git-dir");
     mkdirSync(nonGitDir);
     mkdirSync(join(nonGitDir, "spec", "some-spec"), { recursive: true });
-    writeFileSync(
-      join(nonGitDir, "spec", "some-spec", "intent.md"),
-      "x\n",
-      "utf8",
-    );
+    writeFileSync(join(nonGitDir, "spec", "some-spec", "intent.md"), "x\n", "utf8");
 
     const result = assertTargetRepoPlanBoundary(nonGitDir);
     expect(result.ok).toBe(true);
@@ -226,11 +213,7 @@ describe("boundary", () => {
     const intentPath = join(repoDir, "spec", specName, "intent.md");
     const offendingPaths = ["src/main.ts", "README.md"];
 
-    appendBoundaryBlocker(
-      join(repoDir, "spec", specName),
-      specName,
-      offendingPaths,
-    );
+    appendBoundaryBlocker(join(repoDir, "spec", specName), specName, offendingPaths);
 
     const content = readFileSync(intentPath, "utf8");
     expect(content).toContain("## Blocker");
@@ -245,11 +228,7 @@ describe("boundary", () => {
     writeFileSync(intentPath, `# Intent\n\n${oldBlocker}`, "utf8");
 
     const offendingPaths = ["src/main.ts"];
-    appendBoundaryBlocker(
-      join(repoDir, "spec", specName),
-      specName,
-      offendingPaths,
-    );
+    appendBoundaryBlocker(join(repoDir, "spec", specName), specName, offendingPaths);
 
     const content = readFileSync(intentPath, "utf8");
     expect(content).not.toContain("Old blocker content");

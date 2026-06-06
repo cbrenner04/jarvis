@@ -73,10 +73,7 @@ async function fetchUnresolvedInlineThreads(args: {
     }
   }
 }`;
-  const { owner, name } = await resolveRepoOwnerAndName(
-    args.cwd,
-    args.ghRunner,
-  );
+  const { owner, name } = await resolveRepoOwnerAndName(args.cwd, args.ghRunner);
   const result = await args.ghRunner(
     [
       "api",
@@ -93,9 +90,7 @@ async function fetchUnresolvedInlineThreads(args: {
     args.cwd,
   );
   if (result.exitCode !== 0) {
-    throw new Error(
-      result.stderr || result.stdout || "failed to fetch review threads",
-    );
+    throw new Error(result.stderr || result.stdout || "failed to fetch review threads");
   }
   const parsed = JSON.parse(result.stdout) as {
     data?: {
@@ -120,8 +115,7 @@ async function fetchUnresolvedInlineThreads(args: {
       } | null;
     };
   };
-  const nodes =
-    parsed.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
+  const nodes = parsed.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
   const out: ActionableInlineThread[] = [];
   for (const thread of nodes) {
     if (thread.isResolved === true) {
@@ -143,11 +137,7 @@ async function fetchUnresolvedInlineThreads(args: {
     }
     out.push({ comments });
   }
-  out.sort((a, b) =>
-    (a.comments[0]?.createdAt ?? "").localeCompare(
-      b.comments[0]?.createdAt ?? "",
-    ),
-  );
+  out.sort((a, b) => (a.comments[0]?.createdAt ?? "").localeCompare(b.comments[0]?.createdAt ?? ""));
   return out;
 }
 
@@ -156,14 +146,9 @@ async function fetchEligibleTopLevelComments(args: {
   cwd: string;
   ghRunner: GhRunner;
 }): Promise<TopLevelReviewComment[]> {
-  const prView = await args.ghRunner(
-    ["pr", "view", String(args.prNumber), "--json", "reviews,comments"],
-    args.cwd,
-  );
+  const prView = await args.ghRunner(["pr", "view", String(args.prNumber), "--json", "reviews,comments"], args.cwd);
   if (prView.exitCode !== 0) {
-    throw new Error(
-      prView.stderr || prView.stdout || "failed to fetch PR comments",
-    );
+    throw new Error(prView.stderr || prView.stdout || "failed to fetch PR comments");
   }
   const parsed = JSON.parse(prView.stdout) as {
     reviews?: Array<{ submittedAt?: string | null }>;
@@ -191,9 +176,7 @@ async function fetchEligibleTopLevelComments(args: {
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-function latestSubmittedAt(
-  reviews: Array<{ submittedAt?: string | null }>,
-): string | null {
+function latestSubmittedAt(reviews: Array<{ submittedAt?: string | null }>): string | null {
   let latest: string | null = null;
   for (const review of reviews) {
     const submittedAt = review.submittedAt ?? null;
@@ -214,18 +197,10 @@ function isBotLogin(login: string | null | undefined): boolean {
   return login.endsWith("[bot]");
 }
 
-async function resolveRepoOwnerAndName(
-  cwd: string,
-  ghRunner: GhRunner,
-): Promise<{ owner: string; name: string }> {
-  const result = await ghRunner(
-    ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
-    cwd,
-  );
+async function resolveRepoOwnerAndName(cwd: string, ghRunner: GhRunner): Promise<{ owner: string; name: string }> {
+  const result = await ghRunner(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], cwd);
   if (result.exitCode !== 0) {
-    throw new Error(
-      result.stderr || result.stdout || "failed to resolve repository",
-    );
+    throw new Error(result.stderr || result.stdout || "failed to resolve repository");
   }
   const value = result.stdout.trim();
   const slash = value.indexOf("/");
@@ -239,10 +214,7 @@ async function resolveRepoOwnerAndName(
 }
 
 export function readPatchRulesText(): string {
-  return readFileSync(
-    join(import.meta.dir, "..", "..", "prompts", "patch", "rules.md"),
-    "utf8",
-  );
+  return readFileSync(join(import.meta.dir, "..", "..", "prompts", "patch", "rules.md"), "utf8");
 }
 
 export function renderReviewPrompt(args: {
@@ -252,15 +224,11 @@ export function renderReviewPrompt(args: {
   patchRulesText: string;
 }): string {
   const lines: string[] = [];
-  lines.push(
-    `Address open review feedback on branch ${args.branch} for PR #${args.prNumber}.`,
-  );
+  lines.push(`Address open review feedback on branch ${args.branch} for PR #${args.prNumber}.`);
   lines.push("Review mode instructions:");
   lines.push("- Address every included comment in one pass.");
   lines.push("- Do not create commits or push; Jarvis owns commit/push.");
-  lines.push(
-    "- If any request cannot be handled safely, leave it unresolved and explain why in your response.",
-  );
+  lines.push("- If any request cannot be handled safely, leave it unresolved and explain why in your response.");
   lines.push("");
   lines.push("Actionable unresolved inline threads:");
   if (args.feedback.inlineThreads.length === 0) {
@@ -268,17 +236,13 @@ export function renderReviewPrompt(args: {
   }
   for (const [index, thread] of args.feedback.inlineThreads.entries()) {
     const head = thread.comments[0];
-    lines.push(
-      `- Thread ${index + 1} (${head?.path ?? "unknown path"}:${head?.line ?? "?"})`,
-    );
+    lines.push(`- Thread ${index + 1} (${head?.path ?? "unknown path"}:${head?.line ?? "?"})`);
     if (head?.diffHunk) {
       lines.push("  Diff context:");
       lines.push(`  ${head.diffHunk}`);
     }
     for (const comment of thread.comments) {
-      lines.push(
-        `  - ${comment.createdAt} ${comment.author}: ${comment.body.replaceAll("\n", " ")}`,
-      );
+      lines.push(`  - ${comment.createdAt} ${comment.author}: ${comment.body.replaceAll("\n", " ")}`);
     }
   }
   lines.push("");
@@ -287,9 +251,7 @@ export function renderReviewPrompt(args: {
     lines.push("- (none)");
   }
   for (const comment of args.feedback.topLevelComments) {
-    lines.push(
-      `- ${comment.createdAt} ${comment.author}: ${comment.body.replaceAll("\n", " ")}`,
-    );
+    lines.push(`- ${comment.createdAt} ${comment.author}: ${comment.body.replaceAll("\n", " ")}`);
   }
   lines.push("");
   lines.push("Patch mode rules:");

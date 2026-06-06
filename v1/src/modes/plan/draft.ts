@@ -80,16 +80,12 @@ export function buildDraftPrompt(opts: {
   });
 
   try {
-    template = renderTemplate(
-      template,
-      new Set(["WORKDIR", "NAME", "INTENT", "SPEC_GUIDANCE"]),
-      {
-        WORKDIR: workDir,
-        NAME: opts.name,
-        INTENT: opts.intent,
-        SPEC_GUIDANCE: opts.specGuidance,
-      },
-    );
+    template = renderTemplate(template, new Set(["WORKDIR", "NAME", "INTENT", "SPEC_GUIDANCE"]), {
+      WORKDIR: workDir,
+      NAME: opts.name,
+      INTENT: opts.intent,
+      SPEC_GUIDANCE: opts.specGuidance,
+    });
   } catch (err) {
     if (err instanceof TemplateRenderingError) {
       throw new Error(`draft prompt configuration error: ${err.details}`);
@@ -109,12 +105,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
   subspecCount: number | null;
   agentLabel: string | null;
 }> {
-  const specDirPath = resolvePlanSpecDirPath(
-    opts.worktreePath,
-    opts.name,
-    opts.specDirPath,
-    opts.targetDir,
-  );
+  const specDirPath = resolvePlanSpecDirPath(opts.worktreePath, opts.name, opts.specDirPath, opts.targetDir);
   const flatSpecLayout = opts.specDirPath !== undefined;
   const agentCwd = opts.agentCwd ?? opts.worktreePath;
 
@@ -124,14 +115,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
 
   // Read spec guidance from the main checkout
   // Note: using import.meta.dir to find our location, then navigate back to docs/
-  const docsPath = join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "docs",
-    "spec-guidance.md",
-  );
+  const docsPath = join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md");
   const specGuidance = readFileSync(docsPath, "utf8");
 
   // Build the prompt
@@ -141,9 +125,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       name: opts.name,
       intent,
       specGuidance,
-      ...(flatSpecLayout
-        ? { flatSpecLayout: true, workDirLabel: specDirPath }
-        : {}),
+      ...(flatSpecLayout ? { flatSpecLayout: true, workDirLabel: specDirPath } : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });
   } catch (err) {
@@ -170,8 +152,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
 
   for (const entry of agentOrder) {
     const agent = resolveAgent(entry.agent, entry.model);
-    agentLabel =
-      agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
+    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();
@@ -180,9 +161,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
-      porcelainBefore !== null &&
-      porcelainAfter !== null &&
-      porcelainBefore === porcelainAfter;
+      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
     result = applyQuotaFallbackWhenAllowed(
       entry.agent,
       spawnResult,
@@ -305,12 +284,7 @@ export function validateDraftOutput(
   specDirPath?: string,
   targetDir?: string,
 ): { valid: boolean; error: string | null; blocker?: string | undefined } {
-  const specDir = resolvePlanSpecDirPath(
-    worktreePath,
-    name,
-    specDirPath,
-    targetDir,
-  );
+  const specDir = resolvePlanSpecDirPath(worktreePath, name, specDirPath, targetDir);
 
   // Check index.md exists
   const indexPath = join(specDir, "index.md");
@@ -348,8 +322,7 @@ export function validateDraftOutput(
     if (!isValidIntentModification(intentBefore, intentAfter)) {
       return {
         valid: false,
-        error:
-          "intent.md was modified (only allowed modification is appending ## Blocker; frontmatter is immutable)",
+        error: "intent.md was modified (only allowed modification is appending ## Blocker; frontmatter is immutable)",
       };
     }
   }

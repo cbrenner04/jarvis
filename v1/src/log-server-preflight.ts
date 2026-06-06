@@ -23,9 +23,7 @@ export type LogServerPreflightResult =
  * error wording shared by `jarvis run` and `jarvis plan` to stderr and
  * returns `{ kind: "error", exitCode: 1 }`.
  */
-export async function checkLogServerReachable(
-  opts: LogServerPreflightOptions,
-): Promise<LogServerPreflightResult> {
+export async function checkLogServerReachable(opts: LogServerPreflightOptions): Promise<LogServerPreflightResult> {
   const logServerUrl = opts.logServerUrl ?? DEFAULT_LOG_SERVER_URL;
   const logClient = opts.logClient ?? createLogClient(logServerUrl);
   try {

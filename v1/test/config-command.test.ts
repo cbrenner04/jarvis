@@ -82,10 +82,7 @@ describe("config set-patch-order", () => {
   test("happy path replaces modes.patch.agentOrder", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: [
-        "set-patch-order",
-        "codex:gpt-5.3-codex,claude:haiku,cursor:Composer 2",
-      ],
+      args: ["set-patch-order", "codex:gpt-5.3-codex,claude:haiku,cursor:Composer 2"],
       io: cap.io,
       config: { dir: cfgDir },
     });
@@ -198,10 +195,7 @@ describe("config set-plan-order", () => {
   test("happy path replaces modes.plan.agentOrder", () => {
     const cap = captureIo();
     const code = configCommand({
-      args: [
-        "set-plan-order",
-        "codex:gpt-5.3-codex,claude:haiku,cursor:Composer 2",
-      ],
+      args: ["set-plan-order", "codex:gpt-5.3-codex,claude:haiku,cursor:Composer 2"],
       io: cap.io,
       config: { dir: cfgDir },
     });

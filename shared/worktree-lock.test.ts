@@ -1,19 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  acquireLock,
-  isProcessAlive,
-  releaseLock,
-  type WorktreeLock,
-} from "./worktree-lock.ts";
+import { acquireLock, isProcessAlive, releaseLock, type WorktreeLock } from "./worktree-lock.ts";
 
 const dirs: string[] = [];
 function tmp(): string {
@@ -22,8 +11,7 @@ function tmp(): string {
   return dir;
 }
 afterEach(() => {
-  for (const dir of dirs.splice(0))
-    rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 describe("acquireLock", () => {
@@ -44,16 +32,12 @@ describe("acquireLock", () => {
     writeFileSync(lockPath, JSON.stringify(existing));
     const result = acquireLock(lockPath);
     expect(result.kind).toBe("busy");
-    if (result.kind === "busy")
-      expect(result.existingLock.pid).toBe(process.pid);
+    if (result.kind === "busy") expect(result.existingLock.pid).toBe(process.pid);
   });
 
   test("dead holder: recovers and rewrites the lock", () => {
     const lockPath = join(tmp(), ".jarvis.lock");
-    writeFileSync(
-      lockPath,
-      JSON.stringify({ pid: 999999, started_at: "x", host: "h" }),
-    );
+    writeFileSync(lockPath, JSON.stringify({ pid: 999999, started_at: "x", host: "h" }));
     const result = acquireLock(lockPath);
     expect(result.kind).toBe("recovered");
     if (result.kind === "recovered") expect(result.stalepid).toBe(999999);

@@ -1,20 +1,8 @@
 import { randomBytes } from "node:crypto";
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  writeSync,
-} from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
-import {
-  agentHasPricedModels,
-  resolveAgentPriceKey,
-} from "./agents/price-keys.ts";
+import { agentHasPricedModels, resolveAgentPriceKey } from "./agents/price-keys.ts";
 
 let configWriteLocked = false;
 
@@ -126,7 +114,7 @@ const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
   claude: "haiku",
   codex: "gpt-5.3-codex",
   cursor: "Composer 2",
-  opencode: "github-copilot/claude-opus-4.7",
+  opencode: "github-copilot/claude-opus-4.8",
   aider: "ollama_chat/qwen3.6:35b",
 };
 
@@ -167,10 +155,7 @@ function resolveSessionsDir(opts?: ConfigOptions): string {
 }
 
 function isAgentName(value: unknown): value is AgentName {
-  return (
-    typeof value === "string" &&
-    (AGENT_NAMES as readonly string[]).includes(value)
-  );
+  return typeof value === "string" && (AGENT_NAMES as readonly string[]).includes(value);
 }
 
 function fail(file: string, message: string): never {
@@ -191,11 +176,7 @@ function validateConfig(input: unknown, file: string): Config {
     fail(file, msg);
   }
 
-  if (
-    obj.agentOrder !== undefined ||
-    obj.planAgentOrder !== undefined ||
-    obj.patchModels !== undefined
-  ) {
+  if (obj.agentOrder !== undefined || obj.planAgentOrder !== undefined || obj.patchModels !== undefined) {
     fail(
       file,
       `legacy keys found: "agentOrder", "planAgentOrder", and "patchModels" are no longer supported. Each entry in "modes.patch.agentOrder" / "modes.plan.agentOrder" now carries its own model: [{"agent": "claude", "model": "haiku"}, ...]. See spec/2026-05-14-cli-modes-and-config-v2/00-config-v2-modes.md for details.`,
@@ -209,35 +190,19 @@ function validateConfig(input: unknown, file: string): Config {
   const modesObj = modes as Record<string, unknown>;
 
   const patchMode = modesObj.patch;
-  if (
-    patchMode === null ||
-    typeof patchMode !== "object" ||
-    Array.isArray(patchMode)
-  ) {
+  if (patchMode === null || typeof patchMode !== "object" || Array.isArray(patchMode)) {
     fail(file, 'modes.patch must be an object with "agentOrder" array');
   }
   const patchModeObj = patchMode as Record<string, unknown>;
-  const patchAgentOrder = validateAgentOrder(
-    patchModeObj.agentOrder,
-    "modes.patch.agentOrder",
-    file,
-  );
+  const patchAgentOrder = validateAgentOrder(patchModeObj.agentOrder, "modes.patch.agentOrder", file);
   validateNoModeAgents(patchModeObj.agents, "modes.patch", file);
 
   const planMode = modesObj.plan;
-  if (
-    planMode === null ||
-    typeof planMode !== "object" ||
-    Array.isArray(planMode)
-  ) {
+  if (planMode === null || typeof planMode !== "object" || Array.isArray(planMode)) {
     fail(file, 'modes.plan must be an object with "agentOrder" array');
   }
   const planModeObj = planMode as Record<string, unknown>;
-  const planAgentOrder = validateAgentOrder(
-    planModeObj.agentOrder,
-    "modes.plan.agentOrder",
-    file,
-  );
+  const planAgentOrder = validateAgentOrder(planModeObj.agentOrder, "modes.plan.agentOrder", file);
   validateNoModeAgents(planModeObj.agents, "modes.plan", file);
 
   let planSpecTimestamp: boolean | undefined;
@@ -258,11 +223,7 @@ function validateConfig(input: unknown, file: string): Config {
 
   let planTargetDir: string | undefined;
   if (planModeObj.targetDir !== undefined) {
-    planTargetDir = validateTargetDir(
-      planModeObj.targetDir,
-      "modes.plan.targetDir",
-      (message) => fail(file, message),
-    );
+    planTargetDir = validateTargetDir(planModeObj.targetDir, "modes.plan.targetDir", (message) => fail(file, message));
   }
 
   const maxIterations = validatePositiveInteger(
@@ -270,9 +231,8 @@ function validateConfig(input: unknown, file: string): Config {
     "maxIterations",
     (message) => fail(file, message),
   );
-  const quotaFallback = validateQuotaFallback(
-    obj.quotaFallback ?? DEFAULT_CONFIG.quotaFallback,
-    (message) => fail(file, message),
+  const quotaFallback = validateQuotaFallback(obj.quotaFallback ?? DEFAULT_CONFIG.quotaFallback, (message) =>
+    fail(file, message),
   );
 
   const weakQuotaExitCodes = validateExitCodeList(
@@ -289,11 +249,7 @@ function validateConfig(input: unknown, file: string): Config {
 
   let runTimeoutMs: number | undefined;
   if (obj.runTimeoutMs !== undefined) {
-    runTimeoutMs = validatePositiveInteger(
-      obj.runTimeoutMs,
-      "runTimeoutMs",
-      (message) => fail(file, message),
-    );
+    runTimeoutMs = validatePositiveInteger(obj.runTimeoutMs, "runTimeoutMs", (message) => fail(file, message));
   }
 
   const logServerUrl = validateConfigString(
@@ -314,27 +270,16 @@ function validateConfig(input: unknown, file: string): Config {
     (message) => fail(file, message),
   );
 
-  const git = validateOptionalBoolean(
-    obj.git,
-    "git",
-    DEFAULT_CONFIG.git,
-    (message) => fail(file, message),
-  );
+  const git = validateOptionalBoolean(obj.git, "git", DEFAULT_CONFIG.git, (message) => fail(file, message));
 
   const rawProjects = obj.projects;
-  if (
-    rawProjects === null ||
-    typeof rawProjects !== "object" ||
-    Array.isArray(rawProjects)
-  ) {
+  if (rawProjects === null || typeof rawProjects !== "object" || Array.isArray(rawProjects)) {
     fail(file, "projects must be an object");
   }
 
   const projects: Record<string, Project> = {};
   const seenRoots = new Map<string, string>();
-  for (const [name, value] of Object.entries(
-    rawProjects as Record<string, unknown>,
-  )) {
+  for (const [name, value] of Object.entries(rawProjects as Record<string, unknown>)) {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
       fail(file, `project ${JSON.stringify(name)} must be an object`);
     }
@@ -343,10 +288,7 @@ function validateConfig(input: unknown, file: string): Config {
       fail(file, `project ${JSON.stringify(name)} is missing root`);
     }
     if (!isAbsolute(root)) {
-      fail(
-        file,
-        `project ${JSON.stringify(name)} root must be an absolute path (got ${JSON.stringify(root)})`,
-      );
+      fail(file, `project ${JSON.stringify(name)} root must be an absolute path (got ${JSON.stringify(root)})`);
     }
     const existing = seenRoots.get(root);
     if (existing !== undefined) {
@@ -363,10 +305,7 @@ function validateConfig(input: unknown, file: string): Config {
         fail(file, `project ${JSON.stringify(name)} origin must be a string`);
       }
       if (originRaw.trim() === "") {
-        fail(
-          file,
-          `project ${JSON.stringify(name)} origin must be a non-empty string`,
-        );
+        fail(file, `project ${JSON.stringify(name)} origin must be a non-empty string`);
       }
       project.origin = originRaw;
     }
@@ -386,16 +325,10 @@ function validateConfig(input: unknown, file: string): Config {
       for (let i = 0; i < siblingsRaw.length; i++) {
         const sibling = siblingsRaw[i];
         if (typeof sibling !== "string") {
-          fail(
-            file,
-            `project ${JSON.stringify(name)} siblings[${i}] must be a string`,
-          );
+          fail(file, `project ${JSON.stringify(name)} siblings[${i}] must be a string`);
         }
         if (sibling.trim() === "") {
-          fail(
-            file,
-            `project ${JSON.stringify(name)} siblings[${i}] must be a non-empty string`,
-          );
+          fail(file, `project ${JSON.stringify(name)} siblings[${i}] must be a non-empty string`);
         }
         if (!isAbsolute(sibling)) {
           fail(
@@ -411,11 +344,7 @@ function validateConfig(input: unknown, file: string): Config {
     }
     const planRaw = (value as Record<string, unknown>).plan;
     if (planRaw !== undefined) {
-      if (
-        planRaw === null ||
-        typeof planRaw !== "object" ||
-        Array.isArray(planRaw)
-      ) {
+      if (planRaw === null || typeof planRaw !== "object" || Array.isArray(planRaw)) {
         fail(file, `project ${JSON.stringify(name)} plan must be an object`);
       }
       const planObj = planRaw as Record<string, unknown>;
@@ -427,29 +356,21 @@ function validateConfig(input: unknown, file: string): Config {
       const specTimestampRaw = planObj.specTimestamp;
       if (specTimestampRaw !== undefined) {
         if (typeof specTimestampRaw !== "boolean") {
-          fail(
-            file,
-            `project ${JSON.stringify(name)} plan.specTimestamp must be a boolean`,
-          );
+          fail(file, `project ${JSON.stringify(name)} plan.specTimestamp must be a boolean`);
         }
         plan.specTimestamp = specTimestampRaw;
       }
       const commitRaw = planObj.commit;
       if (commitRaw !== undefined) {
         if (typeof commitRaw !== "boolean") {
-          fail(
-            file,
-            `project ${JSON.stringify(name)} plan.commit must be a boolean`,
-          );
+          fail(file, `project ${JSON.stringify(name)} plan.commit must be a boolean`);
         }
         plan.commit = commitRaw;
       }
       const targetDirRaw = planObj.targetDir;
       if (targetDirRaw !== undefined) {
-        plan.targetDir = validateTargetDir(
-          targetDirRaw,
-          `project ${JSON.stringify(name)} plan.targetDir`,
-          (message) => fail(file, message),
+        plan.targetDir = validateTargetDir(targetDirRaw, `project ${JSON.stringify(name)} plan.targetDir`, (message) =>
+          fail(file, message),
         );
       }
       // Strict keys validation for plan object
@@ -467,13 +388,7 @@ function validateConfig(input: unknown, file: string): Config {
       }
     }
     // Strict keys validation for project object
-    const allowedProjectKeys = new Set([
-      "root",
-      "origin",
-      "git",
-      "siblings",
-      "plan",
-    ]);
+    const allowedProjectKeys = new Set(["root", "origin", "git", "siblings", "plan"]);
     const projectObj = value as Record<string, unknown>;
     for (const key of Object.keys(projectObj)) {
       if (!allowedProjectKeys.has(key)) {
@@ -499,9 +414,7 @@ function validateConfig(input: unknown, file: string): Config {
       patch: { agentOrder: patchAgentOrder },
       plan: {
         agentOrder: planAgentOrder,
-        ...(planSpecTimestamp !== undefined
-          ? { specTimestamp: planSpecTimestamp }
-          : {}),
+        ...(planSpecTimestamp !== undefined ? { specTimestamp: planSpecTimestamp } : {}),
         ...(planCommit !== undefined ? { commit: planCommit } : {}),
         ...(planTargetDir !== undefined ? { targetDir: planTargetDir } : {}),
       },
@@ -519,11 +432,7 @@ function validateConfig(input: unknown, file: string): Config {
   };
 }
 
-function validateAgentOrder(
-  input: unknown,
-  fieldName: string,
-  file: string,
-): AgentEntry[] {
+function validateAgentOrder(input: unknown, fieldName: string, file: string): AgentEntry[] {
   if (!Array.isArray(input)) {
     fail(file, `${fieldName} must be an array`);
   }
@@ -535,10 +444,7 @@ function validateAgentOrder(
   for (let i = 0; i < input.length; i++) {
     const raw = input[i];
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-      fail(
-        file,
-        `${fieldName}[${i}] must be an object with "agent" and "model"`,
-      );
+      fail(file, `${fieldName}[${i}] must be an object with "agent" and "model"`);
     }
     const entry = raw as Record<string, unknown>;
     if (!isAgentName(entry.agent)) {
@@ -551,16 +457,10 @@ function validateAgentOrder(
       fail(file, `${fieldName}[${i}].model must be a non-empty string`);
     }
     if (seen.has(entry.agent)) {
-      fail(
-        file,
-        `${fieldName}: duplicate agent ${JSON.stringify(entry.agent)}`,
-      );
+      fail(file, `${fieldName}: duplicate agent ${JSON.stringify(entry.agent)}`);
     }
     seen.add(entry.agent);
-    if (
-      agentHasPricedModels(entry.agent) &&
-      resolveAgentPriceKey(entry.agent, entry.model) === null
-    ) {
+    if (agentHasPricedModels(entry.agent) && resolveAgentPriceKey(entry.agent, entry.model) === null) {
       fail(
         file,
         `${fieldName}[${i}].model: ${JSON.stringify(entry.model)} is not a known priced model for agent ${JSON.stringify(entry.agent)}`,
@@ -571,19 +471,12 @@ function validateAgentOrder(
   return agentOrder;
 }
 
-function validateNoModeAgents(
-  input: unknown,
-  fieldName: string,
-  file: string,
-): void {
+function validateNoModeAgents(input: unknown, fieldName: string, file: string): void {
   if (input === undefined) {
     return;
   }
 
-  fail(
-    file,
-    `${fieldName}.agents is no longer supported; configure agents through ${fieldName}.agentOrder`,
-  );
+  fail(file, `${fieldName}.agents is no longer supported; configure agents through ${fieldName}.agentOrder`);
 }
 
 export function validatePositiveInteger(
@@ -599,11 +492,7 @@ export function validatePositiveInteger(
   return value;
 }
 
-function validateConfigString(
-  value: unknown,
-  name: string,
-  failWith: (message: string) => never,
-): string {
+function validateConfigString(value: unknown, name: string, failWith: (message: string) => never): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     failWith(`${name} must be a non-empty string`);
   }
@@ -643,56 +532,35 @@ function validateOptionalBoolean(
   return value;
 }
 
-function validateQuotaFallback(
-  value: unknown,
-  failWith: (message: string) => never,
-): "strict" | "lenient" {
+function validateQuotaFallback(value: unknown, failWith: (message: string) => never): "strict" | "lenient" {
   if (value === "strict" || value === "lenient") {
     return value;
   }
   failWith('quotaFallback must be "strict" or "lenient"');
 }
 
-export function validateTargetDir(
-  value: unknown,
-  name: string,
-  failWith: (message: string) => never,
-): string {
+export function validateTargetDir(value: unknown, name: string, failWith: (message: string) => never): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     failWith(`${name} must be a non-empty string`);
   }
   const trimmed = value.trim();
   if (isAbsolute(trimmed)) {
-    failWith(
-      `${name} must be a relative path (got ${JSON.stringify(trimmed)})`,
-    );
+    failWith(`${name} must be a relative path (got ${JSON.stringify(trimmed)})`);
   }
   if (trimmed.includes("..")) {
-    failWith(
-      `${name} must not contain ".." traversal (got ${JSON.stringify(trimmed)})`,
-    );
+    failWith(`${name} must not contain ".." traversal (got ${JSON.stringify(trimmed)})`);
   }
   return trimmed;
 }
 
-function validateExitCodeList(
-  value: unknown,
-  name: string,
-  failWith: (message: string) => never,
-): number[] {
+function validateExitCodeList(value: unknown, name: string, failWith: (message: string) => never): number[] {
   if (!Array.isArray(value)) {
     failWith(`${name} must be an array of integers`);
   }
   const result: number[] = [];
   for (const entry of value) {
-    if (
-      typeof entry !== "number" ||
-      !Number.isInteger(entry) ||
-      !Number.isFinite(entry)
-    ) {
-      failWith(
-        `${name} entries must be integers (got ${JSON.stringify(entry)})`,
-      );
+    if (typeof entry !== "number" || !Number.isInteger(entry) || !Number.isFinite(entry)) {
+      failWith(`${name} entries must be integers (got ${JSON.stringify(entry)})`);
     }
     result.push(entry);
   }
@@ -744,20 +612,14 @@ export function writeConfig(cfg: Config, opts?: ConfigOptions): void {
   atomicWriteSync(file, serialize(validated));
 }
 
-export function registerProject(
-  name: string,
-  root: string,
-  opts?: ConfigOptions & { origin?: string },
-): void {
+export function registerProject(name: string, root: string, opts?: ConfigOptions & { origin?: string }): void {
   if (!isAbsolute(root)) {
     throw new Error(`Project root must be absolute: ${root}`);
   }
   const cfg = loadConfig(opts);
   for (const [existingName, project] of Object.entries(cfg.projects)) {
     if (project.root === root && existingName !== name) {
-      throw new Error(
-        `Project root ${root} is already registered as ${JSON.stringify(existingName)}`,
-      );
+      throw new Error(`Project root ${root} is already registered as ${JSON.stringify(existingName)}`);
     }
   }
   // Preserve existing project if re-registering the same name
@@ -776,11 +638,7 @@ export function registerProject(
   writeConfig(cfg, opts);
 }
 
-export function setProjectOrigin(
-  name: string,
-  origin: string,
-  opts?: ConfigOptions,
-): void {
+export function setProjectOrigin(name: string, origin: string, opts?: ConfigOptions): void {
   const cfg = loadConfig(opts);
   const project = cfg.projects[name];
   if (project === undefined) {
@@ -796,11 +654,7 @@ export function setGit(value: boolean, opts?: ConfigOptions): void {
   writeConfig(cfg, opts);
 }
 
-export function setProjectGit(
-  name: string,
-  value: boolean | undefined,
-  opts?: ConfigOptions,
-): void {
+export function setProjectGit(name: string, value: boolean | undefined, opts?: ConfigOptions): void {
   const cfg = loadConfig(opts);
   const project = cfg.projects[name];
   if (project === undefined) {
@@ -833,17 +687,13 @@ export function resolvePlanFlags(
   const globalPlan = cfg.modes?.plan;
   const projectPlan = project?.plan;
   return {
-    specTimestamp:
-      projectPlan?.specTimestamp ?? globalPlan?.specTimestamp ?? true,
+    specTimestamp: projectPlan?.specTimestamp ?? globalPlan?.specTimestamp ?? true,
     commit: projectPlan?.commit ?? globalPlan?.commit ?? true,
     targetDir: projectPlan?.targetDir ?? globalPlan?.targetDir ?? "spec",
   };
 }
 
-export function findProjectForPath(
-  p: string,
-  opts?: ConfigOptions,
-): Project | undefined {
+export function findProjectForPath(p: string, opts?: ConfigOptions): Project | undefined {
   const match = findProjectMatchForPath(p, opts);
   if (match === undefined) {
     return undefined;
@@ -860,10 +710,7 @@ export function findProjectForPath(
   return project;
 }
 
-export function findProjectMatchForPath(
-  p: string,
-  opts?: ConfigOptions,
-): ProjectMatch | undefined {
+export function findProjectMatchForPath(p: string, opts?: ConfigOptions): ProjectMatch | undefined {
   const target = resolve(p);
   const cfg = loadConfig(opts);
   let best: ProjectMatch | undefined;
@@ -885,11 +732,7 @@ export function findProjectMatchForPath(
   return best;
 }
 
-export function openSessionLog(
-  namespace: string,
-  timestamp: string,
-  opts?: ConfigOptions,
-): number {
+export function openSessionLog(namespace: string, timestamp: string, opts?: ConfigOptions): number {
   const sessionsDir = resolveSessionsDir(opts);
   mkdirSync(sessionsDir, { recursive: true });
   return openSync(join(sessionsDir, `${namespace}-${timestamp}.log`), "a");

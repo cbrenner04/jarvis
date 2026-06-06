@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAgent } from "../../src/agents/spawn.ts";
@@ -24,11 +17,7 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
-function fakeBinary(opts: {
-  exit: number;
-  stdout?: string;
-  stderr?: string;
-}): string {
+function fakeBinary(opts: { exit: number; stdout?: string; stderr?: string }): string {
   const path = join(dir, "agent");
   const out = opts.stdout ?? "";
   const err = opts.stderr ?? "";

@@ -2,10 +2,7 @@ import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
 
-export function buildPrDescriptionPrompt(opts: {
-  specPath: string;
-  specContext: string;
-}): string {
+export function buildPrDescriptionPrompt(opts: { specPath: string; specContext: string }): string {
   const registry = loadPromptRegistry();
   const template = assemblePromptForStep({
     registry,

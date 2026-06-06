@@ -1,7 +1,4 @@
-import {
-  type EstimatedTokenUsage,
-  estimateTokenUsage,
-} from "./token-estimation.ts";
+import { type EstimatedTokenUsage, estimateTokenUsage } from "./token-estimation.ts";
 
 export type EstimatedCursorUsage = EstimatedTokenUsage;
 
@@ -13,9 +10,6 @@ export type EstimatedCursorUsage = EstimatedTokenUsage;
  * Returns null on tokenizer failure; callers should fall back to
  * usage_source: "unavailable" in that case.
  */
-export function estimateCursorUsage(args: {
-  prompt: string;
-  stdout: string;
-}): EstimatedCursorUsage | null {
+export function estimateCursorUsage(args: { prompt: string; stdout: string }): EstimatedCursorUsage | null {
   return estimateTokenUsage(args);
 }

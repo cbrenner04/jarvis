@@ -14,9 +14,7 @@ export type PricesCommandOptions = {
   io: Io;
 };
 
-export async function pricesCommand(
-  opts: PricesCommandOptions,
-): Promise<number> {
+export async function pricesCommand(opts: PricesCommandOptions): Promise<number> {
   const { args, io } = opts;
   const [sub] = args;
 

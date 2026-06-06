@@ -2,33 +2,20 @@
 // Aider runs non-interactively with --yes-always; auto-commits are disabled so
 // jarvis remains the sole committer in the worktree.
 import { runAgent } from "./spawn.ts";
-import {
-  type EstimatedTokenUsage,
-  estimateTokenUsage,
-} from "./token-estimation.ts";
-import type {
-  Agent,
-  AgentName,
-  AgentResult,
-  AgentRunOptions,
-} from "./types.ts";
+import { type EstimatedTokenUsage, estimateTokenUsage } from "./token-estimation.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "./types.ts";
 
 export type AiderAgentOptions = {
   binary?: string;
   model: string;
-  estimateUsage?: (args: {
-    prompt: string;
-    stdout: string;
-  }) => EstimatedTokenUsage | null;
+  estimateUsage?: (args: { prompt: string; stdout: string }) => EstimatedTokenUsage | null;
 };
 
 const AIDER_MODEL_LABELS: Record<string, string> = {};
 
 export const AIDER_HAS_PRICED_MODELS = false;
 
-export function resolveAiderPriceKey(
-  _model: string | undefined,
-): string | null {
+export function resolveAiderPriceKey(_model: string | undefined): string | null {
   return null;
 }
 
@@ -36,10 +23,7 @@ export class AiderAgent implements Agent {
   readonly name = "aider" as AgentName;
   readonly #binary: string;
   readonly #model: string;
-  readonly #estimateUsage: (args: {
-    prompt: string;
-    stdout: string;
-  }) => EstimatedTokenUsage | null;
+  readonly #estimateUsage: (args: { prompt: string; stdout: string }) => EstimatedTokenUsage | null;
 
   constructor(opts: AiderAgentOptions) {
     this.#binary = opts.binary ?? "aider";
@@ -91,10 +75,7 @@ export class AiderAgent implements Agent {
         ...result,
         usage_source: "unavailable",
         cost_source: "no-usage",
-        warnings: [
-          ...(result.warnings ?? []),
-          "aider: token estimator unavailable; usage recorded as unavailable.",
-        ],
+        warnings: [...(result.warnings ?? []), "aider: token estimator unavailable; usage recorded as unavailable."],
       };
     }
 

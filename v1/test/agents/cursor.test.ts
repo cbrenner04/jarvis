@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CursorAgent } from "../../src/agents/cursor.ts";
@@ -24,11 +17,7 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
-function fakeBinary(opts: {
-  exit: number;
-  stdout?: string;
-  stderr?: string;
-}): string {
+function fakeBinary(opts: { exit: number; stdout?: string; stderr?: string }): string {
   const path = join(dir, "cursor");
   const out = opts.stdout ?? "";
   const err = opts.stderr ?? "";
@@ -65,9 +54,7 @@ describe("CursorAgent", () => {
       expect(result.usage?.output_tokens).toBeGreaterThan(0);
     }
     const argv = readFileSync(join(dir, "argv"), "utf8");
-    expect(argv).toBe(
-      `agent\0-p\0--output-format\0text\0--force\0--workspace\0${cwd}\0the prompt\0`,
-    );
+    expect(argv).toBe(`agent\0-p\0--output-format\0text\0--force\0--workspace\0${cwd}\0the prompt\0`);
     const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
     const resolvedReportedCwd = realpathSync(reportedCwd);
     const resolvedCwd = realpathSync(cwd);
@@ -170,9 +157,9 @@ describe("CursorAgent", () => {
   test("attributionLabel returns raw string for model ID", () => {
     const agent = new CursorAgent({
       binary: "fake",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
-    expect(agent.attributionLabel()).toBe("claude-opus-4-7");
+    expect(agent.attributionLabel()).toBe("claude-opus-4-8");
   });
 
   test("attributionLabel returns default fallback when model is undefined", () => {

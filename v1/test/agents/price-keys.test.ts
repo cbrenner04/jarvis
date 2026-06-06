@@ -1,22 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import {
-  agentHasPricedModels,
-  resolveAgentPriceKey,
-} from "../../src/agents/price-keys.ts";
+import { agentHasPricedModels, resolveAgentPriceKey } from "../../src/agents/price-keys.ts";
 
 describe("resolveAgentPriceKey", () => {
   test("claude maps short names to canonical price keys", () => {
-    expect(resolveAgentPriceKey("claude", "haiku")).toBe(
-      "claude-haiku-4-5-20251001",
-    );
+    expect(resolveAgentPriceKey("claude", "haiku")).toBe("claude-haiku-4-5-20251001");
     expect(resolveAgentPriceKey("claude", "sonnet")).toBe("claude-sonnet-4-6");
-    expect(resolveAgentPriceKey("claude", "opus")).toBe("claude-opus-4-7");
+    expect(resolveAgentPriceKey("claude", "opus")).toBe("claude-opus-4-8");
   });
 
   test("claude passes canonical price keys through unchanged", () => {
-    expect(resolveAgentPriceKey("claude", "claude-opus-4-7")).toBe(
-      "claude-opus-4-7",
-    );
+    expect(resolveAgentPriceKey("claude", "claude-opus-4-8")).toBe("claude-opus-4-8");
   });
 
   test("claude returns null for unknown models", () => {
@@ -25,9 +18,7 @@ describe("resolveAgentPriceKey", () => {
   });
 
   test("codex resolves known models and rejects unknown", () => {
-    expect(resolveAgentPriceKey("codex", "gpt-5.3-codex")).toBe(
-      "gpt-5.3-codex",
-    );
+    expect(resolveAgentPriceKey("codex", "gpt-5.3-codex")).toBe("gpt-5.3-codex");
     expect(resolveAgentPriceKey("codex", "gpt-5.5")).toBe("gpt-5.5");
     expect(resolveAgentPriceKey("codex", "gpt-5.4")).toBe("gpt-5.4");
     expect(resolveAgentPriceKey("codex", "gpt-5.2")).toBeNull();
@@ -41,9 +32,7 @@ describe("resolveAgentPriceKey", () => {
 
   test("cursor identity-maps its known model menu", () => {
     expect(resolveAgentPriceKey("cursor", "Composer 2")).toBe("Composer 2");
-    expect(resolveAgentPriceKey("cursor", "Claude 4.7 Opus")).toBe(
-      "Claude 4.7 Opus",
-    );
+    expect(resolveAgentPriceKey("cursor", "Claude 4.7 Opus")).toBe("Claude 4.7 Opus");
     expect(resolveAgentPriceKey("cursor", "not-a-cursor-model")).toBeNull();
   });
 });

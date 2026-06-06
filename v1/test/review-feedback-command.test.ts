@@ -1,19 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult } from "../src/agents/types.ts";
-import {
-  type ReviewIo,
-  reviewFeedbackCommand,
-} from "../src/commands/review-feedback.ts";
+import { type ReviewIo, reviewFeedbackCommand } from "../src/commands/review-feedback.ts";
 import type { Config } from "../src/config.ts";
 import { getWorktreeLockPath } from "../src/worktree-lock.ts";
 
@@ -83,10 +74,7 @@ function cfg(order: Array<{ agent: AgentName; model: string }>): Config {
   };
 }
 
-function fakeAgent(
-  name: AgentName,
-  runImpl: () => Promise<AgentResult> | AgentResult,
-): Agent {
+function fakeAgent(name: AgentName, runImpl: () => Promise<AgentResult> | AgentResult): Agent {
   return {
     name,
     run: async () => runImpl(),
@@ -103,9 +91,7 @@ describe("review-feedback command", () => {
       io: cap.io,
       loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
       ensurePatchWorktreeFn: async () => {
-        throw new Error(
-          "no local or remote branch named missing-one; cannot create worktree",
-        );
+        throw new Error("no local or remote branch named missing-one; cannot create worktree");
       },
     });
     expect(code).toBe(1);
@@ -196,15 +182,11 @@ describe("review-feedback command", () => {
       io: cap.io,
       loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
       ensurePatchWorktreeFn: async () => {
-        throw new Error(
-          "no local or remote branch named nonexistent-branch; cannot create worktree",
-        );
+        throw new Error("no local or remote branch named nonexistent-branch; cannot create worktree");
       },
     });
     expect(code).toBe(1);
-    expect(cap.err()).toContain(
-      "no local or remote branch named nonexistent-branch",
-    );
+    expect(cap.err()).toContain("no local or remote branch named nonexistent-branch");
   });
 
   test("git disabled and worktree missing uses unknown-worktree error", async () => {
@@ -416,8 +398,7 @@ describe("review-feedback command", () => {
       }),
       readPatchRulesFn: () => "rules",
       loadConfigFn: () => cfg([{ agent: "claude", model: "haiku" }]),
-      createAgentFn: () =>
-        fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" })),
+      createAgentFn: () => fakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" })),
       commitAllFn: () => {
         committed = true;
       },

@@ -1,18 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  OpencodeAgent,
-  parseOpencodeJsonStream,
-} from "../../src/agents/opencode.ts";
+import { OpencodeAgent, parseOpencodeJsonStream } from "../../src/agents/opencode.ts";
 
 let dir: string;
 let cwd: string;
@@ -27,11 +17,7 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
-function fakeBinary(opts: {
-  exit: number;
-  stdout?: string;
-  stderr?: string;
-}): string {
+function fakeBinary(opts: { exit: number; stdout?: string; stderr?: string }): string {
   const path = join(dir, "opencode");
   const stdoutFile = join(dir, "stdout.txt");
   const stderrFile = join(dir, "stderr.txt");
@@ -53,9 +39,7 @@ exit ${opts.exit}
 
 describe("OpencodeAgent", () => {
   test("name is 'opencode'", () => {
-    expect(String(new OpencodeAgent({ model: "AirProxy/test" }).name)).toBe(
-      "opencode",
-    );
+    expect(String(new OpencodeAgent({ model: "AirProxy/test" }).name)).toBe("opencode");
   });
 
   test("spawns `opencode run` with --dir, model, format, and prompt positional in cwd", async () => {
@@ -188,9 +172,7 @@ describe("OpencodeAgent", () => {
     if (result.kind === "ok") {
       expect(result.usage_source).toBe("unavailable");
       expect(result.cost_source).toBe("no-usage");
-      expect(result.warnings).toEqual([
-        "opencode: token estimator unavailable; usage recorded as unavailable.",
-      ]);
+      expect(result.warnings).toEqual(["opencode: token estimator unavailable; usage recorded as unavailable."]);
     }
   });
 
@@ -307,10 +289,7 @@ describe("OpencodeAgent", () => {
   });
 
   test("no step_finish events falls back to token estimation with warning", async () => {
-    const jsonStream = [
-      '{"type":"step_start"}',
-      '{"type":"text","part":{"text":"Some output"}}',
-    ].join("\n");
+    const jsonStream = ['{"type":"step_start"}', '{"type":"text","part":{"text":"Some output"}}'].join("\n");
 
     const bin = fakeBinary({ exit: 0, stdout: jsonStream });
     const agent = new OpencodeAgent({
@@ -348,9 +327,7 @@ describe("OpencodeAgent", () => {
     if (result.kind === "ok") {
       expect(result.usage_source).toBe("unavailable");
       expect(result.cost_source).toBe("no-usage");
-      expect(result.warnings).toContain(
-        "opencode: token estimator unavailable; usage recorded as unavailable.",
-      );
+      expect(result.warnings).toContain("opencode: token estimator unavailable; usage recorded as unavailable.");
     }
   });
 

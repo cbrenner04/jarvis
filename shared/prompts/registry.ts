@@ -1,11 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type {
-  PromptArtifact,
-  PromptPlaceholderDeclaration,
-  PromptPlaceholderType,
-  PromptRegistry,
-} from "./types.ts";
+import type { PromptArtifact, PromptPlaceholderDeclaration, PromptPlaceholderType, PromptRegistry } from "./types.ts";
 
 const PROMPTS_DIR = join(import.meta.dir, "..", "..", "prompts");
 const REGISTRY_MANIFEST = join(PROMPTS_DIR, "registry.txt");
@@ -43,9 +38,7 @@ function parsePlaceholdersValue(value: string): PromptPlaceholderDeclaration[] {
   return entries.map((entry) => {
     const match = /^([A-Z_][A-Z_0-9]*):(string)(!)?$/.exec(entry);
     if (match === null) {
-      throw new Error(
-        `invalid placeholder declaration \`${entry}\`; expected NAME:string or NAME:string!`,
-      );
+      throw new Error(`invalid placeholder declaration \`${entry}\`; expected NAME:string or NAME:string!`);
     }
     const name = match[1];
     const type = match[2];
@@ -89,30 +82,19 @@ function parseFrontmatter(text: string): {
   return { fields, body };
 }
 
-function requireField(
-  fields: Map<string, string>,
-  field: string,
-  sourcePath: string,
-): string {
+function requireField(fields: Map<string, string>, field: string, sourcePath: string): string {
   const value = fields.get(field);
   if (value === undefined || value.length === 0) {
-    throw new Error(
-      `missing required metadata \`${field}\` in prompt artifact ${sourcePath}`,
-    );
+    throw new Error(`missing required metadata \`${field}\` in prompt artifact ${sourcePath}`);
   }
   return value;
 }
 
-function parseOrderValue(
-  value: string | undefined,
-  sourcePath: string,
-): number | null {
+function parseOrderValue(value: string | undefined, sourcePath: string): number | null {
   if (value === undefined || value.length === 0) return null;
   const parsed = Number(value);
   if (!Number.isInteger(parsed)) {
-    throw new Error(
-      `invalid order \`${value}\` in prompt artifact ${sourcePath}; expected an integer`,
-    );
+    throw new Error(`invalid order \`${value}\` in prompt artifact ${sourcePath}; expected an integer`);
   }
   return parsed;
 }
@@ -126,9 +108,7 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
   const kind = requireField(fields, "kind", sourcePath);
   const revision = requireField(fields, "revision", sourcePath);
   if (kind !== "step" && kind !== "fragment") {
-    throw new Error(
-      `invalid kind \`${kind}\` in prompt artifact ${sourcePath}; expected step|fragment`,
-    );
+    throw new Error(`invalid kind \`${kind}\` in prompt artifact ${sourcePath}; expected step|fragment`);
   }
 
   return {
@@ -149,9 +129,7 @@ function readPromptArtifact(sourcePath: string): PromptArtifact {
   };
 }
 
-export function createPromptRegistry(
-  sourcePaths: readonly string[] = seededPromptArtifactFiles(),
-): PromptRegistry {
+export function createPromptRegistry(sourcePaths: readonly string[] = seededPromptArtifactFiles()): PromptRegistry {
   const artifacts = sourcePaths.map((path) => readPromptArtifact(path));
   const byId = new Map<string, PromptArtifact>();
 
@@ -175,23 +153,17 @@ export function createPromptRegistry(
     }
     for (const targetId of artifact.metadata.overrides) {
       if (!byId.has(targetId)) {
-        throw new Error(
-          `unknown explicit override target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`,
-        );
+        throw new Error(`unknown explicit override target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`);
       }
     }
     for (const targetId of artifact.metadata.add) {
       if (!byId.has(targetId)) {
-        throw new Error(
-          `unknown add target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`,
-        );
+        throw new Error(`unknown add target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`);
       }
     }
     for (const targetId of artifact.metadata.remove) {
       if (!byId.has(targetId)) {
-        throw new Error(
-          `unknown remove target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`,
-        );
+        throw new Error(`unknown remove target \`${targetId}\` in prompt artifact ${artifact.sourcePath}`);
       }
     }
   }

@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AiderAgent } from "../../src/agents/aider.ts";
@@ -24,11 +17,7 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
-function fakeBinary(opts: {
-  exit: number;
-  stdout?: string;
-  stderr?: string;
-}): string {
+function fakeBinary(opts: { exit: number; stdout?: string; stderr?: string }): string {
   const path = join(dir, "aider");
   const out = opts.stdout ?? "";
   const err = opts.stderr ?? "";
@@ -49,9 +38,7 @@ exit ${opts.exit}
 
 describe("AiderAgent", () => {
   test("name is 'aider'", () => {
-    expect(String(new AiderAgent({ model: "ollama/llama3" }).name)).toBe(
-      "aider",
-    );
+    expect(String(new AiderAgent({ model: "ollama/llama3" }).name)).toBe("aider");
   });
 
   test("spawns aider with --message, --model, --yes-always, --no-auto-commits, --no-git, --no-stream, --no-show-model-warnings in cwd", async () => {
@@ -214,9 +201,7 @@ describe("AiderAgent", () => {
     if (result.kind === "ok") {
       expect(result.usage_source).toBe("unavailable");
       expect(result.cost_source).toBe("no-usage");
-      expect(result.warnings).toEqual([
-        "aider: token estimator unavailable; usage recorded as unavailable.",
-      ]);
+      expect(result.warnings).toEqual(["aider: token estimator unavailable; usage recorded as unavailable."]);
     }
   });
 

@@ -1,7 +1,4 @@
-import {
-  checkLogServerReachable,
-  DEFAULT_LOG_SERVER_URL,
-} from "./log-server-preflight.ts";
+import { checkLogServerReachable, DEFAULT_LOG_SERVER_URL } from "./log-server-preflight.ts";
 import type { LogClient } from "./logging.ts";
 import { type ResolveTargetRepoOptions, resolveTargetRepo } from "./repo.ts";
 
@@ -19,9 +16,7 @@ export type ModeLogPreflightResult =
   | { kind: "ok"; logClient: LogClient; logServerUrl: string }
   | { kind: "error"; exitCode: 1 };
 
-export async function runModeLogPreflight(
-  opts: ModeLogPreflightOptions,
-): Promise<ModeLogPreflightResult> {
+export async function runModeLogPreflight(opts: ModeLogPreflightOptions): Promise<ModeLogPreflightResult> {
   const preflightOpts: Parameters<typeof checkLogServerReachable>[0] = {
     io: { stderr: opts.io.stderr },
     logServerUrl: opts.logServerUrl ?? DEFAULT_LOG_SERVER_URL,
@@ -32,8 +27,7 @@ export async function runModeLogPreflight(
   return await checkLogServerReachable(preflightOpts);
 }
 
-export type ModeEntryOptions = ResolveTargetRepoOptions &
-  ModeLogPreflightOptions;
+export type ModeEntryOptions = ResolveTargetRepoOptions & ModeLogPreflightOptions;
 
 export type ModeEntryResult =
   | {
@@ -45,9 +39,7 @@ export type ModeEntryResult =
   | Exclude<ReturnType<typeof resolveTargetRepo>, { kind: "ok" }>
   | { kind: "log-error"; exitCode: 1 };
 
-export async function enterMode(
-  opts: ModeEntryOptions,
-): Promise<ModeEntryResult> {
+export async function enterMode(opts: ModeEntryOptions): Promise<ModeEntryResult> {
   const resolution = resolveTargetRepo(opts);
   if (resolution.kind !== "ok") {
     return resolution;

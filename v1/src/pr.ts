@@ -4,8 +4,7 @@ import { createHash } from "node:crypto";
 // Stable HTML comments delimiting the manually editable PR narrative section.
 export const NARRATIVE_START_MARKER = "<!-- jarvis:narrative:start -->";
 export const NARRATIVE_END_MARKER = "<!-- jarvis:narrative:end -->";
-const GENERATED_NARRATIVE_HASH_PREFIX =
-  "<!-- jarvis:narrative:generated-sha256:";
+const GENERATED_NARRATIVE_HASH_PREFIX = "<!-- jarvis:narrative:generated-sha256:";
 
 export type EnsureDraftPrOpts = {
   branch: string;
@@ -16,9 +15,7 @@ export type EnsureDraftPrOpts = {
   cwd?: string;
 };
 
-export async function ensureDraftPr(
-  opts: EnsureDraftPrOpts,
-): Promise<{ number: number; created: boolean }> {
+export async function ensureDraftPr(opts: EnsureDraftPrOpts): Promise<{ number: number; created: boolean }> {
   const existingPr = checkPrExists(opts.branch, opts.cwd);
   if (existingPr) {
     return { number: existingPr, created: false };
@@ -28,13 +25,7 @@ export async function ensureDraftPr(
   if (opts.footer !== "") {
     body = `${body}\n\n---\n\n${opts.footer}`;
   }
-  const prNumber = createDraftPr(
-    opts.branch,
-    opts.base,
-    opts.title,
-    body,
-    opts.cwd,
-  );
+  const prNumber = createDraftPr(opts.branch, opts.base, opts.title, body, opts.cwd);
   return { number: prNumber, created: true };
 }
 
@@ -46,15 +37,7 @@ export function checkPrExists(branch: string, cwd?: string): number | null {
   try {
     const output = execFileSync(
       "gh",
-      [
-        "pr",
-        "view",
-        branch,
-        "--json",
-        "number,state",
-        "-q",
-        'select(.state=="OPEN") | .number',
-      ],
+      ["pr", "view", branch, "--json", "number,state", "-q", 'select(.state=="OPEN") | .number'],
       { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
     );
     const number = parseInt(output.trim(), 10);
@@ -64,35 +47,18 @@ export function checkPrExists(branch: string, cwd?: string): number | null {
   }
 }
 
-function createDraftPr(
-  branch: string,
-  base: string,
-  title: string,
-  body: string,
-  cwd?: string,
-): number {
-  execFileSync(
-    "gh",
-    [
-      "pr",
-      "create",
-      "--draft",
-      "--base",
-      base,
-      "--head",
-      branch,
-      "--title",
-      title,
-      "--body",
-      body,
-    ],
-    { cwd, env: process.env, stdio: "pipe" },
-  );
-  const prOutput = execFileSync(
-    "gh",
-    ["pr", "view", branch, "--json", "number,state", "-q", ".number"],
-    { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
-  );
+function createDraftPr(branch: string, base: string, title: string, body: string, cwd?: string): number {
+  execFileSync("gh", ["pr", "create", "--draft", "--base", base, "--head", branch, "--title", title, "--body", body], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+  });
+  const prOutput = execFileSync("gh", ["pr", "view", branch, "--json", "number,state", "-q", ".number"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  });
   const number = parseInt(prOutput.trim(), 10);
   if (Number.isNaN(number)) {
     throw new Error("failed to parse PR number from gh output");
@@ -125,10 +91,7 @@ const TRAILER_VALUE_SEP = "\x02";
  * fields renderAttribution needs. Exported only for tests; production
  * callers should use `renderAttribution` directly.
  */
-export function readBranchCommits(opts: {
-  cwd: string;
-  base: string;
-}): CommitInfo[] {
+export function readBranchCommits(opts: { cwd: string; base: string }): CommitInfo[] {
   let output: string;
   try {
     output = execFileSync(
@@ -162,10 +125,7 @@ export function readBranchCommits(opts: {
     const subject = fields[1] ?? "";
     const trailerField = fields[2] ?? "";
     const body = fields[3] ?? "";
-    const trailers =
-      trailerField === ""
-        ? []
-        : trailerField.split(TRAILER_VALUE_SEP).map((s) => s.trim());
+    const trailers = trailerField === "" ? [] : trailerField.split(TRAILER_VALUE_SEP).map((s) => s.trim());
     // git's %b includes trailers; strip them so firstBodyLine reflects the
     // commit body proper. Detect the trailer block as the trailing run of
     // `Key: value` lines preceded by a blank line.
@@ -246,10 +206,7 @@ export function renderAttribution(opts: { cwd: string; base: string }): string {
   const labelOrder: string[] = [];
   const seenLabels = new Set<string>();
   for (const commit of subspecCommits) {
-    const label =
-      commit.jarvisAgentTrailers.length === 0
-        ? "unknown"
-        : commit.jarvisAgentTrailers.join(", ");
+    const label = commit.jarvisAgentTrailers.length === 0 ? "unknown" : commit.jarvisAgentTrailers.join(", ");
     bullets.push(`- ${commit.shortSha} ${commit.subject} \u2014 ${label}`);
     for (const single of commit.jarvisAgentTrailers) {
       if (single === "" || seenLabels.has(single)) {
@@ -274,10 +231,7 @@ export function renderAttribution(opts: { cwd: string; base: string }): string {
  * Returns `""` when there are no subspec commits or when no subspec commit
  * has a non-empty `Jarvis-Agent` trailer.
  */
-export function renderAttributionSummary(opts: {
-  cwd: string;
-  base: string;
-}): string {
+export function renderAttributionSummary(opts: { cwd: string; base: string }): string {
   const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
   const subspecCommits = getSubspecCommits(commits);
   if (subspecCommits.length === 0) {
@@ -291,9 +245,7 @@ export function renderAttributionSummary(opts: {
 }
 
 function getSubspecCommits(commits: CommitInfo[]): CommitInfo[] {
-  return commits.filter((c) =>
-    c.firstBodyLine.startsWith(SUBSPEC_FIRST_BODY_LINE_PREFIX),
-  );
+  return commits.filter((c) => c.firstBodyLine.startsWith(SUBSPEC_FIRST_BODY_LINE_PREFIX));
 }
 
 function collectLabelOrder(commits: CommitInfo[]): string[] {
@@ -329,14 +281,10 @@ export function markGeneratedNarrative(narrative: string): string {
   return `${content}\n${GENERATED_NARRATIVE_HASH_PREFIX}${hashNarrative(content)} -->`;
 }
 
-export function extractGeneratedNarrativeContent(
-  narrative: string,
-): string | null {
+export function extractGeneratedNarrativeContent(narrative: string): string | null {
   const lines = narrative.replace(/\r\n/g, "\n").split("\n");
   const marker = lines.at(-1)?.trim();
-  const markerMatch = marker?.match(
-    /^<!-- jarvis:narrative:generated-sha256:([a-f0-9]{64}) -->$/,
-  );
+  const markerMatch = marker?.match(/^<!-- jarvis:narrative:generated-sha256:([a-f0-9]{64}) -->$/);
   if (!markerMatch?.[1]) {
     return null;
   }
@@ -386,19 +334,17 @@ export function updatePrBody(opts: UpdatePrBodyOpts): void {
     headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
   }
   const footer = renderFooter({ cwd: opts.cwd, base: opts.base });
-  const newBody =
-    footer === ""
-      ? headerAndNarrative
-      : `${headerAndNarrative}\n\n---\n\n${footer}`;
+  const newBody = footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
   writePrBody(opts.branch, newBody, opts.cwd);
 }
 
 function defaultFetchPrBody(branch: string, cwd: string): string {
-  return execFileSync(
-    "gh",
-    ["pr", "view", branch, "--json", "body", "-q", ".body"],
-    { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
-  );
+  return execFileSync("gh", ["pr", "view", branch, "--json", "body", "-q", ".body"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  });
 }
 
 function defaultWritePrBody(branch: string, body: string, cwd: string): void {

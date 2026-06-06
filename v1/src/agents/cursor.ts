@@ -35,15 +35,11 @@ const CURSOR_KNOWN_MODELS: readonly string[] = [
 
 const CURSOR_MODEL_LABELS: Record<string, string> = {};
 
-const CURSOR_PRICE_KEYS: Record<string, string> = Object.fromEntries(
-  CURSOR_KNOWN_MODELS.map((m) => [m, m]),
-);
+const CURSOR_PRICE_KEYS: Record<string, string> = Object.fromEntries(CURSOR_KNOWN_MODELS.map((m) => [m, m]));
 
 export const CURSOR_HAS_PRICED_MODELS = true;
 
-export function resolveCursorPriceKey(
-  model: string | undefined,
-): string | null {
+export function resolveCursorPriceKey(model: string | undefined): string | null {
   if (model === undefined) return null;
   return CURSOR_PRICE_KEYS[model] ?? null;
 }
@@ -90,10 +86,7 @@ export class CursorAgent implements Agent {
           ...result,
           usage_source: "unavailable",
           cost_source: "no-usage",
-          warnings: [
-            ...(result.warnings ?? []),
-            "cursor: token estimator unavailable; usage recorded as unavailable.",
-          ],
+          warnings: [...(result.warnings ?? []), "cursor: token estimator unavailable; usage recorded as unavailable."],
         };
       }
       return {

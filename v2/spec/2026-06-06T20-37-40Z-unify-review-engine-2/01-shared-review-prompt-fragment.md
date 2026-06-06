@@ -8,8 +8,7 @@
 
 - New fragment `prompts/shared/review.md` carries the cross-mode wording; both review steps pull it via `add: [shared.review]`. Rules out a `global`-behavior fragment, which would prepend to *every* prompt, not just the two review steps.
 - Keep mode-specific lines in each step file: plan's "rewrite spec files in place / intent.md immutable except blocker / don't delete index.md / `## Acceptance criteria` per subspec"; patch's "code read-only spec / `.jarvis-review-blocker` sentinel / follow branch conventions". Rules out hoisting boundary/blocker wording into the shared fragment, where the two modes genuinely differ.
-- Register the fragment in `prompts/registry.txt`. Bump each touched artifact's `revision`.
-- Net rendered prompt for each mode must still contain the shared lines (assembled via the fragment) — this is pure relocation, not a wording change.
+- Pure relocation: the net rendered prompt for each mode must still contain the shared lines (assembled via the fragment), not a wording change.
 
 ## Task checklist
 

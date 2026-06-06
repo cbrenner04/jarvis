@@ -5,9 +5,8 @@ Plan review still resolves its agents from `modes.plan.agentOrder` (`v1/src/mode
 ## Decisions
 
 - Plan review agents come from `resolveReviewAgentOrder(config)` (= `modes.review.agentOrder ?? modes.plan.agentOrder`), not the raw `modes.plan.agentOrder` — rules out leaving plan on its own tier while patch uses the shared one.
-- Plan review passes come from `resolveReviewPasses(cfg, inv.reviewPasses)` — `--review-passes` override → `modes.review.passes` → 2. Rules out keeping plan's hardcoded `?? 2`, which ignores `modes.review.passes`. Default stays 2, so default-config behavior is unchanged; only operators who set `modes.review.passes` now affect plan.
-- Apply the passes change to both plan review loops (resume and fresh) so they stay consistent.
-- Quota-fallback stderr, telemetry, resume `rN` numbering, and commit subjects are unchanged — only the agent and passes *source* moves.
+- Plan review passes come from `resolveReviewPasses(cfg, inv.reviewPasses)` (`--review-passes` → `modes.review.passes` → 2), applied to both plan loops (fresh and resume). Rules out keeping plan's hardcoded `?? 2`, which ignores `modes.review.passes`. Default stays 2, so default-config behavior is unchanged.
+- Only the agent/passes *source* moves: quota-fallback stderr, telemetry, resume `rN` numbering, and commit subjects are unchanged.
 
 ## Task checklist
 

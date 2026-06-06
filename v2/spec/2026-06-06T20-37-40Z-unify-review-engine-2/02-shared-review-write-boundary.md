@@ -13,8 +13,7 @@ Lift the shared *detection* into a new v1 module and have both modes call it, ke
 - One parameterized detector over `git status --porcelain` taking `{ cwd, frozenPaths, blockerAppendAllowed }` and returning the offending (out-of-boundary or disallowed-modification) paths plus, when `blockerAppendAllowed`, whether the only frozen-file change was an appended `## Blocker`. Rules out two detectors that differ only by constants.
 - Plan binds `frozenPaths = [intent.md]`, `blockerAppendAllowed = true`, and additionally asserts `index.md` exists (kept plan-side; it is not a frozen-path concern). Patch binds `frozenPaths = [spec subtree]`, `blockerAppendAllowed = false`.
 - Reaction stays at each call site: plan returns the existing validation error / blocker result; patch reverts via its existing checkout+clean. Rules out a shared module that also performs the reaction — plan errors, patch reverts; forcing one reaction changes behavior.
-- The `## Blocker`-append vs full-rewrite discrimination (current `isValidIntentModification`, incl. frontmatter immutability) moves into the shared detector behind `blockerAppendAllowed`. Untracked-addition detection (patch relies on porcelain catching untracked spec files) is preserved.
-- No observable behavior change: plan still errors on the same modifications and accepts blocker-only intent edits; patch still reverts the same spec edits including untracked additions.
+- The `## Blocker`-append vs full-rewrite discrimination (current `isValidIntentModification`, incl. frontmatter immutability) moves behind `blockerAppendAllowed`; patch's untracked-addition catch (porcelain sees untracked spec files) is preserved. Net: no observable behavior change in either mode.
 
 ## Task checklist
 

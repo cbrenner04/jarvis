@@ -15,6 +15,10 @@ import {
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import { harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
 import {
+  appendTelemetryLine,
+  type TelemetryKind,
+} from "../../telemetry.ts";
+import {
   createPromptWorktree,
   pushCurrent,
 } from "../../worktree.ts";
@@ -137,9 +141,18 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     return 1;
   }
 
+  const runStartedAt = new Date();
+  const runStartedMs = Date.now();
+  let exitCode = 0;
+  let exitReason = "success";
+  let telemetryKind: TelemetryKind = "ok";
+  let agentUsed: Agent | undefined;
+  let configuredModel: string | undefined;
+  let watchdogPgid: number | null = null;
+  let watchdogFired = false;
+
   try {
     const basePrompt = buildPrompt(opts.promptText);
-    const cfg = loadConfig(opts.config);
 
     // Load agents
     const agents: Agent[] = [];
@@ -149,17 +162,75 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
 
     if (agents.length === 0) {
       opts.io.stderr("jarvis1: no agents configured\n");
-      return 1;
+      exitCode = 1;
+      exitReason = "no-agents-configured";
+      return exitCode;
     }
 
     // Try agents in order
-    let agentUsed: Agent | undefined;
+    let agentUsedLocal: Agent | undefined;
     let agentOutput = "";
     let agentSuccess = false;
+    let watchdogKillHandle: NodeJS.Timeout | null = null;
 
     for (const agent of agents) {
       opts.io.stderr(`jarvis1: invoking ${agent.name}...\n`);
-      let result = await agent.run(basePrompt, { cwd: worktreePath });
+
+      // Look up configured model for this agent
+      const agentConfigEntry = cfg.modes.prompt.agentOrder.find((entry) => entry.agent === agent.name);
+      configuredModel = agentConfigEntry?.model;
+
+      // Setup watchdog timeout
+      watchdogPgid = null;
+      watchdogFired = false;
+      watchdogKillHandle = setTimeout(() => {
+        watchdogFired = true;
+        const pgid = watchdogPgid;
+        if (pgid !== null) {
+          opts.io.stderr(`[watchdog] iteration timeout fired after ${cfg.iterationTimeoutMs}ms; killing agent pgid ${pgid}\n`);
+          try {
+            process.kill(-pgid, "SIGTERM");
+          } catch {
+            // Process may have already exited
+          }
+        }
+        watchdogKillHandle = setTimeout(() => {
+          if (pgid !== null) {
+            try {
+              process.kill(-pgid, "SIGKILL");
+            } catch {
+              // Process may have already exited
+            }
+          }
+        }, 5000);
+        if (watchdogKillHandle) {
+          watchdogKillHandle.unref();
+        }
+      }, cfg.iterationTimeoutMs);
+      if (watchdogKillHandle) {
+        watchdogKillHandle.unref();
+      }
+
+      let result = await agent.run(basePrompt, {
+        cwd: worktreePath,
+        onSpawned: (child) => {
+          watchdogPgid = child.pid;
+        },
+      });
+
+      // Clear watchdog timeout
+      if (watchdogKillHandle) {
+        clearTimeout(watchdogKillHandle);
+        watchdogKillHandle = null;
+      }
+
+      if (watchdogFired) {
+        exitCode = 8;
+        exitReason = "watchdog-iteration-timeout";
+        telemetryKind = "timeout";
+        agentUsedLocal = agent;
+        break;
+      }
 
       // Apply quota fallback
       result = applyQuotaFallbackWhenAllowed(
@@ -174,24 +245,40 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
 
       if (result.kind === "quota") {
         opts.io.stderr(`${result.stderr}\n`);
-        return 2; // All agents quota
+        exitCode = 2;
+        exitReason = "all-agents-quota";
+        telemetryKind = "quota";
+        agentUsedLocal = agent;
+        break;
       }
 
       if (result.kind === "ok") {
-        agentUsed = agent;
+        agentUsedLocal = agent;
         agentOutput = result.stdout;
         agentSuccess = true;
+        telemetryKind = "ok";
         break;
       }
 
       if (result.kind === "model_config") {
         opts.io.stderr(`${result.stderr}\n`);
+        telemetryKind = "model_config";
         continue; // Try next agent
       }
 
       // Last agent failed
       opts.io.stderr(`agent failed: ${result.stderr}\n`);
+      exitCode = 3;
+      exitReason = "agent-failure";
+      telemetryKind = "error";
+      agentUsedLocal = agent;
       break;
+    }
+
+    agentUsed = agentUsedLocal;
+
+    if (exitCode === 2 || exitCode === 3 || exitCode === 8) {
+      return exitCode;
     }
 
     if (!agentSuccess || !agentUsed) {
@@ -275,5 +362,22 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     } catch (err) {
       opts.io.stderr(`warning: failed to release lock: ${(err as Error).message}\n`);
     }
+
+    // Write telemetry
+    const durationMs = Date.now() - runStartedMs;
+    const telemetryPath = cfg.telemetryPath ?? null;
+    const namespace = `${project.key}:prompt`;
+
+    appendTelemetryLine(telemetryPath, {
+      ts: runStartedAt.toISOString(),
+      namespace,
+      agent: agentUsed?.name ?? "unknown",
+      iteration: 1,
+      duration_ms: durationMs,
+      kind: telemetryKind,
+      exit_reason: exitReason,
+      mode: "prompt",
+      ...(configuredModel !== undefined ? { configured_model: configuredModel } : {}),
+    });
   }
 }

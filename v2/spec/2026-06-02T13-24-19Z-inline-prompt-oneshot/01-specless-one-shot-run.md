@@ -19,10 +19,10 @@
 - [x] Worktree creation uses `prompt-<UTC-timestamp>-<short-nonce>` (timestamp format per `spec-guidance.md`) for both branch and `.worktree/` path.
 - [x] `prompts/prompt/` contains the inline-prompt template and rules fragment, registered in `prompts/registry.txt`, covered by unit tests.
 - [x] Agent invocation reuses the shared quota-classification and fallback path; all-agents-quota exits 2.
-- [ ] Telemetry rows are written with `mode: "prompt"` and aggregated by the existing end-of-run summary.
+- [x] Telemetry rows are written with `mode: "prompt"` and aggregated by the existing end-of-run summary.
 - [x] No-diff run prints the agent's response, opens no PR, and exits 0; `jarvis1 cleanup` removes the worktree with no leftover remote branch.
 - [x] Diff-producing run creates exactly one commit (subject = first-line excerpt ≤72 chars, ellipsized if longer; body = verbatim prompt + `Jarvis-Agent` trailer), then pushes and opens a draft PR whose title equals the commit subject and body contains the verbatim prompt plus the standard attribution footer.
 - [x] Push or `gh pr create` failure exits non-zero; commit and worktree are preserved.
-- [ ] Watchdog timeout (`iterationTimeoutMs`) aborts the pass with exit 8.
+- [x] Watchdog timeout (`iterationTimeoutMs`) aborts the pass with exit 8.
 - [x] New tests cover helper functions: ellipsization, first-line extraction, nonce generation, ISO8601 timestamps.
 - [x] `bun run typecheck` and `bun test` pass.

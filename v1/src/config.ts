@@ -96,6 +96,7 @@ export type Config = {
   modes: {
     patch: ModeConfig;
     plan: ModeConfig;
+    prompt: ModeConfig;
     review: ReviewModeConfig;
   };
   quotaFallback: "strict" | "lenient";
@@ -138,6 +139,7 @@ const DEFAULT_CONFIG: Config = {
       agentOrder: structuredClone(DEFAULT_AGENT_ORDER),
       targetDir: "spec",
     },
+    prompt: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
     review: { passes: 2 },
   },
   quotaFallback: "lenient",
@@ -233,7 +235,21 @@ function validateConfig(input: unknown, file: string): Config {
     planTargetDir = validateTargetDir(planModeObj.targetDir, "modes.plan.targetDir", (message) => fail(file, message));
   }
 
-  const reviewMode = modesObj.review;
+  let promptAgentOrder: AgentEntry[];
+  const promptMode = modesObj.prompt;
+  if (promptMode === undefined) {
+    // Default to patch agent order if not specified
+    promptAgentOrder = structuredClone(patchAgentOrder);
+  } else {
+    if (promptMode === null || typeof promptMode !== "object" || Array.isArray(promptMode)) {
+      fail(file, 'modes.prompt must be an object with "agentOrder" array');
+    }
+    const promptModeObj = promptMode as Record<string, unknown>;
+    promptAgentOrder = validateAgentOrder(promptModeObj.agentOrder, "modes.prompt.agentOrder", file);
+    validateNoModeAgents(promptModeObj.agents, "modes.prompt", file);
+  }
+
+  const reviewMode = modesObj.review ?? DEFAULT_CONFIG.modes.review;
   if (reviewMode === null || typeof reviewMode !== "object" || Array.isArray(reviewMode)) {
     fail(file, 'modes.review must be an object with "passes" and optional "agentOrder"');
   }
@@ -441,6 +457,7 @@ function validateConfig(input: unknown, file: string): Config {
         ...(planCommit !== undefined ? { commit: planCommit } : {}),
         ...(planTargetDir !== undefined ? { targetDir: planTargetDir } : {}),
       },
+      prompt: { agentOrder: promptAgentOrder },
       review: {
         passes: reviewPasses,
         ...(reviewAgentOrder !== undefined ? { agentOrder: reviewAgentOrder } : {}),

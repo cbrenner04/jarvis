@@ -10,8 +10,8 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/src/config.ts` defines `modes.prompt: ModeConfig` and `DEFAULT_CONFIG` populates `modes.prompt.agentOrder`.
-- [ ] `v1/src/cli.ts` parses top-level `--prompt <text>` (with optional `--repo`), routes to a `prompt` handler, and lists it in usage text.
-- [ ] The `prompt` handler exits 1 with a named error when: prompt text is empty/whitespace; `--cwd` is passed; effective `git` is `false`; repo resolution fails.
-- [ ] New tests cover each preflight rejection above.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `v1/src/config.ts` defines `modes.prompt: ModeConfig` and `DEFAULT_CONFIG` populates `modes.prompt.agentOrder`.
+- [x] `v1/src/cli.ts` parses top-level `--prompt <text>` (with optional `--repo`), routes to a `prompt` handler, and lists it in usage text.
+- [x] The `prompt` handler exits 1 with a named error when: prompt text is empty/whitespace; `--cwd` is passed; effective `git` is `false`; repo resolution fails.
+- [x] New tests cover each preflight rejection above.
+- [x] `bun run typecheck` and `bun test` pass.

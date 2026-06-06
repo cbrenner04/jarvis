@@ -1623,7 +1623,7 @@ exit 1
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY] },
-
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -1669,7 +1669,7 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY] },
-
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -1720,6 +1720,7 @@ exit 0
             agentOrder: [{ agent: "aider", model: "ollama/llama3.1:8b" }],
           },
           plan: { agentOrder: [CLAUDE_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -1757,7 +1758,7 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY] },
-
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -1827,7 +1828,7 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -1869,7 +1870,7 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -1920,7 +1921,7 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -1971,7 +1972,7 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "strict",
@@ -2015,7 +2016,7 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -2080,7 +2081,7 @@ exit 0
         modes: {
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
-
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -2220,6 +2221,7 @@ exit 0
             agentOrder: [{ agent: "opencode", model: "github-copilot/test" }],
           },
           plan: { agentOrder: [CLAUDE_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -2267,6 +2269,7 @@ exit 0
             agentOrder: [{ agent: "opencode", model: "github-copilot/test" }],
           },
           plan: { agentOrder: [CLAUDE_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
           review: { passes: 2 },
         },
         quotaFallback: "lenient",
@@ -2989,7 +2992,7 @@ exit 0
           modes: {
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
-
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
             review: { passes: 2 },
           },
           quotaFallback: "lenient",
@@ -3029,7 +3032,7 @@ exit 0
           modes: {
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
-
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
             review: { passes: 2 },
           },
           quotaFallback: "lenient",
@@ -3105,7 +3108,7 @@ wait
           modes: {
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
-
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
             review: { passes: 2 },
           },
           quotaFallback: "lenient",
@@ -3177,7 +3180,7 @@ wait
           modes: {
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
-
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
             review: { passes: 2 },
           },
           quotaFallback: "lenient",
@@ -3507,6 +3510,7 @@ exit 1
       modes: {
         patch: { agentOrder: opts.patchAgentOrder ?? [CLAUDE_ENTRY] },
         plan: { agentOrder: [CLAUDE_ENTRY] },
+        prompt: { agentOrder: opts.patchAgentOrder ?? [CLAUDE_ENTRY] },
         review: {
           passes: opts.reviewPasses ?? 1,
           ...(opts.reviewAgentOrder !== undefined ? { agentOrder: opts.reviewAgentOrder } : {}),

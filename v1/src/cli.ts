@@ -1,3 +1,4 @@
+import { isAbsolute, resolve } from "node:path";
 import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
@@ -10,11 +11,13 @@ import {
   type ConfigOptions,
   findProjectMatchForPath,
   loadConfig,
+  type ProjectMatch,
   resolvePlanFlags,
   validateNonNegativeInteger,
   validatePositiveInteger,
 } from "./config.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
+import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
 
 export type Subcommand =
@@ -26,6 +29,7 @@ export type Subcommand =
   | "triage"
   | "review-feedback"
   | "plan"
+  | "prompt"
   | "prices"
   | "help";
 
@@ -46,6 +50,11 @@ export type ParsedArgs =
   | { kind: "triage"; worktreeName?: string }
   | { kind: "review-feedback"; worktreeName?: string }
   | { kind: "plan"; rest: string[] }
+  | {
+      kind: "prompt";
+      text: string;
+      repo?: string;
+    }
   | { kind: "prices"; rest: string[] }
   | { kind: "unknown"; name: string }
   | { kind: "error"; message: string };
@@ -71,6 +80,8 @@ Commands:
                     Address PR review feedback on an existing patch worktree.
   plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md; --resume-draft expects spec/<…>/intent.md).
+  prompt [--repo <name|path|url>] <text>
+                    Run an agent against a prompt in a registered project.
   prices            View or edit pricing data for cost tracking.
   help              Show this message.
 `;
@@ -191,6 +202,39 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     }
     case "plan":
       return { kind: "plan", rest };
+    case "prompt": {
+      let repo: string | undefined;
+      const args = [...rest];
+      for (let i = 0; i < args.length; i += 1) {
+        if (args[i] === "--cwd") {
+          return {
+            kind: "error",
+            message: "prompt: --cwd is not allowed",
+          };
+        }
+        if (args[i] === "--repo") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "prompt: missing value for --repo",
+            };
+          }
+          repo = value;
+          args.splice(i, 2);
+          i -= 1;
+        }
+      }
+      const text = args[0];
+      if (text === undefined) {
+        return { kind: "error", message: "prompt: missing <text>" };
+      }
+      const parsed: ParsedArgs = { kind: "prompt", text };
+      if (repo !== undefined) {
+        parsed.repo = repo;
+      }
+      return parsed;
+    }
     case "prices":
       return { kind: "prices", rest };
     default:
@@ -376,6 +420,63 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         planOpts.config = opts.config;
       }
       return planCommand(planOpts);
+    }
+    case "prompt": {
+      if (parsed.text.trim() === "") {
+        io.stderr(`jarvis1: prompt text must not be empty or whitespace-only\n`);
+        return 1;
+      }
+
+      const cfg = loadConfig(opts.config);
+      const effectiveGit = cfg.git;
+
+      if (!effectiveGit) {
+        io.stderr(`jarvis1: prompt mode requires git to be enabled\n`);
+        return 1;
+      }
+
+      let project: ProjectMatch | undefined;
+
+      if (parsed.repo !== undefined) {
+        // Resolve from --repo flag
+        const projects: ProjectMatch[] = [];
+        for (const [key, p] of Object.entries(cfg.projects)) {
+          const match: ProjectMatch = { key, root: p.root };
+          if (p.origin !== undefined) {
+            match.origin = p.origin;
+          }
+          projects.push(match);
+        }
+        const trimmed = parsed.repo.trim();
+        const byName = projects.find((p) => p.key === trimmed);
+        if (byName !== undefined) {
+          project = byName;
+        } else if (isAbsolute(trimmed)) {
+          const root = resolve(trimmed);
+          const byRoot = projects.find((p) => p.root === root);
+          if (byRoot !== undefined) {
+            project = byRoot;
+          }
+        }
+        if (project === undefined) {
+          io.stderr(`jarvis1: --repo: no project matches ${JSON.stringify(parsed.repo)}\n`);
+          return 1;
+        }
+      } else {
+        // Resolve from cwd
+        project = findProjectMatchForPath(opts.cwd ?? process.cwd(), opts.config);
+        if (project === undefined) {
+          io.stderr(`jarvis1: repo resolution failed: not inside any project registered with \`jarvis1 init\`\n`);
+          return 1;
+        }
+      }
+
+      return promptCommand({
+        promptText: parsed.text,
+        io,
+        projectPath: opts.cwd ?? process.cwd(),
+        config: opts.config,
+      });
     }
     case "prices":
       return pricesCommand({ args: parsed.rest, io });

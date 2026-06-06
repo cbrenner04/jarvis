@@ -13,7 +13,7 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 
 ### Command surface
 
-- The shipped top-level subcommands are `run`, `init`, `config`, `log-server`, `cleanup`, `triage`, `review-feedback`, `plan`, `prices`, and `help` (including `-h`/`--help` aliases to help output). Sources: `v1/src/cli.ts`
+- The shipped top-level subcommands are `run`, `init`, `config`, `log-server`, `cleanup`, `triage`, `review-feedback`, `plan`, `prompt`, `prices`, and `help` (including `-h`/`--help` aliases to help output). Sources: `v1/src/cli.ts`
 - Unknown subcommands exit non-zero and print usage, while parse-time argument errors also print usage with a command-specific error prefix. Sources: `v1/src/cli.ts`
 - `review-feedback` requires a non-empty `<worktree-name>` and exits with usage when omitted, while `triage` accepts an optional worktree argument and otherwise runs a no-arg listing mode. Sources: `v1/src/cli.ts`, `v1/src/commands/triage.ts`
 - `prices` is a two-operation command surface (`show` and `edit`) rather than one flat action, and missing/unknown prices subcommands print command-specific usage. Sources: `v1/src/commands/prices.ts`, `v1/src/commands/prices-show.ts`, `v1/src/commands/prices-edit.ts`
@@ -83,6 +83,20 @@ Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/inline-draft.ts`
 - `--refine-turns 0` substitutes a name-only agent phase for refine in file/inline mode; interactive rejects it (see Plan mode bullets above). Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/name-only.ts`
 - `commit: true` plans run under a temporary `plan/tmp-<id>` branch/worktree that is renamed to `plan/<name>` and `.worktree/plan-<name>` once the agent proposes a valid spec name; name collisions append a numeric suffix. Sources: `v1/src/commands/plan.ts` (`deriveSpecName`, `ensureUniquePlanName`)
 
+### Prompt mode
+
+- `jarvis1 prompt` is a single-pass one-shot agent invocation mode controlled by a required `<text>` positional argument and an optional `--repo` flag; `--cwd` is explicitly rejected as an error (prompt mode requires git). Sources: `v1/src/cli.ts`, `v1/src/modes/prompt/run.ts`
+- Prompt-mode preflight gates include: `git: true` requirement (exit `1`), project registration (exit `1`), and GitHub CLI auth (`gh auth status`, exit `1`). Sources: `v1/src/modes/prompt/run.ts`
+- Prompt mode uses `modes.prompt.agentOrder` for agent iteration; if `modes.prompt` is not defined in config, it defaults to a structuredClone of `modes.patch.agentOrder` at load time. Sources: `v1/src/config.ts`, `v1/src/modes/prompt/run.ts`
+- Worktree creation names follow pattern `.worktree/<timestamp>-prompt-<nonce>/` on branch `<timestamp>-prompt-<nonce>` (UTC ISO8601 timestamp, 6-character random nonce suffix); the worktree is always created in the project root. Sources: `v1/src/modes/prompt/run.ts` (`iso8601DateTime`, `generateNonce`, `createPromptWorktree`)
+- Prompt mode is strictly single-pass with per-agent fallback: agents are tried in `modes.prompt.agentOrder` order and iteration stops on success, on hard error (non-quota), or when all agents are exhausted. Weak-quota upgrades are always allowed (no progress gate). Sources: `v1/src/modes/prompt/run.ts`
+- Prompt output handling differs by diff state: if the agent run produces no git diffs (`git status --porcelain` is empty), the agent's stdout is printed to the operator and the run exits `0` without any git/PR operations. If diffs exist, the prompt text is committed and a PR opened. Sources: `v1/src/modes/prompt/run.ts`
+- When diffs exist, prompt mode commits with subject = first non-empty line of prompt text (ellipsized to ~72 chars), body = full prompt text + `Jarvis-Agent: <label>` trailer, then pushes and opens a draft PR with the prompt text as body + attribution footer. Sources: `v1/src/modes/prompt/run.ts`
+- Prompt PR body is static (operator input only in the PR title/description): `<prompt-text>\n\n---\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Sources: `v1/src/modes/prompt/run.ts`
+- Prompt telemetry is written with namespace `<project-key>:prompt` (matching patch mode's `<project-key>:run` and plan mode's plan naming), and mode field is set to `"prompt"`. Exit reasons include `success`, `all-agents-quota`, `agent-failure`, `model_config`, `watchdog-iteration-timeout`, and others matching patch-mode taxonomy. Sources: `v1/src/modes/prompt/run.ts` (`appendTelemetryLine`)
+- Prompt mode exit codes mirror patch mode: `0` success, `1` error, `2` quota exhausted, `3` agent/model hard failure, `8` timeout, `9` worktree lock busy. Sources: `v1/src/modes/prompt/run.ts`
+- Prompt mode always acquires and releases `.jarvis.lock` for the created worktree (failing with exit `9` if the lock is held by a live process), matching patch-mode lock semantics. Sources: `v1/src/modes/prompt/run.ts`, `v1/src/worktree-lock.ts`
+
 ## Spec authoring and implementation workflows
 
 - New implementation specs are expected to be authored as index-routed trees (`index.md` + numbered subspec files) with checklist links from index into atomic subspec documents. Sources: `v1/docs/spec-guidance.md`
@@ -112,6 +126,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 | `modes.patch.agentOrder` | `claude`/`haiku`, `codex`/`gpt-5.3-codex`, `cursor`/`Composer 2` | Ordered agent+model entries for patch runs; advanced on quota. |
 | `modes.plan.agentOrder` | same as patch default | Ordered agent+model entries for plan phases. |
 | `modes.plan.{specTimestamp,commit,targetDir}` | `true` / `true` / `"spec"` | Plan output routing; each is overridable per project under `projects.<key>.plan`. |
+| `modes.prompt.agentOrder` | defaults to `modes.patch.agentOrder` at load time if not specified | Ordered agent+model entries for single-pass prompt invocation; shared quota fallback with patch mode. |
 | `quotaFallback` | `"lenient"` | `strict` vs `lenient` weak-quota upgrade policy. |
 | `weakQuotaExitCodes` | `[]` | Exit codes treated as weak-quota signals under lenient policy. |
 | `maxIterations` | `10` | Patch iteration cap; `--max-iterations <n>` overrides. |

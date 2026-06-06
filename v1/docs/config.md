@@ -42,6 +42,8 @@ type ModeConfig = {
   targetDir?: string; // plan mode only: relative path where committed specs are routed (default "spec")
 };
 
+// For modes.prompt specifically, only agentOrder is used. The commit and targetDir fields have no effect.
+
 type ReviewModeConfig = {
   agentOrder?: AgentEntry[]; // optional; falls back to modes.plan.agentOrder if unset
   passes: number; // non-negative integer: 0 disables review, 1+ enables N review passes; default 2
@@ -52,6 +54,7 @@ type Config = {
   modes: {
     patch: ModeConfig; // agent order + per-agent models for `jarvis run` (patch mode)
     plan: ModeConfig; // agent order + per-agent models for `jarvis plan` intent-refinement, draft, and review phases (including resume)
+    prompt: ModeConfig; // agent order + per-agent models for `jarvis prompt` single-pass invocation (prompt mode)
     review: ReviewModeConfig; // agent order (optional, fallback to plan) and pass count for patch review loop
   };
   quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
@@ -72,6 +75,12 @@ type Config = {
 
 All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid
 configs are rejected with an error that names the offending file.
+
+## Prompt mode
+
+Prompt mode (`jarvis1 prompt`) is a single-pass agent invocation mode configured by `modes.prompt.agentOrder`. If `modes.prompt` is not specified in the config, it defaults to a copy of `modes.patch.agentOrder` at load time.
+
+The `modes.prompt` mode config accepts only `agentOrder`; the optional `commit` and `targetDir` fields (used in plan mode) have no effect in prompt mode. See [specless-prompt.md](./specless-prompt.md) for full prompt-mode documentation.
 
 ## `modes.plan.commit`
 
@@ -152,6 +161,13 @@ Default contents on first bootstrap:
         { "agent": "cursor", "model": "Composer 2" }
       ],
       "targetDir": "spec"
+    },
+    "prompt": {
+      "agentOrder": [
+        { "agent": "claude", "model": "haiku" },
+        { "agent": "codex", "model": "gpt-5.3-codex" },
+        { "agent": "cursor", "model": "Composer 2" }
+      ]
     },
     "review": {
       "passes": 2
@@ -352,6 +368,8 @@ If you accidentally place `specTimestamp` or `commit` flat on a project, `loadCo
   duplicates, missing colons, and empty models.
 - `jarvis config set-plan-order <agent:model,agent:model,...>` — replace
   `modes.plan.agentOrder`. Same syntax as `set-patch-order`.
+- `jarvis config set-prompt-order <agent:model,agent:model,...>` — replace
+  `modes.prompt.agentOrder`. Same syntax as `set-patch-order`.
 - `jarvis config set-git <true|false>` — write the top-level `git` toggle.
 - `jarvis config set-project-git <name> <true|false|unset>` — write or
   clear the per-project `git` override. Unknown project names exit 1.

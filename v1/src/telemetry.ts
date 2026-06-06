@@ -16,7 +16,7 @@ export type CostSource = "computed" | "agent" | "estimated" | "no-price" | "no-u
 /**Invocation JSONL rows carry agent/session results; terminal rows describe run exit without duplicating usage.*/
 export type TelemetryRecordRole = "invocation" | "run_terminal";
 
-export type TelemetryMode = "patch" | "plan";
+export type TelemetryMode = "patch" | "plan" | "prompt";
 
 /**Present on plan-mode invocation rows so summaries can attribute usage to a phase.*/
 export type PlanTelemetryPhase = "refine" | "name-only" | "draft" | "review";

@@ -51,6 +51,7 @@ describe("config show", () => {
       modes: {
         patch: { agentOrder: defaultOrder },
         plan: { agentOrder: defaultOrder, targetDir: "spec" },
+        prompt: { agentOrder: defaultOrder },
         review: { passes: 2 },
       },
       quotaFallback: "lenient",

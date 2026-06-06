@@ -3,9 +3,9 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
+import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
 import { resolveReviewAgentOrder } from "../../config.ts";
-import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { getBaseBranch, postPrComment } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
@@ -13,8 +13,8 @@ import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
 import { runReview } from "../review/run.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewTelemetryEvent } from "../review/types.ts";
-import { buildReviewPrompt } from "./prompt.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
+import { buildReviewPrompt } from "./prompt.ts";
 
 /** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
@@ -213,10 +213,7 @@ function getCurrentBranch(cwd: string): string {
 }
 
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
-function withReviewPassTimeout(
-  agent: Agent,
-  opts: { timeoutMs: number; killGraceMs: number },
-): Agent {
+function withReviewPassTimeout(agent: Agent, opts: { timeoutMs: number; killGraceMs: number }): Agent {
   return {
     name: agent.name,
     attributionLabel: () => agent.attributionLabel(),

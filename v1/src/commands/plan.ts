@@ -689,7 +689,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       const branch = `plan/${resume.planName}`;
       const suffix = `r${resume.nextResumeIndex}`;
-      let nextReviewIndex = resume.nextReviewIndex;
+      const nextReviewIndex = resume.nextReviewIndex;
       opts.io.stderr(`plan: resume ${suffix} started\n`);
       if (resume.recreatedFrom !== undefined) {
         opts.io.stderr(`plan: recreated worktree at ${resume.worktreePath} from ${resume.recreatedFrom}\n`);

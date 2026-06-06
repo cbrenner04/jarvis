@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import {
   appendPhase0ReviewGateBlocker,
   deriveSpecName,
@@ -17,11 +17,10 @@ import {
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";
 import { describePlanInvocation, parsePlanArgs } from "../src/commands/plan-args.ts";
-import { loadConfig, registerProject, resolveReviewPasses, writeConfig } from "../src/config.ts";
-import { runPlanReviewPhase } from "../src/modes/plan/review.ts";
-import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import type { Config } from "../src/config.ts";
+import { loadConfig, registerProject, resolveReviewPasses, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
+import { runPlanReviewPhase } from "../src/modes/plan/review.ts";
 
 function captureIo() {
   let out = "";

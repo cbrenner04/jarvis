@@ -11,6 +11,7 @@ import { resolveReviewPasses } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { runReview } from "../review/run.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewTelemetryEvent } from "../review/types.ts";
+import { detectBlocker } from "./blocker.ts";
 import {
   appendBoundaryBlocker,
   assertNoCommitExternalSpecBoundary,
@@ -19,7 +20,6 @@ import {
   type BoundaryCheckResult,
   revertPaths,
 } from "./boundary.ts";
-import { detectBlocker } from "./blocker.ts";
 import { commitPlanBlocker, commitPlanReview } from "./commits.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { hasSpecDirChanges, resolvePlanSpecDirPath, snapshotSpecDirFiles } from "./spec-dir.ts";

@@ -340,7 +340,10 @@ describe("runPlanReviewPhase", () => {
     const { worktreePath, cleanup } = setupReviewWorktree();
     try {
       const agent = new FakeAgent("claude", (_c, _p, opts) => {
-        writeFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] resume\n");
+        writeFileSync(
+          join(opts.cwd, "spec", "p-review", "00-one.md"),
+          "# One\n\n## Acceptance criteria\n\n- [ ] resume\n",
+        );
         return { kind: "ok", stdout: "", stderr: "" };
       });
       let prRefreshCount = 0;

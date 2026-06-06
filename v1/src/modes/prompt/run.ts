@@ -5,15 +5,8 @@ import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
-import {
-  type Config,
-  type ConfigOptions,
-  findProjectMatchForPath,
-  loadConfig,
-  setProjectOrigin,
-} from "../../config.ts";
+import { type ConfigOptions, findProjectMatchForPath, loadConfig, setProjectOrigin } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
-import { harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
@@ -62,7 +55,7 @@ function ellipsizeIfNeeded(text: string, maxLen: number): string {
   if (text.length <= maxLen) {
     return text;
   }
-  return text.slice(0, maxLen - 3) + "...";
+  return `${text.slice(0, maxLen - 3)}...`;
 }
 
 export async function promptCommand(opts: PromptRunOptions): Promise<number> {

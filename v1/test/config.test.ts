@@ -107,7 +107,7 @@ describe("loadConfig", () => {
             ],
           },
           plan: { agentOrder: [{ agent: "claude", model: "haiku" }] },
-        prompt: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+          prompt: { agentOrder: [{ agent: "claude", model: "haiku" }] },
           review: { passes: 2 },
         },
         quotaFallback: "strict",
@@ -140,7 +140,7 @@ describe("loadConfig", () => {
             agentOrder: [{ agent: "aider", model: "ollama/llama3.1:8b" }],
           },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -159,7 +159,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -177,7 +177,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -195,7 +195,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         quotaFallback: "off",
@@ -213,7 +213,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 0,
@@ -231,7 +231,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -250,7 +250,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -270,7 +270,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -289,7 +289,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -311,7 +311,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         patchModels: { claude: "haiku" },
@@ -329,7 +329,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "claude" }] },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -346,7 +346,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "claude", model: "  " }] },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -363,7 +363,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "aider", model: "  " }] },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -380,7 +380,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "claude", model: 1 }] },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -397,7 +397,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: ["claude"] },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -427,7 +427,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -445,7 +445,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -472,7 +472,7 @@ describe("loadConfig", () => {
         version: 2,
         modes: {
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -506,7 +506,7 @@ describe("loadConfig", () => {
             agents: { claude: { outputFormat: "text" } },
           },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -523,7 +523,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [] },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -560,7 +560,7 @@ describe("loadConfig", () => {
             ],
           },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -582,7 +582,7 @@ describe("loadConfig", () => {
             ],
           },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -620,7 +620,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: [{ agent: "gpt", model: "x" }] },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -636,7 +636,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {},
@@ -653,7 +653,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: { foo: { root: "relative/path" } },
@@ -670,7 +670,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -696,7 +696,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -723,7 +723,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -742,7 +742,7 @@ describe("loadConfig", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -949,7 +949,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -968,7 +968,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -989,7 +989,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -1009,7 +1009,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -1032,7 +1032,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -1162,7 +1162,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1189,7 +1189,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1213,7 +1213,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1237,7 +1237,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1261,7 +1261,7 @@ describe("git toggle", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1328,7 +1328,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         maxIterations: 10,
@@ -1383,7 +1383,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: { app: { root: "/tmp/jarvis-no-flags" } },
@@ -1402,7 +1402,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1426,7 +1426,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1450,7 +1450,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1473,7 +1473,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1496,7 +1496,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1519,7 +1519,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1543,7 +1543,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1567,7 +1567,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1591,7 +1591,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -1616,7 +1616,7 @@ describe("plan flags", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2 },
         },
         projects: {
@@ -2214,7 +2214,7 @@ describe("review mode config validation", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: -1 },
         },
         projects: {},
@@ -2232,7 +2232,7 @@ describe("review mode config validation", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: "2" },
         },
         projects: {},
@@ -2249,7 +2249,7 @@ describe("review mode config validation", () => {
         modes: {
           patch: { agentOrder: CLAUDE_ONLY },
           plan: { agentOrder: CLAUDE_ONLY },
-        prompt: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
           review: { passes: 2, agentOrder: [] },
         },
         projects: {},

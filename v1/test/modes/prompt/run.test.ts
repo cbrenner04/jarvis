@@ -4,7 +4,7 @@ describe("promptCommand", () => {
   test("ellipsizes long first lines to 72 chars", () => {
     // Helper function test
     const text = "x".repeat(100);
-    const truncated = text.slice(0, 72 - 3) + "...";
+    const truncated = `${text.slice(0, 72 - 3)}...`;
     expect(truncated.length).toBe(72);
   });
 

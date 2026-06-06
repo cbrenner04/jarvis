@@ -8,9 +8,9 @@ describe("ClaudeAgent", () => {
   });
 
   test("attribution label includes model", () => {
-    const agent = new ClaudeAgent({ model: "claude-opus-4-7" });
+    const agent = new ClaudeAgent({ model: "claude-opus-4-8" });
     const label = agent.attributionLabel();
-    expect(label).toContain("Claude Opus 4.7");
+    expect(label).toContain("Claude Opus 4.8");
   });
 
   test("attribution label works with default model", () => {

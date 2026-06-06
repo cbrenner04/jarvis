@@ -157,9 +157,9 @@ describe("CursorAgent", () => {
   test("attributionLabel returns raw string for model ID", () => {
     const agent = new CursorAgent({
       binary: "fake",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
-    expect(agent.attributionLabel()).toBe("claude-opus-4-7");
+    expect(agent.attributionLabel()).toBe("claude-opus-4-8");
   });
 
   test("attributionLabel returns default fallback when model is undefined", () => {

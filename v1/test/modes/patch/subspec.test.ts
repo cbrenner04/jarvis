@@ -296,15 +296,15 @@ describe("Jarvis-Agent trailer", () => {
 
     commitSubspec(specPath, {
       cwd: gitDir,
-      agentLabel: "Claude Opus 4.7",
+      agentLabel: "Claude Opus 4.8",
     });
 
     const message = getLastCommitMessage();
     // Trailer at the end, separated by exactly one blank line.
-    expect(message.endsWith("Jarvis-Agent: Claude Opus 4.7")).toBe(true);
+    expect(message.endsWith("Jarvis-Agent: Claude Opus 4.8")).toBe(true);
     // Verify the body containing the acceptance criteria precedes the
     // trailer, with one blank line between body and trailer.
-    expect(message).toMatch(/- \[x\] First criterion\n\nJarvis-Agent: Claude Opus 4\.7$/);
+    expect(message).toMatch(/- \[x\] First criterion\n\nJarvis-Agent: Claude Opus 4\.8$/);
   });
 
   test("commitSubspec omits Jarvis-Agent line when label is empty", () => {

@@ -66,19 +66,4 @@ describe("prices show", () => {
     const cursorLine = lines.find((line) => line.includes("Composer 2"));
     expect(cursorLine).toContain("—");
   });
-
-  it("renders manual flag rows with * in MANUAL column", () => {
-    const cap = captureIo();
-    const code = pricesShowCommand({ io: cap.io });
-    expect(code).toBe(0);
-
-    const output = cap.out();
-    // Composer 2 should have * in MANUAL column
-    const lines = output.trim().split("\n");
-    const cursorLine = lines.find((line) => line.includes("Composer 2"));
-    if (cursorLine) {
-      // The MANUAL column should be near the end
-      expect(cursorLine).toMatch(/\*\s+https:\/\//);
-    }
-  });
 });

@@ -229,24 +229,24 @@ describe("renderPlanAttribution", () => {
     commitWithPlanMeta(
       "b.txt",
       "plan: draft",
-      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.7.", "Subspecs: 3"],
-      "Claude Opus 4.7",
+      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.8.", "Subspecs: 3"],
+      "Claude Opus 4.8",
     );
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
-    expect(out).toContain("2 spec commits (refine, draft, review) — Claude Opus 4.7");
-    expect(out).toContain("Written by Claude Opus 4.7 through Jarvis.");
+    expect(out).toContain("2 spec commits (refine, draft, review) — Claude Opus 4.8");
+    expect(out).toContain("Written by Claude Opus 4.8 through Jarvis.");
   });
 
   test("renders single meta-commit in collapsed form", () => {
     commitWithPlanMeta(
       "a.txt",
       "plan: draft",
-      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.7.", "Subspecs: 2"],
-      "Claude Opus 4.7",
+      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.8.", "Subspecs: 2"],
+      "Claude Opus 4.8",
     );
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
     expect(out).toContain("1 spec commits (refine, draft, review)");
-    expect(out).toContain("Claude Opus 4.7");
+    expect(out).toContain("Claude Opus 4.8");
   });
 
   test("mixes collapsed meta-commits with individual subspec commits", () => {
@@ -254,15 +254,15 @@ describe("renderPlanAttribution", () => {
     commitWithPlanMeta(
       "b.txt",
       "plan: draft",
-      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.7.", "Subspecs: 1"],
-      "Claude Opus 4.7",
+      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.8.", "Subspecs: 1"],
+      "Claude Opus 4.8",
     );
-    commitWithPlanMeta("c.txt", "Implement feature", ["Spec: spec/my-plan/00-implement.md"], "Claude Opus 4.7");
+    commitWithPlanMeta("c.txt", "Implement feature", ["Spec: spec/my-plan/00-implement.md"], "Claude Opus 4.8");
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
     expect(out).toContain("2 spec commits (refine, draft, review)");
     const sha = shortSha("HEAD");
     expect(out).toContain(`- ${sha} Implement feature`);
-    expect(out).toContain("Written by Claude Opus 4.7 through Jarvis.");
+    expect(out).toContain("Written by Claude Opus 4.8 through Jarvis.");
   });
 
   test("handles multiple agents in meta-commits", () => {
@@ -270,8 +270,8 @@ describe("renderPlanAttribution", () => {
     commitWithPlanMeta(
       "b.txt",
       "plan: draft",
-      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.7.", "Subspecs: 1"],
-      "Claude Opus 4.7",
+      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.8.", "Subspecs: 1"],
+      "Claude Opus 4.8",
     );
     commitWithPlanMeta(
       "c.txt",
@@ -281,7 +281,7 @@ describe("renderPlanAttribution", () => {
     );
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
     expect(out).toContain("3 spec commits (refine, draft, review)");
-    expect(out).toContain("Claude Opus 4.7, Claude Sonnet 4.6");
+    expect(out).toContain("Claude Opus 4.8, Claude Sonnet 4.6");
   });
 });
 

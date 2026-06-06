@@ -42,7 +42,10 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
         return 2;
       }
 
-      const agent = opts.loadAgent(agentEntry);
+      const agent = opts.loadAgent({
+        name: agentEntry.agent,
+        model: agentEntry.model,
+      });
       const prompt = await opts.adapter.buildPrompt({
         passNumber,
         totalPasses,

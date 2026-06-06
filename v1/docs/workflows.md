@@ -147,7 +147,9 @@ What loops vs. what's a distinct path:
   name+rename → draft → review-loop → mark-ready.
 - **Quota fallback** is an *orthogonal* loop not shown above: on every agent
   call, if the chosen agent reports a quota signal, the harness rotates to the
-  next agent in `modes.plan.agentOrder` and retries the same phase invocation.
+  next agent in that phase's chain and retries the same phase invocation
+  (`modes.plan.agentOrder` for refine/draft/name-only; review uses
+  `modes.review.agentOrder` → `modes.plan.agentOrder`).
   Generic agent errors *also* rotate (unlike patch mode); only `model_config`
   exits immediately with code 3.
 - **Determinism**: every green box is reproducible from the same git state.

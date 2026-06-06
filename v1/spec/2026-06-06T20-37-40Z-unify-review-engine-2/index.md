@@ -1,7 +1,7 @@
 # Unify review engine (plan + patch)
 
 - [x] [00 - Define shared review flow](./00-define-shared-review-flow.md)
-- [ ] [01 - Move plan review onto shared flow](./01-plan-review-shared-flow.md)
+- [x] [01 - Move plan review onto shared flow](./01-plan-review-shared-flow.md)
 - [ ] [02 - Move patch review onto shared flow](./02-patch-review-shared-flow.md)
 
 ## Direction

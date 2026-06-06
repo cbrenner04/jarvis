@@ -17,7 +17,10 @@ import {
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";
 import { describePlanInvocation, parsePlanArgs } from "../src/commands/plan-args.ts";
-import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
+import { loadConfig, registerProject, resolveReviewPasses, writeConfig } from "../src/config.ts";
+import { runPlanReviewPhase } from "../src/modes/plan/review.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
+import type { Config } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 
 function captureIo() {
@@ -1295,6 +1298,85 @@ describe("phase-0 intent review gate", () => {
       expect(out).toContain("spec/2026-05-20T02-41-21Z-plan-intent-review-gate/intent.md");
       expect(out).toContain("jarvis1 plan --resume-draft spec/");
       expect(out).toContain("/intent.md");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("plan review pass resolution", () => {
+  const reviewCfg: Config = {
+    version: 2,
+    modes: {
+      patch: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+      plan: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+      prompt: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+      review: { passes: 7 },
+    },
+    quotaFallback: "strict",
+    weakQuotaExitCodes: [],
+    maxIterations: 10,
+    iterationTimeoutMs: 30 * 60_000,
+    git: true,
+    projects: {},
+  };
+
+  class NoopAgent implements Agent {
+    readonly name: AgentName = "claude";
+    async run(_prompt: string, _opts: AgentRunOptions): Promise<AgentResult> {
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    attributionLabel(): string {
+      return "noop-claude";
+    }
+  }
+
+  test("fresh and resume paths resolve passes as CLI override -> config -> default", async () => {
+    expect(resolveReviewPasses(reviewCfg, 3)).toBe(3);
+    expect(resolveReviewPasses(reviewCfg)).toBe(7);
+    expect(resolveReviewPasses({ ...reviewCfg, modes: { ...reviewCfg.modes, review: { passes: 2 } } })).toBe(2);
+
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-review-resolve-"));
+    try {
+      execSync("git init -b main", { cwd: dir });
+      execSync("git config user.email 'test@example.com'", { cwd: dir });
+      execSync("git config user.name 'Test User'", { cwd: dir });
+      const specDir = join(dir, "spec", "p-resolve");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-resolve\n---\n\n# Intent\n\nseed\n");
+      writeFileSync(join(specDir, "index.md"), "# Draft\n");
+      execSync("git add -A", { cwd: dir });
+      execSync("git commit -m seed", { cwd: dir });
+
+      const freshStarts: number[] = [];
+      await runPlanReviewPhase({
+        worktreePath: dir,
+        name: "p-resolve",
+        specDirBasename: "p-resolve",
+        config: reviewCfg,
+        reviewPassesOverride: 2,
+        commit: true,
+        createAgent: () => new NoopAgent(),
+        onPassStart: (pass) => {
+          freshStarts.push(pass);
+        },
+      });
+      expect(freshStarts).toEqual([1, 2]);
+
+      const resumeStarts: number[] = [];
+      await runPlanReviewPhase({
+        worktreePath: dir,
+        name: "p-resolve",
+        specDirBasename: "p-resolve",
+        config: reviewCfg,
+        startPassNumber: 4,
+        commit: true,
+        createAgent: () => new NoopAgent(),
+        onPassStart: (pass) => {
+          resumeStarts.push(pass);
+        },
+      });
+      expect(resumeStarts).toEqual([4, 5, 6, 7, 8, 9, 10]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

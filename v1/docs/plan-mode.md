@@ -207,7 +207,7 @@ fixtures (`v1/test/fixtures/prompts/rendered/<id>@r<revision>...shared.txt`).
 
 ### Phase 2: Self-review
 
-After `plan: draft` is pushed, jarvis runs zero or more review passes (default: 2; configurable via `--review-passes`). Each pass invokes an agent with a focused prompt (`prompts/plan/review.md`) that:
+After `plan: draft` is pushed, jarvis runs zero or more review passes (default: `modes.review.passes`, currently `2`; overridable via `--review-passes`). Review agents come from `modes.review.agentOrder`, falling back to `modes.plan.agentOrder`. Each pass invokes an agent with a focused prompt (`prompts/plan/review.md`) that:
 
 - Inlines the current `intent.md` and all spec files.
 - Inlines `docs/spec-guidance.md`.
@@ -247,7 +247,7 @@ Coverage:
 
 - **Labels**: The summary header reports **`phase attempts`** (count of non-`harness`, non-`run_terminal` invocation rows), not patch-style implementation iterations. Table rows use **`N attempt(s)`** per agent instead of **`N iteration(s)`**.
 
-- **Cost**: Usage-only agent results get cost computed from **`modes.plan.agentOrder`** model ids when the price table has a matching entry—the same enrichment path as patch mode (`modes.patch.agentOrder` there). Shared terminology for token buckets, `cost_source`, and notes is documented under [Token usage and cost tracking](./run-loop.md#token-usage-and-cost-tracking) and [End-of-run summary](./run-loop.md#end-of-run-summary).
+- **Cost**: Usage-only agent results get cost computed from the configured model id for each attempt (`modes.plan.agentOrder` for refine/draft/name-only; review uses `modes.review.agentOrder ?? modes.plan.agentOrder`) when the price table has a matching entry—the same enrichment path as patch mode (`modes.patch.agentOrder` there). Shared terminology for token buckets, `cost_source`, and notes is documented under [Token usage and cost tracking](./run-loop.md#token-usage-and-cost-tracking) and [End-of-run summary](./run-loop.md#end-of-run-summary).
 
 - **Quota fallback**: Quota-only attempts are excluded from aggregated totals with the same quota-excluded notes as patch mode.
 
@@ -423,13 +423,13 @@ user can return to the worktree and continue manually or with
 
 ### 4. Agent quota exhausted
 
-If the selected agent (from `modes.plan.agentOrder`) reports a quota signal, jarvis advances to the next agent in the fallback chain. While rotating, stderr lines use the same core phrases as patch mode (`quota exhausted; falling back` and `probable quota-like error (exit N); falling back`), each prefixed with `plan: <agent>: ` for grep in mixed logs. If all agents are exhausted, jarvis exits `2` and prints `plan: all agents quota-exhausted` to stderr (optionally with a phase suffix such as ` during refine`), matching patch mode's quota exit code; see [docs/quota-signals.md](./quota-signals.md) and the [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
+Refine, draft, and name-only phases use `modes.plan.agentOrder`. Review passes use the shared review agent chain (`modes.review.agentOrder`, falling back to `modes.plan.agentOrder`). When a selected agent reports a quota signal, jarvis advances to the next agent in that phase's chain. While rotating during refine/draft/name-only, stderr lines use the same core phrases as patch mode (`quota exhausted; falling back` and `probable quota-like error (exit N); falling back`), each prefixed with `plan: <agent>: ` for grep in mixed logs. Review quota fallback follows the shared review runner (no per-agent `plan:` prefix). If all agents are exhausted, jarvis exits `2` and prints `plan: all agents quota-exhausted` to stderr (optionally with a phase suffix such as ` during refine`), matching patch mode's quota exit code; see [docs/quota-signals.md](./quota-signals.md) and the [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
 
 If an agent reports a `model_config` signal (the configured model is not supported by that CLI/account), jarvis exits `3` and prints `plan: model configuration error` plus the agent's stderr. This matches patch mode's `model_config` exit code (see `src/modes/patch/run.ts`).
 
 ### 5. Hard generic errors (excluding quota and model configuration)
 
-**Policy (status quo):** After spawn-time classification and any lenient weak-quota upgrade (`quotaFallback: "lenient"`), a remaining classified `error` does **not** exit the inner `modes.plan.agentOrder` loop. Jarvis tries the next configured agent for the same phase invocation (refine turn, name-only pass, draft, or review). Rationale: plan mode favors completing an authoring run when one vendor CLI glitches while another may work.
+**Policy (status quo):** After spawn-time classification and any lenient weak-quota upgrade (`quotaFallback: "lenient"`), a remaining classified `error` does **not** exit the inner `modes.plan.agentOrder` loop for refine, name-only, or draft. Jarvis tries the next configured agent for the same phase invocation. Review uses the shared review runner: quota rotates to the next review agent; other hard errors exit that pass. Rationale: plan mode favors completing an authoring run when one vendor CLI glitches while another may work.
 
 **Difference from patch:** `jarvis1 run` stops the current iteration on the same classified `error` (typically harness exit `1`). The operator fixes the CLI or config and re-runs jarvis; only **quota** results rotate to the next agent within a single patch iteration. See [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
 
@@ -437,7 +437,7 @@ If every agent in the order fails without `ok`, the phase returns the last failu
 
 ## Agent selection
 
-Plan mode uses `config.modes.plan.agentOrder` (not `modes.patch.agentOrder`). Config v2 requires both orders to be explicit. The quota fallback chain is the same as patch mode: if the chosen agent reports a quota signal, advance to the next; if all are exhausted, exit with code and message.
+Plan mode uses `config.modes.plan.agentOrder` for refine/draft/name-only (not `modes.patch.agentOrder`). Review uses `modes.review.agentOrder ?? modes.plan.agentOrder`. Config v2 requires patch and plan orders to be explicit. The quota fallback chain is the same as patch mode: if the chosen agent reports a quota signal, advance to the next in that phase's chain; if all are exhausted, exit with code and message.
 
 There is no fallback to patch-mode order; both must be configured.
 

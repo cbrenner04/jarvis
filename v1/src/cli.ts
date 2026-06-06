@@ -11,9 +11,9 @@ import {
   type ConfigOptions,
   findProjectMatchForPath,
   loadConfig,
+  type ProjectMatch,
   resolvePlanFlags,
   validatePositiveInteger,
-  type ProjectMatch,
 } from "./config.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
 import { type PromptRunOptions, promptCommand } from "./modes/prompt/run.ts";
@@ -204,7 +204,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           repo = value;
           args.splice(i, 2);
           i -= 1;
-          continue;
         }
       }
       const text = args[0];
@@ -428,21 +427,14 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
           }
         }
         if (project === undefined) {
-          io.stderr(
-            `jarvis1: --repo: no project matches ${JSON.stringify(parsed.repo)}\n`,
-          );
+          io.stderr(`jarvis1: --repo: no project matches ${JSON.stringify(parsed.repo)}\n`);
           return 1;
         }
       } else {
         // Resolve from cwd
-        project = findProjectMatchForPath(
-          opts.cwd ?? process.cwd(),
-          opts.config,
-        );
+        project = findProjectMatchForPath(opts.cwd ?? process.cwd(), opts.config);
         if (project === undefined) {
-          io.stderr(
-            `jarvis1: repo resolution failed: not inside any project registered with \`jarvis1 init\`\n`,
-          );
+          io.stderr(`jarvis1: repo resolution failed: not inside any project registered with \`jarvis1 init\`\n`);
           return 1;
         }
       }

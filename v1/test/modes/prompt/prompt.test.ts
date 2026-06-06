@@ -13,19 +13,7 @@ describe("buildPrompt", () => {
 
     expect(prompt).toContain("Fix the bug in lib/foo.ts");
     expect(prompt).toContain("Prompt Mode");
-    expect(prompt).toBe(
-      [
-        documentation,
-        "",
-        naming,
-        "",
-        terse,
-        "",
-        rules,
-        "",
-        promptText,
-      ].join("\n"),
-    );
+    expect(prompt).toBe([documentation, "", naming, "", terse, "", rules, "", promptText].join("\n"));
   });
 
   test("preserves multi-line prompt text", () => {
@@ -35,7 +23,7 @@ describe("buildPrompt", () => {
   });
 
   test("preserves special characters in prompt", () => {
-    const promptText = "Fix: $PATH issue with backticks `like this` and quotes \"test\"";
+    const promptText = 'Fix: $PATH issue with backticks `like this` and quotes "test"';
     const prompt = buildPrompt(promptText);
     expect(prompt).toContain(promptText);
   });

@@ -1601,7 +1601,11 @@ exit 1
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: [CLAUDE_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY] } },
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
@@ -1642,7 +1646,11 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: [CLAUDE_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY] } },
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1725,7 +1733,11 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: [CLAUDE_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY] } },
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 1,
@@ -1790,7 +1802,11 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] } },
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1827,7 +1843,11 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] } },
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1873,7 +1893,11 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] } },
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1919,7 +1943,11 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] } },
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "strict",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -1958,7 +1986,11 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] } },
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -2018,7 +2050,11 @@ exit 0
     writeConfig(
       {
         version: 2,
-        modes: { patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] } },
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+        },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
         maxIterations: 10,
@@ -2922,7 +2958,11 @@ exit 0
       writeConfig(
         {
           version: 2,
-          modes: { patch: { agentOrder: [CLAUDE_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY] } },
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -2957,7 +2997,11 @@ exit 0
       writeConfig(
         {
           version: 2,
-          modes: { patch: { agentOrder: [CLAUDE_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY] } },
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -3028,7 +3072,11 @@ wait
       writeConfig(
         {
           version: 2,
-          modes: { patch: { agentOrder: [CLAUDE_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY] } },
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
@@ -3095,7 +3143,11 @@ wait
       writeConfig(
         {
           version: 2,
-          modes: { patch: { agentOrder: [CLAUDE_ENTRY] }, plan: { agentOrder: [CLAUDE_ENTRY] }, prompt: { agentOrder: [CLAUDE_ENTRY] } },
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+          },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,

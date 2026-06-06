@@ -9,11 +9,9 @@ export function buildPrompt(promptText: string): string {
     stepPromptId: "prompt.prompt.body",
   });
 
-  const rendered = renderTemplateWithDeclarations(
-    template,
-    [{ name: "PROMPT_TEXT", type: "string", required: true }],
-    { PROMPT_TEXT: promptText },
-  );
+  const rendered = renderTemplateWithDeclarations(template, [{ name: "PROMPT_TEXT", type: "string", required: true }], {
+    PROMPT_TEXT: promptText,
+  });
 
   return rendered.trim();
 }

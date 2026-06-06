@@ -48,7 +48,11 @@ describe("config show", () => {
     ];
     expect(parsed).toEqual({
       version: 2,
-      modes: { patch: { agentOrder: defaultOrder }, plan: { agentOrder: defaultOrder, targetDir: "spec" }, prompt: { agentOrder: defaultOrder } },
+      modes: {
+        patch: { agentOrder: defaultOrder },
+        plan: { agentOrder: defaultOrder, targetDir: "spec" },
+        prompt: { agentOrder: defaultOrder },
+      },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
       maxIterations: 10,

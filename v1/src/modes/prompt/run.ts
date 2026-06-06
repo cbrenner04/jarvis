@@ -14,14 +14,8 @@ import {
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import { harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
-import {
-  appendTelemetryLine,
-  type TelemetryKind,
-} from "../../telemetry.ts";
-import {
-  createPromptWorktree,
-  pushCurrent,
-} from "../../worktree.ts";
+import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
+import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { buildPrompt } from "./prompt.ts";
 
@@ -82,9 +76,7 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
   // Resolve project and preflight checks
   const project = findProjectMatchForPath(opts.projectPath, opts.config);
   if (project === undefined) {
-    opts.io.stderr(
-      "jarvis1: repo resolution failed: not inside any project registered with `jarvis1 init`\n",
-    );
+    opts.io.stderr("jarvis1: repo resolution failed: not inside any project registered with `jarvis1 init`\n");
     return 1;
   }
 
@@ -187,7 +179,9 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
         watchdogFired = true;
         const pgid = watchdogPgid;
         if (pgid !== null) {
-          opts.io.stderr(`[watchdog] iteration timeout fired after ${cfg.iterationTimeoutMs}ms; killing agent pgid ${pgid}\n`);
+          opts.io.stderr(
+            `[watchdog] iteration timeout fired after ${cfg.iterationTimeoutMs}ms; killing agent pgid ${pgid}\n`,
+          );
           try {
             process.kill(-pgid, "SIGTERM");
           } catch {
@@ -334,22 +328,26 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     const prBody = `${opts.promptText}\n\n---\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
 
     try {
-      execFileSync("gh", [
-        "pr",
-        "create",
-        "--draft",
-        "--base",
-        baseBranch,
-        "--head",
-        currentBranch,
-        "--title",
-        commitSubject,
-        "--body",
-        prBody,
-      ], {
-        cwd: worktreePath,
-        stdio: "pipe",
-      });
+      execFileSync(
+        "gh",
+        [
+          "pr",
+          "create",
+          "--draft",
+          "--base",
+          baseBranch,
+          "--head",
+          currentBranch,
+          "--title",
+          commitSubject,
+          "--body",
+          prBody,
+        ],
+        {
+          cwd: worktreePath,
+          stdio: "pipe",
+        },
+      );
     } catch (err) {
       opts.io.stderr(`gh pr create failed: ${(err as Error).message}\n`);
       return 1;

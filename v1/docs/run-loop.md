@@ -148,9 +148,10 @@ where it can be edited by reviewers. If generation fails, jarvis falls back to
 After the spec is complete and `git: true` is in effect, `jarvis1 run` enters
 a post-completion review phase configured by `modes.review.passes` (default `2`).
 The review phase is skipped when `passes` is `0`, when `git` is `false`, or when
-the run completed no implementation iterations. Review passes run their own agent
-chain — `modes.review.agentOrder`, falling back to `modes.plan.agentOrder` — not
-the implementation agents.
+the run completed no implementation iterations. Patch review routes through the
+shared review runner in `v1/src/modes/review/` with a patch adapter; review
+agents resolve from `modes.review.agentOrder`, falling back to
+`modes.plan.agentOrder`, not the implementation agents.
 
 The review phase flow is:
 

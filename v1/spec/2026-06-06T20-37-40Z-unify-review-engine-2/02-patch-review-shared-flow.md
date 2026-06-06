@@ -21,15 +21,15 @@ Route patch review through the shared review runner while preserving patch-speci
 
 ## Acceptance criteria
 
-- [ ] Patch review calls the shared review runner for its N review passes.
-- [ ] Baseline `bun run ready` still runs before the first review pass and failure stops review before any agent pass.
-- [ ] Final `bun run ready` and `gh pr ready` still run only after all review passes complete.
-- [ ] Spec-tree edits during patch review are still reverted, including untracked additions, before commit.
-- [ ] `.jarvis-review-blocker` still stops review with exit 7, is consumed, and posts a PR comment when possible.
-- [ ] Non-empty patch review edits still commit as `review: pass N`; empty passes do not create commits.
-- [ ] Quota fallback, all-agent quota exit 2, model-config exit 3, and hard-error handling match the shared runner tests.
-- [ ] Patch review telemetry still records review attempts separately from implementation attempts.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] Patch review calls the shared review runner for its N review passes.
+- [x] Baseline `bun run ready` still runs before the first review pass and failure stops review before any agent pass.
+- [x] Final `bun run ready` and `gh pr ready` still run only after all review passes complete.
+- [x] Spec-tree edits during patch review are still reverted, including untracked additions, before commit.
+- [x] `.jarvis-review-blocker` still stops review with exit 7, is consumed, and posts a PR comment when possible.
+- [x] Non-empty patch review edits still commit as `review: pass N`; empty passes do not create commits.
+- [x] Quota fallback, all-agent quota exit 2, model-config exit 3, and hard-error handling match the shared runner tests.
+- [x] Patch review telemetry still records review attempts separately from implementation attempts.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

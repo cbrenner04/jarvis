@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { getCurrentBranch } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
@@ -11,7 +12,7 @@ import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
 import { runReview } from "../review/run.ts";
-import type { ReviewAdapter, ReviewAttemptContext, ReviewTelemetryEvent } from "../review/types.ts";
+import { ReviewTerminalError, type ReviewAdapter, type ReviewAttemptContext, type ReviewTelemetryEvent } from "../review/types.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt } from "./prompt.ts";
 
@@ -177,7 +178,7 @@ export type PatchReviewPhaseOptions = {
   config: Config;
   cwd: string;
   specPath: string;
-  reviewPasses: number;
+  reviewPassesOverride?: number;
   fanout: PatchReviewFanout;
   writeTelemetry: PatchReviewTelemetryWriter;
   agents?: Partial<Record<AgentName, Agent>>;
@@ -193,23 +194,6 @@ export type PatchReviewPhaseOptions = {
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
   baseBranch?: string;
 };
-
-class PatchReviewTerminalError extends Error {
-  readonly exitCode: number;
-
-  constructor(message: string, exitCode: number) {
-    super(message);
-    this.exitCode = exitCode;
-  }
-}
-
-function getCurrentBranch(cwd: string): string {
-  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd,
-    encoding: "utf8",
-    stdio: "pipe",
-  }).trim();
-}
 
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
 function withReviewPassTimeout(agent: Agent, opts: { timeoutMs: number; killGraceMs: number }): Agent {
@@ -253,6 +237,7 @@ function createPatchReviewAdapter(args: {
   base: string;
 }): ReviewAdapter {
   const { opts, specDir, branch, base } = args;
+  const commitOpts = { specPath: opts.specPath, branch, base };
 
   const recordPatchTelemetry = (event: ReviewTelemetryEvent, exitCode?: number): void => {
     const configuredModel = event.agentEntry.model;
@@ -302,9 +287,6 @@ function createPatchReviewAdapter(args: {
         kind = "error";
         exitReason = event.result.kind;
         break;
-      default:
-        kind = "error";
-        exitReason = "error";
     }
 
     opts.writeTelemetry({
@@ -350,7 +332,7 @@ function createPatchReviewAdapter(args: {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         opts.fanout("harness", `review: revert failed: ${message}\n`, "stderr");
-        throw new PatchReviewTerminalError(message, 1);
+        throw new ReviewTerminalError(message, 1);
       }
     },
     readBlocker: async () => consumeReviewBlocker(opts.cwd),
@@ -358,11 +340,7 @@ function createPatchReviewAdapter(args: {
       opts.fanout("harness", `review: pass ${ctx.passNumber} encountered blocker\n`, "stderr");
       let blockerCommitFailed = false;
       try {
-        commitReviewPass(ctx.passNumber, ctx.agent.name, opts.cwd, {
-          specPath: opts.specPath,
-          branch,
-          base,
-        });
+        commitReviewPass(ctx.passNumber, ctx.agent.name, opts.cwd, commitOpts);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         opts.fanout("harness", `review: blocker commit failed: ${message}\n`, "stderr");
@@ -383,18 +361,14 @@ function createPatchReviewAdapter(args: {
 
       if (blockerCommitFailed) {
         recordPatchTelemetry({ ...ctx, outcome: "blocked" }, 1);
-        throw new PatchReviewTerminalError("review-blocker-commit-failed", 1);
+        throw new ReviewTerminalError("review-blocker-commit-failed", 1);
       }
 
       return 7;
     },
     commitPass: async (ctx) => {
       try {
-        commitReviewPass(ctx.passNumber, ctx.agent.name, opts.cwd, {
-          specPath: opts.specPath,
-          branch,
-          base,
-        });
+        commitReviewPass(ctx.passNumber, ctx.agent.name, opts.cwd, commitOpts);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         opts.fanout("harness", `review: commit failed: ${message}\n`, "stderr");
@@ -410,7 +384,7 @@ function createPatchReviewAdapter(args: {
           configured_model: ctx.agentEntry.model,
           ...usageAndCost,
         });
-        throw new PatchReviewTerminalError(message, 1);
+        throw new ReviewTerminalError(message, 1);
       }
       opts.fanout("harness", `review: pass ${ctx.passNumber} completed\n`, "stdout");
     },
@@ -450,7 +424,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       config: opts.config,
       cwd: opts.cwd,
       adapter: createPatchReviewAdapter({ opts, specDir, branch, base }),
-      reviewPassesOverride: opts.reviewPasses,
+      ...(opts.reviewPassesOverride !== undefined ? { reviewPassesOverride: opts.reviewPassesOverride } : {}),
       loadAgent: ({ name, model }) => {
         const override = opts.agents?.[name as AgentName];
         const agent = override ?? createAgent(name as AgentName, model);
@@ -468,7 +442,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       return reviewExitCode;
     }
   } catch (err) {
-    if (err instanceof PatchReviewTerminalError) {
+    if (err instanceof ReviewTerminalError) {
       return err.exitCode;
     }
     throw err;

@@ -139,7 +139,7 @@ describe("runPatchReviewPhase", () => {
         config: makeReviewConfig({ reviewOrder: [CODEX_ENTRY], planOrder: [CLAUDE_ENTRY] }),
         cwd: dir,
         specPath,
-        reviewPasses: 1,
+        reviewPassesOverride: 1,
         skipGates: true,
         fanout: (tag, text) => {
           if (tag === "harness") harness.push(text.trim());
@@ -160,7 +160,7 @@ describe("runPatchReviewPhase", () => {
         config: makeReviewConfig({ planOrder: [CODEX_ENTRY] }),
         cwd: dir,
         specPath,
-        reviewPasses: 1,
+        reviewPassesOverride: 1,
         skipGates: true,
         fanout: (tag, text) => {
           if (tag === "harness") harness.push(text.trim());
@@ -185,7 +185,7 @@ describe("runPatchReviewPhase", () => {
         config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
         cwd: dir,
         specPath,
-        reviewPasses: 1,
+        reviewPassesOverride: 1,
         skipGates: true,
         fanout: () => {},
         writeTelemetry: () => {},
@@ -199,7 +199,7 @@ describe("runPatchReviewPhase", () => {
         config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
         cwd: dir,
         specPath,
-        reviewPasses: 1,
+        reviewPassesOverride: 1,
         skipGates: true,
         fanout: () => {},
         writeTelemetry: () => {},
@@ -227,7 +227,7 @@ describe("runPatchReviewPhase", () => {
         config: makeReviewConfig({ reviewPasses: 2, reviewOrder: [CLAUDE_ENTRY] }),
         cwd: dir,
         specPath,
-        reviewPasses: 2,
+        reviewPassesOverride: 2,
         skipGates: true,
         fanout: () => {},
         writeTelemetry: () => {},
@@ -243,7 +243,7 @@ describe("runPatchReviewPhase", () => {
         config: makeReviewConfig({ reviewPasses: 1, reviewOrder: [CLAUDE_ENTRY] }),
         cwd: dir,
         specPath,
-        reviewPasses: 1,
+        reviewPassesOverride: 1,
         fanout: () => {},
         writeTelemetry: () => {},
         agents: { claude },
@@ -269,7 +269,7 @@ describe("runPatchReviewPhase", () => {
         config: makeReviewConfig({ reviewPasses: 2, reviewOrder: [CLAUDE_ENTRY] }),
         cwd: dir,
         specPath,
-        reviewPasses: 2,
+        reviewPassesOverride: 2,
         fanout: (tag, text) => {
           if (tag === "harness") events.push(text.trim());
         },

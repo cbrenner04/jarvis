@@ -1339,7 +1339,6 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
       ctx,
       specPath: preflight.specPath,
       agentWorkingDir: preflight.agentWorkingDir,
-      reviewPasses,
     });
     if (reviewExitCode !== 0) {
       return reviewExitCode;
@@ -1562,7 +1561,6 @@ async function runReviewPhase(opts: {
   ctx: IterationContext;
   specPath: string;
   agentWorkingDir: string;
-  reviewPasses: number;
 }): Promise<number> {
   const { ctx } = opts;
   const { fanout, writeTelemetry } = ctx.logging;
@@ -1573,7 +1571,7 @@ async function runReviewPhase(opts: {
       config: preflight.cfg,
       cwd: opts.agentWorkingDir,
       specPath: opts.specPath,
-      reviewPasses: opts.reviewPasses,
+      ...(ctx.opts.reviewPasses !== undefined ? { reviewPassesOverride: ctx.opts.reviewPasses } : {}),
       fanout,
       writeTelemetry,
       ...(ctx.opts.agents !== undefined ? { agents: ctx.opts.agents } : {}),

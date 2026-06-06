@@ -26,6 +26,16 @@ export type ReviewTelemetryEvent = ReviewAttemptContext & {
   exitCode?: number;
 };
 
+/** Adapter-thrown error that maps to a harness exit code. */
+export class ReviewTerminalError extends Error {
+  readonly exitCode: number;
+
+  constructor(message: string, exitCode: number) {
+    super(message);
+    this.exitCode = exitCode;
+  }
+}
+
 /** Review-mode adapter contract. */
 export interface ReviewAdapter {
   /** Build the prompt for one review attempt. */

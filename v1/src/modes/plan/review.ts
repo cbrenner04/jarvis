@@ -8,7 +8,7 @@ import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { runReview } from "../review/run.ts";
-import type { ReviewAdapter, ReviewAttemptContext, ReviewTelemetryEvent } from "../review/types.ts";
+import { ReviewTerminalError, type ReviewAdapter, type ReviewAttemptContext, type ReviewTelemetryEvent } from "../review/types.ts";
 import { detectBlocker } from "./blocker.ts";
 import {
   appendBoundaryBlocker,
@@ -250,15 +250,6 @@ export function validateReviewOutput(
   return { valid: true, error: null };
 }
 
-class PlanReviewTerminalError extends Error {
-  readonly exitCode: number;
-
-  constructor(message: string, exitCode: number) {
-    super(message);
-    this.exitCode = exitCode;
-  }
-}
-
 /** Result of the plan review phase routed through the shared review runner. */
 export type PlanReviewPhaseResult = {
   exitCode: number;
@@ -336,8 +327,9 @@ function createPlanReviewAdapter(args: {
   finalSpecPath: string;
   specSnapshotBefore: Set<string> | null;
   onBlocker: (blocker: string) => void;
+  onAgentFailure: (passNumber: number, stderr: string) => void;
 }): ReviewAdapter {
-  const { opts, displayPassNumber, displayTotalPasses, intentBefore, finalSpecPath, specSnapshotBefore, onBlocker } =
+  const { opts, displayPassNumber, displayTotalPasses, intentBefore, finalSpecPath, specSnapshotBefore, onBlocker, onAgentFailure } =
     args;
   const targetDir = opts.targetDir ?? "spec";
   const flatSpecLayout = opts.specDirPath !== undefined;
@@ -387,7 +379,7 @@ function createPlanReviewAdapter(args: {
       await opts.updatePrBody?.();
     }
     opts.stderr?.(`plan: blocked\n`);
-    throw new PlanReviewTerminalError("write boundary violation", 1);
+    throw new ReviewTerminalError("write boundary violation", 1);
   };
 
   return {
@@ -413,11 +405,8 @@ function createPlanReviewAdapter(args: {
         opts.onOutboundPrompt?.(prompt);
         return prompt;
       } catch (err) {
-        if (err instanceof TemplateRenderingError || err instanceof Error) {
-          throw new PlanReviewTerminalError(
-            err instanceof Error ? err.message : "review prompt configuration error",
-            3,
-          );
+        if (err instanceof Error) {
+          throw new ReviewTerminalError(err.message, 3);
         }
         throw err;
       }
@@ -436,7 +425,7 @@ function createPlanReviewAdapter(args: {
       );
       if (!validation.valid) {
         opts.stderr?.(`plan: review pass ${displayPassNumber} validation failed: ${validation.error}\n`);
-        throw new PlanReviewTerminalError(validation.error ?? "validation failed", 1);
+        throw new ReviewTerminalError(validation.error ?? "validation failed", 1);
       }
       if (validation.blocker !== undefined) {
         if (opts.checkBoundary) {
@@ -494,6 +483,9 @@ function createPlanReviewAdapter(args: {
       }
     },
     recordTelemetry: async (event: ReviewTelemetryEvent) => {
+      if (event.outcome === "error" || event.outcome === "model_config") {
+        onAgentFailure(event.passNumber, event.result.stderr);
+      }
       opts.planTelemetry?.recordAgentAttempt({
         phase: "review",
         agentCli: event.agentEntry.agent,
@@ -510,6 +502,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
   const finalSpecPath = resolveFinalSpecPath(opts);
   let detectedBlocker: string | undefined;
+  let agentFailure: { passNumber: number; stderr: string } | undefined;
 
   try {
     const exitCode = await runReview({
@@ -532,6 +525,9 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
           onBlocker: (blocker) => {
             detectedBlocker = blocker;
           },
+          onAgentFailure: (passNumber, stderr) => {
+            agentFailure = { passNumber, stderr };
+          },
         });
       },
       loadAgent: ({ name, model }) => resolveAgent(name as AgentName, model),
@@ -544,21 +540,22 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
       return { exitCode: 130, interrupted: true };
     }
     if (exitCode === 3) {
-      opts.stderr?.(`plan: model configuration error\n`);
+      const detail = agentFailure?.stderr;
+      opts.stderr?.(`plan: model configuration error${detail ? `: ${detail}` : ""}\n`);
       return { exitCode: 3 };
     }
     if (exitCode !== 0) {
       if (detectedBlocker !== undefined) {
         return { exitCode, blocker: detectedBlocker };
       }
-      if (exitCode !== 2) {
-        opts.stderr?.(`plan: review pass failed\n`);
+      if (agentFailure !== undefined) {
+        opts.stderr?.(`plan: review pass ${agentFailure.passNumber} failed: ${agentFailure.stderr}\n`);
       }
       return { exitCode };
     }
     return { exitCode: 0 };
   } catch (err) {
-    if (err instanceof PlanReviewTerminalError) {
+    if (err instanceof ReviewTerminalError) {
       return { exitCode: err.exitCode };
     }
     opts.stderr?.(`plan: review error: ${(err as Error).message}\n`);

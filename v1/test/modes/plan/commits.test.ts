@@ -253,7 +253,7 @@ describe("commitPlanDraft", () => {
       commitPlanDraft({
         worktreePath,
         name: "test-spec",
-        agentLabel: "Claude Opus 4.7",
+        agentLabel: "Claude Opus 4.8",
         subspecCount: 1,
       });
 
@@ -261,7 +261,7 @@ describe("commitPlanDraft", () => {
         cwd: worktreePath,
         encoding: "utf8",
       }).trim();
-      expect(trailerValue).toBe("Claude Opus 4.7");
+      expect(trailerValue).toBe("Claude Opus 4.8");
     } finally {
       cleanup();
     }

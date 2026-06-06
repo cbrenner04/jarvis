@@ -173,9 +173,9 @@ describe("ClaudeAgent", () => {
   test("attributionLabel returns mapped label for known model ID", () => {
     const agent = new ClaudeAgent({
       binary: "fake",
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
-    expect(agent.attributionLabel()).toBe("Claude Opus 4.7");
+    expect(agent.attributionLabel()).toBe("Claude Opus 4.8");
   });
 
   test("attributionLabel returns raw string for unknown model ID", () => {

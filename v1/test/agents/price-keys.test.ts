@@ -5,11 +5,11 @@ describe("resolveAgentPriceKey", () => {
   test("claude maps short names to canonical price keys", () => {
     expect(resolveAgentPriceKey("claude", "haiku")).toBe("claude-haiku-4-5-20251001");
     expect(resolveAgentPriceKey("claude", "sonnet")).toBe("claude-sonnet-4-6");
-    expect(resolveAgentPriceKey("claude", "opus")).toBe("claude-opus-4-7");
+    expect(resolveAgentPriceKey("claude", "opus")).toBe("claude-opus-4-8");
   });
 
   test("claude passes canonical price keys through unchanged", () => {
-    expect(resolveAgentPriceKey("claude", "claude-opus-4-7")).toBe("claude-opus-4-7");
+    expect(resolveAgentPriceKey("claude", "claude-opus-4-8")).toBe("claude-opus-4-8");
   });
 
   test("claude returns null for unknown models", () => {

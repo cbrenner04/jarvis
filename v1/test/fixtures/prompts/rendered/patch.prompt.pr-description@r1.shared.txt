@@ -13,12 +13,10 @@ This does not authorize under-documenting code or omitting required docs.
 
 Author a PR description consisting of a short summary followed by a `Decisions:` section:
 
-```
 <Description — short and sweet but enough to describe the work>
 
 Decisions:
 <unordered list of notable decisions>
-```
 
 The Description should be concise but useful. The Decisions list should capture what mattered in the choice. Let the model decide what's appropriate for each.
 

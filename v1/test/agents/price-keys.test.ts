@@ -32,7 +32,7 @@ describe("resolveAgentPriceKey", () => {
 
   test("cursor identity-maps its known model menu", () => {
     expect(resolveAgentPriceKey("cursor", "Composer 2")).toBe("Composer 2");
-    expect(resolveAgentPriceKey("cursor", "Claude 4.7 Opus")).toBe("Claude 4.7 Opus");
+    expect(resolveAgentPriceKey("cursor", "Claude 4.8 Opus")).toBe("Claude 4.8 Opus");
     expect(resolveAgentPriceKey("cursor", "not-a-cursor-model")).toBeNull();
   });
 });

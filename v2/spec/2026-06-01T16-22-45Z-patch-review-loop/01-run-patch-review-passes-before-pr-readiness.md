@@ -36,11 +36,11 @@ Quota exhaustion mid-review: exit `2`, leave draft — no fall-through, no auto-
 
 ## Acceptance criteria
 
-- [ ] `git: true` runs do `bun run ready` → passes → `bun run ready` → `gh pr ready` after completion + clean worktree.
-- [ ] Passes get the spec tree + branch PR/base diff; the spec tree is read-only and edits are reverted.
-- [ ] Baseline gate runs ready, commits/pushes `check:fix`, leaves PR draft + clean worktree before pass 1.
-- [ ] An editing pass makes one `review <N>` commit + footer refresh; a no-op makes none.
-- [ ] Review runs through pass `N` past an earlier no-op.
-- [ ] A blocker posts a PR comment, commits the pass, leaves draft, exits `7`, writes no `## Blocker`.
-- [ ] Passes still run after the checklist-closing iteration even when `maxIterations` is exhausted.
-- [ ] All review agents quota-exhausted → exit `2`, PR draft.
+- [x] `git: true` runs do `bun run ready` → passes → `bun run ready` → `gh pr ready` after completion + clean worktree.
+- [x] Passes get the spec tree + branch PR/base diff; the spec tree is read-only and edits are reverted.
+- [x] Baseline gate runs ready, commits/pushes `check:fix`, leaves PR draft + clean worktree before pass 1.
+- [x] An editing pass makes one `review <N>` commit + footer refresh; a no-op makes none.
+- [x] Review runs through pass `N` past an earlier no-op.
+- [x] A blocker posts a PR comment, commits the pass, leaves draft, exits `7`, writes no `## Blocker`.
+- [x] Passes still run after the checklist-closing iteration even when `maxIterations` is exhausted.
+- [x] All review agents quota-exhausted → exit `2`, PR draft.

@@ -94,6 +94,39 @@ describe("parseArgs", () => {
     }
   });
 
+  test("run with --review-passes flag", () => {
+    expect(parseArgs(["run", "--review-passes", "3", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      reviewPasses: "3",
+    });
+  });
+
+  test("run with --review-passes 0", () => {
+    expect(parseArgs(["run", "--review-passes", "0", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      reviewPasses: "0",
+    });
+  });
+
+  test("run without --review-passes value → error", () => {
+    const parsed = parseArgs(["run", "--review-passes"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("--review-passes");
+    }
+  });
+
+  test("run with multiple flags including --review-passes", () => {
+    expect(parseArgs(["run", "--max-iterations", "5", "--review-passes", "2", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      maxIterations: "5",
+      reviewPasses: "2",
+    });
+  });
+
   test("run without spec → error", () => {
     const parsed = parseArgs(["run"]);
     expect(parsed.kind).toBe("error");
@@ -143,7 +176,9 @@ describe("run", () => {
     const code = run(["help"], { io: cap.io, config: { dir: cfgDir } });
     expect(code).toBe(0);
     const out = cap.out();
-    expect(out).toContain("run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>");
+    expect(out).toContain(
+      "run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>",
+    );
     expect(out).toContain("init");
     expect(out).toContain("config");
     expect(out).toContain("log-server");
@@ -175,6 +210,32 @@ describe("run", () => {
     expect(code).toBe(1);
     expect(cap.err()).toContain("--max-iterations must be a positive integer");
     expect(cap.err()).not.toContain("spec path does not exist");
+  });
+
+  test.each(["-1", "abc"])("invalid --review-passes %s exits before the loop", async (value) => {
+    const cap = captureIo();
+    const code = await run(["run", "--review-passes", value, "./somewhere.md"], {
+      io: cap.io,
+      config: { dir: cfgDir },
+      run: { agents: {}, handleSignals: false },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("--review-passes must be a non-negative integer");
+    expect(cap.err()).not.toContain("spec path does not exist");
+  });
+
+  test("valid --review-passes 0 passes to the loop", async () => {
+    const cap = captureIo();
+    const code = await run(["run", "--review-passes", "0", "./somewhere.md"], {
+      io: cap.io,
+      config: { dir: cfgDir },
+      run: { agents: {}, handleSignals: false },
+    });
+    // Since the file doesn't exist, we should get "spec path does not exist"
+    // not a validation error (meaning validation passed)
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("spec path does not exist");
   });
 
   test("init runs in a temp cwd and registers the project", () => {
@@ -254,6 +315,7 @@ describe("run", () => {
               { agent: "cursor", model: "Composer 2" },
             ],
           },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],

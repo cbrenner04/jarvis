@@ -185,7 +185,17 @@ flowchart TD
   top -- yes --> finish["Clean tree?"]:::det
   finish --> cleanQ{"git status clean?"}:::dec
   cleanQ -- no --> dirty["exit 6: dirty worktree<br/>(point at jarvis1 triage)"]:::stop
-  cleanQ -- yes --> ok["print spec complete + PR URL<br/>exit 0"]:::stop
+  cleanQ -- yes --> reviewQ{"Review passes &gt; 0<br/>and git enabled?"}:::dec
+  reviewQ -- no --> ok["print spec complete + PR URL<br/>exit 0"]:::stop
+  reviewQ -- yes --> baselineReady["bun run ready (baseline gate)"]:::det
+  baselineReady --> reviewLoop{"Review pass k ≤ passes?"}:::dec
+  reviewLoop -- yes --> reviewCall(["Review agent: critique + rewrite<br/>(modes.review.agentOrder→plan)"]):::llm
+  reviewCall --> reviewRevert["revert spec-tree edits"]:::det
+  reviewRevert --> reviewBlk{".jarvis-review-blocker written?"}:::dec
+  reviewBlk -- yes --> commitReviewBlk["commit pass · post PR comment"]:::det --> blkExit["exit 7: blocker"]:::stop
+  reviewBlk -- no --> commitReview["commit review pass (if non-empty)"]:::det --> reviewLoop
+  reviewLoop -- no --> finalReady["bun run ready (final gate)<br/>then gh pr ready"]:::det
+  finalReady --> ok
 
   top -- no --> agentQ{"Any agent left in agentOrder?"}:::dec
   agentQ -- no --> quotaExit["exit 2: all agents quota-exhausted"]:::stop
@@ -229,11 +239,16 @@ flowchart TD
 
 What loops vs. what's a distinct path:
 
-- **One loop**: the top-level iteration. There is no nested "review" or
-  "refine" phase. Each iteration is one agent call followed by deterministic
-  bookkeeping.
-- **Distinct exit paths**: `kind ∈ {ok, quota, model_config, error}` fan out
-  from a single decision; the same iteration cannot take two of them.
+- **Implementation loop**: the top-level iteration. There is no nested "review"
+  or "refine" phase. Each iteration is one agent call followed by deterministic
+  bookkeeping. Exits when the spec has no unchecked boxes.
+- **Review phase** (post-completion): optional critique loop controlled by
+  `modes.review.passes` (default 2). Skipped if passes is 0, git is false, or
+  all agents are exhausted. Runs after a baseline `bun run ready`, iterates
+  agent review passes, and ends with final `bun run ready` + `gh pr ready`.
+- **Distinct exit paths**: In the implementation loop, `kind ∈ {ok, quota,
+  model_config, error}` fan out from a single decision; the same iteration
+  cannot take two of them. In the review phase, blockers exit 7 immediately.
 - **Quota rotation** drops the current agent from `agentOrder` and continues
   the same loop with the next agent. Unlike plan mode, a generic `error`
   *does not* rotate — it exits 3 — except when `quotaFallback: "lenient"`
@@ -244,14 +259,13 @@ What loops vs. what's a distinct path:
   header/footer rewrite, ready-flip on completion) is a pure function of files
   on disk. The narrative is generated once and then preserved inside the
   `jarvis:narrative` markers across rewrites.
-- **Readiness transition**: when the spec is complete, `jarvis1 run` invokes
-  `bun run ready`, which first runs `bun install --frozen-lockfile` so Biome is
-  available, then applies `bun run check:fix` (Biome's mutating format/lint
-  fixer). If `check:fix` mutates any files, the harness commits and pushes them
-  as a single `chore: apply pre-ready check:fix` commit. Then it runs
-  `typecheck → test → check` in CI order. Only if all steps succeed does the
-  harness call `gh pr ready`. If any step fails (including `check:fix`), the PR
-  stays in draft for manual correction.
+- **Readiness gates** (baseline and final): when the spec is complete,
+  `jarvis1 run` invokes `bun run ready` to enforce code quality. Then after all
+  review passes complete, a final `bun run ready` followed by `gh pr ready`
+  transitions the PR from draft to ready. Each gate runs `bun install
+  --frozen-lockfile`, then `bun run check:fix` (Biome's mutating format/lint
+  fixer), then `typecheck → test → check` in CI order. If any step fails, the
+  PR stays in draft for manual correction.
 
 Dotted edges show pre-emption — `maxIterations`, timeouts, and SIGINT can fire
 at the top of any iteration before the agent call.

@@ -51,6 +51,7 @@ describe("config show", () => {
       modes: {
         patch: { agentOrder: defaultOrder },
         plan: { agentOrder: defaultOrder, targetDir: "spec" },
+        review: { passes: 2 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -393,6 +394,7 @@ describe("config edit", () => {
                   { agent: "claude", model: "haiku" },
                 ],
               },
+              review: { passes: 2 },
             },
             projects: {},
           }),

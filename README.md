@@ -13,6 +13,7 @@ The current main workflows are:
 
 1. `jarvis1 plan` turns an intent (unstructured prompt) into a reviewable spec tree.
 2. `jarvis1 run` implements an existing spec one checked task at a time.
+3. `jarvis1 prompt` invokes an agent with a one-shot prompt, optionally committing and opening a PR.
 
 Specs are ordinary Markdown files. Work is complete when the active spec has no
 unchecked GitHub-style task-list items left.
@@ -136,6 +137,9 @@ jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>]
 
 jarvis1 plan --resume <spec-path>
     Resume an existing plan branch/worktree for more refinement or review passes.
+
+jarvis1 prompt [--repo <name|path|url>] <text>
+    Run an agent against a prompt in a registered project.
 
 jarvis1 init
     Register the current repo in ~/.jarvis/config.json.

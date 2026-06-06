@@ -26,8 +26,8 @@ Record shipped behavior in the existing durable homes: `README.md`, `v1/docs/run
 
 ## Acceptance criteria
 
-- [ ] `~/.jarvis/runs.jsonl` rows emitted for review passes are distinguishable from implementation iterations without inspecting commit messages.
-- [ ] The end-of-run stdout summary shows review attempts and cost separately from implementation attempts while preserving correct run totals.
-- [ ] `v1/docs/run-loop.md`, `v1/docs/workflows.md`, and `README.md` describe patch review as a post-completion phase before PR readiness; the `workflows.md` diagram shows both the baseline and post-review `bun run ready` gates.
-- [ ] `v2/docs/v1-behaviors.md` records patch review as a shipped v1 behavior that v2 must preserve, change, or drop explicitly.
-- [ ] No updated doc page still implies that patch mode goes directly from checklist completion to `bun run ready` / `gh pr ready`.
+- [x] `~/.jarvis/runs.jsonl` rows emitted for review passes are distinguishable from implementation iterations without inspecting commit messages.
+- [x] The end-of-run stdout summary shows review attempts and cost separately from implementation attempts while preserving correct run totals.
+- [x] `v1/docs/run-loop.md`, `v1/docs/workflows.md`, and `README.md` describe patch review as a post-completion phase before PR readiness; the `workflows.md` diagram shows both the baseline and post-review `bun run ready` gates.
+- [x] `v2/docs/v1-behaviors.md` records patch review as a shipped v1 behavior that v2 must preserve, change, or drop explicitly.
+- [x] No updated doc page still implies that patch mode goes directly from checklist completion to `bun run ready` / `gh pr ready`.

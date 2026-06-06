@@ -73,8 +73,10 @@ jarvis1 run spec/YYYY-MM-DDTHH-mm-ssZ-<name>/index.md
 
 `jarvis1 run` creates or resumes `.worktree/<spec-name>/`, invokes agents from
 `modes.patch.agentOrder`, commits each completed subspec, pushes after every
-commit, opens or updates a draft PR, and marks the PR ready when the checklist
-is complete. Jarvis never merges PRs.
+commit, opens or updates a draft PR. After the checklist is complete, the review
+phase runs one or more agent passes (configured by `modes.review.passes`,
+default 2) to critique and refactor the implementation, then marks the PR ready
+when all phases succeed. Jarvis never merges PRs.
 
 For specs that should live outside the target repo, set
 `modes.plan.commit: false` in `~/.jarvis/config.json`. Plan output then goes to

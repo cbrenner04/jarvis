@@ -7,10 +7,7 @@ const fixturesDir = join(import.meta.dir, "fixtures", "claude");
 
 describe("parseClaudeJsonOutput", () => {
   test("parses simple prose response without warnings", () => {
-    const fixture = readFileSync(
-      join(fixturesDir, "2.1.142-simple-prose.json"),
-      "utf8",
-    );
+    const fixture = readFileSync(join(fixturesDir, "2.1.142-simple-prose.json"), "utf8");
     const result = parseClaudeJsonOutput(fixture);
 
     expect(result.warnings).toEqual([]);
@@ -25,10 +22,7 @@ describe("parseClaudeJsonOutput", () => {
   });
 
   test("parses response with tool calls", () => {
-    const fixture = readFileSync(
-      join(fixturesDir, "2.1.142-with-tool-calls.json"),
-      "utf8",
-    );
+    const fixture = readFileSync(join(fixturesDir, "2.1.142-with-tool-calls.json"), "utf8");
     const result = parseClaudeJsonOutput(fixture);
 
     expect(result.warnings).toEqual([]);
@@ -40,10 +34,7 @@ describe("parseClaudeJsonOutput", () => {
   });
 
   test("handles truncated stream gracefully", () => {
-    const fixture = readFileSync(
-      join(fixturesDir, "2.1.142-truncated.json"),
-      "utf8",
-    );
+    const fixture = readFileSync(join(fixturesDir, "2.1.142-truncated.json"), "utf8");
     const result = parseClaudeJsonOutput(fixture);
 
     // Truncated JSON is invalid, should return raw and warnings
@@ -55,10 +46,7 @@ describe("parseClaudeJsonOutput", () => {
   });
 
   test("handles malformed envelope", () => {
-    const fixture = readFileSync(
-      join(fixturesDir, "2.1.142-malformed.json"),
-      "utf8",
-    );
+    const fixture = readFileSync(join(fixturesDir, "2.1.142-malformed.json"), "utf8");
     const result = parseClaudeJsonOutput(fixture);
 
     // Malformed envelope: no result field

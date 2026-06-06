@@ -4,9 +4,7 @@ import { parsePatchSpec } from "./spec.ts";
 
 export class MalformedSpecError extends Error {
   constructor(specPath: string) {
-    super(
-      `Malformed spec at ${specPath}: no GitHub-style task list checkboxes found`,
-    );
+    super(`Malformed spec at ${specPath}: no GitHub-style task list checkboxes found`);
     this.name = "MalformedSpecError";
   }
 }
@@ -51,13 +49,9 @@ export function getFirstUncheckedTask(specPath: string): UncheckedTaskSummary {
   };
 }
 
-export function getActiveLinkedSubspecPath(
-  indexPath: string,
-): string | undefined {
+export function getActiveLinkedSubspecPath(indexPath: string): string | undefined {
   const parsed = parsePatchSpec(readSpec(indexPath));
-  const firstUncheckedLinked = parsed.linkedSubspecs.find(
-    (item) => !item.checked,
-  );
+  const firstUncheckedLinked = parsed.linkedSubspecs.find((item) => !item.checked);
   if (firstUncheckedLinked === undefined) {
     return undefined;
   }

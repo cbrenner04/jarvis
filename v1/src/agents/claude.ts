@@ -30,9 +30,7 @@ const CLAUDE_PRICE_KEYS: Record<string, string> = {
 
 export const CLAUDE_HAS_PRICED_MODELS = true;
 
-export function resolveClaudePriceKey(
-  model: string | undefined,
-): string | null {
+export function resolveClaudePriceKey(model: string | undefined): string | null {
   if (model === undefined) return null;
   return CLAUDE_PRICE_KEYS[model] ?? null;
 }

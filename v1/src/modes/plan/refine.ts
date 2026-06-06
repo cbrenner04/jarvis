@@ -39,11 +39,7 @@ export type RefinePhaseOptions = {
 };
 
 /** Outcome for default CLI reporting after the refine phase completes. */
-export type RefineTerminalOutcome =
-  | "refined"
-  | "skipped"
-  | "blocker"
-  | "not_run";
+export type RefineTerminalOutcome = "refined" | "skipped" | "blocker" | "not_run";
 
 /**
  * Build the refine phase prompt by injecting intent.md, spec guidance, and rules.
@@ -79,23 +75,13 @@ export function buildRefinePrompt(opts: {
   });
 
   try {
-    template = renderTemplate(
-      template,
-      new Set([
-        "WORKDIR",
-        "NAME",
-        "INTENT",
-        "SPEC_GUIDANCE",
-        "TURNS_REMAINING",
-      ]),
-      {
-        WORKDIR: opts.name,
-        NAME: opts.name,
-        INTENT: opts.intent,
-        SPEC_GUIDANCE: opts.specGuidance,
-        TURNS_REMAINING: opts.turnsRemaining.toString(),
-      },
-    );
+    template = renderTemplate(template, new Set(["WORKDIR", "NAME", "INTENT", "SPEC_GUIDANCE", "TURNS_REMAINING"]), {
+      WORKDIR: opts.name,
+      NAME: opts.name,
+      INTENT: opts.intent,
+      SPEC_GUIDANCE: opts.specGuidance,
+      TURNS_REMAINING: opts.turnsRemaining.toString(),
+    });
   } catch (err) {
     if (err instanceof TemplateRenderingError) {
       throw new Error(`refine prompt configuration error: ${err.details}`);
@@ -136,14 +122,7 @@ export async function runRefineTurn(opts: {
   const intentBefore = readFileSync(intentPath, "utf8");
 
   // Read spec guidance
-  const docsPath = join(
-    import.meta.dir,
-    "..",
-    "..",
-    "..",
-    "docs",
-    "spec-guidance.md",
-  );
+  const docsPath = join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md");
   const specGuidance = readFileSync(docsPath, "utf8");
 
   // Build the prompt
@@ -179,8 +158,7 @@ export async function runRefineTurn(opts: {
 
   for (const entry of agentOrder) {
     const agent = createAgent(entry.agent, entry.model);
-    agentLabel =
-      agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
+    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();
@@ -189,9 +167,7 @@ export async function runRefineTurn(opts: {
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
-      porcelainBefore !== null &&
-      porcelainAfter !== null &&
-      porcelainBefore === porcelainAfter;
+      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
     result = applyQuotaFallbackWhenAllowed(
       entry.agent,
       spawnResult,
@@ -275,9 +251,7 @@ export async function runRefineTurn(opts: {
         };
       }
 
-      if (
-        !isValidRefineTurnAddition(intentBefore, intentAfter, opts.turnNumber)
-      ) {
+      if (!isValidRefineTurnAddition(intentBefore, intentAfter, opts.turnNumber)) {
         return {
           result: {
             kind: "error",
@@ -338,9 +312,7 @@ function stripFrontmatter(text: string): string {
 }
 
 function isFrontmatterOnlyChange(before: string, after: string): boolean {
-  return (
-    stripFrontmatter(before).trimEnd() === stripFrontmatter(after).trimEnd()
-  );
+  return stripFrontmatter(before).trimEnd() === stripFrontmatter(after).trimEnd();
 }
 
 function normalizeLines(text: string): string {
@@ -382,38 +354,25 @@ function ledgerFromHeading(text: string, heading: string): string | null {
 /**
  * Validate refine consolidation: preserve frozen seed above first ledger heading.
  */
-export function isValidRefineTurnAddition(
-  before: string,
-  after: string,
-  _turnNumber: number,
-): boolean {
+export function isValidRefineTurnAddition(before: string, after: string, _turnNumber: number): boolean {
   const afterLedger = ledgerFromHeading(after, REFINE_HEADING);
   if (afterLedger === null) {
     return false;
   }
   const beforePrefix = prefixBeforeHeading(before, REFINE_HEADING);
   const afterPrefix = prefixBeforeHeading(after, REFINE_HEADING);
-  return (
-    stripFrontmatter(afterPrefix).trimEnd() ===
-    stripFrontmatter(beforePrefix).trimEnd()
-  );
+  return stripFrontmatter(afterPrefix).trimEnd() === stripFrontmatter(beforePrefix).trimEnd();
 }
 
 /**
  * Validate that the only body change is an append-only `## Refine skip` section.
  */
-export function isValidRefineSkipAddition(
-  before: string,
-  after: string,
-): boolean {
-  const skipHeaderIndex =
-    normalizeLines(after).lastIndexOf(REFINE_SKIP_HEADING);
+export function isValidRefineSkipAddition(before: string, after: string): boolean {
+  const skipHeaderIndex = normalizeLines(after).lastIndexOf(REFINE_SKIP_HEADING);
   if (skipHeaderIndex === -1) {
     return false;
   }
-  const afterWithoutSkip = normalizeLines(after)
-    .slice(0, skipHeaderIndex)
-    .trimEnd();
+  const afterWithoutSkip = normalizeLines(after).slice(0, skipHeaderIndex).trimEnd();
   const beforeNormalized = normalizeLines(before).trimEnd();
 
   const beforeLedger = ledgerFromHeading(before, REFINE_HEADING);
@@ -425,18 +384,13 @@ export function isValidRefineSkipAddition(
   }
   const beforePrefix = prefixBeforeHeading(beforeNormalized, REFINE_HEADING);
   const afterPrefix = prefixBeforeHeading(afterWithoutSkip, REFINE_HEADING);
-  return (
-    stripFrontmatter(afterPrefix).trimEnd() ===
-    stripFrontmatter(beforePrefix).trimEnd()
-  );
+  return stripFrontmatter(afterPrefix).trimEnd() === stripFrontmatter(beforePrefix).trimEnd();
 }
 
 /**
  * Classify persisted intent for reporting and plan commits (blocker wins over skip).
  */
-export function classifyRefineIntentOutcome(
-  intent: string,
-): "refined" | "skipped" | "blocker" {
+export function classifyRefineIntentOutcome(intent: string): "refined" | "skipped" | "blocker" {
   const blocker = detectBlocker(intent);
   if (blocker.hasBlocker) {
     return "blocker";
@@ -487,16 +441,10 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
       turnNumber: turn,
       totalTurns: budgetTurns,
       ...(opts.stderr !== undefined ? { stderr: opts.stderr } : {}),
-      ...(opts.planTelemetry !== undefined
-        ? { planTelemetry: opts.planTelemetry }
-        : {}),
-      ...(opts.externalSpecRoot !== undefined
-        ? { externalSpecRoot: opts.externalSpecRoot }
-        : {}),
+      ...(opts.planTelemetry !== undefined ? { planTelemetry: opts.planTelemetry } : {}),
+      ...(opts.externalSpecRoot !== undefined ? { externalSpecRoot: opts.externalSpecRoot } : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
-      ...(opts.onOutboundPrompt !== undefined
-        ? { onOutboundPrompt: opts.onOutboundPrompt }
-        : {}),
+      ...(opts.onOutboundPrompt !== undefined ? { onOutboundPrompt: opts.onOutboundPrompt } : {}),
     });
 
     // Update agent label (use the most recent non-null one)

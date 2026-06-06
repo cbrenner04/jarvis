@@ -86,12 +86,7 @@ function quotePathForGit(path: string): string {
   return path.replaceAll('"', '\\"');
 }
 
-function commitArchivedSpecMove(
-  projectRoot: string,
-  source: string,
-  destination: string,
-  specName: string,
-): void {
+function commitArchivedSpecMove(projectRoot: string, source: string, destination: string, specName: string): void {
   const sourceRelativePath = relative(projectRoot, source);
   const destinationRelativePath = relative(projectRoot, destination);
   const quotedSource = quotePathForGit(sourceRelativePath);
@@ -112,13 +107,10 @@ function commitArchivedSpecMove(
 
   for (const trackedSourcePath of trackedSourcePaths) {
     const quotedTrackedSourcePath = quotePathForGit(trackedSourcePath);
-    execSync(
-      `git rm --cached --ignore-unmatch -- "${quotedTrackedSourcePath}"`,
-      {
-        cwd: projectRoot,
-        stdio: "pipe",
-      },
-    );
+    execSync(`git rm --cached --ignore-unmatch -- "${quotedTrackedSourcePath}"`, {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
   }
   execSync(`git commit -m "cleanup: archive spec ${specName}"`, {
     cwd: projectRoot,
@@ -152,9 +144,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     }
 
     if (hasDirtyStatus(worktreePath, opts.projectRoot)) {
-      opts.io.stdout(
-        `skipping ${worktreeName}: has uncommitted or unpushed changes\n`,
-      );
+      opts.io.stdout(`skipping ${worktreeName}: has uncommitted or unpushed changes\n`);
       continue;
     }
 
@@ -197,15 +187,9 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
 
-      const { source, specName, missingSource } = resolveSpecArchiveSource(
-        opts.projectRoot,
-        targetDir,
-        item.branch,
-      );
+      const { source, specName, missingSource } = resolveSpecArchiveSource(opts.projectRoot, targetDir, item.branch);
       if (specName === "completed") {
-        opts.io.stderr(
-          `unsafe spec archive mapping for "${item.dir}": refusing to move ${targetDir}/completed/\n`,
-        );
+        opts.io.stderr(`unsafe spec archive mapping for "${item.dir}": refusing to move ${targetDir}/completed/\n`);
         hadFailures = true;
         continue;
       }
@@ -214,16 +198,12 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       const destination = join(completedRoot, specName);
 
       if (!existsSync(source)) {
-        opts.io.stdout(
-          `no spec directory moved for ${item.branch}: missing ${missingSource}\n`,
-        );
+        opts.io.stdout(`no spec directory moved for ${item.branch}: missing ${missingSource}\n`);
         continue;
       }
 
       if (existsSync(destination)) {
-        opts.io.stderr(
-          `spec archive destination already exists; left source in place: ${source} -> ${destination}\n`,
-        );
+        opts.io.stderr(`spec archive destination already exists; left source in place: ${source} -> ${destination}\n`);
         hadFailures = true;
         continue;
       }
@@ -234,15 +214,11 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
         commitArchivedSpecMove(opts.projectRoot, source, destination, specName);
         opts.io.stdout(`moved spec directory ${source} -> ${destination}\n`);
       } catch (err) {
-        opts.io.stderr(
-          `failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`,
-        );
+        opts.io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
         hadFailures = true;
       }
     } catch (err) {
-      opts.io.stderr(
-        `failed to remove ${item.branch}: ${(err as Error).message}\n`,
-      );
+      opts.io.stderr(`failed to remove ${item.branch}: ${(err as Error).message}\n`);
       hadFailures = true;
     }
   }

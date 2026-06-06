@@ -2,9 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-export type BoundaryCheckResult =
-  | { ok: true }
-  | { ok: false; offendingPaths: string[] };
+export type BoundaryCheckResult = { ok: true } | { ok: false; offendingPaths: string[] };
 
 /**
  * Check that all modified files in the worktree are within <targetDir>/<name>/
@@ -66,9 +64,7 @@ export function assertPlanWriteBoundary(
  * When the project root is not a git repository, returns { ok: true }
  * without invoking git, since the boundary is enforced by the agent's cwd.
  */
-export function assertTargetRepoPlanBoundary(
-  projectRoot: string,
-): BoundaryCheckResult {
+export function assertTargetRepoPlanBoundary(projectRoot: string): BoundaryCheckResult {
   // If projectRoot is not a git repository, no git-based boundary check is needed
   if (!existsSync(join(projectRoot, ".git"))) {
     return { ok: true };

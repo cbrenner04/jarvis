@@ -1,9 +1,5 @@
 import type { AgentName, AgentResult } from "../../agents/types.ts";
-import {
-  appendTelemetryLine,
-  type PlanTelemetryPhase,
-  type TelemetryKind,
-} from "../../telemetry.ts";
+import { appendTelemetryLine, type PlanTelemetryPhase, type TelemetryKind } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 
 function telemetryKindForResult(r: AgentResult): TelemetryKind {
@@ -19,10 +15,7 @@ function telemetryKindForResult(r: AgentResult): TelemetryKind {
   }
 }
 
-function exitReasonForPlanAttempt(
-  phase: PlanTelemetryPhase,
-  r: AgentResult,
-): string {
+function exitReasonForPlanAttempt(phase: PlanTelemetryPhase, r: AgentResult): string {
   switch (r.kind) {
     case "quota":
       return "quota-fallback";
@@ -82,23 +75,16 @@ export function createPlanTelemetryWriter(args: {
         exit_reason: exitReasonForPlanAttempt(opts.phase, opts.result),
         mode: "plan" as const,
         plan_phase: opts.phase,
-        ...(opts.configuredModel !== undefined
-          ? { configured_model: opts.configuredModel }
-          : {}),
+        ...(opts.configuredModel !== undefined ? { configured_model: opts.configuredModel } : {}),
       };
       seq += 1;
 
       if (opts.result.kind === "ok") {
-        const enriched = extractUsageAndCost(
-          opts.result,
-          opts.agentCli,
-          opts.configuredModel,
-        );
+        const enriched = extractUsageAndCost(opts.result, opts.agentCli, opts.configuredModel);
         appendTelemetryLine(args.telemetryPath, {
           ...base,
           ...enriched,
-          ...(opts.result.warnings !== undefined &&
-          opts.result.warnings.length > 0
+          ...(opts.result.warnings !== undefined && opts.result.warnings.length > 0
             ? { warnings: opts.result.warnings }
             : {}),
         });

@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { injectRepoLineIntoIndex } from "../src/commands/plan.ts";
@@ -43,9 +37,7 @@ describe("injectRepoLineIntoIndex", () => {
   });
 
   test("when project.origin is undefined and root is a git checkout with origin remote, emits repo: <detected-origin>", () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "jarvis-inject-repo-2-detected-origin-"),
-    );
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-inject-repo-2-detected-origin-"));
     try {
       // Create a git repo with a remote origin
       const projectRoot = join(dir, "project");

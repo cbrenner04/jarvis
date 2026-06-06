@@ -21,13 +21,7 @@ export type PlanParseResult =
   | { ok: true; invocation: PlanInvocation }
   | { ok: false; exitCode: number; message: string };
 
-const FLAGS_WITH_VALUE = new Set([
-  "--refine-turns",
-  "--review-passes",
-  "--repo",
-  "--cwd",
-  "--target-dir",
-]);
+const FLAGS_WITH_VALUE = new Set(["--refine-turns", "--review-passes", "--repo", "--cwd", "--target-dir"]);
 
 function parseNonNegativeInteger(
   raw: string,
@@ -57,10 +51,7 @@ function isExistingFile(path: string): boolean {
   }
 }
 
-export function parsePlanArgs(
-  argv: readonly string[],
-  processCwd: string,
-): PlanParseResult {
+export function parsePlanArgs(argv: readonly string[], processCwd: string): PlanParseResult {
   let refineTurns: number | undefined;
   let reviewPasses: number | undefined;
   let repo: string | undefined;
@@ -112,13 +103,9 @@ export function parsePlanArgs(
           break;
         case "--target-dir":
           try {
-            targetDir = validateTargetDir(
-              value,
-              "--target-dir",
-              (message): never => {
-                throw new Error(message);
-              },
-            );
+            targetDir = validateTargetDir(value, "--target-dir", (message): never => {
+              throw new Error(message);
+            });
           } catch (err) {
             return {
               ok: false,
@@ -158,12 +145,7 @@ export function parsePlanArgs(
     };
   }
 
-  const cwd =
-    cwdFlag !== undefined
-      ? isAbsolute(cwdFlag)
-        ? cwdFlag
-        : resolve(processCwd, cwdFlag)
-      : processCwd;
+  const cwd = cwdFlag !== undefined ? (isAbsolute(cwdFlag) ? cwdFlag : resolve(processCwd, cwdFlag)) : processCwd;
 
   const common: PlanInvocationCommon = { cwd, resume, resumeDraft };
   if (refineTurns !== undefined) common.refineTurns = refineTurns;
@@ -176,9 +158,7 @@ export function parsePlanArgs(
   }
 
   const positionalArg = positional[0] as string;
-  const candidatePath = isAbsolute(positionalArg)
-    ? positionalArg
-    : resolve(cwd, positionalArg);
+  const candidatePath = isAbsolute(positionalArg) ? positionalArg : resolve(cwd, positionalArg);
   // In resume modes the positional is a spec path (spec/<dir>/intent.md or
   // index.md) that identifies an existing plan. It need not exist relative to
   // cwd — for commit-mode plans the spec lives inside the plan worktree, not

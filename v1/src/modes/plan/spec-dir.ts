@@ -19,10 +19,7 @@ export function snapshotSpecDirFiles(specDirPath: string): Set<string> {
   return new Set(readdirSync(specDirPath));
 }
 
-export function hasSpecDirChanges(
-  specDirPath: string,
-  before: Set<string>,
-): boolean {
+export function hasSpecDirChanges(specDirPath: string, before: Set<string>): boolean {
   const after = snapshotSpecDirFiles(specDirPath);
   if (after.size !== before.size) {
     return true;

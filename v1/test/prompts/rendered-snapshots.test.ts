@@ -45,10 +45,7 @@ describe("rendered prompt snapshots", () => {
     const reviewStepTwoKey = `${registry.getById("plan.prompt.review").metadata.id}@r${registry.getById("plan.prompt.review").metadata.revision}.pass-2.shared.txt`;
     const refineKey = `${registry.getById("plan.prompt.refine").metadata.id}@r${registry.getById("plan.prompt.refine").metadata.revision}.shared.txt`;
 
-    const patch = buildPrompt("v1/spec/example/index.md", [
-      "../shared-lib",
-      "../infra",
-    ]);
+    const patch = buildPrompt("v1/spec/example/index.md", ["../shared-lib", "../infra"]);
     const draft = buildDraftPrompt({
       name: "prompt-registry",
       intent: "Intent with <SPEC_GUIDANCE> token",
@@ -58,8 +55,7 @@ describe("rendered prompt snapshots", () => {
       name: "prompt-registry",
       intent: "Intent",
       specGuidance: "Guide",
-      currentSpec:
-        '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
+      currentSpec: '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
       passNumber: 1,
       totalPasses: 2,
     });
@@ -67,8 +63,7 @@ describe("rendered prompt snapshots", () => {
       name: "prompt-registry",
       intent: "Intent",
       specGuidance: "Guide",
-      currentSpec:
-        '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
+      currentSpec: '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
       passNumber: 2,
       totalPasses: 2,
     });
@@ -98,18 +93,12 @@ describe("rendered prompt snapshots", () => {
 
   test("wrapper selection is explicit", () => {
     const rendered = "prompt";
-    expect(applyWrapper("codex.exec.stdin+marker", rendered)).toContain(
-      "jarvis-codex-invocation",
-    );
+    expect(applyWrapper("codex.exec.stdin+marker", rendered)).toContain("jarvis-codex-invocation");
   });
 
   test("patch and plan PR-description prompts include shared fragment", () => {
-    expect(
-      registry.getById("patch.prompt.pr-description").metadata.revision,
-    ).toBe("1");
-    expect(
-      registry.getById("plan.prompt.pr-description").metadata.revision,
-    ).toBe("1");
+    expect(registry.getById("patch.prompt.pr-description").metadata.revision).toBe("1");
+    expect(registry.getById("plan.prompt.pr-description").metadata.revision).toBe("1");
 
     const patchKey = `patch.prompt.pr-description@r1.shared.txt`;
     const planKey = `plan.prompt.pr-description@r1.shared.txt`;
@@ -127,8 +116,7 @@ describe("rendered prompt snapshots", () => {
     expect(plan).toBe(readFixture(planKey));
 
     // Verify both include the shared fragment text
-    const sharedFragmentMarker =
-      "Author a PR description consisting of a short summary";
+    const sharedFragmentMarker = "Author a PR description consisting of a short summary";
     expect(patch).toContain(sharedFragmentMarker);
     expect(plan).toContain(sharedFragmentMarker);
   });

@@ -24,11 +24,7 @@ export type InvocationResult = InvocationOk | InvocationQuota | InvocationError;
 
 export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   id: string;
-  invoke: (args: {
-    prompt: string;
-    cwd: string;
-    signal?: AbortSignal;
-  }) => Promise<T>;
+  invoke: (args: { prompt: string; cwd: string; signal?: AbortSignal }) => Promise<T>;
 };
 
 export type InvocationAttempt<T extends InvocationResult = InvocationResult> = {
@@ -36,11 +32,10 @@ export type InvocationAttempt<T extends InvocationResult = InvocationResult> = {
   result: T;
 };
 
-export type InvocationExecution<T extends InvocationResult = InvocationResult> =
-  {
-    attempts: InvocationAttempt<T>[];
-    final: InvocationAttempt<T> | null;
-  };
+export type InvocationExecution<T extends InvocationResult = InvocationResult> = {
+  attempts: InvocationAttempt<T>[];
+  final: InvocationAttempt<T> | null;
+};
 
 /**
  * Run bindings in order, advancing to the next only on `quota`.
@@ -49,9 +44,7 @@ export type InvocationExecution<T extends InvocationResult = InvocationResult> =
  * stop the chain, since a misconfigured or crashing agent is not something the
  * next agent can paper over. Mirrors v1 fallback semantics.
  */
-export async function executeWithQuotaFallback<
-  T extends InvocationResult = InvocationResult,
->(args: {
+export async function executeWithQuotaFallback<T extends InvocationResult = InvocationResult>(args: {
   prompt: string;
   cwd: string;
   bindings: readonly InvocationBinding<T>[];
@@ -73,8 +66,7 @@ export async function executeWithQuotaFallback<
     return { attempts, final: attempt };
   }
 
-  const final =
-    attempts.length === 0 ? null : (attempts[attempts.length - 1] ?? null);
+  const final = attempts.length === 0 ? null : (attempts[attempts.length - 1] ?? null);
   return {
     attempts,
     final,

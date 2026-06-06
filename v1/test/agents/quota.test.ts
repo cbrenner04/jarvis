@@ -9,72 +9,34 @@ import {
 
 describe("isQuotaSignal", () => {
   test("matches Claude Code subscription limits", () => {
-    expect(
-      isQuotaSignal(
-        "claude",
-        1,
-        "You've hit your session limit · resets 3:45pm",
-      ),
-    ).toBe(true);
-    expect(
-      isQuotaSignal(
-        "claude",
-        1,
-        "You've hit your weekly limit · resets Mon 12:00am",
-      ),
-    ).toBe(true);
-    expect(
-      isQuotaSignal("claude", 1, "You've hit your org's monthly usage limit"),
-    ).toBe(true);
+    expect(isQuotaSignal("claude", 1, "You've hit your session limit · resets 3:45pm")).toBe(true);
+    expect(isQuotaSignal("claude", 1, "You've hit your weekly limit · resets Mon 12:00am")).toBe(true);
+    expect(isQuotaSignal("claude", 1, "You've hit your org's monthly usage limit")).toBe(true);
   });
 
   test("matches Claude insufficient_quota / exhausted wording", () => {
     expect(isQuotaSignal("claude", 1, "error: insufficient_quota")).toBe(true);
-    expect(isQuotaSignal("claude", 1, "quota exceeded for this key")).toBe(
-      true,
-    );
-    expect(
-      isQuotaSignal("claude", 1, "requests have been exhausted for today"),
-    ).toBe(true);
+    expect(isQuotaSignal("claude", 1, "quota exceeded for this key")).toBe(true);
+    expect(isQuotaSignal("claude", 1, "requests have been exhausted for today")).toBe(true);
   });
 
   test("does not treat generic Claude Code errors as quota", () => {
-    expect(
-      isQuotaSignal("claude", 1, "Not logged in · Please run /login"),
-    ).toBe(false);
-    expect(
-      isQuotaSignal(
-        "claude",
-        0,
-        "You've hit your session limit · resets 3:45pm",
-      ),
-    ).toBe(false);
+    expect(isQuotaSignal("claude", 1, "Not logged in · Please run /login")).toBe(false);
+    expect(isQuotaSignal("claude", 0, "You've hit your session limit · resets 3:45pm")).toBe(false);
   });
 
   test("matches Codex usage-limit output", () => {
-    expect(
-      isQuotaSignal(
-        "codex",
-        1,
-        "You've reached your usage limit. Try again later.",
-      ),
-    ).toBe(true);
+    expect(isQuotaSignal("codex", 1, "You've reached your usage limit. Try again later.")).toBe(true);
     expect(isQuotaSignal("codex", 1, "error: rate_limit_exceeded")).toBe(true);
   });
 
   test("matches Codex insufficient_quota wording", () => {
-    expect(isQuotaSignal("codex", 1, '{"error":"insufficient_quota"}')).toBe(
-      true,
-    );
+    expect(isQuotaSignal("codex", 1, '{"error":"insufficient_quota"}')).toBe(true);
   });
 
   test("does not treat generic Codex errors as quota", () => {
-    expect(
-      isQuotaSignal("codex", 1, "stream disconnected before completion"),
-    ).toBe(false);
-    expect(
-      isQuotaSignal("codex", 1, "Not authenticated. Please run codex login."),
-    ).toBe(false);
+    expect(isQuotaSignal("codex", 1, "stream disconnected before completion")).toBe(false);
+    expect(isQuotaSignal("codex", 1, "Not authenticated. Please run codex login.")).toBe(false);
   });
 
   test("matches Cursor usage-limit output", () => {
@@ -85,22 +47,12 @@ describe("isQuotaSignal", () => {
         "Error: You've hit your usage limit\nchatMessage: *You've hit your free requests limit.*",
       ),
     ).toBe(true);
-    expect(
-      isQuotaSignal("cursor", 1, "ConnectError: [resource_exhausted] Error"),
-    ).toBe(true);
+    expect(isQuotaSignal("cursor", 1, "ConnectError: [resource_exhausted] Error")).toBe(true);
   });
 
   test("does not treat generic Cursor errors as quota", () => {
-    expect(
-      isQuotaSignal(
-        "cursor",
-        1,
-        "Connection failed. Check your internet connection.",
-      ),
-    ).toBe(false);
-    expect(
-      isQuotaSignal("cursor", 1, "No Cursor IDE installation found."),
-    ).toBe(false);
+    expect(isQuotaSignal("cursor", 1, "Connection failed. Check your internet connection.")).toBe(false);
+    expect(isQuotaSignal("cursor", 1, "No Cursor IDE installation found.")).toBe(false);
   });
 
   test.each([
@@ -156,45 +108,29 @@ describe("isModelConfigurationSignal", () => {
   });
 
   test("does not match bare 'connection refused' for Aider without model/host hint", () => {
-    expect(isModelConfigurationSignal("aider", "connection refused")).toBe(
-      false,
-    );
+    expect(isModelConfigurationSignal("aider", "connection refused")).toBe(false);
   });
 });
 
 describe("isWeakQuotaSignal", () => {
   test("matches weak quota-like transport text", () => {
-    expect(isWeakQuotaSignal("claude", 1, "HTTP 429: too many requests")).toBe(
-      true,
-    );
-    expect(isWeakQuotaSignal("codex", 1, "service unavailable (503)")).toBe(
-      true,
-    );
+    expect(isWeakQuotaSignal("claude", 1, "HTTP 429: too many requests")).toBe(true);
+    expect(isWeakQuotaSignal("codex", 1, "service unavailable (503)")).toBe(true);
     expect(isWeakQuotaSignal("cursor", 1, "rate-limit applied")).toBe(true);
   });
 
   test("does not classify success or unrelated errors as weak quota", () => {
-    expect(isWeakQuotaSignal("claude", 0, "HTTP 429: too many requests")).toBe(
-      false,
-    );
-    expect(
-      isWeakQuotaSignal("claude", 1, "TypeScript compile error in src/run.ts"),
-    ).toBe(false);
+    expect(isWeakQuotaSignal("claude", 0, "HTTP 429: too many requests")).toBe(false);
+    expect(isWeakQuotaSignal("claude", 1, "TypeScript compile error in src/run.ts")).toBe(false);
   });
 
   test("matches when exit code is in the configured weakExitCodes list", () => {
-    expect(
-      isWeakQuotaSignal("claude", 7, "TypeScript compile error", [7]),
-    ).toBe(true);
-    expect(
-      isWeakQuotaSignal("claude", 7, "TypeScript compile error", new Set([7])),
-    ).toBe(true);
+    expect(isWeakQuotaSignal("claude", 7, "TypeScript compile error", [7])).toBe(true);
+    expect(isWeakQuotaSignal("claude", 7, "TypeScript compile error", new Set([7]))).toBe(true);
   });
 
   test("does not match when exit code is outside the configured list", () => {
-    expect(
-      isWeakQuotaSignal("claude", 2, "TypeScript compile error", [7]),
-    ).toBe(false);
+    expect(isWeakQuotaSignal("claude", 2, "TypeScript compile error", [7])).toBe(false);
   });
 });
 
@@ -213,9 +149,7 @@ describe("applyQuotaFallbackToAgentResult", () => {
     expect(applyQuotaFallbackToAgentResult("claude", ok, lenientOpts)).toBe(ok);
 
     const quota = { kind: "quota" as const, stderr: "limit" };
-    expect(
-      applyQuotaFallbackToAgentResult("claude", quota, lenientOpts),
-    ).toEqual(quota);
+    expect(applyQuotaFallbackToAgentResult("claude", quota, lenientOpts)).toEqual(quota);
   });
 
   test("lenient mode upgrades weak-quota-like errors to quota", () => {
@@ -224,12 +158,10 @@ describe("applyQuotaFallbackToAgentResult", () => {
       exitCode: 1,
       stderr: "HTTP 429: too many requests",
     };
-    expect(applyQuotaFallbackToAgentResult("claude", err, lenientOpts)).toEqual(
-      {
-        kind: "quota",
-        stderr: err.stderr,
-      },
-    );
+    expect(applyQuotaFallbackToAgentResult("claude", err, lenientOpts)).toEqual({
+      kind: "quota",
+      stderr: err.stderr,
+    });
   });
 
   test("strict mode leaves weak-quota-like errors as errors", () => {
@@ -238,9 +170,7 @@ describe("applyQuotaFallbackToAgentResult", () => {
       exitCode: 1,
       stderr: "HTTP 429: too many requests",
     };
-    expect(applyQuotaFallbackToAgentResult("claude", err, strictOpts)).toBe(
-      err,
-    );
+    expect(applyQuotaFallbackToAgentResult("claude", err, strictOpts)).toBe(err);
   });
 });
 
@@ -256,9 +186,7 @@ describe("applyQuotaFallbackWhenAllowed", () => {
       exitCode: 1,
       stderr: "HTTP 429: too many requests",
     };
-    expect(
-      applyQuotaFallbackWhenAllowed("claude", err, lenientOpts, false),
-    ).toBe(err);
+    expect(applyQuotaFallbackWhenAllowed("claude", err, lenientOpts, false)).toBe(err);
   });
 
   test("delegates to applyQuotaFallbackToAgentResult when allowed", () => {
@@ -267,9 +195,7 @@ describe("applyQuotaFallbackWhenAllowed", () => {
       exitCode: 1,
       stderr: "HTTP 429: too many requests",
     };
-    expect(
-      applyQuotaFallbackWhenAllowed("claude", err, lenientOpts, true),
-    ).toEqual({
+    expect(applyQuotaFallbackWhenAllowed("claude", err, lenientOpts, true)).toEqual({
       kind: "quota",
       stderr: err.stderr,
     });

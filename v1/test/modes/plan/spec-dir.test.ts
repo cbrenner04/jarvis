@@ -4,27 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentName, AgentResult } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
-import {
-  buildDraftPrompt,
-  runDraftPhase,
-  validateDraftOutput,
-} from "../../../src/modes/plan/draft.ts";
-import {
-  hasSpecDirChanges,
-  resolvePlanSpecDirPath,
-  snapshotSpecDirFiles,
-} from "../../../src/modes/plan/spec-dir.ts";
+import { buildDraftPrompt, runDraftPhase, validateDraftOutput } from "../../../src/modes/plan/draft.ts";
+import { hasSpecDirChanges, resolvePlanSpecDirPath, snapshotSpecDirFiles } from "../../../src/modes/plan/spec-dir.ts";
 
 class FakeAgent {
   readonly name: AgentName = "claude";
   constructor(private readonly specDir: string) {}
   async run(): Promise<AgentResult> {
     writeFileSync(join(this.specDir, "index.md"), "# Plan\n", "utf8");
-    writeFileSync(
-      join(this.specDir, "00-task.md"),
-      "## Acceptance criteria\n- [ ] x\n",
-      "utf8",
-    );
+    writeFileSync(join(this.specDir, "00-task.md"), "## Acceptance criteria\n- [ ] x\n", "utf8");
     return { kind: "ok", stdout: "", stderr: "" };
   }
   attributionLabel(): string {
@@ -34,21 +22,15 @@ class FakeAgent {
 
 describe("resolvePlanSpecDirPath", () => {
   test("defaults to worktree spec layout", () => {
-    expect(resolvePlanSpecDirPath("/repo", "my-plan")).toBe(
-      "/repo/spec/my-plan",
-    );
+    expect(resolvePlanSpecDirPath("/repo", "my-plan")).toBe("/repo/spec/my-plan");
   });
 
   test("uses configured targetDir for committed specs", () => {
-    expect(
-      resolvePlanSpecDirPath("/repo", "my-plan", undefined, "v1/spec"),
-    ).toBe("/repo/v1/spec/my-plan");
+    expect(resolvePlanSpecDirPath("/repo", "my-plan", undefined, "v1/spec")).toBe("/repo/v1/spec/my-plan");
   });
 
   test("uses explicit external path", () => {
-    expect(
-      resolvePlanSpecDirPath("/repo", "my-plan", "/jarvis/specs/my-plan"),
-    ).toBe("/jarvis/specs/my-plan");
+    expect(resolvePlanSpecDirPath("/repo", "my-plan", "/jarvis/specs/my-plan")).toBe("/jarvis/specs/my-plan");
   });
 });
 
@@ -99,11 +81,7 @@ describe("runDraftPhase external spec dir", () => {
     repoDir = mkdtempSync(join(tmpdir(), "jarvis-plan-ext-"));
     specDir = join(repoDir, "external-spec");
     mkdirSync(specDir, { recursive: true });
-    writeFileSync(
-      join(specDir, "intent.md"),
-      "---\nname: my-plan\n---\n",
-      "utf8",
-    );
+    writeFileSync(join(specDir, "intent.md"), "---\nname: my-plan\n---\n", "utf8");
 
     const config = {
       modes: {
@@ -125,12 +103,7 @@ describe("runDraftPhase external spec dir", () => {
     expect(out.result.kind).toBe("ok");
     expect(out.subspecCount).toBe(1);
 
-    const validation = validateDraftOutput(
-      repoDir,
-      "my-plan",
-      "---\nname: my-plan\n---\n",
-      specDir,
-    );
+    const validation = validateDraftOutput(repoDir, "my-plan", "---\nname: my-plan\n---\n", specDir);
     expect(validation.valid).toBe(true);
   });
 });

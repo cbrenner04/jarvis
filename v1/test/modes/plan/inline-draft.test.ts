@@ -4,12 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type {
-  Agent,
-  AgentName,
-  AgentResult,
-  AgentRunOptions,
-} from "../../../src/agents/types.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
 import { runInlineDraftTurn } from "../../../src/modes/plan/inline-draft.ts";
 

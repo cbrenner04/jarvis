@@ -1,13 +1,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-export type TelemetryKind =
-  | "ok"
-  | "quota"
-  | "model_config"
-  | "error"
-  | "blocked"
-  | "timeout";
+export type TelemetryKind = "ok" | "quota" | "model_config" | "error" | "blocked" | "timeout";
 
 export type TelemetryUsage = {
   input_tokens: number | null;
@@ -17,13 +11,7 @@ export type TelemetryUsage = {
 };
 
 export type UsageSource = "agent" | "estimated" | "unavailable" | null;
-export type CostSource =
-  | "computed"
-  | "agent"
-  | "estimated"
-  | "no-price"
-  | "no-usage"
-  | null;
+export type CostSource = "computed" | "agent" | "estimated" | "no-price" | "no-usage" | null;
 
 /**Invocation JSONL rows carry agent/session results; terminal rows describe run exit without duplicating usage.*/
 export type TelemetryRecordRole = "invocation" | "run_terminal";
@@ -55,10 +43,7 @@ export type TelemetryRecord = {
   watchdog_pgid?: number;
 };
 
-export function appendTelemetryLine(
-  telemetryPath: string | null,
-  record: TelemetryRecord,
-): void {
+export function appendTelemetryLine(telemetryPath: string | null, record: TelemetryRecord): void {
   if (telemetryPath === null) {
     return;
   }

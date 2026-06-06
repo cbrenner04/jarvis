@@ -30,10 +30,7 @@ export function parseClaudeJsonOutput(stdout: string): ClaudeParseResult {
       warnings,
     };
   } catch (err) {
-    const reason =
-      err instanceof SyntaxError
-        ? `JSON parse error: ${err.message}`
-        : `unexpected error: ${String(err)}`;
+    const reason = err instanceof SyntaxError ? `JSON parse error: ${err.message}` : `unexpected error: ${String(err)}`;
     return {
       displayText: stdout,
       usage: null,
@@ -44,11 +41,7 @@ export function parseClaudeJsonOutput(stdout: string): ClaudeParseResult {
 }
 
 function extractUsage(envelope: unknown): TelemetryUsage | null {
-  if (
-    envelope === null ||
-    typeof envelope !== "object" ||
-    Array.isArray(envelope)
-  ) {
+  if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
     return null;
   }
 
@@ -62,29 +55,17 @@ function extractUsage(envelope: unknown): TelemetryUsage | null {
   const usageObj = usage as Record<string, unknown>;
 
   return {
-    input_tokens:
-      typeof usageObj.input_tokens === "number" ? usageObj.input_tokens : null,
-    output_tokens:
-      typeof usageObj.output_tokens === "number"
-        ? usageObj.output_tokens
-        : null,
+    input_tokens: typeof usageObj.input_tokens === "number" ? usageObj.input_tokens : null,
+    output_tokens: typeof usageObj.output_tokens === "number" ? usageObj.output_tokens : null,
     cache_read_input_tokens:
-      typeof usageObj.cache_read_input_tokens === "number"
-        ? usageObj.cache_read_input_tokens
-        : null,
+      typeof usageObj.cache_read_input_tokens === "number" ? usageObj.cache_read_input_tokens : null,
     cache_creation_input_tokens:
-      typeof usageObj.cache_creation_input_tokens === "number"
-        ? usageObj.cache_creation_input_tokens
-        : null,
+      typeof usageObj.cache_creation_input_tokens === "number" ? usageObj.cache_creation_input_tokens : null,
   };
 }
 
 function extractCost(envelope: unknown): number | null {
-  if (
-    envelope === null ||
-    typeof envelope !== "object" ||
-    Array.isArray(envelope)
-  ) {
+  if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
     return null;
   }
 
@@ -99,11 +80,7 @@ function extractCost(envelope: unknown): number | null {
 }
 
 function extractDisplayText(envelope: unknown, warnings: string[]): string {
-  if (
-    envelope === null ||
-    typeof envelope !== "object" ||
-    Array.isArray(envelope)
-  ) {
+  if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
     return "";
   }
 

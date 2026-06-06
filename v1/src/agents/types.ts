@@ -13,12 +13,7 @@ export type AgentResult =
         cache_creation_input_tokens: number | null;
       };
       cost_usd?: number | null;
-      cost_source?:
-        | "agent"
-        | "computed"
-        | "estimated"
-        | "no-price"
-        | "no-usage";
+      cost_source?: "agent" | "computed" | "estimated" | "no-price" | "no-usage";
       warnings?: string[];
     }
   | { kind: "quota"; stderr: string }

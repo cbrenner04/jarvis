@@ -1,12 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import {
-  acquireLock,
-  isProcessAlive,
-  releaseLock,
-  type WorktreeLock,
-} from "../../shared/worktree-lock.ts";
+import { acquireLock, isProcessAlive, releaseLock, type WorktreeLock } from "../../shared/worktree-lock.ts";
 
 export { isProcessAlive, type WorktreeLock };
 
@@ -30,11 +25,11 @@ export function getWorktreeLockPath(worktreeDir: string): string {
 function ensureLockExcluded(worktreeDir: string): void {
   let excludePath: string;
   try {
-    const out = execFileSync(
-      "git",
-      ["rev-parse", "--git-path", "info/exclude"],
-      { cwd: worktreeDir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-    ).trim();
+    const out = execFileSync("git", ["rev-parse", "--git-path", "info/exclude"], {
+      cwd: worktreeDir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
     if (!out) return;
     excludePath = out.startsWith("/") ? out : join(worktreeDir, out);
   } catch {
@@ -74,10 +69,7 @@ function ensureLockExcluded(worktreeDir: string): void {
  */
 export function acquireWorktreeLock(
   worktreeDir: string,
-):
-  | { kind: "acquired" }
-  | { kind: "busy"; existingLock: WorktreeLock }
-  | { kind: "recovered"; stalepid: number } {
+): { kind: "acquired" } | { kind: "busy"; existingLock: WorktreeLock } | { kind: "recovered"; stalepid: number } {
   ensureLockExcluded(worktreeDir);
   return acquireLock(getWorktreeLockPath(worktreeDir));
 }

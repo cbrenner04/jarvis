@@ -29,10 +29,7 @@ describe("commitPlanRefine", () => {
       mkdirSync(join(worktreePath, "spec", "test-spec"), {
         recursive: true,
       });
-      writeFileSync(
-        join(worktreePath, "spec", "test-spec", "intent.md"),
-        "test intent",
-      );
+      writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "test intent");
 
       // Test file mode
       commitPlanRefine({
@@ -47,9 +44,7 @@ describe("commitPlanRefine", () => {
         cwd: worktreePath,
         encoding: "utf8",
       }).trim();
-      expect(commitMsg).toBe(
-        "plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from test-intent.md\nTurns: 0",
-      );
+      expect(commitMsg).toBe("plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from test-intent.md\nTurns: 0");
 
       // Verify commit was pushed
       const remoteCommits = execSync("git log --oneline", {
@@ -82,10 +77,7 @@ describe("commitPlanRefine", () => {
       mkdirSync(join(worktreePath, "spec", "test-spec"), {
         recursive: true,
       });
-      writeFileSync(
-        join(worktreePath, "spec", "test-spec", "intent.md"),
-        "test intent",
-      );
+      writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "test intent");
 
       // Test inline mode
       commitPlanRefine({
@@ -100,9 +92,7 @@ describe("commitPlanRefine", () => {
         cwd: worktreePath,
         encoding: "utf8",
       }).trim();
-      expect(commitMsg).toBe(
-        "plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from inline\nTurns: 0",
-      );
+      expect(commitMsg).toBe("plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from inline\nTurns: 0");
 
       // Verify commit was pushed
       const remoteCommits = execSync("git log --oneline", {
@@ -131,10 +121,7 @@ describe("commitPlanRefine", () => {
       mkdirSync(join(worktreePath, "spec", "test-spec"), {
         recursive: true,
       });
-      writeFileSync(
-        join(worktreePath, "spec", "test-spec", "intent.md"),
-        "test intent",
-      );
+      writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "test intent");
 
       commitPlanRefine({
         worktreePath,
@@ -147,9 +134,7 @@ describe("commitPlanRefine", () => {
         cwd: worktreePath,
         encoding: "utf8",
       }).trim();
-      expect(commitMsg).toBe(
-        "plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from interactive\nTurns: 0",
-      );
+      expect(commitMsg).toBe("plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from interactive\nTurns: 0");
 
       const remoteCommits = execSync("git log --oneline", {
         cwd: origin,
@@ -183,10 +168,7 @@ describe("commitPlanDraft", () => {
       mkdirSync(join(worktreePath, "spec", "test-spec"), {
         recursive: true,
       });
-      writeFileSync(
-        join(worktreePath, "spec", "test-spec", "intent.md"),
-        "test intent",
-      );
+      writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "test intent");
 
       // Create refine commit first (this sets up the upstream branch)
       commitPlanRefine({
@@ -257,10 +239,7 @@ describe("commitPlanDraft", () => {
       mkdirSync(join(worktreePath, "spec", "test-spec"), {
         recursive: true,
       });
-      writeFileSync(
-        join(worktreePath, "spec", "test-spec", "intent.md"),
-        "intent",
-      );
+      writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "intent");
       commitPlanRefine({
         worktreePath,
         name: "test-spec",
@@ -268,14 +247,8 @@ describe("commitPlanDraft", () => {
         intentPathOrLabel: "x",
       });
 
-      writeFileSync(
-        join(worktreePath, "spec", "test-spec", "index.md"),
-        "# Test\n",
-      );
-      writeFileSync(
-        join(worktreePath, "spec", "test-spec", "00-task.md"),
-        "# Task\n## Acceptance criteria\n- [ ] x\n",
-      );
+      writeFileSync(join(worktreePath, "spec", "test-spec", "index.md"), "# Test\n");
+      writeFileSync(join(worktreePath, "spec", "test-spec", "00-task.md"), "# Task\n## Acceptance criteria\n- [ ] x\n");
 
       commitPlanDraft({
         worktreePath,
@@ -284,10 +257,10 @@ describe("commitPlanDraft", () => {
         subspecCount: 1,
       });
 
-      const trailerValue = execSync(
-        'git log -1 --format="%(trailers:key=Jarvis-Agent,valueonly)"',
-        { cwd: worktreePath, encoding: "utf8" },
-      ).trim();
+      const trailerValue = execSync('git log -1 --format="%(trailers:key=Jarvis-Agent,valueonly)"', {
+        cwd: worktreePath,
+        encoding: "utf8",
+      }).trim();
       expect(trailerValue).toBe("Claude Opus 4.7");
     } finally {
       cleanup();
@@ -310,10 +283,7 @@ describe("commitPlanReview", () => {
       mkdirSync(join(worktreePath, "spec", "test-spec"), {
         recursive: true,
       });
-      writeFileSync(
-        join(worktreePath, "spec", "test-spec", "intent.md"),
-        "intent",
-      );
+      writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "intent");
       commitPlanRefine({
         worktreePath,
         name: "test-spec",
@@ -322,10 +292,7 @@ describe("commitPlanReview", () => {
       });
 
       // Stage some change to commit as review.
-      writeFileSync(
-        join(worktreePath, "spec", "test-spec", "index.md"),
-        "# Reviewed\n",
-      );
+      writeFileSync(join(worktreePath, "spec", "test-spec", "index.md"), "# Reviewed\n");
 
       commitPlanReview({
         worktreePath,
@@ -341,10 +308,10 @@ describe("commitPlanReview", () => {
       expect(msg).toContain("plan: review 1");
       expect(msg).toContain("Spec: spec/test-spec/intent.md");
       expect(msg).toContain("Reviewed by Codex GPT-5.3.");
-      const trailerValue = execSync(
-        'git log -1 --format="%(trailers:key=Jarvis-Agent,valueonly)"',
-        { cwd: worktreePath, encoding: "utf8" },
-      ).trim();
+      const trailerValue = execSync('git log -1 --format="%(trailers:key=Jarvis-Agent,valueonly)"', {
+        cwd: worktreePath,
+        encoding: "utf8",
+      }).trim();
       expect(trailerValue).toBe("Codex GPT-5.3");
     } finally {
       cleanup();
@@ -437,10 +404,10 @@ describe("commitPlanBlocker", () => {
       expect(msg).toContain("Blocked by Need clarification on X.");
       expect(msg).toContain("Spec files to date: 3");
       expect(msg).toContain("Raised by Claude Haiku.");
-      const trailerValue = execSync(
-        'git log -1 --format="%(trailers:key=Jarvis-Agent,valueonly)"',
-        { cwd: worktreePath, encoding: "utf8" },
-      ).trim();
+      const trailerValue = execSync('git log -1 --format="%(trailers:key=Jarvis-Agent,valueonly)"', {
+        cwd: worktreePath,
+        encoding: "utf8",
+      }).trim();
       expect(trailerValue).toBe("Claude Haiku");
     } finally {
       cleanup();

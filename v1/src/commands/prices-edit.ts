@@ -58,9 +58,7 @@ export function pricesEditCommand(opts: PricesEditCommandOptions): number {
 
     // Check if the editor couldn't be spawned
     if (result.error) {
-      io.stderr(
-        `jarvis1: could not launch ${JSON.stringify(editor)}: ${(result.error as Error).message}\n`,
-      );
+      io.stderr(`jarvis1: could not launch ${JSON.stringify(editor)}: ${(result.error as Error).message}\n`);
       io.stderr(`edit ${JSON.stringify(pricesPath)} manually\n`);
       return 1;
     }

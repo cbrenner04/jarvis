@@ -59,14 +59,8 @@ export function pricesShowCommand(opts: PricesShowCommandOptions): number {
     model: Math.max("MODEL".length, ...rows.map((r) => r.modelId.length)),
     input: Math.max("INPUT".length, ...rows.map((r) => r.input.length)),
     output: Math.max("OUTPUT".length, ...rows.map((r) => r.output.length)),
-    cacheRead: Math.max(
-      "CACHE_R".length,
-      ...rows.map((r) => r.cacheRead.length),
-    ),
-    cacheWrite: Math.max(
-      "CACHE_W".length,
-      ...rows.map((r) => r.cacheWrite.length),
-    ),
+    cacheRead: Math.max("CACHE_R".length, ...rows.map((r) => r.cacheRead.length)),
+    cacheWrite: Math.max("CACHE_W".length, ...rows.map((r) => r.cacheWrite.length)),
     asOf: Math.max("AS_OF".length, ...rows.map((r) => r.asOf.length)),
     manual: Math.max("MANUAL".length, ...rows.map((r) => r.manual.length)),
     source: "SOURCE".length, // SOURCE is at the end, no need to measure

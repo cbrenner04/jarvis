@@ -10,24 +10,13 @@ export function assemblePrompt(args: {
 }): string {
   const remove = new Set(args.removeFragmentIds ?? []);
   const added = args.addFragmentIds ?? [];
-  const orderedIds = [
-    ...args.globalFragmentIds,
-    ...args.behaviorFragmentIds,
-    ...added,
-  ].filter((id) => !remove.has(id));
-  const fragmentBodies = orderedIds.map((id) =>
-    args.registry.getById(id).body.trim(),
-  );
+  const orderedIds = [...args.globalFragmentIds, ...args.behaviorFragmentIds, ...added].filter((id) => !remove.has(id));
+  const fragmentBodies = orderedIds.map((id) => args.registry.getById(id).body.trim());
   const stepBody = args.registry.getById(args.stepPromptId).body.trim();
-  return [...fragmentBodies, stepBody]
-    .filter((part) => part.length > 0)
-    .join("\n\n");
+  return [...fragmentBodies, stepBody].filter((part) => part.length > 0).join("\n\n");
 }
 
-export function assemblePromptForStep(args: {
-  registry: PromptRegistry;
-  stepPromptId: string;
-}): string {
+export function assemblePromptForStep(args: { registry: PromptRegistry; stepPromptId: string }): string {
   // Fragment ordering is declared per-artifact via the `order` frontmatter field;
   // unranked fragments sort last by id. See v2/docs/prompts.md.
   const sortByContractOrder = (a: string, b: string): number => {
@@ -42,20 +31,12 @@ export function assemblePromptForStep(args: {
   const stepBehavior = step.metadata.behavior;
   const globalFragmentIds = args.registry
     .all()
-    .filter(
-      (artifact) =>
-        artifact.metadata.kind === "fragment" &&
-        artifact.metadata.behavior === "global",
-    )
+    .filter((artifact) => artifact.metadata.kind === "fragment" && artifact.metadata.behavior === "global")
     .map((artifact) => artifact.metadata.id)
     .sort(sortByContractOrder);
   const behaviorFragmentIds = args.registry
     .all()
-    .filter(
-      (artifact) =>
-        artifact.metadata.kind === "fragment" &&
-        artifact.metadata.behavior === stepBehavior,
-    )
+    .filter((artifact) => artifact.metadata.kind === "fragment" && artifact.metadata.behavior === stepBehavior)
     .map((artifact) => artifact.metadata.id)
     .sort(sortByContractOrder);
   return assemblePrompt({

@@ -7,10 +7,7 @@ import { planSummary, runSummary } from "../src/run-summary.ts";
 function writeTelemetry(lines: object[]): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-run-summary-"));
   const path = join(dir, "runs.jsonl");
-  writeFileSync(
-    path,
-    `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`,
-  );
+  writeFileSync(path, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
   return path;
 }
 
@@ -50,9 +47,7 @@ describe("runSummary", () => {
     expect(summary).toContain("run summary");
     expect(summary).toContain("iterations: 1");
     expect(summary).toContain("attempts: 1");
-    expect(summary).toContain(
-      "claude (claude-haiku-4-5-20251001) (1 iteration(s))",
-    );
+    expect(summary).toContain("claude (claude-haiku-4-5-20251001) (1 iteration(s))");
     expect(summary).toContain("$0.42");
     expect(summary).toContain("cache_r");
     expect(summary).toContain("cache_w");
@@ -142,9 +137,7 @@ describe("runSummary", () => {
     expect(summary).toContain("attempts: 2");
     expect(summary).not.toContain("claude (");
     expect(summary).toContain("codex (1 iteration(s))");
-    expect(summary).toContain(
-      "1 quota attempt(s) under claude were excluded from usage totals.",
-    );
+    expect(summary).toContain("1 quota attempt(s) under claude were excluded from usage totals.");
   });
 
   test("completed-spec duplicate row must not double-count usage", () => {
@@ -266,9 +259,7 @@ describe("runSummary", () => {
       specPath: "spec/foo/index.md",
     });
 
-    expect(summary).toContain(
-      "1 iteration(s) under cursor had no usage data (usage_source=unavailable).",
-    );
+    expect(summary).toContain("1 iteration(s) under cursor had no usage data (usage_source=unavailable).");
   });
 
   test("null cost adds a total-cost exclusion note", () => {
@@ -309,9 +300,7 @@ describe("runSummary", () => {
     });
 
     expect(summary).toContain("$0.50");
-    expect(summary).toContain(
-      "1 iteration(s) had null cost and were excluded from total cost.",
-    );
+    expect(summary).toContain("1 iteration(s) had null cost and were excluded from total cost.");
   });
 
   test("shows computed dominance when telemetry records computed-only cost", () => {

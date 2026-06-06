@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  enforceDelimiterPolicy,
-  PromptRenderingError,
-  renderTemplateWithDeclarations,
-} from "./render.ts";
+import { enforceDelimiterPolicy, PromptRenderingError, renderTemplateWithDeclarations } from "./render.ts";
 
 describe("renderTemplateWithDeclarations", () => {
   const declarations = [

@@ -106,19 +106,11 @@ function gitSetup(): void {
   execSync("git checkout -q -b feature", { cwd: gitDir, stdio: "pipe" });
 }
 
-function commitWithPlanMeta(
-  filename: string,
-  subject: string,
-  bodyLines: string[],
-  agent: string = "",
-): void {
+function commitWithPlanMeta(filename: string, subject: string, bodyLines: string[], agent: string = ""): void {
   writeFileSync(join(gitDir, filename), `${filename}\n`);
   execSync("git add -A", { cwd: gitDir, stdio: "pipe" });
 
-  const body =
-    agent === ""
-      ? bodyLines.join("\n")
-      : [bodyLines.join("\n"), "", `Jarvis-Agent: ${agent}`].join("\n");
+  const body = agent === "" ? bodyLines.join("\n") : [bodyLines.join("\n"), "", `Jarvis-Agent: ${agent}`].join("\n");
   const message = `${subject}\n\n${body}`;
 
   execFileSync("git", ["commit", "-q", "-F", "-"], {
@@ -213,8 +205,7 @@ describe("maybeMarkPlanPrReady", () => {
   });
 
   test("propagates errors from markReady when PR is draft", () => {
-    const multilineError =
-      "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
+    const multilineError = "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
     expect(() => {
       maybeMarkPlanPrReady({
         branch: "feature",
@@ -234,27 +225,15 @@ describe("renderPlanAttribution", () => {
   });
 
   test("collapses only meta-commits into a single summary line", () => {
-    commitWithPlanMeta(
-      "a.txt",
-      "plan: refine",
-      ["Spec: spec/my-plan/intent.md", "", "Seeded from inline"],
-      "",
-    );
+    commitWithPlanMeta("a.txt", "plan: refine", ["Spec: spec/my-plan/intent.md", "", "Seeded from inline"], "");
     commitWithPlanMeta(
       "b.txt",
       "plan: draft",
-      [
-        "Spec: spec/my-plan/intent.md",
-        "",
-        "Drafted by Claude Opus 4.7.",
-        "Subspecs: 3",
-      ],
+      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.7.", "Subspecs: 3"],
       "Claude Opus 4.7",
     );
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
-    expect(out).toContain(
-      "2 spec commits (refine, draft, review) — Claude Opus 4.7",
-    );
+    expect(out).toContain("2 spec commits (refine, draft, review) — Claude Opus 4.7");
     expect(out).toContain("Written by Claude Opus 4.7 through Jarvis.");
   });
 
@@ -262,12 +241,7 @@ describe("renderPlanAttribution", () => {
     commitWithPlanMeta(
       "a.txt",
       "plan: draft",
-      [
-        "Spec: spec/my-plan/intent.md",
-        "",
-        "Drafted by Claude Opus 4.7.",
-        "Subspecs: 2",
-      ],
+      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.7.", "Subspecs: 2"],
       "Claude Opus 4.7",
     );
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
@@ -276,29 +250,14 @@ describe("renderPlanAttribution", () => {
   });
 
   test("mixes collapsed meta-commits with individual subspec commits", () => {
-    commitWithPlanMeta(
-      "a.txt",
-      "plan: refine",
-      ["Spec: spec/my-plan/intent.md", "", "Seeded from inline"],
-      "",
-    );
+    commitWithPlanMeta("a.txt", "plan: refine", ["Spec: spec/my-plan/intent.md", "", "Seeded from inline"], "");
     commitWithPlanMeta(
       "b.txt",
       "plan: draft",
-      [
-        "Spec: spec/my-plan/intent.md",
-        "",
-        "Drafted by Claude Opus 4.7.",
-        "Subspecs: 1",
-      ],
+      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.7.", "Subspecs: 1"],
       "Claude Opus 4.7",
     );
-    commitWithPlanMeta(
-      "c.txt",
-      "Implement feature",
-      ["Spec: spec/my-plan/00-implement.md"],
-      "Claude Opus 4.7",
-    );
+    commitWithPlanMeta("c.txt", "Implement feature", ["Spec: spec/my-plan/00-implement.md"], "Claude Opus 4.7");
     const out = renderPlanAttribution({ cwd: gitDir, base: "base" });
     expect(out).toContain("2 spec commits (refine, draft, review)");
     const sha = shortSha("HEAD");
@@ -307,21 +266,11 @@ describe("renderPlanAttribution", () => {
   });
 
   test("handles multiple agents in meta-commits", () => {
-    commitWithPlanMeta(
-      "a.txt",
-      "plan: refine",
-      ["Spec: spec/my-plan/intent.md", "", "Seeded from inline"],
-      "",
-    );
+    commitWithPlanMeta("a.txt", "plan: refine", ["Spec: spec/my-plan/intent.md", "", "Seeded from inline"], "");
     commitWithPlanMeta(
       "b.txt",
       "plan: draft",
-      [
-        "Spec: spec/my-plan/intent.md",
-        "",
-        "Drafted by Claude Opus 4.7.",
-        "Subspecs: 1",
-      ],
+      ["Spec: spec/my-plan/intent.md", "", "Drafted by Claude Opus 4.7.", "Subspecs: 1"],
       "Claude Opus 4.7",
     );
     commitWithPlanMeta(
@@ -337,9 +286,7 @@ describe("renderPlanAttribution", () => {
 });
 
 describe("updatePlanPrBody", () => {
-  function mockAgent(
-    response: string = "Generated body\n\nDecisions:\n- Did the thing",
-  ): Agent {
+  function mockAgent(response: string = "Generated body\n\nDecisions:\n- Did the thing"): Agent {
     return {
       name: "claude",
       async run(): Promise<AgentResult> {
@@ -352,10 +299,7 @@ describe("updatePlanPrBody", () => {
   function writeSpec(targetDir: string): string {
     const specDirPath = join(gitDir, targetDir, "my-feat");
     execSync(`mkdir -p ${specDirPath}`, { stdio: "pipe" });
-    writeFileSync(
-      join(specDirPath, "index.md"),
-      "# Real Spec Title\n\n- [x] [00 - a](./00-a.md)\n",
-    );
+    writeFileSync(join(specDirPath, "index.md"), "# Real Spec Title\n\n- [x] [00 - a](./00-a.md)\n");
     writeFileSync(join(specDirPath, "intent.md"), "intent body\n");
     return specDirPath;
   }
@@ -475,9 +419,10 @@ describe("updatePlanPrBody", () => {
       },
       attributionLabel: () => "test-agent",
     };
-    const edited = markGeneratedNarrative(
-      "Old body\n\nDecisions:\n- Old choice",
-    ).replace("Old body", "Human edited body");
+    const edited = markGeneratedNarrative("Old body\n\nDecisions:\n- Old choice").replace(
+      "Old body",
+      "Human edited body",
+    );
     let written = "";
     await updatePlanPrBody({
       indexPath: join(specDirPath, "index.md"),
@@ -488,8 +433,7 @@ describe("updatePlanPrBody", () => {
       targetDir: "v1/spec",
       intentContent: "intent body",
       agent,
-      fetchPrBody: () =>
-        `${NARRATIVE_START_MARKER}\n${edited}\n${NARRATIVE_END_MARKER}`,
+      fetchPrBody: () => `${NARRATIVE_START_MARKER}\n${edited}\n${NARRATIVE_END_MARKER}`,
       writePrBody: (_b, body) => {
         written = body;
       },
@@ -502,9 +446,7 @@ describe("updatePlanPrBody", () => {
 });
 
 describe("generatePrDescription", () => {
-  function createMockAgent(
-    response: string = "Updated plan\n\nDecisions:\n- Use async generation",
-  ): Agent {
+  function createMockAgent(response: string = "Updated plan\n\nDecisions:\n- Use async generation"): Agent {
     return {
       name: "claude",
       async run(): Promise<AgentResult> {
@@ -539,10 +481,7 @@ describe("generatePrDescription", () => {
   test("includes linked subspec content in the prompt", async () => {
     const indexPath = join(gitDir, "index.md");
     writeFileSync(indexPath, "# Plan\n\n- [x] [00 - one](./00-one.md)\n");
-    writeFileSync(
-      join(gitDir, "00-one.md"),
-      "# One\n\nPlanned useful details.\n",
-    );
+    writeFileSync(join(gitDir, "00-one.md"), "# One\n\nPlanned useful details.\n");
 
     let prompt = "";
     const agent: Agent = {

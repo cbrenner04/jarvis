@@ -6,10 +6,7 @@ import { type AcceptanceCriterion, parsePatchSpec } from "./spec.ts";
 
 export type { AcceptanceCriterion };
 
-export function commitSubspec(
-  subspecPath: string,
-  opts: { cwd?: string; agentLabel: string },
-): void {
+export function commitSubspec(subspecPath: string, opts: { cwd?: string; agentLabel: string }): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
   const indexPath = getIndexPath(subspecPath);
   const indexContent = readFileSync(indexPath, "utf8");
@@ -19,12 +16,9 @@ export function commitSubspec(
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
 
-  const acceptanceCriteriaSection =
-    extractAcceptanceCriteriaSection(subspecContent);
+  const acceptanceCriteriaSection = extractAcceptanceCriteriaSection(subspecContent);
   if (acceptanceCriteriaSection === null) {
-    throw new Error(
-      `Subspec ${subspecPath} is missing ## Acceptance criteria section`,
-    );
+    throw new Error(`Subspec ${subspecPath} is missing ## Acceptance criteria section`);
   }
 
   const subspecName = basename(subspecPath);
@@ -34,10 +28,7 @@ export function commitSubspec(
   const gitRoot = opts.cwd ?? getGitRoot(subspecPath);
   execFileSync("git", ["add", "-A"], { cwd: gitRoot, stdio: "pipe" });
 
-  const relativeSpecPath = relative(
-    realpathSync(gitRoot),
-    realpathSync(subspecPath),
-  );
+  const relativeSpecPath = relative(realpathSync(gitRoot), realpathSync(subspecPath));
   const bodyFirstLine = `Spec: ${relativeSpecPath}`;
   const commitBody = `${bodyFirstLine}\n\n${acceptanceCriteriaSection}`;
   const baseMessage = `${parsed.h1}\n\n${commitBody}`;
@@ -53,15 +44,11 @@ export function commitSubspec(
   } catch (err) {
     let errorMessage = err instanceof Error ? err.message : String(err);
     const stderr =
-      err instanceof Error &&
-      "stderr" in err &&
-      Buffer.isBuffer((err as { stderr: unknown }).stderr)
+      err instanceof Error && "stderr" in err && Buffer.isBuffer((err as { stderr: unknown }).stderr)
         ? (err as { stderr: Buffer }).stderr.toString()
         : "";
     const stdout =
-      err instanceof Error &&
-      "stdout" in err &&
-      Buffer.isBuffer((err as { stdout: unknown }).stdout)
+      err instanceof Error && "stdout" in err && Buffer.isBuffer((err as { stdout: unknown }).stdout)
         ? (err as { stdout: Buffer }).stdout.toString()
         : "";
     if (stderr) {
@@ -74,9 +61,7 @@ export function commitSubspec(
   }
 }
 
-export function snapshotAcceptanceCriteria(
-  subspecPath: string,
-): AcceptanceCriterion[] {
+export function snapshotAcceptanceCriteria(subspecPath: string): AcceptanceCriterion[] {
   const parsed = parsePatchSpec(readFileSync(subspecPath, "utf8"));
   return parsed.acceptanceCriteria;
 }
@@ -99,17 +84,12 @@ export function commitWipProgress(
 
   execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
 
-  const relativeSpecPath = relative(
-    realpathSync(opts.cwd),
-    realpathSync(subspecPath),
-  );
+  const relativeSpecPath = relative(realpathSync(opts.cwd), realpathSync(subspecPath));
   const summary = `WIP: ${parsed.h1} (${opts.checkedTotal}/${opts.total} criteria)`;
   const body =
     opts.newlyChecked.length === 0
       ? `Spec: ${relativeSpecPath}`
-      : `Spec: ${relativeSpecPath}\n\nNewly checked:\n${opts.newlyChecked
-          .map((c) => `- ${c.text}`)
-          .join("\n")}`;
+      : `Spec: ${relativeSpecPath}\n\nNewly checked:\n${opts.newlyChecked.map((c) => `- ${c.text}`).join("\n")}`;
   const baseMessage = `${summary}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
@@ -123,15 +103,11 @@ export function commitWipProgress(
   } catch (err) {
     let errorMessage = err instanceof Error ? err.message : String(err);
     const stderr =
-      err instanceof Error &&
-      "stderr" in err &&
-      Buffer.isBuffer((err as { stderr: unknown }).stderr)
+      err instanceof Error && "stderr" in err && Buffer.isBuffer((err as { stderr: unknown }).stderr)
         ? (err as { stderr: Buffer }).stderr.toString()
         : "";
     const stdout =
-      err instanceof Error &&
-      "stdout" in err &&
-      Buffer.isBuffer((err as { stdout: unknown }).stdout)
+      err instanceof Error && "stdout" in err && Buffer.isBuffer((err as { stdout: unknown }).stdout)
         ? (err as { stdout: Buffer }).stdout.toString()
         : "";
     if (stderr) {
@@ -183,10 +159,7 @@ export function commitWipProgressWithBlocker(
     throw new Error(`git diff --cached --quiet failed${errorDetail}`);
   }
 
-  const relativeSpecPath = relative(
-    realpathSync(opts.cwd),
-    realpathSync(subspecPath),
-  );
+  const relativeSpecPath = relative(realpathSync(opts.cwd), realpathSync(subspecPath));
 
   let summary: string;
   let body: string;
@@ -213,15 +186,11 @@ export function commitWipProgressWithBlocker(
   } catch (err) {
     let errorMessage = err instanceof Error ? err.message : String(err);
     const stderr =
-      err instanceof Error &&
-      "stderr" in err &&
-      Buffer.isBuffer((err as { stderr: unknown }).stderr)
+      err instanceof Error && "stderr" in err && Buffer.isBuffer((err as { stderr: unknown }).stderr)
         ? (err as { stderr: Buffer }).stderr.toString()
         : "";
     const stdout =
-      err instanceof Error &&
-      "stdout" in err &&
-      Buffer.isBuffer((err as { stdout: unknown }).stdout)
+      err instanceof Error && "stdout" in err && Buffer.isBuffer((err as { stdout: unknown }).stdout)
         ? (err as { stdout: Buffer }).stdout.toString()
         : "";
     if (stderr) {
@@ -277,20 +246,14 @@ function extractAcceptanceCriteriaSection(content: string): string | null {
 
 function updateIndexCheckbox(content: string, subspecName: string): string {
   const escapedName = subspecName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const uncheckedPattern = new RegExp(
-    `^- \\[ \\] \\[(.+?)\\]\\(\\./${escapedName}\\)$`,
-    "m",
-  );
+  const uncheckedPattern = new RegExp(`^- \\[ \\] \\[(.+?)\\]\\(\\./${escapedName}\\)$`, "m");
   if (uncheckedPattern.test(content)) {
     return content.replace(uncheckedPattern, (_match, linkText: string) => {
       return `- [x] [${linkText}](./${subspecName})`;
     });
   }
 
-  const checkedPattern = new RegExp(
-    `^- \\[[xX]\\] \\[(.+?)\\]\\(\\./${escapedName}\\)$`,
-    "m",
-  );
+  const checkedPattern = new RegExp(`^- \\[[xX]\\] \\[(.+?)\\]\\(\\./${escapedName}\\)$`, "m");
   if (checkedPattern.test(content)) {
     return content;
   }

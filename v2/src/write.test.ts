@@ -21,13 +21,9 @@ function setupRepo(): { repoRoot: string; jarvisRoot: string } {
   const jarvisRoot = join(root, "jarvis-home");
 
   execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
-  execFileSync(
-    "git",
-    ["-C", repoRoot, "config", "user.email", "test@example.com"],
-    {
-      stdio: "pipe",
-    },
-  );
+  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], {
+    stdio: "pipe",
+  });
   execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], {
     stdio: "pipe",
   });

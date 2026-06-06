@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { emitPlanAgentQuotaFallback } from "../../../src/modes/plan/emit-plan-quota-stderr.ts";
-import {
-  HARNESS_QUOTA_FALLBACK_STRICT,
-  harnessQuotaFallbackLenientLine,
-} from "../../../src/quota-harness-messages.ts";
+import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../../src/quota-harness-messages.ts";
 
 describe("emitPlanAgentQuotaFallback", () => {
   test("strict quota rotation matches patch harness substring contract", () => {

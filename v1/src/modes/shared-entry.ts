@@ -3,10 +3,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import type { Io } from "../cli.ts";
 import type { Config, ProjectMatch } from "../config.ts";
 import { type ConfigOptions, loadConfig } from "../config.ts";
-import {
-  type DisambiguationResult,
-  promptForProject,
-} from "../disambiguation-prompt.ts";
+import { type DisambiguationResult, promptForProject } from "../disambiguation-prompt.ts";
 import { createLogClient, type LogClient } from "../logging.ts";
 import { resolveProject } from "../resolve-project.ts";
 
@@ -48,9 +45,7 @@ export type SharedPreflightResult =
 
 export type SharedProjectPreflightResult = SharedPreflightResult;
 
-export async function runSharedPreflight(
-  opts: SharedPreflightOpts,
-): Promise<SharedPreflightResult> {
+export async function runSharedPreflight(opts: SharedPreflightOpts): Promise<SharedPreflightResult> {
   const initialSpecPath = opts.specPath;
 
   // Resolve the target project
@@ -91,16 +86,12 @@ export async function runSharedPreflight(
 
   // Check log server reachability
   const logClient =
-    opts.logClient ??
-    createLogClient(
-      opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs",
-    );
+    opts.logClient ?? createLogClient(opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs");
 
   try {
     await logClient.assertReachable();
   } catch (err) {
-    const logServerUrl =
-      opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
+    const logServerUrl = opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
     opts.io.stderr(
       `jarvis1: log server unreachable at ${logServerUrl}. Start it with \`jarvis1 log-server\` or update config.\n`,
     );
@@ -120,10 +111,7 @@ export async function runSharedPreflight(
 export async function runSharedProjectPreflight(
   opts: SharedProjectPreflightOpts,
 ): Promise<SharedProjectPreflightResult> {
-  const specAnchorPath = join(
-    resolve(opts.projectPath),
-    ".jarvis-project-resolution-anchor.md",
-  );
+  const specAnchorPath = join(resolve(opts.projectPath), ".jarvis-project-resolution-anchor.md");
 
   const projectResolution = await resolveProjectFromSpec({
     specPath: specAnchorPath,
@@ -138,9 +126,7 @@ export async function runSharedProjectPreflight(
     return { kind: "error", exitCode: 1 };
   }
 
-  const projectRootCheck = checkProjectRootExists(
-    projectResolution.project.root,
-  );
+  const projectRootCheck = checkProjectRootExists(projectResolution.project.root);
   if (!projectRootCheck.ok) {
     opts.io.stderr(
       `${formatMissingProjectRootError({
@@ -156,15 +142,11 @@ export async function runSharedProjectPreflight(
 
   const cfg = loadConfig(opts.config);
   const logClient =
-    opts.logClient ??
-    createLogClient(
-      opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs",
-    );
+    opts.logClient ?? createLogClient(opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs");
   try {
     await logClient.assertReachable();
   } catch (err) {
-    const logServerUrl =
-      opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
+    const logServerUrl = opts.logServerUrl ?? cfg.logServerUrl ?? "http://127.0.0.1:4310/logs";
     opts.io.stderr(
       `jarvis1: log server unreachable at ${logServerUrl}. Start it with \`jarvis1 log-server\` or update config.\n`,
     );
@@ -194,18 +176,10 @@ async function resolveProjectFromSpec(opts: {
   error?: string;
 }> {
   const specRepoRaw = readRepoPath(opts.specPath);
-  const specRepo =
-    specRepoRaw === undefined || specRepoRaw.trim() === ""
-      ? undefined
-      : specRepoRaw.trim();
+  const specRepo = specRepoRaw === undefined || specRepoRaw.trim() === "" ? undefined : specRepoRaw.trim();
 
   // Reject relative `repo:` values up front
-  if (
-    specRepo !== undefined &&
-    /[\\/]/.test(specRepo) &&
-    !isAbsolute(specRepo) &&
-    !looksLikeUrlOrSlug(specRepo)
-  ) {
+  if (specRepo !== undefined && /[\\/]/.test(specRepo) && !isAbsolute(specRepo) && !looksLikeUrlOrSlug(specRepo)) {
     return {
       project: { key: "", root: "" },
       mode: "registered",
@@ -357,9 +331,7 @@ function looksLikeUrlOrSlug(value: string): boolean {
   if (/^(https?:\/\/|ssh:\/\/|git:\/\/|git@)/i.test(value)) {
     return true;
   }
-  if (
-    /^[A-Za-z0-9_-][A-Za-z0-9._-]*\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(value)
-  ) {
+  if (/^[A-Za-z0-9_-][A-Za-z0-9._-]*\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(value)) {
     return true;
   }
   return false;
@@ -389,9 +361,7 @@ function readRepoPath(specPath: string): string | undefined {
   return undefined;
 }
 
-function checkProjectRootExists(
-  path: string,
-): { ok: true } | { ok: false; reason: "missing" | "not-directory" } {
+function checkProjectRootExists(path: string): { ok: true } | { ok: false; reason: "missing" | "not-directory" } {
   if (!existsSync(path)) {
     return { ok: false, reason: "missing" };
   }
@@ -412,15 +382,8 @@ function formatMissingProjectRootError(opts: {
   repoFlag: string | undefined;
   reason: "missing" | "not-directory";
 }): string {
-  const sourceText = describeProjectSource(
-    opts.source,
-    opts.repoFlag,
-    opts.projectKey,
-  );
-  const what =
-    opts.reason === "not-directory"
-      ? "is not a directory"
-      : "does not exist on disk";
+  const sourceText = describeProjectSource(opts.source, opts.repoFlag, opts.projectKey);
+  const what = opts.reason === "not-directory" ? "is not a directory" : "does not exist on disk";
   return `error: project root ${opts.path} ${what} (resolved from ${sourceText})`;
 }
 
@@ -431,16 +394,12 @@ function describeProjectSource(
 ): string {
   switch (source) {
     case "repo-flag":
-      return repoFlag === undefined
-        ? "--repo flag value"
-        : `--repo flag value ${JSON.stringify(repoFlag)}`;
+      return repoFlag === undefined ? "--repo flag value" : `--repo flag value ${JSON.stringify(repoFlag)}`;
     case "spec-repo":
       return "spec `repo:` line";
     case "ad-hoc":
       return "ad-hoc git checkout discovered from spec location";
     default:
-      return projectKey === ""
-        ? "registered project"
-        : `registered project \`${projectKey}\``;
+      return projectKey === "" ? "registered project" : `registered project \`${projectKey}\``;
   }
 }

@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -56,12 +50,7 @@ export type InstallOpencodePermissionsResult = {
 };
 
 function isJsonObject(value: JsonValue | undefined): value is JsonObject {
-  return (
-    value !== undefined &&
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  );
+  return value !== undefined && value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function cloneJson<T extends JsonValue>(value: T): T {
@@ -78,12 +67,7 @@ function formatPath(parent: string, key: string): string {
   return `${parent}[${JSON.stringify(key)}]`;
 }
 
-function mergeRequired(
-  existing: JsonObject,
-  required: JsonObject,
-  parentPath: string,
-  conflicts: Conflict[],
-): boolean {
+function mergeRequired(existing: JsonObject, required: JsonObject, parentPath: string, conflicts: Conflict[]): boolean {
   let changed = false;
 
   for (const [key, requiredValue] of Object.entries(required)) {
@@ -97,8 +81,7 @@ function mergeRequired(
     }
 
     if (isJsonObject(requiredValue) && isJsonObject(existingValue)) {
-      changed =
-        mergeRequired(existingValue, requiredValue, path, conflicts) || changed;
+      changed = mergeRequired(existingValue, requiredValue, path, conflicts) || changed;
       continue;
     }
 
@@ -131,10 +114,7 @@ function readConfig(path: string): JsonObject {
 
 function writeConfigAtomically(path: string, config: JsonObject): void {
   mkdirSync(dirname(path), { recursive: true });
-  const tmpPath = join(
-    dirname(path),
-    `.opencode.json.${process.pid}.${Date.now()}.tmp`,
-  );
+  const tmpPath = join(dirname(path), `.opencode.json.${process.pid}.${Date.now()}.tmp`);
   writeFileSync(tmpPath, `${JSON.stringify(config, null, 2)}\n`);
   renameSync(tmpPath, path);
 }
@@ -154,12 +134,7 @@ export function installOpencodePermissions(
   const path = join(home, ".config", "opencode", "opencode.json");
   const config = readConfig(path);
   const conflicts: Conflict[] = [];
-  const changed = mergeRequired(
-    config,
-    { permission: SAFE_OPENCODE_PERMISSION },
-    "",
-    conflicts,
-  );
+  const changed = mergeRequired(config, { permission: SAFE_OPENCODE_PERMISSION }, "", conflicts);
 
   if (conflicts.length > 0) {
     const first = conflicts[0];
@@ -192,10 +167,7 @@ if (import.meta.main) {
       stderr: (message) => process.stderr.write(message),
     });
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message !== "conflicting opencode permissions"
-    ) {
+    if (error instanceof Error && error.message !== "conflicting opencode permissions") {
       process.stderr.write(`error: ${error.message}\n`);
     }
     process.exit(1);

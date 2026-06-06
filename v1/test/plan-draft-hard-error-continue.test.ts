@@ -4,31 +4,18 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type {
-  Agent,
-  AgentName,
-  AgentResult,
-  AgentRunOptions,
-} from "../src/agents/types.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import type { Config } from "../src/config.ts";
 import { runDraftPhase } from "../src/modes/plan/draft.ts";
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
   readonly calls: { prompt: string; cwd: string }[] = [];
-  readonly #run: (
-    callCount: number,
-    prompt: string,
-    opts: AgentRunOptions,
-  ) => AgentResult | Promise<AgentResult>;
+  readonly #run: (callCount: number, prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>;
 
   constructor(
     name: AgentName,
-    run: (
-      callCount: number,
-      prompt: string,
-      opts: AgentRunOptions,
-    ) => AgentResult | Promise<AgentResult>,
+    run: (callCount: number, prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>,
   ) {
     this.name = name;
     this.#run = run;
@@ -72,10 +59,7 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       const name = "p-draft";
       const specDir = join(dir, "spec", name);
       mkdirSync(specDir, { recursive: true });
-      writeFileSync(
-        join(specDir, "intent.md"),
-        "---\nname: p-draft\n---\n\n# Intent\n\nseed\n",
-      );
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n\nseed\n");
 
       const claude = new FakeAgent("claude", () => ({
         kind: "error",
@@ -85,14 +69,8 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       const codex = new FakeAgent("codex", (_c, _p, opts) => {
         const d = join(opts.cwd, "spec", name);
         mkdirSync(d, { recursive: true });
-        writeFileSync(
-          join(d, "index.md"),
-          "# Draft spec\n\n- [ ] [00](./00-one.md)\n",
-        );
-        writeFileSync(
-          join(d, "00-one.md"),
-          "# One\n\n## Acceptance criteria\n\n- [ ] x\n",
-        );
+        writeFileSync(join(d, "index.md"), "# Draft spec\n\n- [ ] [00](./00-one.md)\n");
+        writeFileSync(join(d, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
@@ -130,22 +108,13 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       const name = "p-draft";
       const specDir = join(dir, "spec", name);
       mkdirSync(specDir, { recursive: true });
-      writeFileSync(
-        join(specDir, "intent.md"),
-        "---\nname: p-draft\n---\n\n# Intent\n\nseed\n",
-      );
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n\nseed\n");
 
       const claude = new FakeAgent("claude", (_c, _p, opts) => {
         const d = join(opts.cwd, "spec", name);
         mkdirSync(d, { recursive: true });
-        writeFileSync(
-          join(d, "index.md"),
-          "# Draft spec\n\n- [ ] [00](./00-one.md)\n",
-        );
-        writeFileSync(
-          join(d, "00-one.md"),
-          "# One\n\n## Acceptance criteria\n\n- [ ] x\n",
-        );
+        writeFileSync(join(d, "index.md"), "# Draft spec\n\n- [ ] [00](./00-one.md)\n");
+        writeFileSync(join(d, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
@@ -160,9 +129,7 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
 
       expect(logged).toHaveLength(1);
       expect(logged[0]).toBe(claude.calls[0]?.prompt);
-      expect(logged[0]).toContain(
-        "Be terse in communication artifacts (specs, PRs, commits, intents).",
-      );
+      expect(logged[0]).toContain("Be terse in communication artifacts (specs, PRs, commits, intents).");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

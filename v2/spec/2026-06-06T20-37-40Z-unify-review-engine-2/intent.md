@@ -95,14 +95,3 @@ re-verification and sequencing are already listed as open questions. The
 `passes`-default and #178/#176 sequencing choices belong to the drafter once
 #178's final shape exists; pinning them now would invent precision. Nothing
 load-bearing is missing.
-
-## Blocker
-
-Review and approve `v2/spec/2026-06-06T20-37-40Z-unify-review-engine-2/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-06-06T20-37-40Z-unify-review-engine-2/intent.md`

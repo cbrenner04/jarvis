@@ -50,9 +50,7 @@ export function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
       .filter((f) => f.length > 0);
     const specRelPath = relative(cwd, specDir);
 
-    return modifiedFiles.filter(
-      (file) => file === specRelPath || file.startsWith(`${specRelPath}/`),
-    );
+    return modifiedFiles.filter((file) => file === specRelPath || file.startsWith(`${specRelPath}/`));
   } catch {
     return [];
   }
@@ -77,10 +75,7 @@ export function revertSpecTreeEdits(specDir: string, cwd: string): void {
   }
 }
 
-export function detectNewBlockerInSpec(
-  specPath: string,
-  cwd: string,
-): string | null {
+export function detectNewBlockerInSpec(specPath: string, cwd: string): string | null {
   // Check if a blocker section was added to the spec
   try {
     const output = execFileSync("git", ["diff", "HEAD", specPath], {
@@ -135,10 +130,7 @@ export function commitReviewPass(
   execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
 
   // Create commit message
-  const commitMessage = appendAgentTrailer(
-    `review: pass ${passNumber}`,
-    agentLabel,
-  );
+  const commitMessage = appendAgentTrailer(`review: pass ${passNumber}`, agentLabel);
 
   // Commit
   execFileSync("git", ["commit", "-F", "-"], {

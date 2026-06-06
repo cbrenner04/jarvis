@@ -30,10 +30,7 @@ const DEFAULT_AGENT_ORDER: AgentEntry[] = [
 
 const CLAUDE_ONLY: AgentEntry[] = [{ agent: "claude", model: "haiku" }];
 
-function testConfig(
-  modes: Config["modes"],
-  overrides: Partial<Config> = {},
-): Config {
+function testConfig(modes: Config["modes"], overrides: Partial<Config> = {}): Config {
   return {
     version: 2,
     quotaFallback: "lenient",
@@ -2069,9 +2066,7 @@ describe("resolveReviewPasses", () => {
 
 describe("resolveReviewAgentOrder", () => {
   test("returns review agent order when configured", () => {
-    const reviewOrder: AgentEntry[] = [
-      { agent: "codex", model: "gpt-5.3-codex" },
-    ];
+    const reviewOrder: AgentEntry[] = [{ agent: "codex", model: "gpt-5.3-codex" }];
     const cfg: Config = {
       version: 2,
       modes: {
@@ -2185,9 +2180,7 @@ describe("review mode config validation", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.review\.agentOrder.*non-empty/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.review\.agentOrder.*non-empty/);
   });
 
   test("rejects invalid agent in review agent order", () => {
@@ -2229,9 +2222,7 @@ describe("review mode config validation", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.review\.agentOrder.*duplicate/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.review\.agentOrder.*duplicate/);
   });
 
   test("accepts valid review agent order", () => {

@@ -313,9 +313,7 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
     cwd: opts.cwd,
     ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
-    ...(opts.commitCheckFix !== undefined
-      ? { commitCheckFix: opts.commitCheckFix }
-      : {}),
+    ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
   });
 
   // Then mark ready

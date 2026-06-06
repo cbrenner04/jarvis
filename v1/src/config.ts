@@ -234,24 +234,13 @@ function validateConfig(input: unknown, file: string): Config {
   }
 
   const reviewMode = modesObj.review;
-  if (
-    reviewMode === null ||
-    typeof reviewMode !== "object" ||
-    Array.isArray(reviewMode)
-  ) {
-    fail(
-      file,
-      'modes.review must be an object with "passes" and optional "agentOrder"',
-    );
+  if (reviewMode === null || typeof reviewMode !== "object" || Array.isArray(reviewMode)) {
+    fail(file, 'modes.review must be an object with "passes" and optional "agentOrder"');
   }
   const reviewModeObj = reviewMode as Record<string, unknown>;
   let reviewAgentOrder: AgentEntry[] | undefined;
   if (reviewModeObj.agentOrder !== undefined) {
-    reviewAgentOrder = validateAgentOrder(
-      reviewModeObj.agentOrder,
-      "modes.review.agentOrder",
-      file,
-    );
+    reviewAgentOrder = validateAgentOrder(reviewModeObj.agentOrder, "modes.review.agentOrder", file);
   }
   validateNoModeAgents(reviewModeObj.agents, "modes.review", file);
   const reviewPasses = validateNonNegativeInteger(
@@ -454,9 +443,7 @@ function validateConfig(input: unknown, file: string): Config {
       },
       review: {
         passes: reviewPasses,
-        ...(reviewAgentOrder !== undefined
-          ? { agentOrder: reviewAgentOrder }
-          : {}),
+        ...(reviewAgentOrder !== undefined ? { agentOrder: reviewAgentOrder } : {}),
       },
     },
     quotaFallback,

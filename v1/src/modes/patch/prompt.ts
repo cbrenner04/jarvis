@@ -94,12 +94,7 @@ function buildSpecTree(specDir: string, cwd: string): string {
   return lines.join("");
 }
 
-function visitSpecFiles(
-  dir: string,
-  cwd: string,
-  indent: string,
-  lines: string[],
-): void {
+function visitSpecFiles(dir: string, cwd: string, indent: string, lines: string[]): void {
   let entries: Array<{ name: string; isDir: boolean }>;
   try {
     entries = readdirSync(dir, { withFileTypes: true })
@@ -138,15 +133,11 @@ function getBranchDiff(cwd: string): string {
   try {
     // Get the merge-base with main/master to find the common ancestor
     const baseBranch = getBaseBranch(cwd);
-    const mergeBase = execFileSync(
-      "git",
-      ["merge-base", "--quiet", baseBranch, "HEAD"],
-      {
-        cwd,
-        encoding: "utf8",
-        stdio: "pipe",
-      },
-    ).trim();
+    const mergeBase = execFileSync("git", ["merge-base", "--quiet", baseBranch, "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
 
     // Get diff from merge-base to HEAD
     const diff = execFileSync("git", ["diff", mergeBase], {
@@ -163,15 +154,11 @@ function getBranchDiff(cwd: string): string {
 
 function getBaseBranch(cwd: string): string {
   try {
-    return execFileSync(
-      "git",
-      ["config", "--default", "main", "--get", "jarvis.baseBranch"],
-      {
-        cwd,
-        encoding: "utf8",
-        stdio: "pipe",
-      },
-    ).trim();
+    return execFileSync("git", ["config", "--default", "main", "--get", "jarvis.baseBranch"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
   } catch {
     return "main";
   }

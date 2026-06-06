@@ -234,9 +234,7 @@ function renderSummaryFromRecords(args: {
   lines.push(`exit reason: ${args.exitReason}`);
 
   const invocationAttempts = args.runRecords.filter(attemptLine).length;
-  const implementationAttempts = args.runRecords.filter(
-    isImplementationAttempt,
-  ).length;
+  const implementationAttempts = args.runRecords.filter(isImplementationAttempt).length;
   const reviewAttempts = args.runRecords.filter(isReviewAttempt).length;
 
   if (args.planStyleHeaders === true) {

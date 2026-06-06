@@ -119,16 +119,7 @@ describe("parseArgs", () => {
   });
 
   test("run with multiple flags including --review-passes", () => {
-    expect(
-      parseArgs([
-        "run",
-        "--max-iterations",
-        "5",
-        "--review-passes",
-        "2",
-        "./spec.md",
-      ]),
-    ).toEqual({
+    expect(parseArgs(["run", "--max-iterations", "5", "--review-passes", "2", "./spec.md"])).toEqual({
       kind: "run",
       specPath: "./spec.md",
       maxIterations: "5",
@@ -221,24 +212,16 @@ describe("run", () => {
     expect(cap.err()).not.toContain("spec path does not exist");
   });
 
-  test.each([
-    "-1",
-    "abc",
-  ])("invalid --review-passes %s exits before the loop", async (value) => {
+  test.each(["-1", "abc"])("invalid --review-passes %s exits before the loop", async (value) => {
     const cap = captureIo();
-    const code = await run(
-      ["run", "--review-passes", value, "./somewhere.md"],
-      {
-        io: cap.io,
-        config: { dir: cfgDir },
-        run: { agents: {}, handleSignals: false },
-      },
-    );
+    const code = await run(["run", "--review-passes", value, "./somewhere.md"], {
+      io: cap.io,
+      config: { dir: cfgDir },
+      run: { agents: {}, handleSignals: false },
+    });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain(
-      "--review-passes must be a non-negative integer",
-    );
+    expect(cap.err()).toContain("--review-passes must be a non-negative integer");
     expect(cap.err()).not.toContain("spec path does not exist");
   });
 

@@ -25,6 +25,7 @@ const CURSOR_KNOWN_MODELS: readonly string[] = [
   "Claude 4.5 Haiku",
   "Claude 4.6 Sonnet",
   "Claude 4.7 Opus",
+  "Claude 4.8 Opus",
   "GPT-5.3 Codex",
   "GPT-5.4",
   "GPT-5.5",

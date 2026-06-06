@@ -46,7 +46,7 @@ import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } fro
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildPrompt, buildReviewPrompt } from "./prompt.ts";
-import { commitReviewPass, detectNewBlockerInSpec, detectSpecTreeEdits, evertSpecTreeEdits } from "./review.ts";
+import { commitReviewPass, detectNewBlockerInSpec, detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { parsePatchSpec } from "./spec.ts";
 import {
   type AcceptanceCriterion,
@@ -1315,8 +1315,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
 
   // Determine if review should run
   // Use CLI flag if provided, otherwise fall back to configured passes
-  const reviewPasses =
-    ctx.opts.reviewPasses ?? preflight.cfg.modes.review.passes;
+  const reviewPasses = ctx.opts.reviewPasses ?? preflight.cfg.modes.review.passes;
   const shouldRunReview =
     preflight.gitEnabled &&
     reviewPasses > 0 &&
@@ -1583,11 +1582,7 @@ async function runReviewPhase(opts: {
 
     // Run review passes
     for (let pass = 1; pass <= opts.reviewPasses; pass++) {
-      fanout(
-        "harness",
-        `review: pass ${pass}/${opts.reviewPasses}\n`,
-        "stdout",
-      );
+      fanout("harness", `review: pass ${pass}/${opts.reviewPasses}\n`, "stdout");
 
       if (ctx.activeAgents.length === 0) {
         fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
@@ -1638,14 +1633,11 @@ async function runReviewPhase(opts: {
           },
         });
 
-        const configuredPatchModelEntry =
-          preflight.cfg.modes.patch.agentOrder.find(
-            (entry) => entry.agent === agent.name,
-          );
+        const configuredPatchModelEntry = preflight.cfg.modes.patch.agentOrder.find(
+          (entry) => entry.agent === agent.name,
+        );
         const telemetryMeta =
-          configuredPatchModelEntry?.model !== undefined
-            ? { configured_model: configuredPatchModelEntry.model }
-            : {};
+          configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
 
         if (result.kind === "ok") {
           if (result.stdout.length > 0) {
@@ -1656,24 +1648,14 @@ async function runReviewPhase(opts: {
           }
 
           // Extract usage and cost
-          const usageAndCost = extractUsageAndCost(
-            result,
-            agent.name,
-            configuredPatchModelEntry?.model,
-          );
+          const usageAndCost = extractUsageAndCost(result, agent.name, configuredPatchModelEntry?.model);
 
           // Check for new blocker BEFORE reverting spec edits so we can extract content
           const specDir = dirname(opts.specPath);
-          const blockerContent = detectNewBlockerInSpec(
-            opts.specPath,
-            opts.agentWorkingDir,
-          );
+          const blockerContent = detectNewBlockerInSpec(opts.specPath, opts.agentWorkingDir);
 
           // Check for spec-tree edits and revert if found
-          const editedSpecFiles = detectSpecTreeEdits(
-            specDir,
-            opts.agentWorkingDir,
-          );
+          const editedSpecFiles = detectSpecTreeEdits(specDir, opts.agentWorkingDir);
           if (editedSpecFiles.length > 0) {
             fanout(
               "harness",
@@ -1684,22 +1666,14 @@ async function runReviewPhase(opts: {
               revertSpecTreeEdits(specDir, opts.agentWorkingDir);
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              fanout(
-                "harness",
-                `review: revert failed: ${message}\n`,
-                "stderr",
-              );
+              fanout("harness", `review: revert failed: ${message}\n`, "stderr");
               return 1;
             }
           }
 
           // Handle blocker if one was detected
           if (blockerContent !== null) {
-            fanout(
-              "harness",
-              `review: pass ${pass} encountered blocker\n`,
-              "stderr",
-            );
+            fanout("harness", `review: pass ${pass} encountered blocker\n`, "stderr");
             // Commit the blocker
             try {
               commitReviewPass(pass, "review-blocker", opts.agentWorkingDir, {
@@ -1709,11 +1683,7 @@ async function runReviewPhase(opts: {
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              fanout(
-                "harness",
-                `review: blocker commit failed: ${message}\n`,
-                "stderr",
-              );
+              fanout("harness", `review: blocker commit failed: ${message}\n`, "stderr");
               // Continue to PR comment posting anyway
             }
 
@@ -1722,24 +1692,12 @@ async function runReviewPhase(opts: {
               const prNum = checkPrExists(branch, opts.agentWorkingDir);
               if (prNum) {
                 const blockerComment = `## Review Pass ${pass} Blocker\n\n${blockerContent}`;
-                await postPrComment(
-                  prNum,
-                  blockerComment,
-                  opts.agentWorkingDir,
-                );
-                fanout(
-                  "harness",
-                  `review: blocker reported in PR comment\n`,
-                  "stdout",
-                );
+                await postPrComment(prNum, blockerComment, opts.agentWorkingDir);
+                fanout("harness", `review: blocker reported in PR comment\n`, "stdout");
               }
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              fanout(
-                "harness",
-                `review: failed to post PR comment: ${message}\n`,
-                "stderr",
-              );
+              fanout("harness", `review: failed to post PR comment: ${message}\n`, "stderr");
               // Don't fail the phase if comment posting fails
             }
 
@@ -1799,11 +1757,7 @@ async function runReviewPhase(opts: {
             return 2;
           }
         } else {
-          fanout(
-            "harness",
-            `review: pass ${pass} error (${result.kind})\n`,
-            "stderr",
-          );
+          fanout("harness", `review: pass ${pass} error (${result.kind})\n`, "stderr");
           if (result.stderr.length > 0) {
             fanout("harness", result.stderr, "stderr");
           }

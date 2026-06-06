@@ -231,10 +231,7 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
       if (parsed.reviewPasses !== undefined) {
         const parsedReview = Number(parsed.reviewPasses);
         try {
-          reviewPasses = validateNonNegativeInteger(
-            parsedReview,
-            "--review-passes",
-          );
+          reviewPasses = validateNonNegativeInteger(parsedReview, "--review-passes");
         } catch (err) {
           io.stderr(`jarvis1: ${(err as Error).message}\n`);
           return 1;

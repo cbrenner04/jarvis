@@ -20,6 +20,7 @@ export type TelemetryMode = "patch" | "plan" | "prompt";
 
 /**Present on plan-mode invocation rows so summaries can attribute usage to a phase.*/
 export type PlanTelemetryPhase = "refine" | "name-only" | "draft" | "review";
+export type PatchTelemetryPhase = "implementation" | "review";
 
 export type TelemetryRecord = {
   ts: string;
@@ -40,6 +41,7 @@ export type TelemetryRecord = {
   /** Discriminator so patch and plan sessions can share one JSONL file safely.*/
   mode?: TelemetryMode;
   plan_phase?: PlanTelemetryPhase;
+  patch_phase?: PatchTelemetryPhase;
   watchdog_pgid?: number;
 };
 

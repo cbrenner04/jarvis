@@ -21,7 +21,7 @@ server.
 ## Schema (v2)
 
 ```ts
-type AgentName = "claude" | "codex" | "cursor" | "opencode";
+type AgentName = "claude" | "codex" | "cursor" | "opencode" | "aider";
 
 type Project = {
   root: string; // absolute path to a target-repo root
@@ -44,12 +44,18 @@ type ModeConfig = {
 
 // For modes.prompt specifically, only agentOrder is used. The commit and targetDir fields have no effect.
 
+type ReviewModeConfig = {
+  agentOrder?: AgentEntry[]; // optional; falls back to modes.plan.agentOrder if unset
+  passes: number; // non-negative integer: 0 disables review, 1+ enables N review passes; default 2
+};
+
 type Config = {
   version: 2;
   modes: {
     patch: ModeConfig; // agent order + per-agent models for `jarvis run` (patch mode)
     plan: ModeConfig; // agent order + per-agent models for `jarvis plan` intent-refinement, draft, and review phases (including resume)
     prompt: ModeConfig; // agent order + per-agent models for `jarvis prompt` single-pass invocation (prompt mode)
+    review: ReviewModeConfig; // agent order (optional, fallback to plan) and pass count for patch review loop
   };
   quotaFallback: "strict" | "lenient"; // weak quota-like error fallback mode; default "lenient"
   weakQuotaExitCodes: number[]; // exit codes treated as probable-quota under lenient mode; default []
@@ -162,6 +168,9 @@ Default contents on first bootstrap:
         { "agent": "codex", "model": "gpt-5.3-codex" },
         { "agent": "cursor", "model": "Composer 2" }
       ]
+    },
+    "review": {
+      "passes": 2
     }
   },
   "quotaFallback": "lenient",
@@ -181,6 +190,35 @@ Both `modes.patch.agentOrder` and `modes.plan.agentOrder` default to
 `opencode` entry to either order with a `provider/model` string as its
 `model`. See [agents.md](./agents.md#opencode-setup) for the one-time
 permission installer and the `provider/model` format.
+
+## `modes.review.passes` and `modes.review.agentOrder`
+
+The `modes.review` block controls patch review loop behavior during `jarvis run`:
+
+**`passes` (non-negative integer, default `2`):** Controls the number of review passes after patch iteration completes. A value of `0` disables review entirely. Each pass runs the configured review agent(s) against the completed work.
+
+**`agentOrder` (optional):** Agent order for review passes. If unset, review uses `modes.plan.agentOrder`. Like `modes.patch.agentOrder` and `modes.plan.agentOrder`, each entry is `{ "agent": "...", "model": "..." }` and the same `validateAgentOrder` contract applies: no duplicate agents, agents must be known, and models must be valid for the agent.
+
+Example configuration enabling review with a custom agent order:
+
+```json
+{
+  "modes": {
+    "review": {
+      "passes": 2,
+      "agentOrder": [
+        { "agent": "claude", "model": "haiku" },
+        { "agent": "codex", "model": "gpt-5.3-codex" }
+      ]
+    }
+  }
+}
+```
+
+The `--review-passes` CLI flag overrides config:
+`jarvis run --review-passes 0 <spec>` disables review without changing config, while `jarvis run --review-passes 3 <spec>` runs 3 review passes instead of the configured number.
+
+When `git: false`, patch review is skipped entirely regardless of review-pass configuration.
 
 ## `worktreeSymlinks`
 

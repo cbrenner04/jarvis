@@ -86,12 +86,18 @@ export type ModeConfig = {
   targetDir?: string;
 };
 
+export type ReviewModeConfig = {
+  agentOrder?: AgentEntry[];
+  passes: number;
+};
+
 export type Config = {
   version: 2;
   modes: {
     patch: ModeConfig;
     plan: ModeConfig;
     prompt: ModeConfig;
+    review: ReviewModeConfig;
   };
   quotaFallback: "strict" | "lenient";
   weakQuotaExitCodes: number[];
@@ -134,6 +140,7 @@ const DEFAULT_CONFIG: Config = {
       targetDir: "spec",
     },
     prompt: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
+    review: { passes: 2 },
   },
   quotaFallback: "lenient",
   weakQuotaExitCodes: [],
@@ -241,6 +248,22 @@ function validateConfig(input: unknown, file: string): Config {
     promptAgentOrder = validateAgentOrder(promptModeObj.agentOrder, "modes.prompt.agentOrder", file);
     validateNoModeAgents(promptModeObj.agents, "modes.prompt", file);
   }
+
+  const reviewMode = modesObj.review ?? DEFAULT_CONFIG.modes.review;
+  if (reviewMode === null || typeof reviewMode !== "object" || Array.isArray(reviewMode)) {
+    fail(file, 'modes.review must be an object with "passes" and optional "agentOrder"');
+  }
+  const reviewModeObj = reviewMode as Record<string, unknown>;
+  let reviewAgentOrder: AgentEntry[] | undefined;
+  if (reviewModeObj.agentOrder !== undefined) {
+    reviewAgentOrder = validateAgentOrder(reviewModeObj.agentOrder, "modes.review.agentOrder", file);
+  }
+  validateNoModeAgents(reviewModeObj.agents, "modes.review", file);
+  const reviewPasses = validateNonNegativeInteger(
+    reviewModeObj.passes ?? DEFAULT_CONFIG.modes.review.passes,
+    "modes.review.passes",
+    (message) => fail(file, message),
+  );
 
   const maxIterations = validatePositiveInteger(
     obj.maxIterations ?? DEFAULT_CONFIG.maxIterations,
@@ -435,6 +458,10 @@ function validateConfig(input: unknown, file: string): Config {
         ...(planTargetDir !== undefined ? { targetDir: planTargetDir } : {}),
       },
       prompt: { agentOrder: promptAgentOrder },
+      review: {
+        passes: reviewPasses,
+        ...(reviewAgentOrder !== undefined ? { agentOrder: reviewAgentOrder } : {}),
+      },
     },
     quotaFallback,
     weakQuotaExitCodes,
@@ -505,6 +532,19 @@ export function validatePositiveInteger(
 ): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
     failWith(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+export function validateNonNegativeInteger(
+  value: unknown,
+  name: string,
+  failWith: (message: string) => never = (message) => {
+    throw new Error(message);
+  },
+): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    failWith(`${name} must be a non-negative integer`);
   }
   return value;
 }
@@ -708,6 +748,20 @@ export function resolvePlanFlags(
     commit: projectPlan?.commit ?? globalPlan?.commit ?? true,
     targetDir: projectPlan?.targetDir ?? globalPlan?.targetDir ?? "spec",
   };
+}
+
+export function resolveReviewPasses(cfg: Config, cliOverride?: number): number {
+  if (cliOverride !== undefined) {
+    return cliOverride;
+  }
+  return cfg.modes.review.passes;
+}
+
+export function resolveReviewAgentOrder(cfg: Config): AgentEntry[] {
+  if (cfg.modes.review.agentOrder !== undefined) {
+    return cfg.modes.review.agentOrder;
+  }
+  return cfg.modes.plan.agentOrder;
 }
 
 export function findProjectForPath(p: string, opts?: ConfigOptions): Project | undefined {

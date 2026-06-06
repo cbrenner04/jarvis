@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runAgent } from "../src/agents/spawn.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
-import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
+import { type AgentEntry, loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import {
   maybeWarnAboutUnmergedPlanBranch,
@@ -81,14 +81,21 @@ let originalPath: string | undefined;
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
 
-async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
-  return runCommand({
+function disableReviewByDefault(opts: RunCommandOptions): RunCommandOptions {
+  return {
     ...opts,
-    skipGhCheck: true,
-    logClient: {
+    reviewPasses: opts.reviewPasses ?? 0,
+    logClient: opts.logClient ?? {
       assertReachable: async () => {},
       send: async () => {},
     },
+  };
+}
+
+async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
+  return runCommand({
+    ...disableReviewByDefault(opts),
+    skipGhCheck: true,
   });
 }
 
@@ -366,20 +373,22 @@ describe("runCommand", () => {
       stderr: "",
     }));
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      skipGhCheck: true,
-      logClient: {
-        assertReachable: async () => {
-          throw new Error("connect ECONNREFUSED 127.0.0.1:4310");
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        skipGhCheck: true,
+        logClient: {
+          assertReachable: async () => {
+            throw new Error("connect ECONNREFUSED 127.0.0.1:4310");
+          },
+          send: async () => {},
         },
-        send: async () => {},
-      },
-      handleSignals: false,
-    });
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(1);
     expect(cap.err()).toContain("log server unreachable");
@@ -404,15 +413,17 @@ describe("runCommand", () => {
     };
 
     const startedAt = Date.now();
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      skipGhCheck: true,
-      logClient: slowLogClient,
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        skipGhCheck: true,
+        logClient: slowLogClient,
+        handleSignals: false,
+      }),
+    );
     const elapsedMs = Date.now() - startedAt;
 
     expect(code).toBe(0);
@@ -437,15 +448,17 @@ describe("runCommand", () => {
       },
     };
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      skipGhCheck: true,
-      logClient: throwingLogClient,
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        skipGhCheck: true,
+        logClient: throwingLogClient,
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(0);
   });
@@ -855,15 +868,17 @@ describe("runCommand", () => {
       },
     };
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      skipGhCheck: true,
-      logClient,
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        skipGhCheck: true,
+        logClient,
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(0);
     const firstOutbound = messages.findIndex((m) => m.tag === "outbound");
@@ -1385,17 +1400,19 @@ exit 1
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      logClient: {
-        assertReachable: async () => {},
-        send: async () => {},
-      },
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        logClient: {
+          assertReachable: async () => {},
+          send: async () => {},
+        },
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(0);
     expect(readFileSync(pushLog, "utf8").trim().split("\n")).toEqual(["push -u origin feature", "push"]);
@@ -1542,17 +1559,19 @@ exit 1
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    const code = await runCommand({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      logClient: {
-        assertReachable: async () => {},
-        send: async () => {},
-      },
-      handleSignals: false,
-    });
+    const code = await runCommand(
+      disableReviewByDefault({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        logClient: {
+          assertReachable: async () => {},
+          send: async () => {},
+        },
+        handleSignals: false,
+      }),
+    );
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(2);
@@ -1605,6 +1624,7 @@ exit 1
           patch: { agentOrder: [CLAUDE_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -1650,6 +1670,7 @@ exit 0
           patch: { agentOrder: [CLAUDE_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -1700,6 +1721,7 @@ exit 0
           },
           plan: { agentOrder: [CLAUDE_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -1737,6 +1759,7 @@ exit 0
           patch: { agentOrder: [CLAUDE_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -1806,6 +1829,7 @@ exit 0
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -1847,6 +1871,7 @@ exit 0
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -1897,6 +1922,7 @@ exit 0
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -1947,6 +1973,7 @@ exit 0
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "strict",
         weakQuotaExitCodes: [],
@@ -1990,6 +2017,7 @@ exit 0
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -2054,6 +2082,7 @@ exit 0
           patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -2193,6 +2222,7 @@ exit 0
           },
           plan: { agentOrder: [CLAUDE_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -2240,6 +2270,7 @@ exit 0
           },
           plan: { agentOrder: [CLAUDE_ENTRY] },
           prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
         },
         quotaFallback: "lenient",
         weakQuotaExitCodes: [],
@@ -2962,6 +2993,7 @@ exit 0
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
             prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
           },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
@@ -3001,6 +3033,7 @@ exit 0
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
             prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
           },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
@@ -3076,6 +3109,7 @@ wait
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
             prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
           },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
@@ -3147,6 +3181,7 @@ wait
             patch: { agentOrder: [CLAUDE_ENTRY] },
             plan: { agentOrder: [CLAUDE_ENTRY] },
             prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
           },
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
@@ -3355,6 +3390,477 @@ describe("agent stream handling (regression test for hang)", () => {
       expect(result.stdout).toBe("");
       expect(result.stderr).toBe("");
     }
+  });
+});
+
+type ReviewEnv = {
+  spec: string;
+  worktree: string;
+  readyLog: string;
+  prReadyLog: string;
+  prCommentLog: string;
+  prCommentBody: string;
+  failReviewPush: string;
+  reviewCommitSubjects: () => string[];
+  reviewCommitFiles: () => string[];
+};
+
+// Scaffold a real git repo + bare origin + fake git/bun/gh on PATH so the
+// post-completion review phase runs end-to-end. Agents are supplied by callers.
+function setupReviewEnv(opts: {
+  reviewAgentOrder?: AgentEntry[];
+  patchAgentOrder?: AgentEntry[];
+  maxIterations?: number;
+  reviewPasses?: number;
+}): ReviewEnv {
+  const origin = join(dir, "origin.git");
+  execSync(`git init --bare ${origin}`);
+  execSync("git init -b main", { cwd: projectRoot });
+  execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+  execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+  execSync(`git remote add origin ${origin}`, { cwd: projectRoot });
+
+  const specDir = join(projectRoot, "spec", "feature");
+  mkdirSync(specDir, { recursive: true });
+  const spec = join(specDir, "index.md");
+  writeFileSync(spec, `repo: ${projectRoot}\n\n# Feature\n\n- [ ] [00 - One](./00-one.md)\n`);
+  writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+  execSync("git add -A && git commit -m init && git push -u origin main", { cwd: projectRoot });
+
+  const binDir = join(dir, "bin");
+  mkdirSync(binDir);
+  const realGit = execSync("command -v git", { encoding: "utf8" }).trim();
+  const bun = join(binDir, "bun");
+  const git = join(binDir, "git");
+  const gh = join(binDir, "gh");
+  const readyLog = join(dir, "ready-log");
+  const prReadyLog = join(dir, "pr-ready-log");
+  const prCommentLog = join(dir, "pr-comment-log");
+  const prCommentBody = join(dir, "pr-comment-body");
+  const prBody = join(dir, "pr-body");
+  const prState = join(dir, "pr-state");
+  const readyState = join(dir, "ready-state");
+  const failReviewPush = join(dir, "fail-review-push");
+
+  writeFileSync(
+    git,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "push" && -f "${failReviewPush}" ]]; then
+  printf 'forced review push failure\\n' >&2
+  exit 1
+fi
+exec "${realGit}" "$@"
+`,
+  );
+  chmodSync(git, 0o755);
+  writeFileSync(
+    bun,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "run ready" ]]; then
+  printf 'ready\\n' >> "${readyLog}"
+  exit 0
+fi
+exit 1
+`,
+  );
+  chmodSync(bun, 0o755);
+  writeFileSync(
+    gh,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "auth status" ]]; then exit 0; fi
+if [[ "$1 $2" == "repo view" ]]; then printf 'main\\n'; exit 0; fi
+if [[ "$1 $2" == "pr view" ]]; then
+  if [[ ! -f "${prState}" ]]; then exit 1; fi
+  if [[ "$*" == *"isDraft"* ]]; then
+    if [[ -f "${readyState}" ]]; then printf 'false\\n'; else printf 'true\\n'; fi
+  elif [[ "$*" == *"--json body"* ]]; then
+    if [[ -f "${prBody}" ]]; then cat "${prBody}"; fi
+  elif [[ "$*" == *"--json number,state"* ]]; then printf '1\\n';
+  elif [[ "$*" == *"--json url"* ]]; then printf 'https://example/pull/1\\n';
+  else printf '1\\n'; fi
+  exit 0
+fi
+if [[ "$1 $2" == "pr edit" ]]; then
+  while [[ $# -gt 0 ]]; do case "$1" in --body-file) shift; if [[ "$1" == "-" ]]; then cat > "${prBody}"; else cp "$1" "${prBody}"; fi;; esac; shift; done
+  exit 0
+fi
+if [[ "$1 $2" == "pr create" ]]; then
+  while [[ $# -gt 0 ]]; do case "$1" in --body) shift; printf '%s' "$1" > "${prBody}";; esac; shift; done
+  touch "${prState}"
+  exit 0
+fi
+if [[ "$1 $2" == "pr ready" ]]; then printf 'ready\\n' >> "${prReadyLog}"; touch "${readyState}"; exit 0; fi
+if [[ "$1 $2" == "pr comment" ]]; then
+  printf 'comment\\n' >> "${prCommentLog}"
+  while [[ $# -gt 0 ]]; do case "$1" in --body) shift; printf '%s' "$1" > "${prCommentBody}";; esac; shift; done
+  exit 0
+fi
+exit 1
+`,
+  );
+  chmodSync(gh, 0o755);
+  process.env.PATH = `${binDir}:${originalPath ?? ""}`;
+
+  writeConfig(
+    {
+      version: 2,
+      modes: {
+        patch: { agentOrder: opts.patchAgentOrder ?? [CLAUDE_ENTRY] },
+        plan: { agentOrder: [CLAUDE_ENTRY] },
+        prompt: { agentOrder: opts.patchAgentOrder ?? [CLAUDE_ENTRY] },
+        review: {
+          passes: opts.reviewPasses ?? 1,
+          ...(opts.reviewAgentOrder !== undefined ? { agentOrder: opts.reviewAgentOrder } : {}),
+        },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: opts.maxIterations ?? 10,
+      iterationTimeoutMs: 30 * 60_000,
+      git: true,
+      projects: { project: { root: projectRoot } },
+    },
+    { dir: cfgDir },
+  );
+
+  const worktree = join(projectRoot, ".worktree", "feature");
+  const reviewCommitSubjects = () =>
+    execSync("git log --format=%s main..feature", { cwd: projectRoot, encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .filter((s) => s.startsWith("review:"));
+  const reviewCommitFiles = () =>
+    execSync("git show --name-only --format= HEAD", { cwd: worktree, encoding: "utf8" })
+      .trim()
+      .split("\n")
+      .filter((s) => s.length > 0);
+
+  return {
+    spec,
+    worktree,
+    readyLog,
+    prReadyLog,
+    prCommentLog,
+    prCommentBody,
+    failReviewPush,
+    reviewCommitSubjects,
+    reviewCommitFiles,
+  };
+}
+
+// An implementation agent that completes the single subspec in one iteration and
+// answers the PR-description prompt. `onReview` handles review-phase prompts.
+function reviewFakeAgent(
+  name: "claude" | "codex",
+  onReview: (callCount: number, cwd: string) => AgentResult,
+): FakeAgent {
+  return new FakeAgent(name, (callCount, prompt, opts) => {
+    if (prompt.includes("Review Phase")) {
+      return onReview(callCount, opts.cwd);
+    }
+    if (prompt.includes("PR description")) {
+      return { kind: "ok", stdout: "Implements the feature.\n", stderr: "" };
+    }
+    writeFileSync(join(opts.cwd, "impl.txt"), "impl\n");
+    writeFileSync(
+      join(opts.cwd, "spec", "feature", "00-one.md"),
+      "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n",
+    );
+    return { kind: "ok", stdout: "", stderr: "" };
+  });
+}
+
+describe("review phase", () => {
+  test("runs passes, commits edits, then marks PR ready after review", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+      writeFileSync(join(cwd, "code.txt"), "refined\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(env.reviewCommitSubjects()).toEqual(["review: pass 1"]);
+    // gh pr ready fires exactly once, and only after the review commit landed.
+    expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
+    const reviewPrompt = claude.calls.find((c) => c.prompt.includes("Review Phase"))?.prompt;
+    expect(reviewPrompt).toContain("diff --git");
+    expect(reviewPrompt).not.toContain("failed to generate diff");
+    expect(cap.out()).toContain("iterations: 1");
+    expect(cap.out()).toContain("review attempts: 1");
+  });
+
+  test("baseline gate leaves PR draft until review completes", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    const cap = captureIo();
+    const draftStates: string[] = [];
+    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+      // Observe PR draft state at the moment the review agent runs.
+      draftStates.push(
+        execSync("gh pr view feature --json isDraft -q .isDraft", {
+          cwd,
+          env: process.env,
+          encoding: "utf8",
+        }).trim(),
+      );
+      writeFileSync(join(cwd, "code.txt"), "x\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(draftStates).toEqual(["true"]);
+  });
+
+  test("runs all passes past a no-op; only non-empty passes commit", async () => {
+    const env = setupReviewEnv({ reviewPasses: 2 });
+    const cap = captureIo();
+    let reviewCalls = 0;
+    const claude = reviewFakeAgent("claude", (_callCount, cwd) => {
+      reviewCalls += 1;
+      // First review pass is a no-op; second edits a file.
+      if (reviewCalls >= 2) {
+        writeFileSync(join(cwd, "code.txt"), "second\n");
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    // Two review prompts were sent; only the editing pass committed.
+    const reviewPrompts = claude.calls.filter((c) => c.prompt.includes("Review Phase"));
+    expect(reviewPrompts).toHaveLength(2);
+    expect(env.reviewCommitSubjects()).toEqual(["review: pass 2"]);
+    expect(cap.out()).toContain("review attempts: 2");
+  });
+
+  test("reverts spec-tree edits (tracked and untracked); commits only code", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+      // Edit a tracked spec file, add an untracked spec file, and a code file.
+      writeFileSync(
+        join(cwd, "spec", "feature", "00-one.md"),
+        "# 00 - One\n\n## Acceptance criteria\n\n- [x] tampered.\n",
+      );
+      writeFileSync(join(cwd, "spec", "feature", "02-extra.md"), "sneaky\n");
+      writeFileSync(join(cwd, "code.txt"), "ok\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    // Tracked spec file restored to its completed state.
+    expect(readFileSync(join(env.worktree, "spec", "feature", "00-one.md"), "utf8")).toContain("- [x] One accepted.");
+    // Untracked spec file removed.
+    expect(existsSync(join(env.worktree, "spec", "feature", "02-extra.md"))).toBe(false);
+    // The review commit carries only the code change, no spec files.
+    const files = env.reviewCommitFiles();
+    expect(files).toContain("code.txt");
+    expect(files.some((f) => f.startsWith("spec/"))).toBe(false);
+  });
+
+  test("blocker sentinel posts a PR comment and exits 7 without marking ready", async () => {
+    const env = setupReviewEnv({ reviewPasses: 2 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+      writeFileSync(join(cwd, ".jarvis-review-blocker"), "build is broken\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(7);
+    // Only the first pass ran; PR comment posted; PR never marked ready.
+    expect(claude.calls.filter((c) => c.prompt.includes("Review Phase"))).toHaveLength(1);
+    expect(readFileSync(env.prCommentBody, "utf8")).toContain("build is broken");
+    expect(existsSync(env.prReadyLog)).toBe(false);
+    // Sentinel was consumed, not committed.
+    expect(existsSync(join(env.worktree, ".jarvis-review-blocker"))).toBe(false);
+  });
+
+  test("review commit push failure leaves PR draft and exits 1", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+      writeFileSync(env.failReviewPush, "1\n");
+      writeFileSync(join(cwd, "code.txt"), "refined\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("review: commit failed");
+    expect(existsSync(env.prReadyLog)).toBe(false);
+  });
+
+  test("blocker commit push failure still comments but exits 1", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+      writeFileSync(env.failReviewPush, "1\n");
+      writeFileSync(join(cwd, ".jarvis-review-blocker"), "build is broken\n");
+      writeFileSync(join(cwd, "code.txt"), "partial\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("review: blocker commit failed");
+    expect(readFileSync(env.prCommentBody, "utf8")).toContain("build is broken");
+    expect(existsSync(env.prReadyLog)).toBe(false);
+  });
+
+  test("review-agent quota exhaustion exits 2 and leaves the PR draft", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }));
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(2);
+    expect(existsSync(env.prReadyLog)).toBe(false);
+  });
+
+  test("review uses the review agent order, not the implementation agents", async () => {
+    const env = setupReviewEnv({
+      patchAgentOrder: [CLAUDE_ENTRY],
+      reviewAgentOrder: [CODEX_ENTRY],
+      reviewPasses: 1,
+    });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", () => {
+      throw new Error("claude must not run review passes");
+    });
+    const codex = reviewFakeAgent("codex", (_n, cwd) => {
+      writeFileSync(join(cwd, "code.txt"), "by codex\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    // codex handled the review pass; claude handled implementation only.
+    expect(codex.calls.some((c) => c.prompt.includes("Review Phase"))).toBe(true);
+    expect(claude.calls.some((c) => c.prompt.includes("Review Phase"))).toBe(false);
+    expect(env.reviewCommitSubjects()).toEqual(["review: pass 1"]);
+  });
+
+  test("review still runs on the closing iteration when maxIterations is exhausted", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1, maxIterations: 1 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+      writeFileSync(join(cwd, "code.txt"), "x\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(env.reviewCommitSubjects()).toEqual(["review: pass 1"]);
+  });
+
+  test("--review-passes 0 disables the review phase", async () => {
+    const env = setupReviewEnv({ reviewPasses: 2 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", () => {
+      throw new Error("review must not run when disabled");
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      reviewPasses: 0,
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(env.reviewCommitSubjects()).toEqual([]);
+    // With review disabled, readiness falls back to the normal completion path.
+    expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
   });
 });
 

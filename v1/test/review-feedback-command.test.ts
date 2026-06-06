@@ -62,6 +62,7 @@ function cfg(order: Array<{ agent: AgentName; model: string }>): Config {
       patch: { agentOrder: order },
       plan: { agentOrder: [{ agent: "claude", model: "haiku" }] },
       prompt: { agentOrder: [{ agent: "claude", model: "haiku" }] },
+      review: { passes: 2 },
     },
     quotaFallback: "lenient",
     weakQuotaExitCodes: [],

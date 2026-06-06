@@ -38,6 +38,7 @@ const testConfig: Config = {
     patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
     plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
     prompt: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+    review: { passes: 2 },
   },
   quotaFallback: "strict",
   weakQuotaExitCodes: [],

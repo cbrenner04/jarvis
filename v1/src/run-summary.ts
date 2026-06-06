@@ -88,6 +88,14 @@ function attemptLine(record: TelemetryRecord): boolean {
   return record.agent !== "harness";
 }
 
+function isImplementationAttempt(record: TelemetryRecord): boolean {
+  return attemptLine(record) && record.patch_phase !== "review";
+}
+
+function isReviewAttempt(record: TelemetryRecord): boolean {
+  return attemptLine(record) && record.patch_phase === "review";
+}
+
 function recordMatchesMode(record: TelemetryRecord, mode: TelemetrySummaryMode): boolean {
   if (mode === "patch") {
     return record.mode !== "plan";
@@ -226,6 +234,8 @@ function renderSummaryFromRecords(args: {
   lines.push(`exit reason: ${args.exitReason}`);
 
   const invocationAttempts = args.runRecords.filter(attemptLine).length;
+  const implementationAttempts = args.runRecords.filter(isImplementationAttempt).length;
+  const reviewAttempts = args.runRecords.filter(isReviewAttempt).length;
 
   if (args.planStyleHeaders === true) {
     lines.push(`phase attempts: ${invocationAttempts}`);
@@ -234,7 +244,10 @@ function renderSummaryFromRecords(args: {
   }
 
   if (args.planStyleHeaders !== true) {
-    lines.push(`attempts: ${invocationAttempts}`);
+    lines.push(`attempts: ${implementationAttempts}`);
+    if (reviewAttempts > 0) {
+      lines.push(`review attempts: ${reviewAttempts}`);
+    }
   }
 
   lines.push(`duration: ${formatDuration(args.durationMs)}`);

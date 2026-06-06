@@ -7,6 +7,7 @@ import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
+  type AgentEntry,
   type AgentName,
   type Config,
   type ConfigOptions,
@@ -14,9 +15,11 @@ import {
   findProjectMatchForPath,
   openSessionLog,
   type ProjectMatch,
+  resolveReviewAgentOrder,
+  resolveReviewPasses,
   setProjectOrigin,
 } from "../../config.ts";
-import { assertGhReady, getBaseBranch } from "../../gh.ts";
+import { assertGhReady, getBaseBranch, postPrComment } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { checkPrExists, ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
 import {
@@ -28,6 +31,7 @@ import { runSummary } from "../../run-summary.ts";
 import {
   appendTelemetryLine,
   type CostSource,
+  type PatchTelemetryPhase,
   type TelemetryKind,
   type TelemetryRecordRole,
   type UsageSource,
@@ -43,8 +47,9 @@ import {
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
-import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
-import { buildPrompt } from "./prompt.ts";
+import { buildPrBody, generatePrDescription, maybeMarkReady, runReadyAndCommit, updatePrBody } from "./pr.ts";
+import { buildPrompt, buildReviewPrompt } from "./prompt.ts";
+import { commitReviewPass, consumeReviewBlocker, detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { parsePatchSpec } from "./spec.ts";
 import {
   type AcceptanceCriterion,
@@ -73,6 +78,8 @@ export type RunCommandOptions = {
   cwdFlag?: string;
   /** Override the disambiguation prompt (for tests). */
   disambiguate?: DisambiguateFn;
+  /** Value of the `--review-passes` CLI flag, if given. */
+  reviewPasses?: number;
   /**
    * Test-only override for the watchdog/abort SIGKILL grace period in
    * milliseconds. Lets timing tests bound their wall-clock cost without
@@ -100,6 +107,7 @@ type WriteTelemetry = (record: {
   exitReason: string;
   record_role?: TelemetryRecordRole;
   configured_model?: string;
+  patch_phase?: PatchTelemetryPhase;
   usage?: {
     input_tokens: number | null;
     output_tokens: number | null;
@@ -522,6 +530,19 @@ function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
   return agents;
 }
 
+// Build the agent fallback chain for the review phase from a resolved review
+// order (`modes.review.agentOrder` → `modes.plan.agentOrder`). Honors the same
+// test-only agent overrides as `buildActiveAgents`.
+function buildReviewAgents(opts: RunCommandOptions, order: AgentEntry[]): Agent[] {
+  const overrides = opts.agents;
+  const agents: Agent[] = [];
+  for (const entry of order) {
+    const override = overrides?.[entry.agent];
+    agents.push(override ?? createAgent(entry.agent, entry.model));
+  }
+  return agents;
+}
+
 function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, logClient: LogClient): LoggingContext {
   const cfg = preflight.cfg;
 
@@ -549,10 +570,16 @@ function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, logClient
         ...(record.warnings !== undefined ? { warnings: record.warnings } : {}),
         ...(record.record_role !== undefined ? { record_role: record.record_role } : {}),
         ...(record.configured_model !== undefined ? { configured_model: record.configured_model } : {}),
+        ...(record.patch_phase !== undefined ? { patch_phase: record.patch_phase } : {}),
         ...(record.watchdog_pgid !== undefined ? { watchdog_pgid: record.watchdog_pgid } : {}),
       });
       telemetryWrites = true;
-      if (record.kind === "ok" && record.agent !== "harness" && record.record_role !== "run_terminal") {
+      if (
+        record.kind === "ok" &&
+        record.agent !== "harness" &&
+        record.record_role !== "run_terminal" &&
+        record.patch_phase !== "review"
+      ) {
         patchIterationsCompletedForSummary += 1;
       }
     } catch {
@@ -1054,11 +1081,18 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                     fanout("harness", `failed to update PR body for ${afterSubspecPath}: ${message}\n`, "stderr");
                   }
                 }
-                maybeMarkReady({
-                  indexPath: afterSpecPath,
-                  cwd: agentWorkingDir,
-                  agentLabel: agent.attributionLabel(),
-                });
+                // When a post-completion review phase will run, defer PR
+                // readiness to it: the review phase brackets passes with its own
+                // baseline `bun run ready` and the final `gh pr ready`. Marking
+                // ready here would move the PR out of draft before review runs.
+                const willRunReview = resolveReviewPasses(cfg, opts.reviewPasses) > 0;
+                if (!willRunReview) {
+                  maybeMarkReady({
+                    indexPath: afterSpecPath,
+                    cwd: agentWorkingDir,
+                    agentLabel: agent.attributionLabel(),
+                  });
+                }
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
                 fanout(
@@ -1307,6 +1341,25 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   }
   logging.fanout("harness", "spec complete\n", "stdout");
 
+  // Determine if review should run. Passes resolve `--review-passes` →
+  // `modes.review.passes` → default. Review uses its own agent order (see
+  // `runReviewPhase`), independent of the implementation agents.
+  const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
+  const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && logging.patchIterationsCompletedForSummary() > 0;
+
+  if (shouldRunReview) {
+    // Run review phase after completion
+    const reviewExitCode = await runReviewPhase({
+      ctx,
+      specPath: preflight.specPath,
+      agentWorkingDir: preflight.agentWorkingDir,
+      reviewPasses,
+    });
+    if (reviewExitCode !== 0) {
+      return reviewExitCode;
+    }
+  }
+
   // Try to look up and print the PR URL
   if (preflight.gitEnabled) {
     try {
@@ -1516,5 +1569,293 @@ function copyMissingRecursive(sourceDir: string, targetDir: string): void {
       force: false,
       errorOnExist: false,
     });
+  }
+}
+
+// Review phase: runs after patch completion to critique and refactor the implementation.
+// Flow: baseline-gate → N review passes → final ready + gh pr ready
+// - Baseline gate runs bun run ready + commits check:fix if dirty
+// - Review uses its own agent chain (`modes.review.agentOrder` → `modes.plan.agentOrder`),
+//   independent of the implementation agents.
+// - Each pass: agent gets spec tree + branch diff, runs critique, commits changes (non-empty only)
+// - Spec-tree edits are reverted; a `.jarvis-review-blocker` sentinel halts review with code 7
+// - Final ready runs bun run ready again + gh pr ready to move PR out of draft
+async function runReviewPhase(opts: {
+  ctx: IterationContext;
+  specPath: string;
+  agentWorkingDir: string;
+  reviewPasses: number;
+}): Promise<number> {
+  const { ctx } = opts;
+  const { fanout, writeTelemetry } = ctx.logging;
+  const { preflight } = ctx;
+
+  // Review agents come from the review order, falling back to the plan order —
+  // not the implementation agents. A local chain so quota fallback here does not
+  // mutate the implementation run's agent list.
+  const reviewOrder = resolveReviewAgentOrder(preflight.cfg);
+  const reviewAgents = buildReviewAgents(ctx.opts, reviewOrder);
+
+  try {
+    const branch = getCurrentBranch(opts.agentWorkingDir);
+    const base = await getBaseBranch(opts.agentWorkingDir);
+
+    // Baseline gate: run ready and commit check:fix if needed, leave PR draft
+    fanout("harness", "review: running baseline gate\n", "stdout");
+    try {
+      runReadyAndCommit({
+        cwd: opts.agentWorkingDir,
+        agentLabel: "review-baseline",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      fanout("harness", `review baseline gate failed: ${message}\n`, "stderr");
+      return 1;
+    }
+
+    // Run review passes
+    for (let pass = 1; pass <= opts.reviewPasses; pass++) {
+      fanout("harness", `review: pass ${pass}/${opts.reviewPasses}\n`, "stdout");
+
+      const agent = reviewAgents[0];
+      if (agent === undefined) {
+        fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
+        return 2;
+      }
+
+      const prompt = buildReviewPrompt({
+        specPath: opts.specPath,
+        cwd: opts.agentWorkingDir,
+        passNumber: pass,
+        totalPasses: opts.reviewPasses,
+        baseBranch: base,
+      });
+
+      fanout("outbound", prompt, null, {
+        pass,
+        agent: agent.name,
+      });
+
+      // Create per-pass abort controller
+      const passController = new AbortController();
+      let watchdogPgid: number | null = null;
+      const passStartedMs = Date.now();
+      const passDurationMs = (): number => Date.now() - passStartedMs;
+      const passTimeoutHandle = setTimeout(() => {
+        if (watchdogPgid !== null) {
+          try {
+            process.kill(-watchdogPgid, "SIGTERM");
+          } catch {
+            // best-effort
+          }
+        }
+        passController.abort("review-pass-timeout");
+      }, preflight.cfg.iterationTimeoutMs);
+
+      try {
+        const result = await agent.run(prompt, {
+          cwd: opts.agentWorkingDir,
+          signal: passController.signal,
+          abortKillGraceMs: 5000,
+          onSpawned: ({ pid }) => {
+            watchdogPgid = pid;
+          },
+        });
+
+        const configuredReviewModel = reviewOrder.find((entry) => entry.agent === agent.name)?.model;
+        const telemetryMeta = configuredReviewModel !== undefined ? { configured_model: configuredReviewModel } : {};
+
+        if (result.kind === "ok") {
+          if (result.stdout.length > 0) {
+            fanout("inbound_stdout", result.stdout, null, { pass });
+          }
+          if (result.stderr.length > 0) {
+            fanout("inbound_stderr", result.stderr, null, { pass });
+          }
+
+          // Extract usage and cost
+          const usageAndCost = extractUsageAndCost(result, agent.name, configuredReviewModel);
+
+          // Enforce the read-only spec-tree boundary: revert any edits.
+          const specDir = dirname(opts.specPath);
+          const editedSpecFiles = detectSpecTreeEdits(specDir, opts.agentWorkingDir);
+          if (editedSpecFiles.length > 0) {
+            fanout(
+              "harness",
+              `review: pass ${pass} edited spec files (reverting): ${editedSpecFiles.join(", ")}\n`,
+              "stderr",
+            );
+            try {
+              revertSpecTreeEdits(specDir, opts.agentWorkingDir);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout("harness", `review: revert failed: ${message}\n`, "stderr");
+              return 1;
+            }
+          }
+
+          // Blocker is signalled by a sentinel file (not a spec edit), consumed
+          // here so it is never committed. Spec stays free of `## Blocker`.
+          const blockerContent = consumeReviewBlocker(opts.agentWorkingDir);
+
+          // Handle blocker if one was detected
+          if (blockerContent !== null) {
+            fanout("harness", `review: pass ${pass} encountered blocker\n`, "stderr");
+            let blockerCommitFailed = false;
+            // Commit whatever non-spec work the pass produced before halting.
+            try {
+              commitReviewPass(pass, agent.name, opts.agentWorkingDir, {
+                specPath: opts.specPath,
+                branch,
+                base,
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout("harness", `review: blocker commit failed: ${message}\n`, "stderr");
+              blockerCommitFailed = true;
+            }
+
+            // Post PR comment with blocker
+            try {
+              const prNum = checkPrExists(branch, opts.agentWorkingDir);
+              if (prNum) {
+                const blockerComment = `## Review Pass ${pass} Blocker\n\n${blockerContent}`;
+                await postPrComment(prNum, blockerComment, opts.agentWorkingDir);
+                fanout("harness", `review: blocker reported in PR comment\n`, "stdout");
+              }
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout("harness", `review: failed to post PR comment: ${message}\n`, "stderr");
+              // Don't fail the phase if comment posting fails
+            }
+
+            if (blockerCommitFailed) {
+              writeTelemetry({
+                agent: agent.name,
+                iteration: pass,
+                durationMs: passDurationMs(),
+                kind: "error",
+                exitReason: "review-blocker-commit-failed",
+                patch_phase: "review",
+                ...usageAndCost,
+                ...telemetryMeta,
+              });
+              return 1;
+            }
+
+            writeTelemetry({
+              agent: agent.name,
+              iteration: pass,
+              durationMs: passDurationMs(),
+              kind: "blocked",
+              exitReason: "blocker-detected",
+              patch_phase: "review",
+              ...usageAndCost,
+              ...telemetryMeta,
+            });
+            return 7;
+          }
+
+          // Commit review pass if there are changes
+          try {
+            commitReviewPass(pass, agent.name, opts.agentWorkingDir, {
+              specPath: opts.specPath,
+              branch,
+              base,
+            });
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            fanout("harness", `review: commit failed: ${message}\n`, "stderr");
+            writeTelemetry({
+              agent: agent.name,
+              iteration: pass,
+              durationMs: passDurationMs(),
+              kind: "error",
+              exitReason: "review-commit-failed",
+              patch_phase: "review",
+              ...usageAndCost,
+              ...telemetryMeta,
+            });
+            return 1;
+          }
+
+          fanout("harness", `review: pass ${pass} completed\n`, "stdout");
+
+          writeTelemetry({
+            agent: agent.name,
+            iteration: pass,
+            durationMs: passDurationMs(),
+            kind: "ok",
+            exitReason: "ok",
+            patch_phase: "review",
+            ...usageAndCost,
+            ...telemetryMeta,
+          });
+        } else if (result.kind === "quota") {
+          reviewAgents.shift();
+          fanout("harness", "review: agent quota exhausted\n", "stderr");
+
+          writeTelemetry({
+            agent: agent.name,
+            iteration: pass,
+            durationMs: passDurationMs(),
+            kind: "quota",
+            exitReason: "quota-exhausted",
+            patch_phase: "review",
+            ...telemetryMeta,
+          });
+
+          if (reviewAgents.length === 0) {
+            fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
+            return 2;
+          }
+          // Retry this pass with the next agent.
+          pass -= 1;
+        } else {
+          fanout("harness", `review: pass ${pass} error (${result.kind})\n`, "stderr");
+          if (result.stderr.length > 0) {
+            fanout("harness", result.stderr, "stderr");
+          }
+
+          writeTelemetry({
+            agent: agent.name,
+            iteration: pass,
+            durationMs: passDurationMs(),
+            kind: "error",
+            exitReason: result.kind,
+            patch_phase: "review",
+            ...telemetryMeta,
+          });
+
+          return 1;
+        }
+      } finally {
+        clearTimeout(passTimeoutHandle);
+      }
+    }
+
+    // Run final ready + gh pr ready
+    fanout("harness", "review: running final ready\n", "stdout");
+    try {
+      runReadyAndCommit({
+        cwd: opts.agentWorkingDir,
+        agentLabel: "review-final",
+      });
+      execFileSync("gh", ["pr", "ready", branch], {
+        cwd: opts.agentWorkingDir,
+        env: process.env,
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      fanout("harness", `review final ready failed: ${message}\n`, "stderr");
+      return 1;
+    }
+
+    return 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.logging.fanout("harness", `review phase error: ${message}\n`, "stderr");
+    return 1;
   }
 }

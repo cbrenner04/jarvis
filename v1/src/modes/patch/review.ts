@@ -12,7 +12,12 @@ import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
 import { runReview } from "../review/run.ts";
-import { ReviewTerminalError, type ReviewAdapter, type ReviewAttemptContext, type ReviewTelemetryEvent } from "../review/types.ts";
+import {
+  type ReviewAdapter,
+  type ReviewAttemptContext,
+  type ReviewTelemetryEvent,
+  ReviewTerminalError,
+} from "../review/types.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt } from "./prompt.ts";
 

@@ -8,7 +8,12 @@ import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { runReview } from "../review/run.ts";
-import { ReviewTerminalError, type ReviewAdapter, type ReviewAttemptContext, type ReviewTelemetryEvent } from "../review/types.ts";
+import {
+  type ReviewAdapter,
+  type ReviewAttemptContext,
+  type ReviewTelemetryEvent,
+  ReviewTerminalError,
+} from "../review/types.ts";
 import { detectBlocker } from "./blocker.ts";
 import {
   appendBoundaryBlocker,
@@ -329,8 +334,16 @@ function createPlanReviewAdapter(args: {
   onBlocker: (blocker: string) => void;
   onAgentFailure: (passNumber: number, stderr: string) => void;
 }): ReviewAdapter {
-  const { opts, displayPassNumber, displayTotalPasses, intentBefore, finalSpecPath, specSnapshotBefore, onBlocker, onAgentFailure } =
-    args;
+  const {
+    opts,
+    displayPassNumber,
+    displayTotalPasses,
+    intentBefore,
+    finalSpecPath,
+    specSnapshotBefore,
+    onBlocker,
+    onAgentFailure,
+  } = args;
   const targetDir = opts.targetDir ?? "spec";
   const flatSpecLayout = opts.specDirPath !== undefined;
 

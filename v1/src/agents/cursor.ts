@@ -31,7 +31,7 @@ const CURSOR_KNOWN_MODELS: readonly string[] = [
   "GPT-5.4",
   "GPT-5.5",
   "Gemini 3.1 Pro",
-  "Gemini 3.5 Flash"
+  "Gemini 3.5 Flash",
 ];
 
 // Config and prices.json use Cursor UI names; the CLI expects slug IDs. Passing
@@ -43,13 +43,13 @@ const CURSOR_CLI_MODELS: Record<string, string> = {
   "Composer 2.5 Fast": "composer-2.5-fast",
   "Claude 4 Sonnet": "claude-4-sonnet",
   "Claude 4.6 Sonnet": "claude-4.6-sonnet-medium",
-  "Claude 4.7 Opus": "claude-opus-4-7-xhigh",
-  "Claude 4.8 Opus": "claude-opus-4-8-high",
+  "Claude 4.7 Opus": "claude-opus-4-7-medium",
+  "Claude 4.8 Opus": "claude-opus-4-8-medium",
   "GPT-5.3 Codex": "gpt-5.3-codex",
   "GPT-5.4": "gpt-5.4-medium",
   "GPT-5.5": "gpt-5.5-medium",
   "Gemini 3.1 Pro": "gemini-3.1-pro",
-  "Gemini 3.5 Flash": "gemini-3.5-flash"
+  "Gemini 3.5 Flash": "gemini-3.5-flash",
 };
 
 const CURSOR_MODEL_LABELS: Record<string, string> = Object.fromEntries(

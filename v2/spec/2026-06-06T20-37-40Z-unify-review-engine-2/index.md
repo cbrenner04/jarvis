@@ -1,22 +1,18 @@
 # Unify review engine (plan + patch)
 
 - [ ] [00 - Plan review reads `modes.review`](./00-plan-review-uses-modes-review.md)
-- [ ] [01 - Shared review-prompt fragment](./01-shared-review-prompt-fragment.md)
-- [ ] [02 - Shared review write-boundary detection](./02-shared-review-write-boundary.md)
 
-## Seam status (against landed #178)
+## Seams re-verified against landed #178
 
-#178 has merged, so the intent's "depends on #178, not yet landed" premise is stale. Two seams the intent lists as work are already built: `resolveReviewPasses(cfg, override)` and `resolveReviewAgentOrder(cfg)` (= `modes.review.agentOrder ?? modes.plan.agentOrder`) exist in `v1/src/config.ts` — plan just doesn't call them yet. The remaining real duplication is prompt wording (subspec 01) and write-boundary detection (subspec 02).
+#178 merged, so the intent's "depends on #178, not yet landed" premise is stale. Two seams the intent listed as work already exist: `resolveReviewPasses(cfg, override)` and `resolveReviewAgentOrder(cfg)` (= `modes.review.agentOrder ?? modes.plan.agentOrder`) in `v1/src/config.ts`. Plan just doesn't call them — that gap is subspec 00, the intent's headline behavior change and the only real, behavior-improving work in the tree.
 
-## Deferred — not forced into one engine
+The intent's other DRY seams do not survive contact with the landed code; each would force divergent code into a shared shape, adding indirection (or behavior change the intent forbids) rather than removing duplication. Deferred:
 
-The intent's "lift `runReviewPass` into a common module both modes call" does not fit the landed code without a behavior change the intent forbids. Three axes diverge:
+- **`runReviewPass` engine.** Three axes diverge: agent strategy (plan tries every agent per pass; patch `runReviewPhase` uses `agents[0]`, shifts on quota across passes); prompt inputs (plan injects intent+guidance+spec-snapshot and rewrites spec files; patch injects spec-tree+branch-diff and refactors code); commit+telemetry (`plan: review N` +resume `rK` via plan-telemetry vs `review: pass N` via patch telemetry).
+- **Shared prompt fragment.** `prompts/plan/review.md` is a spec-*rewriting* prompt; `prompts/patch/review.md` is a code-*refactoring* prompt. Verbatim overlap is ~2 lines; "no-commit"/"no-tests" carry mode-specific qualifiers and "no-checklist-edits" is patch-only. A registered fragment + revision bumps + golden tests exceeds the duplication it removes.
+- **Parameterized write-boundary validator.** Not parallel copies. Plan's `validateReviewOutput` does a content before/after comparison of one file (`intent.md`) with blocker-append + frontmatter-immutability discrimination; it never walks porcelain for paths. Only patch's `detectSpecTreeEdits` walks `git status --porcelain` and filters by subtree prefix. A single detector would *add* porcelain logic to plan — new code, and behavior-change risk the intent forbids — not share existing logic.
 
-- Agent strategy: plan tries every agent in order within one pass; patch (`runReviewPhase`) uses `agents[0]` and shifts on quota across passes.
-- Prompt inputs: plan injects intent + guidance + spec snapshot and rewrites spec files; patch injects spec tree + branch diff and refactors code. `buildReviewPrompt`/`snapshotSpecFiles` are plan-shaped.
-- Commit + telemetry: plan commits `plan: review N` (+ resume `rK`, + a `commit:false` path) via `plan-telemetry`; patch commits `review: pass N` via patch telemetry.
-
-Deferred to first clean fit: a single pass-loop / commit-path / telemetry shape — pin when one mode's agent or commit semantics is deliberately changed to match the other.
+Deferred to first clean fit: pin if/when one mode's agent, commit, prompt, or boundary mechanism is deliberately changed to match the other.
 
 ## Out of scope
 

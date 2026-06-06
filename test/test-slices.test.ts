@@ -61,7 +61,7 @@ describe("Test slice boundaries", () => {
     const pkgJson = JSON.parse(pkgJsonText);
     expect(pkgJson.scripts["test:v1"]).toBe("bun test ./v1/");
     expect(pkgJson.scripts["test:v2"]).toBe("bun test ./v2/");
-    expect(pkgJson.scripts["test:shared"]).toBe("bun test ./shared/");
+    expect(pkgJson.scripts["test:shared"]).toBe("bun test ./shared/ ./test/");
     expect(pkgJson.scripts.test).toBe("bun test");
   });
 
@@ -82,7 +82,7 @@ describe("Test slice boundaries", () => {
     };
 
     execSync("bun run test:v2", { env, stdio: "pipe" });
-    execSync("bun run test:shared", { env, stdio: "pipe" });
+    execSync("bun test ./shared/", { env, stdio: "pipe" });
   });
 
   it("ready script uses aggregate test command", async () => {

@@ -2,7 +2,7 @@ import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentEntry } from "../../config.ts";
 
 /** Terminal outcome for one shared review attempt. */
-export type ReviewAttemptOutcome = "ok" | "blocked" | "quota" | "model_config" | "error" | "timeout";
+export type ReviewAttemptOutcome = "ok" | "blocked" | "quota" | "model_config" | "error";
 
 /** Shared pass metadata exposed to adapters and telemetry hooks. */
 export type ReviewPassContext = {

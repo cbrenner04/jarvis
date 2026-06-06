@@ -2,39 +2,50 @@ import type { Agent } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { resolveReviewAgentOrder, resolveReviewPasses } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import type { ReviewAdapter, ReviewAttemptContext, ReviewAttemptOutcome } from "./types.ts";
+import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
 
 /** Inputs for the shared review runner. */
 export type RunReviewOptions = {
   config: Config;
   cwd: string;
-  adapter: ReviewAdapter;
+  adapter?: ReviewAdapter;
+  /** Build a fresh adapter per pass (e.g. plan review snapshots intent before each pass). */
+  adapterForPass?: (ctx: ReviewPassContext) => ReviewAdapter | Promise<ReviewAdapter>;
   reviewPassesOverride?: number;
+  /** First pass number for display and prompt context (default 1). */
+  startPassNumber?: number;
+  isInterrupted?: () => boolean;
+  onPassStart?: (passNumber: number, totalPasses: number) => void;
   loadAgent: (args: { name: string; model: string }) => Agent;
   onAllAgentsQuotaExhausted?: (message: string) => void;
   now?: () => number;
 };
 
-function outcomeForError(result: ReviewAttemptContext["result"]): ReviewAttemptOutcome {
-  switch (result.kind) {
-    case "quota":
-      return "quota";
-    case "model_config":
-      return "model_config";
-    case "error":
-      return "error";
-    case "ok":
-      return "ok";
-  }
-}
-
 /** Run the shared review pass loop. */
 export async function runReview(opts: RunReviewOptions): Promise<number> {
-  const totalPasses = resolveReviewPasses(opts.config, opts.reviewPassesOverride);
+  if (opts.adapter === undefined && opts.adapterForPass === undefined) {
+    throw new Error("runReview requires adapter or adapterForPass");
+  }
+
+  const passCount = resolveReviewPasses(opts.config, opts.reviewPassesOverride);
+  const startPassNumber = opts.startPassNumber ?? 1;
+  const displayTotalPasses = startPassNumber + passCount - 1;
   const remainingAgents = [...resolveReviewAgentOrder(opts.config)];
   const now = opts.now ?? Date.now;
 
-  for (let passNumber = 1; passNumber <= totalPasses; passNumber += 1) {
+  for (let passIndex = 0; passIndex < passCount; passIndex += 1) {
+    if (opts.isInterrupted?.()) {
+      return 130;
+    }
+
+    const passNumber = startPassNumber + passIndex;
+    opts.onPassStart?.(passNumber, displayTotalPasses);
+    const passContext: ReviewPassContext = { passNumber, totalPasses: displayTotalPasses };
+    const adapter = (await opts.adapterForPass?.(passContext)) ?? opts.adapter;
+    if (adapter === undefined) {
+      throw new Error("runReview adapter resolved to undefined");
+    }
+
     while (true) {
       const agentEntry = remainingAgents[0];
       if (agentEntry === undefined) {
@@ -46,9 +57,9 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
         name: agentEntry.agent,
         model: agentEntry.model,
       });
-      const prompt = await opts.adapter.buildPrompt({
+      const prompt = await adapter.buildPrompt({
         passNumber,
-        totalPasses,
+        totalPasses: displayTotalPasses,
         agentEntry,
       });
 
@@ -56,7 +67,7 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
       const result = await agent.run(prompt, { cwd: opts.cwd });
       const attempt: ReviewAttemptContext = {
         passNumber,
-        totalPasses,
+        totalPasses: displayTotalPasses,
         agent,
         agentEntry,
         agentLabel: agent.attributionLabel(),
@@ -66,11 +77,11 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
       };
 
       if (result.kind === "ok") {
-        await opts.adapter.enforceWriteBoundary(attempt);
-        const blocker = await opts.adapter.readBlocker(attempt);
+        await adapter.enforceWriteBoundary(attempt);
+        const blocker = await adapter.readBlocker(attempt);
         if (blocker !== null) {
-          const exitCode = await opts.adapter.handleBlocker({ ...attempt, blocker });
-          await opts.adapter.recordTelemetry({
+          const exitCode = await adapter.handleBlocker({ ...attempt, blocker });
+          await adapter.recordTelemetry({
             ...attempt,
             outcome: "blocked",
             exitCode,
@@ -78,19 +89,18 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
           return exitCode;
         }
 
-        await opts.adapter.commitPass(attempt);
-        await opts.adapter.recordTelemetry({
+        await adapter.commitPass(attempt);
+        await adapter.recordTelemetry({
           ...attempt,
           outcome: "ok",
         });
         break;
       }
 
-      const outcome = outcomeForError(result);
       const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : undefined;
-      await opts.adapter.recordTelemetry({
+      await adapter.recordTelemetry({
         ...attempt,
-        outcome,
+        outcome: result.kind,
         ...(exitCode !== undefined ? { exitCode } : {}),
       });
 
@@ -104,6 +114,10 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
       }
 
       return result.exitCode;
+    }
+
+    if (opts.isInterrupted?.()) {
+      return 130;
     }
   }
 

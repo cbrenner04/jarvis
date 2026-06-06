@@ -5,7 +5,6 @@ import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
-import { resolveReviewAgentOrder } from "../../config.ts";
 import { getBaseBranch, postPrComment } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
@@ -254,11 +253,10 @@ function createPatchReviewAdapter(args: {
   base: string;
 }): ReviewAdapter {
   const { opts, specDir, branch, base } = args;
-  const reviewOrder = resolveReviewAgentOrder(opts.config);
 
   const recordPatchTelemetry = (event: ReviewTelemetryEvent, exitCode?: number): void => {
-    const configuredModel = reviewOrder.find((entry) => entry.agent === event.agent.name)?.model;
-    const telemetryMeta = configuredModel !== undefined ? { configured_model: configuredModel } : {};
+    const configuredModel = event.agentEntry.model;
+    const telemetryMeta = { configured_model: configuredModel };
     const usageAndCost =
       (event.outcome === "ok" || event.outcome === "blocked") && event.result.kind === "ok"
         ? extractUsageAndCost(event.result, event.agent.name, configuredModel)
@@ -391,10 +389,6 @@ function createPatchReviewAdapter(args: {
       return 7;
     },
     commitPass: async (ctx) => {
-      const configuredModel = reviewOrder.find((entry) => entry.agent === ctx.agent.name)?.model;
-      const telemetryMeta = configuredModel !== undefined ? { configured_model: configuredModel } : {};
-      const usageAndCost =
-        ctx.result.kind === "ok" ? extractUsageAndCost(ctx.result, ctx.agent.name, configuredModel) : {};
       try {
         commitReviewPass(ctx.passNumber, ctx.agent.name, opts.cwd, {
           specPath: opts.specPath,
@@ -404,6 +398,8 @@ function createPatchReviewAdapter(args: {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         opts.fanout("harness", `review: commit failed: ${message}\n`, "stderr");
+        const usageAndCost =
+          ctx.result.kind === "ok" ? extractUsageAndCost(ctx.result, ctx.agent.name, ctx.agentEntry.model) : {};
         opts.writeTelemetry({
           agent: ctx.agent.name,
           iteration: ctx.passNumber,
@@ -411,8 +407,8 @@ function createPatchReviewAdapter(args: {
           kind: "error",
           exitReason: "review-commit-failed",
           patch_phase: "review",
+          configured_model: ctx.agentEntry.model,
           ...usageAndCost,
-          ...telemetryMeta,
         });
         throw new PatchReviewTerminalError(message, 1);
       }

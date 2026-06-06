@@ -7,8 +7,6 @@ import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
-import { resolveReviewPasses } from "../../config.ts";
-import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { runReview } from "../review/run.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewTelemetryEvent } from "../review/types.ts";
 import { detectBlocker } from "./blocker.ts";
@@ -24,16 +22,6 @@ import { commitPlanBlocker, commitPlanReview } from "./commits.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { hasSpecDirChanges, resolvePlanSpecDirPath, snapshotSpecDirFiles } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
-
-export type ReviewPhaseOptions = {
-  worktreePath: string;
-  name: string;
-  specDirPath?: string;
-  passNumber?: number;
-  totalPasses?: number;
-  /** Committed spec root (defaults to "spec" for backwards compatibility). */
-  targetDir?: string;
-};
 
 /**
  * Build the review phase prompt by injecting intent.md, current spec files, and guidance.
@@ -264,12 +252,10 @@ export function validateReviewOutput(
 
 class PlanReviewTerminalError extends Error {
   readonly exitCode: number;
-  readonly blocker?: string | undefined;
 
-  constructor(message: string, exitCode: number, blocker?: string) {
+  constructor(message: string, exitCode: number) {
     super(message);
     this.exitCode = exitCode;
-    this.blocker = blocker;
   }
 }
 
@@ -521,78 +507,61 @@ function createPlanReviewAdapter(args: {
 
 /** Run plan review passes through the shared review runner. */
 export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<PlanReviewPhaseResult> {
-  const totalPasses = resolveReviewPasses(opts.config, opts.reviewPassesOverride);
-  const startPassNumber = opts.startPassNumber ?? 1;
-  const displayTotalPasses = startPassNumber + totalPasses - 1;
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
   const finalSpecPath = resolveFinalSpecPath(opts);
+  let detectedBlocker: string | undefined;
 
-  for (let runnerPass = 1; runnerPass <= totalPasses; runnerPass += 1) {
-    if (opts.isInterrupted?.()) {
-      return { exitCode: 130, interrupted: true };
-    }
-
-    const displayPassNumber = startPassNumber + runnerPass - 1;
-    opts.onPassStart?.(displayPassNumber, displayTotalPasses);
-
-    const intentPath = join(finalSpecPath, "intent.md");
-    const intentBefore = readFileSync(intentPath, "utf8");
-    const specSnapshotBefore = opts.commit ? null : snapshotSpecDirFiles(finalSpecPath);
-
-    let detectedBlocker: string | undefined;
-    const adapter = createPlanReviewAdapter({
-      opts,
-      displayPassNumber,
-      displayTotalPasses,
-      intentBefore,
-      finalSpecPath,
-      specSnapshotBefore,
-      onBlocker: (blocker) => {
-        detectedBlocker = blocker;
+  try {
+    const exitCode = await runReview({
+      config: opts.config,
+      cwd: opts.agentCwd ?? opts.worktreePath,
+      ...(opts.reviewPassesOverride !== undefined ? { reviewPassesOverride: opts.reviewPassesOverride } : {}),
+      ...(opts.startPassNumber !== undefined ? { startPassNumber: opts.startPassNumber } : {}),
+      ...(opts.isInterrupted !== undefined ? { isInterrupted: opts.isInterrupted } : {}),
+      ...(opts.onPassStart !== undefined ? { onPassStart: opts.onPassStart } : {}),
+      adapterForPass: ({ passNumber, totalPasses }) => {
+        const intentBefore = readFileSync(join(finalSpecPath, "intent.md"), "utf8");
+        const specSnapshotBefore = opts.commit ? null : snapshotSpecDirFiles(finalSpecPath);
+        return createPlanReviewAdapter({
+          opts,
+          displayPassNumber: passNumber,
+          displayTotalPasses: totalPasses,
+          intentBefore,
+          finalSpecPath,
+          specSnapshotBefore,
+          onBlocker: (blocker) => {
+            detectedBlocker = blocker;
+          },
+        });
+      },
+      loadAgent: ({ name, model }) => resolveAgent(name as AgentName, model),
+      onAllAgentsQuotaExhausted: (message) => {
+        opts.stderr?.(`plan: ${message}\n`);
       },
     });
 
-    try {
-      const exitCode = await runReview({
-        config: opts.config,
-        cwd: opts.agentCwd ?? opts.worktreePath,
-        adapter,
-        reviewPassesOverride: 1,
-        loadAgent: ({ name, model }) => resolveAgent(name as AgentName, model),
-        onAllAgentsQuotaExhausted: (message) => {
-          opts.stderr?.(`plan: ${message}\n`);
-        },
-      });
-
-      if (exitCode === 2) {
-        return { exitCode: 2 };
-      }
-      if (exitCode === 3) {
-        opts.stderr?.(`plan: model configuration error\n`);
-        return { exitCode: 3 };
-      }
-      if (exitCode !== 0) {
-        if (detectedBlocker !== undefined) {
-          return { exitCode, blocker: detectedBlocker };
-        }
-        opts.stderr?.(`plan: review pass ${displayPassNumber} failed\n`);
-        return { exitCode };
-      }
-    } catch (err) {
-      if (err instanceof PlanReviewTerminalError) {
-        return {
-          exitCode: err.exitCode,
-          ...(err.blocker !== undefined ? { blocker: err.blocker } : {}),
-        };
-      }
-      opts.stderr?.(`plan: review pass ${displayPassNumber} error: ${(err as Error).message}\n`);
-      return { exitCode: 1 };
-    }
-
-    if (opts.isInterrupted?.()) {
+    if (exitCode === 130) {
       return { exitCode: 130, interrupted: true };
     }
+    if (exitCode === 3) {
+      opts.stderr?.(`plan: model configuration error\n`);
+      return { exitCode: 3 };
+    }
+    if (exitCode !== 0) {
+      if (detectedBlocker !== undefined) {
+        return { exitCode, blocker: detectedBlocker };
+      }
+      if (exitCode !== 2) {
+        opts.stderr?.(`plan: review pass failed\n`);
+      }
+      return { exitCode };
+    }
+    return { exitCode: 0 };
+  } catch (err) {
+    if (err instanceof PlanReviewTerminalError) {
+      return { exitCode: err.exitCode };
+    }
+    opts.stderr?.(`plan: review error: ${(err as Error).message}\n`);
+    return { exitCode: 1 };
   }
-
-  return { exitCode: 0 };
 }

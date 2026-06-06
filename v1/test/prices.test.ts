@@ -143,9 +143,7 @@ describe("loadPrices", () => {
   });
 
   it("rejects missing file", () => {
-    expect(() => loadPrices(join(tmpDir, "nonexistent.json"))).toThrow(
-      /Failed to read prices file/,
-    );
+    expect(() => loadPrices(join(tmpDir, "nonexistent.json"))).toThrow(/Failed to read prices file/);
   });
 
   it("rejects invalid JSON", () => {

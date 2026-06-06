@@ -1,12 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import {
-  type Config,
-  type ConfigOptions,
-  findProjectMatchForPath,
-  loadConfig,
-  type ProjectMatch,
-} from "./config.ts";
+import { type Config, type ConfigOptions, findProjectMatchForPath, loadConfig, type ProjectMatch } from "./config.ts";
 import { normalizeRepoUrl } from "./repo-url.ts";
 
 export type ResolvedProject = {
@@ -98,10 +92,7 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
           message: formatUnknownRepoError(repoValue, projects, "spec `repo:`"),
         };
       }
-      const matches = projects.filter(
-        (p) =>
-          p.origin !== undefined && normalizeRepoUrl(p.origin) === normalized,
-      );
+      const matches = projects.filter((p) => p.origin !== undefined && normalizeRepoUrl(p.origin) === normalized);
       if (matches.length === 1) {
         const project = matches[0] as ProjectMatch;
         return {
@@ -163,10 +154,7 @@ function listProjects(cfg: Config): ProjectMatch[] {
   return out;
 }
 
-function resolveFromFlag(
-  value: string,
-  projects: ProjectMatch[],
-): ResolveResult {
+function resolveFromFlag(value: string, projects: ProjectMatch[]): ResolveResult {
   const trimmed = value.trim();
   if (trimmed === "") {
     return { kind: "error", message: "--repo value is empty" };
@@ -200,10 +188,7 @@ function resolveFromFlag(
   // URL or slug: loose-match against registered origins.
   const normalized = normalizeRepoUrl(trimmed);
   if (normalized !== undefined) {
-    const matches = projects.filter(
-      (p) =>
-        p.origin !== undefined && normalizeRepoUrl(p.origin) === normalized,
-    );
+    const matches = projects.filter((p) => p.origin !== undefined && normalizeRepoUrl(p.origin) === normalized);
     if (matches.length === 1) {
       const project = matches[0] as ProjectMatch;
       return {
@@ -223,16 +208,9 @@ function resolveFromFlag(
   return { kind: "error", message: formatUnknownRepoError(trimmed, projects) };
 }
 
-function formatUnknownRepoError(
-  value: string,
-  projects: ProjectMatch[],
-  leadIn: string = "--repo",
-): string {
+function formatUnknownRepoError(value: string, projects: ProjectMatch[], leadIn: string = "--repo"): string {
   const names = projects.map((p) => p.key).sort();
-  const list =
-    names.length === 0
-      ? "(none registered)"
-      : names.map((n) => `  - ${n}`).join("\n");
+  const list = names.length === 0 ? "(none registered)" : names.map((n) => `  - ${n}`).join("\n");
   return `${leadIn}: no project matches ${JSON.stringify(value)}\nRegistered projects:\n${list}`;
 }
 

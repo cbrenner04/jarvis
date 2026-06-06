@@ -77,9 +77,7 @@ describe("Test slice boundaries", () => {
       ...process.env,
       PATH: (process.env.PATH ?? "")
         .split(":")
-        .filter(
-          (entry) => !basename(entry).startsWith("jarvis-test-fake-agents-"),
-        )
+        .filter((entry) => !basename(entry).startsWith("jarvis-test-fake-agents-"))
         .join(":"),
     };
 

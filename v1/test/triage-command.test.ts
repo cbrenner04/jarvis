@@ -327,9 +327,7 @@ describe("suggested moves rules", () => {
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
-    expect(lines.some((l) => l.includes("Spec checklists are complete"))).toBe(
-      true,
-    );
+    expect(lines.some((l) => l.includes("Spec checklists are complete"))).toBe(true);
     expect(lines.some((l) => l.includes("add -A"))).toBe(true);
   });
 
@@ -344,9 +342,7 @@ describe("suggested moves rules", () => {
 
     const lines = getSuggestedMoves(input);
     expect(lines.length).toBeGreaterThan(0);
-    expect(lines.some((l) => l.includes("Spec checklists are complete"))).toBe(
-      true,
-    );
+    expect(lines.some((l) => l.includes("Spec checklists are complete"))).toBe(true);
   });
 
   test("rule 6: modified + specComplete false", () => {

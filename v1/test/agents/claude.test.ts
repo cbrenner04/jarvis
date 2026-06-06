@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClaudeAgent } from "../../src/agents/claude.ts";
@@ -24,11 +17,7 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
-function fakeBinary(opts: {
-  exit: number;
-  stdout?: string;
-  stderr?: string;
-}): string {
+function fakeBinary(opts: { exit: number; stdout?: string; stderr?: string }): string {
   const path = join(dir, "claude");
   const out = opts.stdout ?? "";
   const err = opts.stderr ?? "";
@@ -67,9 +56,7 @@ describe("ClaudeAgent", () => {
     const result = await agent.run("the prompt", { cwd });
 
     expect(result).toEqual({ kind: "ok", stdout: "hi-out", stderr: "hi-err" });
-    expect(readFileSync(join(dir, "argv"), "utf8")).toBe(
-      "-p\0--permission-mode\0acceptEdits\0--output-format\0json\0",
-    );
+    expect(readFileSync(join(dir, "argv"), "utf8")).toBe("-p\0--permission-mode\0acceptEdits\0--output-format\0json\0");
     expect(readFileSync(join(dir, "stdin"), "utf8")).toBe("the prompt");
     const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
     const resolvedReportedCwd = realpathSync(reportedCwd);

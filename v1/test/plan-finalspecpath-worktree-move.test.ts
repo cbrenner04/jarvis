@@ -1,14 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -44,15 +36,12 @@ describe("finalSpecPath recomputation after worktree move", () => {
       mkdirSync(tempSpecPath, { recursive: true });
 
       // Write intent.md to the temporary worktree location
-      const intentContent =
-        "---\nname: my-feature\n---\n\n# Intent\n\nTest intent\n";
+      const intentContent = "---\nname: my-feature\n---\n\n# Intent\n\nTest intent\n";
       writeFileSync(join(tempSpecPath, "intent.md"), intentContent, "utf8");
 
       // Verify initial state: intent.md exists in temp location
       expect(existsSync(join(tempSpecPath, "intent.md"))).toBe(true);
-      expect(readFileSync(join(tempSpecPath, "intent.md"), "utf8")).toBe(
-        intentContent,
-      );
+      expect(readFileSync(join(tempSpecPath, "intent.md"), "utf8")).toBe(intentContent);
 
       // Simulate git worktree move: rename the worktree directory
       mkdirSync(finalWorktreePath, { recursive: true });
@@ -68,9 +57,7 @@ describe("finalSpecPath recomputation after worktree move", () => {
 
       // Verify that intent.md can be read from the post-move location
       expect(existsSync(join(finalSpecPath, "intent.md"))).toBe(true);
-      expect(readFileSync(join(finalSpecPath, "intent.md"), "utf8")).toBe(
-        intentContent,
-      );
+      expect(readFileSync(join(finalSpecPath, "intent.md"), "utf8")).toBe(intentContent);
 
       // If the code still used the stale tempWorktreePath value, this would fail
       const stalePathCheck = join(tempWorktreePath, "spec", tempSpecBasename);
@@ -100,8 +87,7 @@ describe("finalSpecPath recomputation after worktree move", () => {
       const tempSpecDir = join(tempPath, "spec", specBasename);
       mkdirSync(tempSpecDir, { recursive: true });
 
-      const intentText =
-        "---\nname: my-plan\n---\n\n# My Intent\n\nDo something\n";
+      const intentText = "---\nname: my-plan\n---\n\n# My Intent\n\nDo something\n";
       writeFileSync(join(tempSpecDir, "intent.md"), intentText);
 
       // Move worktree (simulate git worktree move)

@@ -31,9 +31,7 @@ describe("parsePatchSpec", () => {
   });
 
   test("warns when acceptance criteria heading is malformed", () => {
-    const parsed = parsePatchSpec(
-      `# Title\n\n### Acceptance criteria\n\n- [ ] Item\n`,
-    );
+    const parsed = parsePatchSpec(`# Title\n\n### Acceptance criteria\n\n- [ ] Item\n`);
 
     expect(parsed.acceptanceCriteria).toEqual([]);
     expect(parsed.warnings).toContain(

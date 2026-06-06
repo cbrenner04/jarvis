@@ -1,14 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -24,10 +16,7 @@ import {
   validateProposedName,
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";
-import {
-  describePlanInvocation,
-  parsePlanArgs,
-} from "../src/commands/plan-args.ts";
+import { describePlanInvocation, parsePlanArgs } from "../src/commands/plan-args.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 
@@ -113,19 +102,13 @@ describe("planCommand", () => {
     expect(text).not.toContain("plan: complete");
     expect(text).not.toContain("commits created and pushed");
 
-    const planSource = readFileSync(
-      join(dirname(__dirname), "src", "commands", "plan.ts"),
-      "utf8",
-    );
+    const planSource = readFileSync(join(dirname(__dirname), "src", "commands", "plan.ts"), "utf8");
     expect(planSource).not.toContain("`plan: complete");
     expect(planSource).not.toContain("commits created and pushed to plan/");
   });
 
   test("plan mode invokes `gh pr ready` via maybeMarkPlanPrReady", () => {
-    const source = readFileSync(
-      join(dirname(__dirname), "src", "commands", "plan.ts"),
-      "utf8",
-    );
+    const source = readFileSync(join(dirname(__dirname), "src", "commands", "plan.ts"), "utf8");
     expect(source).toContain("maybeMarkPlanPrReady");
     expect(source).toContain("safeMarkPlanPrReady");
   });
@@ -174,19 +157,14 @@ describe("planCommand", () => {
       }
       projectConfig.plan = { commit: false };
       // Configure the (now stubbed) aider agent so it fails at invocation
-      cfg.modes.plan.agentOrder = [
-        { agent: "aider", model: "non-existent-model-for-test" },
-      ];
+      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "non-existent-model-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
       // Run plan without skipGhCheck to exercise the actual git-gating logic
       const { client } = capturingLogClient();
       const cap = captureIo();
       const specPath = join(project, "intent.md");
-      writeFileSync(
-        specPath,
-        "---\nname: test-non-git-basebranch\n---\ntest intent\n",
-      );
+      writeFileSync(specPath, "---\nname: test-non-git-basebranch\n---\ntest intent\n");
 
       // This will fail because the agent doesn't exist, but the important thing
       // is that we don't see git errors about "not a git repository" before that
@@ -235,21 +213,14 @@ describe("planCommand", () => {
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: [
-          "--resume-draft",
-          join(worktreePath, "spec", specDir, "intent.md"),
-        ],
+        args: ["--resume-draft", join(worktreePath, "spec", specDir, "intent.md")],
         cwd: project,
         config: { dir: cfgDir },
         logClient: okLogClient,
       });
       expect(code).toBe(1);
-      expect(cap.err()).toContain(
-        `plan: recreated worktree at ${worktreePath} from local`,
-      );
-      expect(cap.err()).toContain(
-        `plan branch plan/${planName} is not on origin; cannot resume`,
-      );
+      expect(cap.err()).toContain(`plan: recreated worktree at ${worktreePath} from local`);
+      expect(cap.err()).toContain(`plan branch plan/${planName} is not on origin; cannot resume`);
       expect(existsSync(worktreePath)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -272,10 +243,7 @@ describe("planCommand", () => {
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: [
-          "--resume-draft",
-          join(worktreePath, "spec", specDir, "intent.md"),
-        ],
+        args: ["--resume-draft", join(worktreePath, "spec", specDir, "intent.md")],
         cwd: project,
         config: { dir: cfgDir },
         logClient: okLogClient,
@@ -307,26 +275,18 @@ describe("planCommand", () => {
       execSync("git add spec", { cwd: project });
       execSync("git commit -m 'add plan spec'", { cwd: project });
       execSync("git checkout main", { cwd: project });
-      execSync(
-        `git worktree add --checkout "${worktreePath}" "plan/${planName}"`,
-        { cwd: project },
-      );
+      execSync(`git worktree add --checkout "${worktreePath}" "plan/${planName}"`, { cwd: project });
 
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: [
-          "--resume-draft",
-          join(worktreePath, "spec", specDir, "intent.md"),
-        ],
+        args: ["--resume-draft", join(worktreePath, "spec", specDir, "intent.md")],
         cwd: project,
         config: { dir: cfgDir },
         logClient: okLogClient,
       });
       expect(code).toBe(1);
-      expect(cap.err()).toContain(
-        `plan branch plan/${planName} is not on origin; cannot resume`,
-      );
+      expect(cap.err()).toContain(`plan branch plan/${planName} is not on origin; cannot resume`);
       expect(cap.err()).not.toContain("plan: recreated worktree");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -374,9 +334,7 @@ describe("planCommand target-repo resolution", () => {
       expect(cap.err()).not.toContain(describePlanInvocation(fileInv));
       expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(describePlanInvocation(fileInv));
-      expect(harnessTexts).toContain(
-        `plan: target project=project-a root=${projectA}`,
-      );
+      expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
       expect(cap.err()).toContain(
         "plan: not yet implemented (skeleton landed; behavior arrives in subsequent specs)\n",
       );
@@ -404,9 +362,7 @@ describe("planCommand target-repo resolution", () => {
       });
       expect(code).toBe(2);
       expect(cap.err()).not.toContain("plan: target project=");
-      expect(harnessTexts).toContain(
-        `plan: target project=project-b root=${projectB}`,
-      );
+      expect(harnessTexts).toContain(`plan: target project=project-b root=${projectB}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -416,12 +372,7 @@ describe("planCommand target-repo resolution", () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
-      const existingInlineIntent = join(
-        projectA,
-        "spec",
-        "wip-intents",
-        "freeform-intent.md",
-      );
+      const existingInlineIntent = join(projectA, "spec", "wip-intents", "freeform-intent.md");
       mkdirSync(dirname(existingInlineIntent), { recursive: true });
       writeFileSync(existingInlineIntent, "existing\n", "utf8");
 
@@ -445,9 +396,7 @@ describe("planCommand target-repo resolution", () => {
       expect(cap.err()).not.toContain(describePlanInvocation(inlineInv));
       expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(describePlanInvocation(inlineInv));
-      expect(harnessTexts).toContain(
-        `plan: target project=project-a root=${projectA}`,
-      );
+      expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
       expect(cap.err()).toContain("already exists; refusing to overwrite");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -479,9 +428,7 @@ describe("planCommand target-repo resolution", () => {
           resumeDraft: false,
         }),
       );
-      expect(harnessTexts).toContain(
-        `plan: target project=project-a root=${projectA}`,
-      );
+      expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -506,9 +453,7 @@ describe("planCommand target-repo resolution", () => {
       });
       expect(code).toBe(2);
       expect(cap.err()).not.toContain("plan: target project=");
-      expect(harnessTexts).toContain(
-        `plan: target project=project-a root=${projectA}`,
-      );
+      expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -518,12 +463,7 @@ describe("planCommand target-repo resolution", () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
-      const existingInlineIntent = join(
-        projectA,
-        "spec",
-        "wip-intents",
-        "freeform.md",
-      );
+      const existingInlineIntent = join(projectA, "spec", "wip-intents", "freeform.md");
       mkdirSync(dirname(existingInlineIntent), { recursive: true });
       writeFileSync(existingInlineIntent, "existing\n", "utf8");
 
@@ -538,9 +478,7 @@ describe("planCommand target-repo resolution", () => {
       });
       expect(code).toBe(1);
       expect(cap.err()).not.toContain("plan: target project=");
-      expect(harnessTexts).toContain(
-        `plan: target project=project-a root=${projectA}`,
-      );
+      expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
       expect(cap.err()).toContain("already exists; refusing to overwrite");
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -564,9 +502,7 @@ describe("planCommand target-repo resolution", () => {
       expect(code).toBe(2);
       expect(cap.err()).toContain("plan: interactive session started");
       expect(cap.err()).not.toContain("plan: target project=");
-      expect(harnessTexts).toContain(
-        `plan: target project=project-a root=${projectA}`,
-      );
+      expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1040,28 +976,21 @@ describe("resolveResumeSpecPath", () => {
     );
     expect(out.specDirBasename).toBe("2026-05-21T04-13-11Z-fix-thing");
     expect(out.planName).toBe("fix-thing");
-    expect(out.specDirPath).toBe(
-      "/repo/.worktree/plan-fix-thing/spec/2026-05-21T04-13-11Z-fix-thing",
-    );
+    expect(out.specDirPath).toBe("/repo/.worktree/plan-fix-thing/spec/2026-05-21T04-13-11Z-fix-thing");
     expect(out.externalSpecRoot).toBe("/repo/.worktree/plan-fix-thing/spec");
   });
 
   test("resume mode expects an index.md path", () => {
-    const out = resolveResumeSpecPath(
-      "/x/specs/proj/2026-05-21T04-13-11Z-fix-thing/index.md",
-      "resume",
-    );
+    const out = resolveResumeSpecPath("/x/specs/proj/2026-05-21T04-13-11Z-fix-thing/index.md", "resume");
     expect(out.specDirBasename).toBe("2026-05-21T04-13-11Z-fix-thing");
     expect(out.externalSpecRoot).toBe("/x/specs/proj");
   });
 
   test("rejects a path whose basename is not the expected spec file", () => {
-    expect(() =>
-      resolveResumeSpecPath("/x/spec/foo/intent.md", "resume"),
-    ).toThrow("--resume requires a index.md path");
-    expect(() =>
-      resolveResumeSpecPath("/x/spec/foo/index.md", "resume-draft"),
-    ).toThrow("--resume-draft requires a intent.md path");
+    expect(() => resolveResumeSpecPath("/x/spec/foo/intent.md", "resume")).toThrow("--resume requires a index.md path");
+    expect(() => resolveResumeSpecPath("/x/spec/foo/index.md", "resume-draft")).toThrow(
+      "--resume-draft requires a intent.md path",
+    );
   });
 });
 
@@ -1157,8 +1086,7 @@ describe("deriveSpecName", () => {
   test("inline mode: 40-char limit", async () => {
     const { dir, projectRoot } = setupProjectDir();
     try {
-      const longText =
-        "this is a very long inline text that should be truncated to forty characters";
+      const longText = "this is a very long inline text that should be truncated to forty characters";
       const inv: PlanInvocation = {
         mode: "inline",
         intentText: longText,
@@ -1362,14 +1290,9 @@ describe("phase-0 intent review gate", () => {
     try {
       const intentPath = join(dir, "intent.md");
       writeFileSync(intentPath, "# Intent\n\nInitial request.\n", "utf8");
-      const out = appendPhase0ReviewGateBlocker(
-        intentPath,
-        "2026-05-20T02-41-21Z-plan-intent-review-gate",
-      );
+      const out = appendPhase0ReviewGateBlocker(intentPath, "2026-05-20T02-41-21Z-plan-intent-review-gate");
       expect(out).toContain("## Blocker");
-      expect(out).toContain(
-        "spec/2026-05-20T02-41-21Z-plan-intent-review-gate/intent.md",
-      );
+      expect(out).toContain("spec/2026-05-20T02-41-21Z-plan-intent-review-gate/intent.md");
       expect(out).toContain("jarvis1 plan --resume-draft spec/");
       expect(out).toContain("/intent.md");
     } finally {
@@ -1423,18 +1346,10 @@ describe("seedIntentFile", () => {
         targetDir: "v1/spec",
       });
 
-      const writtenPath = join(
-        worktreePath,
-        "v1",
-        "spec",
-        "my-spec",
-        "intent.md",
-      );
+      const writtenPath = join(worktreePath, "v1", "spec", "my-spec", "intent.md");
       expect(existsSync(writtenPath)).toBe(true);
       expect(readFileSync(writtenPath, "utf8")).toBe(intentContent);
-      expect(
-        existsSync(join(worktreePath, "spec", "my-spec", "intent.md")),
-      ).toBe(false);
+      expect(existsSync(join(worktreePath, "spec", "my-spec", "intent.md"))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1595,28 +1510,19 @@ describe("seedIntentFile", () => {
 
 describe("plan.ts regression: error message removed", () => {
   test("plan.ts no longer contains the error string 'commit: false requires a git repository'", () => {
-    const planTsContent = readFileSync(
-      resolve(__dirname, "../src/commands/plan.ts"),
-      "utf8",
-    );
-    expect(planTsContent).not.toContain(
-      "commit: false requires a git repository",
-    );
+    const planTsContent = readFileSync(resolve(__dirname, "../src/commands/plan.ts"), "utf8");
+    expect(planTsContent).not.toContain("commit: false requires a git repository");
   });
 });
 
 describe("intent frontmatter naming helpers", () => {
   test("parseIntentFrontmatter reads leading name field", () => {
-    const parsed = parseIntentFrontmatter(
-      "---\nname: csv-export\n---\n\n# Intent\nhello\n",
-    );
+    const parsed = parseIntentFrontmatter("---\nname: csv-export\n---\n\n# Intent\nhello\n");
     expect(parsed.name).toBe("csv-export");
   });
 
   test("parseIntentFrontmatter ignores non-leading block", () => {
-    const parsed = parseIntentFrontmatter(
-      "# Intent\n---\nname: csv-export\n---\n",
-    );
+    const parsed = parseIntentFrontmatter("# Intent\n---\nname: csv-export\n---\n");
     expect(parsed.name).toBeUndefined();
   });
 

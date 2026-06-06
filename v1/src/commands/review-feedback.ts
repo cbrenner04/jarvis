@@ -18,11 +18,7 @@ import {
   readPatchRulesText,
   renderReviewPrompt,
 } from "../review-feedback.ts";
-import {
-  ensurePatchWorktreeForExistingBranch,
-  hasUpstream,
-  pushCurrent,
-} from "../worktree.ts";
+import { ensurePatchWorktreeForExistingBranch, hasUpstream, pushCurrent } from "../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../worktree-lock.ts";
 
 export type ReviewIo = {
@@ -37,24 +33,16 @@ export type ReviewCommandOptions = {
   config?: ConfigOptions;
   assertGhReadyFn?: () => Promise<void>;
   checkPrExistsFn?: (branch: string, cwd: string) => number | null;
-  collectReviewFeedbackFn?: (args: {
-    prNumber: number;
-    cwd: string;
-  }) => Promise<ActionableReviewFeedback>;
+  collectReviewFeedbackFn?: (args: { prNumber: number; cwd: string }) => Promise<ActionableReviewFeedback>;
   readPatchRulesFn?: () => string;
   createAgentFn?: (agentName: AgentName, model: string) => Agent;
   loadConfigFn?: (opts?: ConfigOptions) => Config;
-  ensurePatchWorktreeFn?: (
-    projectRoot: string,
-    name: string,
-  ) => Promise<{ path: string; source: "origin" | "local" }>;
+  ensurePatchWorktreeFn?: (projectRoot: string, name: string) => Promise<{ path: string; source: "origin" | "local" }>;
   commitAllFn?: (cwd: string, message: string) => void;
   pushCurrentFn?: (opts: { cwd: string; firstPush: boolean }) => void;
 };
 
-export async function reviewFeedbackCommand(
-  opts: ReviewCommandOptions,
-): Promise<number> {
+export async function reviewFeedbackCommand(opts: ReviewCommandOptions): Promise<number> {
   // Reject plan worktrees before any other checks
   if (opts.worktreeName.startsWith("plan-")) {
     opts.io.stderr(
@@ -72,21 +60,18 @@ export async function reviewFeedbackCommand(
   if (!existsSync(worktreePath)) {
     if (config.git === false) {
       // git disabled: use existing "unknown worktree" path
-      opts.io.stderr(
-        `jarvis1 review-feedback: unknown worktree ${JSON.stringify(opts.worktreeName)}\n`,
-      );
+      opts.io.stderr(`jarvis1 review-feedback: unknown worktree ${JSON.stringify(opts.worktreeName)}\n`);
       return 1;
     }
 
     // Attempt auto-create
     try {
-      const result = await (
-        opts.ensurePatchWorktreeFn ?? ensurePatchWorktreeForExistingBranch
-      )(opts.projectRoot, opts.worktreeName);
+      const result = await (opts.ensurePatchWorktreeFn ?? ensurePatchWorktreeForExistingBranch)(
+        opts.projectRoot,
+        opts.worktreeName,
+      );
       const sourceText =
-        result.source === "origin"
-          ? `from origin/${opts.worktreeName}`
-          : `from local branch ${opts.worktreeName}`;
+        result.source === "origin" ? `from origin/${opts.worktreeName}` : `from local branch ${opts.worktreeName}`;
       opts.io.stdout(
         `jarvis1 review-feedback: worktree missing; creating .worktree/${opts.worktreeName} ${sourceText}\n`,
       );
@@ -99,18 +84,14 @@ export async function reviewFeedbackCommand(
   const lockResult = acquireWorktreeLock(worktreePath);
   if (lockResult.kind === "busy") {
     const lockInfo = lockResult.existingLock;
-    opts.io.stderr(
-      `worktree is in use by process ${lockInfo.pid} (started at ${lockInfo.started_at})\n`,
-    );
+    opts.io.stderr(`worktree is in use by process ${lockInfo.pid} (started at ${lockInfo.started_at})\n`);
     return 9;
   }
 
   try {
     const branch = currentBranch(worktreePath);
     if (branch === "HEAD") {
-      opts.io.stderr(
-        "jarvis1 review-feedback: unsupported git state detached HEAD in target worktree\n",
-      );
+      opts.io.stderr("jarvis1 review-feedback: unsupported git state detached HEAD in target worktree\n");
       return 1;
     }
     if (branch.startsWith("plan/")) {
@@ -135,26 +116,16 @@ export async function reviewFeedbackCommand(
       return 1;
     }
 
-    const prNumber = (opts.checkPrExistsFn ?? checkPrExists)(
-      branch,
-      worktreePath,
-    );
+    const prNumber = (opts.checkPrExistsFn ?? checkPrExists)(branch, worktreePath);
     if (prNumber === null) {
-      opts.io.stderr(
-        `jarvis1 review-feedback: no open PR found for branch ${JSON.stringify(branch)}\n`,
-      );
+      opts.io.stderr(`jarvis1 review-feedback: no open PR found for branch ${JSON.stringify(branch)}\n`);
       return 1;
     }
-    const feedback = await (
-      opts.collectReviewFeedbackFn ?? collectActionableReviewFeedback
-    )({
+    const feedback = await (opts.collectReviewFeedbackFn ?? collectActionableReviewFeedback)({
       prNumber,
       cwd: worktreePath,
     });
-    if (
-      feedback.inlineThreads.length === 0 &&
-      feedback.topLevelComments.length === 0
-    ) {
+    if (feedback.inlineThreads.length === 0 && feedback.topLevelComments.length === 0) {
       opts.io.stdout("jarvis1 review-feedback: no open review comments\n");
       return 0;
     }
@@ -167,9 +138,7 @@ export async function reviewFeedbackCommand(
     opts.io.stdout(
       `jarvis1 review-feedback: collected ${feedback.inlineThreads.length} unresolved inline threads and ${feedback.topLevelComments.length} top-level comments for PR #${prNumber}\n`,
     );
-    opts.io.stdout(
-      `jarvis1 review-feedback: review prompt prepared (${prompt.length} chars)\n`,
-    );
+    opts.io.stdout(`jarvis1 review-feedback: review prompt prepared (${prompt.length} chars)\n`);
 
     const resolveAgent = opts.createAgentFn ?? createAgent;
     let success: {
@@ -214,9 +183,7 @@ export async function reviewFeedbackCommand(
         noProgress,
       );
       if (classified.kind === "quota") {
-        opts.io.stderr(
-          `${entry.agent}: ${harnessQuotaFallbackLenientLine(result.exitCode)}\n`,
-        );
+        opts.io.stderr(`${entry.agent}: ${harnessQuotaFallbackLenientLine(result.exitCode)}\n`);
         if (result.stderr.trim().length > 0) {
           opts.io.stderr(ensureTrailingNewline(result.stderr));
         }
@@ -235,9 +202,7 @@ export async function reviewFeedbackCommand(
     }
 
     if (gitStatusPorcelain(worktreePath).trim() === "") {
-      opts.io.stderr(
-        "jarvis1 review-feedback: agent run completed with no file changes; no commit created\n",
-      );
+      opts.io.stderr("jarvis1 review-feedback: agent run completed with no file changes; no commit created\n");
       return 1;
     }
 
@@ -245,9 +210,7 @@ export async function reviewFeedbackCommand(
     try {
       commitAll(worktreePath, "address PR review comments");
     } catch (err) {
-      opts.io.stderr(
-        `jarvis1 review-feedback: failed to commit review feedback changes: ${errorMessage(err)}\n`,
-      );
+      opts.io.stderr(`jarvis1 review-feedback: failed to commit review feedback changes: ${errorMessage(err)}\n`);
       return 1;
     }
 
@@ -257,9 +220,7 @@ export async function reviewFeedbackCommand(
         firstPush: !hasUpstream(worktreePath),
       });
     } catch (err) {
-      opts.io.stderr(
-        `jarvis1 review-feedback: push failed after commit creation: ${errorMessage(err)}\n`,
-      );
+      opts.io.stderr(`jarvis1 review-feedback: push failed after commit creation: ${errorMessage(err)}\n`);
       return 1;
     }
 

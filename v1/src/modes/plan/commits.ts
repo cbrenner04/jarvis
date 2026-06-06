@@ -24,11 +24,7 @@ export type CommitPlanRefineOptions = {
  * convention used by `renderAttribution` to filter PR-attribution-eligible
  * commits. Additional body lines follow the spec marker.
  */
-function buildPlanBody(
-  specDirBasename: string,
-  lines: string[],
-  targetDir: string = "spec",
-): string {
+function buildPlanBody(specDirBasename: string, lines: string[], targetDir: string = "spec"): string {
   const specLine = `Spec: ${targetDir}/${specDirBasename}/intent.md`;
   return [specLine, "", ...lines].join("\n");
 }
@@ -66,9 +62,7 @@ export function commitPlanRefine(opts: CommitPlanRefineOptions): void {
 
   const turns = opts.completedTurns ?? 0;
   const bodyLines =
-    opts.resumedBy === undefined
-      ? [bodyLine, `Turns: ${turns}`]
-      : [`Resumed by ${opts.resumedBy}.`, `Turns: ${turns}`];
+    opts.resumedBy === undefined ? [bodyLine, `Turns: ${turns}`] : [`Resumed by ${opts.resumedBy}.`, `Turns: ${turns}`];
 
   if (opts.refineOutcome === "skipped") {
     bodyLines.push("Outcome: explicit skip");
@@ -164,11 +158,7 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
   });
 
   const subject = `plan: review ${opts.passNumber}${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
-  const body = buildPlanBody(
-    specDirBasename,
-    [`Reviewed by ${opts.agentLabel}.`],
-    opts.targetDir,
-  );
+  const body = buildPlanBody(specDirBasename, [`Reviewed by ${opts.agentLabel}.`], opts.targetDir);
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
@@ -214,11 +204,7 @@ export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
   const subject = `plan: blocker${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(
     specDirBasename,
-    [
-      `Blocked by ${opts.reason}`,
-      `Spec files to date: ${opts.specFilesCount}`,
-      `Raised by ${opts.agentLabel}.`,
-    ],
+    [`Blocked by ${opts.reason}`, `Spec files to date: ${opts.specFilesCount}`, `Raised by ${opts.agentLabel}.`],
     opts.targetDir,
   );
   const baseMessage = `${subject}\n\n${body}`;

@@ -3,16 +3,8 @@
 // spec/2026-05-11-opencode-as-agent/04-opencode-permission-stanza.md). Jarvis does not
 // pass --dangerously-skip-permissions.
 import { runAgent } from "./spawn.ts";
-import {
-  type EstimatedTokenUsage,
-  estimateTokenUsage,
-} from "./token-estimation.ts";
-import type {
-  Agent,
-  AgentName,
-  AgentResult,
-  AgentRunOptions,
-} from "./types.ts";
+import { type EstimatedTokenUsage, estimateTokenUsage } from "./token-estimation.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "./types.ts";
 
 export interface ParsedOpencodeJsonStream {
   usage: {
@@ -31,19 +23,14 @@ export interface ParsedOpencodeJsonStream {
 export type OpencodeAgentOptions = {
   binary?: string;
   model: string;
-  estimateUsage?: (args: {
-    prompt: string;
-    stdout: string;
-  }) => EstimatedTokenUsage | null;
+  estimateUsage?: (args: { prompt: string; stdout: string }) => EstimatedTokenUsage | null;
 };
 
 const OPENCODE_MODEL_LABELS: Record<string, string> = {};
 
 export const OPENCODE_HAS_PRICED_MODELS = true;
 
-export function parseOpencodeJsonStream(
-  stdout: string,
-): ParsedOpencodeJsonStream {
+export function parseOpencodeJsonStream(stdout: string): ParsedOpencodeJsonStream {
   const lines = stdout.split("\n");
   const usage = {
     input_tokens: 0,
@@ -77,11 +64,7 @@ export function parseOpencodeJsonStream(
     }
 
     // Check if it's a plain object with a string type field
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      Array.isArray(parsed)
-    ) {
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       // Arrays, numbers, strings, null at top level are pass-through
       renderedTextParts.push(line);
       continue;
@@ -169,9 +152,7 @@ export function parseOpencodeJsonStream(
   };
 }
 
-export function resolveOpencodePriceKey(
-  model: string | undefined,
-): string | null {
+export function resolveOpencodePriceKey(model: string | undefined): string | null {
   return model ?? null;
 }
 
@@ -179,10 +160,7 @@ export class OpencodeAgent implements Agent {
   readonly name = "opencode" as AgentName;
   readonly #binary: string;
   readonly #model: string;
-  readonly #estimateUsage: (args: {
-    prompt: string;
-    stdout: string;
-  }) => EstimatedTokenUsage | null;
+  readonly #estimateUsage: (args: { prompt: string; stdout: string }) => EstimatedTokenUsage | null;
 
   constructor(opts: OpencodeAgentOptions) {
     this.#binary = opts.binary ?? "opencode";
@@ -197,16 +175,7 @@ export class OpencodeAgent implements Agent {
         binary: this.#binary,
         cwd: opts.cwd,
         buildArgv: (prompt, buildOpts) => {
-          return [
-            "run",
-            "--dir",
-            buildOpts.cwd,
-            "--model",
-            this.#model,
-            "--format",
-            "json",
-            prompt,
-          ];
+          return ["run", "--dir", buildOpts.cwd, "--model", this.#model, "--format", "json", prompt];
         },
         stdio: ["ignore", "pipe", "pipe"],
         streamErrorPrefix: "opencode:",
@@ -272,10 +241,7 @@ export class OpencodeAgent implements Agent {
       ...result,
       usage_source: "unavailable",
       cost_source: "no-usage",
-      warnings: [
-        ...(result.warnings ?? []),
-        "opencode: token estimator unavailable; usage recorded as unavailable.",
-      ],
+      warnings: [...(result.warnings ?? []), "opencode: token estimator unavailable; usage recorded as unavailable."],
     };
   }
 

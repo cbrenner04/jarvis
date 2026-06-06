@@ -129,20 +129,16 @@ describe("v2 cli", () => {
     let capturedAgents: readonly string[] | undefined;
     let capturedInput: WriteExecuteInput | undefined;
 
-    const code = await main(
-      [...WRITE_ARGS, "--agents", "claude,codex"],
-      cap.io,
-      {
-        createBindings: (agentIds) => {
-          capturedAgents = agentIds;
-          return simulatedBindings(["done"]);
-        },
-        executeWrite: async (input) => {
-          capturedInput = input;
-          return completeResult();
-        },
+    const code = await main([...WRITE_ARGS, "--agents", "claude,codex"], cap.io, {
+      createBindings: (agentIds) => {
+        capturedAgents = agentIds;
+        return simulatedBindings(["done"]);
       },
-    );
+      executeWrite: async (input) => {
+        capturedInput = input;
+        return completeResult();
+      },
+    });
 
     expect(code).toBe(0);
     expect(capturedAgents).toEqual(["claude", "codex"]);
@@ -177,34 +173,32 @@ describe("v2 cli", () => {
     });
 
     expect(captured?.bindings).toHaveLength(1);
-    await expect(
-      captured?.bindings[0]?.invoke({ prompt: "p", cwd: "/tmp" }),
-    ).resolves.toMatchObject({ kind: "error" });
+    expect(captured?.bindings[0]?.invoke({ prompt: "p", cwd: "/tmp" })).resolves.toMatchObject({ kind: "error" });
   });
 });
 
 describe("simulated bindings", () => {
-  test("replays scripted outcomes and emits the artifact on success", async () => {
+  test("replays scripted outcomes and emits the artifact on success", () => {
     const cwd = mkdtempSync(join(tmpdir(), "jarvis-sim-bindings-"));
-    const bindings = simulatedBindings(
-      ["quota", "model_config", "error", "done"],
-      { artifactPath: "proof.txt", emitArtifact: true },
-    );
+    const bindings = simulatedBindings(["quota", "model_config", "error", "done"], {
+      artifactPath: "proof.txt",
+      emitArtifact: true,
+    });
 
-    await expect(bindings[0]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
+    expect(bindings[0]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
       kind: "quota",
       stderr: "quota",
     });
-    await expect(bindings[1]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
+    expect(bindings[1]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
       kind: "model_config",
       stderr: "model-config",
     });
-    await expect(bindings[2]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
+    expect(bindings[2]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
       kind: "error",
       exitCode: 1,
       stderr: "error",
     });
-    await expect(bindings[3]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
+    expect(bindings[3]?.invoke({ prompt: "p", cwd })).resolves.toEqual({
       kind: "ok",
       stdout: "done",
       stderr: "",

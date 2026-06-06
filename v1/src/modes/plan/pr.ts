@@ -84,14 +84,10 @@ export function buildPlanPrHeader(opts: {
   const specDirBasename = opts.specDirBasename ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
   const indexPath =
-    opts.worktreePath !== undefined
-      ? join(opts.worktreePath, targetDir, specDirBasename, "index.md")
-      : null;
-  const parsed =
-    indexPath !== null ? parseIndex(indexPath) : { title: "", subspecs: [] };
+    opts.worktreePath !== undefined ? join(opts.worktreePath, targetDir, specDirBasename, "index.md") : null;
+  const parsed = indexPath !== null ? parseIndex(indexPath) : { title: "", subspecs: [] };
 
-  const titleLine =
-    parsed.title !== "" ? `# ${parsed.title}` : `# Plan: ${opts.name}`;
+  const titleLine = parsed.title !== "" ? `# ${parsed.title}` : `# Plan: ${opts.name}`;
 
   const lines: string[] = [
     titleLine,
@@ -123,18 +119,13 @@ function isPlanMetaCommit(commit: CommitInfo): boolean {
  * Recognizes both default `spec/` and configured roots like `v1/spec/`.
  */
 function isSubspecCommit(commit: CommitInfo): boolean {
-  return (
-    commit.firstBodyLine.startsWith("Spec: ") &&
-    !commit.firstBodyLine.includes("/intent.md")
-  );
+  return commit.firstBodyLine.startsWith("Spec: ") && !commit.firstBodyLine.includes("/intent.md");
 }
 
 /**
  * Group consecutive plan-mode meta-commits together.
  */
-function groupMetaCommits(
-  commits: CommitInfo[],
-): (CommitInfo | CommitInfo[])[] {
+function groupMetaCommits(commits: CommitInfo[]): (CommitInfo | CommitInfo[])[] {
   const groups: (CommitInfo | CommitInfo[])[] = [];
   let metaGroup: CommitInfo[] = [];
 
@@ -143,8 +134,7 @@ function groupMetaCommits(
       metaGroup.push(commit);
     } else {
       if (metaGroup.length > 0) {
-        const group =
-          metaGroup.length === 1 && metaGroup[0] ? metaGroup[0] : metaGroup;
+        const group = metaGroup.length === 1 && metaGroup[0] ? metaGroup[0] : metaGroup;
         groups.push(group);
         metaGroup = [];
       }
@@ -153,8 +143,7 @@ function groupMetaCommits(
   }
 
   if (metaGroup.length > 0) {
-    const group =
-      metaGroup.length === 1 && metaGroup[0] ? metaGroup[0] : metaGroup;
+    const group = metaGroup.length === 1 && metaGroup[0] ? metaGroup[0] : metaGroup;
     groups.push(group);
   }
 
@@ -169,10 +158,7 @@ function groupMetaCommits(
  * Returns `""` when the branch has no commits at all. When the branch has
  * commits, the footer includes collapsed meta-commits and subspec bullets.
  */
-export function renderPlanAttribution(opts: {
-  cwd: string;
-  base: string;
-}): string {
+export function renderPlanAttribution(opts: { cwd: string; base: string }): string {
   const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
   if (commits.length === 0) {
     return "";
@@ -195,9 +181,7 @@ export function renderPlanAttribution(opts: {
       }
       const agents = Array.from(agentSet);
       const agentLabel = agents.length === 0 ? "Jarvis" : agents.join(", ");
-      bullets.push(
-        `- ${metaCommits.length} spec commits (refine, draft, review) — ${agentLabel}`,
-      );
+      bullets.push(`- ${metaCommits.length} spec commits (refine, draft, review) — ${agentLabel}`);
       for (const agent of agents) {
         if (agent !== "" && !seenLabels.has(agent)) {
           seenLabels.add(agent);
@@ -215,9 +199,7 @@ export function renderPlanAttribution(opts: {
         }
         const agents = Array.from(agentSet);
         const agentLabel = agents.length === 0 ? "Jarvis" : agents.join(", ");
-        bullets.push(
-          `- 1 spec commits (refine, draft, review) — ${agentLabel}`,
-        );
+        bullets.push(`- 1 spec commits (refine, draft, review) — ${agentLabel}`);
         for (const agent of agents) {
           if (agent !== "" && !seenLabels.has(agent)) {
             seenLabels.add(agent);
@@ -226,10 +208,7 @@ export function renderPlanAttribution(opts: {
         }
       } else if (isSubspecCommit(commit)) {
         // Individual subspec commit
-        const label =
-          commit.jarvisAgentTrailers.length === 0
-            ? "unknown"
-            : commit.jarvisAgentTrailers.join(", ");
+        const label = commit.jarvisAgentTrailers.length === 0 ? "unknown" : commit.jarvisAgentTrailers.join(", ");
         bullets.push(`- ${commit.shortSha} ${commit.subject} — ${label}`);
         for (const single of commit.jarvisAgentTrailers) {
           if (single === "" || seenLabels.has(single)) {
@@ -343,15 +322,8 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
           stdout?: Buffer;
           stderr?: Buffer;
         };
-        const captured = [out.stdout?.toString(), out.stderr?.toString()]
-          .filter(Boolean)
-          .join("\n")
-          .trim();
-        throw new Error(
-          captured
-            ? `bun run ready failed:\n${captured}`
-            : `bun run ready failed`,
-        );
+        const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+        throw new Error(captured ? `bun run ready failed:\n${captured}` : `bun run ready failed`);
       }
       execFileSync("gh", ["pr", "ready", branch], {
         cwd,
@@ -411,13 +383,9 @@ function buildSpecContext(indexPath: string): string {
   const specDir = dirnameFromPath(indexPath);
   const sections = [`## index.md\n\n${indexContent.trim()}`];
   const parsed = parseIndex(indexPath);
-  const linkedPaths = parsed.subspecs
-    .map((subspec) => subspec.path)
-    .filter((path) => path.length > 0);
+  const linkedPaths = parsed.subspecs.map((subspec) => subspec.path).filter((path) => path.length > 0);
   const paths =
-    linkedPaths.length > 0
-      ? linkedPaths
-      : readdirSync(specDir).filter((path) => /^\d{2}-.*\.md$/.test(path));
+    linkedPaths.length > 0 ? linkedPaths : readdirSync(specDir).filter((path) => /^\d{2}-.*\.md$/.test(path));
   for (const path of paths) {
     if (/^[a-z][a-z0-9+.-]*:/i.test(path)) {
       continue;
@@ -473,23 +441,16 @@ export type UpdatePlanPrBodyOpts = {
  *
  * Throws on `gh` failure; callers wrap with try/catch and warn-and-continue.
  */
-export async function updatePlanPrBody(
-  opts: UpdatePlanPrBodyOpts,
-): Promise<void> {
+export async function updatePlanPrBody(opts: UpdatePlanPrBodyOpts): Promise<void> {
   const fetchPrBody = opts.fetchPrBody ?? defaultFetchPrBody;
   const writePrBody = opts.writePrBody ?? defaultWritePrBody;
   const renderFooter = opts.renderFooter ?? renderPlanAttribution;
 
   const currentBody = fetchPrBody(opts.branch, opts.cwd);
   let narrative = extractNarrative(currentBody);
-  const generatedNarrative =
-    narrative === null ? null : extractGeneratedNarrativeContent(narrative);
+  const generatedNarrative = narrative === null ? null : extractGeneratedNarrativeContent(narrative);
 
-  if (
-    (!narrative || generatedNarrative !== null) &&
-    opts.agent &&
-    opts.intentContent
-  ) {
+  if ((!narrative || generatedNarrative !== null) && opts.agent && opts.intentContent) {
     const generateOpts: Parameters<typeof generatePrDescription>[0] = {
       indexPath: opts.indexPath,
       intent: opts.intentContent,
@@ -525,19 +486,17 @@ export async function updatePlanPrBody(
     headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
   }
   const footer = renderFooter({ cwd: opts.cwd, base: opts.base });
-  const newBody =
-    footer === ""
-      ? headerAndNarrative
-      : `${headerAndNarrative}\n\n---\n\n${footer}`;
+  const newBody = footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
   writePrBody(opts.branch, newBody, opts.cwd);
 }
 
 function defaultFetchPrBody(branch: string, cwd: string): string {
-  return execFileSync(
-    "gh",
-    ["pr", "view", branch, "--json", "body", "-q", ".body"],
-    { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
-  );
+  return execFileSync("gh", ["pr", "view", branch, "--json", "body", "-q", ".body"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  });
 }
 
 function defaultWritePrBody(branch: string, body: string, cwd: string): void {

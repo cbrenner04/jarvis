@@ -9,9 +9,7 @@ describe("detectBlocker", () => {
   });
 
   test("detects an exact ## Blocker heading and captures the body", () => {
-    const result = detectBlocker(
-      "# Intent\n\nDo a thing.\n\n## Blocker\n\nNeed clarification on X.\n",
-    );
+    const result = detectBlocker("# Intent\n\nDo a thing.\n\n## Blocker\n\nNeed clarification on X.\n");
     expect(result.hasBlocker).toBe(true);
     expect(result.body).toBe("Need clarification on X.");
   });
@@ -33,9 +31,7 @@ describe("detectBlocker", () => {
   });
 
   test("stops body capture at the next level-2 heading", () => {
-    const result = detectBlocker(
-      "## Blocker\n\nfirst paragraph\n\n## Next\n\nignored\n",
-    );
+    const result = detectBlocker("## Blocker\n\nfirst paragraph\n\n## Next\n\nignored\n");
     expect(result.hasBlocker).toBe(true);
     expect(result.body).toBe("first paragraph");
   });

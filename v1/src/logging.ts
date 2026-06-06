@@ -52,9 +52,7 @@ export function runLogServer(opts: LogServerOptions): Promise<number> {
     const [host, portText] = opts.bind.split(":");
     const port = Number(portText);
     if (host === undefined || !Number.isInteger(port) || port <= 0) {
-      opts.stderr(
-        `jarvis1: invalid logServerBind ${JSON.stringify(opts.bind)} (expected host:port)\n`,
-      );
+      opts.stderr(`jarvis1: invalid logServerBind ${JSON.stringify(opts.bind)} (expected host:port)\n`);
       resolve(1);
       return;
     }
@@ -70,9 +68,7 @@ export function runLogServer(opts: LogServerOptions): Promise<number> {
       req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
       req.on("end", () => {
         try {
-          const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as
-            | LogMessage
-            | undefined;
+          const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as LogMessage | undefined;
           if (
             parsed === undefined ||
             parsed === null ||
@@ -101,9 +97,7 @@ export function runLogServer(opts: LogServerOptions): Promise<number> {
     });
 
     server.listen(port, host, () => {
-      opts.stdout(
-        `jarvis1 log-server listening on http://${host}:${port}/logs\n`,
-      );
+      opts.stdout(`jarvis1 log-server listening on http://${host}:${port}/logs\n`);
     });
 
     const shutdown = () => {

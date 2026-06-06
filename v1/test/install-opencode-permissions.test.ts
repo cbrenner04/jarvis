@@ -1,20 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  utimesSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  installOpencodePermissions,
-  SAFE_OPENCODE_PERMISSION,
-} from "../../scripts/install-opencode-permissions.ts";
+import { installOpencodePermissions, SAFE_OPENCODE_PERMISSION } from "../../scripts/install-opencode-permissions.ts";
 
 let home: string;
 
@@ -23,10 +11,7 @@ function configPath(): string {
 }
 
 function readConfig(): Record<string, unknown> {
-  return JSON.parse(readFileSync(configPath(), "utf8")) as Record<
-    string,
-    unknown
-  >;
+  return JSON.parse(readFileSync(configPath(), "utf8")) as Record<string, unknown>;
 }
 
 function writeConfig(value: unknown): void {

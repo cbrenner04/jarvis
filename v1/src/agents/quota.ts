@@ -66,24 +66,12 @@ const aiderModelConfigurationPatterns = [
   /\bmodel is not loaded\b/i,
   /\bno such model\b/i,
 ];
-const weakQuotaPatterns = [
-  /\b429\b/i,
-  /\b503\b/i,
-  /\brate.?limit\b/i,
-  /\btoo many requests\b/i,
-];
+const weakQuotaPatterns = [/\b429\b/i, /\b503\b/i, /\brate.?limit\b/i, /\btoo many requests\b/i];
 
 export function isModelConfigurationSignal(stderr: string): boolean;
-export function isModelConfigurationSignal(
-  name: AgentName,
-  stderr: string,
-): boolean;
-export function isModelConfigurationSignal(
-  nameOrStderr: AgentName | string,
-  maybeStderr?: string,
-): boolean {
-  const name =
-    maybeStderr === undefined ? undefined : (nameOrStderr as AgentName);
+export function isModelConfigurationSignal(name: AgentName, stderr: string): boolean;
+export function isModelConfigurationSignal(nameOrStderr: AgentName | string, maybeStderr?: string): boolean {
+  const name = maybeStderr === undefined ? undefined : (nameOrStderr as AgentName);
   const stderr = maybeStderr === undefined ? nameOrStderr : maybeStderr;
   const patterns =
     name === "opencode"
@@ -95,11 +83,7 @@ export function isModelConfigurationSignal(
   return patterns.some((pattern) => pattern.test(stderr));
 }
 
-export function isQuotaSignal(
-  name: AgentName,
-  exitCode: number,
-  stderr: string,
-): boolean {
+export function isQuotaSignal(name: AgentName, exitCode: number, stderr: string): boolean {
   if (exitCode === 0) return false;
 
   const patterns = (() => {
@@ -127,8 +111,7 @@ export function isWeakQuotaSignal(
   weakExitCodes: ReadonlySet<number> | readonly number[] = [],
 ): boolean {
   if (exitCode === 0) return false;
-  const codes =
-    weakExitCodes instanceof Set ? weakExitCodes : new Set(weakExitCodes);
+  const codes = weakExitCodes instanceof Set ? weakExitCodes : new Set(weakExitCodes);
   if (codes.has(exitCode)) return true;
   return weakQuotaPatterns.some((pattern) => pattern.test(stderr));
 }
@@ -153,14 +136,7 @@ export function applyQuotaFallbackToAgentResult(
   if (opts.quotaFallback === "strict") {
     return result;
   }
-  if (
-    isWeakQuotaSignal(
-      agentName,
-      result.exitCode,
-      result.stderr,
-      opts.weakQuotaExitCodes,
-    )
-  ) {
+  if (isWeakQuotaSignal(agentName, result.exitCode, result.stderr, opts.weakQuotaExitCodes)) {
     return { kind: "quota", stderr: result.stderr };
   }
   return result;

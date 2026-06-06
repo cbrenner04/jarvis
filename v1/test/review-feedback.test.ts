@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  collectActionableReviewFeedback,
-  renderReviewPrompt,
-} from "../src/review-feedback.ts";
+import { collectActionableReviewFeedback, renderReviewPrompt } from "../src/review-feedback.ts";
 
 describe("collectActionableReviewFeedback", () => {
   test("excludes resolved threads and bot-authored inline comments", async () => {

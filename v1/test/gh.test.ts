@@ -54,10 +54,6 @@ describe("runGhCommand error handling", () => {
 
     const result = await runGhCommand(["auth", "status"], undefined, fakeSpawn);
 
-    expect(Object.keys(result).sort()).toEqual([
-      "exitCode",
-      "stderr",
-      "stdout",
-    ]);
+    expect(Object.keys(result).sort()).toEqual(["exitCode", "stderr", "stdout"]);
   });
 });

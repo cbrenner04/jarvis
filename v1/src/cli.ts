@@ -1,7 +1,4 @@
-import {
-  type CleanupCommandOptions,
-  cleanupCommand,
-} from "./commands/cleanup.ts";
+import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
 import { logServerCommand } from "./commands/log-server.ts";
@@ -80,12 +77,7 @@ Commands:
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [first, ...rest] = argv;
-  if (
-    first === undefined ||
-    first === "help" ||
-    first === "-h" ||
-    first === "--help"
-  ) {
+  if (first === undefined || first === "help" || first === "-h" || first === "--help") {
     return { kind: "help" };
   }
   switch (first) {
@@ -214,10 +206,7 @@ export type RunOptions = {
   run?: Partial<Pick<RunCommandOptions, "agents" | "handleSignals">>;
 };
 
-export function run(
-  argv: readonly string[],
-  opts: RunOptions = {},
-): number | Promise<number> {
+export function run(argv: readonly string[], opts: RunOptions = {}): number | Promise<number> {
   const io: Io = opts.io ?? {
     stdout: (s) => process.stdout.write(s),
     stderr: (s) => process.stderr.write(s),
@@ -232,10 +221,7 @@ export function run(
       if (parsed.maxIterations !== undefined) {
         const parsedMax = Number(parsed.maxIterations);
         try {
-          maxIterations = validatePositiveInteger(
-            parsedMax,
-            "--max-iterations",
-          );
+          maxIterations = validatePositiveInteger(parsedMax, "--max-iterations");
         } catch (err) {
           io.stderr(`jarvis1: ${(err as Error).message}\n`);
           return 1;
@@ -296,9 +282,7 @@ export function run(
       const cwd = opts.cwd ?? process.cwd();
       const project = findProjectMatchForPath(cwd, opts.config);
       if (project === undefined) {
-        io.stderr(
-          "jarvis1 cleanup: not inside any project registered with `jarvis1 init`\n",
-        );
+        io.stderr("jarvis1 cleanup: not inside any project registered with `jarvis1 init`\n");
         return 1;
       }
       const readlineSync = (prompt: string): string => {
@@ -306,12 +290,7 @@ export function run(
         const buffer = Buffer.alloc(256);
         let input = "";
         try {
-          const nread = require("node:fs").readSync(
-            process.stdin.fd,
-            buffer,
-            0,
-            256,
-          );
+          const nread = require("node:fs").readSync(process.stdin.fd, buffer, 0, 256);
           input = buffer.toString("utf8", 0, nread).trim();
         } catch {
           return "";
@@ -327,10 +306,7 @@ export function run(
         },
       };
       const cfg = loadConfig(opts.config);
-      cleanupOpts.targetDir = resolvePlanFlags(
-        cfg,
-        cfg.projects[project.key],
-      ).targetDir;
+      cleanupOpts.targetDir = resolvePlanFlags(cfg, cfg.projects[project.key]).targetDir;
       if (opts.config !== undefined) {
         cleanupOpts.config = opts.config;
       }
@@ -343,9 +319,7 @@ export function run(
       const cwd = opts.cwd ?? process.cwd();
       const project = findProjectMatchForPath(cwd, opts.config);
       if (project === undefined) {
-        io.stderr(
-          "jarvis1 triage: not inside any project registered with `jarvis1 init`\n",
-        );
+        io.stderr("jarvis1 triage: not inside any project registered with `jarvis1 init`\n");
         return 1;
       }
       const triageOpts: TriageCommandOptions = {
@@ -371,31 +345,27 @@ export function run(
         return 1;
       }
       const cwd = opts.cwd ?? process.cwd();
-      const projectPreflightOpts: Parameters<
-        typeof runSharedProjectPreflight
-      >[0] = {
+      const projectPreflightOpts: Parameters<typeof runSharedProjectPreflight>[0] = {
         projectPath: cwd,
         io,
       };
       if (opts.config !== undefined) {
         projectPreflightOpts.config = opts.config;
       }
-      return runSharedProjectPreflight(projectPreflightOpts).then(
-        (preflight) => {
-          if (preflight.kind === "error") {
-            return preflight.exitCode;
-          }
-          const reviewOpts: Parameters<typeof reviewFeedbackCommand>[0] = {
-            projectRoot: preflight.project.root,
-            worktreeName,
-            io,
-          };
-          if (opts.config !== undefined) {
-            reviewOpts.config = opts.config;
-          }
-          return reviewFeedbackCommand(reviewOpts);
-        },
-      );
+      return runSharedProjectPreflight(projectPreflightOpts).then((preflight) => {
+        if (preflight.kind === "error") {
+          return preflight.exitCode;
+        }
+        const reviewOpts: Parameters<typeof reviewFeedbackCommand>[0] = {
+          projectRoot: preflight.project.root,
+          worktreeName,
+          io,
+        };
+        if (opts.config !== undefined) {
+          reviewOpts.config = opts.config;
+        }
+        return reviewFeedbackCommand(reviewOpts);
+      });
     }
     case "plan": {
       const planOpts: Parameters<typeof planCommand>[0] = {

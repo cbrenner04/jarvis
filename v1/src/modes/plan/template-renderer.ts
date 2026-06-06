@@ -12,10 +12,7 @@
  */
 export class TemplateRenderingError extends Error {
   constructor(
-    public reason:
-      | "unknown_placeholder"
-      | "missing_value"
-      | "invalid_placeholder_pattern",
+    public reason: "unknown_placeholder" | "missing_value" | "invalid_placeholder_pattern",
     public details: string,
   ) {
     super(`Template rendering error: ${details}`);
@@ -66,7 +63,4 @@ export function renderTemplate(
   }
 }
 
-import {
-  PromptRenderingError,
-  renderTemplateWithDeclarations,
-} from "../../../../shared/prompts/render.ts";
+import { PromptRenderingError, renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";

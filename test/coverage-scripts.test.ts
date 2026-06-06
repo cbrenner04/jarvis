@@ -7,8 +7,6 @@ describe("Coverage scripts", () => {
     expect(pkgJson.scripts.coverage).toBe("bun test --coverage");
     expect(pkgJson.scripts["coverage:v1"]).toBe("bun test --coverage ./v1/");
     expect(pkgJson.scripts["coverage:v2"]).toBe("bun test --coverage ./v2/");
-    expect(pkgJson.scripts["coverage:shared"]).toBe(
-      "bun test --coverage ./shared/ ./scripts/ ./test/",
-    );
+    expect(pkgJson.scripts["coverage:shared"]).toBe("bun test --coverage ./shared/ ./scripts/ ./test/");
   });
 });

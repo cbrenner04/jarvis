@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  executeWithQuotaFallback,
-  type InvocationBinding,
-  type InvocationResult,
-} from "./execute.ts";
+import { executeWithQuotaFallback, type InvocationBinding, type InvocationResult } from "./execute.ts";
 
 describe("shared invocation fallback", () => {
   test("advances only on quota and preserves binding order", async () => {

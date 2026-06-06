@@ -1,21 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import {
-  closeSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeSync,
-} from "node:fs";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from "node:path";
+import { closeSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
@@ -33,11 +18,7 @@ import {
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch, postPrComment } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
-import {
-  checkPrExists,
-  ensureDraftPr,
-  renderAttributionSummary,
-} from "../../pr.ts";
+import { checkPrExists, ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -60,34 +41,12 @@ import {
   pushCurrent,
   worktreeCompletionBlocker,
 } from "../../worktree.ts";
-import {
-  acquireWorktreeLock,
-  releaseWorktreeLock,
-} from "../../worktree-lock.ts";
-import {
-  type DisambiguateFn,
-  runSharedPreflight,
-  type SharedPreflightOpts,
-} from "../shared-entry.ts";
-import {
-  countUnchecked,
-  getActiveLinkedSubspecPath,
-  getFirstUncheckedTask,
-} from "./completion.ts";
-import {
-  buildPrBody,
-  generatePrDescription,
-  maybeMarkReady,
-  runReadyAndCommit,
-  updatePrBody,
-} from "./pr.ts";
+import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
+import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
+import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
+import { buildPrBody, generatePrDescription, maybeMarkReady, runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildPrompt, buildReviewPrompt } from "./prompt.ts";
-import {
-  commitReviewPass,
-  detectNewBlockerInSpec,
-  detectSpecTreeEdits,
-  revertSpecTreeEdits,
-} from "./review.ts";
+import { commitReviewPass, detectNewBlockerInSpec, detectSpecTreeEdits, evertSpecTreeEdits } from "./review.ts";
 import { parsePatchSpec } from "./spec.ts";
 import {
   type AcceptanceCriterion,
@@ -131,18 +90,9 @@ type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;
 type LogAnnotations = Record<string, string | number | boolean | null>;
 
-type Fanout = (
-  tag: LogTag,
-  text: string,
-  stream: LogStream,
-  annotations?: LogAnnotations,
-) => void;
+type Fanout = (tag: LogTag, text: string, stream: LogStream, annotations?: LogAnnotations) => void;
 
-type SendLog = (
-  tag: LogTag,
-  text: string,
-  annotations?: LogAnnotations,
-) => void;
+type SendLog = (tag: LogTag, text: string, annotations?: LogAnnotations) => void;
 
 type WriteSessionLine = (tag: LogTag, line: string) => void;
 
@@ -182,10 +132,7 @@ type PreflightOk = {
   additionalReadDirs: string[] | undefined;
 };
 
-type PreflightResult =
-  | PreflightOk
-  | { kind: "error"; exitCode: number }
-  | { kind: "exit"; exitCode: number };
+type PreflightResult = PreflightOk | { kind: "error"; exitCode: number } | { kind: "exit"; exitCode: number };
 
 type LoggingContext = {
   fanout: Fanout;
@@ -329,14 +276,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
       // continue
     }
   } finally {
-    finalize(
-      ctx,
-      globalTimeoutHandle,
-      onSigint,
-      runStartedAt,
-      runStartedMs,
-      runExitReason,
-    );
+    finalize(ctx, globalTimeoutHandle, onSigint, runStartedAt, runStartedMs, runExitReason);
   }
 }
 
@@ -347,10 +287,7 @@ async function resolveModeSpecificPreflight(
   projectMode: "registered" | "ad-hoc",
   cfg: Config,
 ): Promise<PreflightResult> {
-  const gitEnabled = effectiveGit(
-    cfg,
-    projectMode === "registered" ? project.key : undefined,
-  );
+  const gitEnabled = effectiveGit(cfg, projectMode === "registered" ? project.key : undefined);
 
   if (opts.cwdFlag !== undefined && gitEnabled) {
     opts.io.stderr(
@@ -366,11 +303,7 @@ async function resolveModeSpecificPreflight(
       return { kind: "error", exitCode: 1 };
     }
   }
-  if (
-    gitEnabled &&
-    !opts.skipGhCheck &&
-    !existsSync(join(project.root, ".git"))
-  ) {
+  if (gitEnabled && !opts.skipGhCheck && !existsSync(join(project.root, ".git"))) {
     opts.io.stderr(
       'error: target is not a git checkout; set "git": false in config or pass --repo to a git checkout\n',
     );
@@ -408,18 +341,12 @@ async function resolveModeSpecificPreflight(
   if (!opts.skipGhCheck && gitEnabled) {
     try {
       agentWorkingDir = await ensureWorktree(project.root, initialSpecPath);
-      createWorktreeSymlinks(
-        project.root,
-        agentWorkingDir,
-        cfg.worktreeSymlinks,
-      );
+      createWorktreeSymlinks(project.root, agentWorkingDir, cfg.worktreeSymlinks);
 
       const lockResult = acquireWorktreeLock(agentWorkingDir);
       if (lockResult.kind === "busy") {
         const lockInfo = lockResult.existingLock;
-        opts.io.stderr(
-          `worktree is in use by process ${lockInfo.pid} (started at ${lockInfo.started_at})\n`,
-        );
+        opts.io.stderr(`worktree is in use by process ${lockInfo.pid} (started at ${lockInfo.started_at})\n`);
         return { kind: "error", exitCode: 9 };
       }
       if (lockResult.kind === "recovered") {
@@ -427,9 +354,7 @@ async function resolveModeSpecificPreflight(
       }
       worktreeLocked = true;
     } catch (err) {
-      opts.io.stderr(
-        `failed to create or resume worktree: ${(err as Error).message}\n`,
-      );
+      opts.io.stderr(`failed to create or resume worktree: ${(err as Error).message}\n`);
       return { kind: "error", exitCode: 1 };
     }
   }
@@ -464,17 +389,13 @@ async function resolveModeSpecificPreflight(
 
     const promptLines = [
       `${specPath} is not an index spec.`,
-      ...(hasSiblingIndex
-        ? ["  [s] switch to ./index.md and run normally"]
-        : []),
+      ...(hasSiblingIndex ? ["  [s] switch to ./index.md and run normally"] : []),
       "  [e] exit",
       "Choice [e]: ",
     ];
     const promptText = promptLines.join("\n");
     opts.io.stdout(promptText);
-    const answer = (await (opts.confirmRun ?? confirmFromStdin)(promptText))
-      .trim()
-      .toLowerCase();
+    const answer = (await (opts.confirmRun ?? confirmFromStdin)(promptText)).trim().toLowerCase();
 
     if (answer === "s" && hasSiblingIndex) {
       specPath = siblingIndex;
@@ -513,16 +434,12 @@ function deriveSpecNameFromPath(specPath: string): string {
 
 function readRemoteHeadBranch(projectRoot: string): string | null {
   try {
-    const output = execFileSync(
-      "git",
-      ["ls-remote", "--symref", "origin", "HEAD"],
-      {
-        cwd: projectRoot,
-        env: process.env,
-        stdio: "pipe",
-        encoding: "utf8",
-      },
-    );
+    const output = execFileSync("git", ["ls-remote", "--symref", "origin", "HEAD"], {
+      cwd: projectRoot,
+      env: process.env,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
     for (const line of output.split("\n")) {
       const match = /^ref:\s+refs\/heads\/([^\s]+)\s+HEAD$/.exec(line.trim());
       if (match?.[1]) {
@@ -537,16 +454,12 @@ function readRemoteHeadBranch(projectRoot: string): string | null {
 
 function readRemoteHeadSha(projectRoot: string, ref: string): string | null {
   try {
-    const output = execFileSync(
-      "git",
-      ["ls-remote", "--heads", "origin", ref],
-      {
-        cwd: projectRoot,
-        env: process.env,
-        stdio: "pipe",
-        encoding: "utf8",
-      },
-    );
+    const output = execFileSync("git", ["ls-remote", "--heads", "origin", ref], {
+      cwd: projectRoot,
+      env: process.env,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
     const firstLine = output
       .split("\n")
       .map((line) => line.trim())
@@ -586,16 +499,12 @@ export function maybeWarnAboutUnmergedPlanBranch(args: {
     return;
   }
 
-  const mergeCheck = spawnSync(
-    "git",
-    ["merge-base", "--is-ancestor", planSha, defaultSha],
-    {
-      cwd: args.projectRoot,
-      env: process.env,
-      stdio: "pipe",
-      encoding: "utf8",
-    },
-  );
+  const mergeCheck = spawnSync("git", ["merge-base", "--is-ancestor", planSha, defaultSha], {
+    cwd: args.projectRoot,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  });
   if (mergeCheck.status !== 1) {
     return;
   }
@@ -618,11 +527,7 @@ function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
   return agents;
 }
 
-function setupLogging(
-  opts: RunCommandOptions,
-  preflight: PreflightOk,
-  logClient: LogClient,
-): LoggingContext {
+function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, logClient: LogClient): LoggingContext {
   const cfg = preflight.cfg;
 
   const specDisplayName = getSpecDisplayName(preflight.specPath);
@@ -643,33 +548,17 @@ function setupLogging(
         kind: record.kind,
         exit_reason: record.exitReason,
         ...(record.usage !== undefined ? { usage: record.usage } : {}),
-        ...(record.usage_source !== undefined
-          ? { usage_source: record.usage_source }
-          : {}),
+        ...(record.usage_source !== undefined ? { usage_source: record.usage_source } : {}),
         ...(record.cost_usd !== undefined ? { cost_usd: record.cost_usd } : {}),
-        ...(record.cost_source !== undefined
-          ? { cost_source: record.cost_source }
-          : {}),
+        ...(record.cost_source !== undefined ? { cost_source: record.cost_source } : {}),
         ...(record.warnings !== undefined ? { warnings: record.warnings } : {}),
-        ...(record.record_role !== undefined
-          ? { record_role: record.record_role }
-          : {}),
-        ...(record.configured_model !== undefined
-          ? { configured_model: record.configured_model }
-          : {}),
-        ...(record.patch_phase !== undefined
-          ? { patch_phase: record.patch_phase }
-          : {}),
-        ...(record.watchdog_pgid !== undefined
-          ? { watchdog_pgid: record.watchdog_pgid }
-          : {}),
+        ...(record.record_role !== undefined ? { record_role: record.record_role } : {}),
+        ...(record.configured_model !== undefined ? { configured_model: record.configured_model } : {}),
+        ...(record.patch_phase !== undefined ? { patch_phase: record.patch_phase } : {}),
+        ...(record.watchdog_pgid !== undefined ? { watchdog_pgid: record.watchdog_pgid } : {}),
       });
       telemetryWrites = true;
-      if (
-        record.kind === "ok" &&
-        record.agent !== "harness" &&
-        record.record_role !== "run_terminal"
-      ) {
+      if (record.kind === "ok" && record.agent !== "harness" && record.record_role !== "run_terminal") {
         patchIterationsCompletedForSummary += 1;
       }
     } catch {
@@ -701,11 +590,7 @@ function setupLogging(
     writeSync(sessionFd, stamped, undefined, "utf8");
   };
 
-  const writeLog = (
-    tag: LogTag,
-    text: string,
-    annotations?: LogAnnotations,
-  ): void => {
+  const writeLog = (tag: LogTag, text: string, annotations?: LogAnnotations): void => {
     for (const line of splitLines(text)) {
       writeSessionLine(tag, line);
       sendLog(tag, line, annotations);
@@ -737,8 +622,7 @@ function setupLogging(
     runNamespace,
     specDisplayName,
     hasTelemetryWrites: () => telemetryWrites,
-    patchIterationsCompletedForSummary: () =>
-      patchIterationsCompletedForSummary,
+    patchIterationsCompletedForSummary: () => patchIterationsCompletedForSummary,
   };
 }
 
@@ -822,15 +706,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
 
   if (isIndexSpec && iteration > cfg.maxIterations) {
-    printBoundedTail(opts, [
-      ...state.latestIterationStdout,
-      ...state.latestIterationStderr,
-    ]);
-    fanout(
-      "harness",
-      `max iterations (${cfg.maxIterations}) reached; stopping\n`,
-      "stderr",
-    );
+    printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
+    fanout("harness", `max iterations (${cfg.maxIterations}) reached; stopping\n`, "stderr");
     writeTelemetry({
       agent: "harness",
       iteration,
@@ -865,31 +742,21 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     return { kind: "return", exitCode: 2 };
   }
 
-  const configuredPatchModelEntry = cfg.modes.patch.agentOrder.find(
-    (entry) => entry.agent === agent.name,
-  );
+  const configuredPatchModelEntry = cfg.modes.patch.agentOrder.find((entry) => entry.agent === agent.name);
   const telemetryMeta =
-    configuredPatchModelEntry?.model !== undefined
-      ? { configured_model: configuredPatchModelEntry.model }
-      : {};
+    configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
   const configuredPatchModel = configuredPatchModelEntry?.model;
 
   const task = getFirstUncheckedTask(specPath);
   const taskExcerpt = task.line.slice(0, 140);
-  const activeSubspecPath = isIndexSpec
-    ? getActiveLinkedSubspecPath(specPath)
-    : undefined;
+  const activeSubspecPath = isIndexSpec ? getActiveLinkedSubspecPath(specPath) : undefined;
 
   // Check if the active subspec already has a blocker at the start
   if (activeSubspecPath !== undefined) {
-    const parsedSubspec = parsePatchSpec(
-      readFileSync(activeSubspecPath, "utf8"),
-    );
+    const parsedSubspec = parsePatchSpec(readFileSync(activeSubspecPath, "utf8"));
     if (parsedSubspec.blocker !== undefined) {
       const blockerBody = parsedSubspec.blocker;
-      const blockerText = blockerBody
-        ? `${activeSubspecPath}\n\n${blockerBody}`
-        : activeSubspecPath;
+      const blockerText = blockerBody ? `${activeSubspecPath}\n\n${blockerBody}` : activeSubspecPath;
       fanout("harness", `${blockerText}\n`, "stderr");
       writeTelemetry({
         agent: agent.name,
@@ -911,9 +778,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
     if (beforeCriteria.length === 0) {
       const warningsSuffix =
-        beforeParse.warnings.length === 0
-          ? ""
-          : ` Parser warnings:\n- ${beforeParse.warnings.join("\n- ")}`;
+        beforeParse.warnings.length === 0 ? "" : ` Parser warnings:\n- ${beforeParse.warnings.join("\n- ")}`;
       fanout(
         "harness",
         `active subspec ${activeSubspecPath} has no \`## Acceptance criteria\` checkboxes; jarvis cannot detect completion. Add an acceptance-criteria checklist to the subspec and rerun.${warningsSuffix}\n`,
@@ -932,8 +797,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     currentTaskTotal: task.total,
     agent: agent.name,
   });
-  const projectSiblings =
-    preflight.cfg.projects[preflight.project.key]?.siblings;
+  const projectSiblings = preflight.cfg.projects[preflight.project.key]?.siblings;
   const prompt = buildPrompt(specPath, projectSiblings);
   fanout("outbound", prompt, null, {
     iteration,
@@ -973,9 +837,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   try {
     const result = await agent.run(prompt, {
       cwd: agentWorkingDir,
-      ...(preflight.additionalReadDirs === undefined
-        ? {}
-        : { additionalReadDirs: preflight.additionalReadDirs }),
+      ...(preflight.additionalReadDirs === undefined ? {} : { additionalReadDirs: preflight.additionalReadDirs }),
       signal: state.currentController.signal,
       abortKillGraceMs: killGraceMs,
       onSpawned: ({ pid }) => {
@@ -984,23 +846,14 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     });
 
     // Check for iteration timeout
-    if (
-      result.kind === "error" &&
-      result.stderr.includes("aborted: iteration-timeout")
-    ) {
-      fanout(
-        "harness",
-        `iteration ${iteration} exceeded timeout of ${cfg.iterationTimeoutMs}ms\n`,
-        "stderr",
-      );
+    if (result.kind === "error" && result.stderr.includes("aborted: iteration-timeout")) {
+      fanout("harness", `iteration ${iteration} exceeded timeout of ${cfg.iterationTimeoutMs}ms\n`, "stderr");
       writeTelemetry({
         agent: agent.name,
         iteration,
         durationMs: iterationDurationMs(),
         kind: "timeout",
-        exitReason: watchdogFired
-          ? "watchdog-iteration-timeout"
-          : "iteration-timeout",
+        exitReason: watchdogFired ? "watchdog-iteration-timeout" : "iteration-timeout",
         ...telemetryMeta,
         ...(watchdogPgid !== null ? { watchdog_pgid: watchdogPgid } : {}),
       });
@@ -1008,15 +861,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     }
 
     // Check for global run timeout
-    if (
-      result.kind === "error" &&
-      result.stderr.includes("aborted: run-timeout")
-    ) {
+    if (result.kind === "error" && result.stderr.includes("aborted: run-timeout")) {
       fanout(
         "harness",
-        cfg.runTimeoutMs
-          ? `run exceeded timeout of ${cfg.runTimeoutMs}ms\n`
-          : "run timeout\n",
+        cfg.runTimeoutMs ? `run exceeded timeout of ${cfg.runTimeoutMs}ms\n` : "run timeout\n",
         "stderr",
       );
       writeTelemetry({
@@ -1037,26 +885,14 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
 
     const afterSpecPath = refreshActiveSpecPath(preflight);
     const afterSubspecPath =
-      activeSubspecPath === undefined
-        ? undefined
-        : findRelocatedSpecFile(activeSubspecPath, agentWorkingDir);
+      activeSubspecPath === undefined ? undefined : findRelocatedSpecFile(activeSubspecPath, agentWorkingDir);
 
     if (result.kind === "ok") {
       // Extract usage and cost data from the agent result
-      const usageCost = extractUsageAndCost(
-        result,
-        agent.name,
-        configuredPatchModel,
-      );
+      const usageCost = extractUsageAndCost(result, agent.name, configuredPatchModel);
       const iterationWarnings =
-        result.warnings !== undefined && result.warnings.length > 0
-          ? result.warnings
-          : undefined;
-      if (
-        agent.name === "opencode" &&
-        usageCost.usage_source === "unavailable" &&
-        !state.opencodeUnavailableNoted
-      ) {
+        result.warnings !== undefined && result.warnings.length > 0 ? result.warnings : undefined;
+      if (agent.name === "opencode" && usageCost.usage_source === "unavailable" && !state.opencodeUnavailableNoted) {
         fanout(
           "harness",
           "opencode: token usage not available for this CLI version (recording usage as unavailable)\n",
@@ -1064,11 +900,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         );
         state.opencodeUnavailableNoted = true;
       }
-      if (
-        agent.name === "cursor" &&
-        usageCost.usage_source === "unavailable" &&
-        !state.cursorUnavailableNoted
-      ) {
+      if (agent.name === "cursor" && usageCost.usage_source === "unavailable" && !state.cursorUnavailableNoted) {
         fanout(
           "harness",
           "cursor: token usage not available for this CLI version (recording usage as unavailable)\n",
@@ -1102,25 +934,17 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       let subspecProgressed = false;
       if (afterSubspecPath !== undefined) {
         const afterCriteria = snapshotAcceptanceCriteria(afterSubspecPath);
-        const newlyChecked = diffAcceptanceCriteria(
-          beforeCriteria,
-          afterCriteria,
-        );
-        const allChecked =
-          afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
+        const newlyChecked = diffAcceptanceCriteria(beforeCriteria, afterCriteria);
+        const allChecked = afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
         const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
         // Check if a blocker was added during this iteration
-        const afterParse = parsePatchSpec(
-          readFileSync(afterSubspecPath, "utf8"),
-        );
+        const afterParse = parsePatchSpec(readFileSync(afterSubspecPath, "utf8"));
         const hasBlockerNow = afterParse.blocker !== undefined;
         if (hasBlockerNow && !hasBlockerBefore) {
           const blockerBody = afterParse.blocker;
           if (!blockerBody) {
-            throw new Error(
-              `Blocker section added but body is missing in ${afterSubspecPath}`,
-            );
+            throw new Error(`Blocker section added but body is missing in ${afterSubspecPath}`);
           }
 
           if (gitEnabled) {
@@ -1135,11 +959,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              fanout(
-                "harness",
-                `failed to commit blocker for ${afterSubspecPath}: ${message}\n`,
-                "stderr",
-              );
+              fanout("harness", `failed to commit blocker for ${afterSubspecPath}: ${message}\n`, "stderr");
               return { kind: "return", exitCode: 1 };
             }
 
@@ -1148,13 +968,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 const firstPush = !hasUpstream(agentWorkingDir);
                 pushCurrent({ cwd: agentWorkingDir, firstPush });
               } catch (err) {
-                const message =
-                  err instanceof Error ? err.message : String(err);
-                fanout(
-                  "harness",
-                  `failed to push blocker commit for ${afterSubspecPath}: ${message}\n`,
-                  "stderr",
-                );
+                const message = err instanceof Error ? err.message : String(err);
+                fanout("harness", `failed to push blocker commit for ${afterSubspecPath}: ${message}\n`, "stderr");
                 return { kind: "return", exitCode: 1 };
               }
             }
@@ -1182,11 +997,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              fanout(
-                "harness",
-                `failed to commit completed subspec ${afterSubspecPath}: ${message}\n`,
-                "stderr",
-              );
+              fanout("harness", `failed to commit completed subspec ${afterSubspecPath}: ${message}\n`, "stderr");
               return { kind: "return", exitCode: 1 };
             }
 
@@ -1195,13 +1006,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 const firstPush = !hasUpstream(agentWorkingDir);
                 pushCurrent({ cwd: agentWorkingDir, firstPush });
               } catch (err) {
-                const message =
-                  err instanceof Error ? err.message : String(err);
-                fanout(
-                  "harness",
-                  `failed to push completed subspec ${afterSubspecPath}: ${message}\n`,
-                  "stderr",
-                );
+                const message = err instanceof Error ? err.message : String(err);
+                fanout("harness", `failed to push completed subspec ${afterSubspecPath}: ${message}\n`, "stderr");
                 return { kind: "return", exitCode: 1 };
               }
 
@@ -1250,13 +1056,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                       },
                     });
                   } catch (err) {
-                    const message =
-                      err instanceof Error ? err.message : String(err);
-                    fanout(
-                      "harness",
-                      `failed to update PR body for ${afterSubspecPath}: ${message}\n`,
-                      "stderr",
-                    );
+                    const message = err instanceof Error ? err.message : String(err);
+                    fanout("harness", `failed to update PR body for ${afterSubspecPath}: ${message}\n`, "stderr");
                   }
                 }
                 maybeMarkReady({
@@ -1265,8 +1066,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                   agentLabel: agent.attributionLabel(),
                 });
               } catch (err) {
-                const message =
-                  err instanceof Error ? err.message : String(err);
+                const message = err instanceof Error ? err.message : String(err);
                 fanout(
                   "harness",
                   `failed to update PR for completed subspec ${afterSubspecPath}: ${message}\n`,
@@ -1290,11 +1090,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              fanout(
-                "harness",
-                `failed to commit WIP progress for ${afterSubspecPath}: ${message}\n`,
-                "stderr",
-              );
+              fanout("harness", `failed to commit WIP progress for ${afterSubspecPath}: ${message}\n`, "stderr");
               return { kind: "return", exitCode: 1 };
             }
           }
@@ -1303,9 +1099,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
             const blocker = worktreeCompletionBlocker(agentWorkingDir);
             if (blocker !== undefined) {
               const unchecked = afterCriteria.filter((c) => !c.checked);
-              const unmetList = unchecked
-                .map((c) => `  - ${c.text}`)
-                .join("\n");
+              const unmetList = unchecked.map((c) => `  - ${c.text}`).join("\n");
               const worktreeName = basename(agentWorkingDir);
               fanout(
                 "harness",
@@ -1327,9 +1121,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           exitReason: "criteria-complete",
           ...telemetryMeta,
           ...usageCost,
-          ...(iterationWarnings !== undefined
-            ? { warnings: iterationWarnings }
-            : {}),
+          ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
         });
         // tryFinishSpecIfDone returns null only when countUnchecked !== 0;
         // we just observed after === 0 so it returns 0 (spec complete) or 6
@@ -1347,11 +1139,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         return { kind: "return", exitCode: done };
       }
       if (!isIndexSpec) {
-        fanout(
-          "harness",
-          "one-iteration run finished with unchecked tasks remaining\n",
-          "stdout",
-        );
+        fanout("harness", "one-iteration run finished with unchecked tasks remaining\n", "stdout");
         writeTelemetry({
           agent: agent.name,
           iteration,
@@ -1360,22 +1148,13 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           exitReason: "criteria-progress",
           ...telemetryMeta,
           ...usageCost,
-          ...(iterationWarnings !== undefined
-            ? { warnings: iterationWarnings }
-            : {}),
+          ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
         });
         return { kind: "return", exitCode: 0 };
       }
       if (after === before && !subspecCompleted && !subspecProgressed) {
-        printBoundedTail(opts, [
-          ...state.latestIterationStdout,
-          ...state.latestIterationStderr,
-        ]);
-        fanout(
-          "harness",
-          `iteration ${iteration} made no progress; stopping\n`,
-          "stderr",
-        );
+        printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
+        fanout("harness", `iteration ${iteration} made no progress; stopping\n`, "stderr");
         writeTelemetry({
           agent: agent.name,
           iteration,
@@ -1384,9 +1163,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           exitReason: "no-progress",
           ...telemetryMeta,
           ...usageCost,
-          ...(iterationWarnings !== undefined
-            ? { warnings: iterationWarnings }
-            : {}),
+          ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
         });
         return { kind: "return", exitCode: 4 };
       }
@@ -1398,20 +1175,14 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         exitReason: "criteria-progress",
         ...telemetryMeta,
         ...usageCost,
-        ...(iterationWarnings !== undefined
-          ? { warnings: iterationWarnings }
-          : {}),
+        ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
       });
       state.iteration += 1;
       return { kind: "continue" };
     }
     if (result.kind === "quota") {
       activeAgents.shift();
-      fanout(
-        "harness",
-        `${agent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`,
-        "stderr",
-      );
+      fanout("harness", `${agent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
       if (activeAgents.length === 0) {
         fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
         writeTelemetry({
@@ -1436,15 +1207,11 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       return { kind: "continue" };
     }
     if (result.kind === "model_config") {
-      const entry = cfg.modes.patch.agentOrder.find(
-        (e) => e.agent === agent.name,
-      );
+      const entry = cfg.modes.patch.agentOrder.find((e) => e.agent === agent.name);
       const configErr = `${agent.name}: configured patch model ${JSON.stringify(entry?.model)} is not supported by this CLI/account\n`;
       fanout("harness", configErr, "stderr");
       if (result.stderr.length > 0) {
-        const stderr = result.stderr.endsWith("\n")
-          ? result.stderr
-          : `${result.stderr}\n`;
+        const stderr = result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`;
         fanout("harness", stderr, "stderr");
       }
       writeTelemetry({
@@ -1461,13 +1228,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     let checkedAnyCriteria = false;
     if (afterSubspecPath !== undefined) {
       const afterCriteria = snapshotAcceptanceCriteria(afterSubspecPath);
-      checkedAnyCriteria =
-        diffAcceptanceCriteria(beforeCriteria, afterCriteria).length > 0;
+      checkedAnyCriteria = diffAcceptanceCriteria(beforeCriteria, afterCriteria).length > 0;
     }
     const isGitWorktree = existsSync(join(agentWorkingDir, ".git"));
-    const editedFiles = isGitWorktree
-      ? worktreeCompletionBlocker(agentWorkingDir) !== undefined
-      : false;
+    const editedFiles = isGitWorktree ? worktreeCompletionBlocker(agentWorkingDir) !== undefined : false;
     const noIterationProgress = !checkedAnyCriteria && !editedFiles;
     const classified = applyQuotaFallbackWhenAllowed(
       agent.name,
@@ -1480,15 +1244,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     );
     if (classified.kind === "quota") {
       activeAgents.shift();
-      fanout(
-        "harness",
-        `${agent.name}: ${harnessQuotaFallbackLenientLine(result.exitCode)}\n`,
-        "stderr",
-      );
+      fanout("harness", `${agent.name}: ${harnessQuotaFallbackLenientLine(result.exitCode)}\n`, "stderr");
       if (result.stderr.length > 0) {
-        const stderr = result.stderr.endsWith("\n")
-          ? result.stderr
-          : `${result.stderr}\n`;
+        const stderr = result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`;
         fanout("harness", stderr, "stderr");
       }
       if (activeAgents.length === 0) {
@@ -1516,9 +1274,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     }
 
     if (result.stderr.length > 0) {
-      const stderr = result.stderr.endsWith("\n")
-        ? result.stderr
-        : `${result.stderr}\n`;
+      const stderr = result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`;
       fanout("harness", stderr, "stderr");
     }
     writeTelemetry({
@@ -1538,9 +1294,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   }
 }
 
-async function tryFinishSpecIfDone(
-  ctx: IterationContext,
-): Promise<number | null> {
+async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null> {
   const { preflight, logging } = ctx;
   if (countUnchecked(preflight.specPath) !== 0) {
     return null;
@@ -1667,10 +1421,7 @@ async function generatePrBody(
   });
 }
 
-function diffAcceptanceCriteria(
-  before: AcceptanceCriterion[],
-  after: AcceptanceCriterion[],
-): AcceptanceCriterion[] {
+function diffAcceptanceCriteria(before: AcceptanceCriterion[], after: AcceptanceCriterion[]): AcceptanceCriterion[] {
   const beforeByText = new Map(before.map((c) => [c.text, c.checked]));
   const newlyChecked: AcceptanceCriterion[] = [];
   for (const c of after) {
@@ -1697,23 +1448,16 @@ function lookupPrUrl(branch: string, cwd: string): string | null {
   }
 
   // PR exists, so look up the URL
-  const output = execFileSync(
-    "gh",
-    ["pr", "view", branch, "--json", "url", "-q", ".url"],
-    {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    },
-  );
+  const output = execFileSync("gh", ["pr", "view", branch, "--json", "url", "-q", ".url"], {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  });
   const url = output.trim();
   return url || null;
 }
 
-export function specOutsideWorktreeReadDirs(opts: {
-  specPath: string;
-  agentWorkingDir: string;
-}): string[] | undefined {
+export function specOutsideWorktreeReadDirs(opts: { specPath: string; agentWorkingDir: string }): string[] | undefined {
   const agentWorkingDir = resolve(opts.agentWorkingDir);
   const specPath = resolve(opts.specPath);
   const rel = relative(agentWorkingDir, specPath);
@@ -1724,18 +1468,12 @@ export function specOutsideWorktreeReadDirs(opts: {
 }
 
 function refreshActiveSpecPath(preflight: PreflightOk): string {
-  const activeSpecPath = findRelocatedSpecFile(
-    preflight.specPath,
-    preflight.agentWorkingDir,
-  );
+  const activeSpecPath = findRelocatedSpecFile(preflight.specPath, preflight.agentWorkingDir);
   preflight.specPath = activeSpecPath;
   return activeSpecPath;
 }
 
-function findRelocatedSpecFile(
-  previousPath: string,
-  searchRoot: string,
-): string {
+function findRelocatedSpecFile(previousPath: string, searchRoot: string): string {
   if (existsSync(previousPath)) {
     return previousPath;
   }
@@ -1743,22 +1481,12 @@ function findRelocatedSpecFile(
   const previousDirName = basename(dirname(previousPath));
   const previousFileName = basename(previousPath);
   const matches: string[] = [];
-  findRelocatedSpecFileMatches(
-    resolve(searchRoot),
-    previousDirName,
-    previousFileName,
-    matches,
-  );
+  findRelocatedSpecFileMatches(resolve(searchRoot), previousDirName, previousFileName, matches);
 
   return matches.length === 1 ? (matches[0] ?? previousPath) : previousPath;
 }
 
-function findRelocatedSpecFileMatches(
-  dir: string,
-  parentName: string,
-  fileName: string,
-  matches: string[],
-): void {
+function findRelocatedSpecFileMatches(dir: string, parentName: string, fileName: string, matches: string[]): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === ".git" || entry.name === "node_modules") {
       continue;
@@ -1770,11 +1498,7 @@ function findRelocatedSpecFileMatches(
       continue;
     }
 
-    if (
-      entry.isFile() &&
-      entry.name === fileName &&
-      basename(dirname(entryPath)) === parentName
-    ) {
+    if (entry.isFile() && entry.name === fileName && basename(dirname(entryPath)) === parentName) {
       matches.push(entryPath);
     }
   }

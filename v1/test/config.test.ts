@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  closeSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { closeSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -129,9 +122,7 @@ describe("loadConfig", () => {
       { agent: "codex", model: "gpt-5.3-codex" },
       { agent: "claude", model: "sonnet" },
     ]);
-    expect(cfg.modes.plan.agentOrder).toEqual([
-      { agent: "claude", model: "haiku" },
-    ]);
+    expect(cfg.modes.plan.agentOrder).toEqual([{ agent: "claude", model: "haiku" }]);
     expect(cfg.quotaFallback).toBe("strict");
     expect(cfg.maxIterations).toBe(7);
     expect(cfg.logServerUrl).toBe("http://127.0.0.1:4310/logs");
@@ -157,9 +148,7 @@ describe("loadConfig", () => {
     );
 
     const cfg = loadConfig({ dir });
-    expect(cfg.modes.patch.agentOrder).toEqual([
-      { agent: "aider", model: "ollama/llama3.1:8b" },
-    ]);
+    expect(cfg.modes.patch.agentOrder).toEqual([{ agent: "aider", model: "ollama/llama3.1:8b" }]);
   });
 
   test("defaults maxIterations when an existing config omits it", () => {
@@ -336,9 +325,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.patch\.agentOrder\[0\]\.model/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder\[0\]\.model/);
   });
 
   test("rejects agentOrder entry with empty model", () => {
@@ -354,9 +341,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.patch\.agentOrder\[0\]\.model/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder\[0\]\.model/);
   });
 
   test("rejects aider agentOrder entry with empty model", () => {
@@ -372,9 +357,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.patch\.agentOrder\[0\]\.model/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder\[0\]\.model/);
   });
 
   test("rejects agentOrder entry with non-string model", () => {
@@ -390,9 +373,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.patch\.agentOrder\[0\]\.model/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder\[0\]\.model/);
   });
 
   test("rejects agentOrder string entry (pre-{agent,model} v2)", () => {
@@ -420,9 +401,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /config version 1 is not supported/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/config version 1 is not supported/);
   });
 
   test("rejects config with legacy agentOrder key", () => {
@@ -515,9 +494,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.patch\.agents is no longer supported/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agents is no longer supported/);
   });
 
   test("rejects empty patch agentOrder", () => {
@@ -533,9 +510,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.patch\.agentOrder.*non-empty/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder.*non-empty/);
   });
 
   test("rejects empty plan agentOrder", () => {
@@ -550,9 +525,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.plan\.agentOrder.*non-empty/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.plan\.agentOrder.*non-empty/);
   });
 
   test("rejects duplicate agents in patch agentOrder", () => {
@@ -573,9 +546,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.patch\.agentOrder.*duplicate/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder.*duplicate/);
   });
 
   test("rejects duplicate aider entries in patch agentOrder", () => {
@@ -596,9 +567,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.patch\.agentOrder.*duplicate/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder.*duplicate/);
   });
 
   test("rejects duplicate agents in plan agentOrder", () => {
@@ -619,9 +588,7 @@ describe("loadConfig", () => {
         projects: {},
       }),
     );
-    expect(() => loadConfig({ dir })).toThrow(
-      /modes\.plan\.agentOrder.*duplicate/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/modes\.plan\.agentOrder.*duplicate/);
   });
 
   test("rejects unknown agent", () => {
@@ -779,22 +746,16 @@ describe("registerProject / findProjectForPath", () => {
 
   test("registerProject refuses duplicate root under a different name", () => {
     registerProject("a", "/tmp/jarvis-dup", { dir });
-    expect(() => registerProject("b", "/tmp/jarvis-dup", { dir })).toThrow(
-      /already registered/,
-    );
+    expect(() => registerProject("b", "/tmp/jarvis-dup", { dir })).toThrow(/already registered/);
   });
 
   test("findProjectForPath picks the longest matching root", () => {
     registerProject("outer", "/tmp/jarvis-outer", { dir });
     registerProject("inner", "/tmp/jarvis-outer/inner", { dir });
-    expect(
-      findProjectForPath("/tmp/jarvis-outer/inner/file.md", { dir }),
-    ).toEqual({
+    expect(findProjectForPath("/tmp/jarvis-outer/inner/file.md", { dir })).toEqual({
       root: "/tmp/jarvis-outer/inner",
     });
-    expect(
-      findProjectForPath("/tmp/jarvis-outer/other/file.md", { dir }),
-    ).toEqual({
+    expect(findProjectForPath("/tmp/jarvis-outer/other/file.md", { dir })).toEqual({
       root: "/tmp/jarvis-outer",
     });
   });
@@ -818,13 +779,11 @@ describe("registerProject / findProjectForPath", () => {
       dir,
       origin: "git@github.com:you/app.git",
     });
-    expect(findProjectMatchForPath("/tmp/jarvis-with-origin", { dir })).toEqual(
-      {
-        key: "with-origin",
-        root: "/tmp/jarvis-with-origin",
-        origin: "git@github.com:you/app.git",
-      },
-    );
+    expect(findProjectMatchForPath("/tmp/jarvis-with-origin", { dir })).toEqual({
+      key: "with-origin",
+      root: "/tmp/jarvis-with-origin",
+      origin: "git@github.com:you/app.git",
+    });
   });
 
   test("setProjectOrigin updates an existing project's origin", () => {
@@ -1113,9 +1072,7 @@ describe("git toggle", () => {
     expect(loadConfig({ dir }).projects.app).toEqual({
       root: "/tmp/jarvis-git-set",
     });
-    expect(() => setProjectGit("ghost", true, { dir })).toThrow(
-      /not registered/,
-    );
+    expect(() => setProjectGit("ghost", true, { dir })).toThrow(/not registered/);
   });
 
   test("setProjectGit preserves origin, siblings, and plan fields", () => {
@@ -1284,9 +1241,7 @@ describe("openSessionLog", () => {
     const fd = openSessionLog("project-name", "2026-05-10T14:30Z", { dir });
     try {
       expect(existsSync(join(dir, "sessions"))).toBe(true);
-      expect(
-        existsSync(join(dir, "sessions", "project-name-2026-05-10T14:30Z.log")),
-      ).toBe(true);
+      expect(existsSync(join(dir, "sessions", "project-name-2026-05-10T14:30Z.log"))).toBe(true);
     } finally {
       closeSync(fd);
     }
@@ -1415,9 +1370,7 @@ describe("plan flags", () => {
       }),
     );
     expect(() => loadConfig({ dir })).toThrow(file);
-    expect(() => loadConfig({ dir })).toThrow(
-      /plan\.specTimestamp must be a boolean/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/plan\.specTimestamp must be a boolean/);
   });
 
   test("rejects non-boolean project plan.commit", () => {
@@ -1576,9 +1529,7 @@ describe("plan flags", () => {
     );
     expect(() => loadConfig({ dir })).toThrow(/myproject/);
     expect(() => loadConfig({ dir })).toThrow(/oringn/);
-    expect(() => loadConfig({ dir })).toThrow(
-      /root, origin, git, siblings, plan/,
-    );
+    expect(() => loadConfig({ dir })).toThrow(/root, origin, git, siblings, plan/);
   });
 
   test("rejects unknown keys under project.plan", () => {

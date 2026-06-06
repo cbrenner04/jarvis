@@ -8,9 +8,7 @@ import type { InvocationBinding } from "./execute.ts";
  * so the control flow is exercisable without a faked success path leaking into
  * production code — tests inject their own bindings instead.
  */
-export function createAgentBindings(
-  agentIds: readonly string[],
-): readonly InvocationBinding[] {
+export function createAgentBindings(agentIds: readonly string[]): readonly InvocationBinding[] {
   return agentIds.map((id) => ({
     id,
     invoke: async () => ({

@@ -62,16 +62,7 @@ describe("parseArgs", () => {
   });
 
   test("run with --repo and --max-iterations", () => {
-    expect(
-      parseArgs([
-        "run",
-        "--repo",
-        "owner/repo",
-        "--max-iterations",
-        "2",
-        "./spec.md",
-      ]),
-    ).toEqual({
+    expect(parseArgs(["run", "--repo", "owner/repo", "--max-iterations", "2", "./spec.md"])).toEqual({
       kind: "run",
       specPath: "./spec.md",
       maxIterations: "2",
@@ -217,20 +208,13 @@ describe("run", () => {
     expect(cap.err()).toContain("spec path does not exist");
   });
 
-  test.each([
-    "0",
-    "-1",
-    "abc",
-  ])("invalid --max-iterations %s exits before the loop", async (value) => {
+  test.each(["0", "-1", "abc"])("invalid --max-iterations %s exits before the loop", async (value) => {
     const cap = captureIo();
-    const code = await run(
-      ["run", "--max-iterations", value, "./somewhere.md"],
-      {
-        io: cap.io,
-        config: { dir: cfgDir },
-        run: { agents: {}, handleSignals: false },
-      },
-    );
+    const code = await run(["run", "--max-iterations", value, "./somewhere.md"], {
+      io: cap.io,
+      config: { dir: cfgDir },
+      run: { agents: {}, handleSignals: false },
+    });
 
     expect(code).toBe(1);
     expect(cap.err()).toContain("--max-iterations must be a positive integer");

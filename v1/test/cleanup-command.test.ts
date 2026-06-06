@@ -1,13 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CleanupIo, cleanupCommand } from "../src/commands/cleanup.ts";
@@ -132,9 +125,7 @@ describe("cleanupCommand", () => {
     expect(existsSync(worktreePath)).toBe(false);
     expect(existsSync(source)).toBe(false);
     expect(existsSync(destination)).toBe(true);
-    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe(
-      "# patch\n",
-    );
+    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# patch\n");
     expect(
       execSync("git show --name-status --pretty=format:%s HEAD", {
         cwd: projectRoot,
@@ -149,14 +140,11 @@ describe("cleanupCommand", () => {
         encoding: "utf8",
       }).trim(),
     ).toMatch(/^(.*?)\n\1$/);
-    const committedRename = execSync(
-      "git show --name-status --pretty=format: HEAD",
-      {
-        cwd: projectRoot,
-        stdio: "pipe",
-        encoding: "utf8",
-      },
-    );
+    const committedRename = execSync("git show --name-status --pretty=format: HEAD", {
+      cwd: projectRoot,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
     expect(committedRename).toContain("A\tspec/completed/patch-spec/index.md");
     expect(committedRename).not.toContain("README.md");
   });
@@ -186,13 +174,7 @@ describe("cleanupCommand", () => {
     const timestampedName = `2026-05-23T17-53-16Z-${name}`;
     const worktreePath = createTrackedPlanWorktree(name);
     const source = join(projectRoot, "v1", "spec", timestampedName);
-    const destination = join(
-      projectRoot,
-      "v1",
-      "spec",
-      "completed",
-      timestampedName,
-    );
+    const destination = join(projectRoot, "v1", "spec", "completed", timestampedName);
     mkdirSync(source, { recursive: true });
     writeFileSync(join(source, "index.md"), "# plan\n");
 
@@ -270,12 +252,7 @@ describe("cleanupCommand", () => {
     createTrackedWorktree("ok-spec");
 
     const collidingSource = join(projectRoot, "spec", "collide-spec");
-    const collidingDestination = join(
-      projectRoot,
-      "spec",
-      "completed",
-      "collide-spec",
-    );
+    const collidingDestination = join(projectRoot, "spec", "completed", "collide-spec");
     const okSource = join(projectRoot, "spec", "ok-spec");
     const okDestination = join(projectRoot, "spec", "completed", "ok-spec");
 
@@ -396,17 +373,12 @@ describe("cleanupCommand", () => {
     expect(existsSync(source)).toBe(false);
     expect(existsSync(destination)).toBe(true);
 
-    const committedRename = execSync(
-      "git show --name-status --pretty=format: HEAD",
-      {
-        cwd: projectRoot,
-        stdio: "pipe",
-        encoding: "utf8",
-      },
-    );
-    expect(committedRename).toContain(
-      "A\tspec/completed/scoped-stage-spec/index.md",
-    );
+    const committedRename = execSync("git show --name-status --pretty=format: HEAD", {
+      cwd: projectRoot,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    expect(committedRename).toContain("A\tspec/completed/scoped-stage-spec/index.md");
     expect(committedRename).not.toContain("README.md");
     expect(committedRename).not.toContain("scratch.txt");
 

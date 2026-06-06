@@ -56,72 +56,37 @@ describe("renderAttribution", () => {
   });
 
   test("returns empty string when only WIP commits exist (no subspec body line)", () => {
-    commitWithMessage(
-      "a.txt",
-      "WIP: progress\n\nNo Spec: line here\n\nJarvis-Agent: Claude Opus 4.7",
-    );
+    commitWithMessage("a.txt", "WIP: progress\n\nNo Spec: line here\n\nJarvis-Agent: Claude Opus 4.7");
     expect(renderAttribution({ cwd: dir, base: "base" })).toBe("");
   });
 
   test("renders one bullet with single label and collapsed summary line", () => {
-    commitWithMessage(
-      "a.txt",
-      "First subspec\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.7",
-    );
+    commitWithMessage("a.txt", "First subspec\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.7");
     const sha = shortSha("HEAD");
     expect(renderAttribution({ cwd: dir, base: "base" })).toBe(
-      [
-        `- ${sha} First subspec \u2014 Claude Opus 4.7`,
-        "",
-        "Written by Claude Opus 4.7 through Jarvis.",
-      ].join("\n"),
+      [`- ${sha} First subspec \u2014 Claude Opus 4.7`, "", "Written by Claude Opus 4.7 through Jarvis."].join("\n"),
     );
   });
 
   test("collapses summary line when many commits share one label", () => {
-    commitWithMessage(
-      "a.txt",
-      "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.7",
-    );
-    commitWithMessage(
-      "b.txt",
-      "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Claude Opus 4.7",
-    );
+    commitWithMessage("a.txt", "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.7");
+    commitWithMessage("b.txt", "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Claude Opus 4.7");
     const out = renderAttribution({ cwd: dir, base: "base" });
     expect(out).toContain("Written by Claude Opus 4.7 through Jarvis.");
     expect(out).not.toContain(",");
   });
 
   test("lists multiple distinct labels in first-appearance order, deduped", () => {
-    commitWithMessage(
-      "a.txt",
-      "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.7",
-    );
-    commitWithMessage(
-      "b.txt",
-      "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Codex GPT-5.3",
-    );
-    commitWithMessage(
-      "c.txt",
-      "Third\n\nSpec: spec/foo/02-third.md\n\nJarvis-Agent: Claude Opus 4.7",
-    );
-    commitWithMessage(
-      "d.txt",
-      "Fourth\n\nSpec: spec/foo/03-fourth.md\n\nJarvis-Agent: Cursor Composer 2",
-    );
+    commitWithMessage("a.txt", "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.7");
+    commitWithMessage("b.txt", "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Codex GPT-5.3");
+    commitWithMessage("c.txt", "Third\n\nSpec: spec/foo/02-third.md\n\nJarvis-Agent: Claude Opus 4.7");
+    commitWithMessage("d.txt", "Fourth\n\nSpec: spec/foo/03-fourth.md\n\nJarvis-Agent: Cursor Composer 2");
     const out = renderAttribution({ cwd: dir, base: "base" });
-    expect(
-      out.endsWith(
-        "Written by Claude Opus 4.7, Codex GPT-5.3, Cursor Composer 2 through Jarvis.",
-      ),
-    ).toBe(true);
+    expect(out.endsWith("Written by Claude Opus 4.7, Codex GPT-5.3, Cursor Composer 2 through Jarvis.")).toBe(true);
   });
 
   test("renders 'unknown' for commits missing the trailer", () => {
-    commitWithMessage(
-      "a.txt",
-      "No-trailer subspec\n\nSpec: spec/foo/00-first.md\n",
-    );
+    commitWithMessage("a.txt", "No-trailer subspec\n\nSpec: spec/foo/00-first.md\n");
     const sha = shortSha("HEAD");
     const out = renderAttribution({ cwd: dir, base: "base" });
     expect(out).toBe(`- ${sha} No-trailer subspec \u2014 unknown`);
@@ -131,10 +96,7 @@ describe("renderAttribution", () => {
 
   test("includes only labelled commits in summary; lists every commit in per-commit list", () => {
     commitWithMessage("a.txt", "Untrailed\n\nSpec: spec/foo/00-first.md\n");
-    commitWithMessage(
-      "b.txt",
-      "Labelled\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Claude Opus 4.7",
-    );
+    commitWithMessage("b.txt", "Labelled\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Claude Opus 4.7");
     const out = renderAttribution({ cwd: dir, base: "base" });
     expect(out).toContain("\u2014 unknown");
     expect(out).toContain("\u2014 Claude Opus 4.7");
@@ -142,18 +104,9 @@ describe("renderAttribution", () => {
   });
 
   test("filters WIP commits out of per-commit list even when they carry trailers", () => {
-    commitWithMessage(
-      "a.txt",
-      "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.7",
-    );
-    commitWithMessage(
-      "b.txt",
-      "WIP: noisy\n\nNot a spec body line\n\nJarvis-Agent: Claude Opus 4.7",
-    );
-    commitWithMessage(
-      "c.txt",
-      "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Codex GPT-5.3",
-    );
+    commitWithMessage("a.txt", "First\n\nSpec: spec/foo/00-first.md\n\nJarvis-Agent: Claude Opus 4.7");
+    commitWithMessage("b.txt", "WIP: noisy\n\nNot a spec body line\n\nJarvis-Agent: Claude Opus 4.7");
+    commitWithMessage("c.txt", "Second\n\nSpec: spec/foo/01-second.md\n\nJarvis-Agent: Codex GPT-5.3");
     const out = renderAttribution({ cwd: dir, base: "base" });
     const bullets = out.split("\n").filter((line) => line.startsWith("- "));
     expect(bullets).toHaveLength(2);
@@ -169,8 +122,6 @@ describe("renderAttribution", () => {
     );
     const sha = shortSha("HEAD");
     const out = renderAttribution({ cwd: dir, base: "base" });
-    expect(out.split("\n")[0]).toBe(
-      `- ${sha} First \u2014 Claude Opus 4.7, Codex GPT-5.3`,
-    );
+    expect(out.split("\n")[0]).toBe(`- ${sha} First \u2014 Claude Opus 4.7, Codex GPT-5.3`);
   });
 });

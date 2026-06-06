@@ -14,12 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runAgent } from "../src/agents/spawn.ts";
-import type {
-  Agent,
-  AgentName,
-  AgentResult,
-  AgentRunOptions,
-} from "../src/agents/types.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import {
@@ -57,19 +52,11 @@ class FakeAgent implements Agent {
   readonly name: AgentName;
   readonly calls: { prompt: string; cwd: string }[] = [];
   readonly callOpts: AgentRunOptions[] = [];
-  readonly #run: (
-    callCount: number,
-    prompt: string,
-    opts: AgentRunOptions,
-  ) => AgentResult | Promise<AgentResult>;
+  readonly #run: (callCount: number, prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>;
 
   constructor(
     name: AgentName,
-    run: (
-      callCount: number,
-      prompt: string,
-      opts: AgentRunOptions,
-    ) => AgentResult | Promise<AgentResult>,
+    run: (callCount: number, prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>,
   ) {
     this.name = name;
     this.#run = run;
@@ -260,10 +247,7 @@ describe("runCommand", () => {
       const spec = writeSpec("- [ ] one\n- [ ] two\n");
       const cap = captureIo();
       const claude = new FakeAgent("claude", (callCount) => {
-        writeFileSync(
-          spec,
-          callCount === 1 ? "- [x] one\n- [ ] two\n" : "- [x] one\n- [x] two\n",
-        );
+        writeFileSync(spec, callCount === 1 ? "- [x] one\n- [ ] two\n" : "- [x] one\n- [x] two\n");
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
@@ -374,9 +358,7 @@ describe("runCommand", () => {
       expect(code).toBe(0);
       const out = cap.out();
       expect(out).toContain("iterations: 1");
-      expect(out).toContain(
-        "1 quota attempt(s) under claude were excluded from usage totals.",
-      );
+      expect(out).toContain("1 quota attempt(s) under claude were excluded from usage totals.");
       expect(out).toContain(`codex (${CODEX_ENTRY.model})`);
       expect(out).not.toContain("claude (");
     });
@@ -511,10 +493,7 @@ describe("runCommand", () => {
       cwd: projectRoot,
     });
     execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    execSync(
-      "git remote add origin https://github.com/example/lazy-project.git",
-      { cwd: projectRoot },
-    );
+    execSync("git remote add origin https://github.com/example/lazy-project.git", { cwd: projectRoot });
     const spec = writeSpec("- [x] done\n");
     execSync("git add -A && git commit -m init", { cwd: projectRoot });
     const cap = captureIo();
@@ -649,9 +628,7 @@ describe("runCommand", () => {
         cwd: projectRoot,
       },
     ]);
-    expect(claude.calls[0]?.prompt).toContain(
-      "Inspect the target repo for guidance",
-    );
+    expect(claude.calls[0]?.prompt).toContain("Inspect the target repo for guidance");
     expect(claude.calls[0]?.prompt).toContain("Follow these Jarvis rules:");
     expect(claude.calls[0]?.prompt).not.toContain("Read README.md.");
   });
@@ -769,14 +746,10 @@ describe("runCommand", () => {
       });
 
       expect(code).toBe(0);
-      expect(claude.calls[0]?.prompt).toContain(
-        "Additional project sibling directories are available for this run:",
-      );
+      expect(claude.calls[0]?.prompt).toContain("Additional project sibling directories are available for this run:");
       expect(claude.calls[0]?.prompt).toContain(sibling1);
       expect(claude.calls[0]?.prompt).toContain(sibling2);
-      expect(claude.calls[0]?.prompt).toContain(
-        "Treat these directories as part of the target project",
-      );
+      expect(claude.calls[0]?.prompt).toContain("Treat these directories as part of the target project");
     } finally {
       rmSync(sibling1, { recursive: true, force: true });
       rmSync(sibling2, { recursive: true, force: true });
@@ -840,9 +813,7 @@ describe("runCommand", () => {
   });
 
   test("specs with relative repos fail clearly", async () => {
-    const spec = writeSpecWithoutRepo(
-      "# Feature\n\nrepo: ./project\n\n- [ ] todo\n",
-    );
+    const spec = writeSpecWithoutRepo("# Feature\n\nrepo: ./project\n\n- [ ] todo\n");
     const cap = captureIo();
 
     const code = await runWithDefaults({
@@ -911,12 +882,8 @@ describe("runCommand", () => {
 
     expect(code).toBe(0);
     const firstOutbound = messages.findIndex((m) => m.tag === "outbound");
-    const firstInboundOut = messages.findIndex(
-      (m) => m.tag === "inbound_stdout",
-    );
-    const firstInboundErr = messages.findIndex(
-      (m) => m.tag === "inbound_stderr",
-    );
+    const firstInboundOut = messages.findIndex((m) => m.tag === "inbound_stdout");
+    const firstInboundErr = messages.findIndex((m) => m.tag === "inbound_stderr");
     expect(firstOutbound).toBeGreaterThan(0);
     expect(firstInboundOut).toBeGreaterThan(firstOutbound);
     expect(firstInboundErr).toBeGreaterThan(firstOutbound);
@@ -927,10 +894,7 @@ describe("runCommand", () => {
     const sessionFiles = readdirSync(join(cfgDir, "sessions"));
     expect(sessionFiles).toHaveLength(1);
     expect(sessionFiles[0]).toContain("project:feature-");
-    const sessionBody = readFileSync(
-      join(cfgDir, "sessions", sessionFiles[0] as string),
-      "utf8",
-    );
+    const sessionBody = readFileSync(join(cfgDir, "sessions", sessionFiles[0] as string), "utf8");
     expect(sessionBody).toContain("[harness]");
     expect(sessionBody).toContain("[outbound]");
     expect(sessionBody).toContain("[inbound_stdout] out line");
@@ -984,10 +948,7 @@ describe("runCommand", () => {
     const spec = writeSpec("- [ ] one\n- [ ] two\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", (callCount) => {
-      writeFileSync(
-        spec,
-        callCount === 1 ? "- [x] one\n- [ ] two\n" : "- [x] one\n- [x] two\n",
-      );
+      writeFileSync(spec, callCount === 1 ? "- [x] one\n- [ ] two\n" : "- [x] one\n- [x] two\n");
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
@@ -1016,36 +977,19 @@ describe("runCommand", () => {
     const spec = join(specDir, "index.md");
     const firstSubspec = join(specDir, "00-one.md");
     const secondSubspec = join(specDir, "01-two.md");
-    writeFileSync(
-      spec,
-      withRepo(
-        "- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n",
-      ),
-    );
-    writeFileSync(
-      firstSubspec,
-      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n",
-    );
-    writeFileSync(
-      secondSubspec,
-      "# 01 - Two\n\n## Acceptance criteria\n\n- [ ] Two accepted.\n",
-    );
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n"));
+    writeFileSync(firstSubspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+    writeFileSync(secondSubspec, "# 01 - Two\n\n## Acceptance criteria\n\n- [ ] Two accepted.\n");
     execSync("git add -A && git commit -m init", { cwd: projectRoot });
 
     const cap = captureIo();
     const claude = new FakeAgent("claude", (callCount) => {
       if (callCount === 1) {
         writeFileSync(join(projectRoot, "one.txt"), "one\n");
-        writeFileSync(
-          firstSubspec,
-          "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n",
-        );
+        writeFileSync(firstSubspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n");
       } else {
         writeFileSync(join(projectRoot, "two.txt"), "two\n");
-        writeFileSync(
-          secondSubspec,
-          "# 01 - Two\n\n## Acceptance criteria\n\n- [x] Two accepted.\n",
-        );
+        writeFileSync(secondSubspec, "# 01 - Two\n\n## Acceptance criteria\n\n- [x] Two accepted.\n");
       }
       return { kind: "ok", stdout: "", stderr: "" };
     });
@@ -1060,9 +1004,7 @@ describe("runCommand", () => {
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(2);
-    expect(
-      execSync("git status --porcelain", { cwd: projectRoot }).toString(),
-    ).toBe("");
+    expect(execSync("git status --porcelain", { cwd: projectRoot }).toString()).toBe("");
     const subjects = execSync("git log --format=%s", {
       cwd: projectRoot,
       encoding: "utf8",
@@ -1077,9 +1019,7 @@ describe("runCommand", () => {
       encoding: "utf8",
     });
     expect(latestMessage).toContain("Spec: spec/feature/01-two.md");
-    expect(latestMessage).toContain(
-      "## Acceptance criteria\n\n- [x] Two accepted.",
-    );
+    expect(latestMessage).toContain("## Acceptance criteria\n\n- [x] Two accepted.");
   });
 
   test("tracks the active linked subspec when its spec directory moves", async () => {
@@ -1092,10 +1032,7 @@ describe("runCommand", () => {
     mkdirSync(specDir, { recursive: true });
     const spec = join(specDir, "index.md");
     writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-    writeFileSync(
-      join(specDir, "00-one.md"),
-      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Spec moved.\n",
-    );
+    writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Spec moved.\n");
     execSync("git add -A && git commit -m init", { cwd: projectRoot });
 
     const cap = captureIo();
@@ -1121,12 +1058,9 @@ describe("runCommand", () => {
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(1);
     expect(existsSync(spec)).toBe(false);
-    expect(
-      readFileSync(
-        join(projectRoot, "v1", "spec", "feature", "index.md"),
-        "utf8",
-      ),
-    ).toContain("- [x] [00 - One](./00-one.md)");
+    expect(readFileSync(join(projectRoot, "v1", "spec", "feature", "index.md"), "utf8")).toContain(
+      "- [x] [00 - One](./00-one.md)",
+    );
     expect(
       execSync("git log -1 --format=%B", {
         cwd: projectRoot,
@@ -1145,10 +1079,7 @@ describe("runCommand", () => {
     mkdirSync(specDir, { recursive: true });
     const spec = join(specDir, "index.md");
     writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-    writeFileSync(
-      join(specDir, "00-one.md"),
-      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n",
-    );
+    writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
     execSync("git add -A && git commit -m init", { cwd: projectRoot });
 
     const cap = captureIo();
@@ -1171,9 +1102,7 @@ describe("runCommand", () => {
     expect(cap.err()).toContain("- One accepted.");
     expect(cap.err()).toContain("Inspect the dirty worktree");
     expect(cap.err()).toContain("jarvis1 triage");
-    expect(readFileSync(spec, "utf8")).toContain(
-      "- [ ] [00 - One](./00-one.md)",
-    );
+    expect(readFileSync(spec, "utf8")).toContain("- [ ] [00 - One](./00-one.md)");
   });
 
   test("WIP-commits partial acceptance-criteria progress and re-iterates on the same subspec", async () => {
@@ -1221,9 +1150,7 @@ describe("runCommand", () => {
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(2);
-    expect(
-      execSync("git status --porcelain", { cwd: projectRoot }).toString(),
-    ).toBe("");
+    expect(execSync("git status --porcelain", { cwd: projectRoot }).toString()).toBe("");
     const subjects = execSync("git log --format=%s", {
       cwd: projectRoot,
       encoding: "utf8",
@@ -1251,10 +1178,7 @@ describe("runCommand", () => {
     mkdirSync(specDir, { recursive: true });
     const spec = join(specDir, "index.md");
     writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-    writeFileSync(
-      join(specDir, "00-one.md"),
-      "# 00 - One\n\nNo acceptance criteria section here.\n",
-    );
+    writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\nNo acceptance criteria section here.\n");
     execSync("git add -A && git commit -m init", { cwd: projectRoot });
 
     const cap = captureIo();
@@ -1285,10 +1209,7 @@ describe("runCommand", () => {
     mkdirSync(specDir, { recursive: true });
     const spec = join(specDir, "index.md");
     writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-    writeFileSync(
-      join(specDir, "00-one.md"),
-      "# 00 - One\n\n### Acceptance criteria\n\n- [ ] One accepted.\n",
-    );
+    writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n### Acceptance criteria\n\n- [ ] One accepted.\n");
     execSync("git add -A && git commit -m init", { cwd: projectRoot });
 
     const cap = captureIo();
@@ -1323,20 +1244,9 @@ describe("runCommand", () => {
     const specDir = join(projectRoot, "spec", "feature");
     mkdirSync(specDir, { recursive: true });
     const spec = join(specDir, "index.md");
-    writeFileSync(
-      spec,
-      withRepo(
-        "# Feature\n\n- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n",
-      ),
-    );
-    writeFileSync(
-      join(specDir, "00-one.md"),
-      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n",
-    );
-    writeFileSync(
-      join(specDir, "01-two.md"),
-      "# 01 - Two\n\n## Acceptance criteria\n\n- [ ] Two accepted.\n",
-    );
+    writeFileSync(spec, withRepo("# Feature\n\n- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n"));
+    writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+    writeFileSync(join(specDir, "01-two.md"), "# 01 - Two\n\n## Acceptance criteria\n\n- [ ] Two accepted.\n");
     execSync("git add -A && git commit -m init && git push -u origin main", {
       cwd: projectRoot,
     });
@@ -1505,21 +1415,12 @@ exit 1
     );
 
     expect(code).toBe(0);
-    expect(readFileSync(pushLog, "utf8").trim().split("\n")).toEqual([
-      "push -u origin feature",
-      "push",
-    ]);
+    expect(readFileSync(pushLog, "utf8").trim().split("\n")).toEqual(["push -u origin feature", "push"]);
     expect(readFileSync(prLog, "utf8").trim().split("\n")).toEqual(["create"]);
     expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(5);
-    expect(readFileSync(prEditLog, "utf8").trim().split("\n")).toEqual([
-      "edit",
-    ]);
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual([
-      "ready-gate",
-    ]);
-    expect(readFileSync(readyLog, "utf8").trim().split("\n")).toEqual([
-      "ready",
-    ]);
+    expect(readFileSync(prEditLog, "utf8").trim().split("\n")).toEqual(["edit"]);
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate"]);
+    expect(readFileSync(readyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     expect(readFileSync(createCommitCount, "utf8").trim()).toBe("1");
     expect(readFileSync(readyCommitCount, "utf8").trim()).toBe("2");
     expect(readFileSync(prTitle, "utf8")).toBe("Feature");
@@ -1530,19 +1431,14 @@ exit 1
       "Auto-generated by jarvis",
       "<!-- jarvis:narrative:end -->",
     ].join("\n");
-    const subspecShas = execSync(
-      "git log --reverse --format=%h main..feature",
-      { cwd: projectRoot, encoding: "utf8" },
-    )
+    const subspecShas = execSync("git log --reverse --format=%h main..feature", { cwd: projectRoot, encoding: "utf8" })
       .trim()
       .split("\n");
     expect(subspecShas).toHaveLength(2);
     const body = readFileSync(prBody, "utf8");
     expect(body).toContain(expectedBody.replace(NARRATIVE_END_MARKER, ""));
     expect(body).toContain("<!-- jarvis:narrative:generated-sha256:");
-    expect(body).toContain(
-      `${NARRATIVE_END_MARKER}\n\n---\n\nWritten by fake-claude through Jarvis.`,
-    );
+    expect(body).toContain(`${NARRATIVE_END_MARKER}\n\n---\n\nWritten by fake-claude through Jarvis.`);
     expect(
       execSync("gh pr view feature --json isDraft -q .isDraft", {
         cwd: join(projectRoot, ".worktree", "feature"),
@@ -1575,10 +1471,7 @@ exit 1
     mkdirSync(specDir, { recursive: true });
     const spec = join(specDir, "index.md");
     writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-    writeFileSync(
-      join(specDir, "00-one.md"),
-      "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n",
-    );
+    writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
     execSync("git add -A && git commit -m init && git push -u origin main", {
       cwd: projectRoot,
     });
@@ -1682,36 +1575,24 @@ exit 1
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(2);
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual([
-      "ready-gate",
-    ]);
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate"]);
     const expectedDegenerateBody = [
       "<!-- jarvis:narrative:start -->",
       "Auto-generated by jarvis",
       "<!-- jarvis:narrative:end -->",
     ].join("\n");
     const body = readFileSync(prBody, "utf8");
-    expect(body).toContain(
-      expectedDegenerateBody.replace(NARRATIVE_END_MARKER, ""),
-    );
+    expect(body).toContain(expectedDegenerateBody.replace(NARRATIVE_END_MARKER, ""));
     expect(body).toContain("<!-- jarvis:narrative:generated-sha256:");
-    expect(body).toContain(
-      `${NARRATIVE_END_MARKER}\n\n---\n\nWritten by fake-claude through Jarvis.`,
-    );
+    expect(body).toContain(`${NARRATIVE_END_MARKER}\n\n---\n\nWritten by fake-claude through Jarvis.`);
   });
 
   test("stops at the configured max iterations", async () => {
     const spec = writeSpec("- [ ] one\n- [ ] two\n- [ ] three\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", (callCount) => {
-      const checked = Array.from(
-        { length: callCount },
-        (_, index) => `- [x] ${index + 1}`,
-      );
-      const unchecked = Array.from(
-        { length: 3 - callCount },
-        (_, index) => `- [ ] ${callCount + index + 1}`,
-      );
+      const checked = Array.from({ length: callCount }, (_, index) => `- [x] ${index + 1}`);
+      const unchecked = Array.from({ length: 3 - callCount }, (_, index) => `- [ ] ${callCount + index + 1}`);
       writeFileSync(spec, [...checked, ...unchecked].join("\n"));
       return { kind: "ok", stdout: "", stderr: "" };
     });
@@ -1860,19 +1741,14 @@ exit 0
     });
 
     expect(code).toBe(4);
-    expect(readFileSync(join(dir, "aider-argv"), "utf8")).toContain(
-      "--model\0ollama/llama3.1:8b\0",
-    );
+    expect(readFileSync(join(dir, "aider-argv"), "utf8")).toContain("--model\0ollama/llama3.1:8b\0");
   });
 
   test("CLI maxIterations overrides config maxIterations", async () => {
     const spec = writeSpec("- [ ] one\n- [ ] two\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", (callCount) => {
-      writeFileSync(
-        spec,
-        callCount === 1 ? "- [x] one\n- [ ] two\n" : "- [x] one\n- [x] two\n",
-      );
+      writeFileSync(spec, callCount === 1 ? "- [x] one\n- [ ] two\n" : "- [x] one\n- [x] two\n");
       return { kind: "ok", stdout: "", stderr: "" };
     });
     writeConfig(
@@ -2226,9 +2102,7 @@ exit 0
     });
 
     expect(code).toBe(3);
-    expect(cap.err()).toContain(
-      'claude: configured patch model "haiku" is not supported by this CLI/account',
-    );
+    expect(cap.err()).toContain('claude: configured patch model "haiku" is not supported by this CLI/account');
     expect(cap.err()).toContain("error: unsupported model haiku");
     expect(claude.calls).toHaveLength(1);
     expect(codex.calls).toHaveLength(0);
@@ -2379,9 +2253,7 @@ exit 0
     });
 
     expect(code).toBe(4);
-    expect(cap.err()).not.toContain(
-      "opencode: token usage not available for this CLI version",
-    );
+    expect(cap.err()).not.toContain("opencode: token usage not available for this CLI version");
   });
 
   test("prints the opencode unavailable notice when usage is unavailable", async () => {
@@ -2423,23 +2295,15 @@ exit 0
     });
 
     expect(code).toBe(4);
-    expect(cap.err()).toContain(
-      "opencode: token usage not available for this CLI version",
-    );
+    expect(cap.err()).toContain("opencode: token usage not available for this CLI version");
   });
 
   test("max-iterations exit prints bounded tail of latest iteration output", async () => {
     const spec = writeSpec("- [ ] one\n- [ ] two\n- [ ] three\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", (callCount) => {
-      const checked = Array.from(
-        { length: callCount },
-        (_, index) => `- [x] ${index + 1}`,
-      );
-      const unchecked = Array.from(
-        { length: 3 - callCount },
-        (_, index) => `- [ ] ${callCount + index + 1}`,
-      );
+      const checked = Array.from({ length: callCount }, (_, index) => `- [x] ${index + 1}`);
+      const unchecked = Array.from({ length: 3 - callCount }, (_, index) => `- [ ] ${callCount + index + 1}`);
       writeFileSync(spec, [...checked, ...unchecked].join("\n"));
       return {
         kind: "ok",
@@ -2491,11 +2355,7 @@ exit 0
 
     expect(code).toBe(3);
     expect(cap.err()).toContain("test error message");
-    expect(
-      messages.some(
-        (m) => m.tag === "harness" && m.text.includes("test error message"),
-      ),
-    ).toBe(true);
+    expect(messages.some((m) => m.tag === "harness" && m.text.includes("test error message"))).toBe(true);
   });
 
   test("model config failure is logged and printed to terminal", async () => {
@@ -2527,12 +2387,8 @@ exit 0
     expect(cap.err()).toContain("configured patch model");
     expect(cap.err()).toContain("error: unsupported model");
     const harnessMessages = messages.filter((m) => m.tag === "harness");
-    expect(
-      harnessMessages.some((m) => m.text.includes("configured patch model")),
-    ).toBe(true);
-    expect(
-      harnessMessages.some((m) => m.text.includes("error: unsupported model")),
-    ).toBe(true);
+    expect(harnessMessages.some((m) => m.text.includes("configured patch model"))).toBe(true);
+    expect(harnessMessages.some((m) => m.text.includes("error: unsupported model"))).toBe(true);
   });
 
   test("prepares a missing spec directory inside the agent worktree", () => {
@@ -2557,16 +2413,10 @@ exit 0
       specPath: sourceIndex,
     });
 
-    expect(activeSpecPath).toBe(
-      join(worktreeRoot, "spec", "feature", "index.md"),
-    );
+    expect(activeSpecPath).toBe(join(worktreeRoot, "spec", "feature", "index.md"));
     expect(existsSync(activeSpecPath)).toBe(true);
-    expect(readFileSync(activeSpecPath, "utf8")).toBe(
-      "- [ ] [00 - Task](./00-task.md)\n",
-    );
-    expect(readFileSync(join(targetSpecDir, "00-task.md"), "utf8")).toBe(
-      "# 00 - Task\n",
-    );
+    expect(readFileSync(activeSpecPath, "utf8")).toBe("- [ ] [00 - Task](./00-task.md)\n");
+    expect(readFileSync(join(targetSpecDir, "00-task.md"), "utf8")).toBe("# 00 - Task\n");
     expect(readFileSync(targetExisting, "utf8")).toBe("worktree content\n");
   });
 
@@ -2664,10 +2514,7 @@ exit 0
     const externalDir = join(dir, "ext-specs");
     mkdirSync(externalDir);
     const spec = join(externalDir, "index.md");
-    writeFileSync(
-      spec,
-      "# F\n\nrepo: https://github.com/example/dup\n\n- [x] done\n",
-    );
+    writeFileSync(spec, "# F\n\nrepo: https://github.com/example/dup\n\n- [x] done\n");
 
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({
@@ -2806,9 +2653,7 @@ exit 0
       expect(cap.err()).toContain(removedRoot);
       expect(cap.err()).toContain("does not exist on disk");
       expect(cap.err()).toContain("--repo flag value");
-      expect(cap.err()).toContain(
-        '"https://github.com/example/origin-project"',
-      );
+      expect(cap.err()).toContain('"https://github.com/example/origin-project"');
       expect(claude.calls).toHaveLength(0);
       expect(existsSync(join(cfgDir, "sessions"))).toBe(false);
     });
@@ -3054,9 +2899,7 @@ exit 0
       });
 
       expect(code).toBe(1);
-      expect(cap.err()).toContain(
-        "--cwd is only valid when effective `git` is false",
-      );
+      expect(cap.err()).toContain("--cwd is only valid when effective `git` is false");
     });
 
     test("--cwd with nonexistent directory exits 1", async () => {
@@ -3288,14 +3131,9 @@ wait
 
       expect(code).toBe(8);
       expect(elapsedMs).toBeLessThanOrEqual(7200);
-      expect(cap.err()).toContain(
-        "[watchdog] iteration timeout fired after 1500ms;",
-      );
+      expect(cap.err()).toContain("[watchdog] iteration timeout fired after 1500ms;");
 
-      const childPid = Number.parseInt(
-        readFileSync(join(projectRoot, "hanging-child.pid"), "utf8").trim(),
-        10,
-      );
+      const childPid = Number.parseInt(readFileSync(join(projectRoot, "hanging-child.pid"), "utf8").trim(), 10);
       expect(Number.isFinite(childPid)).toBe(true);
       let childAlive = true;
       try {
@@ -3311,9 +3149,7 @@ wait
         .split("\n")
         .map((line) => JSON.parse(line) as Record<string, unknown>);
       const timeoutRow = rows.find(
-        (row) =>
-          row.record_role !== "run_terminal" &&
-          row.exit_reason === "watchdog-iteration-timeout",
+        (row) => row.record_role !== "run_terminal" && row.exit_reason === "watchdog-iteration-timeout",
       );
       expect(timeoutRow).toBeDefined();
       expect(typeof timeoutRow?.watchdog_pgid).toBe("number");
@@ -3324,9 +3160,7 @@ wait
         throw new Error("expected a session log file");
       }
       const sessionLog = readFileSync(join(sessionsDir, sessionFile), "utf8");
-      expect(sessionLog).toContain(
-        "[watchdog] iteration timeout fired after 1500ms;",
-      );
+      expect(sessionLog).toContain("[watchdog] iteration timeout fired after 1500ms;");
     });
 
     test("global run timeout causes exit code 8", async () => {
@@ -3382,20 +3216,14 @@ wait
       const spec = join(specDir, "index.md");
       const subspec = join(specDir, "00-one.md");
       writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-      writeFileSync(
-        subspec,
-        "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Item one.\n",
-      );
+      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Item one.\n");
       execSync("git add -A && git commit -m init", { cwd: projectRoot });
 
       const cap = captureIo();
       const claude = new FakeAgent("claude", () => {
         writeFileSync(join(projectRoot, "work.txt"), "work\n");
         const subspecContent = readFileSync(subspec, "utf8");
-        writeFileSync(
-          subspec,
-          `${subspecContent}\n## Blocker\n\nWaiting for external API\n`,
-        );
+        writeFileSync(subspec, `${subspecContent}\n## Blocker\n\nWaiting for external API\n`);
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
@@ -3410,9 +3238,7 @@ wait
       expect(code).toBe(7);
       expect(cap.err()).toContain("Waiting for external API");
       expect(claude.calls).toHaveLength(1);
-      expect(
-        execSync("git status --porcelain", { cwd: projectRoot }).toString(),
-      ).toBe("");
+      expect(execSync("git status --porcelain", { cwd: projectRoot }).toString()).toBe("");
       const lastMessage = execSync("git log -1 --format=%B", {
         cwd: projectRoot,
         encoding: "utf8",
@@ -3468,10 +3294,7 @@ wait
       const spec = join(specDir, "index.md");
       const subspec = join(specDir, "00-one.md");
       writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-      writeFileSync(
-        subspec,
-        "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n- [ ] Step B.\n",
-      );
+      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n- [ ] Step B.\n");
       execSync("git add -A && git commit -m init", { cwd: projectRoot });
 
       const cap = captureIo();

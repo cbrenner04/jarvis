@@ -15,15 +15,8 @@ export class PromptRenderingError extends Error {
   }
 }
 
-export function renderArtifactTemplate(
-  artifact: PromptArtifact,
-  values: Record<string, unknown>,
-): string {
-  return renderTemplateWithDeclarations(
-    artifact.body,
-    artifact.metadata.placeholders,
-    values,
-  );
+export function renderArtifactTemplate(artifact: PromptArtifact, values: Record<string, unknown>): string {
+  return renderTemplateWithDeclarations(artifact.body, artifact.metadata.placeholders, values);
 }
 
 export function renderTemplateWithDeclarations(
@@ -52,23 +45,13 @@ export function renderTemplateWithDeclarations(
     const token = match[0];
     const declaration = allowed.get(name);
     if (declaration === undefined) {
-      throw new PromptRenderingError(
-        "unknown_placeholder",
-        `Template references unknown placeholder \`${token}\``,
-      );
+      throw new PromptRenderingError("unknown_placeholder", `Template references unknown placeholder \`${token}\``);
     }
     if (declaration.required && values[name] === undefined) {
-      throw new PromptRenderingError(
-        "missing_value",
-        `Required placeholder \`${token}\` has no value`,
-      );
+      throw new PromptRenderingError("missing_value", `Required placeholder \`${token}\` has no value`);
     }
     const value = values[name];
-    if (
-      value !== undefined &&
-      declaration.type === "string" &&
-      typeof value !== "string"
-    ) {
+    if (value !== undefined && declaration.type === "string" && typeof value !== "string") {
       throw new PromptRenderingError(
         "type_mismatch",
         `Placeholder \`${token}\` expects string but received ${typeof value}`,

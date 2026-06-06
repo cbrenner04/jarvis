@@ -148,7 +148,9 @@ where it can be edited by reviewers. If generation fails, jarvis falls back to
 After the spec is complete and `git: true` is in effect, `jarvis1 run` enters
 a post-completion review phase configured by `modes.review.passes` (default `2`).
 The review phase is skipped when `passes` is `0`, when `git` is `false`, or when
-no agents remain after the implementation loop (quota exhaustion).
+the run completed no implementation iterations. Review passes run their own agent
+chain — `modes.review.agentOrder`, falling back to `modes.plan.agentOrder` — not
+the implementation agents.
 
 The review phase flow is:
 
@@ -158,10 +160,12 @@ The review phase flow is:
 2. **Review passes**: For each pass, the agent is invoked with the spec tree and 
    current branch diff as context, asked to critique and refactor the 
    implementation. Non-empty changes are committed per pass. Spec-tree edits are 
-   detected and reverted. Blockers (a `## Blocker` section added to the active 
-   subspec) stop the phase and exit `7`, with the blocker content posted as a 
-   PR comment. Quota exhaustion in any review pass causes fallback to the next 
-   configured agent; if all agents are exhausted, exit `2`.
+   detected and reverted (the spec tree is read-only during review). A blocker is 
+   signalled by the agent writing a `.jarvis-review-blocker` file at the repo 
+   root; it stops the phase and exits `7`, with the blocker content posted as a 
+   PR comment and the sentinel consumed (never committed, no `## Blocker` written 
+   to the spec). Quota exhaustion in any review pass causes fallback to the next 
+   configured review agent; if all are exhausted, exit `2`.
 3. **Final ready**: runs `bun run ready` again, then `gh pr ready` to transition 
    the PR from draft to ready.
 

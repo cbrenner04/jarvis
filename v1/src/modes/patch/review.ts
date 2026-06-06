@@ -1,56 +1,32 @@
 import { execFileSync } from "node:child_process";
-import { dirname, join, relative } from "node:path";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { join, relative } from "node:path";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { pushCurrent } from "../../worktree.ts";
 import { updatePrBody } from "./pr.ts";
 
-export function getSpecFilesToProtect(specPath: string): string[] {
-  // Return a list of spec files that should not be edited during review
-  const specDir = dirname(specPath);
-  const specFiles: string[] = [];
-
-  try {
-    // Get all .md files in the spec directory recursively
-    const walkDir = (dir: string) => {
-      const fs = require("node:fs");
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.name === ".git" || entry.name === "node_modules") {
-          continue;
-        }
-        const fullPath = join(dir, entry.name);
-        if (entry.isDirectory()) {
-          walkDir(fullPath);
-        } else if (entry.name.endsWith(".md")) {
-          specFiles.push(fullPath);
-        }
-      }
-    };
-
-    walkDir(specDir);
-  } catch {
-    // If we can't read the directory, just return empty list
-  }
-
-  return specFiles;
-}
+/** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
+export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
 
 export function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
-  // Return list of spec files that were modified since last commit
+  // Return spec files modified or newly created since the last commit. Uses
+  // porcelain status (not `git diff`) so untracked additions are caught too.
   try {
-    const output = execFileSync("git", ["diff", "--name-only", "HEAD"], {
+    const output = execFileSync("git", ["status", "--porcelain"], {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
     });
 
-    const modifiedFiles = output
-      .trim()
-      .split("\n")
-      .filter((f) => f.length > 0);
     const specRelPath = relative(cwd, specDir);
-
-    return modifiedFiles.filter((file) => file === specRelPath || file.startsWith(`${specRelPath}/`));
+    return (
+      output
+        .split("\n")
+        .filter((line) => line.length > 3)
+        // Porcelain lines are `XY <path>`; drop the two status columns + space.
+        .map((line) => line.slice(3).trim())
+        .filter((file) => file === specRelPath || file.startsWith(`${specRelPath}/`))
+    );
   } catch {
     return [];
   }
@@ -62,50 +38,48 @@ export function revertSpecTreeEdits(specDir: string, cwd: string): void {
     return;
   }
 
+  // Restore tracked files; `git clean` drops any untracked additions.
   try {
     for (const file of editedFiles) {
-      execFileSync("git", ["checkout", "HEAD", file], {
-        cwd,
-        stdio: "pipe",
-      });
+      try {
+        execFileSync("git", ["checkout", "HEAD", "--", file], {
+          cwd,
+          stdio: "pipe",
+        });
+      } catch {
+        // Untracked file: nothing to restore from HEAD; clean handles it below.
+      }
     }
+    execFileSync("git", ["clean", "-fd", "--", relative(cwd, specDir)], {
+      cwd,
+      stdio: "pipe",
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to revert spec-tree edits: ${message}`);
   }
 }
 
-export function detectNewBlockerInSpec(specPath: string, cwd: string): string | null {
-  // Check if a blocker section was added to the spec
-  try {
-    const output = execFileSync("git", ["diff", "HEAD", specPath], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-
-    // Simple check: if we see "## Blocker" in the diff as an addition
-    const lines = output.split("\n");
-    for (const line of lines) {
-      if (line.startsWith("+") && line.includes("## Blocker")) {
-        // Extract blocker content
-        const blockerIndex = lines.indexOf(line);
-        const blockerLines: string[] = [];
-        for (let i = blockerIndex + 1; i < lines.length; i++) {
-          if (lines[i]?.startsWith("+")) {
-            blockerLines.push(lines[i]?.substring(1) as string);
-          } else if (!lines[i]?.startsWith("-")) {
-            break;
-          }
-        }
-        return blockerLines.join("\n").trim();
-      }
-    }
-  } catch {
-    // Ignore errors
+// Read and remove the review-blocker sentinel file if the agent wrote one.
+// Returns the blocker description, or null when no blocker was signalled. The
+// file is deleted so it is never committed and does not leak into later passes.
+export function consumeReviewBlocker(cwd: string): string | null {
+  const sentinel = join(cwd, REVIEW_BLOCKER_FILE);
+  if (!existsSync(sentinel)) {
+    return null;
   }
-
-  return null;
+  let content = "";
+  try {
+    content = readFileSync(sentinel, "utf8").trim();
+  } catch {
+    content = "";
+  }
+  try {
+    rmSync(sentinel, { force: true });
+  } catch {
+    // best-effort
+  }
+  return content.length > 0 ? content : "(no blocker detail provided)";
 }
 
 export function commitReviewPass(

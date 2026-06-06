@@ -45,6 +45,8 @@ export type ReviewPromptOpts = {
   cwd: string;
   passNumber: number;
   totalPasses: number;
+  /** Base branch to diff against. Defaults to `main`. */
+  baseBranch?: string;
 };
 
 // Build review prompt for a critique pass on completed patch work.
@@ -60,7 +62,7 @@ export function buildReviewPrompt(opts: ReviewPromptOpts): string {
   // Gather the full spec tree as read-only reference material
   const specTree = buildSpecTree(dirname(opts.specPath), opts.cwd);
   // Get the branch diff showing what changed vs base
-  const branchDiff = getBranchDiff(opts.cwd);
+  const branchDiff = getBranchDiff(opts.cwd, opts.baseBranch ?? "main");
 
   const context =
     opts.totalPasses === 1
@@ -129,10 +131,9 @@ function visitSpecFiles(dir: string, cwd: string, indent: string, lines: string[
   }
 }
 
-function getBranchDiff(cwd: string): string {
+function getBranchDiff(cwd: string, baseBranch: string): string {
   try {
-    // Get the merge-base with main/master to find the common ancestor
-    const baseBranch = getBaseBranch(cwd);
+    // Find the common ancestor with the base branch, then diff to HEAD.
     const mergeBase = execFileSync("git", ["merge-base", "--quiet", baseBranch, "HEAD"], {
       cwd,
       encoding: "utf8",
@@ -149,17 +150,5 @@ function getBranchDiff(cwd: string): string {
     return diff || "(no changes)";
   } catch (err) {
     return `(failed to generate diff: ${err instanceof Error ? err.message : String(err)})`;
-  }
-}
-
-function getBaseBranch(cwd: string): string {
-  try {
-    return execFileSync("git", ["config", "--default", "main", "--get", "jarvis.baseBranch"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
-  } catch {
-    return "main";
   }
 }

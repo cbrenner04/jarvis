@@ -7,6 +7,7 @@ import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
+  type AgentEntry,
   type AgentName,
   type Config,
   type ConfigOptions,
@@ -14,6 +15,8 @@ import {
   findProjectMatchForPath,
   openSessionLog,
   type ProjectMatch,
+  resolveReviewAgentOrder,
+  resolveReviewPasses,
   setProjectOrigin,
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch, postPrComment } from "../../gh.ts";
@@ -46,7 +49,7 @@ import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } fro
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildPrompt, buildReviewPrompt } from "./prompt.ts";
-import { commitReviewPass, detectNewBlockerInSpec, detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
+import { commitReviewPass, consumeReviewBlocker, detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { parsePatchSpec } from "./spec.ts";
 import {
   type AcceptanceCriterion,
@@ -523,6 +526,19 @@ function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
       continue;
     }
     agents.push(createAgent(entry.agent, entry.model));
+  }
+  return agents;
+}
+
+// Build the agent fallback chain for the review phase from a resolved review
+// order (`modes.review.agentOrder` → `modes.plan.agentOrder`). Honors the same
+// test-only agent overrides as `buildActiveAgents`.
+function buildReviewAgents(opts: RunCommandOptions, order: AgentEntry[]): Agent[] {
+  const overrides = opts.agents;
+  const agents: Agent[] = [];
+  for (const entry of order) {
+    const override = overrides?.[entry.agent];
+    agents.push(override ?? createAgent(entry.agent, entry.model));
   }
   return agents;
 }
@@ -1060,11 +1076,18 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                     fanout("harness", `failed to update PR body for ${afterSubspecPath}: ${message}\n`, "stderr");
                   }
                 }
-                maybeMarkReady({
-                  indexPath: afterSpecPath,
-                  cwd: agentWorkingDir,
-                  agentLabel: agent.attributionLabel(),
-                });
+                // When a post-completion review phase will run, defer PR
+                // readiness to it: the review phase brackets passes with its own
+                // baseline `bun run ready` and the final `gh pr ready`. Marking
+                // ready here would move the PR out of draft before review runs.
+                const willRunReview = resolveReviewPasses(cfg, opts.reviewPasses) > 0;
+                if (!willRunReview) {
+                  maybeMarkReady({
+                    indexPath: afterSpecPath,
+                    cwd: agentWorkingDir,
+                    agentLabel: agent.attributionLabel(),
+                  });
+                }
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
                 fanout(
@@ -1313,14 +1336,11 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   }
   logging.fanout("harness", "spec complete\n", "stdout");
 
-  // Determine if review should run
-  // Use CLI flag if provided, otherwise fall back to configured passes
-  const reviewPasses = ctx.opts.reviewPasses ?? preflight.cfg.modes.review.passes;
-  const shouldRunReview =
-    preflight.gitEnabled &&
-    reviewPasses > 0 &&
-    ctx.activeAgents.length > 0 &&
-    logging.patchIterationsCompletedForSummary() > 0;
+  // Determine if review should run. Passes resolve `--review-passes` →
+  // `modes.review.passes` → default. Review uses its own agent order (see
+  // `runReviewPhase`), independent of the implementation agents.
+  const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
+  const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && logging.patchIterationsCompletedForSummary() > 0;
 
   if (shouldRunReview) {
     // Run review phase after completion
@@ -1550,8 +1570,10 @@ function copyMissingRecursive(sourceDir: string, targetDir: string): void {
 // Review phase: runs after patch completion to critique and refactor the implementation.
 // Flow: baseline-gate → N review passes → final ready + gh pr ready
 // - Baseline gate runs bun run ready + commits check:fix if dirty
+// - Review uses its own agent chain (`modes.review.agentOrder` → `modes.plan.agentOrder`),
+//   independent of the implementation agents.
 // - Each pass: agent gets spec tree + branch diff, runs critique, commits changes (non-empty only)
-// - Blockers prevent further passes and exit with code 7
+// - Spec-tree edits are reverted; a `.jarvis-review-blocker` sentinel halts review with code 7
 // - Final ready runs bun run ready again + gh pr ready to move PR out of draft
 async function runReviewPhase(opts: {
   ctx: IterationContext;
@@ -1562,6 +1584,12 @@ async function runReviewPhase(opts: {
   const { ctx } = opts;
   const { fanout, writeTelemetry } = ctx.logging;
   const { preflight } = ctx;
+
+  // Review agents come from the review order, falling back to the plan order —
+  // not the implementation agents. A local chain so quota fallback here does not
+  // mutate the implementation run's agent list.
+  const reviewOrder = resolveReviewAgentOrder(preflight.cfg);
+  const reviewAgents = buildReviewAgents(ctx.opts, reviewOrder);
 
   try {
     const branch = getCurrentBranch(opts.agentWorkingDir);
@@ -1584,12 +1612,7 @@ async function runReviewPhase(opts: {
     for (let pass = 1; pass <= opts.reviewPasses; pass++) {
       fanout("harness", `review: pass ${pass}/${opts.reviewPasses}\n`, "stdout");
 
-      if (ctx.activeAgents.length === 0) {
-        fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
-        return 2;
-      }
-
-      const agent = ctx.activeAgents[0];
+      const agent = reviewAgents[0];
       if (agent === undefined) {
         fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
         return 2;
@@ -1600,6 +1623,7 @@ async function runReviewPhase(opts: {
         cwd: opts.agentWorkingDir,
         passNumber: pass,
         totalPasses: opts.reviewPasses,
+        baseBranch: base,
       });
 
       fanout("outbound", prompt, null, {
@@ -1633,11 +1657,8 @@ async function runReviewPhase(opts: {
           },
         });
 
-        const configuredPatchModelEntry = preflight.cfg.modes.patch.agentOrder.find(
-          (entry) => entry.agent === agent.name,
-        );
-        const telemetryMeta =
-          configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
+        const configuredReviewModel = reviewOrder.find((entry) => entry.agent === agent.name)?.model;
+        const telemetryMeta = configuredReviewModel !== undefined ? { configured_model: configuredReviewModel } : {};
 
         if (result.kind === "ok") {
           if (result.stdout.length > 0) {
@@ -1648,13 +1669,10 @@ async function runReviewPhase(opts: {
           }
 
           // Extract usage and cost
-          const usageAndCost = extractUsageAndCost(result, agent.name, configuredPatchModelEntry?.model);
+          const usageAndCost = extractUsageAndCost(result, agent.name, configuredReviewModel);
 
-          // Check for new blocker BEFORE reverting spec edits so we can extract content
+          // Enforce the read-only spec-tree boundary: revert any edits.
           const specDir = dirname(opts.specPath);
-          const blockerContent = detectNewBlockerInSpec(opts.specPath, opts.agentWorkingDir);
-
-          // Check for spec-tree edits and revert if found
           const editedSpecFiles = detectSpecTreeEdits(specDir, opts.agentWorkingDir);
           if (editedSpecFiles.length > 0) {
             fanout(
@@ -1671,14 +1689,18 @@ async function runReviewPhase(opts: {
             }
           }
 
+          // Blocker is signalled by a sentinel file (not a spec edit), consumed
+          // here so it is never committed. Spec stays free of `## Blocker`.
+          const blockerContent = consumeReviewBlocker(opts.agentWorkingDir);
+
           // Handle blocker if one was detected
           if (blockerContent !== null) {
             fanout("harness", `review: pass ${pass} encountered blocker\n`, "stderr");
-            // Commit the blocker
+            // Commit whatever non-spec work the pass produced before halting.
             try {
-              commitReviewPass(pass, "review-blocker", opts.agentWorkingDir, {
+              commitReviewPass(pass, agent.name, opts.agentWorkingDir, {
                 specPath: opts.specPath,
-                branch: getCurrentBranch(opts.agentWorkingDir),
+                branch,
                 base,
               });
             } catch (err) {
@@ -1740,7 +1762,7 @@ async function runReviewPhase(opts: {
             ...telemetryMeta,
           });
         } else if (result.kind === "quota") {
-          ctx.activeAgents.shift();
+          reviewAgents.shift();
           fanout("harness", "review: agent quota exhausted\n", "stderr");
 
           writeTelemetry({
@@ -1753,9 +1775,12 @@ async function runReviewPhase(opts: {
             ...telemetryMeta,
           });
 
-          if (ctx.activeAgents.length === 0) {
+          if (reviewAgents.length === 0) {
+            fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
             return 2;
           }
+          // Retry this pass with the next agent.
+          pass -= 1;
         } else {
           fanout("harness", `review: pass ${pass} error (${result.kind})\n`, "stderr");
           if (result.stderr.length > 0) {

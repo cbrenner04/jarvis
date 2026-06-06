@@ -3,7 +3,7 @@ id: patch.prompt.review
 behavior: patch
 kind: step
 revision: 1
-placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, REVIEW_PASS_NUMBER:int!, REVIEW_PASS_CONTEXT:string!]
+placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]
 ---
 # Patch Mode — Review Phase
 
@@ -29,12 +29,12 @@ The text between `<<<DIFF_BEGIN>>>` and `<<<DIFF_END>>>` is the unified diff of 
 
 ## Rules
 
-- **Critique and refactor code in place.** Do not modify spec files (the completed spec is read-only).
+- **Critique and refactor code in place.** Do not modify spec files (the completed spec is read-only); spec-tree edits are reverted by the harness.
 - Do not expand functionality beyond the spec scope.
 - Do not add new acceptance criteria or tasks.
-- Do not commit or push.
+- Do not commit or push — the harness commits your changes after the pass.
 - Do not run tests unless needed to verify a fix.
-- If you identify a blocker that prevents further review (e.g., broken build, test failures from the completed work), add a `## Blocker` section to the branch and commit it.
+- If you identify a blocker that prevents further review (e.g., broken build, test failures from the completed work), write a short description of it to a file named `.jarvis-review-blocker` at the repo root and stop. Do not edit spec files and do not commit; the harness reports the blocker on the PR and halts the review.
 - Prefer removing redundancy and reducing complexity over adding explanatory comments.
 - Follow the branch conventions: commit message format, code style, test organization.
 

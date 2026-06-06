@@ -10,5 +10,6 @@ plan/review.md
 plan/refine.md
 patch/instructions.md
 patch/pr-description.md
+patch/review.md
 patch/rules.md
 write/execute.md

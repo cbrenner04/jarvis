@@ -189,10 +189,11 @@ flowchart TD
   reviewQ -- no --> ok["print spec complete + PR URL<br/>exit 0"]:::stop
   reviewQ -- yes --> baselineReady["bun run ready (baseline gate)"]:::det
   baselineReady --> reviewLoop{"Review pass k ≤ passes?"}:::dec
-  reviewLoop -- yes --> reviewCall(["Agent: critique + rewrite"]):::llm
-  reviewCall --> reviewBlk{"Blocker added?"}:::dec
-  reviewBlk -- yes --> commitReviewBlk["commit blocker · post PR comment"]:::det --> blkExit["exit 7: blocker"]:::stop
-  reviewBlk -- no --> commitReview["commit review pass"]:::det --> reviewLoop
+  reviewLoop -- yes --> reviewCall(["Review agent: critique + rewrite<br/>(modes.review.agentOrder→plan)"]):::llm
+  reviewCall --> reviewRevert["revert spec-tree edits"]:::det
+  reviewRevert --> reviewBlk{".jarvis-review-blocker written?"}:::dec
+  reviewBlk -- yes --> commitReviewBlk["commit pass · post PR comment"]:::det --> blkExit["exit 7: blocker"]:::stop
+  reviewBlk -- no --> commitReview["commit review pass (if non-empty)"]:::det --> reviewLoop
   reviewLoop -- no --> finalReady["bun run ready (final gate)<br/>then gh pr ready"]:::det
   finalReady --> ok
 

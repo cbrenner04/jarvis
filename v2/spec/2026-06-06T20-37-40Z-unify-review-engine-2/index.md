@@ -1,20 +1,39 @@
 # Unify review engine (plan + patch)
 
-- [ ] [00 - Plan review reads `modes.review`](./00-plan-review-uses-modes-review.md)
+- [ ] [00 - Define shared review flow](./00-define-shared-review-flow.md)
+- [ ] [01 - Move plan review onto shared flow](./01-plan-review-shared-flow.md)
+- [ ] [02 - Move patch review onto shared flow](./02-patch-review-shared-flow.md)
 
-## Seams re-verified against landed #178
+## Direction
 
-#178 merged, so the intent's "depends on #178, not yet landed" premise is stale. Two seams the intent listed as work already exist: `resolveReviewPasses(cfg, override)` and `resolveReviewAgentOrder(cfg)` (= `modes.review.agentOrder ?? modes.plan.agentOrder`) in `v1/src/config.ts`. Plan just doesn't call them — that gap is subspec 00, the intent's headline behavior change and the only real, behavior-improving work in the tree.
+Review is one harness capability: run critique passes with review-tier agents, enforce each mode's write boundary, handle blockers, commit pass output, and report telemetry. Plan and patch should not own separate pass loops just because their prompts and allowed-write policy differ.
 
-The intent's other DRY seams do not survive contact with the landed code; each would force divergent code into a shared shape, adding indirection (or behavior change the intent forbids) rather than removing duplication. Deferred:
+The shared code lives in `v1/src/modes/review/`, not `shared/**`. It is still v1-only runtime code. If v2 later grows a review consumer, promote it then.
 
-- **`runReviewPass` engine.** Three axes diverge: agent strategy (plan tries every agent per pass; patch `runReviewPhase` uses `agents[0]`, shifts on quota across passes); prompt inputs (plan injects intent+guidance+spec-snapshot and rewrites spec files; patch injects spec-tree+branch-diff and refactors code); commit+telemetry (`plan: review N` +resume `rK` via plan-telemetry vs `review: pass N` via patch telemetry).
-- **Shared prompt fragment.** `prompts/plan/review.md` is a spec-*rewriting* prompt; `prompts/patch/review.md` is a code-*refactoring* prompt. Verbatim overlap is ~2 lines; "no-commit"/"no-tests" carry mode-specific qualifiers and "no-checklist-edits" is patch-only. A registered fragment + revision bumps + golden tests exceeds the duplication it removes.
-- **Parameterized write-boundary validator.** Not parallel copies. Plan's `validateReviewOutput` does a content before/after comparison of one file (`intent.md`) with blocker-append + frontmatter-immutability discrimination; it never walks porcelain for paths. Only patch's `detectSpecTreeEdits` walks `git status --porcelain` and filters by subtree prefix. A single detector would *add* porcelain logic to plan — new code, and behavior-change risk the intent forbids — not share existing logic.
+## Flow Contract
 
-Deferred to first clean fit: pin if/when one mode's agent, commit, prompt, or boundary mechanism is deliberately changed to match the other.
+One shared runner owns:
 
-## Out of scope
+- pass count and review-agent resolution (`resolveReviewPasses`, `resolveReviewAgentOrder`)
+- per-pass agent invocation, outbound/inbound logging, timeout handling, and quota fallback
+- `ok` / `quota` / `model_config` / hard-error exit handling
+- per-pass write-boundary hook execution
+- blocker hook execution
+- non-empty pass commit hook execution
+- review telemetry hook execution
 
-- Any review behavior change beyond plan review's agent + passes source (subspec 00).
-- v2 model/agent rework; engine stays in v1, not `shared/**` (no v2 review consumer; `shared/**` can't import `v1/**`).
+Mode adapters own:
+
+- prompt construction and prompt snapshot tests
+- pass-number display and resume suffix policy
+- allowed-write validation or repair
+- blocker source and reporting
+- commit subject/body/PR-refresh behavior
+- final mode-specific gates (`bun run ready`, `gh pr ready`, next-step output)
+
+## Non-Goals
+
+- Do not factor plan and patch review prompts into a shared prose fragment in this pass.
+- Do not move code to `shared/**`.
+- Do not change plan drafting/refine behavior or patch implementation-loop behavior.
+- Do not change public config shape beyond making plan review honor existing `modes.review`.

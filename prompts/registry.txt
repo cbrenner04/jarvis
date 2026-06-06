@@ -12,3 +12,5 @@ patch/instructions.md
 patch/pr-description.md
 patch/rules.md
 write/execute.md
+prompt/instructions.md
+prompt/rules.md

@@ -16,6 +16,7 @@ import {
   type ProjectMatch,
 } from "./config.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
+import { type PromptRunOptions, promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
 
 export type Subcommand =
@@ -446,8 +447,12 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         }
       }
 
-      io.stderr(`jarvis1: prompt mode not yet implemented\n`);
-      return 1;
+      return promptCommand({
+        promptText: parsed.text,
+        io,
+        projectPath: opts.cwd ?? process.cwd(),
+        config: opts.config,
+      });
     }
     case "prices":
       return pricesCommand({ args: parsed.rest, io });

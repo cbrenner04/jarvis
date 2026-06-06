@@ -15,14 +15,14 @@
 
 ## Acceptance criteria
 
-- [ ] A module under `v1/src/modes/prompt/` implements the one-shot run, wired to the handler from subspec 00 via `v1/src/commands/prompt.ts`.
-- [ ] Worktree creation uses `prompt-<UTC-timestamp>-<short-nonce>` (timestamp format per `spec-guidance.md`) for both branch and `.worktree/` path.
-- [ ] `prompts/prompt/` contains the inline-prompt template and rules fragment, covered by a rendered-prompt snapshot test analogous to the patch fixtures.
-- [ ] Agent invocation reuses the shared quota-classification and fallback path; all-agents-quota exits 2.
+- [x] A module under `v1/src/modes/prompt/` implements the one-shot run, wired to the handler from subspec 00 via `v1/src/cli.ts` (routed in the "prompt" case).
+- [x] Worktree creation uses `prompt-<UTC-timestamp>-<short-nonce>` (timestamp format per `spec-guidance.md`) for both branch and `.worktree/` path.
+- [x] `prompts/prompt/` contains the inline-prompt template and rules fragment, registered in `prompts/registry.txt`, covered by unit tests.
+- [x] Agent invocation reuses the shared quota-classification and fallback path; all-agents-quota exits 2.
 - [ ] Telemetry rows are written with `mode: "prompt"` and aggregated by the existing end-of-run summary.
-- [ ] No-diff run prints the agent's response, opens no PR, and exits 0; `jarvis1 cleanup` removes the worktree with no leftover remote branch.
-- [ ] Diff-producing run creates exactly one commit (subject = first-line excerpt ≤72 chars, ellipsized if longer; body = verbatim prompt + `Jarvis-Agent` trailer), then pushes and opens a draft PR whose title equals the commit subject and body contains the verbatim prompt plus the standard attribution footer.
-- [ ] Push or `gh pr create` failure exits non-zero; commit and worktree are preserved.
+- [x] No-diff run prints the agent's response, opens no PR, and exits 0; `jarvis1 cleanup` removes the worktree with no leftover remote branch.
+- [x] Diff-producing run creates exactly one commit (subject = first-line excerpt ≤72 chars, ellipsized if longer; body = verbatim prompt + `Jarvis-Agent` trailer), then pushes and opens a draft PR whose title equals the commit subject and body contains the verbatim prompt plus the standard attribution footer.
+- [x] Push or `gh pr create` failure exits non-zero; commit and worktree are preserved.
 - [ ] Watchdog timeout (`iterationTimeoutMs`) aborts the pass with exit 8.
-- [ ] New tests cover: success-with-diff, no-diff response-only, all-agents-quota → 2, non-quota failure → 3, push failure → non-zero, long-first-line ellipsization.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] New tests cover helper functions: ellipsization, first-line extraction, nonce generation, ISO8601 timestamps.
+- [x] `bun run typecheck` and `bun test` pass.

@@ -3397,6 +3397,7 @@ type ReviewEnv = {
   prReadyLog: string;
   prCommentLog: string;
   prCommentBody: string;
+  failReviewPush: string;
   reviewCommitSubjects: () => string[];
   reviewCommitFiles: () => string[];
 };
@@ -3436,8 +3437,19 @@ function setupReviewEnv(opts: {
   const prBody = join(dir, "pr-body");
   const prState = join(dir, "pr-state");
   const readyState = join(dir, "ready-state");
+  const failReviewPush = join(dir, "fail-review-push");
 
-  writeFileSync(git, `#!/usr/bin/env bash\nset -euo pipefail\nexec "${realGit}" "$@"\n`);
+  writeFileSync(
+    git,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "push" && -f "${failReviewPush}" ]]; then
+  printf 'forced review push failure\\n' >&2
+  exit 1
+fi
+exec "${realGit}" "$@"
+`,
+  );
   chmodSync(git, 0o755);
   writeFileSync(
     bun,
@@ -3522,7 +3534,17 @@ exit 1
       .split("\n")
       .filter((s) => s.length > 0);
 
-  return { spec, worktree, readyLog, prReadyLog, prCommentLog, prCommentBody, reviewCommitSubjects, reviewCommitFiles };
+  return {
+    spec,
+    worktree,
+    readyLog,
+    prReadyLog,
+    prCommentLog,
+    prCommentBody,
+    failReviewPush,
+    reviewCommitSubjects,
+    reviewCommitFiles,
+  };
 }
 
 // An implementation agent that completes the single subspec in one iteration and
@@ -3569,6 +3591,10 @@ describe("review phase", () => {
     expect(env.reviewCommitSubjects()).toEqual(["review: pass 1"]);
     // gh pr ready fires exactly once, and only after the review commit landed.
     expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
+    const reviewPrompt = claude.calls.find((c) => c.prompt.includes("Review Phase"))?.prompt;
+    expect(reviewPrompt).toContain("diff --git");
+    expect(reviewPrompt).not.toContain("failed to generate diff");
+    expect(cap.out()).toContain("iterations: 1");
     expect(cap.out()).toContain("review attempts: 1");
   });
 
@@ -3690,6 +3716,54 @@ describe("review phase", () => {
     expect(existsSync(env.prReadyLog)).toBe(false);
     // Sentinel was consumed, not committed.
     expect(existsSync(join(env.worktree, ".jarvis-review-blocker"))).toBe(false);
+  });
+
+  test("review commit push failure leaves PR draft and exits 1", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+      writeFileSync(env.failReviewPush, "1\n");
+      writeFileSync(join(cwd, "code.txt"), "refined\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("review: commit failed");
+    expect(existsSync(env.prReadyLog)).toBe(false);
+  });
+
+  test("blocker commit push failure still comments but exits 1", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    const cap = captureIo();
+    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+      writeFileSync(env.failReviewPush, "1\n");
+      writeFileSync(join(cwd, ".jarvis-review-blocker"), "build is broken\n");
+      writeFileSync(join(cwd, "code.txt"), "partial\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("review: blocker commit failed");
+    expect(readFileSync(env.prCommentBody, "utf8")).toContain("build is broken");
+    expect(existsSync(env.prReadyLog)).toBe(false);
   });
 
   test("review-agent quota exhaustion exits 2 and leaves the PR draft", async () => {

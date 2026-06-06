@@ -134,7 +134,7 @@ function visitSpecFiles(dir: string, cwd: string, indent: string, lines: string[
 function getBranchDiff(cwd: string, baseBranch: string): string {
   try {
     // Find the common ancestor with the base branch, then diff to HEAD.
-    const mergeBase = execFileSync("git", ["merge-base", "--quiet", baseBranch, "HEAD"], {
+    const mergeBase = execFileSync("git", ["merge-base", baseBranch, "HEAD"], {
       cwd,
       encoding: "utf8",
       stdio: "pipe",

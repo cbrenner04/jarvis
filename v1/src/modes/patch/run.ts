@@ -574,7 +574,12 @@ function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, logClient
         ...(record.watchdog_pgid !== undefined ? { watchdog_pgid: record.watchdog_pgid } : {}),
       });
       telemetryWrites = true;
-      if (record.kind === "ok" && record.agent !== "harness" && record.record_role !== "run_terminal") {
+      if (
+        record.kind === "ok" &&
+        record.agent !== "harness" &&
+        record.record_role !== "run_terminal" &&
+        record.patch_phase !== "review"
+      ) {
         patchIterationsCompletedForSummary += 1;
       }
     } catch {
@@ -1696,6 +1701,7 @@ async function runReviewPhase(opts: {
           // Handle blocker if one was detected
           if (blockerContent !== null) {
             fanout("harness", `review: pass ${pass} encountered blocker\n`, "stderr");
+            let blockerCommitFailed = false;
             // Commit whatever non-spec work the pass produced before halting.
             try {
               commitReviewPass(pass, agent.name, opts.agentWorkingDir, {
@@ -1706,7 +1712,7 @@ async function runReviewPhase(opts: {
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
               fanout("harness", `review: blocker commit failed: ${message}\n`, "stderr");
-              // Continue to PR comment posting anyway
+              blockerCommitFailed = true;
             }
 
             // Post PR comment with blocker
@@ -1721,6 +1727,20 @@ async function runReviewPhase(opts: {
               const message = err instanceof Error ? err.message : String(err);
               fanout("harness", `review: failed to post PR comment: ${message}\n`, "stderr");
               // Don't fail the phase if comment posting fails
+            }
+
+            if (blockerCommitFailed) {
+              writeTelemetry({
+                agent: agent.name,
+                iteration: pass,
+                durationMs: passDurationMs(),
+                kind: "error",
+                exitReason: "review-blocker-commit-failed",
+                patch_phase: "review",
+                ...usageAndCost,
+                ...telemetryMeta,
+              });
+              return 1;
             }
 
             writeTelemetry({
@@ -1746,7 +1766,17 @@ async function runReviewPhase(opts: {
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             fanout("harness", `review: commit failed: ${message}\n`, "stderr");
-            // Don't fail the whole phase on commit error
+            writeTelemetry({
+              agent: agent.name,
+              iteration: pass,
+              durationMs: passDurationMs(),
+              kind: "error",
+              exitReason: "review-commit-failed",
+              patch_phase: "review",
+              ...usageAndCost,
+              ...telemetryMeta,
+            });
+            return 1;
           }
 
           fanout("harness", `review: pass ${pass} completed\n`, "stdout");

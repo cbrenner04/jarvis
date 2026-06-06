@@ -9,11 +9,12 @@
 // Tests that inject an explicit absolute `binary:` path bypass PATH and are
 // unaffected; tests asserting "binary not found" use a bare name we do not stub
 // (e.g. "fake"), so they still get ENOENT.
+
+import { mock } from "bun:test";
 import * as childProcess from "node:child_process";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mock } from "bun:test";
 
 const realExecSync = childProcess.execSync;
 const realExecFileSync = childProcess.execFileSync;
@@ -66,11 +67,7 @@ mock.module("node:child_process", () => ({
       command,
       isGitShellCommand(command) ? withQuietGitDefaults(options) : options,
     )) satisfies typeof childProcess.execSync,
-  execFileSync: ((
-    file: string,
-    args?: readonly string[],
-    options?: childProcess.ExecFileSyncOptions,
-  ) =>
+  execFileSync: ((file: string, args?: readonly string[], options?: childProcess.ExecFileSyncOptions) =>
     realExecFileSync(
       file,
       args,

@@ -135,6 +135,45 @@ describe("parseArgs", () => {
       rest: ["--repo", "foo", "intent.md"],
     });
   });
+
+  test("prompt with text", () => {
+    expect(parseArgs(["prompt", "hello world"])).toEqual({
+      kind: "prompt",
+      text: "hello world",
+    });
+  });
+
+  test("prompt with --repo flag", () => {
+    expect(parseArgs(["prompt", "--repo", "my-project", "explain this code"])).toEqual({
+      kind: "prompt",
+      text: "explain this code",
+      repo: "my-project",
+    });
+  });
+
+  test("prompt without text → error", () => {
+    const parsed = parseArgs(["prompt"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("missing <text>");
+    }
+  });
+
+  test("prompt with --cwd → error", () => {
+    const parsed = parseArgs(["prompt", "--cwd", "/some/dir", "text"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("--cwd is not allowed");
+    }
+  });
+
+  test("prompt with --repo but no value → error", () => {
+    const parsed = parseArgs(["prompt", "--repo", "hello"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("missing <text>");
+    }
+  });
 });
 
 describe("run", () => {
@@ -290,6 +329,77 @@ describe("run", () => {
     const code = run(["run"], { io: cap.io, config: { dir: cfgDir } });
     expect(code).toBe(1);
     expect(cap.err()).toContain("spec-path");
+  });
+
+  test("prompt with empty text exits 1", () => {
+    const cap = captureIo();
+    const code = run(["prompt", ""], { io: cap.io, config: { dir: cfgDir } });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("empty or whitespace-only");
+  });
+
+  test("prompt with whitespace-only text exits 1", () => {
+    const cap = captureIo();
+    const code = run(["prompt", "   "], { io: cap.io, config: { dir: cfgDir } });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("empty or whitespace-only");
+  });
+
+  test("prompt with git disabled exits 1", () => {
+    const cap = captureIo();
+    const agentOrder = [
+      { agent: "claude", model: "haiku" },
+      { agent: "codex", model: "gpt-5.3-codex" },
+      { agent: "cursor", model: "Composer 2" },
+    ];
+    writeFileSync(
+      join(cfgDir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder },
+          plan: { agentOrder },
+          prompt: { agentOrder },
+        },
+        quotaFallback: "lenient",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 1800000,
+        logServerUrl: "http://127.0.0.1:4310/logs",
+        logServerBind: "127.0.0.1:4310",
+        git: false,
+        projects: {},
+      }),
+    );
+    const code = run(["prompt", "hello"], { io: cap.io, config: { dir: cfgDir } });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("requires git to be enabled");
+  });
+
+  test("prompt with unregistered repo exits 1", () => {
+    const cap = captureIo();
+    const code = run(["prompt", "--repo", "nonexistent", "hello"], {
+      io: cap.io,
+      config: { dir: cfgDir },
+    });
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("no project matches");
+  });
+
+  test("prompt with no registered project in cwd exits 1", () => {
+    const cap = captureIo();
+    const tempDir = mkdtempSync(join(tmpdir(), "jarvis-prompt-"));
+    try {
+      const code = run(["prompt", "hello"], {
+        io: cap.io,
+        config: { dir: cfgDir },
+        cwd: tempDir,
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("repo resolution failed");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test("run/init/config bootstrap the config dir", () => {

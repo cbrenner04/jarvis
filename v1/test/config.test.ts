@@ -48,6 +48,7 @@ describe("loadConfig", () => {
       modes: {
         patch: { agentOrder: DEFAULT_AGENT_ORDER },
         plan: { agentOrder: DEFAULT_AGENT_ORDER, targetDir: "spec" },
+        prompt: { agentOrder: DEFAULT_AGENT_ORDER },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -959,6 +960,7 @@ describe("git toggle", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -978,6 +980,7 @@ describe("git toggle", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -997,6 +1000,7 @@ describe("git toggle", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1533,6 +1537,7 @@ describe("resolvePlanFlags", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1560,6 +1565,7 @@ describe("resolvePlanFlags", () => {
           specTimestamp: true,
           commit: true,
         },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1593,6 +1599,7 @@ describe("resolvePlanFlags", () => {
           specTimestamp: false,
           commit: true,
         },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1621,6 +1628,7 @@ describe("resolvePlanFlags", () => {
           specTimestamp: true,
           commit: true,
         },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1654,6 +1662,7 @@ describe("resolvePlanFlags", () => {
           specTimestamp: false,
           commit: true,
         },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1683,6 +1692,7 @@ describe("resolvePlanFlags", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1707,6 +1717,7 @@ describe("resolvePlanFlags", () => {
       modes: {
         patch: { agentOrder: CLAUDE_ONLY },
         plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1733,6 +1744,7 @@ describe("resolvePlanFlags", () => {
           agentOrder: CLAUDE_ONLY,
           targetDir: "spec",
         },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -1765,6 +1777,7 @@ describe("resolvePlanFlags", () => {
           agentOrder: CLAUDE_ONLY,
           targetDir: "specs",
         },
+        prompt: { agentOrder: CLAUDE_ONLY },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],

@@ -91,6 +91,7 @@ export type Config = {
   modes: {
     patch: ModeConfig;
     plan: ModeConfig;
+    prompt: ModeConfig;
   };
   quotaFallback: "strict" | "lenient";
   weakQuotaExitCodes: number[];
@@ -132,6 +133,7 @@ const DEFAULT_CONFIG: Config = {
       agentOrder: structuredClone(DEFAULT_AGENT_ORDER),
       targetDir: "spec",
     },
+    prompt: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
   },
   quotaFallback: "lenient",
   weakQuotaExitCodes: [],
@@ -224,6 +226,20 @@ function validateConfig(input: unknown, file: string): Config {
   let planTargetDir: string | undefined;
   if (planModeObj.targetDir !== undefined) {
     planTargetDir = validateTargetDir(planModeObj.targetDir, "modes.plan.targetDir", (message) => fail(file, message));
+  }
+
+  let promptAgentOrder: AgentEntry[];
+  const promptMode = modesObj.prompt;
+  if (promptMode === undefined) {
+    // Default to patch agent order if not specified
+    promptAgentOrder = structuredClone(patchAgentOrder);
+  } else {
+    if (promptMode === null || typeof promptMode !== "object" || Array.isArray(promptMode)) {
+      fail(file, 'modes.prompt must be an object with "agentOrder" array');
+    }
+    const promptModeObj = promptMode as Record<string, unknown>;
+    promptAgentOrder = validateAgentOrder(promptModeObj.agentOrder, "modes.prompt.agentOrder", file);
+    validateNoModeAgents(promptModeObj.agents, "modes.prompt", file);
   }
 
   const maxIterations = validatePositiveInteger(
@@ -418,6 +434,7 @@ function validateConfig(input: unknown, file: string): Config {
         ...(planCommit !== undefined ? { commit: planCommit } : {}),
         ...(planTargetDir !== undefined ? { targetDir: planTargetDir } : {}),
       },
+      prompt: { agentOrder: promptAgentOrder },
     },
     quotaFallback,
     weakQuotaExitCodes,

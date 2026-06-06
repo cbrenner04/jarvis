@@ -21,6 +21,7 @@ export type CursorAgentOptions = {
 const CURSOR_KNOWN_MODELS: readonly string[] = [
   "Composer 2",
   "Composer 2.5",
+  "Composer 2.5 Fast",
   "Claude 4 Sonnet",
   "Claude 4.5 Haiku",
   "Claude 4.6 Sonnet",
@@ -29,12 +30,31 @@ const CURSOR_KNOWN_MODELS: readonly string[] = [
   "GPT-5.3 Codex",
   "GPT-5.4",
   "GPT-5.5",
-  "Gemini 3 Flash",
-  "Gemini 3 Pro",
   "Gemini 3.1 Pro",
+  "Gemini 3.5 Flash",
 ];
 
-const CURSOR_MODEL_LABELS: Record<string, string> = {};
+// Config and prices.json use Cursor UI names; the CLI expects slug IDs. Passing
+// display names can fuzzy-match to the wrong variant (e.g. "Composer 2.5" →
+// composer-2.5-fast, the CLI default).
+const CURSOR_CLI_MODELS: Record<string, string> = {
+  "Composer 2": "composer-2.5",
+  "Composer 2.5": "composer-2.5",
+  "Composer 2.5 Fast": "composer-2.5-fast",
+  "Claude 4 Sonnet": "claude-4-sonnet",
+  "Claude 4.6 Sonnet": "claude-4.6-sonnet-medium",
+  "Claude 4.7 Opus": "claude-opus-4-7-medium",
+  "Claude 4.8 Opus": "claude-opus-4-8-medium",
+  "GPT-5.3 Codex": "gpt-5.3-codex",
+  "GPT-5.4": "gpt-5.4-medium",
+  "GPT-5.5": "gpt-5.5-medium",
+  "Gemini 3.1 Pro": "gemini-3.1-pro",
+  "Gemini 3.5 Flash": "gemini-3.5-flash",
+};
+
+const CURSOR_MODEL_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(CURSOR_CLI_MODELS).map(([label, slug]) => [slug, label]),
+);
 
 const CURSOR_PRICE_KEYS: Record<string, string> = Object.fromEntries(CURSOR_KNOWN_MODELS.map((m) => [m, m]));
 
@@ -43,6 +63,10 @@ export const CURSOR_HAS_PRICED_MODELS = true;
 export function resolveCursorPriceKey(model: string | undefined): string | null {
   if (model === undefined) return null;
   return CURSOR_PRICE_KEYS[model] ?? null;
+}
+
+export function resolveCursorCliModel(model: string): string {
+  return CURSOR_CLI_MODELS[model] ?? model;
 }
 
 export class CursorAgent implements Agent {
@@ -64,7 +88,7 @@ export class CursorAgent implements Agent {
         buildArgv: (prompt, opts) => {
           const argv = ["agent", "-p", "--output-format", "text"];
           if (this.#model !== undefined) {
-            argv.push("--model", this.#model);
+            argv.push("--model", resolveCursorCliModel(this.#model));
           }
           argv.push("--force", "--workspace", opts.cwd, prompt);
           return argv;

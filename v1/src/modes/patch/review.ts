@@ -8,6 +8,7 @@ import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
 import { getBaseBranch, postPrComment } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
+import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
@@ -366,7 +367,7 @@ function createPatchReviewAdapter(args: {
 
       if (blockerCommitFailed) {
         recordPatchTelemetry({ ...ctx, outcome: "blocked" }, 1);
-        throw new ReviewTerminalError("review-blocker-commit-failed", 1);
+        throw new ReviewTerminalError("review-blocker-commit-failed", 1, { telemetryRecorded: true });
       }
 
       return 7;
@@ -389,7 +390,7 @@ function createPatchReviewAdapter(args: {
           configured_model: ctx.agentEntry.model,
           ...usageAndCost,
         });
-        throw new ReviewTerminalError(message, 1);
+        throw new ReviewTerminalError(message, 1, { telemetryRecorded: true });
       }
       opts.fanout("harness", `review: pass ${ctx.passNumber} completed\n`, "stdout");
     },
@@ -440,6 +441,20 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       },
       onAllAgentsQuotaExhausted: (message) => {
         opts.fanout("harness", `${message}\n`, "stderr");
+      },
+      onQuotaRotation: (agent, spawnResult, classified) => {
+        if (classified.kind !== "quota") {
+          return;
+        }
+        const line =
+          spawnResult.kind === "quota"
+            ? HARNESS_QUOTA_FALLBACK_STRICT
+            : harnessQuotaFallbackLenientLine(spawnResult.kind === "error" ? spawnResult.exitCode : 0);
+        opts.fanout("harness", `${agent}: ${line}\n`, "stderr");
+        if (spawnResult.kind === "error" && spawnResult.stderr.length > 0) {
+          const stderr = spawnResult.stderr.endsWith("\n") ? spawnResult.stderr : `${spawnResult.stderr}\n`;
+          opts.fanout("harness", stderr, "stderr");
+        }
       },
     });
 

@@ -24,6 +24,7 @@ import {
   revertPaths,
 } from "./boundary.ts";
 import { commitPlanBlocker, commitPlanReview } from "./commits.ts";
+import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { hasSpecDirChanges, resolvePlanSpecDirPath, snapshotSpecDirFiles } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
@@ -424,6 +425,7 @@ function createPlanReviewAdapter(args: {
         throw err;
       }
     },
+    // Plan boundary checks run in readBlocker/commitPass when edits exist.
     enforceWriteBoundary: async () => {},
     readBlocker: async (ctx) => {
       if (!passHasChanges(opts, finalSpecPath, specSnapshotBefore)) {
@@ -546,6 +548,9 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
       loadAgent: ({ name, model }) => resolveAgent(name as AgentName, model),
       onAllAgentsQuotaExhausted: (message) => {
         opts.stderr?.(`plan: ${message}\n`);
+      },
+      onQuotaRotation: (agent, spawnResult, classified) => {
+        emitPlanAgentQuotaFallback(opts.stderr, agent, spawnResult, classified);
       },
     });
 

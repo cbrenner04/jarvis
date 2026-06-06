@@ -1,8 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { execSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { AgentEntry, Config } from "../../../src/config.ts";
 import { runReview } from "../../../src/modes/review/run.ts";
-import type { ReviewAdapter, ReviewAttemptContext, ReviewTelemetryEvent } from "../../../src/modes/review/types.ts";
+import {
+  type ReviewAdapter,
+  type ReviewAttemptContext,
+  type ReviewTelemetryEvent,
+  ReviewTerminalError,
+} from "../../../src/modes/review/types.ts";
 
 function makeConfig(opts?: { planOrder?: AgentEntry[]; reviewOrder?: AgentEntry[]; reviewPasses?: number }): Config {
   const planOrder = opts?.planOrder ?? [{ agent: "claude", model: "haiku" }];
@@ -180,10 +189,16 @@ describe("runReview", () => {
     });
 
     expect(code).toBe(0);
-    expect(prompts.map((prompt) => `${prompt.passNumber}:${prompt.agent}`)).toEqual(["1:claude", "1:codex", "2:codex"]);
+    expect(prompts.map((prompt) => `${prompt.passNumber}:${prompt.agent}`)).toEqual([
+      "1:claude",
+      "1:codex",
+      "2:claude",
+      "2:codex",
+    ]);
     expect(telemetry.map((event) => `${event.passNumber}:${event.agent.name}:${event.outcome}`)).toEqual([
       "1:claude:quota",
       "1:codex:ok",
+      "2:claude:quota",
       "2:codex:ok",
     ]);
 
@@ -302,5 +317,62 @@ describe("runReview", () => {
     expect(blocked.blocked).toHaveLength(1);
     expect(blocked.telemetry[0]?.outcome).toBe("blocked");
     expect(blocked.telemetry[0]?.exitCode).toBe(7);
+  });
+
+  test("upgrades lenient weak-quota errors when porcelain is unchanged", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-review-lenient-"));
+    execSync("git init -b main", { cwd: dir });
+    const rotations: string[] = [];
+    const { adapter, telemetry } = makeAdapter();
+    const code = await runReview({
+      config: makeConfig({
+        reviewOrder: [
+          { agent: "claude", model: "haiku" },
+          { agent: "codex", model: "gpt-5.3-codex" },
+        ],
+        reviewPasses: 1,
+      }),
+      cwd: dir,
+      adapter,
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => {
+          if (name === "claude") {
+            return { kind: "error", exitCode: 429, stderr: "rate limit exceeded" };
+          }
+          return { kind: "ok", stdout: "", stderr: "" };
+        }),
+      onQuotaRotation: (agent, _spawn, classified) => {
+        if (classified.kind === "quota") {
+          rotations.push(agent);
+        }
+      },
+    });
+
+    rmSync(dir, { recursive: true, force: true });
+    expect(code).toBe(0);
+    expect(rotations).toEqual(["claude"]);
+    expect(telemetry.map((event) => `${event.agent.name}:${event.outcome}`)).toEqual(["claude:quota", "codex:ok"]);
+  });
+
+  test("records telemetry when adapter rejects a successful agent result", async () => {
+    const { adapter, telemetry } = makeAdapter({
+      readBlocker: async () => {
+        throw new ReviewTerminalError("validation failed", 1);
+      },
+    });
+
+    const code = await runReview({
+      config: makeConfig({ reviewPasses: 1 }),
+      cwd: "/tmp/review",
+      adapter,
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "", stderr: "" })),
+    });
+
+    expect(code).toBe(1);
+    expect(telemetry).toHaveLength(1);
+    expect(telemetry[0]?.outcome).toBe("error");
+    expect(telemetry[0]?.exitCode).toBe(1);
+    expect(telemetry[0]?.result.kind).toBe("ok");
   });
 });

@@ -956,6 +956,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             });
           },
           isInterrupted: () => interrupted,
+          onPassStart: (pass, total) => {
+            opts.io.stderr(`plan: review pass ${pass}/${total} starting\n`);
+          },
         });
         if (reviewResult.interrupted) {
           opts.io.stderr(`plan: interrupted\n`);

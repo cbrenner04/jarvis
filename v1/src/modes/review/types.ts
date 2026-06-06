@@ -29,10 +29,13 @@ export type ReviewTelemetryEvent = ReviewAttemptContext & {
 /** Adapter-thrown error that maps to a harness exit code. */
 export class ReviewTerminalError extends Error {
   readonly exitCode: number;
+  /** When true, the adapter already recorded telemetry for this failure. */
+  readonly telemetryRecorded?: boolean | undefined;
 
-  constructor(message: string, exitCode: number) {
+  constructor(message: string, exitCode: number, opts?: { telemetryRecorded?: boolean }) {
     super(message);
     this.exitCode = exitCode;
+    this.telemetryRecorded = opts?.telemetryRecorded;
   }
 }
 

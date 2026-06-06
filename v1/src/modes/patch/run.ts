@@ -1328,18 +1328,31 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   logging.fanout("harness", "spec complete\n", "stdout");
 
   // Determine if review should run. Passes resolve `--review-passes` →
-  // `modes.review.passes` → default. Review uses its own agent order (see
-  // `runReviewPhase`), independent of the implementation agents.
+  // `modes.review.passes` → default. Review uses its own agent order via
+  // `runPatchReviewPhase`, independent of the implementation agents.
   const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
   const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && logging.patchIterationsCompletedForSummary() > 0;
 
   if (shouldRunReview) {
-    // Run review phase after completion
-    const reviewExitCode = await runReviewPhase({
-      ctx,
-      specPath: preflight.specPath,
-      agentWorkingDir: preflight.agentWorkingDir,
-    });
+    const { fanout, writeTelemetry } = ctx.logging;
+    let reviewExitCode: number;
+    try {
+      reviewExitCode = await runPatchReviewPhase({
+        config: preflight.cfg,
+        cwd: preflight.agentWorkingDir,
+        specPath: preflight.specPath,
+        ...(ctx.opts.reviewPasses !== undefined ? { reviewPassesOverride: ctx.opts.reviewPasses } : {}),
+        fanout,
+        writeTelemetry,
+        ...(ctx.opts.agents !== undefined ? { agents: ctx.opts.agents } : {}),
+        iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
+        ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      fanout("harness", `review phase error: ${message}\n`, "stderr");
+      reviewExitCode = 1;
+    }
     if (reviewExitCode !== 0) {
       return reviewExitCode;
     }
@@ -1554,33 +1567,5 @@ function copyMissingRecursive(sourceDir: string, targetDir: string): void {
       force: false,
       errorOnExist: false,
     });
-  }
-}
-
-async function runReviewPhase(opts: {
-  ctx: IterationContext;
-  specPath: string;
-  agentWorkingDir: string;
-}): Promise<number> {
-  const { ctx } = opts;
-  const { fanout, writeTelemetry } = ctx.logging;
-  const { preflight } = ctx;
-
-  try {
-    return await runPatchReviewPhase({
-      config: preflight.cfg,
-      cwd: opts.agentWorkingDir,
-      specPath: opts.specPath,
-      ...(ctx.opts.reviewPasses !== undefined ? { reviewPassesOverride: ctx.opts.reviewPasses } : {}),
-      fanout,
-      writeTelemetry,
-      ...(ctx.opts.agents !== undefined ? { agents: ctx.opts.agents } : {}),
-      iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
-      ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    fanout("harness", `review phase error: ${message}\n`, "stderr");
-    return 1;
   }
 }

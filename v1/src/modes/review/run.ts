@@ -1,8 +1,22 @@
-import type { Agent } from "../../agents/types.ts";
-import type { Config } from "../../config.ts";
+import { execFileSync } from "node:child_process";
+import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
+import type { Agent, AgentResult } from "../../agents/types.ts";
+import type { AgentName, Config } from "../../config.ts";
 import { resolveReviewAgentOrder, resolveReviewPasses } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
+import { ReviewTerminalError } from "./types.ts";
+
+function readPorcelainSnapshot(cwd: string): string | null {
+  try {
+    return execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      encoding: "utf8",
+    });
+  } catch {
+    return null;
+  }
+}
 
 /** Inputs for the shared review runner. */
 export type RunReviewOptions = {
@@ -18,8 +32,24 @@ export type RunReviewOptions = {
   onPassStart?: (passNumber: number, totalPasses: number) => void;
   loadAgent: (args: { name: string; model: string }) => Agent;
   onAllAgentsQuotaExhausted?: (message: string) => void;
+  onQuotaRotation?: (agent: AgentName, spawnResult: AgentResult, classified: AgentResult) => void;
   now?: () => number;
 };
+
+async function recordAdapterFailure(
+  adapter: ReviewAdapter,
+  attempt: ReviewAttemptContext,
+  err: ReviewTerminalError,
+): Promise<number> {
+  if (!err.telemetryRecorded) {
+    await adapter.recordTelemetry({
+      ...attempt,
+      outcome: "error",
+      exitCode: err.exitCode,
+    });
+  }
+  return err.exitCode;
+}
 
 /** Run the shared review pass loop. */
 export async function runReview(opts: RunReviewOptions): Promise<number> {
@@ -30,7 +60,7 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
   const passCount = resolveReviewPasses(opts.config, opts.reviewPassesOverride);
   const startPassNumber = opts.startPassNumber ?? 1;
   const displayTotalPasses = startPassNumber + passCount - 1;
-  const remainingAgents = [...resolveReviewAgentOrder(opts.config)];
+  const agentOrder = resolveReviewAgentOrder(opts.config);
   const now = opts.now ?? Date.now;
 
   for (let passIndex = 0; passIndex < passCount; passIndex += 1) {
@@ -45,6 +75,8 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
     if (adapter === undefined) {
       throw new Error("runReview adapter resolved to undefined");
     }
+
+    const remainingAgents = [...agentOrder];
 
     while (true) {
       const agentEntry = remainingAgents[0];
@@ -63,8 +95,23 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
         agentEntry,
       });
 
+      const porcelainBefore = readPorcelainSnapshot(opts.cwd);
       const startedAt = now();
-      const result = await agent.run(prompt, { cwd: opts.cwd });
+      const spawnResult = await agent.run(prompt, { cwd: opts.cwd });
+      const porcelainAfter = readPorcelainSnapshot(opts.cwd);
+      const noDiskChangeDuringInvocation =
+        porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
+      const result = applyQuotaFallbackWhenAllowed(
+        agentEntry.agent,
+        spawnResult,
+        {
+          quotaFallback: opts.config.quotaFallback,
+          weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
+        },
+        noDiskChangeDuringInvocation,
+      );
+      opts.onQuotaRotation?.(agentEntry.agent, spawnResult, result);
+
       const attempt: ReviewAttemptContext = {
         passNumber,
         totalPasses: displayTotalPasses,
@@ -77,24 +124,31 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
       };
 
       if (result.kind === "ok") {
-        await adapter.enforceWriteBoundary(attempt);
-        const blocker = await adapter.readBlocker(attempt);
-        if (blocker !== null) {
-          const exitCode = await adapter.handleBlocker({ ...attempt, blocker });
+        try {
+          await adapter.enforceWriteBoundary(attempt);
+          const blocker = await adapter.readBlocker(attempt);
+          if (blocker !== null) {
+            const exitCode = await adapter.handleBlocker({ ...attempt, blocker });
+            await adapter.recordTelemetry({
+              ...attempt,
+              outcome: "blocked",
+              exitCode,
+            });
+            return exitCode;
+          }
+
+          await adapter.commitPass(attempt);
           await adapter.recordTelemetry({
             ...attempt,
-            outcome: "blocked",
-            exitCode,
+            outcome: "ok",
           });
-          return exitCode;
+          break;
+        } catch (err) {
+          if (err instanceof ReviewTerminalError) {
+            return await recordAdapterFailure(adapter, attempt, err);
+          }
+          throw err;
         }
-
-        await adapter.commitPass(attempt);
-        await adapter.recordTelemetry({
-          ...attempt,
-          outcome: "ok",
-        });
-        break;
       }
 
       const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : undefined;

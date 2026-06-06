@@ -63,14 +63,24 @@ describe("CursorAgent", () => {
 
   test("includes model flag when model is configured", async () => {
     const bin = fakeBinary({ exit: 0 });
-    const agent = new CursorAgent({ binary: bin, model: "Composer 2" });
+    const agent = new CursorAgent({ binary: bin, model: "Composer 2.5" });
 
     await agent.run("the prompt", { cwd });
 
     const argv = readFileSync(join(dir, "argv"), "utf8");
     expect(argv).toBe(
-      `agent\0-p\0--output-format\0text\0--model\0Composer 2\0--force\0--workspace\0${cwd}\0the prompt\0`,
+      `agent\0-p\0--output-format\0text\0--model\0composer-2.5\0--force\0--workspace\0${cwd}\0the prompt\0`,
     );
+  });
+
+  test("maps Composer 2.5 Fast to the fast CLI slug", async () => {
+    const bin = fakeBinary({ exit: 0 });
+    const agent = new CursorAgent({ binary: bin, model: "Composer 2.5 Fast" });
+
+    await agent.run("the prompt", { cwd });
+
+    const argv = readFileSync(join(dir, "argv"), "utf8");
+    expect(argv).toContain("--model\0composer-2.5-fast\0");
   });
 
   test("non-zero exit maps to error with captured stderr", async () => {
@@ -154,7 +164,15 @@ describe("CursorAgent", () => {
     }
   });
 
-  test("attributionLabel returns raw string for model ID", () => {
+  test("attributionLabel returns mapped label for known CLI slug", () => {
+    const agent = new CursorAgent({
+      binary: "fake",
+      model: "composer-2.5",
+    });
+    expect(agent.attributionLabel()).toBe("Composer 2.5");
+  });
+
+  test("attributionLabel returns raw string for unknown model ID", () => {
     const agent = new CursorAgent({
       binary: "fake",
       model: "claude-opus-4-8",

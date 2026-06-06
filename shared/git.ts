@@ -1,10 +1,7 @@
 import { execFileSync } from "node:child_process";
 
 /** True when `branchName` resolves to a local ref in `projectRoot`. */
-export function branchExistsLocal(
-  projectRoot: string,
-  branchName: string,
-): boolean {
+export function branchExistsLocal(projectRoot: string, branchName: string): boolean {
   try {
     execFileSync("git", ["rev-parse", "--verify", branchName], {
       cwd: projectRoot,
@@ -20,10 +17,7 @@ export function branchExistsLocal(
  * True when `origin/<branchName>` resolves in `projectRoot`. Reads the local
  * remote-tracking ref only; callers that need freshness fetch first.
  */
-export function branchExistsOnOrigin(
-  projectRoot: string,
-  branchName: string,
-): boolean {
+export function branchExistsOnOrigin(projectRoot: string, branchName: string): boolean {
   try {
     execFileSync("git", ["rev-parse", "--verify", `origin/${branchName}`], {
       cwd: projectRoot,

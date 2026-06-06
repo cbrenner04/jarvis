@@ -3,11 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  branchExistsLocal,
-  branchExistsOnOrigin,
-  getCurrentBranch,
-} from "./git.ts";
+import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "./git.ts";
 
 let repo: string;
 

@@ -66,13 +66,7 @@ describe("buildPrBody", () => {
   test("ignores linked checklist content", () => {
     writeFileSync(
       indexPath,
-      [
-        "# Spec",
-        "",
-        "- [x] [00 - md](./00-md.md)",
-        "- [ ] [link](https://example.com)",
-        "",
-      ].join("\n"),
+      ["# Spec", "", "- [x] [00 - md](./00-md.md)", "- [ ] [link](https://example.com)", ""].join("\n"),
     );
 
     const body = buildPrBody({ indexPath, narrative: null });
@@ -86,9 +80,7 @@ describe("buildPrBody", () => {
       indexPath,
       narrative: "Some narrative content.",
     });
-    expect(body).toContain(
-      `${NARRATIVE_START_MARKER}\nSome narrative content.\n${NARRATIVE_END_MARKER}`,
-    );
+    expect(body).toContain(`${NARRATIVE_START_MARKER}\nSome narrative content.\n${NARRATIVE_END_MARKER}`);
   });
 
   test("omits narrative markers when narrative is null", () => {
@@ -146,13 +138,7 @@ describe("updatePrBody", () => {
   test("composes header + preserved narrative + footer when markers and footer present", async () => {
     writeFileSync(
       indexPath,
-      [
-        "# Spec",
-        "",
-        "- [x] [00 - one](./00-one.md)",
-        "- [ ] [01 - two](./01-two.md)",
-        "",
-      ].join("\n"),
+      ["# Spec", "", "- [x] [00 - one](./00-one.md)", "- [ ] [01 - two](./01-two.md)", ""].join("\n"),
     );
     const currentBody = [
       "# stale header",
@@ -174,32 +160,27 @@ describe("updatePrBody", () => {
       writePrBody: (_branch, body) => {
         writtenBody = body;
       },
-      renderFooter: () =>
-        "- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
+      renderFooter: () => "- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
     });
 
     expect(writtenBody).toContain("# Spec");
-    expect(writtenBody).toContain(
-      `${NARRATIVE_START_MARKER}\npreserved narrative\n${NARRATIVE_END_MARKER}`,
-    );
-    expect(writtenBody).toContain(
-      "\n\n---\n\n- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
-    );
+    expect(writtenBody).toContain(`${NARRATIVE_START_MARKER}\npreserved narrative\n${NARRATIVE_END_MARKER}`);
+    expect(writtenBody).toContain("\n\n---\n\n- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.");
   });
 
   test("uses compact attribution by default", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
-    execSync(
-      "git commit -q -m 'one' -m 'Spec: spec/00-one.md' -m 'Jarvis-Agent: Agent A'",
-      { cwd: dir, stdio: "pipe" },
-    );
+    execSync("git commit -q -m 'one' -m 'Spec: spec/00-one.md' -m 'Jarvis-Agent: Agent A'", {
+      cwd: dir,
+      stdio: "pipe",
+    });
     execSync("echo x >> seed.txt", { cwd: dir, stdio: "pipe" });
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
-    execSync(
-      "git commit -q -m 'retry same subspec' -m 'Spec: spec/00-one.md' -m 'Jarvis-Agent: Agent A'",
-      { cwd: dir, stdio: "pipe" },
-    );
+    execSync("git commit -q -m 'retry same subspec' -m 'Spec: spec/00-one.md' -m 'Jarvis-Agent: Agent A'", {
+      cwd: dir,
+      stdio: "pipe",
+    });
 
     let writtenBody = "";
     await updatePrBody({
@@ -214,11 +195,7 @@ describe("updatePrBody", () => {
     });
 
     expect(writtenBody).toContain("Written by Agent A through Jarvis.");
-    expect(
-      writtenBody
-        .split("\n")
-        .filter((line) => line === "Written by Agent A through Jarvis."),
-    ).toHaveLength(1);
+    expect(writtenBody.split("\n").filter((line) => line === "Written by Agent A through Jarvis.")).toHaveLength(1);
     expect(writtenBody).not.toContain("retry same subspec");
   });
 
@@ -316,10 +293,7 @@ describe("maybeMarkReady", () => {
   });
 
   test("calls markReady when all subspecs complete", () => {
-    writeFileSync(
-      indexPath,
-      "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n",
-    );
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n");
 
     let markReadyCalled = false;
     let markReadyBranch = "";
@@ -346,8 +320,7 @@ describe("maybeMarkReady", () => {
   test("propagates errors from markReady", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
 
-    const multilineError =
-      "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
+    const multilineError = "bun run ready failed:\nsrc/foo.ts(1,1): error TS2345: ...\nFound 1 error.";
     expect(() =>
       maybeMarkReady({
         indexPath,
@@ -373,10 +346,7 @@ describe("maybeMarkReady", () => {
   });
 
   test("(a) runReady does not dirty tree -> commitCheckFix not called, ghPrReady called", () => {
-    writeFileSync(
-      indexPath,
-      "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n",
-    );
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n");
     // Commit the spec file to have a clean tree
     execSync("git add -A", { cwd: dir, stdio: "pipe" });
     execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
@@ -547,10 +517,7 @@ describe("generatePrDescription", () => {
 
   test("includes linked subspec content in the prompt", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
-    writeFileSync(
-      join(dir, "spec", "00-one.md"),
-      "# One\n\nImplemented useful details.\n",
-    );
+    writeFileSync(join(dir, "spec", "00-one.md"), "# One\n\nImplemented useful details.\n");
 
     let prompt = "";
     const agent: Agent = {
@@ -692,9 +659,7 @@ describe("updatePrBody with generation", () => {
       agent,
     });
 
-    expect(writtenBody).toContain(
-      `${NARRATIVE_START_MARKER}\nThis is my custom narrative\n${NARRATIVE_END_MARKER}`,
-    );
+    expect(writtenBody).toContain(`${NARRATIVE_START_MARKER}\nThis is my custom narrative\n${NARRATIVE_END_MARKER}`);
     expect(writtenBody).not.toContain("Updated feature");
   });
 
@@ -765,9 +730,10 @@ describe("updatePrBody with generation", () => {
       },
       attributionLabel: () => "test-agent",
     };
-    const edited = markGeneratedNarrative(
-      "Old feature\n\nDecisions:\n- Old choice",
-    ).replace("Old feature", "Human edited feature");
+    const edited = markGeneratedNarrative("Old feature\n\nDecisions:\n- Old choice").replace(
+      "Old feature",
+      "Human edited feature",
+    );
 
     let writtenBody = "";
     await updatePrBody({
@@ -775,8 +741,7 @@ describe("updatePrBody with generation", () => {
       branch: "feature",
       base: "main",
       cwd: dir,
-      fetchPrBody: () =>
-        `${NARRATIVE_START_MARKER}\n${edited}\n${NARRATIVE_END_MARKER}`,
+      fetchPrBody: () => `${NARRATIVE_START_MARKER}\n${edited}\n${NARRATIVE_END_MARKER}`,
       writePrBody: (_branch, body) => {
         writtenBody = body;
       },

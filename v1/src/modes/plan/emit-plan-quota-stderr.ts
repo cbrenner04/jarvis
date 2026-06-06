@@ -1,9 +1,6 @@
 import type { AgentResult } from "../../agents/types.ts";
 import type { AgentName } from "../../config.ts";
-import {
-  HARNESS_QUOTA_FALLBACK_STRICT,
-  harnessQuotaFallbackLenientLine,
-} from "../../quota-harness-messages.ts";
+import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
 
 /**
  * When plan rotates to the next agent after a quota-classified result, print a
@@ -21,8 +18,6 @@ export function emitPlanAgentQuotaFallback(
     return;
   }
   if (spawnResult.kind === "error") {
-    stderrFn(
-      `plan: ${agent}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`,
-    );
+    stderrFn(`plan: ${agent}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`);
   }
 }

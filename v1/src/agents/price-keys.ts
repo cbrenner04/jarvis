@@ -2,16 +2,10 @@ import { AIDER_HAS_PRICED_MODELS, resolveAiderPriceKey } from "./aider.ts";
 import { CLAUDE_HAS_PRICED_MODELS, resolveClaudePriceKey } from "./claude.ts";
 import { CODEX_HAS_PRICED_MODELS, resolveCodexPriceKey } from "./codex.ts";
 import { CURSOR_HAS_PRICED_MODELS, resolveCursorPriceKey } from "./cursor.ts";
-import {
-  OPENCODE_HAS_PRICED_MODELS,
-  resolveOpencodePriceKey,
-} from "./opencode.ts";
+import { OPENCODE_HAS_PRICED_MODELS, resolveOpencodePriceKey } from "./opencode.ts";
 import type { AgentName } from "./types.ts";
 
-export function resolveAgentPriceKey(
-  agent: AgentName,
-  model: string | undefined,
-): string | null {
+export function resolveAgentPriceKey(agent: AgentName, model: string | undefined): string | null {
   switch (agent) {
     case "claude":
       return resolveClaudePriceKey(model);

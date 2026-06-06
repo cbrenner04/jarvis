@@ -1,19 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  createPlanWorktree,
-  ensureExistingBranchWorktree,
-  ensureWorktree,
-} from "../src/worktree.ts";
+import { createPlanWorktree, ensureExistingBranchWorktree, ensureWorktree } from "../src/worktree.ts";
 
 describe("createPlanWorktree", () => {
   test("creates worktree at .worktree/plan-<name>/ on plan/<name> branch", async () => {
@@ -156,9 +146,7 @@ describe("ensureWorktree (patch-mode)", () => {
 describe("ensureExistingBranchWorktree", () => {
   test("creates from local+remote and reports origin", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-both-"));
-    const origin = mkdtempSync(
-      join(tmpdir(), "jarvis-existing-branch-origin-"),
-    );
+    const origin = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-origin-"));
     try {
       execSync("git init --bare", { cwd: origin });
       execSync("git init -b main", { cwd: dir });
@@ -187,9 +175,7 @@ describe("ensureExistingBranchWorktree", () => {
   });
 
   test("creates from remote-only and reports origin", () => {
-    const origin = mkdtempSync(
-      join(tmpdir(), "jarvis-existing-branch-origin-"),
-    );
+    const origin = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-origin-"));
     const seed = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-seed-"));
     const dir = mkdtempSync(join(tmpdir(), "jarvis-existing-branch-local-"));
     try {

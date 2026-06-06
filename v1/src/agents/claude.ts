@@ -14,7 +14,7 @@ export type ClaudeAgentOptions = {
 };
 
 const CLAUDE_MODEL_LABELS: Record<string, string> = {
-  "claude-opus-4-7": "Claude Opus 4.7",
+  "claude-opus-4-8": "Claude Opus 4.8",
   "claude-sonnet-4-6": "Claude Sonnet 4.6",
   "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
 };
@@ -22,17 +22,15 @@ const CLAUDE_MODEL_LABELS: Record<string, string> = {
 const CLAUDE_PRICE_KEYS: Record<string, string> = {
   haiku: "claude-haiku-4-5-20251001",
   sonnet: "claude-sonnet-4-6",
-  opus: "claude-opus-4-7",
+  opus: "claude-opus-4-8",
   "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
   "claude-sonnet-4-6": "claude-sonnet-4-6",
-  "claude-opus-4-7": "claude-opus-4-7",
+  "claude-opus-4-8": "claude-opus-4-8",
 };
 
 export const CLAUDE_HAS_PRICED_MODELS = true;
 
-export function resolveClaudePriceKey(
-  model: string | undefined,
-): string | null {
+export function resolveClaudePriceKey(model: string | undefined): string | null {
   if (model === undefined) return null;
   return CLAUDE_PRICE_KEYS[model] ?? null;
 }

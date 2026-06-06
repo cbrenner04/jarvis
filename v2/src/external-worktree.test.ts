@@ -25,13 +25,9 @@ function setupRepo(): { repoRoot: string; jarvisRoot: string } {
   const jarvisRoot = join(root, "jarvis-home");
 
   execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
-  execFileSync(
-    "git",
-    ["-C", repoRoot, "config", "user.email", "test@example.com"],
-    {
-      stdio: "pipe",
-    },
-  );
+  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], {
+    stdio: "pipe",
+  });
   execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], {
     stdio: "pipe",
   });
@@ -256,8 +252,6 @@ describe("external worktree helper", () => {
       ),
     ).rejects.toThrow("boom");
 
-    expect(
-      existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot))),
-    ).toBe(false);
+    expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
   });
 });

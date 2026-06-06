@@ -1,17 +1,7 @@
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readlinkSync,
-  rmSync,
-  symlinkSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import {
-  branchExistsLocal,
-  branchExistsOnOrigin,
-  getCurrentBranch,
-} from "../../shared/git.ts";
+import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../shared/git.ts";
 import { getBaseBranch } from "./gh.ts";
 
 export function getSpecName(specPath: string): string {
@@ -25,10 +15,7 @@ export function getSpecName(specPath: string): string {
   return dir.split("/").at(-1) ?? "spec";
 }
 
-export async function ensureWorktree(
-  projectRoot: string,
-  specPath: string,
-): Promise<string> {
+export async function ensureWorktree(projectRoot: string, specPath: string): Promise<string> {
   const specName = getSpecName(specPath);
   const worktreePath = join(projectRoot, ".worktree", specName);
 
@@ -54,14 +41,10 @@ export async function ensureWorktree(
         stdio: "pipe",
       });
     }
-    execFileSync(
-      "git",
-      ["worktree", "add", "--checkout", worktreePath, specName],
-      {
-        cwd: projectRoot,
-        stdio: "pipe",
-      },
-    );
+    execFileSync("git", ["worktree", "add", "--checkout", worktreePath, specName], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
   } else {
     const baseBranch = await getBaseBranch(projectRoot);
     execFileSync("git", ["branch", specName, baseBranch], {
@@ -83,16 +66,10 @@ export interface CreatePlanWorktreeOptions {
   baseBranch?: string;
 }
 
-export async function createPlanWorktree(
-  opts: CreatePlanWorktreeOptions,
-): Promise<string> {
+export async function createPlanWorktree(opts: CreatePlanWorktreeOptions): Promise<string> {
   const dirPrefix = "plan-";
   const branchPrefix = "plan/";
-  const worktreePath = join(
-    opts.projectRoot,
-    ".worktree",
-    dirPrefix + opts.name,
-  );
+  const worktreePath = join(opts.projectRoot, ".worktree", dirPrefix + opts.name);
   const branchName = branchPrefix + opts.name;
 
   bestEffortFetch(opts.projectRoot);
@@ -114,17 +91,12 @@ export async function createPlanWorktree(
         stdio: "pipe",
       });
     }
-    execFileSync(
-      "git",
-      ["worktree", "add", "--checkout", worktreePath, branchName],
-      {
-        cwd: opts.projectRoot,
-        stdio: "pipe",
-      },
-    );
+    execFileSync("git", ["worktree", "add", "--checkout", worktreePath, branchName], {
+      cwd: opts.projectRoot,
+      stdio: "pipe",
+    });
   } else {
-    const baseBranch =
-      opts.baseBranch ?? (await getBaseBranch(opts.projectRoot));
+    const baseBranch = opts.baseBranch ?? (await getBaseBranch(opts.projectRoot));
     execFileSync("git", ["branch", branchName, baseBranch], {
       cwd: opts.projectRoot,
       stdio: "pipe",
@@ -161,10 +133,7 @@ export function ensureExistingBranchWorktree(opts: {
   bestEffortFetch(opts.projectRoot);
 
   const branchExists = branchExistsLocal(opts.projectRoot, opts.branchName);
-  const branchExistsRemote = branchExistsOnOrigin(
-    opts.projectRoot,
-    opts.branchName,
-  );
+  const branchExistsRemote = branchExistsOnOrigin(opts.projectRoot, opts.branchName);
 
   if (!branchExists && !branchExistsRemote) {
     throw new Error(opts.missingBranchMessage);
@@ -173,24 +142,16 @@ export function ensureExistingBranchWorktree(opts: {
   mkdirSync(join(opts.projectRoot, ".worktree"), { recursive: true });
 
   if (!branchExists && branchExistsRemote) {
-    execFileSync(
-      "git",
-      ["branch", opts.branchName, `origin/${opts.branchName}`],
-      {
-        cwd: opts.projectRoot,
-        stdio: "pipe",
-      },
-    );
-  }
-
-  execFileSync(
-    "git",
-    ["worktree", "add", "--checkout", worktreePath, opts.branchName],
-    {
+    execFileSync("git", ["branch", opts.branchName, `origin/${opts.branchName}`], {
       cwd: opts.projectRoot,
       stdio: "pipe",
-    },
-  );
+    });
+  }
+
+  execFileSync("git", ["worktree", "add", "--checkout", worktreePath, opts.branchName], {
+    cwd: opts.projectRoot,
+    stdio: "pipe",
+  });
 
   return {
     path: worktreePath,
@@ -209,10 +170,7 @@ function bestEffortFetch(projectRoot: string): void {
   }
 }
 
-function currentBranchMatches(
-  projectRoot: string,
-  branchName: string,
-): boolean {
+function currentBranchMatches(projectRoot: string, branchName: string): boolean {
   try {
     return getCurrentBranch(projectRoot) === branchName;
   } catch {
@@ -255,9 +213,7 @@ export function worktreeCompletionBlocker(cwd: string): string | undefined {
 }
 
 export function pushCurrent(opts: { cwd: string; firstPush: boolean }): void {
-  const args = opts.firstPush
-    ? ["push", "-u", "origin", getCurrentBranch(opts.cwd)]
-    : ["push"];
+  const args = opts.firstPush ? ["push", "-u", "origin", getCurrentBranch(opts.cwd)] : ["push"];
   try {
     execFileSync("git", args, {
       cwd: opts.cwd,
@@ -272,14 +228,10 @@ export function pushCurrent(opts: { cwd: string; firstPush: boolean }): void {
 
 export function hasUpstream(cwd: string): boolean {
   try {
-    execFileSync(
-      "git",
-      ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-      {
-        cwd,
-        stdio: "pipe",
-      },
-    );
+    execFileSync("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], {
+      cwd,
+      stdio: "pipe",
+    });
     return true;
   } catch {
     return false;
@@ -303,11 +255,7 @@ export function createWorktreeSymlinks(
   worktreePath: string,
   symlinks: string[] | undefined,
 ): void {
-  if (
-    !symlinks ||
-    symlinks.length === 0 ||
-    resolve(projectRoot) === resolve(worktreePath)
-  ) {
+  if (!symlinks || symlinks.length === 0 || resolve(projectRoot) === resolve(worktreePath)) {
     return;
   }
 
@@ -328,9 +276,7 @@ export function createWorktreeSymlinks(
         }
         rmSync(targetPath, { recursive: true });
       } catch {
-        throw new Error(
-          `Cannot create symlink at ${targetPath}: non-symlink file or directory already exists`,
-        );
+        throw new Error(`Cannot create symlink at ${targetPath}: non-symlink file or directory already exists`);
       }
     }
 

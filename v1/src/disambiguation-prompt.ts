@@ -29,14 +29,10 @@ export type DisambiguationResult =
  *
  * See spec/2026-05-12-portable-repo-resolution/02-disambiguation-prompt.md.
  */
-export async function promptForProject(
-  opts: DisambiguationOptions,
-): Promise<DisambiguationResult> {
+export async function promptForProject(opts: DisambiguationOptions): Promise<DisambiguationResult> {
   if (!opts.isTty) {
     const list = formatCandidateList(opts.candidates);
-    opts.io.stderr(
-      `${opts.reason}\nCandidates:\n${list}\nRerun with --repo <name>.\n`,
-    );
+    opts.io.stderr(`${opts.reason}\nCandidates:\n${list}\nRerun with --repo <name>.\n`);
     return { kind: "non-tty" };
   }
 

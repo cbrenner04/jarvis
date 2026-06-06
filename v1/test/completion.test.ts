@@ -28,9 +28,7 @@ describe("completion detection", () => {
   });
 
   test("counts unchecked tasks in a mixed spec", () => {
-    const spec = writeSpec(
-      ["# Spec", "- [x] done", "- [ ] todo", "  - [ ] nested"].join("\n"),
-    );
+    const spec = writeSpec(["# Spec", "- [x] done", "- [ ] todo", "  - [ ] nested"].join("\n"));
 
     expect(countUnchecked(spec)).toBe(2);
     expect(isComplete(spec)).toBe(false);
@@ -47,28 +45,17 @@ describe("completion detection", () => {
     const spec = writeSpec(["# Spec", "No task list here."].join("\n"));
 
     expect(() => countUnchecked(spec)).toThrow(MalformedSpecError);
-    expect(() => isComplete(spec)).toThrow(
-      /no GitHub-style task list checkboxes/,
-    );
+    expect(() => isComplete(spec)).toThrow(/no GitHub-style task list checkboxes/);
   });
 
   test("throws a clear error when the file is missing", () => {
     const missing = join(dir, "missing.md");
 
-    expect(() => countUnchecked(missing)).toThrow(
-      `Unable to read spec file at ${missing}`,
-    );
+    expect(() => countUnchecked(missing)).toThrow(`Unable to read spec file at ${missing}`);
   });
 
   test("returns first unchecked task with overall ordinal and total task count", () => {
-    const spec = writeSpec(
-      [
-        "# Spec",
-        "- [x] done",
-        "  - [ ] first nested todo",
-        "- [ ] second todo",
-      ].join("\n"),
-    );
+    const spec = writeSpec(["# Spec", "- [x] done", "  - [ ] first nested todo", "- [ ] second todo"].join("\n"));
 
     expect(getFirstUncheckedTask(spec)).toEqual({
       line: "first nested todo",

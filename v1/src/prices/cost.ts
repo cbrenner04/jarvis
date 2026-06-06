@@ -46,10 +46,8 @@ export function computeCost(
   const hasAnyRate =
     (row.input_per_mtok !== null && row.input_per_mtok !== undefined) ||
     (row.output_per_mtok !== null && row.output_per_mtok !== undefined) ||
-    (row.cache_read_per_mtok !== null &&
-      row.cache_read_per_mtok !== undefined) ||
-    (row.cache_write_per_mtok !== null &&
-      row.cache_write_per_mtok !== undefined);
+    (row.cache_read_per_mtok !== null && row.cache_read_per_mtok !== undefined) ||
+    (row.cache_write_per_mtok !== null && row.cache_write_per_mtok !== undefined);
 
   return {
     cost_usd: totalCost > 0 || hasAnyRate ? totalCost : null,

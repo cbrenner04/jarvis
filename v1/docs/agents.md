@@ -36,7 +36,7 @@ footer to record which agent and model produced the work.
 The label format varies per agent:
 
 - **Known model IDs**: Mapped to family+version labels (e.g.
-  `claude-opus-4-7` → `Claude Opus 4.7`).
+  `claude-opus-4-8` → `Claude Opus 4.8`).
 - **Unknown model IDs**: The raw model string is returned.
 - **No model configured** (agent using its default): Returns
   `<cli-name> (default model)` (e.g. `claude (default model)`).
@@ -112,7 +112,7 @@ configured `provider/model` string as its `model`:
   "modes": {
     "patch": {
       "agentOrder": [
-        { "agent": "opencode", "model": "github-copilot/claude-opus-4.7" },
+        { "agent": "opencode", "model": "github-copilot/claude-opus-4.8" },
         { "agent": "claude", "model": "haiku" },
         { "agent": "codex", "model": "gpt-5.3-codex" },
         { "agent": "cursor", "model": "Composer 2" }
@@ -124,7 +124,7 @@ configured `provider/model` string as its `model`:
 
 The provider prefix is the opencode provider name, and the suffix is the
 model name configured for that provider. For example,
-`github-copilot/claude-opus-4.7` routes through the `github-copilot`
+`github-copilot/claude-opus-4.8` routes through the `github-copilot`
 provider, while `AirProxy/<model>` routes through the internal AirProxy
 provider. Providers are not separate jarvis agents; they are selected only
 through the opencode entry's `model` value.

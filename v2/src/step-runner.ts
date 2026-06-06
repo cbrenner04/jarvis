@@ -40,15 +40,10 @@ export type StepRunResult = { invocation: InvocationExecution } & (
     }
 );
 
-const TOKEN_WORD_PATTERN = new RegExp(
-  `\\b(${TERMINAL_TOKENS.join("|")})\\b`,
-  "g",
-);
+const TOKEN_WORD_PATTERN = new RegExp(`\\b(${TERMINAL_TOKENS.join("|")})\\b`, "g");
 
 function asToken(value: string): StepOutcomeToken | null {
-  return TERMINAL_TOKENS.includes(value as StepOutcomeToken)
-    ? (value as StepOutcomeToken)
-    : null;
+  return TERMINAL_TOKENS.includes(value as StepOutcomeToken) ? (value as StepOutcomeToken) : null;
 }
 
 // Agents emit prose, so prefer the most explicit signal: exact match, then a

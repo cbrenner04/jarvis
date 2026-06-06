@@ -1,10 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import type {
-  CostSource,
-  TelemetryRecord,
-  TelemetryUsage,
-  UsageSource,
-} from "./telemetry.ts";
+import type { CostSource, TelemetryRecord, TelemetryUsage, UsageSource } from "./telemetry.ts";
 
 type RunSummaryArgs = {
   telemetryPath: string | null;
@@ -69,12 +64,7 @@ function formatDuration(durationMs: number): string {
 }
 
 function normalizeSource(source: CostSource | null | undefined): string {
-  if (
-    source === "agent" ||
-    source === "computed" ||
-    source === "estimated" ||
-    source === "no-price"
-  ) {
+  if (source === "agent" || source === "computed" || source === "estimated" || source === "no-price") {
     return source;
   }
   return "unavailable";
@@ -98,10 +88,7 @@ function attemptLine(record: TelemetryRecord): boolean {
   return record.agent !== "harness";
 }
 
-function recordMatchesMode(
-  record: TelemetryRecord,
-  mode: TelemetrySummaryMode,
-): boolean {
+function recordMatchesMode(record: TelemetryRecord, mode: TelemetrySummaryMode): boolean {
   if (mode === "patch") {
     return record.mode !== "plan";
   }
@@ -205,11 +192,7 @@ function loadFilteredRecords(args: {
     }
     try {
       const parsed = JSON.parse(line) as TelemetryRecord;
-      if (
-        parsed.namespace !== args.namespace ||
-        parsed.ts < args.startTs ||
-        !recordMatchesMode(parsed, args.mode)
-      ) {
+      if (parsed.namespace !== args.namespace || parsed.ts < args.startTs || !recordMatchesMode(parsed, args.mode)) {
         continue;
       }
       runRecords.push(parsed);
@@ -277,10 +260,7 @@ function renderSummaryFromRecords(args: {
       !hasMeaningfulUsage(record.usage) &&
       record.usage_source !== "agent"
     ) {
-      errorWithoutUsageByAgent.set(
-        record.agent,
-        (errorWithoutUsageByAgent.get(record.agent) ?? 0) + 1,
-      );
+      errorWithoutUsageByAgent.set(record.agent, (errorWithoutUsageByAgent.get(record.agent) ?? 0) + 1);
     }
   }
 
@@ -305,12 +285,8 @@ function renderSummaryFromRecords(args: {
     aggregate.completedOkInvocations += 1;
     aggregate.inputTokens += toNumber(record.usage?.input_tokens);
     aggregate.outputTokens += toNumber(record.usage?.output_tokens);
-    aggregate.cacheReadTokens += toNumber(
-      record.usage?.cache_read_input_tokens,
-    );
-    aggregate.cacheWriteTokens += toNumber(
-      record.usage?.cache_creation_input_tokens,
-    );
+    aggregate.cacheReadTokens += toNumber(record.usage?.cache_read_input_tokens);
+    aggregate.cacheWriteTokens += toNumber(record.usage?.cache_creation_input_tokens);
 
     if (record.cost_usd === null || record.cost_usd === undefined) {
       aggregate.nullCostCount += 1;
@@ -345,13 +321,9 @@ function renderSummaryFromRecords(args: {
     }
   }
 
-  const rows = [...perAgent.values()].sort((a, b) =>
-    a.cliName.localeCompare(b.cliName),
-  );
+  const rows = [...perAgent.values()].sort((a, b) => a.cliName.localeCompare(b.cliName));
 
-  const showCacheColumns =
-    rows.length > 0 &&
-    rows.some((row) => row.cacheReadTokens > 0 || row.cacheWriteTokens > 0);
+  const showCacheColumns = rows.length > 0 && rows.some((row) => row.cacheReadTokens > 0 || row.cacheWriteTokens > 0);
 
   if (rows.length > 0) {
     const headerColumns = [
@@ -371,9 +343,7 @@ function renderSummaryFromRecords(args: {
         `${formatAgentColumn(row.cliName, row.configuredModels)} (${rowCountLabel(row.completedOkInvocations, args.labels.rowCountNoun)})`,
         formatInt(row.inputTokens),
         formatInt(row.outputTokens),
-        ...(showCacheColumns
-          ? [formatInt(row.cacheReadTokens), formatInt(row.cacheWriteTokens)]
-          : []),
+        ...(showCacheColumns ? [formatInt(row.cacheReadTokens), formatInt(row.cacheWriteTokens)] : []),
         formatMoney(row.knownCostCount > 0 ? row.knownCostUsd : null),
         dominantSource(row.costSourcesAll),
       ]);
@@ -381,36 +351,23 @@ function renderSummaryFromRecords(args: {
 
     const totalInput = rows.reduce((sum, row) => sum + row.inputTokens, 0);
     const totalOutput = rows.reduce((sum, row) => sum + row.outputTokens, 0);
-    const totalCacheRead = rows.reduce(
-      (sum, row) => sum + row.cacheReadTokens,
-      0,
-    );
-    const totalCacheWrite = rows.reduce(
-      (sum, row) => sum + row.cacheWriteTokens,
-      0,
-    );
+    const totalCacheRead = rows.reduce((sum, row) => sum + row.cacheReadTokens, 0);
+    const totalCacheWrite = rows.reduce((sum, row) => sum + row.cacheWriteTokens, 0);
     const totalKnownCost = rows.reduce((sum, row) => sum + row.knownCostUsd, 0);
-    const totalKnownCostCount = rows.reduce(
-      (sum, row) => sum + row.knownCostCount,
-      0,
-    );
+    const totalKnownCostCount = rows.reduce((sum, row) => sum + row.knownCostCount, 0);
 
     table.push([
       "total",
       formatInt(totalInput),
       formatInt(totalOutput),
-      ...(showCacheColumns
-        ? [formatInt(totalCacheRead), formatInt(totalCacheWrite)]
-        : []),
+      ...(showCacheColumns ? [formatInt(totalCacheRead), formatInt(totalCacheWrite)] : []),
       formatMoney(totalKnownCostCount > 0 ? totalKnownCost : null),
       "",
     ]);
 
     const headerRow = table[0];
     if (headerRow !== undefined) {
-      const widths = headerRow.map((_, col) =>
-        Math.max(...table.map((row) => row[col]?.length ?? 0)),
-      );
+      const widths = headerRow.map((_, col) => Math.max(...table.map((row) => row[col]?.length ?? 0)));
       for (let i = 0; i < table.length; i += 1) {
         const row = table[i];
         if (row === undefined) {
@@ -436,27 +393,19 @@ function renderSummaryFromRecords(args: {
 
   const notes: string[] = [];
 
-  const quotaAgents = [...quotaExcludedByAgent.keys()].sort((a, b) =>
-    a.localeCompare(b),
-  );
+  const quotaAgents = [...quotaExcludedByAgent.keys()].sort((a, b) => a.localeCompare(b));
   for (const qa of quotaAgents) {
     const n = quotaExcludedByAgent.get(qa) ?? 0;
     if (n > 0) {
-      notes.push(
-        `${n} quota attempt(s) under ${qa} were excluded from usage totals.`,
-      );
+      notes.push(`${n} quota attempt(s) under ${qa} were excluded from usage totals.`);
     }
   }
 
-  const errAgents = [...errorWithoutUsageByAgent.keys()].sort((a, b) =>
-    a.localeCompare(b),
-  );
+  const errAgents = [...errorWithoutUsageByAgent.keys()].sort((a, b) => a.localeCompare(b));
   for (const ea of errAgents) {
     const n = errorWithoutUsageByAgent.get(ea) ?? 0;
     if (n > 0) {
-      notes.push(
-        `${n} failed agent attempt(s) under ${ea} recorded no usage (excluded from usage totals).`,
-      );
+      notes.push(`${n} failed agent attempt(s) under ${ea} recorded no usage (excluded from usage totals).`);
     }
   }
 
@@ -473,25 +422,16 @@ function renderSummaryFromRecords(args: {
       );
     }
     if (row.parseWarningCount > 0) {
-      notes.push(
-        `${row.parseWarningCount} ${nu}(s) under ${row.cliName} recorded parse warnings.`,
-      );
+      notes.push(`${row.parseWarningCount} ${nu}(s) under ${row.cliName} recorded parse warnings.`);
     }
     if (row.meaningfulCostSources.size > 1) {
-      notes.push(
-        `${row.cliName} mixes cost sources: ${[...row.meaningfulCostSources].sort().join(", ")}.`,
-      );
+      notes.push(`${row.cliName} mixes cost sources: ${[...row.meaningfulCostSources].sort().join(", ")}.`);
     }
   }
 
-  const totalNullCostCount = rows.reduce(
-    (sum, row) => sum + row.nullCostCount,
-    0,
-  );
+  const totalNullCostCount = rows.reduce((sum, row) => sum + row.nullCostCount, 0);
   if (totalNullCostCount > 0) {
-    notes.push(
-      `${totalNullCostCount} ${nu}(s) had null cost and were excluded from total cost.`,
-    );
+    notes.push(`${totalNullCostCount} ${nu}(s) had null cost and were excluded from total cost.`);
   }
 
   if (rows.some((row) => row.estimatedCount > 0)) {

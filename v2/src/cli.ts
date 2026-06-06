@@ -10,23 +10,16 @@ export type Io = {
 };
 
 type CliDeps = {
-  executeWrite: (
-    input: WriteExecuteInput,
-  ) => Promise<Awaited<ReturnType<typeof executeWrite>>>;
+  executeWrite: (input: WriteExecuteInput) => Promise<Awaited<ReturnType<typeof executeWrite>>>;
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[];
 };
 
-const DEFAULT_STEP_RULES =
-  "Return exactly one terminal token: done|no-work|blocked|progress.";
+const DEFAULT_STEP_RULES = "Return exactly one terminal token: done|no-work|blocked|progress.";
 const DEFAULT_AGENTS = ["claude"] as const;
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>]\n";
 
-export async function main(
-  argv: readonly string[],
-  io?: Io,
-  deps?: Partial<CliDeps>,
-): Promise<number> {
+export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
     stdout: (s) => process.stdout.write(s),
     stderr: (s) => process.stderr.write(s),
@@ -117,9 +110,7 @@ export async function main(
   return 0;
 }
 
-function stringValue(
-  value: string | boolean | string[] | undefined,
-): string | undefined {
+function stringValue(value: string | boolean | string[] | undefined): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 

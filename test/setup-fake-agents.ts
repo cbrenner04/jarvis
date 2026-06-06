@@ -9,9 +9,21 @@
 // Tests that inject an explicit absolute `binary:` path bypass PATH and are
 // unaffected; tests asserting "binary not found" use a bare name we do not stub
 // (e.g. "fake"), so they still get ENOENT.
+
+import { mock } from "bun:test";
+import * as childProcess from "node:child_process";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+const realExecSync = childProcess.execSync;
+const realExecFileSync = childProcess.execFileSync;
+const realSpawnSync = childProcess.spawnSync;
+
+function setEnv(key: string, value: string): void {
+  process.env[key] = value;
+  Bun.env[key] = value;
+}
 
 const binDir = mkdtempSync(join(tmpdir(), "jarvis-test-fake-agents-"));
 for (const name of ["claude", "codex", "cursor", "aider", "opencode"]) {
@@ -19,4 +31,54 @@ for (const name of ["claude", "codex", "cursor", "aider", "opencode"]) {
   writeFileSync(bin, "#!/usr/bin/env bash\nexit 0\n");
   chmodSync(bin, 0o755);
 }
-process.env.PATH = `${binDir}:${process.env.PATH ?? ""}`;
+setEnv("PATH", `${binDir}:${process.env.PATH ?? ""}`);
+
+const gitConfig = [
+  ["core.hooksPath", "/dev/null"],
+  ["advice.defaultBranchName", "false"],
+  ["init.defaultBranch", "main"],
+];
+// Quieting overlay merged onto the *live* process.env at call time (below), so
+// tests that mutate process.env after preload still have those changes reach git
+// subprocesses. Also seed process.env itself for git calls made without options.
+const gitConfigEnv: Record<string, string> = { GIT_CONFIG_COUNT: String(gitConfig.length) };
+setEnv("GIT_CONFIG_COUNT", String(gitConfig.length));
+for (const [i, [key, value]] of gitConfig.entries()) {
+  setEnv(`GIT_CONFIG_KEY_${i}`, key);
+  setEnv(`GIT_CONFIG_VALUE_${i}`, value);
+  gitConfigEnv[`GIT_CONFIG_KEY_${i}`] = key;
+  gitConfigEnv[`GIT_CONFIG_VALUE_${i}`] = value;
+}
+
+function withQuietGitDefaults<T extends { env?: NodeJS.ProcessEnv; stdio?: unknown }>(options: T | undefined): T {
+  return {
+    ...(options ?? ({} as T)),
+    env: { ...process.env, ...gitConfigEnv, ...options?.env },
+    stdio: options?.stdio ?? "pipe",
+  };
+}
+
+function isGitShellCommand(command: string): boolean {
+  return /(^|[;&|]\s*)git(\s|$)/.test(command);
+}
+
+mock.module("node:child_process", () => ({
+  ...childProcess,
+  execSync: ((command: string, options?: childProcess.ExecSyncOptions) =>
+    realExecSync(
+      command,
+      isGitShellCommand(command) ? withQuietGitDefaults(options) : options,
+    )) satisfies typeof childProcess.execSync,
+  execFileSync: ((file: string, args?: readonly string[], options?: childProcess.ExecFileSyncOptions) =>
+    realExecFileSync(
+      file,
+      args,
+      file === "git" ? withQuietGitDefaults(options) : options,
+    )) satisfies typeof childProcess.execFileSync,
+  spawnSync: ((file: string, args?: readonly string[], options?: childProcess.SpawnSyncOptions) =>
+    realSpawnSync(
+      file,
+      args,
+      file === "git" ? withQuietGitDefaults(options) : options,
+    )) satisfies typeof childProcess.spawnSync,
+}));

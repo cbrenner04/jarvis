@@ -54,7 +54,7 @@ describe("extractUsageAndCost: estimated usage", () => {
         },
       },
       "opencode",
-      "github-copilot/claude-opus-4.7",
+      "github-copilot/claude-opus-4.8",
     );
     expect(result.usage_source).toBe("estimated");
     expect(result.cost_source).toBe("estimated");

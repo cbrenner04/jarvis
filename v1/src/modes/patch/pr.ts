@@ -34,9 +34,7 @@ export function buildPrBody(opts: {
   let body = lines.join("\n");
 
   if (opts.narrative !== null) {
-    const narrative = opts.generatedNarrative
-      ? markGeneratedNarrative(opts.narrative)
-      : opts.narrative;
+    const narrative = opts.generatedNarrative ? markGeneratedNarrative(opts.narrative) : opts.narrative;
     const narrativeBlock = `${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
     body = body === "" ? narrativeBlock : `${body}\n\n${narrativeBlock}`;
   }
@@ -99,9 +97,7 @@ function buildSpecContext(indexPath: string): string {
     if (!existsSync(subspecPath)) {
       continue;
     }
-    sections.push(
-      `## ${subspec.path}\n\n${readFileSync(subspecPath, "utf8").trim()}`,
-    );
+    sections.push(`## ${subspec.path}\n\n${readFileSync(subspecPath, "utf8").trim()}`);
   }
   return truncateContext(sections.join("\n\n"));
 }
@@ -146,8 +142,7 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
 
   const currentBody = fetchPrBody(opts.branch, opts.cwd);
   let narrative = extractNarrative(currentBody);
-  const generatedNarrative =
-    narrative === null ? null : extractGeneratedNarrativeContent(narrative);
+  const generatedNarrative = narrative === null ? null : extractGeneratedNarrativeContent(narrative);
 
   if ((!narrative || generatedNarrative !== null) && opts.agent) {
     const generateOpts: Parameters<typeof generatePrDescription>[0] = {
@@ -170,19 +165,17 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
     headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
   }
   const footer = renderFooter({ cwd: opts.cwd, base: opts.base });
-  const newBody =
-    footer === ""
-      ? headerAndNarrative
-      : `${headerAndNarrative}\n\n---\n\n${footer}`;
+  const newBody = footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
   writePrBody(opts.branch, newBody, opts.cwd);
 }
 
 function defaultFetchPrBody(branch: string, cwd: string): string {
-  return execFileSync(
-    "gh",
-    ["pr", "view", branch, "--json", "body", "-q", ".body"],
-    { cwd, env: process.env, stdio: "pipe", encoding: "utf8" },
-  );
+  return execFileSync("gh", ["pr", "view", branch, "--json", "body", "-q", ".body"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  });
 }
 
 function defaultWritePrBody(branch: string, body: string, cwd: string): void {
@@ -244,24 +237,14 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
         stdout?: Buffer;
         stderr?: Buffer;
       };
-      const captured = [out.stdout?.toString(), out.stderr?.toString()]
-        .filter(Boolean)
-        .join("\n")
-        .trim();
-      throw new Error(
-        captured
-          ? `bun run ready failed:\n${captured}`
-          : `bun run ready failed`,
-      );
+      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+      throw new Error(captured ? `bun run ready failed:\n${captured}` : `bun run ready failed`);
     }
   };
 
   const realCommitCheckFix = (cwd: string, agentLabel: string) => {
     execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
-    const commitMessage = appendAgentTrailer(
-      "chore: apply pre-ready check:fix",
-      agentLabel,
-    );
+    const commitMessage = appendAgentTrailer("chore: apply pre-ready check:fix", agentLabel);
     execFileSync("git", ["commit", "-F", "-"], {
       cwd,
       env: process.env,

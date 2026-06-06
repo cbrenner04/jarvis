@@ -67,11 +67,7 @@ export function ensureNoCommitSpecRoot(
   project: ProjectMatch,
   specDirBasename: string,
 ): string {
-  const specRoot = computeNoCommitSpecRoot(
-    jarvisConfigDir,
-    project,
-    specDirBasename,
-  );
+  const specRoot = computeNoCommitSpecRoot(jarvisConfigDir, project, specDirBasename);
   mkdirSync(join(specRoot, ".."), { recursive: true });
   return specRoot;
 }

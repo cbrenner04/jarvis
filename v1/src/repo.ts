@@ -1,8 +1,4 @@
-import {
-  type ResolveOptions,
-  type ResolveResult,
-  resolveProject,
-} from "./resolve-project.ts";
+import { type ResolveOptions, type ResolveResult, resolveProject } from "./resolve-project.ts";
 
 export type ResolveTargetRepoOptions = {
   /**
@@ -48,9 +44,7 @@ export type ResolveTargetRepoOptions = {
  * Plan mode supplies only `repoFlag` and `candidatePath`; run mode
  * additionally supplies `specRepo`.
  */
-export function resolveTargetRepo(
-  opts: ResolveTargetRepoOptions,
-): ResolveResult {
+export function resolveTargetRepo(opts: ResolveTargetRepoOptions): ResolveResult {
   const resolveOpts: ResolveOptions = {
     specPath: opts.candidatePath,
   };

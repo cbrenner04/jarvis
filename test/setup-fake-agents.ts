@@ -38,20 +38,22 @@ const gitConfig = [
   ["advice.defaultBranchName", "false"],
   ["init.defaultBranch", "main"],
 ];
-const gitEnv = { ...process.env };
+// Quieting overlay merged onto the *live* process.env at call time (below), so
+// tests that mutate process.env after preload still have those changes reach git
+// subprocesses. Also seed process.env itself for git calls made without options.
+const gitConfigEnv: Record<string, string> = { GIT_CONFIG_COUNT: String(gitConfig.length) };
 setEnv("GIT_CONFIG_COUNT", String(gitConfig.length));
 for (const [i, [key, value]] of gitConfig.entries()) {
   setEnv(`GIT_CONFIG_KEY_${i}`, key);
   setEnv(`GIT_CONFIG_VALUE_${i}`, value);
-  gitEnv[`GIT_CONFIG_KEY_${i}`] = key;
-  gitEnv[`GIT_CONFIG_VALUE_${i}`] = value;
+  gitConfigEnv[`GIT_CONFIG_KEY_${i}`] = key;
+  gitConfigEnv[`GIT_CONFIG_VALUE_${i}`] = value;
 }
-gitEnv.GIT_CONFIG_COUNT = String(gitConfig.length);
 
 function withQuietGitDefaults<T extends { env?: NodeJS.ProcessEnv; stdio?: unknown }>(options: T | undefined): T {
   return {
     ...(options ?? ({} as T)),
-    env: { ...gitEnv, ...options?.env },
+    env: { ...process.env, ...gitConfigEnv, ...options?.env },
     stdio: options?.stdio ?? "pipe",
   };
 }

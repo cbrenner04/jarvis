@@ -79,5 +79,5 @@ full work side effects.
 - Specless-run branch and worktree names derive from a timestamp/nonce slug, not prompt text; reject ref names built from raw prompt text because prompts can be long, unstable, or sensitive.
 - No diff means success with no branch publication: print the agent response and exit 0, reject empty commit/PR creation and reject treating question-style prompts as failures.
 - Specless-run commit subject and initial PR title/body derive deterministically from the inline prompt text, using a trimmed first-line excerpt for the subject/title and the full prompt in the body plus standard attribution; reject agent-authored PR metadata and reject opaque timestamp-only metadata because reviewers still need human-readable context without a spec.
-- Operator/workflow semantics for `jarvis1 --prompt` land in `v2/docs/`; reject a v1-only durable doc home because `v2/docs/documentation-standard.md` assigns operator behavior there.
+- Operator/workflow semantics for `jarvis1 --prompt` land in `v1/docs/specless-prompt.md`; `--prompt` is a v1 behavior (nothing ships in v2 yet) so it's documented in v1, with `v2/docs/v1-behaviors.md` recording it as a behavior to carry forward.
 

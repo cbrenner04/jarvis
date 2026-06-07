@@ -7,8 +7,7 @@ Plan review writes the spec inline today, so this introduces the verdict → ref
 ## Decisions
 
 - Plan reviewers are read-only on the spec; the refine loop is the executor and the only writer. — rules out today's inline spec rewrite during review (self-vindication; review grading its own edit).
-- The verdict drives one refine invocation as its task, replacing the refine loop's normal input. — rules out the judge writing spec edits directly.
-- The executor keeps the existing plan write boundary (spec-dir-only; `intent.md` immutable except `## Blocker`); reviewers are read-only. — rules out a fresh boundary for the executor.
+- The verdict drives one refine invocation as its task, replacing the refine loop's normal input, under the refine loop's existing spec-dir write boundary. — rules out the judge writing spec edits directly.
 - Per-role commits reuse plan commit numbering/resume-suffix conventions: `review: adversary` / `defense` / `judge` / `executor`; empty verdict → existing no-change skip, no executor commit.
 - Reviewer roles reuse the review agent order; the executor (refine) uses the plan/executing agent order, preserving the model-class split.
 - The executor is a fresh agent; the verdict restates upheld findings and required spec outcomes (self-contained). — rules out feeding role artifacts into the refine prompt.

@@ -7,6 +7,17 @@ import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages
 import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
 import { ReviewTerminalError } from "./types.ts";
 
+// Exit codes the harness reserves for specific review outcomes. A raw agent
+// error code that collides with one would be misread by callers (e.g. plan
+// maps 2 -> quota-exhausted, 3 -> model_config; patch propagates 7 as blocker,
+// 130 as interrupt). Normalize a colliding error code to 1. The true code is
+// still recorded in telemetry, so the diagnostic is never lost.
+const RESERVED_REVIEW_EXIT_CODES = new Set([0, 2, 3, 7, 130]);
+
+function normalizeErrorExitCode(exitCode: number): number {
+  return RESERVED_REVIEW_EXIT_CODES.has(exitCode) ? 1 : exitCode;
+}
+
 function readPorcelainSnapshot(cwd: string): string | null {
   try {
     return execFileSync("git", ["status", "--porcelain"], {
@@ -167,7 +178,9 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
         return 3;
       }
 
-      return result.exitCode;
+      // Telemetry above keeps the true exit code; the returned value is
+      // normalized so a raw agent code can't masquerade as a reserved outcome.
+      return normalizeErrorExitCode(result.exitCode);
     }
 
     if (opts.isInterrupted?.()) {

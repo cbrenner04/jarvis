@@ -260,6 +260,26 @@ describe("runReview", () => {
     expect(errorPrompts.telemetry[0]?.exitCode).toBe(9);
   });
 
+  test("normalizes error exit codes that collide with reserved outcomes", async () => {
+    // 2 (quota), 3 (model_config), 7 (blocker), 130 (interrupt), 0 (success)
+    // would be misread by callers if returned raw; they must come back as 1
+    // while telemetry keeps the true code.
+    for (const reserved of [0, 2, 3, 7, 130]) {
+      const { adapter, telemetry } = makeAdapter();
+      const code = await runReview({
+        config: makeConfig({ reviewPasses: 1 }),
+        cwd: "/tmp/review",
+        adapter,
+        loadAgent: ({ name }: { name: string; model: string }) =>
+          makeAgent(name as AgentName, () => ({ kind: "error", exitCode: reserved, stderr: "boom" })),
+      });
+      expect(code).toBe(1);
+      expect(telemetry[0]?.outcome).toBe("error");
+      // The genuine code survives in telemetry even though the return is 1.
+      expect(telemetry[0]?.exitCode).toBe(reserved);
+    }
+  });
+
   test("calls adapter hooks for prompt, write boundary, blocker handling, commit, and telemetry", async () => {
     const success = makeAdapter();
     const successCode = await runReview({

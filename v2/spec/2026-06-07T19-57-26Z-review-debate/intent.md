@@ -122,13 +122,3 @@ are the patch subspec's calls; per-role agent distinctness defaults to reusing
 the existing pass/fallback selection. Resolving them in this non-interactive pass
 would fabricate the human's or drafter's decision, not capture one.
 
-## Blocker
-
-Review and approve `v2/spec/2026-06-07T19-57-26Z-review-debate/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-06-07T19-57-26Z-review-debate/intent.md`

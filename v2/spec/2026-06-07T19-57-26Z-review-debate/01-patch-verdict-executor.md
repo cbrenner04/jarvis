@@ -2,7 +2,7 @@
 
 Wire patch mode onto the debate engine (subspec 00). Patch reviewers (adversary/defender/judge) review the branch diff vs base and emit artifacts; the **patch loop is the verdict executor** and the only writer. Files: `v1/src/modes/patch/review.ts`, `v1/src/modes/patch/run.ts`, `v1/src/modes/patch/prompt.ts`, and patch role prompts under `prompts/patch/`.
 
-This inverts today's patch review, where the review agent refactors code in place. Now reviewers are read-only against the code; the executor (patch loop) applies the verdict.
+This inverts today's patch review, where the review agent refactors code in place.
 
 ## Decisions
 

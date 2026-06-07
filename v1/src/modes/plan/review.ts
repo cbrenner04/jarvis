@@ -4,33 +4,30 @@ import { join } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
-import { createAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
-import type { AgentResult } from "../../agents/types.ts";
+import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
+import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
-import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
+import { runReview } from "../review/run.ts";
+import {
+  type ReviewAdapter,
+  type ReviewAttemptContext,
+  type ReviewTelemetryEvent,
+  ReviewTerminalError,
+} from "../review/types.ts";
 import { detectBlocker } from "./blocker.ts";
+import {
+  appendBoundaryBlocker,
+  assertNoCommitExternalSpecBoundary,
+  assertPlanWriteBoundary,
+  assertTargetRepoPlanBoundary,
+  type BoundaryCheckResult,
+  revertPaths,
+} from "./boundary.ts";
+import { commitPlanBlocker, commitPlanReview } from "./commits.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
-import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
-import { resolvePlanSpecDirPath } from "./spec-dir.ts";
+import { hasSpecDirChanges, resolvePlanSpecDirPath, snapshotSpecDirFiles } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
-
-export type ReviewPhaseOptions = {
-  worktreePath: string;
-  name: string;
-  specDirPath?: string;
-  agentCwd?: string;
-  config: Config;
-  passNumber?: number;
-  totalPasses?: number;
-  stderr?: (s: string) => void;
-  planTelemetry?: PlanTelemetryWriter | undefined;
-  /** Committed spec root (defaults to "spec" for backwards compatibility). */
-  targetDir?: string;
-  /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
-  onOutboundPrompt?: (prompt: string) => void;
-};
 
 /**
  * Build the review phase prompt by injecting intent.md, current spec files, and guidance.
@@ -146,137 +143,6 @@ export function snapshotSpecFiles(
 }
 
 /**
- * Run a single review pass: invoke an agent to critique and refine the spec.
- * Returns the agent result.
- */
-export async function runReviewPass(
-  opts: ReviewPhaseOptions,
-): Promise<{ result: AgentResult; agentLabel: string | null }> {
-  const specDirPath = resolvePlanSpecDirPath(opts.worktreePath, opts.name, opts.specDirPath, opts.targetDir);
-  const flatSpecLayout = opts.specDirPath !== undefined;
-  const agentCwd = opts.agentCwd ?? opts.worktreePath;
-
-  // Read intent.md
-  const intentPath = join(specDirPath, "intent.md");
-  const intent = readFileSync(intentPath, "utf8");
-
-  // Read spec guidance from the main checkout
-  const docsPath = join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md");
-  const specGuidance = readFileSync(docsPath, "utf8");
-
-  // Snapshot all current spec files
-  const currentSpec = snapshotSpecFiles(opts.worktreePath, opts.name, opts.specDirPath, opts.targetDir);
-
-  // Build the prompt
-  let prompt: string;
-  try {
-    const promptOpts: {
-      name: string;
-      intent: string;
-      specGuidance: string;
-      currentSpec: string;
-      passNumber?: number;
-      totalPasses?: number;
-      flatSpecLayout?: boolean;
-      workDirLabel?: string;
-      targetDir?: string;
-    } = {
-      name: opts.name,
-      intent,
-      specGuidance,
-      currentSpec,
-      ...(flatSpecLayout ? { flatSpecLayout: true, workDirLabel: specDirPath } : {}),
-      ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
-    };
-    if (opts.passNumber !== undefined) {
-      promptOpts.passNumber = opts.passNumber;
-    }
-    if (opts.totalPasses !== undefined) {
-      promptOpts.totalPasses = opts.totalPasses;
-    }
-    prompt = buildReviewPrompt(promptOpts);
-  } catch (err) {
-    if (err instanceof Error) {
-      return {
-        result: {
-          kind: "model_config",
-          stderr: err.message,
-        },
-        agentLabel: null,
-      };
-    }
-    throw err;
-  }
-
-  opts.onOutboundPrompt?.(prompt);
-
-  // Try each agent in order until one succeeds
-  const agentOrder = opts.config.modes.plan.agentOrder;
-  let result: AgentResult | null = null;
-  let agentLabel: string | null = null;
-
-  for (const entry of agentOrder) {
-    const agent = createAgent(entry.agent, entry.model);
-    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
-
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const invocationStartedAt = Date.now();
-    const spawnResult = await agent.run(prompt, {
-      cwd: agentCwd,
-    });
-    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    result = applyQuotaFallbackWhenAllowed(
-      entry.agent,
-      spawnResult,
-      {
-        quotaFallback: opts.config.quotaFallback,
-        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
-      },
-      noDiskChangeDuringInvocation,
-    );
-    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
-
-    opts.planTelemetry?.recordAgentAttempt({
-      phase: "review",
-      agentCli: entry.agent,
-      configuredModel: entry.model,
-      durationMs: Date.now() - invocationStartedAt,
-      result,
-    });
-
-    if (result.kind === "ok") {
-      return { result, agentLabel };
-    }
-
-    if (result.kind === "quota") {
-      continue;
-    }
-
-    if (result.kind === "model_config") {
-      // Model config error is fatal
-      return { result, agentLabel };
-    }
-  }
-
-  // All agents exhausted
-  if (result === null) {
-    return {
-      result: {
-        kind: "error",
-        exitCode: 2,
-        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
-      },
-      agentLabel: null,
-    };
-  }
-
-  // Last result (could be quota, error, or model_config)
-  return { result, agentLabel };
-}
-
-/**
  * Check if the worktree has uncommitted changes using git status --porcelain.
  */
 export function hasWorkingTreeChanges(worktreePath: string): boolean {
@@ -388,4 +254,329 @@ export function validateReviewOutput(
   }
 
   return { valid: true, error: null };
+}
+
+/** Result of the plan review phase routed through the shared review runner. */
+export type PlanReviewPhaseResult = {
+  exitCode: number;
+  blocker?: string | undefined;
+  interrupted?: boolean;
+};
+
+/** Options for plan review routed through the shared review runner. */
+export type PlanReviewPhaseOptions = {
+  worktreePath: string;
+  name: string;
+  specDirBasename: string;
+  config: Config;
+  reviewPassesOverride?: number;
+  startPassNumber?: number;
+  subjectSuffix?: string;
+  targetDir?: string;
+  specDirPath?: string;
+  agentCwd?: string;
+  commit: boolean;
+  checkBoundary?: boolean;
+  logNoChangeSkip?: boolean;
+  externalSpecRoot?: string;
+  projectRoot?: string;
+  stderr?: (s: string) => void;
+  planTelemetry?: PlanTelemetryWriter | undefined;
+  onOutboundPrompt?: (prompt: string) => void;
+  isInterrupted?: () => boolean;
+  updatePrBody?: () => Promise<void>;
+  createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
+  onPassStart?: (displayPassNumber: number, displayTotalPasses: number) => void;
+};
+
+function firstNonEmptyLine(text: string): string {
+  for (const rawLine of text.replace(/\r\n/g, "\n").split("\n")) {
+    const line = rawLine.trim();
+    if (line !== "") {
+      return line;
+    }
+  }
+  return "";
+}
+
+function countSpecFiles(specDirPath: string): number {
+  if (!existsSync(specDirPath)) {
+    return 0;
+  }
+  return readdirSync(specDirPath).filter((f) => /^\d{2}-.*\.md$/.test(f)).length;
+}
+
+function resolveFinalSpecPath(opts: PlanReviewPhaseOptions): string {
+  if (opts.specDirPath !== undefined) {
+    return opts.specDirPath;
+  }
+  const targetDir = opts.targetDir ?? "spec";
+  return join(opts.worktreePath, targetDir, opts.specDirBasename);
+}
+
+function passHasChanges(
+  opts: PlanReviewPhaseOptions,
+  finalSpecPath: string,
+  specSnapshotBefore: Set<string> | null,
+): boolean {
+  if (opts.commit) {
+    return hasWorkingTreeChanges(opts.worktreePath);
+  }
+  return specSnapshotBefore !== null && hasSpecDirChanges(finalSpecPath, specSnapshotBefore);
+}
+
+function createPlanReviewAdapter(args: {
+  opts: PlanReviewPhaseOptions;
+  displayPassNumber: number;
+  displayTotalPasses: number;
+  intentBefore: string;
+  finalSpecPath: string;
+  specSnapshotBefore: Set<string> | null;
+  onBlocker: (blocker: string) => void;
+  onAgentFailure: (passNumber: number, stderr: string) => void;
+}): ReviewAdapter {
+  const {
+    opts,
+    displayPassNumber,
+    displayTotalPasses,
+    intentBefore,
+    finalSpecPath,
+    specSnapshotBefore,
+    onBlocker,
+    onAgentFailure,
+  } = args;
+  const targetDir = opts.targetDir ?? "spec";
+  const flatSpecLayout = opts.specDirPath !== undefined;
+
+  const checkBoundaries = (): BoundaryCheckResult => {
+    const boundaryCheck = opts.commit
+      ? assertPlanWriteBoundary(opts.worktreePath, opts.specDirBasename, targetDir)
+      : assertTargetRepoPlanBoundary(opts.projectRoot ?? opts.worktreePath);
+    const externalBoundaryCheck: BoundaryCheckResult =
+      !opts.commit && opts.externalSpecRoot
+        ? assertNoCommitExternalSpecBoundary(opts.externalSpecRoot, opts.specDirBasename)
+        : { ok: true };
+    if (boundaryCheck.ok && externalBoundaryCheck.ok) {
+      return { ok: true };
+    }
+    const offendingPaths = [
+      ...(boundaryCheck.ok ? [] : boundaryCheck.offendingPaths),
+      ...(externalBoundaryCheck.ok ? [] : externalBoundaryCheck.offendingPaths),
+    ];
+    return { ok: false, offendingPaths };
+  };
+
+  const handleBoundaryViolation = async (ctx: ReviewAttemptContext, context: "blocker" | "review"): Promise<never> => {
+    const boundary = checkBoundaries();
+    if (boundary.ok) {
+      throw new Error(`plan review boundary check failed unexpectedly during ${context}`);
+    }
+    opts.stderr?.(`plan: boundary violation detected before review ${context} commit\n`);
+    if (opts.commit) {
+      revertPaths(opts.worktreePath, boundary.offendingPaths);
+    }
+    appendBoundaryBlocker(finalSpecPath, opts.specDirBasename, boundary.offendingPaths, targetDir);
+    for (const path of boundary.offendingPaths) {
+      opts.stderr?.(`  - ${path}\n`);
+    }
+    if (opts.commit) {
+      commitPlanBlocker({
+        worktreePath: opts.worktreePath,
+        specDirBasename: opts.specDirBasename,
+        agentLabel: ctx.agentLabel,
+        reason: "write boundary violation",
+        specFilesCount: countSpecFiles(finalSpecPath),
+        ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
+        targetDir,
+      });
+      opts.stderr?.(`plan: blocker commit pushed\n`);
+      await opts.updatePrBody?.();
+    }
+    opts.stderr?.(`plan: blocked\n`);
+    throw new ReviewTerminalError("write boundary violation", 1);
+  };
+
+  return {
+    buildPrompt: async () => {
+      const specDirPath = resolvePlanSpecDirPath(opts.worktreePath, opts.name, opts.specDirPath, targetDir);
+      const intentPath = join(specDirPath, "intent.md");
+      const intent = readFileSync(intentPath, "utf8");
+      const docsPath = join(import.meta.dir, "..", "..", "..", "docs", "spec-guidance.md");
+      const specGuidance = readFileSync(docsPath, "utf8");
+      const currentSpec = snapshotSpecFiles(opts.worktreePath, opts.name, opts.specDirPath, targetDir);
+
+      try {
+        const prompt = buildReviewPrompt({
+          name: opts.name,
+          intent,
+          specGuidance,
+          currentSpec,
+          passNumber: displayPassNumber,
+          totalPasses: displayTotalPasses,
+          ...(flatSpecLayout ? { flatSpecLayout: true, workDirLabel: specDirPath } : {}),
+          ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
+        });
+        opts.onOutboundPrompt?.(prompt);
+        return prompt;
+      } catch (err) {
+        if (err instanceof Error) {
+          throw new ReviewTerminalError(err.message, 3);
+        }
+        throw err;
+      }
+    },
+    // Plan boundary checks run in readBlocker/commitPass when edits exist.
+    enforceWriteBoundary: async () => {},
+    readBlocker: async (ctx) => {
+      if (!passHasChanges(opts, finalSpecPath, specSnapshotBefore)) {
+        return null;
+      }
+      const validation = validateReviewOutput(
+        opts.worktreePath,
+        opts.specDirBasename,
+        intentBefore,
+        opts.specDirPath,
+        targetDir,
+      );
+      if (!validation.valid) {
+        opts.stderr?.(`plan: review pass ${displayPassNumber} validation failed: ${validation.error}\n`);
+        throw new ReviewTerminalError(validation.error ?? "validation failed", 1);
+      }
+      if (validation.blocker !== undefined) {
+        if (opts.checkBoundary) {
+          const boundary = checkBoundaries();
+          if (!boundary.ok) {
+            await handleBoundaryViolation(ctx, "blocker");
+          }
+        }
+        return validation.blocker;
+      }
+      return null;
+    },
+    handleBlocker: async (ctx) => {
+      if (opts.commit) {
+        commitPlanBlocker({
+          worktreePath: opts.worktreePath,
+          specDirBasename: opts.specDirBasename,
+          agentLabel: ctx.agentLabel,
+          reason: firstNonEmptyLine(ctx.blocker),
+          specFilesCount: countSpecFiles(finalSpecPath),
+          ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
+          targetDir,
+        });
+        opts.stderr?.(`plan: blocker commit pushed\n`);
+        await opts.updatePrBody?.();
+      }
+      opts.stderr?.(`plan: blocked\n`);
+      onBlocker(ctx.blocker);
+      return 1;
+    },
+    commitPass: async (ctx) => {
+      if (!passHasChanges(opts, finalSpecPath, specSnapshotBefore)) {
+        if (opts.logNoChangeSkip) {
+          opts.stderr?.(`plan: review pass ${displayPassNumber} made no changes; skipping commit\n`);
+        }
+        return;
+      }
+      if (opts.checkBoundary) {
+        const boundary = checkBoundaries();
+        if (!boundary.ok) {
+          await handleBoundaryViolation(ctx, "review");
+        }
+      }
+      if (opts.commit) {
+        commitPlanReview({
+          worktreePath: opts.worktreePath,
+          specDirBasename: opts.specDirBasename,
+          passNumber: displayPassNumber,
+          agentLabel: ctx.agentLabel,
+          ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
+          targetDir,
+        });
+        opts.stderr?.(`plan: review pass ${displayPassNumber} committed and pushed\n`);
+        await opts.updatePrBody?.();
+      }
+    },
+    recordTelemetry: async (event: ReviewTelemetryEvent) => {
+      if (event.outcome === "error" || event.outcome === "model_config") {
+        onAgentFailure(event.passNumber, event.result.stderr);
+      }
+      opts.planTelemetry?.recordAgentAttempt({
+        phase: "review",
+        agentCli: event.agentEntry.agent,
+        configuredModel: event.agentEntry.model,
+        durationMs: event.durationMs,
+        result: event.result,
+      });
+    },
+  };
+}
+
+/** Run plan review passes through the shared review runner. */
+export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<PlanReviewPhaseResult> {
+  const resolveAgent = opts.createAgent ?? defaultCreateAgent;
+  const finalSpecPath = resolveFinalSpecPath(opts);
+  let detectedBlocker: string | undefined;
+  let agentFailure: { passNumber: number; stderr: string } | undefined;
+
+  try {
+    const exitCode = await runReview({
+      config: opts.config,
+      cwd: opts.agentCwd ?? opts.worktreePath,
+      ...(opts.reviewPassesOverride !== undefined ? { reviewPassesOverride: opts.reviewPassesOverride } : {}),
+      ...(opts.startPassNumber !== undefined ? { startPassNumber: opts.startPassNumber } : {}),
+      ...(opts.isInterrupted !== undefined ? { isInterrupted: opts.isInterrupted } : {}),
+      ...(opts.onPassStart !== undefined ? { onPassStart: opts.onPassStart } : {}),
+      adapterForPass: ({ passNumber, totalPasses }) => {
+        const intentBefore = readFileSync(join(finalSpecPath, "intent.md"), "utf8");
+        const specSnapshotBefore = opts.commit ? null : snapshotSpecDirFiles(finalSpecPath);
+        return createPlanReviewAdapter({
+          opts,
+          displayPassNumber: passNumber,
+          displayTotalPasses: totalPasses,
+          intentBefore,
+          finalSpecPath,
+          specSnapshotBefore,
+          onBlocker: (blocker) => {
+            detectedBlocker = blocker;
+          },
+          onAgentFailure: (passNumber, stderr) => {
+            agentFailure = { passNumber, stderr };
+          },
+        });
+      },
+      loadAgent: ({ name, model }) => resolveAgent(name as AgentName, model),
+      onAllAgentsQuotaExhausted: (message) => {
+        opts.stderr?.(`plan: ${message}\n`);
+      },
+      onQuotaRotation: (agent, spawnResult, classified) => {
+        emitPlanAgentQuotaFallback(opts.stderr, agent, spawnResult, classified);
+      },
+    });
+
+    if (exitCode === 130) {
+      return { exitCode: 130, interrupted: true };
+    }
+    if (exitCode === 3) {
+      const detail = agentFailure?.stderr;
+      opts.stderr?.(`plan: model configuration error${detail ? `: ${detail}` : ""}\n`);
+      return { exitCode: 3 };
+    }
+    if (exitCode !== 0) {
+      if (detectedBlocker !== undefined) {
+        return { exitCode, blocker: detectedBlocker };
+      }
+      if (agentFailure !== undefined) {
+        opts.stderr?.(`plan: review pass ${agentFailure.passNumber} failed: ${agentFailure.stderr}\n`);
+      }
+      return { exitCode };
+    }
+    return { exitCode: 0 };
+  } catch (err) {
+    if (err instanceof ReviewTerminalError) {
+      return { exitCode: err.exitCode };
+    }
+    opts.stderr?.(`plan: review error: ${(err as Error).message}\n`);
+    return { exitCode: 1 };
+  }
 }

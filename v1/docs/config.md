@@ -193,7 +193,7 @@ permission installer and the `provider/model` format.
 
 ## `modes.review.passes` and `modes.review.agentOrder`
 
-The `modes.review` block controls patch review loop behavior during `jarvis run`:
+The `modes.review` block controls review passes in both `jarvis run` (patch review) and `jarvis1 plan` (self-review):
 
 **`passes` (non-negative integer, default `2`):** Controls the number of review passes after patch iteration completes. A value of `0` disables review entirely. Each pass runs the configured review agent(s) against the completed work.
 
@@ -215,8 +215,8 @@ Example configuration enabling review with a custom agent order:
 }
 ```
 
-The `--review-passes` CLI flag overrides config:
-`jarvis run --review-passes 0 <spec>` disables review without changing config, while `jarvis run --review-passes 3 <spec>` runs 3 review passes instead of the configured number.
+The `--review-passes` CLI flag overrides config for both patch and plan review:
+`jarvis run --review-passes 0 <spec>` disables patch review without changing config, while `jarvis1 plan --review-passes 3 …` runs 3 plan self-review passes instead of the configured number.
 
 When `git: false`, patch review is skipped entirely regardless of review-pass configuration.
 

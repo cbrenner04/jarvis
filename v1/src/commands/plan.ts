@@ -4,7 +4,14 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { createAgent } from "../agents/factory.ts";
 import type { Agent } from "../agents/types.ts";
-import { CONFIG_DIR, findProjectForPath, loadConfig, type ProjectMatch, resolvePlanFlags } from "../config.ts";
+import {
+  CONFIG_DIR,
+  findProjectForPath,
+  loadConfig,
+  type ProjectMatch,
+  resolvePlanFlags,
+  resolveReviewPasses,
+} from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { detectBlocker } from "../modes/plan/blocker.ts";
@@ -16,15 +23,14 @@ import {
   type BoundaryCheckResult,
   revertPaths,
 } from "../modes/plan/boundary.ts";
-import { commitPlanBlocker, commitPlanDraft, commitPlanRefine, commitPlanReview } from "../modes/plan/commits.ts";
+import { commitPlanBlocker, commitPlanDraft, commitPlanRefine } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import { runInlineDraftTurn } from "../modes/plan/inline-draft.ts";
 import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "../modes/plan/plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "../modes/plan/pr.ts";
 import { type RefineTerminalOutcome, runRefinePhase } from "../modes/plan/refine.ts";
-import { hasWorkingTreeChanges, runReviewPass, validateReviewOutput } from "../modes/plan/review.ts";
-import { hasSpecDirChanges, snapshotSpecDirFiles } from "../modes/plan/spec-dir.ts";
+import { hasWorkingTreeChanges, runPlanReviewPhase } from "../modes/plan/review.ts";
 import {
   computeNoCommitSpecRoot,
   ensureNoCommitSpecRoot,
@@ -658,7 +664,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr(`${resumeFlag} cannot be combined with intent text/file\n`);
         return 1;
       }
-      const reviewPasses = inv.reviewPasses ?? 2;
+      const reviewPasses = resolveReviewPasses(cfg, inv.reviewPasses);
       const refineTurns = inv.resume ? (inv.refineTurns ?? 0) : 0;
       if (reviewPasses === 0 && refineTurns === 0) {
         opts.io.stderr(`${resumeFlag} requires at least one phase\n`);
@@ -683,7 +689,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       const branch = `plan/${resume.planName}`;
       const suffix = `r${resume.nextResumeIndex}`;
-      let nextReviewIndex = resume.nextReviewIndex;
+      const nextReviewIndex = resume.nextReviewIndex;
       opts.io.stderr(`plan: resume ${suffix} started\n`);
       if (resume.recreatedFrom !== undefined) {
         opts.io.stderr(`plan: recreated worktree at ${resume.worktreePath} from ${resume.recreatedFrom}\n`);
@@ -916,114 +922,66 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
       }
 
-      for (let pass = 1; pass <= reviewPasses; pass += 1) {
-        if (interrupted) {
-          opts.io.stderr(`plan: interrupted\n`);
-          summarizeResume("sigint");
-          return 130;
-        }
+      if (reviewPasses > 0) {
         const resumeSpecPath = resume.externalSpecRoot
           ? join(resume.externalSpecRoot, resume.specDirBasename)
           : join(resume.worktreePath, resumeTargetDir, resume.specDirBasename);
-        const intentPath = join(resumeSpecPath, "intent.md");
-        const intentBefore = readFileSync(intentPath, "utf8");
-        const result = await runReviewPass({
+        const reviewResult = await runPlanReviewPhase({
           onOutboundPrompt: logOutboundPrompt,
           worktreePath: resume.worktreePath,
           name: resume.specDirBasename,
+          specDirBasename: resume.specDirBasename,
           ...(resume.externalSpecRoot ? { specDirPath: resumeSpecPath } : {}),
           config: cfg,
-          passNumber: nextReviewIndex,
-          totalPasses: nextReviewIndex + reviewPasses - pass,
+          ...(inv.reviewPasses !== undefined ? { reviewPassesOverride: inv.reviewPasses } : {}),
+          startPassNumber: nextReviewIndex,
+          subjectSuffix: suffix,
           stderr: opts.io.stderr,
           planTelemetry: resumePlanTelemetry,
           targetDir: resumeTargetDir,
+          commit: true,
+          checkBoundary: false,
+          logNoChangeSkip: false,
+          updatePrBody: async () => {
+            await safeUpdatePrBody({
+              agent: prDescAgent,
+              timeoutMs: cfg.iterationTimeoutMs,
+              io: opts.io,
+              branch,
+              base: getCurrentBranch(project.root),
+              worktreePath: resume.worktreePath,
+              name: resume.planName,
+              specDirBasename: resume.specDirBasename,
+              targetDir: resumeTargetDir,
+            });
+          },
+          isInterrupted: () => interrupted,
+          onPassStart: (pass, total) => {
+            opts.io.stderr(`plan: review pass ${pass}/${total} starting\n`);
+          },
         });
-        if (result.result.kind !== "ok") {
-          if (result.result.kind === "quota") {
-            opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
-            summarizeResume("quota-exhausted");
-            return 2;
-          }
-          if (result.result.kind === "model_config") {
-            opts.io.stderr(`plan: model configuration error: ${result.result.stderr}\n`);
-            summarizeResume("model-config");
-            return 3;
-          }
-          opts.io.stderr(`plan: review pass ${nextReviewIndex} failed: ${result.result.stderr}\n`);
-          summarizeResume("agent-error");
-          return 1;
-        }
-        if (interrupted) {
+        if (reviewResult.interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
           summarizeResume("sigint");
           return 130;
         }
-
-        if (!hasWorkingTreeChanges(resume.worktreePath)) {
-          nextReviewIndex += 1;
-          continue;
+        if (reviewResult.exitCode === 2) {
+          summarizeResume("quota-exhausted");
+          return 2;
         }
-
-        const validation = validateReviewOutput(
-          resume.worktreePath,
-          resume.specDirBasename,
-          intentBefore,
-          undefined,
-          resumeTargetDir,
-        );
-        if (!validation.valid) {
-          opts.io.stderr(`plan: review pass ${nextReviewIndex} validation failed: ${validation.error}\n`);
-          summarizeResume("error");
-          return 1;
+        if (reviewResult.exitCode === 3) {
+          summarizeResume("model-config");
+          return 3;
         }
-        if (validation.blocker !== undefined) {
-          commitPlanBlocker({
-            worktreePath: resume.worktreePath,
-            specDirBasename: resume.specDirBasename,
-            agentLabel: result.agentLabel ?? "unknown",
-            reason: firstNonEmptyLine(validation.blocker),
-            specFilesCount: countSpecFiles(join(resume.worktreePath, resumeTargetDir, resume.specDirBasename)),
-            subjectSuffix: suffix,
-            targetDir: resumeTargetDir,
-          });
-          await safeUpdatePrBody({
-            agent: prDescAgent,
-            timeoutMs: cfg.iterationTimeoutMs,
-            io: opts.io,
-            branch,
-            base: getCurrentBranch(project.root),
-            worktreePath: resume.worktreePath,
-            name: resume.planName,
-            specDirBasename: resume.specDirBasename,
-            targetDir: resumeTargetDir,
-          });
-          opts.io.stderr(`plan: blocked\n`);
-          opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
-          summarizeResume("blocker");
-          return 1;
+        if (reviewResult.exitCode !== 0) {
+          if (reviewResult.blocker !== undefined) {
+            opts.io.stderr(`\n## Blocker\n\n${reviewResult.blocker}\n`);
+            summarizeResume("blocker");
+          } else {
+            summarizeResume(reviewResult.exitCode === 1 ? "agent-error" : "error");
+          }
+          return reviewResult.exitCode;
         }
-
-        commitPlanReview({
-          worktreePath: resume.worktreePath,
-          specDirBasename: resume.specDirBasename,
-          passNumber: nextReviewIndex,
-          agentLabel: result.agentLabel ?? "unknown",
-          subjectSuffix: suffix,
-          targetDir: resumeTargetDir,
-        });
-        await safeUpdatePrBody({
-          agent: prDescAgent,
-          timeoutMs: cfg.iterationTimeoutMs,
-          io: opts.io,
-          branch,
-          base: getCurrentBranch(project.root),
-          worktreePath: resume.worktreePath,
-          name: resume.planName,
-          specDirBasename: resume.specDirBasename,
-          targetDir: resumeTargetDir,
-        });
-        nextReviewIndex += 1;
       }
 
       let prUrl: string | null = null;
@@ -1789,124 +1747,27 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       }
 
       // Self-review phase
-      const reviewPasses = inv.reviewPasses ?? 2;
-      for (let pass = 1; pass <= reviewPasses; pass++) {
-        // Honor a pending interrupt before doing any work for this pass.
-        if (interrupted) {
-          opts.io.stderr(`plan: interrupted\n`);
-          summarizePlan("sigint", specDirBasename);
-          return 130;
-        }
-
-        opts.io.stderr(`plan: review pass ${pass}/${reviewPasses} starting\n`);
-
-        try {
-          // Read intent.md before the pass so we can validate it wasn't modified
-          const intentPath = join(finalSpecPath, "intent.md");
-          const intentBefore = readFileSync(intentPath, "utf8");
-          const specSnapshotBefore = commit ? null : snapshotSpecDirFiles(finalSpecPath);
-
-          // Run the review pass
-          const reviewResult = await runReviewPass({
-            onOutboundPrompt: logOutboundPrompt,
-            worktreePath,
-            name: specDirBasename,
-            ...(commit ? {} : { specDirPath: finalSpecPath }),
-            config: cfg,
-            passNumber: pass,
-            totalPasses: reviewPasses,
-            stderr: opts.io.stderr,
-            planTelemetry: planTelemetryWriter,
-            targetDir,
-          });
-
-          // Handle agent errors
-          if (reviewResult.result.kind === "error") {
-            opts.io.stderr(`plan: review pass ${pass} failed: ${reviewResult.result.stderr}\n`);
-            summarizePlan("agent-error", specDirBasename);
-            return 1;
-          }
-
-          if (reviewResult.result.kind === "model_config") {
-            opts.io.stderr(`plan: model configuration error: ${reviewResult.result.stderr}\n`);
-            summarizePlan("model-config", specDirBasename);
-            // Match patch mode (src/modes/patch/run.ts:1080) which exits 3 for
-            // model_config errors so a single config typo produces the same
-            // exit code regardless of which mode hits it.
-            return 3;
-          }
-
-          if (reviewResult.result.kind === "quota") {
-            opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
-            summarizePlan("quota-exhausted", specDirBasename);
-            return 2; // Quota exhausted exit code
-          }
-
-          // Honor a pending interrupt *before* committing so Ctrl-C during the
-          // agent call leaves the worktree, branch, and PR untouched.
-          if (interrupted) {
-            opts.io.stderr(`plan: interrupted\n`);
-            summarizePlan("sigint", specDirBasename);
-            return 130;
-          }
-
-          // Check if the pass produced changes
-          const passHasChanges = commit
-            ? hasWorkingTreeChanges(worktreePath)
-            : specSnapshotBefore !== null && hasSpecDirChanges(finalSpecPath, specSnapshotBefore);
-          if (!passHasChanges) {
-            opts.io.stderr(`plan: review pass ${pass} made no changes; skipping commit\n`);
-            continue;
-          }
-
-          // Validate the review output
-          const validation = validateReviewOutput(worktreePath, specDirBasename, intentBefore, finalSpecPath);
-          if (!validation.valid) {
-            opts.io.stderr(`plan: review pass ${pass} validation failed: ${validation.error}\n`);
-            summarizePlan("error", specDirBasename);
-            return 1;
-          }
-
-          // Check if a blocker was raised
-          if (validation.blocker !== undefined) {
-            // Check boundary before blocker commit
-            const boundaryCheck = commit
-              ? assertPlanWriteBoundary(worktreePath, specDirBasename, targetDir)
-              : assertTargetRepoPlanBoundary(project.root);
-
-            // For no-commit runs, also check the external spec directory
-            const externalBoundaryCheck: BoundaryCheckResult =
-              !commit && externalSpecRoot
-                ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename)
-                : { ok: true };
-
-            const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
-            if (!allBoundariesOk) {
-              opts.io.stderr(`plan: boundary violation detected before review blocker commit\n`);
-              const bcOffending = boundaryCheck.ok ? [] : boundaryCheck.offendingPaths;
-              const ebcOffending = externalBoundaryCheck.ok ? [] : externalBoundaryCheck.offendingPaths;
-              const allOffendingPaths = [...bcOffending, ...ebcOffending];
-              if (commit) {
-                revertPaths(worktreePath, allOffendingPaths);
-              }
-              appendBoundaryBlocker(finalSpecPath, specDirBasename, allOffendingPaths, targetDir);
-              for (const path of allOffendingPaths) {
-                opts.io.stderr(`  - ${path}\n`);
-              }
-
-              if (commit) {
-                try {
-                  const agentLabel = reviewResult.agentLabel ?? "unknown";
-                  commitPlanBlocker({
-                    worktreePath: worktreePath as string,
-                    specDirBasename,
-                    agentLabel,
-                    reason: "write boundary violation",
-                    specFilesCount: countSpecFiles(finalSpecPath),
-                    targetDir,
-                  });
-                  opts.io.stderr(`plan: blocker commit pushed\n`);
-
+      const reviewPasses = resolveReviewPasses(cfg, inv.reviewPasses);
+      if (reviewPasses > 0) {
+        const reviewResult = await runPlanReviewPhase({
+          onOutboundPrompt: logOutboundPrompt,
+          worktreePath,
+          name: specDirBasename,
+          specDirBasename,
+          ...(commit ? {} : { specDirPath: finalSpecPath }),
+          config: cfg,
+          ...(inv.reviewPasses !== undefined ? { reviewPassesOverride: inv.reviewPasses } : {}),
+          stderr: opts.io.stderr,
+          planTelemetry: planTelemetryWriter,
+          targetDir,
+          commit,
+          checkBoundary: true,
+          logNoChangeSkip: true,
+          ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
+          projectRoot: project.root,
+          ...(commit
+            ? {
+                updatePrBody: async () => {
                   await safeUpdatePrBody({
                     agent: prDescAgent,
                     timeoutMs: cfg.iterationTimeoutMs,
@@ -1918,156 +1779,35 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                     specDirBasename,
                     targetDir,
                   });
-                } catch (err) {
-                  opts.io.stderr(`${(err as Error).message}\n`);
-                  summarizePlan("error", specDirBasename);
-                  return 1;
-                }
+                },
               }
-
-              opts.io.stderr(`plan: blocked\n`);
-              summarizePlan("blocker", specDirBasename);
-              return 1;
-            }
-
-            if (commit) {
-              try {
-                const agentLabel = reviewResult.agentLabel ?? "unknown";
-                const reason = firstNonEmptyLine(validation.blocker);
-                const specFilesCount = countSpecFiles(finalSpecPath);
-
-                commitPlanBlocker({
-                  worktreePath: worktreePath as string,
-                  specDirBasename,
-                  agentLabel,
-                  reason,
-                  specFilesCount,
-                  targetDir,
-                });
-                opts.io.stderr(`plan: blocker commit pushed\n`);
-
-                await safeUpdatePrBody({
-                  agent: prDescAgent,
-                  timeoutMs: cfg.iterationTimeoutMs,
-                  io: opts.io,
-                  branch: planBranch,
-                  base: baseBranch as string,
-                  worktreePath: worktreePath as string,
-                  name: planName,
-                  specDirBasename,
-                  targetDir,
-                });
-              } catch (err) {
-                opts.io.stderr(`${(err as Error).message}\n`);
-                summarizePlan("error", specDirBasename);
-                return 1;
-              }
-            }
-
-            opts.io.stderr(`plan: blocked\n`);
-            if (validation.blocker) {
-              opts.io.stderr(`\n## Blocker\n\n${validation.blocker}\n`);
-            }
+            : {}),
+          isInterrupted: () => interrupted,
+          onPassStart: (pass, total) => {
+            opts.io.stderr(`plan: review pass ${pass}/${total} starting\n`);
+          },
+        });
+        if (reviewResult.interrupted) {
+          opts.io.stderr(`plan: interrupted\n`);
+          summarizePlan("sigint", specDirBasename);
+          return 130;
+        }
+        if (reviewResult.exitCode === 2) {
+          summarizePlan("quota-exhausted", specDirBasename);
+          return 2;
+        }
+        if (reviewResult.exitCode === 3) {
+          summarizePlan("model-config", specDirBasename);
+          return 3;
+        }
+        if (reviewResult.exitCode !== 0) {
+          if (reviewResult.blocker !== undefined) {
+            opts.io.stderr(`\n## Blocker\n\n${reviewResult.blocker}\n`);
             summarizePlan("blocker", specDirBasename);
-            return 1;
+          } else {
+            summarizePlan(reviewResult.exitCode === 1 ? "agent-error" : "error", specDirBasename);
           }
-
-          // Check boundary before review commit
-          const boundaryCheck = commit
-            ? assertPlanWriteBoundary(worktreePath, specDirBasename, targetDir)
-            : assertTargetRepoPlanBoundary(project.root);
-
-          // For no-commit runs, also check the external spec directory
-          const externalBoundaryCheck: BoundaryCheckResult =
-            !commit && externalSpecRoot
-              ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename)
-              : { ok: true };
-
-          const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
-          if (!allBoundariesOk) {
-            opts.io.stderr(`plan: boundary violation detected before review commit\n`);
-            const bcOffending = boundaryCheck.ok ? [] : boundaryCheck.offendingPaths;
-            const ebcOffending = externalBoundaryCheck.ok ? [] : externalBoundaryCheck.offendingPaths;
-            const allOffendingPaths = [...bcOffending, ...ebcOffending];
-            if (commit) {
-              revertPaths(worktreePath, allOffendingPaths);
-            }
-            appendBoundaryBlocker(finalSpecPath, specDirBasename, allOffendingPaths, targetDir);
-            for (const path of allOffendingPaths) {
-              opts.io.stderr(`  - ${path}\n`);
-            }
-
-            if (commit) {
-              try {
-                const agentLabel = reviewResult.agentLabel ?? "unknown";
-                commitPlanBlocker({
-                  worktreePath: worktreePath as string,
-                  specDirBasename,
-                  agentLabel,
-                  reason: "write boundary violation",
-                  specFilesCount: countSpecFiles(finalSpecPath),
-                  targetDir,
-                });
-                opts.io.stderr(`plan: blocker commit pushed\n`);
-
-                await safeUpdatePrBody({
-                  agent: prDescAgent,
-                  timeoutMs: cfg.iterationTimeoutMs,
-                  io: opts.io,
-                  branch: planBranch,
-                  base: baseBranch as string,
-                  worktreePath: worktreePath as string,
-                  name: planName,
-                  specDirBasename,
-                  targetDir,
-                });
-              } catch (err) {
-                opts.io.stderr(`${(err as Error).message}\n`);
-                summarizePlan("error", specDirBasename);
-                return 1;
-              }
-            }
-
-            opts.io.stderr(`plan: blocked\n`);
-            summarizePlan("blocker", specDirBasename);
-            return 1;
-          }
-
-          // Commit and push this review pass (when commit: true)
-          if (commit) {
-            try {
-              const agentLabel = reviewResult.agentLabel ?? "unknown";
-
-              commitPlanReview({
-                worktreePath: worktreePath as string,
-                specDirBasename,
-                passNumber: pass,
-                agentLabel,
-                targetDir,
-              });
-              opts.io.stderr(`plan: review pass ${pass} committed and pushed\n`);
-
-              await safeUpdatePrBody({
-                agent: prDescAgent,
-                timeoutMs: cfg.iterationTimeoutMs,
-                io: opts.io,
-                branch: planBranch,
-                base: baseBranch as string,
-                worktreePath: worktreePath as string,
-                name: planName,
-                specDirBasename,
-                targetDir,
-              });
-            } catch (err) {
-              opts.io.stderr(`${(err as Error).message}\n`);
-              summarizePlan("error", specDirBasename);
-              return 1;
-            }
-          }
-        } catch (err) {
-          opts.io.stderr(`plan: review pass ${pass} error: ${(err as Error).message}\n`);
-          summarizePlan("error", specDirBasename);
-          return 1;
+          return reviewResult.exitCode;
         }
       }
 

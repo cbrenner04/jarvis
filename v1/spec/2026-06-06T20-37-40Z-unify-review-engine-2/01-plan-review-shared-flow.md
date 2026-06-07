@@ -21,13 +21,13 @@ Route plan review through the shared review runner while preserving plan-specifi
 
 ## Acceptance criteria
 
-- [ ] Plan review calls the shared review runner for fresh and resume review passes.
-- [ ] No plan review loop directly reads `opts.config.modes.plan.agentOrder`; review agents come through `resolveReviewAgentOrder`.
-- [ ] Plan review pass counts come through `resolveReviewPasses(cfg, inv.reviewPasses)` in fresh and resume paths; no plan-review `inv.reviewPasses ?? 2` remains.
-- [ ] A plan review test proves `modes.review.agentOrder` is used when set and `modes.plan.agentOrder` is used only as fallback.
-- [ ] A plan command test proves `--review-passes` override -> `modes.review.passes` -> default 2 for fresh and resume review paths.
-- [ ] Tests prove blocker append, no-change pass skip, resume `rK` subject suffix, and PR body refresh still behave as before.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] Plan review calls the shared review runner for fresh and resume review passes.
+- [x] No plan review loop directly reads `opts.config.modes.plan.agentOrder`; review agents come through `resolveReviewAgentOrder`.
+- [x] Plan review pass counts come through `resolveReviewPasses(cfg, inv.reviewPasses)` in fresh and resume paths; no plan-review `inv.reviewPasses ?? 2` remains.
+- [x] A plan review test proves `modes.review.agentOrder` is used when set and `modes.plan.agentOrder` is used only as fallback.
+- [x] A plan command test proves `--review-passes` override -> `modes.review.passes` -> default 2 for fresh and resume review paths.
+- [x] Tests prove blocker append, no-change pass skip, resume `rK` subject suffix, and PR body refresh still behave as before.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

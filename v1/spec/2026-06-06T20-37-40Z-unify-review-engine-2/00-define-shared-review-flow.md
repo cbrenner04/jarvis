@@ -19,14 +19,14 @@ Introduce a v1 review runner that owns the common pass loop for plan and patch. 
 
 ## Acceptance criteria
 
-- [ ] A shared review runner exists under `v1/src/modes/review/` and is independent of plan-only or patch-only modules.
-- [ ] Runner tests prove pass count resolution honors `--review-passes` override -> `modes.review.passes` -> default 2.
-- [ ] Runner tests prove review agents resolve from `modes.review.agentOrder ?? modes.plan.agentOrder`.
-- [ ] Runner tests prove quota fallback advances to the next review agent and all-agent quota exits with code 2.
-- [ ] Runner tests prove `model_config` exits with code 3 and hard agent errors exit nonzero without silently continuing.
-- [ ] Runner tests prove the adapter is called to build prompts, enforce writes, handle blockers, commit successful passes, and record telemetry.
-- [ ] Existing plan and patch review tests still pass before mode migration.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] A shared review runner exists under `v1/src/modes/review/` and is independent of plan-only or patch-only modules.
+- [x] Runner tests prove pass count resolution honors `--review-passes` override -> `modes.review.passes` -> default 2.
+- [x] Runner tests prove review agents resolve from `modes.review.agentOrder ?? modes.plan.agentOrder`.
+- [x] Runner tests prove quota fallback advances to the next review agent and all-agent quota exits with code 2.
+- [x] Runner tests prove `model_config` exits with code 3 and hard agent errors exit nonzero without silently continuing.
+- [x] Runner tests prove the adapter is called to build prompts, enforce writes, handle blockers, commit successful passes, and record telemetry.
+- [x] Existing plan and patch review tests still pass before mode migration.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

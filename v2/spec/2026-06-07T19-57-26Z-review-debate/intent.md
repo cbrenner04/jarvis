@@ -62,16 +62,28 @@ The verdict is the seam between review and the executor:
 - **Self-contained.** The executor is a fresh agent with no debate memory; the
   verdict must restate the upheld findings and required outcomes, never "see the
   adversary artifact."
-- **Per-cycle.** The verdict drives one executor run, then the next cycle's
-  adversary reviews the changed subject fresh. It does not carry forward.
+- **Per-cycle, prior verdict carries (only it).** The verdict drives one executor
+  run. The next cycle's adversary reviews the *changed* subject fresh, but reads
+  the prior verdict as already-adjudicated context — find what the executor's
+  changes introduced or newly broke, don't re-open settled findings. The full
+  debate trail does not carry forward; the prior verdict does.
 
 Other shape decisions:
 
-- The verdict artifact is both the committed debate trail and the executor's
-  input — no separate sentinel. Commit each role (`review: adversary` /
-  `defense` / `judge` / `executor`); empty verdict → no executor run, no commit
-  (existing no-change skip).
-- Cycle count is just the existing review pass setting. No special bounds.
+- **Storage — verdict lives next to the spec.** The verdict is a durable doc in
+  the spec dir (plan: the spec folder the PR adds; patch: the executed spec's dir
+  in the target repo), with distinct plan vs. patch filenames so a spec carries
+  both over its lifetime. The spec already ships in both PRs, so the verdict
+  beside it is no new pollution of the subject (the code diff is untouched). The
+  intermediate adversary/defender artifacts ride the per-role commit trail, not
+  standing files. Overwritten each cycle — the merged spec carries only the final
+  verdict; the full trail lives in git history. No separate sentinel.
+- Commit each role (`review: adversary` / `defense` / `judge` / `executor`);
+  empty verdict → no executor run, no commit (existing no-change skip).
+- Cycle count is the existing review-pass setting, but the **default drops to 1**:
+  one debate cycle (adversary→defender→judge→executor) already replaces the
+  redundancy N shallow passes provided, and more cycles mostly manufacture
+  findings ([[plan-refine-precision-amplifier]]). Operator can still bump it.
 
 ## Sequencing (subspecs)
 
@@ -102,9 +114,6 @@ Less is more — trust the agents.
 - Distinct agents per role vs. one agent in different role-prompts (genuine
   adversarialism vs. quota/fallback cost). At minimum the executor should differ
   in *model class* (executing) from the reviewing roles.
-- Where debate artifacts live so they don't pollute the subject (a review-scratch
-  path committed on the branch?) — patch's branch is the PR branch, so trail
-  files would ship in the PR unless scoped.
 - The verdict → task seam in the patch loop: feeding an injected task in place of
   spec-checklist selection is a change to the loop's input contract (patch
   subspec's central job).
@@ -116,9 +125,11 @@ Less is more — trust the agents.
 ## Refine skip
 
 No net-new load-bearing decision to add. The seed already carries the full
-ledger, philosophy lock, and sequencing. The three `## Open` items each belong
-to a first consumer — artifact location and the verdict→task input-contract seam
-are the patch subspec's calls; per-role agent distinctness defaults to reusing
-the existing pass/fallback selection. Resolving them in this non-interactive pass
-would fabricate the human's or drafter's decision, not capture one.
+ledger, philosophy lock, and sequencing. The remaining `## Open` items each
+belong to a first consumer — the verdict→task input-contract seam is the patch
+subspec's call; per-role agent distinctness defaults to reusing the existing
+pass/fallback selection. (Storage location and the per-cycle/default-1 decisions
+were since resolved with the operator — verdict lives next to the spec.)
+Resolving the rest in this non-interactive pass would fabricate the human's or
+drafter's decision, not capture one.
 

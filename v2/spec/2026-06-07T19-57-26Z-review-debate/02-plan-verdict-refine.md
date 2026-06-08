@@ -11,6 +11,7 @@ Plan review writes the spec inline today, so this introduces the verdict → ref
 - Per-role commits reuse plan commit numbering/resume-suffix conventions: `review: adversary` / `defense` / `judge` / `executor`; empty verdict → existing no-change skip, no executor commit.
 - Reviewer roles reuse the review agent order; the executor (refine) uses the plan/executing agent order, preserving the model-class split.
 - The executor is a fresh agent; the verdict restates upheld findings and required spec outcomes (self-contained). — rules out feeding role artifacts into the refine prompt.
+- The verdict is a durable doc in the spec folder, with a plan-distinct filename (e.g. `verdict-plan.md`), overwritten each cycle; it ships in the plan PR alongside the spec it shaped. — distinct from patch's filename so one spec folder can carry both over its lifetime. "Read-only on the spec" means the reviewed spec files (index/subspecs/intent); the adapter still writes the verdict artifact into the folder, and it is not a subspec pointer so it does not affect index completeness.
 
 ## Task Checklist
 
@@ -18,10 +19,11 @@ Plan review writes the spec inline today, so this introduces the verdict → ref
 - [ ] Make the plan review adapter role-aware: select the role prompt, write each role's artifact, inject the prior role's artifact into the next reviewer's prompt.
 - [ ] Make plan reviewers read-only on the spec (no inline spec rewrite during reviewer roles).
 - [ ] Wire the refine loop as the injected executor: run it with the verdict as its task, under the existing plan write boundary, committing `review: executor`.
+- [ ] Persist the verdict as a durable doc in the spec folder (`verdict-plan.md`), overwritten each cycle.
 
 ## Documentation updates
 
-- [ ] Update `v2/docs/v1-behaviors.md`: plan review is now read-only reviewers (adversary/defender/judge) + a refine-loop executor that applies the verdict under the spec-dir write boundary; reviewers no longer rewrite the spec inline; per-role commits and the verdict → refine seam.
+- [ ] Update `v2/docs/v1-behaviors.md`: plan review is now read-only reviewers (adversary/defender/judge) + a refine-loop executor that applies the verdict under the spec-dir write boundary; reviewers no longer rewrite the spec inline; per-role commits, the verdict → refine seam, and the verdict doc shipping in the spec folder.
 
 ## Acceptance criteria
 
@@ -30,6 +32,7 @@ Plan review writes the spec inline today, so this introduces the verdict → ref
 - [ ] Registered plan role prompts exist for adversary, defender, and judge; the judge prompt instructs a self-contained, outcome-altitude verdict.
 - [ ] Each reviewer role's artifact is injected into the next role's prompt; the executor prompt does not depend on reading prior role artifacts.
 - [ ] Per-role commits are emitted with plan numbering/resume-suffix conventions; an empty verdict yields no executor run and no executor commit.
+- [ ] The verdict is persisted in the spec folder (`verdict-plan.md`), overwritten each cycle, and does not register as a subspec pointer in the index.
 - [ ] Reviewer roles use the review agent order; the refine executor uses the plan agent order (model-class split preserved).
 - [ ] Tests cover the verdict → refine seam and read-only reviewer enforcement for plan.
 - [ ] `v2/docs/v1-behaviors.md` reflects the new plan review behavior.

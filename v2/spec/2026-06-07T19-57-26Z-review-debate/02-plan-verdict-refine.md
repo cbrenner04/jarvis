@@ -11,7 +11,7 @@ Plan review writes the spec inline today, so this introduces the verdict → ref
 - Per-role commits reuse plan commit numbering/resume-suffix conventions: `review: adversary` / `defense` / `judge` / `executor`; empty verdict → existing no-change skip, no executor commit.
 - Reviewer roles reuse the review agent order; the executor (refine) uses the plan/executing agent order, preserving the model-class split.
 - The executor is a fresh agent; the verdict restates upheld findings and required spec outcomes (self-contained). — rules out feeding role artifacts into the refine prompt.
-- The verdict is a durable doc in the spec folder, with a plan-distinct filename (e.g. `verdict-plan.md`), overwritten each cycle; it ships in the plan PR alongside the spec it shaped. — distinct from patch's filename so one spec folder can carry both over its lifetime. "Read-only on the spec" means the reviewed spec files (index/subspecs/intent); the adapter still writes the verdict artifact into the folder, and it is not a subspec pointer so it does not affect index completeness.
+- The verdict is a durable doc in the spec folder, plan-distinct filename (e.g. `verdict-plan.md`), overwritten each cycle. — distinct from patch's filename so one folder carries both over its lifetime. "Read-only on the spec" covers the reviewed spec files (index/subspecs/intent) only; the adapter still writes the verdict, which is not a subspec pointer and so does not affect index completeness.
 
 ## Task Checklist
 

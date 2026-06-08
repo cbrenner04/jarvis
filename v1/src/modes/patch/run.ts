@@ -7,7 +7,6 @@ import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
-  type AgentEntry,
   type AgentName,
   type Config,
   type ConfigOptions,

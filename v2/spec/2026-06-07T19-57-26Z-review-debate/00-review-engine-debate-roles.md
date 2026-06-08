@@ -4,15 +4,13 @@ Add the debate role-shape to the shared review runner (`v1/src/modes/review/run.
 
 ## Decisions
 
-- Roles are a fixed three-step sequence adversary → defender → judge per cycle; not configurable. — rules out exposing a role list as config (single operator, no caller needs it).
-- The executor is injected into the runner (a runner option / adapter method), invoked once per cycle after the judge, not a fourth entry in the read-only pass loop. — rules out a write-enabled reviewer pass, which would let a reviewing-class role mutate the subject (self-vindication).
-- The runner surfaces the current `role` on the pass/attempt context and does not own role prompts or artifact reading; the adapter selects the role prompt and reads the prior role's artifact. — rules out embedding mode-specific prompts in the engine.
+- The executor is injected (a runner option / adapter method), invoked once per cycle after the judge, not a fourth entry in the read-only pass loop. — rules out a write-enabled reviewer pass letting a reviewing-class role mutate the subject (self-vindication).
+- The runner surfaces the current `role` on the pass/attempt context but owns no role prompts or artifact reading; the adapter selects the role prompt and reads the prior role's artifact. — rules out embedding mode-specific prompts in the engine.
 - The verdict carrier is the judge's committed artifact, read by the executor via the adapter; the runner neither parses nor translates findings. — rules out the harness adjudicating materiality.
-- Empty verdict → executor not invoked, no executor commit, via the existing no-change skip; no convergence/stop-on-empty logic. — rules out a materiality/convergence gate (philosophy lock).
-- One configured pass = one cycle; cycle count is the existing review-pass setting (`resolveReviewPasses`), no new bounds. — rules out a separate debate-rounds knob.
+- Empty verdict → executor not invoked, no commit, via the existing no-change skip; no convergence/stop-on-empty logic. — rules out a materiality/convergence gate (philosophy lock).
+- One configured pass = one cycle (the existing `resolveReviewPasses` setting), no new bounds. — rules out a separate debate-rounds knob.
 - The shared default `modes.review.passes` drops from 2 to 1. — one debate cycle replaces the redundancy N shallow passes gave; >1 mostly manufactures findings ([[plan-refine-precision-amplifier]]). Operator can still bump it.
-- The full debate trail does not carry forward, but the **prior cycle's verdict does**: the runner hands the previous verdict to the next cycle's adversary as already-adjudicated context (find what the executor changed/newly broke, don't re-open settled findings). — rules out both full carry-forward and amnesiac re-litigation of settled findings across cycles.
-- Storage is decided (verdict lives next to the spec — intent `## Shape`); the concrete per-mode filename/path is the adapter's job, pinned in subspecs 01/02. The runner still owns exposing the prior role's artifact (within a cycle) and the prior verdict (across cycles) to the adapter. — rules out the engine owning artifact paths.
+- The full debate trail does not carry forward, but the **prior cycle's verdict does**: the runner hands it to the next cycle's adversary as already-adjudicated context (find what the executor changed/newly broke, don't re-open settled findings). — rules out both full carry-forward and amnesiac re-litigation across cycles. The concrete per-mode filename is the adapter's job (subspecs 01/02).
 
 ## Task Checklist
 

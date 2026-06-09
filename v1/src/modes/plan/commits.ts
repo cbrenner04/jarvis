@@ -145,6 +145,8 @@ export type CommitPlanReviewOptions = {
   subjectSuffix?: string;
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
+  /** Role-specific review label (e.g., "review: adversary"). */
+  reviewLabel?: string;
 };
 
 export function commitPlanReview(opts: CommitPlanReviewOptions): void {
@@ -157,7 +159,9 @@ export function commitPlanReview(opts: CommitPlanReviewOptions): void {
     stdio: "pipe",
   });
 
-  const subject = `plan: review ${opts.passNumber}${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
+  const subject = opts.reviewLabel
+    ? `plan: ${opts.reviewLabel}${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`
+    : `plan: review ${opts.passNumber}${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(specDirBasename, [`Reviewed by ${opts.agentLabel}.`], opts.targetDir);
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);

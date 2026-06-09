@@ -140,7 +140,7 @@ const DEFAULT_CONFIG: Config = {
       targetDir: "spec",
     },
     prompt: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
-    review: { passes: 2 },
+    review: { passes: 1 },
   },
   quotaFallback: "lenient",
   weakQuotaExitCodes: [],

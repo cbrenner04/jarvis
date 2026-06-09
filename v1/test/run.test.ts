@@ -3597,8 +3597,8 @@ describe("review phase", () => {
         stderr: "",
       }),
       (_n, cwd) => {
-      writeFileSync(join(cwd, "code.txt"), "refined\n");
-      return { kind: "ok", stdout: "", stderr: "" };
+        writeFileSync(join(cwd, "code.txt"), "refined\n");
+        return { kind: "ok", stdout: "", stderr: "" };
       },
     );
 
@@ -3628,20 +3628,28 @@ describe("review phase", () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
     const draftStates: string[] = [];
-    const claude = reviewFakeAgent("claude", (_n, cwd, prompt) => {
-      // Observe PR draft state at the moment the review agent runs.
-      draftStates.push(
-        execSync("gh pr view feature --json isDraft -q .isDraft", {
-          cwd,
-          env: process.env,
-          encoding: "utf8",
-        }).trim(),
-      );
-      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "No executor changes needed.\n" : "", stderr: "" };
-    }, (_n, cwd) => {
-      writeFileSync(join(cwd, "code.txt"), "x\n");
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, cwd, prompt) => {
+        // Observe PR draft state at the moment the review agent runs.
+        draftStates.push(
+          execSync("gh pr view feature --json isDraft -q .isDraft", {
+            cwd,
+            env: process.env,
+            encoding: "utf8",
+          }).trim(),
+        );
+        return {
+          kind: "ok",
+          stdout: prompt.includes("Review: Judge") ? "No executor changes needed.\n" : "",
+          stderr: "",
+        };
+      },
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "x\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
 
     const code = await runCommand({
       specPath: env.spec,
@@ -3659,16 +3667,24 @@ describe("review phase", () => {
   test("runs all passes past a no-op; only non-empty passes commit", async () => {
     const env = setupReviewEnv({ reviewPasses: 2 });
     const cap = captureIo();
-    let reviewCalls = 0;
+    let _reviewCalls = 0;
     let executorCalls = 0;
-    const claude = reviewFakeAgent("claude", (_callCount, _cwd, prompt) => {
-      reviewCalls += 1;
-      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Apply second-cycle refinement.\n" : "", stderr: "" };
-    }, (_callCount, cwd) => {
-      executorCalls += 1;
-      writeFileSync(join(cwd, "code.txt"), `executor ${executorCalls}\n`);
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = reviewFakeAgent(
+      "claude",
+      (_callCount, _cwd, prompt) => {
+        _reviewCalls += 1;
+        return {
+          kind: "ok",
+          stdout: prompt.includes("Review: Judge") ? "Apply second-cycle refinement.\n" : "",
+          stderr: "",
+        };
+      },
+      (_callCount, cwd) => {
+        executorCalls += 1;
+        writeFileSync(join(cwd, "code.txt"), `executor ${executorCalls}\n`);
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
 
     const code = await runCommand({
       specPath: env.spec,
@@ -3692,22 +3708,26 @@ describe("review phase", () => {
   test("reverts spec-tree edits (tracked and untracked); commits only code", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
-    const claude = reviewFakeAgent("claude", (_n, cwd, prompt) => {
-      // Edit a tracked spec file, add an untracked spec file, and a code file.
-      writeFileSync(
-        join(cwd, "spec", "feature", "00-one.md"),
-        "# 00 - One\n\n## Acceptance criteria\n\n- [x] tampered.\n",
-      );
-      writeFileSync(join(cwd, "spec", "feature", "02-extra.md"), "sneaky\n");
-      writeFileSync(join(cwd, "code.txt"), "ok\n");
-      if (prompt.includes("Review: Judge")) {
-        return { kind: "ok", stdout: "Executor should write code.\n", stderr: "" };
-      }
-      return { kind: "ok", stdout: "", stderr: "" };
-    }, (_n, cwd) => {
-      writeFileSync(join(cwd, "code.txt"), "ok\n");
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, cwd, prompt) => {
+        // Edit a tracked spec file, add an untracked spec file, and a code file.
+        writeFileSync(
+          join(cwd, "spec", "feature", "00-one.md"),
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] tampered.\n",
+        );
+        writeFileSync(join(cwd, "spec", "feature", "02-extra.md"), "sneaky\n");
+        writeFileSync(join(cwd, "code.txt"), "ok\n");
+        if (prompt.includes("Review: Judge")) {
+          return { kind: "ok", stdout: "Executor should write code.\n", stderr: "" };
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "ok\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
 
     const code = await runCommand({
       specPath: env.spec,
@@ -3758,13 +3778,17 @@ describe("review phase", () => {
   test("review commit push failure leaves PR draft and exits 1", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
-    const claude = reviewFakeAgent("claude", (_n, _cwd, prompt) => {
-      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "", stderr: "" };
-    }, (_n, cwd) => {
-      writeFileSync(env.failReviewPush, "1\n");
-      writeFileSync(join(cwd, "code.txt"), "refined\n");
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, _cwd, prompt) => {
+        return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "", stderr: "" };
+      },
+      (_n, cwd) => {
+        writeFileSync(env.failReviewPush, "1\n");
+        writeFileSync(join(cwd, "code.txt"), "refined\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
 
     const code = await runCommand({
       specPath: env.spec,
@@ -3829,12 +3853,16 @@ describe("review phase", () => {
       reviewPasses: 1,
     });
     const cap = captureIo();
-    const claude = reviewFakeAgent("claude", () => {
-      throw new Error("claude must not run review passes");
-    }, (_n, cwd) => {
-      writeFileSync(join(cwd, "code.txt"), "by claude executor\n");
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = reviewFakeAgent(
+      "claude",
+      () => {
+        throw new Error("claude must not run review passes");
+      },
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "by claude executor\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
     const codex = reviewFakeAgent("codex", (_n, _cwd, prompt) => {
       return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Executor should edit code.\n" : "", stderr: "" };
     });
@@ -3858,12 +3886,16 @@ describe("review phase", () => {
   test("review still runs on the closing iteration when maxIterations is exhausted", async () => {
     const env = setupReviewEnv({ reviewPasses: 1, maxIterations: 1 });
     const cap = captureIo();
-    const claude = reviewFakeAgent("claude", (_n, _cwd, prompt) => {
-      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "", stderr: "" };
-    }, (_n, cwd) => {
-      writeFileSync(join(cwd, "code.txt"), "x\n");
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, _cwd, prompt) => {
+        return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "", stderr: "" };
+      },
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "x\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
 
     const code = await runCommand({
       specPath: env.spec,

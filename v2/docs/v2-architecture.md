@@ -15,12 +15,13 @@ config. Naming them separately is what keeps the design from feeling tangled.
 | --- | --- | --- |
 | **Behaviors** | source | Loop primitives: write, review-and-update, human. See `v2-vision.md`. |
 | **Prompts** | source | Per-behavior prompts, rendered by layering fragments + per-step overrides. |
-| **Workflows** | source | Named, linear-with-loops sequences of **steps** (behavior + prompt + output contract). No cli/model. |
-| **Project config** | data (`~/.jarvis`) | Per project: which workflows are enabled, plus cli+model bindings over steps. |
+| **Workflows** | source | Named, linear-with-loops sequences of **steps** (behavior + prompt + output contract + model category). No agent/model. |
+| **Project config** | data (`~/.jarvis`, per machine) | Per project: enabled workflows + the agent fallback order. Model categories bind separately, in a machine-independent store. |
 
 **Terminology change.** The earlier framing of a "building block = prompt + agent" is retired.
-The reusable source unit is a **step** (behavior + prompt + output contract).
-The **agent (cli + model) is a per-project binding over a step**, not part of it.
+The reusable source unit is a **step** (behavior + prompt + output contract); a step names a
+**model category**, never a concrete model. The **agent** is a per-machine fallback order and
+the **model** resolves per agent from the step's category — neither is baked into the step.
 Keeping "building block" as "prompt + agent" is exactly what pulls the design back toward
 baking models into source, so we drop the term.
 
@@ -64,7 +65,8 @@ Decided:
   new workflow go through a Jarvis change?" — yes, it's source.)
 - **A workflow scaffolding helper.** Since workflows are authored often, ship a
   generator that stubs a new workflow (steps referencing prompts + contracts).
-- **Steps reference prompts, never cli/model.** The agent binding is config.
+- **Steps reference prompts and a model category, never a concrete agent/model.**
+  The agent fallback order and the per-agent model are config.
 - **Authoring reuse via named step-groups.** A workflow can embed a reusable
   sub-sequence (e.g. `review-bundle` = code-review + security-review) so step
   lists aren't repeated across workflows. Keep nesting **shallow — one level, no recursion** —
@@ -77,39 +79,82 @@ Per-project config:
 
 - **No Jarvis artifacts in target repos.** Jarvis is used on personal repos and
   at work where the setup isn't ours and personal artifacts aren't welcome. A
-  project opts into workflows and configures cli+model entirely in `~/.jarvis`.
-- **Default agent order + per-step override.** A project declares a default agent
-  order (carried forward from v1's `agentOrder`); per-step config is an
-  *optional* override. Most steps inherit the default; you only pin a model where
-  it matters. This keeps config small and means adding a step in source doesn't
-  silently leave every project's config incomplete.
-- **A coarse default split for the common case.** The usual difference is
-  planning/review (wants a robust, more expensive model — the work isn't spelled
-  out yet) vs implementation (can use a cheap model — the spec already spells it
-  out). Defaults should be tier-able along that split so the common case needs
-  minimal per-step overrides: a "heavy" default for planning/review steps, a
-  "cheap" default for implementation steps. Per-step overrides remain for the
-  exceptions.
-- **Per-step override is itself an ordered list** and defaults to the project's
-  effective order, so v1 quota fallback composes unchanged — it operates on "the
-  effective order for this step." Easy to accidentally design a per-step binding
-  that drops quota fallback; don't.
+  project opts into workflows and its agent order entirely in `~/.jarvis` (the
+  model-category store is separate and machine-independent, below).
+- **Two axes: agent fallback order vs. model categories.** v1 conflated them — each
+  `modes.{patch,plan}.agentOrder` entry is one `{agent, model}` pair, so the
+  availability chain and the model choice are a single list. v2 splits them, since
+  the hierarchy exists for *agents* (preference-then-fallback) and a model always
+  attaches to a specific agent (codex can't serve a Claude model):
+  - **Agent fallback order** — one ordered list of agents (`claude → codex →
+    cursor → aider`), the availability/quota chain. Lives in **per-machine**
+    `~/.jarvis` config: which agents are installed/licensed genuinely differs
+    between the personal and work machines.
+  - **Model categories** — models grouped by the *kind of work*, each category
+    mapping per-agent to that agent's model for that work. Lives in a **separate,
+    machine-independent, version-controlled store** (a checked-in data file beside
+    the global `data/prices.json`), not `config.json`: the assignments are the same
+    on every machine, change often, and would bloat per-machine config.
+- **Three categories: thinking / reviewing / executing.** *thinking* =
+  heavyweight reasoning (plan draft/refine, hard design); *reviewing* = critique
+  passes (the review debate's reviewer roles); *executing* = routine
+  implementation (the write loop, the review debate's verdict executor). The code
+  allows adding more later, but this set is fixed. (Supersedes the earlier coarse
+  "heavy/cheap" split.)
+- **A step names a category, not a model.** The runner walks the agent fallback
+  order; for whichever agent it lands on, it uses that agent's model for the
+  step's category. Step→category: write/implement = executing; plan draft/refine =
+  thinking; review reviewer roles = reviewing; the verdict executor runs in its
+  mode's authoring category (implement → executing, plan → thinking).
+- **Exactly one model per (category, agent); a gap is a hard error at load** — no
+  skip, no default fallback. Price/model validation runs per (agent, model) pair,
+  now per category.
+- **Quota fallback composes unchanged.** Agent order is the outer loop; a category
+  never reorders agents. When the landed agent is quota-exhausted, fallback
+  advances to the next agent and re-resolves the *same* category against it.
+- **CLI override.** The only override is a command-line `--agent` / `--model` pair
+  (the single-write-step override) that bypasses resolution for that run. There is
+  no per-step config override.
 - **Local model is the terminal quota fallback.** When every paid CLI/platform in
-  the effective order is quota-exhausted, a locally-run model is the last resort
-  rather than v1's hard exit `2` ("all agents quota-exhausted"). It sits at the
-  end of the effective order, configured only on machines that have it. Lifecycle
-  and reach are settled under [Concurrency & memory budget → Local model](#local-model):
+  the agent fallback order is quota-exhausted, a locally-run model is the last
+  resort rather than v1's hard exit `2` ("all agents quota-exhausted"). It sits at
+  the end of the agent fallback order, configured only on machines that have it.
+  Lifecycle and reach are settled under [Concurrency & memory budget → Local model](#local-model):
   Ollama server resident, qwen on-demand, reached via aider.
 - **Focused show/edit.** The config will be large. `jarvis config <project>`
-  shows enabled workflows + only that project's overrides; `jarvis config
-  <project> <workflow>` drills into one workflow's effective per-step agents
-  (defaults shown, overrides highlighted). Mirrors v1's `prices show/edit`.
+  shows enabled workflows + the agent fallback order; `jarvis config <project>
+  <workflow>` drills into one workflow's steps, each step's category and its
+  resolved `(agent, category) → model`. Mirrors v1's `prices show/edit`.
 - **Config-vs-source validation.** Because workflows are source and bindings are
   data, ship a check (companion to the workflow helper) that validates a
   project's config against the workflows it opts into — flags unknown workflow
-  names, unknown step IDs, unknown cli/model values. This is what makes "build
+  names, unknown step IDs, unknown agent/model values, and any missing
+  `(category, agent)` model assignment (the hard-error-at-load rule). This is what makes "build
   workflows as they come" safe: a new workflow tells each project what, if
   anything, it must configure.
+
+### Review as debate
+
+The **review-and-update** behavior is a debate, not N identical critique passes
+(the shape designed in `v2/spec/2026-06-07T19-57-26Z-review-debate`):
+
+- **Read-only reviewers → a writing executor.** One cycle is three read-only
+  reviewer roles — adversary → defender → judge — then a separate executor. The
+  judge emits a **verdict**: an outcome-altitude instruction (what must be true and
+  why, never the diff). The executor is the *only* writer; for implement it is the
+  write loop, for plan the refine loop, run with the verdict as its task.
+- **This is why categories matter.** Reviewers are **reviewing**-class; the
+  executor runs in the mode's *authoring* category — implement → **executing**,
+  plan → **thinking** (applying a verdict to a spec is still spec-authoring work).
+  The split that matters is reviewers ≠ executor with different models, not that
+  the executor is always "cheap." One role would force one model to do both — the
+  conflation the agent/model split above exists to avoid. Splitting judge from
+  executor also stops a reviewer grading its own fix, and lets the executor's diff
+  re-enter the next cycle's debate.
+- **Verdict lives next to the spec**, distinct plan/patch filenames, overwritten
+  each cycle (full trail in git). Empty verdict → no executor run. Default is one
+  cycle; the harness adjudicates no materiality — nothing to find means an empty
+  verdict, not a convergence gate.
 
 ### Output contract (step outcomes)
 
@@ -244,6 +289,11 @@ streams stay out of the orchestration store.
 - **Recovery derives from durable state, not in-memory flags.** The next-step
   checkpoint on `runs` (or a terminal run status when nothing remains) plus the
   durable attempt/outcome history determine where a run resumes.
+- **Worktree is reconstructible; the branch is durable.** The branch and its
+  commits are the durable artifact in git; the worktree path is only a pointer.
+  Resume recreates a missing worktree from its branch — carrying forward v1's
+  auto-materialization (rebuild from the local branch, or `origin/<branch>` if
+  only remote), which out-of-repo worktrees and a long-lived daemon make routine.
 - **Idempotent boundary commit.** Because a boundary commits atomically (above),
   retrying a finished boundary must not advance the checkpoint twice or duplicate
   durable effect. The concrete recovery-read cases are settled with the loop and
@@ -285,6 +335,13 @@ Human-loop resume carries a decision:
   if neither, since with no edits and no instruction the agent would just redo the
   same thing.
 - **abort** — kill the run.
+
+**External PR feedback is a revise trigger.** v1's `review-feedback` command —
+pull a human's PR-comment feedback onto the branch and re-run — becomes the revise
+path with the PR comments as the injected free-text prompt. Same mechanism, the
+feedback just sourced from the PR rather than typed at the TUI. (v1's
+auto-materialize-the-worktree behavior for `review-feedback` is the worktree
+reconstruction above.)
 
 ## Concurrency & memory budget
 

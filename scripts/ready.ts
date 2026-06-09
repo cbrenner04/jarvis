@@ -3,6 +3,10 @@ import { spawn } from "node:child_process";
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export const GRACE_PERIOD_MS = 5000; // 5 seconds for SIGTERM before SIGKILL
 export const TIMEOUT_EXIT_CODE = 124; // Matches GNU timeout(1)
+const SIGNAL_EXIT_CODES: Partial<Record<NodeJS.Signals, number>> = {
+  SIGINT: 130,
+  SIGTERM: 143,
+};
 
 export function parseTimeout(): number {
   const envValue = process.env.JARVIS_READY_TIMEOUT_MS;
@@ -29,49 +33,72 @@ export function runCommand(name: string, args: string[], deadlineMs: number, ela
     });
 
     let settled = false;
+    let requestedExitCode: number | undefined;
     const settle = (code: number) => {
       if (settled) return;
       settled = true;
+      cleanup();
       resolve(code);
     };
 
     const remainingMs = Math.max(0, deadlineMs - elapsedMs);
+    let forceKillHandle: NodeJS.Timeout | undefined;
 
-    const timeoutHandle = setTimeout(() => {
-      if (!settled) {
-        process.stderr.write(`ready: deadline exceeded after ${deadlineMs}ms; killing child tree\n`);
+    const killChildTree = (signal: NodeJS.Signals) => {
+      if (!child.pid) return;
 
+      try {
+        process.kill(-child.pid, signal);
+      } catch (_err) {
+        // Process may have already exited
+      }
+
+      if (forceKillHandle) return;
+      forceKillHandle = setTimeout(() => {
         if (child.pid) {
           try {
-            // Send SIGTERM to the process group (negative PID kills the group)
-            process.kill(-child.pid, "SIGTERM");
+            process.kill(-child.pid, "SIGKILL");
           } catch (_err) {
             // Process may have already exited
           }
         }
+      }, GRACE_PERIOD_MS);
+    };
 
-        // Wait grace period then SIGKILL
-        setTimeout(() => {
-          if (child.pid) {
-            try {
-              process.kill(-child.pid, "SIGKILL");
-            } catch (_err) {
-              // Process may have already exited
-            }
-          }
-        }, GRACE_PERIOD_MS).unref();
+    const onSignal = (signal: NodeJS.Signals) => {
+      requestedExitCode = SIGNAL_EXIT_CODES[signal] ?? 1;
+      killChildTree(signal);
+    };
 
-        settle(TIMEOUT_EXIT_CODE);
+    const onSigint = () => onSignal("SIGINT");
+    const onSigterm = () => onSignal("SIGTERM");
+
+    const cleanup = () => {
+      clearTimeout(timeoutHandle);
+      if (forceKillHandle) {
+        clearTimeout(forceKillHandle);
+      }
+      process.removeListener("SIGINT", onSigint);
+      process.removeListener("SIGTERM", onSigterm);
+    };
+
+    const timeoutHandle = setTimeout(() => {
+      if (!settled) {
+        process.stderr.write(`ready: deadline exceeded after ${deadlineMs}ms; killing child tree\n`);
+        requestedExitCode = TIMEOUT_EXIT_CODE;
+        killChildTree("SIGTERM");
       }
     }, remainingMs);
 
+    process.on("SIGINT", onSigint);
+    process.on("SIGTERM", onSigterm);
+
     child.on("close", (code) => {
-      clearTimeout(timeoutHandle);
-      settle(code ?? -1);
+      const signalExitCode = child.signalCode ? SIGNAL_EXIT_CODES[child.signalCode] : undefined;
+      settle(requestedExitCode ?? signalExitCode ?? code ?? -1);
     });
 
     child.on("error", (err) => {
-      clearTimeout(timeoutHandle);
       process.stderr.write(`error spawning ${name}: ${String(err)}\n`);
       settle(-1);
     });

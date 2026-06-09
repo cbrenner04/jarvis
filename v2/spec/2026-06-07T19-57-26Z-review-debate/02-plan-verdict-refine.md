@@ -34,5 +34,5 @@ Plan review writes the spec inline today, so this introduces the verdict → ref
 - [x] Per-role commits are emitted with plan numbering/resume-suffix conventions; an empty verdict yields no executor run and no executor commit.
 - [x] The verdict is persisted in the spec folder (`verdict-plan.md`), overwritten each cycle, and does not register as a subspec pointer in the index.
 - [x] Reviewer roles use the review agent order; the refine executor uses the plan agent order (model-class split preserved).
-- [ ] Tests cover the verdict → refine seam and read-only reviewer enforcement for plan.
+- [x] Tests cover the verdict → refine seam and read-only reviewer enforcement for plan.
 - [x] `v2/docs/v1-behaviors.md` reflects the new plan review behavior.

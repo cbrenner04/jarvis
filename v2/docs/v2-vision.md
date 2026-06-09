@@ -60,12 +60,12 @@ The current "mode" model breaks down under the next round of features:
 
 ### Behavior loops as interchangeable workflow pieces
 
-The composability target is not only "modes are pipelines." It is that the repeated pieces inside today's modes become explicit, interchangeable **behaviors**. A behavior is the loop primitive: what kind of work is being repeated, who performs it, and how the runner decides whether to continue or stop. Model selection, prompt selection, artifact contracts, and write boundaries specialize that primitive into concrete workflow steps.
+The composability target is not only "modes are pipelines." It is that the repeated pieces inside today's modes become explicit, interchangeable **behaviors**. A behavior is the loop primitive: what kind of work is being repeated, who performs it, and how the runner decides whether to continue or stop. A model *category*, prompt selection, artifact contracts, and write boundaries specialize that primitive into concrete workflow steps — a step names the category (thinking / reviewing / executing), and the concrete model resolves per agent (see [`v2-architecture.md`](v2-architecture.md)).
 
 Useful behavior shapes:
 
 - **Write loop**: run an agent until a requested artifact exists, acceptance criteria move, or a blocker is declared. Model + prompt + artifact contract turn this into concrete steps such as create-intent, draft-spec, or implement-code.
-- **Review and update loop**: run an agent against existing artifacts, critique them, and update them in place. Model + prompt + artifact contract turn this into concrete steps such as refine-intent, review-spec, implementation-review, or security-review.
+- **Review and update loop**: review existing artifacts and apply the upheld findings. Structured as a *debate*, not in-place self-editing: read-only adversary → defender → judge roles emit a verdict, then a separate executor applies it (a reviewer never grades its own fix). Model category + prompt + artifact contract turn this into concrete steps such as refine-intent, review-spec, implementation-review, or security-review.
 - **Human loop**: pause automation for human review, approval, edits, merge, or an explicit resume command. v2 should make this less clunky than today, but the core architecture should not depend on brittle external resume conditions from day one.
 
 Workflows should stay mostly linear. A workflow is an ordered list of behavior steps with bounded repeat patterns, not an arbitrary graph. It should be possible to repeat a previous range of steps a fixed number of times, such as "repeat spec review + human review up to `N` times," while avoiding free-form branching that could make workflows surprising or hard to reason about.
@@ -82,6 +82,8 @@ Plan mode today can be described as a fixed composition of those behavior loops:
 6. "Human" loop `N` times for final review and merge.
 
 Different projects should be able to choose different compositions without changing the underlying behavior implementations. A lightweight project might run only steps `1, 3, 4, 6`. A stricter project might run `1-6`, then repeat spec review + human review (`5, 6`) until the spec is accepted. The same behavior pieces are reused; only the workflow graph changes.
+
+The floor of this is a **specless one-shot** — a single write loop with no spec and no spec artifact contract, committing its diff and opening a draft PR (today's `jarvis prompt "<text>"`). It is not a special mechanism, just the shortest workflow: the same behavior vocabulary covers the "just do this" path with no plan or review at all.
 
 The same idea also describes implementation. Patch mode today is roughly:
 
@@ -113,7 +115,7 @@ Or
 3. "Write" loop `N` times with an implementation prompt.
 4. "Human" loop `N` times for final review and merge.
 
-This is the v2 architecture: "plan", "implement", "review", and "yolo" are not hardcoded modes in Jarvis source. They are named workflow presets composed from the smaller behavior vocabulary Jarvis exposes. Prompts and model choices become step inputs, not hardcoded mode internals. The host/runner owns sequencing, bounded repeats, state handoff, quota fallback, telemetry, and human checkpoints. The concrete workflow/step/config model, the execution model (output contract, runs, state, the human loop), concurrency, and git mechanics are worked out in [`v2-architecture.md`](v2-architecture.md).
+This is the v2 architecture: "plan", "implement", "review", and "yolo" are not hardcoded modes in Jarvis source. They are named workflow presets composed from the smaller behavior vocabulary Jarvis exposes. Prompts and model categories become step inputs, not hardcoded mode internals. The host/runner owns sequencing, bounded repeats, state handoff, quota fallback, telemetry, and human checkpoints. The concrete workflow/step/config model, the execution model (output contract, runs, state, the human loop), concurrency, and git mechanics are worked out in [`v2-architecture.md`](v2-architecture.md).
 
 ## Architectural constraints
 
@@ -126,6 +128,7 @@ Constraints v2's architecture must satisfy. Some are forward-looking (server, UI
 - **Cost-efficient.** Workflows can chain many agent calls. Optimize prompts, agent choice, and orchestration to hit the target without wasted agent use. Anything that can be deterministic should be.
 - **Memory-efficient.** Concurrent agents plus a local model must not bog down the machine. Drives the adaptive admission and on-demand local model in `v2-architecture.md`.
 - **Configurable.** If something shouldn't be hardcoded, it belongs in config (the data layer). Don't ignore that instinct.
+- **Models separate from agents.** The fallback hierarchy exists for *agents* (availability/quota); models are a separate axis that always attach to a specific agent. v2 keeps them apart: a per-machine agent fallback order, and a machine-independent category→agent→model store a step selects by category. v1's combined `{agent, model}` list is deliberately not carried forward. Detail in [`v2-architecture.md`](v2-architecture.md).
 - **Composable.** Different projects need different postures — sensitive projects want more human/review steps, others run YOLO — and even sensitive projects don't need a full plan/review cycle for every small change.
 - **Extendible.** Changes should be easy to make and easy to review. Cheaper, and it builds trust in them.
 - **Reliable.** Unit-test business logic; measure coverage and block on drops; integration-test workflows. Evals (on-demand only, with heuristics for when to run) catch outcome drift — deferred for now.

@@ -30,7 +30,8 @@ separate **executor** that writes:
   debate (recursion for free).
 - **Role/model split.** Reviewers are *reviewing*-class work; the executor is
   *executing*-class. One role would force one model to do both — the conflation
-  [[separate-models-from-agents]] exists to avoid.
+  the v2 agent/model-category split exists to avoid (see
+  `v2/docs/v2-architecture.md`, per-project config).
 - **No hand-edits by review.** Review emits work; the executor applies it. Same
   rule the repo already follows (specs run through jarvis, not implemented by
   hand) — applied recursively.

@@ -45,6 +45,8 @@ export type RunReviewOptions = {
   onAllAgentsQuotaExhausted?: (message: string) => void;
   onQuotaRotation?: (agent: AgentName, spawnResult: AgentResult, classified: AgentResult) => void;
   now?: () => number;
+  /** Optional executor invoked once per cycle after the judge with the verdict. */
+  executor?: (verdict: string, ctx: ReviewPassContext) => Promise<void>;
 };
 
 async function recordAdapterFailure(
@@ -62,6 +64,125 @@ async function recordAdapterFailure(
   return err.exitCode;
 }
 
+/** Run one debate role attempt (adversary, defender, or judge). */
+async function runRoleAttempt(
+  role: "adversary" | "defender" | "judge",
+  passContext: ReviewPassContext,
+  adapter: ReviewAdapter,
+  agentOrder: Array<{ agent: AgentName; model: string }>,
+  opts: RunReviewOptions,
+): Promise<string | null> {
+  const roleContext: ReviewPassContext = { ...passContext, role };
+  const remainingAgents = [...agentOrder];
+
+  while (true) {
+    const agentEntry = remainingAgents[0];
+    if (agentEntry === undefined) {
+      opts.onAllAgentsQuotaExhausted?.(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+      throw new ReviewTerminalError(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED, 2, { telemetryRecorded: true });
+    }
+
+    const agent = opts.loadAgent({
+      name: agentEntry.agent,
+      model: agentEntry.model,
+    });
+    const prompt = await adapter.buildPrompt({
+      ...roleContext,
+      agentEntry,
+    });
+
+    const porcelainBefore = readPorcelainSnapshot(opts.cwd);
+    const now = opts.now ?? Date.now;
+    const startedAt = now();
+    const spawnResult = await agent.run(prompt, { cwd: opts.cwd });
+    const porcelainAfter = readPorcelainSnapshot(opts.cwd);
+    const noDiskChangeDuringInvocation =
+      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
+    const result = applyQuotaFallbackWhenAllowed(
+      agentEntry.agent,
+      spawnResult,
+      {
+        quotaFallback: opts.config.quotaFallback,
+        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
+      },
+      noDiskChangeDuringInvocation,
+    );
+    opts.onQuotaRotation?.(agentEntry.agent, spawnResult, result);
+
+    const attempt: ReviewAttemptContext = {
+      ...roleContext,
+      agent,
+      agentEntry,
+      agentLabel: agent.attributionLabel(),
+      prompt,
+      durationMs: Math.max(0, now() - startedAt),
+      result,
+    };
+
+    if (result.kind === "ok") {
+      try {
+        await adapter.enforceWriteBoundary(attempt);
+        let blocker: string | null = null;
+        try {
+          blocker = await adapter.readBlocker(attempt);
+        } catch (err) {
+          if (err instanceof ReviewTerminalError) {
+            await adapter.recordTelemetry({
+              ...attempt,
+              outcome: "error",
+              exitCode: err.exitCode,
+            });
+          }
+          throw err;
+        }
+        if (blocker !== null) {
+          const exitCode = await adapter.handleBlocker({ ...attempt, blocker });
+          await adapter.recordTelemetry({
+            ...attempt,
+            outcome: "blocked",
+            exitCode,
+          });
+          throw new ReviewTerminalError(blocker, exitCode, { telemetryRecorded: true });
+        }
+
+        await adapter.commitPass(attempt);
+        await adapter.recordTelemetry({
+          ...attempt,
+          outcome: "ok",
+        });
+        return spawnResult.kind === "ok" ? spawnResult.stdout : null;
+      } catch (err) {
+        if (err instanceof ReviewTerminalError) {
+          throw err;
+        }
+        throw err;
+      }
+    }
+
+    const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : undefined;
+    await adapter.recordTelemetry({
+      ...attempt,
+      outcome: result.kind,
+      ...(exitCode !== undefined ? { exitCode } : {}),
+    });
+
+    if (result.kind === "quota") {
+      remainingAgents.shift();
+      continue;
+    }
+
+    if (result.kind === "model_config") {
+      throw new ReviewTerminalError("model configuration error", 3, { telemetryRecorded: true });
+    }
+
+    throw new ReviewTerminalError(
+      `role ${role} failed: ${result.kind}`,
+      normalizeErrorExitCode(result.exitCode),
+      { telemetryRecorded: true },
+    );
+  }
+}
+
 /** Run the shared review pass loop. */
 export async function runReview(opts: RunReviewOptions): Promise<number> {
   if (opts.adapter === undefined && opts.adapterForPass === undefined) {
@@ -74,6 +195,8 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
   const agentOrder = resolveReviewAgentOrder(opts.config);
   const now = opts.now ?? Date.now;
 
+  let priorVerdict: string | undefined;
+
   for (let passIndex = 0; passIndex < passCount; passIndex += 1) {
     if (opts.isInterrupted?.()) {
       return 130;
@@ -81,106 +204,56 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
 
     const passNumber = startPassNumber + passIndex;
     opts.onPassStart?.(passNumber, displayTotalPasses);
-    const passContext: ReviewPassContext = { passNumber, totalPasses: displayTotalPasses };
+    const passContext: ReviewPassContext = {
+      passNumber,
+      totalPasses: displayTotalPasses,
+      ...(priorVerdict !== undefined ? { priorVerdict } : {}),
+    };
     const adapter = (await opts.adapterForPass?.(passContext)) ?? opts.adapter;
     if (adapter === undefined) {
       throw new Error("runReview adapter resolved to undefined");
     }
 
-    const remainingAgents = [...agentOrder];
-
-    while (true) {
-      const agentEntry = remainingAgents[0];
-      if (agentEntry === undefined) {
-        opts.onAllAgentsQuotaExhausted?.(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
-        return 2;
+    try {
+      const adversaryArtifact = await runRoleAttempt("adversary", passContext, adapter, agentOrder, opts);
+      if (opts.isInterrupted?.()) {
+        return 130;
       }
 
-      const agent = opts.loadAgent({
-        name: agentEntry.agent,
-        model: agentEntry.model,
-      });
-      const prompt = await adapter.buildPrompt({
-        passNumber,
-        totalPasses: displayTotalPasses,
-        agentEntry,
-      });
-
-      const porcelainBefore = readPorcelainSnapshot(opts.cwd);
-      const startedAt = now();
-      const spawnResult = await agent.run(prompt, { cwd: opts.cwd });
-      const porcelainAfter = readPorcelainSnapshot(opts.cwd);
-      const noDiskChangeDuringInvocation =
-        porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-      const result = applyQuotaFallbackWhenAllowed(
-        agentEntry.agent,
-        spawnResult,
-        {
-          quotaFallback: opts.config.quotaFallback,
-          weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
-        },
-        noDiskChangeDuringInvocation,
-      );
-      opts.onQuotaRotation?.(agentEntry.agent, spawnResult, result);
-
-      const attempt: ReviewAttemptContext = {
-        passNumber,
-        totalPasses: displayTotalPasses,
-        agent,
-        agentEntry,
-        agentLabel: agent.attributionLabel(),
-        prompt,
-        durationMs: Math.max(0, now() - startedAt),
-        result,
+      const defenderContext: ReviewPassContext = {
+        ...passContext,
+        ...(adversaryArtifact ? { priorArtifact: adversaryArtifact } : {}),
       };
+      const defenderArtifact = await runRoleAttempt("defender", defenderContext, adapter, agentOrder, opts);
+      if (opts.isInterrupted?.()) {
+        return 130;
+      }
 
-      if (result.kind === "ok") {
-        try {
-          await adapter.enforceWriteBoundary(attempt);
-          const blocker = await adapter.readBlocker(attempt);
-          if (blocker !== null) {
-            const exitCode = await adapter.handleBlocker({ ...attempt, blocker });
-            await adapter.recordTelemetry({
-              ...attempt,
-              outcome: "blocked",
-              exitCode,
-            });
-            return exitCode;
-          }
+      const judgeContext: ReviewPassContext = {
+        ...passContext,
+        ...(defenderArtifact ? { priorArtifact: defenderArtifact } : {}),
+      };
+      const verdict = await runRoleAttempt("judge", judgeContext, adapter, agentOrder, opts);
 
-          await adapter.commitPass(attempt);
-          await adapter.recordTelemetry({
-            ...attempt,
-            outcome: "ok",
-          });
-          break;
-        } catch (err) {
-          if (err instanceof ReviewTerminalError) {
-            return await recordAdapterFailure(adapter, attempt, err);
+      if (verdict && verdict.trim()) {
+        priorVerdict = verdict;
+        if (opts.executor) {
+          try {
+            await opts.executor(verdict, passContext);
+          } catch (err) {
+            if (err instanceof ReviewTerminalError) {
+              return await recordAdapterFailure(adapter, { ...passContext } as ReviewAttemptContext, err);
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            throw new ReviewTerminalError(`executor failed: ${message}`, 1);
           }
-          throw err;
         }
       }
-
-      const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : undefined;
-      await adapter.recordTelemetry({
-        ...attempt,
-        outcome: result.kind,
-        ...(exitCode !== undefined ? { exitCode } : {}),
-      });
-
-      if (result.kind === "quota") {
-        remainingAgents.shift();
-        continue;
+    } catch (err) {
+      if (err instanceof ReviewTerminalError) {
+        return err.exitCode;
       }
-
-      if (result.kind === "model_config") {
-        return 3;
-      }
-
-      // Telemetry above keeps the true exit code; the returned value is
-      // normalized so a raw agent code can't masquerade as a reserved outcome.
-      return normalizeErrorExitCode(result.exitCode);
+      throw err;
     }
 
     if (opts.isInterrupted?.()) {

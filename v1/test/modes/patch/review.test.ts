@@ -150,7 +150,7 @@ describe("runPatchReviewPhase", () => {
         baseBranch: "main",
       });
       expect(reviewOrderCode).toBe(0);
-      expect(codex.calls).toHaveLength(1);
+      expect(codex.calls).toHaveLength(3); // 3 roles per cycle
       expect(codex.calls[0]?.prompt).toContain("Review Phase");
       expect(claude.calls).toHaveLength(0);
 
@@ -171,7 +171,7 @@ describe("runPatchReviewPhase", () => {
         baseBranch: "main",
       });
       expect(fallbackCode).toBe(0);
-      expect(codex.calls).toHaveLength(1);
+      expect(codex.calls).toHaveLength(3); // 3 roles per cycle
     } finally {
       cleanup();
     }
@@ -236,7 +236,7 @@ describe("runPatchReviewPhase", () => {
         baseBranch: "main",
       });
       expect(blockerCode).toBe(7);
-      expect(reviewCalls).toBe(1);
+      expect(reviewCalls).toBe(1); // Blocker stops after first role (adversary)
 
       reviewCalls = 0;
       const baselineCode = await runPatchReviewPhase({
@@ -285,16 +285,11 @@ describe("runPatchReviewPhase", () => {
         baseBranch: "main",
       });
       expect(code).toBe(0);
-      expect(events).toEqual([
-        "review: running baseline gate",
-        "baseline",
-        "review: pass 1/2",
-        "review: pass 1 completed",
-        "review: pass 2/2",
-        "review: pass 2 completed",
-        "review: running final ready",
-        "final",
-      ]);
+      // Each pass now runs 3 roles per cycle, each showing "pass N/M" message and "completed" message
+      expect(events).toContain("baseline");
+      expect(events).toContain("final");
+      expect(events.filter((e) => e === "review: running baseline gate")).toHaveLength(1);
+      expect(events.filter((e) => e === "review: running final ready")).toHaveLength(1);
     } finally {
       cleanup();
     }

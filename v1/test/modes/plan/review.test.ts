@@ -220,7 +220,7 @@ describe("runPlanReviewPhase", () => {
       });
       expect(reviewOrderResult.exitCode).toBe(0);
       expect(claude.calls).toHaveLength(0);
-      expect(codex.calls).toHaveLength(1);
+      expect(codex.calls).toHaveLength(3); // 3 roles per cycle
 
       const fallbackClaude = new FakeAgent("claude", (_c, _p, opts) => {
         writeFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] z\n");
@@ -243,7 +243,7 @@ describe("runPlanReviewPhase", () => {
         },
       });
       expect(fallbackResult.exitCode).toBe(0);
-      expect(fallbackClaude.calls).toHaveLength(1);
+      expect(fallbackClaude.calls).toHaveLength(3); // 3 roles per cycle
       expect(fallbackCodex.calls).toHaveLength(0);
     } finally {
       cleanup();

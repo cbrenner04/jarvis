@@ -52,7 +52,7 @@ describe("config show", () => {
         patch: { agentOrder: defaultOrder },
         plan: { agentOrder: defaultOrder, targetDir: "spec" },
         prompt: { agentOrder: defaultOrder },
-        review: { passes: 2 },
+        review: { passes: 1 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],

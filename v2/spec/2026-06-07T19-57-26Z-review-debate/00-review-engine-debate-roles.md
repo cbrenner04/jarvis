@@ -14,24 +14,24 @@ Add the debate role-shape to the shared review runner (`v1/src/modes/review/run.
 
 ## Task Checklist
 
-- [ ] Extend `ReviewPassContext` / `ReviewAttemptContext` with the current debate role.
-- [ ] Sequence each cycle as adversary → defender → judge read-only attempts through the existing adapter contract (boundary enforcement unchanged for reviewers).
-- [ ] Add the injected executor seam invoked once per cycle with the judge's verdict; skip it on empty verdict via the existing no-change path.
-- [ ] Expose the prior cycle's verdict to the next cycle's adversary (cross-cycle carry); within a cycle, expose the prior role's artifact to the next reviewer.
-- [ ] Drop the `modes.review.passes` default to 1 in `DEFAULT_CONFIG`.
-- [ ] Keep quota fallback, blocker, telemetry, and interrupt handling working per role and for the executor.
+- [x] Extend `ReviewPassContext` / `ReviewAttemptContext` with the current debate role.
+- [x] Sequence each cycle as adversary → defender → judge read-only attempts through the existing adapter contract (boundary enforcement unchanged for reviewers).
+- [x] Add the injected executor seam invoked once per cycle with the judge's verdict; skip it on empty verdict via the existing no-change path.
+- [x] Expose the prior cycle's verdict to the next cycle's adversary (cross-cycle carry); within a cycle, expose the prior role's artifact to the next reviewer.
+- [x] Drop the `modes.review.passes` default to 1 in `DEFAULT_CONFIG`.
+- [x] Keep quota fallback, blocker, telemetry, and interrupt handling working per role and for the executor.
 
 ## Documentation updates
 
-- [ ] Update `v2/docs/v1-behaviors.md`: replace the "N identical passes" review description with the debate cycle (adversary → defender → judge → injected executor), the default of 1 cycle, prior-verdict-carry across cycles, the read-only-reviewers / single-writer-executor split, and empty-verdict skip.
+- [x] Update `v2/docs/v1-behaviors.md`: replace the "N identical passes" review description with the debate cycle (adversary → defender → judge → injected executor), the default of 1 cycle, prior-verdict-carry across cycles, the read-only-reviewers / single-writer-executor split, and empty-verdict skip.
 
 ## Acceptance criteria
 
-- [ ] For each configured cycle, `runReview` runs exactly three read-only reviewer attempts in order adversary, defender, judge, then invokes the injected executor once with that cycle's verdict.
-- [ ] The current debate role is exposed to the adapter via the pass/attempt context.
-- [ ] The executor seam is an injected runner option / adapter method, not a read-only pass; reviewer attempts cannot write the subject (existing write-boundary enforcement still runs for all three reviewers).
-- [ ] An empty verdict skips the executor invocation and produces no executor commit (existing no-change skip path), with no convergence/materiality logic added.
-- [ ] Cycle count resolves from the existing review-pass setting with no new bounds or config keys; the default is 1.
-- [ ] With >1 cycle, the prior cycle's verdict is passed to the next cycle's adversary; reviewers within a cycle still receive the prior role's artifact.
-- [ ] Tests (in `v1/test/` or co-located) cover, with a stub adapter/executor: per-cycle role ordering, executor invoked with the verdict, empty-verdict executor skip, prior-verdict carry into the next cycle's adversary, and read-only enforcement across all three reviewer roles.
-- [ ] `v2/docs/v1-behaviors.md` reflects the debate role sequence, injected executor seam, and verdict-per-cycle semantics.
+- [x] For each configured cycle, `runReview` runs exactly three read-only reviewer attempts in order adversary, defender, judge, then invokes the injected executor once with that cycle's verdict.
+- [x] The current debate role is exposed to the adapter via the pass/attempt context.
+- [x] The executor seam is an injected runner option / adapter method, not a read-only pass; reviewer attempts cannot write the subject (existing write-boundary enforcement still runs for all three reviewers).
+- [x] An empty verdict skips the executor invocation and produces no executor commit (existing no-change skip path), with no convergence/materiality logic added.
+- [x] Cycle count resolves from the existing review-pass setting with no new bounds or config keys; the default is 1.
+- [x] With >1 cycle, the prior cycle's verdict is passed to the next cycle's adversary; reviewers within a cycle still receive the prior role's artifact.
+- [x] Tests (in `v1/test/` or co-located) cover, with a stub adapter/executor: per-cycle role ordering, executor invoked with the verdict, empty-verdict executor skip, prior-verdict carry into the next cycle's adversary, and read-only enforcement across all three reviewer roles.
+- [x] `v2/docs/v1-behaviors.md` reflects the debate role sequence, injected executor seam, and verdict-per-cycle semantics.

@@ -487,4 +487,105 @@ describe("runReview", () => {
     expect(telemetry[0]?.result.kind).toBe("ok");
     expect(telemetry[0]?.role).toBe("adversary");
   });
+
+  test("invokes executor with verdict after judge completes each cycle", async () => {
+    const { adapter } = makeAdapter();
+    const executorCalls: string[] = [];
+
+    await runReview({
+      config: makeConfig({ reviewPasses: 2 }),
+      cwd: "/tmp/review",
+      adapter,
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "verdict-content", stderr: "" })),
+      executor: async (verdict, ctx) => {
+        executorCalls.push(`execute:${ctx.passNumber}:${verdict}`);
+      },
+    });
+
+    expect(executorCalls).toEqual(["execute:1:verdict-content", "execute:2:verdict-content"]);
+  });
+
+  test("skips executor when verdict is empty", async () => {
+    const { adapter } = makeAdapter();
+    const executorCalls: string[] = [];
+
+    await runReview({
+      config: makeConfig({ reviewPasses: 1 }),
+      cwd: "/tmp/review",
+      adapter,
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "", stderr: "" })),
+      executor: async (verdict, ctx) => {
+        executorCalls.push(`execute:${ctx.passNumber}:${verdict}`);
+      },
+    });
+
+    expect(executorCalls).toHaveLength(0);
+  });
+
+  test("passes prior cycle verdict to next cycle's adversary", async () => {
+    const { adapter, prompts } = makeAdapter();
+    let priorVerdictSeen: string | undefined;
+
+    await runReview({
+      config: makeConfig({ reviewPasses: 2 }),
+      cwd: "/tmp/review",
+      adapter: {
+        ...adapter,
+        buildPrompt: async (ctx) => {
+          if (ctx.role === "adversary" && ctx.passNumber === 2) {
+            priorVerdictSeen = ctx.priorVerdict;
+          }
+          return adapter.buildPrompt(ctx);
+        },
+      },
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => ({
+          kind: "ok",
+          stdout: `verdict-${Math.random()}`,
+          stderr: "",
+        })),
+      executor: async () => {
+        // empty executor
+      },
+    });
+
+    expect(priorVerdictSeen).toBeDefined();
+    expect(priorVerdictSeen).toMatch(/^verdict-/);
+  });
+
+  test("executor errors are caught and exit code is mapped", async () => {
+    const { adapter } = makeAdapter();
+
+    const code = await runReview({
+      config: makeConfig({ reviewPasses: 1 }),
+      cwd: "/tmp/review",
+      adapter,
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "verdict", stderr: "" })),
+      executor: async () => {
+        throw new Error("executor failed");
+      },
+    });
+
+    expect(code).toBe(1);
+  });
+
+  test("executor terminal errors propagate exit code", async () => {
+    const { adapter } = makeAdapter();
+
+    const code = await runReview({
+      config: makeConfig({ reviewPasses: 1 }),
+      cwd: "/tmp/review",
+      adapter,
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "verdict", stderr: "" })),
+      executor: async () => {
+        throw new ReviewTerminalError("executor blocked", 7, { telemetryRecorded: true });
+      },
+    });
+
+    expect(code).toBe(7);
+  });
 });

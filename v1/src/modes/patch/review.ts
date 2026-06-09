@@ -12,8 +12,13 @@ import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
-import { runReview, type RunReviewOptions } from "../review/run.ts";
-import { type ReviewAdapter, type ReviewPassContext, type ReviewTelemetryEvent, ReviewTerminalError } from "../review/types.ts";
+import { type RunReviewOptions, runReview } from "../review/run.ts";
+import {
+  type ReviewAdapter,
+  type ReviewPassContext,
+  type ReviewTelemetryEvent,
+  ReviewTerminalError,
+} from "../review/types.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictExecutorPrompt, type ReviewPromptOpts } from "./prompt.ts";
 
@@ -413,9 +418,10 @@ function createPatchReviewAdapter(args: {
 
       try {
         // Use role-specific commit messages.
-        const roleLabel = ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)
-          ? `review: ${ctx.role}`
-          : `review: pass ${ctx.passNumber}`;
+        const roleLabel =
+          ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)
+            ? `review: ${ctx.role}`
+            : `review: pass ${ctx.passNumber}`;
 
         // Stage all changes
         execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
@@ -530,7 +536,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
   // Create executor that runs the patch agent with the verdict
   const createExecutor = (patchAgents: Agent[]) => {
     return async (verdict: string, ctx: ReviewPassContext): Promise<void> => {
-      if (!verdict || !verdict.trim()) {
+      if (!verdict?.trim()) {
         // Empty verdict: skip executor invocation (existing no-change path)
         return;
       }
@@ -566,7 +572,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       }, opts.iterationTimeoutMs);
 
       const executorStartedMs = Date.now();
-      let executorPgid: number | null = null;
+      let _executorPgid: number | null = null;
 
       try {
         opts.fanout("outbound", prompt, null, {
@@ -579,7 +585,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           signal: executorController.signal,
           abortKillGraceMs: killGraceMs,
           onSpawned: ({ pid }) => {
-            executorPgid = pid;
+            _executorPgid = pid;
           },
         });
 

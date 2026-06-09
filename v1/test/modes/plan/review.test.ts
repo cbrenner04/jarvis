@@ -395,7 +395,10 @@ describe("read-only reviewer enforcement", () => {
       let adversaryEdited = false;
       const adversaryAgent = new FakeAgent("claude", (_c, _p, opts) => {
         // Adversary tries to edit the spec
-        writeFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "# ONE EDITED\n\n## Acceptance criteria\n\n- [x] hacked\n");
+        writeFileSync(
+          join(opts.cwd, "spec", "p-review", "00-one.md"),
+          "# ONE EDITED\n\n## Acceptance criteria\n\n- [x] hacked\n",
+        );
         adversaryEdited = true;
         return { kind: "ok", stdout: "adversary findings", stderr: "" };
       });
@@ -419,7 +422,7 @@ describe("read-only reviewer enforcement", () => {
         reviewPassesOverride: 1,
         commit: false,
         specDirPath: specDir,
-        createAgent: (agentName) => {
+        createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
           if (agentCallCount === 2) return defenderAgent;
@@ -466,7 +469,7 @@ describe("read-only reviewer enforcement", () => {
         reviewPassesOverride: 1,
         commit: false,
         specDirPath: specDir,
-        createAgent: (agentName) => {
+        createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
           if (agentCallCount === 2) return defenderAgent;
@@ -507,7 +510,7 @@ describe("read-only reviewer enforcement", () => {
         stderr: (s) => {
           stderr += s;
         },
-        createAgent: (agentName) => {
+        createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
           if (agentCallCount === 2) return defenderAgent;
@@ -562,7 +565,7 @@ describe("verdict → refine seam", () => {
         reviewPassesOverride: 1,
         commit: false,
         specDirPath: specDir,
-        createAgent: (agentName) => {
+        createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
           if (agentCallCount === 2) return defenderAgent;
@@ -581,7 +584,8 @@ describe("verdict → refine seam", () => {
   test("persists verdict to verdict-plan.md in spec directory when executor would run", async () => {
     const { dir, specDir, cleanup } = setupReviewRepo();
     try {
-      const verdict = "## Spec Verdict\n\nThe spec needs refinement based on:\n- Missing acceptance criteria\n- Unclear intent\n";
+      const verdict =
+        "## Spec Verdict\n\nThe spec needs refinement based on:\n- Missing acceptance criteria\n- Unclear intent\n";
 
       const adversaryAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
       const defenderAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
@@ -593,7 +597,7 @@ describe("verdict → refine seam", () => {
       }));
 
       let agentCallCount = 0;
-      const result = await runPlanReviewPhase({
+      const _result = await runPlanReviewPhase({
         worktreePath: dir,
         name: "p-review",
         specDirBasename: "p-review",
@@ -601,7 +605,7 @@ describe("verdict → refine seam", () => {
         reviewPassesOverride: 1,
         commit: false,
         specDirPath: specDir,
-        createAgent: (agentName) => {
+        createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
           if (agentCallCount === 2) return defenderAgent;
@@ -633,7 +637,7 @@ describe("verdict → refine seam", () => {
       }));
 
       let agentCallCount = 0;
-      let executorCalled = false;
+      const _executorCalled = false;
 
       const result = await runPlanReviewPhase({
         worktreePath: dir,
@@ -643,7 +647,7 @@ describe("verdict → refine seam", () => {
         reviewPassesOverride: 1,
         commit: false,
         specDirPath: specDir,
-        createAgent: (agentName) => {
+        createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
           if (agentCallCount === 2) return defenderAgent;
@@ -654,7 +658,7 @@ describe("verdict → refine seam", () => {
       expect(result.exitCode).toBe(0);
 
       // Verify verdict file was NOT created (since verdict was empty)
-      const verdictPath = join(specDir, "verdict-plan.md");
+      const _verdictPath = join(specDir, "verdict-plan.md");
       // If file doesn't exist, that's what we expect, so checking that is OK
     } finally {
       cleanup();

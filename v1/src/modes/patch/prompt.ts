@@ -61,11 +61,12 @@ export function buildReviewPrompt(opts: ReviewPromptOpts): string {
   const role = opts.role ?? "adversary";
 
   // Select role-specific prompt template
-  const promptId = role === "judge"
-    ? "patch.prompt.review.judge"
-    : role === "defender"
-    ? "patch.prompt.review.defender"
-    : "patch.prompt.review.adversary";
+  const promptId =
+    role === "judge"
+      ? "patch.prompt.review.judge"
+      : role === "defender"
+        ? "patch.prompt.review.defender"
+        : "patch.prompt.review.adversary";
 
   const template = assemblePromptForStep({
     registry,

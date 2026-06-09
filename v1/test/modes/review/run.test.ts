@@ -134,9 +134,7 @@ describe("runReview", () => {
         makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "", stderr: "" })),
     });
     expect(overrideCode).toBe(0);
-    expect(
-      prompts.map((prompt) => `${prompt.passNumber}:${prompt.role}`),
-    ).toEqual([
+    expect(prompts.map((prompt) => `${prompt.passNumber}:${prompt.role}`)).toEqual([
       "1:adversary",
       "1:defender",
       "1:judge",
@@ -525,7 +523,7 @@ describe("runReview", () => {
   });
 
   test("passes prior cycle verdict to next cycle's adversary", async () => {
-    const { adapter, prompts } = makeAdapter();
+    const { adapter } = makeAdapter();
     let priorVerdictSeen: string | undefined;
 
     await runReview({

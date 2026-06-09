@@ -3665,7 +3665,7 @@ describe("review phase", () => {
     // All cycles where at least one role has changes will commit
     expect(commitSubjects.length).toBeGreaterThan(0);
     expect(commitSubjects[0]).toMatch(/^review: pass \d+$/);
-    expect(cap.out()).toContain("review attempts: 6");  // 3 roles × 2 cycles
+    expect(cap.out()).toContain("review attempts: 6"); // 3 roles × 2 cycles
   });
 
   test("reverts spec-tree edits (tracked and untracked); commits only code", async () => {

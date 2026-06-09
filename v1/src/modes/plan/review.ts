@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
-import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
+import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
 import { pushCurrent } from "../../worktree.ts";
 import { runReview } from "../review/run.ts";
@@ -28,9 +28,9 @@ import {
 import { commitPlanBlocker, commitPlanReview } from "./commits.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
+import { runVerdictExecutor } from "./refine.ts";
 import { hasSpecDirChanges, resolvePlanSpecDirPath, snapshotSpecDirFiles } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
-import { runVerdictExecutor } from "./refine.ts";
 
 /**
  * Build the review phase prompt by injecting intent.md, current spec files, and guidance.
@@ -63,11 +63,12 @@ export function buildReviewPrompt(opts: {
   const registry = loadPromptRegistry();
 
   // Select role-specific prompt template
-  const promptId = role === "judge"
-    ? "plan.prompt.review.judge"
-    : role === "defender"
-    ? "plan.prompt.review.defender"
-    : "plan.prompt.review.adversary";
+  const promptId =
+    role === "judge"
+      ? "plan.prompt.review.judge"
+      : role === "defender"
+        ? "plan.prompt.review.defender"
+        : "plan.prompt.review.adversary";
 
   let template = assemblePromptForStep({
     registry,
@@ -134,15 +135,18 @@ export function buildReviewPrompt(opts: {
   }
 
   try {
-    const placeholderSet = new Set(["WORKDIR", "NAME", "INTENT", "SPEC_GUIDANCE", "CURRENT_SPEC", "REVIEW_PASS_CONTEXT"]);
+    const placeholderSet = new Set([
+      "WORKDIR",
+      "NAME",
+      "INTENT",
+      "SPEC_GUIDANCE",
+      "CURRENT_SPEC",
+      "REVIEW_PASS_CONTEXT",
+    ]);
     if (role === "defender") placeholderSet.add("ADVERSARY_FINDINGS");
     if (role === "judge") placeholderSet.add("DEFENDER_RESPONSE");
 
-    template = renderTemplate(
-      template,
-      placeholderSet,
-      values,
-    );
+    template = renderTemplate(template, placeholderSet, values);
   } catch (err) {
     if (err instanceof TemplateRenderingError) {
       throw new Error(`review prompt configuration error: ${err.details}`);
@@ -381,13 +385,11 @@ function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
     });
 
     const specRelPath = relative(cwd, specDir);
-    return (
-      output
-        .split("\n")
-        .filter((line: string) => line.length > 3)
-        .map((line: string) => line.slice(3).trim())
-        .filter((file: string) => file === specRelPath || file.startsWith(`${specRelPath}/`))
-    );
+    return output
+      .split("\n")
+      .filter((line: string) => line.length > 3)
+      .map((line: string) => line.slice(3).trim())
+      .filter((file: string) => file === specRelPath || file.startsWith(`${specRelPath}/`));
   } catch {
     return [];
   }
@@ -613,9 +615,10 @@ function createPlanReviewAdapter(args: {
       }
       if (opts.commit) {
         // Use role-specific commit message for reviewer roles
-        const roleLabel = ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)
-          ? `review: ${ctx.role}`
-          : `review: pass ${displayPassNumber}`;
+        const roleLabel =
+          ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)
+            ? `review: ${ctx.role}`
+            : `review: pass ${displayPassNumber}`;
 
         commitPlanReview({
           worktreePath: opts.worktreePath,
@@ -673,7 +676,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
   // Create executor that runs the verdict through the refine loop
   const createExecutor = () => {
     return async (verdict: string): Promise<void> => {
-      if (!verdict || !verdict.trim()) {
+      if (!verdict?.trim()) {
         // Empty verdict: skip executor invocation (existing no-change path)
         opts.stderr?.(`plan: verdict is empty; skipping executor\n`);
         return;

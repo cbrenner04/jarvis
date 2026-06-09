@@ -175,11 +175,9 @@ async function runRoleAttempt(
       throw new ReviewTerminalError("model configuration error", 3, { telemetryRecorded: true });
     }
 
-    throw new ReviewTerminalError(
-      `role ${role} failed: ${result.kind}`,
-      normalizeErrorExitCode(result.exitCode),
-      { telemetryRecorded: true },
-    );
+    throw new ReviewTerminalError(`role ${role} failed: ${result.kind}`, normalizeErrorExitCode(result.exitCode), {
+      telemetryRecorded: true,
+    });
   }
 }
 
@@ -193,7 +191,7 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
   const startPassNumber = opts.startPassNumber ?? 1;
   const displayTotalPasses = startPassNumber + passCount - 1;
   const agentOrder = resolveReviewAgentOrder(opts.config);
-  const now = opts.now ?? Date.now;
+  const _now = opts.now ?? Date.now;
 
   let priorVerdict: string | undefined;
 
@@ -235,7 +233,7 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
       };
       const verdict = await runRoleAttempt("judge", judgeContext, adapter, agentOrder, opts);
 
-      if (verdict && verdict.trim()) {
+      if (verdict?.trim()) {
         priorVerdict = verdict;
         if (opts.executor) {
           try {

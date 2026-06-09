@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
@@ -598,11 +598,11 @@ export async function runVerdictExecutor(opts: VerdictExecutorOptions): Promise<
   // Try each agent in the plan order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;
   let result: AgentResult | null = null;
-  let agentLabel: string | null = null;
+  let _agentLabel: string | null = null;
 
   for (const entry of agentOrder) {
     const agent = createAgent(entry.agent, entry.model);
-    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
+    _agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
     const invocationStartedAt = Date.now();

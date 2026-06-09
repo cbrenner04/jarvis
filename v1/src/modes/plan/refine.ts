@@ -5,7 +5,7 @@ import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
-import type { AgentResult } from "../../agents/types.ts";
+import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { detectBlocker } from "./blocker.ts";
@@ -563,6 +563,7 @@ export type VerdictExecutorOptions = {
   externalSpecRoot?: string | undefined;
   targetDir?: string | undefined;
   onOutboundPrompt?: ((prompt: string) => void) | undefined;
+  createAgent?: ((agentName: AgentName, model: string | undefined) => Agent) | undefined;
 };
 
 /**
@@ -601,7 +602,7 @@ export async function runVerdictExecutor(opts: VerdictExecutorOptions): Promise<
   let _agentLabel: string | null = null;
 
   for (const entry of agentOrder) {
-    const agent = createAgent(entry.agent, entry.model);
+    const agent = (opts.createAgent ?? createAgent)(entry.agent, entry.model);
     _agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);

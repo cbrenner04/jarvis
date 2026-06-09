@@ -6,9 +6,7 @@ import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
-import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
-import { pushCurrent } from "../../worktree.ts";
 import { runReview } from "../review/run.ts";
 import {
   type ReviewAdapter,
@@ -376,6 +374,19 @@ function getRoleArtifactPath(worktreePath: string, role: string, passNumber: num
   return join(worktreePath, `.jarvis-review-plan-${role}-${passNumber}`);
 }
 
+function hasCommittablePlanReviewChanges(worktreePath: string): boolean {
+  const porcelain = execFileSync("git", ["status", "--porcelain"], {
+    cwd: worktreePath,
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  return porcelain
+    .split("\n")
+    .filter((line) => line.length > 3)
+    .map((line) => line.slice(3).trim())
+    .some((file) => !file.startsWith(".jarvis-review-plan-"));
+}
+
 function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
   try {
     const output = execFileSync("git", ["status", "--porcelain"], {
@@ -530,6 +541,16 @@ function createPlanReviewAdapter(args: {
       if (ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)) {
         const editedSpecFiles = detectSpecTreeEdits(finalSpecPath, opts.worktreePath);
         if (editedSpecFiles.length > 0) {
+          const validation = validateReviewOutput(
+            opts.worktreePath,
+            opts.specDirBasename,
+            intentBefore,
+            opts.specDirPath,
+            targetDir,
+          );
+          if (validation.valid && validation.blocker !== undefined) {
+            return;
+          }
           opts.stderr?.(
             `plan: review pass ${ctx.passNumber} (${ctx.role}) edited spec files (reverting): ${editedSpecFiles.join(", ")}\n`,
           );
@@ -599,11 +620,17 @@ function createPlanReviewAdapter(args: {
         }
       }
 
-      if (!passHasChanges(opts, finalSpecPath, specSnapshotBefore)) {
+      const hasChanges = opts.commit
+        ? hasCommittablePlanReviewChanges(opts.worktreePath)
+        : passHasChanges(opts, finalSpecPath, specSnapshotBefore);
+      if (!hasChanges) {
         if (opts.logNoChangeSkip) {
           opts.stderr?.(
             `plan: review pass ${displayPassNumber}${ctx.role ? ` (${ctx.role})` : ""} made no changes; skipping commit\n`,
           );
+        }
+        if (ctx.role) {
+          rmSync(getRoleArtifactPath(opts.worktreePath, ctx.role, ctx.passNumber), { force: true });
         }
         return;
       }
@@ -666,7 +693,15 @@ function createPlanReviewAdapter(args: {
 
 /** Run plan review passes through the shared review runner. */
 export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<PlanReviewPhaseResult> {
-  const resolveAgent = opts.createAgent ?? defaultCreateAgent;
+  const resolveAgent = (agentName: AgentName, model: string | undefined): Agent => {
+    if (opts.createAgent) {
+      return opts.createAgent(agentName, model);
+    }
+    if (model === undefined) {
+      throw new Error(`missing model for ${agentName}`);
+    }
+    return defaultCreateAgent(agentName, model);
+  };
   const finalSpecPath = resolveFinalSpecPath(opts);
   let detectedBlocker: string | undefined;
   let agentFailure: { passNumber: number; stderr: string } | undefined;
@@ -675,7 +710,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
 
   // Create executor that runs the verdict through the refine loop
   const createExecutor = () => {
-    return async (verdict: string): Promise<void> => {
+    return async (verdict: string, ctx: { passNumber: number }): Promise<void> => {
       if (!verdict?.trim()) {
         // Empty verdict: skip executor invocation (existing no-change path)
         opts.stderr?.(`plan: verdict is empty; skipping executor\n`);
@@ -706,6 +741,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
           externalSpecRoot: opts.externalSpecRoot,
           targetDir,
           onOutboundPrompt: opts.onOutboundPrompt,
+          createAgent: resolveAgent,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -723,14 +759,15 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
         }).trim();
 
         if (porcelain !== "") {
-          const commitMessage = `${appendAgentTrailer("review: executor", "plan-review-executor")}\n`;
-          execFileSync("git", ["commit", "-F", "-"], {
-            cwd: opts.worktreePath,
-            env: process.env,
-            stdio: ["pipe", "pipe", "pipe"],
-            input: commitMessage,
+          commitPlanReview({
+            worktreePath: opts.worktreePath,
+            specDirBasename: opts.specDirBasename,
+            passNumber: ctx.passNumber,
+            agentLabel: "plan-review-executor",
+            ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
+            targetDir,
+            reviewLabel: "review: executor",
           });
-          pushCurrent({ cwd: opts.worktreePath, firstPush: false });
           opts.stderr?.(`plan: executor committed and pushed\n`);
           await opts.updatePrBody?.();
         } else {

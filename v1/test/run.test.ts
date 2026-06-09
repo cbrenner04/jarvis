@@ -3553,13 +3553,25 @@ exit 1
 
 // An implementation agent that completes the single subspec in one iteration and
 // answers the PR-description prompt. `onReview` handles review-phase prompts.
+function isPatchReviewPrompt(prompt: string): boolean {
+  return prompt.includes("Patch Mode — Review:");
+}
+
+function isPatchReviewExecutorPrompt(prompt: string): boolean {
+  return prompt.includes("## Review Verdict");
+}
+
 function reviewFakeAgent(
   name: "claude" | "codex",
-  onReview: (callCount: number, cwd: string) => AgentResult,
+  onReview: (callCount: number, cwd: string, prompt: string) => AgentResult,
+  onExecutor?: (callCount: number, cwd: string, prompt: string) => AgentResult,
 ): FakeAgent {
   return new FakeAgent(name, (callCount, prompt, opts) => {
-    if (prompt.includes("Review Phase")) {
-      return onReview(callCount, opts.cwd);
+    if (isPatchReviewPrompt(prompt)) {
+      return onReview(callCount, opts.cwd, prompt);
+    }
+    if (isPatchReviewExecutorPrompt(prompt)) {
+      return (onExecutor ?? onReview)(callCount, opts.cwd, prompt);
     }
     if (prompt.includes("PR description")) {
       return { kind: "ok", stdout: "Implements the feature.\n", stderr: "" };
@@ -3577,10 +3589,18 @@ describe("review phase", () => {
   test("runs passes, commits edits, then marks PR ready after review", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
-    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, _cwd, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "",
+        stderr: "",
+      }),
+      (_n, cwd) => {
       writeFileSync(join(cwd, "code.txt"), "refined\n");
       return { kind: "ok", stdout: "", stderr: "" };
-    });
+      },
+    );
 
     const code = await runCommand({
       specPath: env.spec,
@@ -3592,23 +3612,23 @@ describe("review phase", () => {
     });
 
     expect(code).toBe(0);
-    expect(env.reviewCommitSubjects()).toEqual(["review: pass 1"]);
+    expect(env.reviewCommitSubjects()).toEqual(["review: executor"]);
     // gh pr ready fires exactly once, and only after the review commit landed.
     expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
-    const reviewPrompts = claude.calls.filter((c) => c.prompt.includes("Review Phase"));
+    const reviewPrompts = claude.calls.filter((c) => isPatchReviewPrompt(c.prompt));
     expect(reviewPrompts).toHaveLength(3); // 3 roles per cycle
     const reviewPrompt = reviewPrompts[0]?.prompt;
     expect(reviewPrompt).toContain("diff --git");
     expect(reviewPrompt).not.toContain("failed to generate diff");
     expect(cap.out()).toContain("iterations: 1");
-    expect(cap.out()).toContain("review attempts: 3"); // 3 roles per cycle
+    expect(cap.out()).toContain("review attempts: 4"); // 3 roles + executor
   });
 
   test("baseline gate leaves PR draft until review completes", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
     const draftStates: string[] = [];
-    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+    const claude = reviewFakeAgent("claude", (_n, cwd, prompt) => {
       // Observe PR draft state at the moment the review agent runs.
       draftStates.push(
         execSync("gh pr view feature --json isDraft -q .isDraft", {
@@ -3617,6 +3637,8 @@ describe("review phase", () => {
           encoding: "utf8",
         }).trim(),
       );
+      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "No executor changes needed.\n" : "", stderr: "" };
+    }, (_n, cwd) => {
       writeFileSync(join(cwd, "code.txt"), "x\n");
       return { kind: "ok", stdout: "", stderr: "" };
     });
@@ -3638,12 +3660,13 @@ describe("review phase", () => {
     const env = setupReviewEnv({ reviewPasses: 2 });
     const cap = captureIo();
     let reviewCalls = 0;
-    const claude = reviewFakeAgent("claude", (_callCount, cwd) => {
+    let executorCalls = 0;
+    const claude = reviewFakeAgent("claude", (_callCount, _cwd, prompt) => {
       reviewCalls += 1;
-      // First review pass is a no-op; second edits a file.
-      if (reviewCalls >= 2) {
-        writeFileSync(join(cwd, "code.txt"), "second\n");
-      }
+      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Apply second-cycle refinement.\n" : "", stderr: "" };
+    }, (_callCount, cwd) => {
+      executorCalls += 1;
+      writeFileSync(join(cwd, "code.txt"), `executor ${executorCalls}\n`);
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
@@ -3659,25 +3682,29 @@ describe("review phase", () => {
     expect(code).toBe(0);
     // 6 review prompts (3 roles × 2 cycles); first role of cycle 1 has no changes,
     // but subsequent roles do, so commits are made.
-    const reviewPrompts = claude.calls.filter((c) => c.prompt.includes("Review Phase"));
+    const reviewPrompts = claude.calls.filter((c) => isPatchReviewPrompt(c.prompt));
     expect(reviewPrompts).toHaveLength(6);
     const commitSubjects = env.reviewCommitSubjects();
-    // All cycles where at least one role has changes will commit
-    expect(commitSubjects.length).toBeGreaterThan(0);
-    expect(commitSubjects[0]).toMatch(/^review: pass \d+$/);
-    expect(cap.out()).toContain("review attempts: 6"); // 3 roles × 2 cycles
+    expect(commitSubjects).toEqual(["review: executor", "review: executor"]);
+    expect(cap.out()).toContain("review attempts: 8"); // (3 roles + executor) × 2 cycles
   });
 
   test("reverts spec-tree edits (tracked and untracked); commits only code", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
-    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+    const claude = reviewFakeAgent("claude", (_n, cwd, prompt) => {
       // Edit a tracked spec file, add an untracked spec file, and a code file.
       writeFileSync(
         join(cwd, "spec", "feature", "00-one.md"),
         "# 00 - One\n\n## Acceptance criteria\n\n- [x] tampered.\n",
       );
       writeFileSync(join(cwd, "spec", "feature", "02-extra.md"), "sneaky\n");
+      writeFileSync(join(cwd, "code.txt"), "ok\n");
+      if (prompt.includes("Review: Judge")) {
+        return { kind: "ok", stdout: "Executor should write code.\n", stderr: "" };
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    }, (_n, cwd) => {
       writeFileSync(join(cwd, "code.txt"), "ok\n");
       return { kind: "ok", stdout: "", stderr: "" };
     });
@@ -3721,7 +3748,7 @@ describe("review phase", () => {
 
     expect(code).toBe(7);
     // Only the first pass ran; PR comment posted; PR never marked ready.
-    expect(claude.calls.filter((c) => c.prompt.includes("Review Phase"))).toHaveLength(1);
+    expect(claude.calls.filter((c) => isPatchReviewPrompt(c.prompt))).toHaveLength(1);
     expect(readFileSync(env.prCommentBody, "utf8")).toContain("build is broken");
     expect(existsSync(env.prReadyLog)).toBe(false);
     // Sentinel was consumed, not committed.
@@ -3731,7 +3758,9 @@ describe("review phase", () => {
   test("review commit push failure leaves PR draft and exits 1", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
-    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+    const claude = reviewFakeAgent("claude", (_n, _cwd, prompt) => {
+      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "", stderr: "" };
+    }, (_n, cwd) => {
       writeFileSync(env.failReviewPush, "1\n");
       writeFileSync(join(cwd, "code.txt"), "refined\n");
       return { kind: "ok", stdout: "", stderr: "" };
@@ -3747,11 +3776,11 @@ describe("review phase", () => {
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain("review: commit failed");
+    expect(cap.err()).toContain("review: executor commit failed");
     expect(existsSync(env.prReadyLog)).toBe(false);
   });
 
-  test("blocker commit push failure still comments but exits 1", async () => {
+  test("blocker without committable edits still comments and exits 7", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
     const claude = reviewFakeAgent("claude", (_n, cwd) => {
@@ -3770,8 +3799,7 @@ describe("review phase", () => {
       handleSignals: false,
     });
 
-    expect(code).toBe(1);
-    expect(cap.err()).toContain("review: blocker commit failed");
+    expect(code).toBe(7);
     expect(readFileSync(env.prCommentBody, "utf8")).toContain("build is broken");
     expect(existsSync(env.prReadyLog)).toBe(false);
   });
@@ -3803,10 +3831,12 @@ describe("review phase", () => {
     const cap = captureIo();
     const claude = reviewFakeAgent("claude", () => {
       throw new Error("claude must not run review passes");
-    });
-    const codex = reviewFakeAgent("codex", (_n, cwd) => {
-      writeFileSync(join(cwd, "code.txt"), "by codex\n");
+    }, (_n, cwd) => {
+      writeFileSync(join(cwd, "code.txt"), "by claude executor\n");
       return { kind: "ok", stdout: "", stderr: "" };
+    });
+    const codex = reviewFakeAgent("codex", (_n, _cwd, prompt) => {
+      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Executor should edit code.\n" : "", stderr: "" };
     });
 
     const code = await runCommand({
@@ -3820,15 +3850,17 @@ describe("review phase", () => {
 
     expect(code).toBe(0);
     // codex handled the review pass; claude handled implementation only.
-    expect(codex.calls.some((c) => c.prompt.includes("Review Phase"))).toBe(true);
-    expect(claude.calls.some((c) => c.prompt.includes("Review Phase"))).toBe(false);
-    expect(env.reviewCommitSubjects()).toEqual(["review: pass 1"]);
+    expect(codex.calls.some((c) => isPatchReviewPrompt(c.prompt))).toBe(true);
+    expect(claude.calls.some((c) => isPatchReviewPrompt(c.prompt))).toBe(false);
+    expect(env.reviewCommitSubjects()).toEqual(["review: executor"]);
   });
 
   test("review still runs on the closing iteration when maxIterations is exhausted", async () => {
     const env = setupReviewEnv({ reviewPasses: 1, maxIterations: 1 });
     const cap = captureIo();
-    const claude = reviewFakeAgent("claude", (_n, cwd) => {
+    const claude = reviewFakeAgent("claude", (_n, _cwd, prompt) => {
+      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "", stderr: "" };
+    }, (_n, cwd) => {
       writeFileSync(join(cwd, "code.txt"), "x\n");
       return { kind: "ok", stdout: "", stderr: "" };
     });
@@ -3843,7 +3875,7 @@ describe("review phase", () => {
     });
 
     expect(code).toBe(0);
-    expect(env.reviewCommitSubjects()).toEqual(["review: pass 1"]);
+    expect(env.reviewCommitSubjects()).toEqual(["review: executor"]);
   });
 
   test("--review-passes 0 disables the review phase", async () => {

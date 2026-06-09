@@ -339,11 +339,17 @@ describe("runPlanReviewPhase", () => {
   test("uses resume pass numbering, rK suffix, and refreshes PR body on commit", async () => {
     const { worktreePath, cleanup } = setupReviewWorktree();
     try {
-      const agent = new FakeAgent("claude", (_c, _p, opts) => {
-        writeFileSync(
-          join(opts.cwd, "spec", "p-review", "00-one.md"),
-          "# One\n\n## Acceptance criteria\n\n- [ ] resume\n",
-        );
+      const agent = new FakeAgent("claude", (_c, prompt, opts) => {
+        if (prompt.includes("Review Verdict")) {
+          writeFileSync(
+            join(opts.cwd, "spec", "p-review", "00-one.md"),
+            "# One\n\n## Acceptance criteria\n\n- [ ] resume\n",
+          );
+          return { kind: "ok", stdout: "", stderr: "" };
+        }
+        if (prompt.includes("Review: Judge")) {
+          return { kind: "ok", stdout: "Tighten the resume criterion.\n", stderr: "" };
+        }
         return { kind: "ok", stdout: "", stderr: "" };
       });
       let prRefreshCount = 0;
@@ -364,7 +370,7 @@ describe("runPlanReviewPhase", () => {
       expect(result.exitCode).toBe(0);
       expect(prRefreshCount).toBe(1);
       const subject = execSync("git log -1 --format=%s", { cwd: worktreePath, encoding: "utf8" }).trim();
-      expect(subject).toBe("plan: review 3 r2");
+      expect(subject).toBe("plan: review: executor r2");
     } finally {
       cleanup();
     }

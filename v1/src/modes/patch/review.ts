@@ -77,6 +77,54 @@ export function revertSpecTreeEdits(specDir: string, cwd: string): void {
   }
 }
 
+function detectReviewerCodeEdits(specDir: string, cwd: string): string[] {
+  try {
+    const output = execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+
+    const specRelPath = relative(cwd, specDir);
+    return output
+      .split("\n")
+      .filter((line) => line.length > 3)
+      .map((line) => line.slice(3).trim())
+      .filter((file) => file !== REVIEW_BLOCKER_FILE)
+      .filter((file) => !file.startsWith(".jarvis-review-"))
+      .filter((file) => file !== specRelPath && !file.startsWith(`${specRelPath}/`));
+  } catch {
+    return [];
+  }
+}
+
+function revertReviewerCodeEdits(specDir: string, cwd: string): void {
+  const editedFiles = detectReviewerCodeEdits(specDir, cwd);
+  if (editedFiles.length === 0) {
+    return;
+  }
+
+  try {
+    for (const file of editedFiles) {
+      try {
+        execFileSync("git", ["checkout", "HEAD", "--", file], {
+          cwd,
+          stdio: "pipe",
+        });
+      } catch {
+        // Untracked file: nothing to restore from HEAD; clean handles it below.
+      }
+      execFileSync("git", ["clean", "-fd", "--", file], {
+        cwd,
+        stdio: "pipe",
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to revert reviewer code edits: ${message}`);
+  }
+}
+
 // Read and remove the review-blocker sentinel file if the agent wrote one.
 // Returns the blocker description, or null when no blocker was signalled. The
 // file is deleted so it is never committed and does not leak into later passes.
@@ -343,29 +391,34 @@ function createPatchReviewAdapter(args: {
     },
     enforceWriteBoundary: async (ctx) => {
       const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);
-      if (editedSpecFiles.length === 0) {
-        return;
-      }
-      opts.fanout(
-        "harness",
-        `review: pass ${ctx.passNumber} edited spec files (reverting): ${editedSpecFiles.join(", ")}\n`,
-        "stderr",
-      );
-      try {
-        revertSpecTreeEdits(specDir, opts.cwd);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        opts.fanout("harness", `review: revert failed: ${message}\n`, "stderr");
-        throw new ReviewTerminalError(message, 1);
+      if (editedSpecFiles.length > 0) {
+        opts.fanout(
+          "harness",
+          `review: pass ${ctx.passNumber} edited spec files (reverting): ${editedSpecFiles.join(", ")}\n`,
+          "stderr",
+        );
+        try {
+          revertSpecTreeEdits(specDir, opts.cwd);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          opts.fanout("harness", `review: revert failed: ${message}\n`, "stderr");
+          throw new ReviewTerminalError(message, 1);
+        }
       }
 
       // Reviewer roles (adversary, defender, judge) are read-only on code; revert any code edits.
       if (ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)) {
+        const editedCodeFiles = detectReviewerCodeEdits(specDir, opts.cwd);
+        if (editedCodeFiles.length === 0) {
+          return;
+        }
+        opts.fanout(
+          "harness",
+          `review: pass ${ctx.passNumber} edited code files (reverting): ${editedCodeFiles.join(", ")}\n`,
+          "stderr",
+        );
         try {
-          execFileSync("git", ["checkout", "HEAD", "--", "."], {
-            cwd: opts.cwd,
-            stdio: "pipe",
-          });
+          revertReviewerCodeEdits(specDir, opts.cwd);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           opts.fanout("harness", `review: failed to revert code edits: ${message}\n`, "stderr");

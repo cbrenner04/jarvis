@@ -178,13 +178,3 @@ exact complexity threshold; whether `shared/**` gets the full set or a subset.
   as an in-this-spec deliverable: the single-source file makes that citation
   *possible* later, but no plan/review consumer is wired here.
 
-## Blocker
-
-Review and approve `v2/spec/2026-06-09T13-47-28Z-v2-coding-standards/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-06-09T13-47-28Z-v2-coding-standards/intent.md`

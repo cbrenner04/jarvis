@@ -11,6 +11,9 @@ plan/refine.md
 patch/instructions.md
 patch/pr-description.md
 patch/review.md
+patch/review-adversary.md
+patch/review-defender.md
+patch/review-judge.md
 patch/rules.md
 write/execute.md
 prompt/instructions.md

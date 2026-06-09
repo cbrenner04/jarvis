@@ -47,6 +47,10 @@ export type ReviewPromptOpts = {
   totalPasses: number;
   /** Base branch to diff against. Defaults to `main`. */
   baseBranch?: string;
+  /** Review role: adversary, defender, or judge. */
+  role?: "adversary" | "defender" | "judge";
+  /** Prior role's artifact (e.g., adversary findings for defender). */
+  priorArtifact?: string;
 };
 
 // Build review prompt for a critique pass on completed patch work.
@@ -54,9 +58,18 @@ export type ReviewPromptOpts = {
 // Bias is subtractive: cut redundancy, simplify, reduce complexity.
 export function buildReviewPrompt(opts: ReviewPromptOpts): string {
   const registry = loadPromptRegistry();
+  const role = opts.role ?? "adversary";
+
+  // Select role-specific prompt template
+  const promptId = role === "judge"
+    ? "patch.prompt.review.judge"
+    : role === "defender"
+    ? "patch.prompt.review.defender"
+    : "patch.prompt.review.adversary";
+
   const template = assemblePromptForStep({
     registry,
-    stepPromptId: "patch.prompt.review",
+    stepPromptId: promptId,
   });
 
   // Gather the full spec tree as read-only reference material
@@ -69,23 +82,35 @@ export function buildReviewPrompt(opts: ReviewPromptOpts): string {
       ? "This is the only review pass."
       : `This is review pass ${opts.passNumber} of ${opts.totalPasses}.`;
 
-  const rendered = renderTemplateWithDeclarations(
-    template,
-    [
-      { name: "SPEC_PATH", type: "string", required: true },
-      { name: "SPEC_TREE", type: "string", required: true },
-      { name: "BRANCH_DIFF", type: "string", required: true },
-      { name: "REVIEW_PASS_NUMBER", type: "string", required: true },
-      { name: "REVIEW_PASS_CONTEXT", type: "string", required: true },
-    ],
-    {
-      SPEC_PATH: opts.specPath,
-      SPEC_TREE: specTree,
-      BRANCH_DIFF: branchDiff,
-      REVIEW_PASS_NUMBER: String(opts.passNumber),
-      REVIEW_PASS_CONTEXT: context,
-    },
-  );
+  const declarations = [
+    { name: "SPEC_PATH", type: "string" as const, required: true },
+    { name: "SPEC_TREE", type: "string" as const, required: true },
+    { name: "BRANCH_DIFF", type: "string" as const, required: true },
+    { name: "REVIEW_PASS_NUMBER", type: "string" as const, required: true },
+    { name: "REVIEW_PASS_CONTEXT", type: "string" as const, required: true },
+  ];
+
+  const values: Record<string, string> = {
+    SPEC_PATH: opts.specPath,
+    SPEC_TREE: specTree,
+    BRANCH_DIFF: branchDiff,
+    REVIEW_PASS_NUMBER: String(opts.passNumber),
+    REVIEW_PASS_CONTEXT: context,
+  };
+
+  // Add role-specific placeholders for defender and judge
+  if (role === "defender") {
+    declarations.push({ name: "ADVERSARY_FINDINGS", type: "string" as const, required: true });
+    values.ADVERSARY_FINDINGS = opts.priorArtifact || "(no prior findings)";
+  }
+
+  if (role === "judge") {
+    declarations.push({ name: "DEFENDER_RESPONSE", type: "string" as const, required: true });
+    // For judge, priorArtifact should be the defender's response; if not available use a placeholder
+    values.DEFENDER_RESPONSE = opts.priorArtifact || "(no defender response)";
+  }
+
+  const rendered = renderTemplateWithDeclarations(template, declarations, values);
 
   return rendered.trim();
 }
@@ -151,4 +176,30 @@ function getBranchDiff(cwd: string, baseBranch: string): string {
   } catch (err) {
     return `(failed to generate diff: ${err instanceof Error ? err.message : String(err)})`;
   }
+}
+
+export function buildVerdictExecutorPrompt(verdict: string, specPath: string): string {
+  const registry = loadPromptRegistry();
+  const template = assemblePromptForStep({
+    registry,
+    stepPromptId: "patch.prompt.body",
+  });
+
+  const rendered = renderTemplateWithDeclarations(
+    template,
+    [
+      { name: "SPEC_PATH", type: "string", required: true },
+      { name: "SIBLINGS_BLOCK", type: "string", required: true },
+      { name: "PATCH_RULES", type: "string", required: true },
+    ],
+    {
+      SPEC_PATH: specPath,
+      SIBLINGS_BLOCK: "",
+      PATCH_RULES: registry.getById("patch.rules").body.trim(),
+    },
+  );
+
+  // Replace the final instruction with the verdict
+  const basePrompt = rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
+  return `${basePrompt}\n\n## Review Verdict\n\nBased on a review of your implementation, the following changes are required:\n\n${verdict}`;
 }

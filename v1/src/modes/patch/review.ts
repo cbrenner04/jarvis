@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
@@ -12,10 +12,10 @@ import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
-import { runReview } from "../review/run.ts";
-import { type ReviewAdapter, type ReviewTelemetryEvent, ReviewTerminalError } from "../review/types.ts";
+import { runReview, type RunReviewOptions } from "../review/run.ts";
+import { type ReviewAdapter, type ReviewPassContext, type ReviewTelemetryEvent, ReviewTerminalError } from "../review/types.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
-import { buildReviewPrompt } from "./prompt.ts";
+import { buildReviewPrompt, buildVerdictExecutorPrompt, type ReviewPromptOpts } from "./prompt.ts";
 
 /** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
@@ -194,6 +194,8 @@ export type PatchReviewPhaseOptions = {
   runFinalGate?: (branch: string) => void;
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
   baseBranch?: string;
+  /** Executor context: the active patch agents to use for verdict execution. */
+  executorAgents?: Agent[];
 };
 
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
@@ -229,6 +231,10 @@ function withReviewPassTimeout(agent: Agent, opts: { timeoutMs: number; killGrac
       }
     },
   };
+}
+
+function getRoleArtifactPath(cwd: string, role: string, passNumber: number): string {
+  return join(cwd, `.jarvis-review-${role}-${passNumber}`);
 }
 
 function createPatchReviewAdapter(args: {
@@ -303,19 +309,31 @@ function createPatchReviewAdapter(args: {
   };
 
   return {
-    buildPrompt: async ({ passNumber, totalPasses, agentEntry }) => {
-      opts.fanout("harness", `review: pass ${passNumber}/${totalPasses}\n`, "stdout");
-      const prompt = buildReviewPrompt({
+    buildPrompt: async ({ passNumber, totalPasses, agentEntry, role, priorArtifact }) => {
+      const displayRole = role ? ` (${role})` : "";
+      opts.fanout("harness", `review: pass ${passNumber}/${totalPasses}${displayRole}\n`, "stdout");
+      const promptOpts: ReviewPromptOpts = {
         specPath: opts.specPath,
         cwd: opts.cwd,
         passNumber,
         totalPasses,
         baseBranch: base,
-      });
-      opts.fanout("outbound", prompt, null, {
+      };
+      if (role) {
+        promptOpts.role = role;
+      }
+      if (priorArtifact) {
+        promptOpts.priorArtifact = priorArtifact;
+      }
+      const prompt = buildReviewPrompt(promptOpts);
+      const annotations: Record<string, string | number | boolean | null> = {
         pass: passNumber,
         agent: agentEntry.agent,
-      });
+      };
+      if (role) {
+        annotations.role = role;
+      }
+      opts.fanout("outbound", prompt, null, annotations);
       return prompt;
     },
     enforceWriteBoundary: async (ctx) => {
@@ -334,6 +352,20 @@ function createPatchReviewAdapter(args: {
         const message = err instanceof Error ? err.message : String(err);
         opts.fanout("harness", `review: revert failed: ${message}\n`, "stderr");
         throw new ReviewTerminalError(message, 1);
+      }
+
+      // Reviewer roles (adversary, defender, judge) are read-only on code; revert any code edits.
+      if (ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)) {
+        try {
+          execFileSync("git", ["checkout", "HEAD", "--", "."], {
+            cwd: opts.cwd,
+            stdio: "pipe",
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          opts.fanout("harness", `review: failed to revert code edits: ${message}\n`, "stderr");
+          throw new ReviewTerminalError(message, 1);
+        }
       }
     },
     readBlocker: async () => consumeReviewBlocker(opts.cwd),
@@ -368,8 +400,83 @@ function createPatchReviewAdapter(args: {
       return 7;
     },
     commitPass: async (ctx) => {
+      // Store the artifact from this role for the next role to read.
+      if (ctx.result.kind === "ok" && ctx.role) {
+        const artifactPath = getRoleArtifactPath(opts.cwd, ctx.role, ctx.passNumber);
+        try {
+          writeFileSync(artifactPath, ctx.result.stdout, "utf8");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          opts.fanout("harness", `review: failed to store ${ctx.role} artifact: ${message}\n`, "stderr");
+        }
+      }
+
       try {
-        commitReviewPass(ctx.passNumber, ctx.agent.name, opts.cwd, commitOpts);
+        // Use role-specific commit messages.
+        const roleLabel = ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)
+          ? `review: ${ctx.role}`
+          : `review: pass ${ctx.passNumber}`;
+
+        // Stage all changes
+        execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
+
+        // Check for changes (excluding temp artifact files)
+        const porcelain = execFileSync("git", ["status", "--porcelain"], {
+          cwd: opts.cwd,
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+
+        const hasRealChanges = porcelain
+          .split("\n")
+          .filter((line) => line.length > 3)
+          .map((line) => line.slice(3).trim())
+          .some((file) => !file.startsWith(".jarvis-review-"));
+
+        // Clean up temporary artifact files (don't commit them)
+        if (ctx.role) {
+          const artifactPath = getRoleArtifactPath(opts.cwd, ctx.role, ctx.passNumber);
+          try {
+            execFileSync("git", ["reset", "HEAD", "--", artifactPath], {
+              cwd: opts.cwd,
+              stdio: "pipe",
+            });
+            rmSync(artifactPath, { force: true });
+          } catch {
+            // best-effort
+          }
+        }
+
+        if (!hasRealChanges) {
+          // No changes (excluding temp files), skip commit
+          return;
+        }
+
+        // Create commit message
+        const commitMessage = appendAgentTrailer(roleLabel, ctx.agent.name);
+
+        // Commit
+        execFileSync("git", ["commit", "-F", "-"], {
+          cwd: opts.cwd,
+          env: process.env,
+          stdio: ["pipe", "pipe", "pipe"],
+          input: commitMessage,
+        });
+
+        // Push
+        pushCurrent({ cwd: opts.cwd, firstPush: false });
+
+        // Refresh PR footer if spec path is provided
+        if (opts.specPath && branch && base) {
+          void updatePrBody({
+            indexPath: opts.specPath,
+            branch,
+            base,
+            cwd: opts.cwd,
+          }).catch(() => {
+            // Ignore footer refresh errors, they're not critical
+          });
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         opts.fanout("harness", `review: commit failed: ${message}\n`, "stderr");
@@ -420,8 +527,184 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
   const specDir = dirname(opts.specPath);
   const killGraceMs = opts.__testKillGraceMs ?? 5000;
 
+  // Create executor that runs the patch agent with the verdict
+  const createExecutor = (patchAgents: Agent[]) => {
+    return async (verdict: string, ctx: ReviewPassContext): Promise<void> => {
+      if (!verdict || !verdict.trim()) {
+        // Empty verdict: skip executor invocation (existing no-change path)
+        return;
+      }
+
+      opts.fanout("harness", `review: executor running with verdict\n`, "stdout");
+
+      // Write verdict to durable doc next to the spec
+      const verdictPath = join(specDir, "verdict-patch.md");
+      try {
+        writeFileSync(verdictPath, verdict, "utf8");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        opts.fanout("harness", `review: failed to write verdict: ${message}\n`, "stderr");
+        throw new ReviewTerminalError(message, 1);
+      }
+
+      // Build executor prompt from the verdict
+      const prompt = buildVerdictExecutorPrompt(verdict, opts.specPath);
+
+      // Run the first available patch agent
+      const agent = patchAgents[0];
+      if (agent === undefined) {
+        opts.fanout("harness", "review: executor no agents available\n", "stderr");
+        throw new ReviewTerminalError("executor no agents available", 2);
+      }
+
+      const configuredModel = opts.config.modes.patch.agentOrder[0]?.model;
+      const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
+
+      const executorController = new AbortController();
+      const executorTimeoutHandle = setTimeout(() => {
+        executorController.abort("executor-timeout");
+      }, opts.iterationTimeoutMs);
+
+      const executorStartedMs = Date.now();
+      let executorPgid: number | null = null;
+
+      try {
+        opts.fanout("outbound", prompt, null, {
+          executor: true,
+          agent: agent.name,
+        });
+
+        const result = await agent.run(prompt, {
+          cwd: opts.cwd,
+          signal: executorController.signal,
+          abortKillGraceMs: killGraceMs,
+          onSpawned: ({ pid }) => {
+            executorPgid = pid;
+          },
+        });
+
+        const durationMs = Math.max(0, Date.now() - executorStartedMs);
+
+        if (result.kind === "ok") {
+          if (result.stdout.length > 0) {
+            opts.fanout("inbound_stdout", result.stdout, null, { executor: true });
+          }
+          if (result.stderr.length > 0) {
+            opts.fanout("inbound_stderr", result.stderr, null, { executor: true });
+          }
+
+          // Revert spec edits (reviewers are read-only on spec)
+          const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);
+          if (editedSpecFiles.length > 0) {
+            opts.fanout(
+              "harness",
+              `review: executor edited spec files (reverting): ${editedSpecFiles.join(", ")}\n`,
+              "stderr",
+            );
+            try {
+              revertSpecTreeEdits(specDir, opts.cwd);
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              opts.fanout("harness", `review: revert failed: ${message}\n`, "stderr");
+              throw new ReviewTerminalError(message, 1);
+            }
+          }
+
+          // Commit executor changes
+          const porcelain = execFileSync("git", ["status", "--porcelain"], {
+            cwd: opts.cwd,
+            encoding: "utf8",
+            stdio: "pipe",
+          }).trim();
+
+          if (porcelain !== "") {
+            try {
+              execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
+              const commitMessage = appendAgentTrailer("review: executor", agent.name);
+              execFileSync("git", ["commit", "-F", "-"], {
+                cwd: opts.cwd,
+                env: process.env,
+                stdio: ["pipe", "pipe", "pipe"],
+                input: commitMessage,
+              });
+              pushCurrent({ cwd: opts.cwd, firstPush: false });
+
+              // Refresh PR footer
+              void updatePrBody({
+                indexPath: opts.specPath,
+                branch,
+                base,
+                cwd: opts.cwd,
+              }).catch(() => {
+                // Ignore footer refresh errors
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              opts.fanout("harness", `review: executor commit failed: ${message}\n`, "stderr");
+              const usageAndCost = extractUsageAndCost(result, agent.name, configuredModel);
+              opts.writeTelemetry({
+                agent: agent.name,
+                iteration: ctx.passNumber,
+                durationMs,
+                kind: "error",
+                exitReason: "executor-commit-failed",
+                patch_phase: "review",
+                ...usageAndCost,
+                ...telemetryMeta,
+              });
+              throw new ReviewTerminalError(message, 1);
+            }
+
+            opts.fanout("harness", `review: executor completed\n`, "stdout");
+            opts.writeTelemetry({
+              agent: agent.name,
+              iteration: ctx.passNumber,
+              durationMs,
+              kind: "ok",
+              exitReason: "ok",
+              patch_phase: "review",
+              ...extractUsageAndCost(result, agent.name, configuredModel),
+              ...telemetryMeta,
+            });
+          } else {
+            // No changes from executor
+            opts.fanout("harness", `review: executor made no changes\n`, "stdout");
+            opts.writeTelemetry({
+              agent: agent.name,
+              iteration: ctx.passNumber,
+              durationMs,
+              kind: "ok",
+              exitReason: "ok",
+              patch_phase: "review",
+              ...extractUsageAndCost(result, agent.name, configuredModel),
+              ...telemetryMeta,
+            });
+          }
+        } else {
+          opts.fanout("harness", `review: executor error (${result.kind})\n`, "stderr");
+          if (result.kind !== "quota" && result.stderr.length > 0) {
+            opts.fanout("harness", result.stderr, "stderr");
+          }
+          const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : 1;
+          opts.writeTelemetry({
+            agent: agent.name,
+            iteration: ctx.passNumber,
+            durationMs,
+            kind: result.kind === "quota" ? "quota" : result.kind === "model_config" ? "error" : "error",
+            exitReason: result.kind,
+            patch_phase: "review",
+            ...telemetryMeta,
+          });
+          throw new ReviewTerminalError(`executor failed: ${result.kind}`, exitCode);
+        }
+      } finally {
+        clearTimeout(executorTimeoutHandle);
+      }
+    };
+  };
+
   try {
-    const reviewExitCode = await runReview({
+    const runReviewOpts: RunReviewOptions = {
       config: opts.config,
       cwd: opts.cwd,
       adapter: createPatchReviewAdapter({ opts, specDir, branch, base }),
@@ -451,7 +734,13 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           opts.fanout("harness", stderr, "stderr");
         }
       },
-    });
+    };
+
+    if (opts.executorAgents) {
+      runReviewOpts.executor = createExecutor(opts.executorAgents);
+    }
+
+    const reviewExitCode = await runReview(runReviewOpts);
 
     if (reviewExitCode !== 0) {
       return reviewExitCode;

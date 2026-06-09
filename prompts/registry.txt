@@ -7,6 +7,9 @@ plan/defer-to-consumer.md
 plan/draft.md
 plan/pr-description.md
 plan/review.md
+plan/review-adversary.md
+plan/review-defender.md
+plan/review-judge.md
 plan/refine.md
 patch/instructions.md
 patch/pr-description.md

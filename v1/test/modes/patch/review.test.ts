@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
 import {
@@ -132,7 +132,7 @@ describe("runPatchReviewPhase", () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const harness: string[] = [];
     try {
-      const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "No issues found", stderr: "" }));
       const claude = new FakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }));
 
       const reviewOrderCode = await runPatchReviewPhase({
@@ -150,8 +150,10 @@ describe("runPatchReviewPhase", () => {
         baseBranch: "main",
       });
       expect(reviewOrderCode).toBe(0);
-      expect(codex.calls).toHaveLength(3); // 3 roles per cycle
-      expect(codex.calls[0]?.prompt).toContain("Review Phase");
+      expect(codex.calls).toHaveLength(3); // 3 roles per cycle (adversary, defender, judge)
+      expect(codex.calls[0]?.prompt).toContain("Review: Adversary"); // First role is adversary
+      expect(codex.calls[1]?.prompt).toContain("Review: Defender"); // Second role is defender
+      expect(codex.calls[2]?.prompt).toContain("Review: Judge"); // Third role is judge
       expect(claude.calls).toHaveLength(0);
 
       harness.length = 0;
@@ -264,7 +266,7 @@ describe("runPatchReviewPhase", () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const events: string[] = [];
     try {
-      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
       const code = await runPatchReviewPhase({
         config: makeReviewConfig({ reviewPasses: 2, reviewOrder: [CLAUDE_ENTRY] }),
         cwd: dir,
@@ -290,6 +292,84 @@ describe("runPatchReviewPhase", () => {
       expect(events).toContain("final");
       expect(events.filter((e) => e === "review: running baseline gate")).toHaveLength(1);
       expect(events.filter((e) => e === "review: running final ready")).toHaveLength(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("reviewer roles run three times per pass (adversary, defender, judge)", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const roleCalls: string[] = [];
+    try {
+      const claude = new FakeAgent("claude", (_callCount, prompt) => {
+        // Detect role from prompt content (prompts have "Review: Adversary", etc.)
+        if (prompt.includes("Review: Adversary")) {
+          roleCalls.push("adversary");
+        } else if (prompt.includes("Review: Defender")) {
+          roleCalls.push("defender");
+        } else if (prompt.includes("Review: Judge")) {
+          roleCalls.push("judge");
+        }
+        return { kind: "ok", stdout: "findings", stderr: "" };
+      });
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      // All three roles should be executed
+      expect(roleCalls).toContain("adversary");
+      expect(roleCalls).toContain("defender");
+      expect(roleCalls).toContain("judge");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("empty verdict skips executor invocation", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const harness: string[] = [];
+    try {
+      // Judge returns empty verdict
+      const reviewer = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
+
+      const executor = new FakeAgent("claude", () => {
+        throw new Error("Executor should not be called");
+      });
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        executorAgents: [executor],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      // Empty verdict should skip executor
+      expect(harness.some((e) => e.includes("executor"))).toBe(false);
     } finally {
       cleanup();
     }

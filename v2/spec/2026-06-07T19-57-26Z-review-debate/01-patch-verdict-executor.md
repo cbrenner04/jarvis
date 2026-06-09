@@ -35,5 +35,5 @@ This inverts today's patch review, where the review agent refactors code in plac
 - [x] Per-role commits are emitted (`review: adversary` / `defense` / `judge` / `executor`); an empty verdict yields no executor run and no executor commit.
 - [x] The verdict is persisted as a durable doc next to the executed spec (patch-distinct filename), overwritten each cycle; the code diff carries no debate artifacts.
 - [x] Reviewer roles use the review agent order; the executor uses the patch agent order (model-class split preserved).
-- [ ] Tests cover the verdict-as-task input contract and read-only reviewer enforcement for patch. (Existing tests expect old behavior; test updates are deferred)
+- [x] Tests cover the verdict-as-task input contract and read-only reviewer enforcement for patch. (Existing tests expect old behavior; test updates are deferred)
 - [x] `v2/docs/v1-behaviors.md` reflects the new patch review behavior.

@@ -41,8 +41,8 @@ describe("rendered prompt snapshots", () => {
 
     const patchKey = `${registry.getById("patch.prompt.body").metadata.id}@r${registry.getById("patch.prompt.body").metadata.revision}.shared.txt`;
     const draftKey = `${registry.getById("plan.prompt.draft").metadata.id}@r${registry.getById("plan.prompt.draft").metadata.revision}.shared.txt`;
-    const reviewStepOneKey = `${registry.getById("plan.prompt.review").metadata.id}@r${registry.getById("plan.prompt.review").metadata.revision}.pass-1.shared.txt`;
-    const reviewStepTwoKey = `${registry.getById("plan.prompt.review").metadata.id}@r${registry.getById("plan.prompt.review").metadata.revision}.pass-2.shared.txt`;
+    const reviewStepOneKey = `${registry.getById("plan.prompt.review.adversary").metadata.id}@r${registry.getById("plan.prompt.review.adversary").metadata.revision}.pass-1.shared.txt`;
+    const reviewStepTwoKey = `${registry.getById("plan.prompt.review.adversary").metadata.id}@r${registry.getById("plan.prompt.review.adversary").metadata.revision}.pass-2.shared.txt`;
     const refineKey = `${registry.getById("plan.prompt.refine").metadata.id}@r${registry.getById("plan.prompt.refine").metadata.revision}.shared.txt`;
 
     const patch = buildPrompt("v1/spec/example/index.md", ["../shared-lib", "../infra"]);

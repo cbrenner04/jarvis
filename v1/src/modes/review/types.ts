@@ -4,10 +4,16 @@ import type { AgentEntry } from "../../config.ts";
 /** Terminal outcome for one shared review attempt. */
 export type ReviewAttemptOutcome = "ok" | "blocked" | "quota" | "model_config" | "error";
 
+/** Debate role for one review attempt. */
+export type ReviewRole = "adversary" | "defender" | "judge";
+
 /** Shared pass metadata exposed to adapters and telemetry hooks. */
 export type ReviewPassContext = {
   passNumber: number;
   totalPasses: number;
+  role?: ReviewRole | undefined;
+  priorArtifact?: string | undefined;
+  priorVerdict?: string | undefined;
 };
 
 /** Metadata for one review agent attempt. */
@@ -49,7 +55,7 @@ export interface ReviewAdapter {
   readBlocker(ctx: ReviewAttemptContext): string | null | Promise<string | null>;
   /** Handle a detected blocker and return the review exit code. */
   handleBlocker(ctx: ReviewAttemptContext & { blocker: string }): number | Promise<number>;
-  /** Commit or otherwise persist a successful pass. */
+  /** Commit or otherwise persist a successful attempt. */
   commitPass(ctx: ReviewAttemptContext): void | Promise<void>;
   /** Record one review attempt in mode-specific telemetry. */
   recordTelemetry(event: ReviewTelemetryEvent): void | Promise<void>;

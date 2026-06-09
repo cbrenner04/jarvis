@@ -67,7 +67,7 @@ describe("loadConfig", () => {
         patch: { agentOrder: DEFAULT_AGENT_ORDER },
         plan: { agentOrder: DEFAULT_AGENT_ORDER, targetDir: "spec" },
         prompt: { agentOrder: DEFAULT_AGENT_ORDER },
-        review: { passes: 2 },
+        review: { passes: 1 },
       },
       quotaFallback: "lenient",
       weakQuotaExitCodes: [],
@@ -2340,6 +2340,6 @@ describe("review mode config validation", () => {
       }),
     );
     const cfg = loadConfig({ dir });
-    expect(cfg.modes.review).toEqual({ passes: 2 });
+    expect(cfg.modes.review).toEqual({ passes: 1 });
   });
 });

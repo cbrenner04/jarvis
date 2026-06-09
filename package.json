@@ -14,7 +14,6 @@
     "check:fix:unsafe": "bun node_modules/@biomejs/biome/bin/biome check --write --unsafe .",
     "format": "bun node_modules/@biomejs/biome/bin/biome format --write .",
     "format:check": "bun node_modules/@biomejs/biome/bin/biome format .",
-    "format:unsafe": "bun node_modules/@biomejs/biome/bin/biome format --write --unsafe .",
     "lint": "bun node_modules/@biomejs/biome/bin/biome lint .",
     "lint:fix": "bun node_modules/@biomejs/biome/bin/biome lint --write .",
     "lint:fix:unsafe": "bun node_modules/@biomejs/biome/bin/biome lint --write --unsafe .",

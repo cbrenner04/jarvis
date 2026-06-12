@@ -24,7 +24,8 @@ jarvis write \
   [--agents <csv>]
 ```
 
-- Worktree path: `~/.jarvis/worktrees/<project>/<branch>/`.
+- Worktree path: `~/.jarvis/worktrees/<project>/<branch>/`. See
+  [`state-store.md`](./state-store.md) for durable run state and resume mechanics.
 - Locking uses v1-compatible `.jarvis.lock` semantics, in a dedicated lock tree
   (`~/.jarvis/worktree-locks/<project>/<branch>/`) so the run serializes on the
   branch before its worktree exists.

@@ -52,29 +52,29 @@ count; pin `next_step_id` when the Phase 5 runner needs it.
 
 ## Acceptance criteria
 
-- [ ] A state module in `v2/src` opens `~/.jarvis/state/v2.sqlite` by default and
+- [x] A state module in `v2/src` opens `~/.jarvis/state/v2.sqlite` by default and
   a caller-supplied path override; tests use the override and write nothing under
   `~/.jarvis`.
-- [ ] Migrations are forward-only and idempotent: re-opening an already-migrated
+- [x] Migrations are forward-only and idempotent: re-opening an already-migrated
   store is a no-op (test).
-- [ ] Repository ops (create run, record attempt start, commit boundary, load run
+- [x] Repository ops (create run, record attempt start, commit boundary, load run
   for resume) are exposed as named ID-keyed operations; no generic SQL surface is
   public.
-- [ ] The completion boundary persists attempt completion + outcome + checkpoint/
+- [x] The completion boundary persists attempt completion + outcome + checkpoint/
   attempt-count advance atomically; a forced failure mid-boundary rolls all of it
   back (test).
-- [ ] Re-committing an already-finished boundary is idempotent: no double
+- [x] Re-committing an already-finished boundary is idempotent: no double
   attempt-count or checkpoint advance, no duplicate outcome row (test).
-- [ ] `runs` carries an attempt count, not a remaining-iterations column.
-- [ ] New code lives under `v2/**`/`shared/**` with no `v2 -> v1` imports.
-- [ ] `bun run typecheck` (both tsconfigs) and `bun test` pass.
+- [x] `runs` carries an attempt count, not a remaining-iterations column.
+- [x] New code lives under `v2/**`/`shared/**` with no `v2 -> v1` imports.
+- [x] `bun run typecheck` (both tsconfigs) and `bun test` pass.
 
 ## Documentation updates
 
-- New `v2/docs/state-store.md`: location `~/.jarvis/state/v2.sqlite`, the `runs`
+- [x] New `v2/docs/state-store.md`: location `~/.jarvis/state/v2.sqlite`, the `runs`
   + attempt/outcome shape, bootstrap + idempotent migrations, the repository-op
   surface, and the transactional boundary. Cross-link the architecture
   Persistence/Runs sections; do not restate them.
-- `v2/docs/write-behavior.md`: add a pointer to `state-store.md` next to the
+- [x] `v2/docs/write-behavior.md`: add a pointer to `state-store.md` next to the
   Phase 1 worktree-layout note.
-- `v2/docs/v1-behaviors.md`: no change — additive v2-only code.
+- [x] `v2/docs/v1-behaviors.md`: no change — additive v2-only code.

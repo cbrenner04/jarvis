@@ -26,7 +26,7 @@ import {
 import { commitPlanBlocker, commitPlanReview } from "./commits.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
-import { runVerdictExecutor } from "./refine.ts";
+import { runVerdictActuator } from "./refine.ts";
 import { hasSpecDirChanges, resolvePlanSpecDirPath, snapshotSpecDirFiles } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
@@ -44,9 +44,9 @@ export function buildReviewPrompt(opts: {
   workDirLabel?: string;
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
-  /** Review role: adversary, defender, or judge. */
-  role?: "adversary" | "defender" | "judge";
-  /** Prior role's artifact (e.g., adversary findings for defender). */
+  /** Review role: adversary, advocate, or adjudicator. */
+  role?: "adversary" | "advocate" | "adjudicator";
+  /** Prior role's artifact (e.g., adversary findings for advocate). */
   priorArtifact?: string;
 }): string {
   const passNumber = opts.passNumber ?? 1;
@@ -62,10 +62,10 @@ export function buildReviewPrompt(opts: {
 
   // Select role-specific prompt template
   const promptId =
-    role === "judge"
-      ? "plan.prompt.review.judge"
-      : role === "defender"
-        ? "plan.prompt.review.defender"
+    role === "adjudicator"
+      ? "plan.prompt.review.adjudicator"
+      : role === "advocate"
+        ? "plan.prompt.review.advocate"
         : "plan.prompt.review.adversary";
 
   let template = assemblePromptForStep({
@@ -111,8 +111,8 @@ export function buildReviewPrompt(opts: {
     REVIEW_PASS_CONTEXT: reviewPassContext,
   };
 
-  // Add role-specific values for defender and judge
-  if (role === "defender") {
+  // Add role-specific values for advocate and adjudicator
+  if (role === "advocate") {
     enforceDelimiterPolicy({
       value: opts.priorArtifact || "(no prior findings)",
       begin: "<<<ADVERSARY_BEGIN>>>",
@@ -122,14 +122,14 @@ export function buildReviewPrompt(opts: {
     values.ADVERSARY_FINDINGS = opts.priorArtifact || "(no prior findings)";
   }
 
-  if (role === "judge") {
+  if (role === "adjudicator") {
     enforceDelimiterPolicy({
-      value: opts.priorArtifact || "(no defender response)",
-      begin: "<<<DEFENSE_BEGIN>>>",
-      end: "<<<DEFENSE_END>>>",
-      placeholderName: "DEFENDER_RESPONSE",
+      value: opts.priorArtifact || "(no advocate response)",
+      begin: "<<<ADVOCATE_BEGIN>>>",
+      end: "<<<ADVOCATE_END>>>",
+      placeholderName: "ADVOCATE_RESPONSE",
     });
-    values.DEFENDER_RESPONSE = opts.priorArtifact || "(no defender response)";
+    values.ADVOCATE_RESPONSE = opts.priorArtifact || "(no advocate response)";
   }
 
   try {
@@ -141,8 +141,8 @@ export function buildReviewPrompt(opts: {
       "CURRENT_SPEC",
       "REVIEW_PASS_CONTEXT",
     ]);
-    if (role === "defender") placeholderSet.add("ADVERSARY_FINDINGS");
-    if (role === "judge") placeholderSet.add("DEFENDER_RESPONSE");
+    if (role === "advocate") placeholderSet.add("ADVERSARY_FINDINGS");
+    if (role === "adjudicator") placeholderSet.add("ADVOCATE_RESPONSE");
 
     template = renderTemplate(template, placeholderSet, values);
   } catch (err) {
@@ -537,8 +537,8 @@ function createPlanReviewAdapter(args: {
       }
     },
     enforceWriteBoundary: async (ctx) => {
-      // Reviewer roles (adversary, defender, judge) are read-only on spec; revert any spec edits.
-      if (ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)) {
+      // Reviewer roles (adversary, advocate, adjudicator) are read-only on spec; revert any spec edits.
+      if (ctx.role && ["adversary", "advocate", "adjudicator"].includes(ctx.role)) {
         const editedSpecFiles = detectSpecTreeEdits(finalSpecPath, opts.worktreePath);
         if (editedSpecFiles.length > 0) {
           const validation = validateReviewOutput(
@@ -609,7 +609,7 @@ function createPlanReviewAdapter(args: {
       return 1;
     },
     commitPass: async (ctx) => {
-      // Store role artifact before committing (for next role or executor)
+      // Store role artifact before committing (for next role or actuator)
       if (ctx.result.kind === "ok" && ctx.role) {
         const artifactPath = getRoleArtifactPath(opts.worktreePath, ctx.role, ctx.passNumber);
         try {
@@ -643,7 +643,7 @@ function createPlanReviewAdapter(args: {
       if (opts.commit) {
         // Use role-specific commit message for reviewer roles
         const roleLabel =
-          ctx.role && ["adversary", "defender", "judge"].includes(ctx.role)
+          ctx.role && ["adversary", "advocate", "adjudicator"].includes(ctx.role)
             ? `review: ${ctx.role}`
             : `review: pass ${displayPassNumber}`;
 
@@ -708,16 +708,16 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
 
   const targetDir = opts.targetDir ?? "spec";
 
-  // Create executor that runs the verdict through the refine loop
-  const createExecutor = () => {
+  // Create actuator that runs the verdict through the refine loop
+  const createActuator = () => {
     return async (verdict: string, ctx: { passNumber: number }): Promise<void> => {
       if (!verdict?.trim()) {
-        // Empty verdict: skip executor invocation (existing no-change path)
-        opts.stderr?.(`plan: verdict is empty; skipping executor\n`);
+        // Empty verdict: skip actuator invocation (existing no-change path)
+        opts.stderr?.(`plan: verdict is empty; skipping actuator\n`);
         return;
       }
 
-      opts.stderr?.(`plan: executor running with verdict\n`);
+      opts.stderr?.(`plan: actuator running with verdict\n`);
 
       // Write verdict to durable doc next to the spec
       const verdictPath = join(finalSpecPath, "verdict-plan.md");
@@ -729,9 +729,9 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
         throw new ReviewTerminalError(message, 1);
       }
 
-      // Run the verdict executor through refine
+      // Run the verdict actuator through refine
       try {
-        await runVerdictExecutor({
+        await runVerdictActuator({
           worktreePath: opts.worktreePath,
           name: opts.name,
           config: opts.config,
@@ -745,11 +745,11 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        opts.stderr?.(`plan: verdict executor failed: ${message}\n`);
+        opts.stderr?.(`plan: verdict actuator failed: ${message}\n`);
         throw new ReviewTerminalError(message, 1);
       }
 
-      // Commit executor changes
+      // Commit actuator changes
       try {
         execFileSync("git", ["add", "-A"], { cwd: opts.worktreePath, stdio: "pipe" });
         const porcelain = execFileSync("git", ["status", "--porcelain"], {
@@ -763,19 +763,19 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
             worktreePath: opts.worktreePath,
             specDirBasename: opts.specDirBasename,
             passNumber: ctx.passNumber,
-            agentLabel: "plan-review-executor",
+            agentLabel: "plan-review-actuator",
             ...(opts.subjectSuffix !== undefined ? { subjectSuffix: opts.subjectSuffix } : {}),
             targetDir,
-            reviewLabel: "review: executor",
+            reviewLabel: "review: actuator",
           });
-          opts.stderr?.(`plan: executor committed and pushed\n`);
+          opts.stderr?.(`plan: actuator committed and pushed\n`);
           await opts.updatePrBody?.();
         } else {
-          opts.stderr?.(`plan: executor made no changes\n`);
+          opts.stderr?.(`plan: actuator made no changes\n`);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        opts.stderr?.(`plan: executor commit failed: ${message}\n`);
+        opts.stderr?.(`plan: actuator commit failed: ${message}\n`);
         throw new ReviewTerminalError(message, 1);
       }
     };
@@ -814,7 +814,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
       onQuotaRotation: (agent, spawnResult, classified) => {
         emitPlanAgentQuotaFallback(opts.stderr, agent, spawnResult, classified);
       },
-      executor: createExecutor(),
+      actuator: createActuator(),
     });
 
     if (exitCode === 130) {

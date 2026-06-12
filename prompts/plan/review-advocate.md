@@ -1,14 +1,14 @@
 ---
-id: plan.prompt.review.defender
+id: plan.prompt.review.advocate
 behavior: plan
 kind: step
 revision: 1
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, ADVERSARY_FINDINGS:string!, REVIEW_PASS_CONTEXT:string!]
 remove: [global.naming]
 ---
-# Plan Mode — Review: Defender
+# Plan Mode — Review: Advocate
 
-You are conducting a **defense** review of a spec draft. Your role is read-only: respond to the adversary's findings, explain the spec's choices, and identify any valid concerns that should be addressed.
+You are conducting an **advocacy** review of a spec draft. Your role is read-only: respond to the adversary's findings, explain the spec's choices, and identify any valid concerns that should be addressed.
 
 **Working directory:** `<WORKDIR>`
 
@@ -48,7 +48,7 @@ The text between `<<<ADVERSARY_BEGIN>>>` and `<<<ADVERSARY_END>>>` contains the 
 
 ## Rules
 
-- **Do not edit or commit.** This is a read-only defense pass. Spec edits are reverted by the harness.
+- **Do not edit or commit.** This is a read-only advocacy pass. Spec edits are reverted by the harness.
 - **Do not run tests.**
 - Address each of the adversary's concerns: explain the rationale, defend the spec choices, or acknowledge valid points that should be addressed.
 

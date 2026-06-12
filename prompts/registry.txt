@@ -19,5 +19,6 @@ patch/review-defender.md
 patch/review-judge.md
 patch/rules.md
 write/execute.md
+write/principles.md
 prompt/instructions.md
 prompt/rules.md

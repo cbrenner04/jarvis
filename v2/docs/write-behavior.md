@@ -2,6 +2,8 @@
 
 `jarvis write` runs one `write` behavior turn.
 
+The write prompt injects the v2 restraint principles (`write.principles`) at every iteration; see [`coding-standards.md`](./coding-standards.md) for the canonical principle text and rationale.
+
 Current scope: this CLI path is a walking skeleton. Real agent process spawning
 is not wired yet — `createAgentBindings` (see
 [`shared-invocation.md`](./shared-invocation.md)) returns terminal-`error`

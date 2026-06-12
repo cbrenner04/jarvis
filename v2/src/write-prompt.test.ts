@@ -17,4 +17,19 @@ describe("write prompt", () => {
     expect(rendered).toContain("Read the spec at spec/example/index.md.");
     expect(rendered).toContain("Follow the contract.");
   });
+
+  test("renders all seven restraint principles", () => {
+    const rendered = renderWriteExecutePrompt({
+      specPath: "spec/example/index.md",
+      stepRules: "Done.",
+    });
+
+    expect(rendered).toContain("Separate decision from effect");
+    expect(rendered).toContain("No abstraction until two real callers");
+    expect(rendered).toContain("Extend before you create");
+    expect(rendered).toContain("No speculative configuration");
+    expect(rendered).toContain("One module, one responsibility");
+    expect(rendered).toContain("Data over branches");
+    expect(rendered).toContain("Stay in scope");
+  });
 });

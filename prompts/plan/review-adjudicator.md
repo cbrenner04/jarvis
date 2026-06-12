@@ -1,14 +1,14 @@
 ---
-id: plan.prompt.review.judge
+id: plan.prompt.review.adjudicator
 behavior: plan
 kind: step
 revision: 1
-placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, DEFENDER_RESPONSE:string!, REVIEW_PASS_CONTEXT:string!]
+placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, ADVOCATE_RESPONSE:string!, REVIEW_PASS_CONTEXT:string!]
 remove: [global.naming]
 ---
-# Plan Mode — Review: Judge
+# Plan Mode — Review: Adjudicator
 
-You are conducting the **final review** of a spec draft. Your role is to weigh the defender's response and issue a self-contained verdict that guides refinement.
+You are conducting the **final review** of a spec draft. Your role is to weigh the advocate's response and issue a self-contained verdict that guides refinement.
 
 **Working directory:** `<WORKDIR>`
 
@@ -38,20 +38,20 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 <SPEC_GUIDANCE>
 <<<SPEC_GUIDANCE_END>>>
 
-## Defender Response and Adversary Critique
+## Advocate Response and Adversary Critique
 
-The text between `<<<DEFENSE_BEGIN>>>` and `<<<DEFENSE_END>>>` contains the defender's response, which addresses the adversary's critique.
+The text between `<<<ADVOCATE_BEGIN>>>` and `<<<ADVOCATE_END>>>` contains the advocate's response, which addresses the adversary's critique.
 
-<<<DEFENSE_BEGIN>>>
-<DEFENDER_RESPONSE>
-<<<DEFENSE_END>>>
+<<<ADVOCATE_BEGIN>>>
+<ADVOCATE_RESPONSE>
+<<<ADVOCATE_END>>>
 
 ## Rules
 
 - **Do not edit or commit.** This is a read-only verdict pass. Spec edits are reverted by the harness.
 - **Do not run tests.**
 - Your verdict must be **outcome-focused** (what the spec needs), not a detailed rewrite prescription.
-- Your verdict must be **self-contained**: the executor will read only your verdict, not the adversary or defender artifacts.
+- Your verdict must be **self-contained**: the actuator will read only your verdict, not the adversary or advocate artifacts.
 - Be concise: state upheld findings and required refinements only.
 
 ## Context
@@ -60,12 +60,12 @@ The text between `<<<DEFENSE_BEGIN>>>` and `<<<DEFENSE_END>>>` contains the defe
 
 ## Instructions
 
-Weigh the adversary's findings against the defender's response. Issue a verdict that:
+Weigh the adversary's findings against the advocate's response. Issue a verdict that:
 
 1. **Identifies upheld issues**: Which of the adversary's concerns are valid and should be refined in the spec?
 2. **Defines required outcomes**: What must the spec address or clarify? State what the spec needs to cover (not implementation details).
 3. **Provides rationale**: Why are these refinements necessary? Link to the intent, spec guidance, or quality principles.
-4. **Is self-contained**: Do not reference "the adversary said" or "the defender claimed." Restate the key findings in your own terms so the refiner understands the requirements without reading prior artifacts.
+4. **Is self-contained**: Do not reference "the adversary said" or "the advocate claimed." Restate the key findings in your own terms so the refiner understands the requirements without reading prior artifacts.
 
 Format your verdict as a clear list of required refinements. Be specific enough for action, but outcome-focused rather than prescriptive about the rewrite.
 

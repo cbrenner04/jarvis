@@ -3557,21 +3557,21 @@ function isPatchReviewPrompt(prompt: string): boolean {
   return prompt.includes("Patch Mode — Review:");
 }
 
-function isPatchReviewExecutorPrompt(prompt: string): boolean {
+function isPatchReviewActuatorPrompt(prompt: string): boolean {
   return prompt.includes("## Review Verdict");
 }
 
 function reviewFakeAgent(
   name: "claude" | "codex",
   onReview: (callCount: number, cwd: string, prompt: string) => AgentResult,
-  onExecutor?: (callCount: number, cwd: string, prompt: string) => AgentResult,
+  onActuator?: (callCount: number, cwd: string, prompt: string) => AgentResult,
 ): FakeAgent {
   return new FakeAgent(name, (callCount, prompt, opts) => {
     if (isPatchReviewPrompt(prompt)) {
       return onReview(callCount, opts.cwd, prompt);
     }
-    if (isPatchReviewExecutorPrompt(prompt)) {
-      return (onExecutor ?? onReview)(callCount, opts.cwd, prompt);
+    if (isPatchReviewActuatorPrompt(prompt)) {
+      return (onActuator ?? onReview)(callCount, opts.cwd, prompt);
     }
     if (prompt.includes("PR description")) {
       return { kind: "ok", stdout: "Implements the feature.\n", stderr: "" };
@@ -3593,7 +3593,7 @@ describe("review phase", () => {
       "claude",
       (_n, _cwd, prompt) => ({
         kind: "ok",
-        stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "",
+        stdout: prompt.includes("Review: Adjudicator") ? "Refine code output.\n" : "",
         stderr: "",
       }),
       (_n, cwd) => {
@@ -3612,7 +3612,7 @@ describe("review phase", () => {
     });
 
     expect(code).toBe(0);
-    expect(env.reviewCommitSubjects()).toEqual(["review: executor"]);
+    expect(env.reviewCommitSubjects()).toEqual(["review: actuator"]);
     // gh pr ready fires exactly once, and only after the review commit landed.
     expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     const reviewPrompts = claude.calls.filter((c) => isPatchReviewPrompt(c.prompt));
@@ -3621,7 +3621,7 @@ describe("review phase", () => {
     expect(reviewPrompt).toContain("diff --git");
     expect(reviewPrompt).not.toContain("failed to generate diff");
     expect(cap.out()).toContain("iterations: 1");
-    expect(cap.out()).toContain("review attempts: 4"); // 3 roles + executor
+    expect(cap.out()).toContain("review attempts: 4"); // 3 roles + actuator
   });
 
   test("baseline gate leaves PR draft until review completes", async () => {
@@ -3641,7 +3641,7 @@ describe("review phase", () => {
         );
         return {
           kind: "ok",
-          stdout: prompt.includes("Review: Judge") ? "No executor changes needed.\n" : "",
+          stdout: prompt.includes("Review: Adjudicator") ? "No actuator changes needed.\n" : "",
           stderr: "",
         };
       },
@@ -3668,20 +3668,20 @@ describe("review phase", () => {
     const env = setupReviewEnv({ reviewPasses: 2 });
     const cap = captureIo();
     let _reviewCalls = 0;
-    let executorCalls = 0;
+    let actuatorCalls = 0;
     const claude = reviewFakeAgent(
       "claude",
       (_callCount, _cwd, prompt) => {
         _reviewCalls += 1;
         return {
           kind: "ok",
-          stdout: prompt.includes("Review: Judge") ? "Apply second-cycle refinement.\n" : "",
+          stdout: prompt.includes("Review: Adjudicator") ? "Apply second-cycle refinement.\n" : "",
           stderr: "",
         };
       },
       (_callCount, cwd) => {
-        executorCalls += 1;
-        writeFileSync(join(cwd, "code.txt"), `executor ${executorCalls}\n`);
+        actuatorCalls += 1;
+        writeFileSync(join(cwd, "code.txt"), `actuator ${actuatorCalls}\n`);
         return { kind: "ok", stdout: "", stderr: "" };
       },
     );
@@ -3701,8 +3701,8 @@ describe("review phase", () => {
     const reviewPrompts = claude.calls.filter((c) => isPatchReviewPrompt(c.prompt));
     expect(reviewPrompts).toHaveLength(6);
     const commitSubjects = env.reviewCommitSubjects();
-    expect(commitSubjects).toEqual(["review: executor", "review: executor"]);
-    expect(cap.out()).toContain("review attempts: 8"); // (3 roles + executor) × 2 cycles
+    expect(commitSubjects).toEqual(["review: actuator", "review: actuator"]);
+    expect(cap.out()).toContain("review attempts: 8"); // (3 roles + actuator) × 2 cycles
   });
 
   test("reverts spec-tree edits (tracked and untracked); commits only code", async () => {
@@ -3718,8 +3718,8 @@ describe("review phase", () => {
         );
         writeFileSync(join(cwd, "spec", "feature", "02-extra.md"), "sneaky\n");
         writeFileSync(join(cwd, "code.txt"), "ok\n");
-        if (prompt.includes("Review: Judge")) {
-          return { kind: "ok", stdout: "Executor should write code.\n", stderr: "" };
+        if (prompt.includes("Review: Adjudicator")) {
+          return { kind: "ok", stdout: "Actuator should write code.\n", stderr: "" };
         }
         return { kind: "ok", stdout: "", stderr: "" };
       },
@@ -3781,7 +3781,11 @@ describe("review phase", () => {
     const claude = reviewFakeAgent(
       "claude",
       (_n, _cwd, prompt) => {
-        return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "", stderr: "" };
+        return {
+          kind: "ok",
+          stdout: prompt.includes("Review: Adjudicator") ? "Refine code output.\n" : "",
+          stderr: "",
+        };
       },
       (_n, cwd) => {
         writeFileSync(env.failReviewPush, "1\n");
@@ -3800,7 +3804,7 @@ describe("review phase", () => {
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain("review: executor commit failed");
+    expect(cap.err()).toContain("review: actuator commit failed");
     expect(existsSync(env.prReadyLog)).toBe(false);
   });
 
@@ -3859,12 +3863,16 @@ describe("review phase", () => {
         throw new Error("claude must not run review passes");
       },
       (_n, cwd) => {
-        writeFileSync(join(cwd, "code.txt"), "by claude executor\n");
+        writeFileSync(join(cwd, "code.txt"), "by claude actuator\n");
         return { kind: "ok", stdout: "", stderr: "" };
       },
     );
     const codex = reviewFakeAgent("codex", (_n, _cwd, prompt) => {
-      return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Executor should edit code.\n" : "", stderr: "" };
+      return {
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "Actuator should edit code.\n" : "",
+        stderr: "",
+      };
     });
 
     const code = await runCommand({
@@ -3880,7 +3888,7 @@ describe("review phase", () => {
     // codex handled the review pass; claude handled implementation only.
     expect(codex.calls.some((c) => isPatchReviewPrompt(c.prompt))).toBe(true);
     expect(claude.calls.some((c) => isPatchReviewPrompt(c.prompt))).toBe(false);
-    expect(env.reviewCommitSubjects()).toEqual(["review: executor"]);
+    expect(env.reviewCommitSubjects()).toEqual(["review: actuator"]);
   });
 
   test("review still runs on the closing iteration when maxIterations is exhausted", async () => {
@@ -3889,7 +3897,11 @@ describe("review phase", () => {
     const claude = reviewFakeAgent(
       "claude",
       (_n, _cwd, prompt) => {
-        return { kind: "ok", stdout: prompt.includes("Review: Judge") ? "Refine code output.\n" : "", stderr: "" };
+        return {
+          kind: "ok",
+          stdout: prompt.includes("Review: Adjudicator") ? "Refine code output.\n" : "",
+          stderr: "",
+        };
       },
       (_n, cwd) => {
         writeFileSync(join(cwd, "code.txt"), "x\n");
@@ -3907,7 +3919,7 @@ describe("review phase", () => {
     });
 
     expect(code).toBe(0);
-    expect(env.reviewCommitSubjects()).toEqual(["review: executor"]);
+    expect(env.reviewCommitSubjects()).toEqual(["review: actuator"]);
   });
 
   test("--review-passes 0 disables the review phase", async () => {

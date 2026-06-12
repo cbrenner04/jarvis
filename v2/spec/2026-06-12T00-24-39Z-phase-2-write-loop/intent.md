@@ -158,3 +158,14 @@ minimal column set, single-step checkpoint shape) are either recorded as
 deferred-to-first-consumer or are defaults a reasonable implementer reaches from the v1
 max-iterations/exit-5 model and the architecture docs; no plausible wrong alternative
 warrants a ledger entry.
+
+## Blocker
+
+Review and approve `v2/spec/2026-06-12T00-24-39Z-phase-2-write-loop/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-06-12T00-24-39Z-phase-2-write-loop/intent.md`

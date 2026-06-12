@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path"; // Used in bindings closure
+import { join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
@@ -24,17 +24,11 @@ function setupRepo(): { repoRoot: string; jarvisRoot: string; stateDbPath: strin
   const stateDbPath = join(jarvisRoot, "state", "v2.sqlite");
 
   execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], {
-    stdio: "pipe",
-  });
-  execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], {
-    stdio: "pipe",
-  });
+  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], { stdio: "pipe" });
   writeFileSync(join(repoRoot, "spec.md"), "- [ ] work\n", "utf8");
   execFileSync("git", ["-C", repoRoot, "add", "spec.md"], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], {
-    stdio: "pipe",
-  });
+  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], { stdio: "pipe" });
 
   return { repoRoot, jarvisRoot, stateDbPath };
 }
@@ -47,20 +41,21 @@ async function runLoop(args: {
   maxIterations?: number;
   artifactPath?: string;
   signal?: AbortSignal;
+  branchName?: string;
+  baseRef?: string;
+  specPath?: string;
+  store?: StateStore;
 }) {
-  const store = openStateStore(args.stateDbPath);
+  const store = args.store ?? openStateStore(args.stateDbPath);
   const loopInput: WriteLoopInput = {
     worktree: {
       projectRoot: args.repoRoot,
       projectName: "demo",
-      branchName: "write-run",
-      baseRef: "HEAD",
+      branchName: args.branchName ?? "write-run",
+      baseRef: args.baseRef ?? "HEAD",
       jarvisRoot: args.jarvisRoot,
     },
-    projectId: "demo",
-    specRef: "HEAD",
-    branch: "write-run",
-    specPath: "spec.md",
+    specPath: args.specPath ?? "spec.md",
     stepRules: "Return exactly one terminal token.",
     expectedArtifactPath: args.artifactPath ?? "proof.txt",
     bindings: args.bindings,
@@ -72,82 +67,66 @@ async function runLoop(args: {
   if (args.signal !== undefined) {
     loopInput.signal = args.signal;
   }
-  const result = await executeWriteLoop(loopInput);
-  store.close();
-  return result;
+  try {
+    return await executeWriteLoop(loopInput);
+  } finally {
+    store.close();
+  }
 }
 
-class ThrowMidBoundaryStore implements StateStore {
-  private threw = false;
-
-  constructor(private readonly inner: StateStore) {}
-
-  createRun(args: Parameters<StateStore["createRun"]>[0]): string {
-    return this.inner.createRun(args);
+function loadRunOnce(stateDbPath: string, runId: string) {
+  const store = openStateStore(stateDbPath);
+  try {
+    return store.loadRun(runId);
+  } finally {
+    store.close();
   }
+}
 
-  loadRun(runId: string) {
-    return this.inner.loadRun(runId);
-  }
-
-  findRunByProjectBranch(args: Parameters<StateStore["findRunByProjectBranch"]>[0]) {
-    return this.inner.findRunByProjectBranch(args);
-  }
-
-  recordAttemptStart(runId: string): string {
-    return this.inner.recordAttemptStart(runId);
-  }
-
-  commitCompletionBoundary(args: Parameters<StateStore["commitCompletionBoundary"]>[0]): void {
-    const beforeRunUpdate = this.threw
-      ? args.beforeRunUpdate
-      : () => {
-          this.threw = true;
+/** Wrap a store so the first completion boundary fails mid-transaction. */
+function crashOnceMidBoundary(inner: StateStore): StateStore {
+  let crashed = false;
+  return {
+    createRun: (args) => inner.createRun(args),
+    loadRun: (runId) => inner.loadRun(runId),
+    findRunByProjectBranch: (args) => inner.findRunByProjectBranch(args),
+    recordAttemptStart: (runId) => inner.recordAttemptStart(runId),
+    setRunStatus: (runId, status) => inner.setRunStatus(runId, status),
+    close: () => inner.close(),
+    commitCompletionBoundary: (args) => {
+      if (crashed) return inner.commitCompletionBoundary(args);
+      crashed = true;
+      inner.commitCompletionBoundary({
+        ...args,
+        beforeRunUpdate: () => {
           throw new Error("crash mid-boundary");
-        };
+        },
+      });
+    },
+  };
+}
 
-    if (beforeRunUpdate) {
-      this.inner.commitCompletionBoundary({ ...args, beforeRunUpdate });
-      return;
-    }
-
-    this.inner.commitCompletionBoundary(args);
-  }
-
-  setRunStatus(runId: string, status: Parameters<StateStore["setRunStatus"]>[1]): void {
-    this.inner.setRunStatus(runId, status);
-  }
-
-  close(): void {
-    this.inner.close();
-  }
+/** Bindings that report `progress` n times, then write the artifact and report `done`. */
+function progressThenDone(n: number): InvocationBinding[] {
+  let calls = 0;
+  return [
+    {
+      id: "agent",
+      invoke: async ({ cwd }) => {
+        calls += 1;
+        if (calls <= n) return { kind: "ok", stdout: "progress", stderr: "" };
+        writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+        return { kind: "ok", stdout: "done", stderr: "" };
+      },
+    },
+  ];
 }
 
 describe("write loop", () => {
-  test("loop module exists and calls executeWrite repeatedly until terminal", async () => {
+  test("calls executeWrite repeatedly until terminal", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    let callCount = 0;
-    const bindings: InvocationBinding[] = [
-      {
-        id: "agent",
-        invoke: async ({ cwd }) => {
-          callCount += 1;
-          if (callCount <= 2) {
-            return { kind: "ok", stdout: "progress", stderr: "" };
-          }
-          // Write artifact to the worktree cwd
-          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
-          return { kind: "ok", stdout: "done", stderr: "" };
-        },
-      },
-    ];
 
-    const result = await runLoop({
-      repoRoot,
-      jarvisRoot,
-      stateDbPath,
-      bindings,
-    });
+    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
 
     expect(result.kind).toBe("complete");
     expect(result.iterationsConsumed).toBe(3);
@@ -156,20 +135,12 @@ describe("write loop", () => {
 
   test("progress loops again and artifact contract not checked mid-loop", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    const bindings: InvocationBinding[] = [
-      {
-        id: "agent",
-        invoke: async () => {
-          return { kind: "ok", stdout: "progress", stderr: "" };
-        },
-      },
-    ];
 
     const result = await runLoop({
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings,
+      bindings: simulatedBindings(["progress"]),
       maxIterations: 3,
     });
 
@@ -180,16 +151,12 @@ describe("write loop", () => {
 
   test("done with passing artifact contract ends loop successfully", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    const bindings = simulatedBindings(["done"], {
-      artifactPath: "proof.txt",
-      emitArtifact: true,
-    });
 
     const result = await runLoop({
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings,
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
     });
 
     expect(result.kind).toBe("complete");
@@ -198,61 +165,41 @@ describe("write loop", () => {
 
   test("no-work with passing artifact contract ends loop successfully", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    const bindings = simulatedBindings(["no-work"], {
-      artifactPath: "proof.txt",
-      emitArtifact: true,
-    });
 
     const result = await runLoop({
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings,
+      bindings: simulatedBindings(["no-work"], { artifactPath: "proof.txt", emitArtifact: true }),
     });
 
     expect(result.kind).toBe("complete");
     expect(result.iterationsConsumed).toBe(1);
-
-    const store = openStateStore(stateDbPath);
-    const run = store.loadRun(result.runId);
-    store.close();
-    expect(run?.attempts[0]?.outcomeKind).toBe("no-work");
+    expect(loadRunOnce(stateDbPath, result.runId)?.attempts[0]?.outcomeKind).toBe("no-work");
   });
 
   test("done/no-work with failing contract appends blocker and stops", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    const bindings = simulatedBindings(["done"], {
-      artifactPath: "proof.txt",
-      emitArtifact: false, // No artifact, contract will fail
-    });
 
     const result = await runLoop({
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings,
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: false }),
     });
 
     expect(result.kind).toBe("contract_miss");
     expect(result.iterationsConsumed).toBe(1);
 
-    // Blocker should be appended to spec in the worktree
-    const worktreeSpecPath = join(jarvisRoot, "worktrees", "demo", "write-run", "spec.md");
-    const spec = readFileSync(worktreeSpecPath, "utf8");
+    const spec = readFileSync(join(jarvisRoot, "worktrees", "demo", "write-run", "spec.md"), "utf8");
     expect(spec).toContain("## Blocker");
     expect(spec).toContain("artifact.exists");
   });
 
   test("blocked stops immediately with distinct outcome", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    const bindings = simulatedBindings(["blocked"]);
 
-    const result = await runLoop({
-      repoRoot,
-      jarvisRoot,
-      stateDbPath,
-      bindings,
-    });
+    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: simulatedBindings(["blocked"]) });
 
     expect(result.kind).toBe("blocked");
     expect(result.iterationsConsumed).toBe(1);
@@ -261,13 +208,12 @@ describe("write loop", () => {
 
   test("budget exhausted while progress yields soft-stop outcome", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    const bindings = simulatedBindings(["progress", "progress", "progress"]);
 
     const result = await runLoop({
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings,
+      bindings: simulatedBindings(["progress"]),
       maxIterations: 2,
     });
 
@@ -278,13 +224,12 @@ describe("write loop", () => {
 
   test("invocation_failure is terminal", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    const bindings = simulatedBindings(["quota", "quota"]);
 
     const result = await runLoop({
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings,
+      bindings: simulatedBindings(["quota", "quota"]),
     });
 
     expect(result.kind).toBe("invocation_failure");
@@ -293,26 +238,8 @@ describe("write loop", () => {
 
   test("max iterations per-invocation with default constant", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    const bindings = simulatedBindings([
-      "progress",
-      "progress",
-      "progress",
-      "progress",
-      "progress",
-      "progress",
-      "progress",
-      "progress",
-      "progress",
-      "progress",
-      "done",
-    ]);
 
-    const result = await runLoop({
-      repoRoot,
-      jarvisRoot,
-      stateDbPath,
-      bindings,
-    });
+    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: simulatedBindings(["progress"]) });
 
     expect(result.iterationsConsumed).toBe(10); // Default max
     expect(result.kind).toBe("budget-exhausted");
@@ -321,27 +248,19 @@ describe("write loop", () => {
   test("cancellation propagates via AbortSignal", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
     const controller = new AbortController();
-    const callCounts: number[] = [];
+    let calls = 0;
     const bindings: InvocationBinding[] = [
       {
         id: "track",
         invoke: async () => {
-          callCounts.push(1);
-          if (callCounts.length > 1) {
-            controller.abort();
-          }
+          calls += 1;
+          if (calls > 1) controller.abort();
           return { kind: "ok", stdout: "progress", stderr: "" };
         },
       },
     ];
 
-    const result = await runLoop({
-      repoRoot,
-      jarvisRoot,
-      stateDbPath,
-      bindings,
-      signal: controller.signal,
-    });
+    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings, signal: controller.signal });
 
     expect(result.kind).toBe("progress");
     expect(result.iterationsConsumed).toBe(2);
@@ -350,32 +269,10 @@ describe("write loop", () => {
 
   test("each iteration persists through state store boundary", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    let callCount = 0;
-    const bindings: InvocationBinding[] = [
-      {
-        id: "agent",
-        invoke: async ({ cwd }) => {
-          callCount += 1;
-          if (callCount <= 2) {
-            return { kind: "ok", stdout: "progress", stderr: "" };
-          }
-          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
-          return { kind: "ok", stdout: "done", stderr: "" };
-        },
-      },
-    ];
 
-    const result = await runLoop({
-      repoRoot,
-      jarvisRoot,
-      stateDbPath,
-      bindings,
-    });
+    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
 
-    const store = openStateStore(stateDbPath);
-    const run = store.loadRun(result.runId);
-    store.close();
-
+    const run = loadRunOnce(stateDbPath, result.runId);
     expect(run).not.toBeNull();
     expect(run?.attempts.length).toBe(3);
   });
@@ -396,13 +293,7 @@ describe("write loop", () => {
     ];
 
     await expect(
-      runLoop({
-        repoRoot,
-        jarvisRoot,
-        stateDbPath,
-        bindings: crashBindings,
-        maxIterations: 1,
-      }),
+      runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: crashBindings, maxIterations: 1 }),
     ).rejects.toThrow("simulated crash");
     expect(firstRunCalls).toBe(1);
 
@@ -419,21 +310,13 @@ describe("write loop", () => {
       },
     ];
 
-    const resumed = await runLoop({
-      repoRoot,
-      jarvisRoot,
-      stateDbPath,
-      bindings: resumeBindings,
-      maxIterations: 1,
-    });
+    const resumed = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: resumeBindings, maxIterations: 1 });
 
     expect(resumed.kind).toBe("complete");
     expect(resumed.iterationsConsumed).toBe(1);
     expect(resumedCalls).toBe(1);
 
-    const store = openStateStore(stateDbPath);
-    const run = store.loadRun(resumed.runId);
-    store.close();
+    const run = loadRunOnce(stateDbPath, resumed.runId);
     expect(run?.attemptCount).toBe(1);
     expect(run?.attempts).toHaveLength(1);
     expect(run?.attempts[0]?.outcomeKind).toBe("done");
@@ -455,24 +338,19 @@ describe("write loop", () => {
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings: simulatedBindings(["done"], {
-        artifactPath: "proof.txt",
-        emitArtifact: true,
-      }),
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
       maxIterations: 1,
     });
 
     expect(second.kind).toBe("complete");
     expect(second.iterationsConsumed).toBe(1);
 
-    const store = openStateStore(stateDbPath);
-    const run = store.loadRun(second.runId);
-    store.close();
+    const run = loadRunOnce(stateDbPath, second.runId);
     expect(run?.status).toBe("completed");
     expect(run?.attemptCount).toBe(2);
   });
 
-  test("a different specRef and worktree on the same project and branch still resumes the same run", async () => {
+  test("a different baseRef, specPath, and worktree on the same project and branch still resumes the same run", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
     const first = await runLoop({
       repoRoot,
@@ -484,36 +362,19 @@ describe("write loop", () => {
 
     expect(first.kind).toBe("budget-exhausted");
 
-    const store = openStateStore(stateDbPath);
-    const run = store.loadRun(first.runId);
-    store.close();
+    const run = loadRunOnce(stateDbPath, first.runId);
     if (!run) throw new Error("Run should exist");
-
     rmSync(run.worktreePath, { recursive: true, force: true });
 
-    const secondStore = openStateStore(stateDbPath);
-    const resumed = await executeWriteLoop({
-      worktree: {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "write-run",
-        baseRef: "main",
-        jarvisRoot,
-      },
-      projectId: "demo",
-      specRef: "different-ref",
-      branch: "write-run",
+    const resumed = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      baseRef: "main",
       specPath: "renamed-spec.md",
-      stepRules: "Return exactly one terminal token.",
-      expectedArtifactPath: "proof.txt",
-      bindings: simulatedBindings(["done"], {
-        artifactPath: "proof.txt",
-        emitArtifact: true,
-      }),
-      stateStore: secondStore,
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
       maxIterations: 1,
     });
-    secondStore.close();
 
     expect(resumed.kind).toBe("complete");
     expect(resumed.runId).toBe(first.runId);
@@ -529,37 +390,20 @@ describe("write loop", () => {
       maxIterations: 1,
     });
 
-    const secondStore = openStateStore(stateDbPath);
-    const second = await executeWriteLoop({
-      worktree: {
-        projectRoot: repoRoot,
-        projectName: "demo",
-        branchName: "other-write-run",
-        baseRef: "HEAD",
-        jarvisRoot,
-      },
-      projectId: "demo",
-      specRef: "HEAD",
-      branch: "other-write-run",
-      specPath: "spec.md",
-      stepRules: "Return exactly one terminal token.",
-      expectedArtifactPath: "proof.txt",
-      bindings: simulatedBindings(["done"], {
-        artifactPath: "proof.txt",
-        emitArtifact: true,
-      }),
-      stateStore: secondStore,
+    const second = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      branchName: "other-write-run",
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
       maxIterations: 1,
     });
-    secondStore.close();
 
     expect(first.runId).not.toBe(second.runId);
   });
 
   test("re-running a boundary that fails mid-transaction retries the same attempt without duplicate history", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-    const innerStore = openStateStore(stateDbPath);
-    const crashingStore = new ThrowMidBoundaryStore(innerStore);
     let firstInvocationCalls = 0;
     const completeBindings: InvocationBinding[] = [
       {
@@ -573,26 +417,15 @@ describe("write loop", () => {
     ];
 
     await expect(
-      executeWriteLoop({
-        worktree: {
-          projectRoot: repoRoot,
-          projectName: "demo",
-          branchName: "write-run",
-          baseRef: "HEAD",
-          jarvisRoot,
-        },
-        projectId: "demo",
-        specRef: "HEAD",
-        branch: "write-run",
-        specPath: "spec.md",
-        stepRules: "Return exactly one terminal token.",
-        expectedArtifactPath: "proof.txt",
+      runLoop({
+        repoRoot,
+        jarvisRoot,
+        stateDbPath,
         bindings: completeBindings,
-        stateStore: crashingStore,
+        store: crashOnceMidBoundary(openStateStore(stateDbPath)),
         maxIterations: 1,
       }),
     ).rejects.toThrow("crash mid-boundary");
-    crashingStore.close();
     expect(firstInvocationCalls).toBe(1);
 
     let resumedCalls = 0;
@@ -616,9 +449,7 @@ describe("write loop", () => {
     expect(resumed.iterationsConsumed).toBe(1);
     expect(resumedCalls).toBe(1);
 
-    const store = openStateStore(stateDbPath);
-    const run = store.loadRun(resumed.runId);
-    store.close();
+    const run = loadRunOnce(stateDbPath, resumed.runId);
     expect(run?.attemptCount).toBe(1);
     expect(run?.attempts).toHaveLength(1);
   });
@@ -643,10 +474,7 @@ describe("write loop", () => {
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings: simulatedBindings(["done"], {
-        artifactPath: "proof.txt",
-        emitArtifact: true,
-      }),
+      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
       maxIterations: 1,
     });
 

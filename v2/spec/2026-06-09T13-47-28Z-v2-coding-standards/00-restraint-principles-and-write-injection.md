@@ -61,15 +61,15 @@ plan/review prompts breaks v2-only scope.)
 
 ## Acceptance criteria
 
-- [ ] The seven restraint principles exist as one registered prompt artifact
+- [x] The seven restraint principles exist as one registered prompt artifact
   loadable by id through the shared registry; `prompts/registry.txt` lists it.
-- [ ] `renderWriteExecutePrompt` output contains the principle text; a test in
+- [x] `renderWriteExecutePrompt` output contains the principle text; a test in
   `v2/src/` asserts every principle renders (distinct phrase per principle).
-- [ ] No second copy of the principle text exists: `v2/docs/coding-standards.md`
+- [x] No second copy of the principle text exists: `v2/docs/coding-standards.md`
   points at the artifact rather than restating the principles.
-- [ ] `v2/docs/write-behavior.md` and `v2/docs/prompts.md` reflect the injected
+- [x] `v2/docs/write-behavior.md` and `v2/docs/prompts.md` reflect the injected
   principle artifact.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

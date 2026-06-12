@@ -1,7 +1,8 @@
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { type ExternalWorktreeInput, getExternalWorktreePath } from "./external-worktree.ts";
-import { openStateStore, type StateStore } from "./state-store.ts";
+import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "./state-store.ts";
+import type { StepRunResult } from "./step-runner.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
 /** Classification of a loop outcome. */
@@ -32,6 +33,10 @@ export type WriteLoopInput = Omit<WriteExecuteInput, "signal"> & {
 };
 
 const DEFAULT_MAX_ITERATIONS = 10;
+type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
+type PreparedRun =
+  | { runId: string; worktreePath: string; resumedAttemptId: string | null }
+  | { result: WriteLoopResult };
 
 /**
  * Execute a resumable write loop: repeatedly call executeWrite until work is
@@ -43,67 +48,15 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
   const maxIterations = args.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
   try {
-    // Compute the external worktree path upfront.
-    const worktreeInput: ExternalWorktreeInput & { jarvisRoot?: string } = {
-      projectRoot: args.worktree.projectRoot,
-      projectName: args.worktree.projectName,
-      branchName: args.worktree.branchName,
-      baseRef: args.worktree.baseRef,
-    };
-    if (args.worktree.jarvisRoot !== undefined) {
-      worktreeInput.jarvisRoot = args.worktree.jarvisRoot;
-    }
-    const worktreePath = getExternalWorktreePath(worktreeInput as ExternalWorktreeInput);
-
-    // Create or resume: try to find an existing run by identity, or create a new one.
-    let runId: string;
-    let lastAttempt: { attemptId: string; isInterrupted: boolean } | null = null;
-
-    const existingRun = store.findRunByProjectBranch({
-      project: args.projectId,
-      branch: args.branch,
-    });
-
-    if (existingRun) {
-      // Resume: load the existing run.
-      runId = existingRun.id;
-      const lastAttemptRecord = existingRun.attempts[existingRun.attempts.length - 1];
-      if (lastAttemptRecord !== undefined) {
-        // An attempt is interrupted if its status is "in-progress" (no committed boundary yet).
-        const isInterrupted = lastAttemptRecord.status === "in-progress";
-        if (isInterrupted) {
-          lastAttempt = { attemptId: lastAttemptRecord.id, isInterrupted: true };
-        }
-      }
-      if (lastAttempt === null) {
-        const resumed = resumeCommittedRun(existingRun);
-        if (resumed !== null) {
-          return resumed;
-        }
-      }
-    } else {
-      // New run: create it.
-      runId = store.createRun({
-        project: args.projectId,
-        specRef: args.specRef,
-        worktreePath,
-        branch: args.branch,
-        specPath: args.specPath,
-      });
-    }
-
+    const prepared = prepareRun(args, store);
+    if ("result" in prepared) return prepared.result;
+    const { runId, worktreePath } = prepared;
     let iterationsConsumed = 0;
-    let resumedAttemptId: string | null = null;
+    let resumedAttemptId = prepared.resumedAttemptId;
 
-    // If resuming an interrupted attempt, reuse its ID; otherwise create a new one.
-    if (lastAttempt?.isInterrupted) {
-      resumedAttemptId = lastAttempt.attemptId;
-    }
     store.setRunStatus(runId, "in-progress");
 
-    // Loop until terminal outcome or budget exhausted.
     while (iterationsConsumed < maxIterations) {
-      // Check abort before starting iteration.
       if (args.signal?.aborted) {
         return {
           kind: "progress",
@@ -113,123 +66,23 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
         };
       }
 
-      // Record attempt start, or reuse the resumed attempt ID.
       const attemptId = resumedAttemptId ?? store.recordAttemptStart(runId);
-      // Clear the resumed ID after first use.
       resumedAttemptId = null;
-
-      // Execute one write pass.
-      const executeWriteArgs: WriteExecuteInput = {
-        worktree: args.worktree,
-        specPath: args.specPath,
-        stepRules: args.stepRules,
-        expectedArtifactPath: args.expectedArtifactPath,
-        bindings: args.bindings,
-      };
-      if (args.signal !== undefined) {
-        executeWriteArgs.signal = args.signal;
-      }
-      const writeResult = await executeWrite(executeWriteArgs);
-
+      const writeResult = await executeWrite(writeExecuteInput(args));
       iterationsConsumed += 1;
 
-      // Classify the result.
-      const result = writeResult.result;
-
-      if (result.kind === "progress") {
-        // Progress: loop again, consuming one of N.
-        store.commitCompletionBoundary({
-          attemptId,
-          status: "completed",
-          runStatus: "in-progress",
-          outcomeKind: "progress",
-        });
-        continue;
-      }
-
-      if (result.kind === "blocked") {
-        // Blocked: stop immediately, terminal blocked outcome.
-        store.commitCompletionBoundary({
-          attemptId,
-          status: "completed",
-          runStatus: "blocked",
-          outcomeKind: "blocked",
-        });
-        return {
-          kind: "blocked",
-          runId,
-          iterationsConsumed,
-          resumable: false,
-        };
-      }
-
-      if (result.kind === "invocation_failure") {
-        // Invocation failure: terminal stop.
-        store.commitCompletionBoundary({
-          attemptId,
-          status: "completed",
-          runStatus: "failed",
-          outcomeKind: "invocation_failure",
-        });
-        return {
-          kind: "invocation_failure",
-          runId,
-          iterationsConsumed,
-          resumable: false,
-        };
-      }
-
-      // done / no-work / contract_miss: check artifact contract.
-      if (result.kind === "contract_miss") {
-        // Contract miss: append blocker to spec and stop.
-        const specPathAbsolute = isAbsolute(args.specPath) ? args.specPath : join(worktreePath, args.specPath);
-        appendBlockerToSpec(specPathAbsolute, result.failedContractId);
-        store.commitCompletionBoundary({
-          attemptId,
-          status: "completed",
-          runStatus: "blocked",
-          outcomeKind: "contract_miss",
-        });
-        return {
-          kind: "contract_miss",
-          runId,
-          iterationsConsumed,
-          resumable: false,
-        };
-      }
-
-      // complete: terminal success.
-      if (result.kind === "complete") {
-        store.commitCompletionBoundary({
-          attemptId,
-          status: "completed",
-          runStatus: "completed",
-          outcomeKind: result.token,
-        });
-        return {
-          kind: "complete",
-          runId,
-          iterationsConsumed,
-          resumable: false,
-        };
-      }
-
-      // Unexpected token (invalid_token).
-      store.commitCompletionBoundary({
-        attemptId,
-        status: "completed",
-        runStatus: "failed",
-        outcomeKind: "invocation_failure",
-      });
-      return {
-        kind: "invocation_failure",
+      const outcome = commitAttemptResult({
+        store,
+        args,
+        worktreePath,
         runId,
+        attemptId,
         iterationsConsumed,
-        resumable: false,
-      };
+        result: writeResult.result,
+      });
+      if (outcome !== null) return outcome;
     }
 
-    // Budget exhausted while still progress: soft-stop (resumable).
     store.setRunStatus(runId, "budget-soft-stopped");
     return {
       kind: "budget-exhausted",
@@ -244,9 +97,139 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
   }
 }
 
-function resumeCommittedRun(
-  run: ReturnType<StateStore["loadRun"]> extends infer T ? NonNullable<T> : never,
-): WriteLoopResult | null {
+function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
+  const worktreePath = getExternalWorktreePath(writeLoopWorktreeInput(args));
+  const existingRun = store.findRunByProjectBranch({
+    project: args.projectId,
+    branch: args.branch,
+  });
+
+  if (existingRun === null) {
+    return {
+      runId: createRun(args, store, worktreePath),
+      worktreePath,
+      resumedAttemptId: null,
+    };
+  }
+
+  const resumedAttemptId = interruptedAttemptId(existingRun);
+  if (resumedAttemptId !== null) {
+    return { runId: existingRun.id, worktreePath, resumedAttemptId };
+  }
+
+  const result = resumeCommittedRun(existingRun);
+  return result === null ? { runId: existingRun.id, worktreePath, resumedAttemptId: null } : { result };
+}
+
+function writeLoopWorktreeInput(args: WriteLoopInput): ExternalWorktreeInput {
+  return {
+    projectRoot: args.worktree.projectRoot,
+    projectName: args.worktree.projectName,
+    branchName: args.worktree.branchName,
+    baseRef: args.worktree.baseRef,
+    ...(args.worktree.jarvisRoot !== undefined ? { jarvisRoot: args.worktree.jarvisRoot } : {}),
+  };
+}
+
+function createRun(args: WriteLoopInput, store: StateStore, worktreePath: string): string {
+  return store.createRun({
+    project: args.projectId,
+    specRef: args.specRef,
+    worktreePath,
+    branch: args.branch,
+    specPath: args.specPath,
+  });
+}
+
+function interruptedAttemptId(run: StoredRun): string | null {
+  const lastAttempt = run.attempts[run.attempts.length - 1];
+  return lastAttempt?.status === "in-progress" ? lastAttempt.id : null;
+}
+
+function writeExecuteInput(args: WriteLoopInput): WriteExecuteInput {
+  return {
+    worktree: args.worktree,
+    specPath: args.specPath,
+    stepRules: args.stepRules,
+    expectedArtifactPath: args.expectedArtifactPath,
+    bindings: args.bindings,
+    ...(args.signal !== undefined ? { signal: args.signal } : {}),
+  };
+}
+
+function commitAttemptResult(args: {
+  store: StateStore;
+  args: WriteLoopInput;
+  worktreePath: string;
+  runId: string;
+  attemptId: string;
+  iterationsConsumed: number;
+  result: StepRunResult;
+}): WriteLoopResult | null {
+  const { result } = args;
+
+  if (result.kind === "progress") {
+    args.store.commitCompletionBoundary({
+      attemptId: args.attemptId,
+      status: "completed",
+      runStatus: "in-progress",
+      outcomeKind: "progress",
+    });
+    return null;
+  }
+
+  if (result.kind === "contract_miss") {
+    appendBlockerToSpec(resolveSpecPath(args.worktreePath, args.args.specPath), result.failedContractId);
+  }
+
+  return commitTerminalResult(args, terminalMapping(result));
+}
+
+function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): {
+  kind: WriteLoopOutcomeKind;
+  runStatus: RunStatus;
+  outcomeKind: OutcomeKind;
+} {
+  if (result.kind === "blocked") {
+    return { kind: "blocked", runStatus: "blocked", outcomeKind: "blocked" };
+  }
+
+  if (result.kind === "contract_miss") {
+    return { kind: "contract_miss", runStatus: "blocked", outcomeKind: "contract_miss" };
+  }
+
+  if (result.kind === "complete") {
+    return { kind: "complete", runStatus: "completed", outcomeKind: result.token };
+  }
+
+  return { kind: "invocation_failure", runStatus: "failed", outcomeKind: "invocation_failure" };
+}
+
+function commitTerminalResult(
+  args: {
+    store: StateStore;
+    runId: string;
+    attemptId: string;
+    iterationsConsumed: number;
+  },
+  mapping: { kind: WriteLoopOutcomeKind; runStatus: RunStatus; outcomeKind: OutcomeKind },
+): WriteLoopResult {
+  args.store.commitCompletionBoundary({
+    attemptId: args.attemptId,
+    status: "completed",
+    runStatus: mapping.runStatus,
+    outcomeKind: mapping.outcomeKind,
+  });
+
+  return {
+    kind: mapping.kind,
+    runId: args.runId,
+    iterationsConsumed: args.iterationsConsumed,
+    resumable: false,
+  };
+}
+
+function resumeCommittedRun(run: StoredRun): WriteLoopResult | null {
   if (run.status === "completed") {
     return { kind: "complete", runId: run.id, iterationsConsumed: 0, resumable: false };
   }
@@ -272,9 +255,10 @@ function resumeCommittedRun(
   return null;
 }
 
-/**
- * Append a "## Blocker" section to the spec file.
- */
+function resolveSpecPath(worktreePath: string, specPath: string): string {
+  return isAbsolute(specPath) ? specPath : join(worktreePath, specPath);
+}
+
 function appendBlockerToSpec(specPath: string, failedContractId: string): void {
   const blocker = `\n## Blocker\n\nArtifact contract check failed: ${failedContractId}\n`;
   appendFileSync(specPath, blocker, "utf8");

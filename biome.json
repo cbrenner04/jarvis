@@ -7,7 +7,16 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/node_modules", "!**/dist", "!**/build", "!**/coverage", "!**/.git", "!**/v1/test/fixtures"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/build",
+      "!**/coverage",
+      "!**/.git",
+      "!**/v1/test/fixtures",
+      "!**/v2/test/fixtures"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -40,7 +49,7 @@
               "options": {
                 "patterns": [
                   {
-                    "group": ["v2/**"],
+                    "group": ["**/v2/**"],
                     "message": "v1 code must not import from v2."
                   }
                 ]
@@ -51,17 +60,57 @@
       }
     },
     {
-      "includes": ["v2/src/**/*.ts"],
+      "includes": ["v2/src/**/*.ts", "!v2/src/**/*.test.ts"],
       "linter": {
         "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "error",
+              "options": {
+                "maxAllowedComplexity": 24
+              }
+            }
+          },
           "style": {
             "noRestrictedImports": {
               "level": "error",
               "options": {
                 "patterns": [
                   {
-                    "group": ["v1/**"],
+                    "group": ["**/v1/**"],
                     "message": "v2 code must not import from v1."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["shared/**/*.ts", "!shared/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "error",
+              "options": {
+                "maxAllowedComplexity": 24
+              }
+            }
+          },
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**/v1/**"],
+                    "message": "shared code must not import from v1."
+                  },
+                  {
+                    "group": ["**/v2/**"],
+                    "message": "shared code must not import from v2."
                   }
                 ]
               }

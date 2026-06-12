@@ -21,13 +21,17 @@ Worktree reconstruction stays on the existing
 worktree directory is gone, the next iteration materializes it again from the
 durable branch pointer before running.
 
-Current scope: real agent process spawning is not wired yet —
-`createAgentBindings` (see [`shared-invocation.md`](./shared-invocation.md))
-returns terminal-`error` bindings, so a live `jarvis write` reports
-`invocation_failure`. The control flow (loop, contract dispatch, outcome routing,
-state persistence) is exercised end-to-end in tests by injecting simulated
-bindings (`v2/src/testing/bindings.ts`); no simulation lives in the production
-CLI.
+The write prompt injects the v2 restraint principles (`write.principles`) at
+every iteration; see [`coding-standards.md`](./coding-standards.md) for the
+canonical principle text and rationale.
+
+Current scope: real agent process spawning is not wired yet.
+`createAgentBindings` (see
+[`shared-invocation.md`](./shared-invocation.md)) returns terminal-`error`
+bindings, so a live `jarvis write` reports `invocation_failure` and exits 1.
+The control flow (loop, contract dispatch, outcome routing, state persistence,
+and resume) is exercised end-to-end in tests by injecting simulated bindings
+(`v2/src/testing/bindings.ts`); no simulation lives in the production CLI.
 
 ## Command
 

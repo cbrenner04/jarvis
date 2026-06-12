@@ -148,14 +148,42 @@ process-signal ownership in the core.
   as an independent done signal — pin when a caller needs richer done-detection.
   Rules out building a spec-checkbox/criteria-diff mechanism in Phase 2, which the
   build-order "criteria move" phrasing could otherwise invite.
-
-## Refine skip
-
-No net-new load-bearing decision to add. The two contestable calls — per-invocation
-budget vs. durable remaining-counter, and artifact-existence-only done contract — are
-already pinned above. The seed's remaining open items (where `N` defaults from, exact
-minimal column set, single-step checkpoint shape) are either recorded as
-deferred-to-first-consumer or are defaults a reasonable implementer reaches from the v1
-max-iterations/exit-5 model and the architecture docs; no plausible wrong alternative
-warrants a ledger entry.
+- Resume lookup keys on the `(project, branch)` tuple, not a CLI-supplied run ID.
+  Architecture pins "at most one active run per (project, branch)"; the CLI surface
+  carries no run ID. Same key resumes the existing run; a different key mints a fresh
+  run. Run ID + created-at are internal once the key is pinned. Acceptance: same key
+  resumes; different key creates fresh. Rules out a run-ID-keyed surface (none exists)
+  or always-fresh-run-per-invocation (defeats resume).
+- Resume branches three ways, not two. Terminal-done (success / blocked /
+  `contract_miss` / `invocation_failure`) → report and do **not** resume. Interrupted
+  (open attempt row, no committed boundary) → re-run the iteration over the dirty
+  worktree. Soft-stop → continue with a fresh budget. Acceptance: a terminal run is
+  not re-run. Rules out the binary interrupted-vs-completed branch, which reads every
+  boundary-committed terminal run as "completed-at-boundary" and wrongly re-runs it.
+- Stored run `status` enum has a home for every terminal outcome `runStep` can emit:
+  `contract_miss` folds into a blocked status (it appends `## Blocker`);
+  `invocation_failure` and `invalid_token` map to a failed status. The terminal-done
+  branch reads this column, so the produced statuses and the stored enum must agree.
+  Rules out an enum missing slots for these, which makes terminal-done unreadable.
+- `invalid_token` is terminal failure, not `progress` — a malformed agent response
+  routes like `invocation_failure`. Rules out looping on a malformed response.
+- Interrupted-ness is **derived** (a read for an open attempt row with no committed
+  boundary), not a stored `status` value; run status stays in-progress. `interrupted`
+  is therefore not a value in the stored status enum. Rules out the conflicting design
+  where `interrupted` is both a stored status and a derived read.
+- Resume is gated on the worktree lock: a live lock holder → refuse (not recover);
+  only a stale lock recovers. Attempt rows alone cannot distinguish an interrupted run
+  from a currently-live one — the `withExternalWorktree` lock is the discriminator.
+  Acceptance: resume against a live lock holder refuses. Rules out treating a live run
+  as resumable.
+- Boundary idempotency rests on the attempt ID's committed terminal status: a retried
+  finished boundary observes the already-committed status and no-ops (no double
+  checkpoint advance, no duplicate outcome row). Acceptance: finished-boundary retry is
+  idempotent. Rules out asserting idempotency with no testable key.
+- A resumed run does not re-append `## Blocker` (follows from terminal-done not being
+  re-run). Acceptance: resuming a `contract_miss`/blocked run appends no second Blocker.
+  Rules out duplicate Blocker accretion across resumes.
+- Soft-stop (budget exhausted while still `progress`) exits `5`, matching v1's
+  max-iterations exit code. The other terminal failures stay "distinct non-zero" as
+  reasonable defaults. Rules out an arbitrary soft-stop code that breaks v1 parity.
 

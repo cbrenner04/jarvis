@@ -17,4 +17,18 @@ describe("write prompt", () => {
     expect(rendered).toContain("Read the spec at spec/example/index.md.");
     expect(rendered).toContain("Follow the contract.");
   });
+
+  test("renders all seven restraint principles", () => {
+    const rendered = renderWriteExecutePrompt({
+      specPath: "spec/example/index.md",
+      stepRules: "Done.",
+    });
+
+    // Check for the principles section header as a stable marker
+    expect(rendered).toContain("# Restraint principles");
+
+    // Count the numbered principles (1. through 7.) to verify all seven are present
+    const principleMatches = rendered.match(/^\d+\. /gm);
+    expect(principleMatches?.length).toBe(7);
+  });
 });

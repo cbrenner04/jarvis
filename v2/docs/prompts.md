@@ -62,6 +62,7 @@ Rollout layering inventory:
 
 - Patch: `global.documentation -> global.naming -> global.terse -> patch.prompt.body`
 - Plan: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`
+- Write: `write.principles` (body) substituted into `<PRINCIPLES>` placeholder in `write.execute` (v2-only; no layered global/behavior fragments)
 - Patch PR description: `global.documentation -> global.naming -> global.terse -> shared.pr-description -> patch.prompt.pr-description`
 - Plan PR description: `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> shared.pr-description -> plan.prompt.pr-description`
 - `patch.rules` remains step-owned injected body content (not always-layered global/behavior text).
@@ -88,6 +89,7 @@ For mixed builders, only stable instruction text relocates in pass one; interpol
 | Agent-bound prompt bodies/fragments | Plan draft prompt | `v1/src/modes/plan/prompts/draft.md` | Move to shared prompt source now | Entire file verbatim | Sentinel-delimited data sections remain literal prompt text. |
 | Agent-bound prompt bodies/fragments | Plan review prompt | `v1/src/modes/plan/prompts/review.md` | Move to shared prompt source now | Entire file verbatim | Keep current file rewrite constraints in prompt artifact. |
 | Agent-bound prompt bodies/fragments | Write execute prompt | `prompts/write/execute.md` | Move to shared prompt source now | Entire file verbatim | Stable ID `write.execute`; first v2 write-step prompt surface. |
+| Agent-bound prompt bodies/fragments | Write restraint principles | `prompts/write/principles.md` | Move to shared prompt source now | Entire file verbatim | Stable ID `write.principles`; v2-only restraint principles injected into every write iteration. |
 | Agent-bound prompt bodies/fragments | Plan inline-draft prompt template | `v1/src/modes/plan/prompts/inline-draft.md` (loaded by `v1/src/modes/plan/inline-draft.ts`) | Move to shared prompt source now | Entire file verbatim | Keep loader invocation and template slot filling in runtime code. |
 | Agent transport wrappers and correlation markers | Codex invocation marker wrapper appended to outbound prompt payload | `v1/src/agents/codex.ts` (`<!-- jarvis-codex-invocation: <uuid> -->`) | Minimized adapter-local prompt surface | Marker string constant + append behavior | Adapter-transport concern; keep local to Codex adapter with snapshot coverage. |
 | Human-facing chooser/confirmation text | TTY-only non-index confirmation text (`[s] switch`, `[e] exit`, `Choice [e]`) | `v1/src/modes/patch/run.ts` | Keep in runtime code for now | Prompt line array + response handling as one unit | Operator control-flow chooser, not shared agent prompt artifact in pass one. |

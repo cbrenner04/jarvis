@@ -45,16 +45,16 @@ unknowable until the rule runs.
 
 ## Acceptance criteria
 
-- [ ] `bun run check` is green on the existing repo with the new rules active.
-- [ ] A seeded over-complexity violation under `v2/src/**` (or `shared/**`) is
+- [x] `bun run check` is green on the existing repo with the new rules active.
+- [x] A seeded over-complexity violation under `v2/src/**` (or `shared/**`) is
   reported as a Biome **error** (verified out-of-band / by test), proving the
   complexity gate bites.
-- [ ] A `shared/**` file importing from `v1/**` or `v2/**` is reported as a
+- [x] A `shared/**` file importing from `v1/**` or `v2/**` is reported as a
   Biome **error**; a clean `shared/**` file is not.
-- [ ] All added rules are level `error`; no `warn`-level rule is introduced.
-- [ ] The gate's `overrides` cover both `v2/src/**` and `shared/**`; `v1/**` is
+- [x] All added rules are level `error`; no `warn`-level rule is introduced.
+- [x] The gate's `overrides` cover both `v2/src/**` and `shared/**`; `v1/**` is
   untouched by the new complexity rule.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

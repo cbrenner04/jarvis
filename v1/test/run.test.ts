@@ -3743,10 +3743,12 @@ describe("review phase", () => {
     expect(readFileSync(join(env.worktree, "spec", "feature", "00-one.md"), "utf8")).toContain("- [x] One accepted.");
     // Untracked spec file removed.
     expect(existsSync(join(env.worktree, "spec", "feature", "02-extra.md"))).toBe(false);
-    // The review commit carries only the code change, no spec files.
+    // The review commit carries the code change and durable verdict, not completed spec edits.
     const files = env.reviewCommitFiles();
     expect(files).toContain("code.txt");
-    expect(files.some((f) => f.startsWith("spec/"))).toBe(false);
+    expect(files).toContain("spec/feature/verdict-patch.md");
+    expect(files).not.toContain("spec/feature/00-one.md");
+    expect(files).not.toContain("spec/feature/02-extra.md");
   });
 
   test("blocker sentinel posts a PR comment and exits 7 without marking ready", async () => {

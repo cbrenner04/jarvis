@@ -24,6 +24,7 @@ import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } 
 
 /** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
+export const PATCH_VERDICT_FILE = "verdict-patch.md";
 
 export function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
   // Return spec files modified or newly created since the last commit. Uses
@@ -36,12 +37,14 @@ export function detectSpecTreeEdits(specDir: string, cwd: string): string[] {
     });
 
     const specRelPath = relative(cwd, specDir);
+    const verdictRelPath = relative(cwd, join(specDir, PATCH_VERDICT_FILE));
     return (
       output
         .split("\n")
         .filter((line) => line.length > 3)
         // Porcelain lines are `XY <path>`; drop the two status columns + space.
         .map((line) => line.slice(3).trim())
+        .filter((file) => file !== verdictRelPath)
         .filter((file) => file === specRelPath || file.startsWith(`${specRelPath}/`))
     );
   } catch {
@@ -66,11 +69,11 @@ export function revertSpecTreeEdits(specDir: string, cwd: string): void {
       } catch {
         // Untracked file: nothing to restore from HEAD; clean handles it below.
       }
+      execFileSync("git", ["clean", "-fd", "--", file], {
+        cwd,
+        stdio: "pipe",
+      });
     }
-    execFileSync("git", ["clean", "-fd", "--", relative(cwd, specDir)], {
-      cwd,
-      stdio: "pipe",
-    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to revert spec-tree edits: ${message}`);
@@ -597,7 +600,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       opts.fanout("harness", `review: actuator running with verdict\n`, "stdout");
 
       // Write verdict to durable doc next to the spec
-      const verdictPath = join(specDir, "verdict-patch.md");
+      const verdictPath = join(specDir, PATCH_VERDICT_FILE);
       try {
         writeFileSync(verdictPath, verdict, "utf8");
       } catch (err) {
@@ -650,6 +653,14 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           }
           if (result.stderr.length > 0) {
             opts.fanout("inbound_stderr", result.stderr, null, { actuator: true });
+          }
+
+          try {
+            writeFileSync(verdictPath, verdict, "utf8");
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            opts.fanout("harness", `review: failed to restore verdict: ${message}\n`, "stderr");
+            throw new ReviewTerminalError(message, 1);
           }
 
           // Revert spec edits (reviewers are read-only on spec)

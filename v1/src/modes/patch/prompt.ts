@@ -202,5 +202,5 @@ export function buildVerdictActuatorPrompt(verdict: string, specPath: string): s
 
   // Replace the final instruction with the verdict
   const basePrompt = rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
-  return `${basePrompt}\n\n## Review Verdict\n\nBased on a review of your implementation, the following changes are required:\n\n${verdict}`;
+  return `${basePrompt}\n\n## Review Actuator Rules\n\n- Apply the review verdict to implementation files only.\n- The completed spec tree is read-only: do not edit spec files, tick criteria, append blockers, or edit verdict-patch.md.\n- Do not expand scope beyond the verdict.\n\n## Review Verdict\n\nBased on a review of your implementation, the following changes are required:\n\n${verdict}`;
 }

@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
+import { buildVerdictActuatorPrompt } from "../../../src/modes/patch/prompt.ts";
 import {
   consumeReviewBlocker,
   detectSpecTreeEdits,
+  PATCH_VERDICT_FILE,
   REVIEW_BLOCKER_FILE,
   revertSpecTreeEdits,
   runPatchReviewPhase,
@@ -115,6 +117,24 @@ describe("patch review helpers", () => {
     }
   });
 
+  test("revertSpecTreeEdits preserves the patch verdict artifact", () => {
+    const { dir, specDir, cleanup } = setupPatchReviewRepo();
+    try {
+      const tracked = join(specDir, "00-one.md");
+      const verdictPath = join(specDir, PATCH_VERDICT_FILE);
+      writeFileSync(tracked, "tampered\n");
+      writeFileSync(verdictPath, "verdict\n");
+
+      expect(detectSpecTreeEdits(specDir, dir)).toEqual(["spec/feature/00-one.md"]);
+      revertSpecTreeEdits(specDir, dir);
+
+      expect(readFileSync(tracked, "utf8")).toContain("- [x] done");
+      expect(readFileSync(verdictPath, "utf8")).toBe("verdict\n");
+    } finally {
+      cleanup();
+    }
+  });
+
   test("consumeReviewBlocker reads and deletes the sentinel", () => {
     const { dir, cleanup } = setupPatchReviewRepo();
     try {
@@ -128,6 +148,15 @@ describe("patch review helpers", () => {
 });
 
 describe("runPatchReviewPhase", () => {
+  test("verdict actuator prompt keeps completed specs read-only", () => {
+    const prompt = buildVerdictActuatorPrompt("fix the implementation", "spec/feature/index.md");
+
+    expect(prompt).toContain("## Review Actuator Rules");
+    expect(prompt).toContain("implementation files only");
+    expect(prompt).toContain("do not edit spec files");
+    expect(prompt).toContain("or edit verdict-patch.md");
+  });
+
   test("uses modes.review.agentOrder and shared-runner quota fallback", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const harness: string[] = [];
@@ -370,6 +399,49 @@ describe("runPatchReviewPhase", () => {
       expect(code).toBe(0);
       // Empty verdict should skip actuator
       expect(harness.some((e) => e.includes("actuator"))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("actuator preserves verdict and reverts completed spec edits", async () => {
+    const { dir, specPath, specDir, cleanup } = setupPatchReviewRepo();
+    const harness: string[] = [];
+    try {
+      const reviewer = new FakeAgent("claude", (_callCount, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "fix the implementation\n" : "finding\n",
+        stderr: "",
+      }));
+      const actuator = new FakeAgent("claude", (_callCount, _prompt, opts) => {
+        writeFileSync(join(opts.cwd, "impl.txt"), "fixed\n");
+        writeFileSync(join(specDir, "00-one.md"), "tampered\n");
+        writeFileSync(join(specDir, PATCH_VERDICT_FILE), "tampered verdict\n");
+        return { kind: "ok", stdout: "done\n", stderr: "" };
+      });
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        actuatorAgents: [actuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(readFileSync(join(dir, "impl.txt"), "utf8")).toBe("fixed\n");
+      expect(readFileSync(join(specDir, "00-one.md"), "utf8")).toContain("- [x] done");
+      expect(readFileSync(join(specDir, PATCH_VERDICT_FILE), "utf8")).toBe("fix the implementation\n");
+      expect(harness.join("\n")).toContain("review: actuator edited spec files (reverting): spec/feature/00-one.md");
+      expect(harness.join("\n")).not.toContain(PATCH_VERDICT_FILE);
     } finally {
       cleanup();
     }

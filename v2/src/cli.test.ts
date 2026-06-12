@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "./cli.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
-import type { WriteExecuteInput, WriteExecuteResult } from "./write.ts";
+import type { WriteLoopInput, WriteLoopResult } from "./write-loop.ts";
 
 function captureIo() {
   let stdout = "";
@@ -38,16 +38,12 @@ const WRITE_ARGS = [
   "proof.txt",
 ];
 
-function completeResult(): WriteExecuteResult {
+function completeResult(): WriteLoopResult {
   return {
-    worktreePath: "/tmp/worktree",
-    worktreeReused: false,
-    lock: { kind: "acquired" },
-    result: {
-      kind: "complete",
-      token: "done",
-      invocation: { attempts: [], final: null },
-    },
+    kind: "complete",
+    runId: "run-123",
+    iterationsConsumed: 1,
+    resumable: false,
   };
 }
 
@@ -95,7 +91,7 @@ describe("v2 cli", () => {
     const cap = captureIo();
 
     const code = await main(WRITE_ARGS, cap.io, {
-      executeWrite: async () => completeResult(),
+      executeWriteLoop: async () => completeResult(),
     });
 
     expect(code).toBe(0);
@@ -103,38 +99,68 @@ describe("v2 cli", () => {
     expect(cap.read().stdout).toContain('"kind": "complete"');
   });
 
-  test("write command maps non-success result to exit 1", async () => {
+  test("write command maps blocked result to exit 1", async () => {
     const cap = captureIo();
-    const result: WriteExecuteResult = {
-      worktreePath: "/tmp/worktree",
-      worktreeReused: true,
-      lock: { kind: "recovered", stalepid: 123 },
-      result: {
-        kind: "progress",
-        token: "progress",
-        invocation: { attempts: [], final: null },
-      },
+    const result: WriteLoopResult = {
+      kind: "blocked",
+      runId: "run-456",
+      iterationsConsumed: 1,
+      resumable: false,
     };
 
     const code = await main(WRITE_ARGS, cap.io, {
-      executeWrite: async () => result,
+      executeWriteLoop: async () => result,
     });
 
     expect(code).toBe(1);
-    expect(cap.read().stdout).toContain('"kind": "progress"');
+    expect(cap.read().stdout).toContain('"kind": "blocked"');
+  });
+
+  test("write command maps invocation_failure to exit 2", async () => {
+    const cap = captureIo();
+    const result: WriteLoopResult = {
+      kind: "invocation_failure",
+      runId: "run-789",
+      iterationsConsumed: 0,
+      resumable: false,
+    };
+
+    const code = await main(WRITE_ARGS, cap.io, {
+      executeWriteLoop: async () => result,
+    });
+
+    expect(code).toBe(2);
+    expect(cap.read().stdout).toContain('"kind": "invocation_failure"');
+  });
+
+  test("write command maps budget-exhausted to exit 5", async () => {
+    const cap = captureIo();
+    const result: WriteLoopResult = {
+      kind: "budget-exhausted",
+      runId: "run-999",
+      iterationsConsumed: 5,
+      resumable: true,
+    };
+
+    const code = await main(WRITE_ARGS, cap.io, {
+      executeWriteLoop: async () => result,
+    });
+
+    expect(code).toBe(5);
+    expect(cap.read().stdout).toContain('"kind": "budget-exhausted"');
   });
 
   test("forwards parsed agents to the injected binding factory", async () => {
     const cap = captureIo();
     let capturedAgents: readonly string[] | undefined;
-    let capturedInput: WriteExecuteInput | undefined;
+    let capturedInput: WriteLoopInput | undefined;
 
     const code = await main([...WRITE_ARGS, "--agents", "claude,codex"], cap.io, {
       createBindings: (agentIds) => {
         capturedAgents = agentIds;
         return simulatedBindings(["done"]);
       },
-      executeWrite: async (input) => {
+      executeWriteLoop: async (input) => {
         capturedInput = input;
         return completeResult();
       },
@@ -154,7 +180,7 @@ describe("v2 cli", () => {
         capturedAgents = agentIds;
         return simulatedBindings(["done"]);
       },
-      executeWrite: async () => completeResult(),
+      executeWriteLoop: async () => completeResult(),
     });
 
     expect(capturedAgents).toEqual(["claude"]);
@@ -162,11 +188,11 @@ describe("v2 cli", () => {
 
   test("default binding factory yields not-wired error bindings", async () => {
     const cap = captureIo();
-    let captured: WriteExecuteInput | undefined;
+    let captured: WriteLoopInput | undefined;
 
     // Omit createBindings so the real default (createAgentBindings) runs.
     await main(WRITE_ARGS, cap.io, {
-      executeWrite: async (input) => {
+      executeWriteLoop: async (input) => {
         captured = input;
         return completeResult();
       },

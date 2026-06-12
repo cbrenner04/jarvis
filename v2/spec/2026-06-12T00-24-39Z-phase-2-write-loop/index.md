@@ -7,5 +7,5 @@ path it needs. Source of truth: Phase 2 in `v2/spec/v2-meta-index.md` and
 (Output contract, Runs/state, Persistence, Recovery, Steering).
 
 - [x] [00 - Durable state store (first rows)](./00-state-store.md)
-- [ ] [01 - Write loop over the single step](./01-write-loop.md)
+- [x] [01 - Write loop over the single step](./01-write-loop.md)
 - [ ] [02 - Kill/crash resume](./02-resume.md)

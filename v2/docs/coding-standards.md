@@ -8,10 +8,10 @@ For the full principle text and decision notes, consult the artifact source dire
 
 A Biome linter gate enforces structural honesty in v2 and shared code via two rules:
 
-- **`noExcessiveCognitiveComplexity`** (error, threshold 25): Functions exceeding cognitive complexity 25 are errors. The threshold is tuned to the green-on-existing line — existing v2/shared code passes, but complex new logic is gated. Smallness is the planner's and reviewer's job; the gate enforces structure, not size targets.
-- **Shared import boundary** (error): Code under `shared/**` must not import from `v1/**` or `v2/**`. Shared is the lower-layer library consumed by both versions; enforcing its isolation prevents version-specific leakage.
+- **`noExcessiveCognitiveComplexity`** (error, threshold 24): Functions exceeding cognitive complexity 24 are errors. The threshold is set to pass all existing non-test code in v2 and shared, enforcing structural honesty (preventing over-nested or over-conditional new logic) without rejecting working code. Test files (`*.test.ts`) are excluded from this rule. Smallness is the planner's and reviewer's job; the gate enforces structure, not size targets.
+- **Shared import boundary** (error): Code under `shared/**` must not import from `v1/**` or `v2/**` using relative paths (e.g., `../../v1/...`). The boundary uses relative-aware glob patterns (`**/v1/**`, `**/v2/**`) to catch real import forms. Shared is the lower-layer library consumed by both versions; enforcing its isolation prevents version-specific leakage.
 
-All rules are error-level; no warnings are introduced. The gate scope covers `v2/src/**` and `shared/**` via Biome `overrides`, leaving `v1/**` untouched. Fixtures demonstrating violations are in `v2/test/fixtures/` and excluded from the regular build.
+All rules are error-level; no warnings are introduced. The gate scope covers `v2/src/**` and `shared/**` (excluding test files) via Biome `overrides`, leaving `v1/**` untouched. Fixtures demonstrating violations are in `v2/test/fixtures/` and excluded from the regular build; see the fixtures' README for verification instructions.
 
 ## Referenced documents
 

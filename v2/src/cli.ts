@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
-import { executeWriteLoop, type WriteLoopInput, type WriteLoopResult } from "./write-loop.ts";
+import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 export type Io = {
   stdout: (s: string) => void;
@@ -84,7 +84,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     let maxIterations: number | undefined;
     if (maxIterationsStr !== undefined) {
       maxIterations = parseInt(maxIterationsStr, 10);
-      if (isNaN(maxIterations) || maxIterations < 1) {
+      if (Number.isNaN(maxIterations) || maxIterations < 1) {
         out.stderr("Error: --max-iterations must be a positive integer\n");
         out.stderr(WRITE_USAGE);
         return 1;

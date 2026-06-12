@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path"; // Used in bindings closure
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
-import { executeWriteLoop } from "./write-loop.ts";
-import { openStateStore } from "./state-store.ts";
+import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
+import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 const roots: string[] = [];
 
@@ -49,7 +49,7 @@ async function runLoop(args: {
   signal?: AbortSignal;
 }) {
   const store = openStateStore(args.stateDbPath);
-  const loopInput: any = {
+  const loopInput: WriteLoopInput = {
     worktree: {
       projectRoot: args.repoRoot,
       projectName: "demo",
@@ -75,6 +75,44 @@ async function runLoop(args: {
   const result = await executeWriteLoop(loopInput);
   store.close();
   return result;
+}
+
+class ThrowAfterBoundaryStore implements StateStore {
+  private threw = false;
+
+  constructor(private readonly inner: StateStore) {}
+
+  createRun(args: Parameters<StateStore["createRun"]>[0]): string {
+    return this.inner.createRun(args);
+  }
+
+  loadRun(runId: string) {
+    return this.inner.loadRun(runId);
+  }
+
+  findRunByIdentity(args: Parameters<StateStore["findRunByIdentity"]>[0]) {
+    return this.inner.findRunByIdentity(args);
+  }
+
+  recordAttemptStart(runId: string): string {
+    return this.inner.recordAttemptStart(runId);
+  }
+
+  commitCompletionBoundary(args: Parameters<StateStore["commitCompletionBoundary"]>[0]): void {
+    this.inner.commitCompletionBoundary(args);
+    if (!this.threw) {
+      this.threw = true;
+      throw new Error("crash after boundary");
+    }
+  }
+
+  setRunStatus(runId: string, status: Parameters<StateStore["setRunStatus"]>[1]): void {
+    this.inner.setRunStatus(runId, status);
+  }
+
+  close(): void {
+    this.inner.close();
+  }
 }
 
 describe("write loop", () => {
@@ -327,5 +365,195 @@ describe("write loop", () => {
 
     expect(run).not.toBeNull();
     expect(run?.attempts.length).toBe(3);
+  });
+
+  test("re-invoking an interrupted run re-runs that iteration over the dirty worktree", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const dirtiedMarker = "dirty.txt";
+    let firstRunCalls = 0;
+    const crashBindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async ({ cwd }) => {
+          firstRunCalls += 1;
+          writeFileSync(join(cwd, dirtiedMarker), "dirty\n", "utf8");
+          throw new Error("simulated crash");
+        },
+      },
+    ];
+
+    await expect(
+      runLoop({
+        repoRoot,
+        jarvisRoot,
+        stateDbPath,
+        bindings: crashBindings,
+        maxIterations: 1,
+      }),
+    ).rejects.toThrow("simulated crash");
+    expect(firstRunCalls).toBe(1);
+
+    let resumedCalls = 0;
+    const resumeBindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async ({ cwd }) => {
+          resumedCalls += 1;
+          expect(readFileSync(join(cwd, dirtiedMarker), "utf8")).toBe("dirty\n");
+          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      },
+    ];
+
+    const resumed = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: resumeBindings,
+      maxIterations: 1,
+    });
+
+    expect(resumed.kind).toBe("complete");
+    expect(resumed.iterationsConsumed).toBe(1);
+    expect(resumedCalls).toBe(1);
+
+    const store = openStateStore(stateDbPath);
+    const run = store.loadRun(resumed.runId);
+    store.close();
+    expect(run?.attemptCount).toBe(1);
+    expect(run?.attempts).toHaveLength(1);
+    expect(run?.attempts[0]?.outcomeKind).toBe("done");
+  });
+
+  test("a budget-soft-stopped run resumes with a fresh per-invocation budget", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const first = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["progress"]),
+      maxIterations: 1,
+    });
+
+    expect(first.kind).toBe("budget-exhausted");
+
+    const second = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["done"], {
+        artifactPath: "proof.txt",
+        emitArtifact: true,
+      }),
+      maxIterations: 1,
+    });
+
+    expect(second.kind).toBe("complete");
+    expect(second.iterationsConsumed).toBe(1);
+
+    const store = openStateStore(stateDbPath);
+    const run = store.loadRun(second.runId);
+    store.close();
+    expect(run?.status).toBe("completed");
+    expect(run?.attemptCount).toBe(2);
+  });
+
+  test("re-running a committed boundary returns from durable state without a duplicate attempt", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const innerStore = openStateStore(stateDbPath);
+    const crashingStore = new ThrowAfterBoundaryStore(innerStore);
+    let firstInvocationCalls = 0;
+    const completeBindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async ({ cwd }) => {
+          firstInvocationCalls += 1;
+          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      },
+    ];
+
+    await expect(
+      executeWriteLoop({
+        worktree: {
+          projectRoot: repoRoot,
+          projectName: "demo",
+          branchName: "write-run",
+          baseRef: "HEAD",
+          jarvisRoot,
+        },
+        projectId: "demo",
+        specRef: "HEAD",
+        branch: "write-run",
+        specPath: "spec.md",
+        stepRules: "Return exactly one terminal token.",
+        expectedArtifactPath: "proof.txt",
+        bindings: completeBindings,
+        stateStore: crashingStore,
+        maxIterations: 1,
+      }),
+    ).rejects.toThrow("crash after boundary");
+    crashingStore.close();
+    expect(firstInvocationCalls).toBe(1);
+
+    let resumedCalls = 0;
+    const resumed = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            resumedCalls += 1;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      maxIterations: 1,
+    });
+
+    expect(resumed.kind).toBe("complete");
+    expect(resumed.iterationsConsumed).toBe(0);
+    expect(resumedCalls).toBe(0);
+
+    const store = openStateStore(stateDbPath);
+    const run = store.loadRun(resumed.runId);
+    store.close();
+    expect(run?.attemptCount).toBe(1);
+    expect(run?.attempts).toHaveLength(1);
+  });
+
+  test("resume rebuilds a missing worktree from the branch", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const first = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["progress"]),
+      maxIterations: 1,
+    });
+
+    expect(first.kind).toBe("budget-exhausted");
+
+    const worktreePath = join(jarvisRoot, "worktrees", "demo", "write-run");
+    rmSync(worktreePath, { recursive: true, force: true });
+    expect(existsSync(worktreePath)).toBe(false);
+
+    const second = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: simulatedBindings(["done"], {
+        artifactPath: "proof.txt",
+        emitArtifact: true,
+      }),
+      maxIterations: 1,
+    });
+
+    expect(second.kind).toBe("complete");
+    expect(existsSync(worktreePath)).toBe(true);
   });
 });

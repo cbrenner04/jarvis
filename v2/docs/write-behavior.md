@@ -4,6 +4,23 @@
 work is done, blocked, or the budget runs out. See [`state-store.md`](./state-store.md)
 for durable run state and resume mechanics.
 
+Kill-resume and crash-recovery are the same path: the loop never resumes
+mid-step. Resume branches from durable state at the last committed boundary:
+
+- Last attempt still `in-progress`: the prior invocation died mid-step, so the
+  loop re-runs that same iteration over the existing dirty worktree.
+- Run `status = "budget-soft-stopped"`: the prior invocation hit its
+  per-invocation budget after a committed `progress` boundary, so the loop
+  continues with a fresh budget.
+- Run `status = "completed"` / `blocked` / `failed`: the last boundary already
+  committed a terminal result, so re-invocation returns that durable result
+  without creating a duplicate attempt or outcome.
+
+Worktree reconstruction stays on the existing
+[`withExternalWorktree`](../src/external-worktree.ts) path: if the stored
+worktree directory is gone, the next iteration materializes it again from the
+durable branch pointer before running.
+
 Current scope: real agent process spawning is not wired yet —
 `createAgentBindings` (see [`shared-invocation.md`](./shared-invocation.md))
 returns terminal-`error` bindings, so a live `jarvis write` reports
@@ -48,7 +65,8 @@ The loop classifies and routes results:
 - **`blocked`**: agent is blocked. Loop stops immediately (terminal `blocked`,
   distinct from `contract_miss`).
 - **Budget exhausted** while still `progress`: loop exits with a soft-stop outcome
-  (distinct from `blocked`, marked resumable).
+  (distinct from `blocked`, marked resumable). Re-invoking the same run resumes
+  remaining spec work with a fresh per-invocation budget.
 - **`invocation_failure`**: all agents exhausted / not wired. Terminal stop.
 
 ## Exit codes

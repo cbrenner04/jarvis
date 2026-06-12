@@ -17,6 +17,7 @@ Orchestration identity, lifecycle, and checkpoint, plus pointers to work artifac
 - `spec_ref` (TEXT): Reference to the spec/target (branch, commit, etc).
 - `created_at` (INTEGER): Unix timestamp (milliseconds) when the run was created.
 - `status` (TEXT): One of `in-progress`, `interrupted`, `completed`, `blocked`, `budget-soft-stopped`.
+  `failed` is also used for terminal invocation failures.
 - `attempt_count` (INTEGER): Number of completed attempts (durable checkpoint for resume).
 - `worktree_path` (TEXT): Path to the worktree (reconstructible, not durable).
 - `branch` (TEXT): Git branch name (durable).
@@ -71,7 +72,8 @@ Load a run and its attempt history for resume.
 **Args:**
 - `runId: string` — The run ID to load.
 
-**Returns:** Run record with nested attempts array, or `null` if not found.
+**Returns:** Run record with nested attempts array, including each attempt's
+durable outcome classification when present, or `null` if not found.
 
 ### `recordAttemptStart(runId)`
 
@@ -100,14 +102,28 @@ This is idempotent: re-committing an already-finished boundary rolls back to a n
 1. Update the attempt's status to the provided terminal status.
 2. Create an outcome row linking the attempt to the outcome kind.
 3. Increment the run's `attempt_count`.
+4. Persist the run's boundary status (`in-progress`, `completed`, `blocked`, or `failed`).
 
 All three operations commit or roll back together. If an outcome already exists for this attempt (indicating a prior completion), the operation is a no-op.
+
+### `setRunStatus(runId, status)`
+
+Persist a run status change outside a completion boundary.
+
+Current use: when an invocation exits on budget after already committing the
+last `progress` boundary, the loop marks the run `budget-soft-stopped`. Resume
+reads that status plus attempt history to continue with a fresh per-invocation
+budget.
 
 ## Implementation notes
 
 - **Transactional boundary:** The completion boundary uses a database transaction to ensure all-or-nothing persistence. A forced failure mid-boundary rolls all changes back.
 - **No transcripts or cost streams:** The store carries only minimal state needed for resumption: timestamps, terminal status, outcome classification. Rich logs and token/cost tracking are out of scope here.
 - **Deterministic outcomes:** Outcome rows carry classifications (`done`, `progress`, `blocked`, etc.), not free-form payloads. The runner branches on these deterministic values.
+- **Resume read:** Recovery branches from durable state only: run status plus
+  attempt/outcome history. An `in-progress` attempt means "re-run that dirty
+  iteration"; a committed `budget-soft-stopped` run means "continue with a fresh
+  budget"; a committed terminal run returns its stored result idempotently.
 
 ## Cross-references
 

@@ -86,6 +86,7 @@ export function ensureExternalWorktree(args: ExternalWorktreeInput): ExternalWor
   }
 
   mkdirSync(dirname(worktreePath), { recursive: true });
+  pruneMissingWorktrees(args.projectRoot);
 
   const branchExists = branchExistsLocal(args.projectRoot, args.branchName);
   const branchExistsRemote = branchExistsOnOrigin(args.projectRoot, args.branchName);
@@ -171,4 +172,11 @@ function gitCommonDir(cwd: string): string {
       stdio: ["ignore", "pipe", "pipe"],
     }).trim(),
   );
+}
+
+function pruneMissingWorktrees(projectRoot: string): void {
+  execFileSync("git", ["worktree", "prune"], {
+    cwd: projectRoot,
+    stdio: "pipe",
+  });
 }

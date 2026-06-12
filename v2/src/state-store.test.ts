@@ -1,7 +1,7 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { openStateStore, type StateStore } from "./state-store";
 
 const TEST_DB_PATH = join(tmpdir(), "jarvis-test-state.sqlite");
@@ -13,8 +13,8 @@ describe("StateStore", () => {
     // Clean up any existing test database
     try {
       rmSync(TEST_DB_PATH, { force: true });
-      rmSync(TEST_DB_PATH + "-wal", { force: true });
-      rmSync(TEST_DB_PATH + "-shm", { force: true });
+      rmSync(`${TEST_DB_PATH}-wal`, { force: true });
+      rmSync(`${TEST_DB_PATH}-shm`, { force: true });
     } catch {
       // Ignore cleanup errors
     }
@@ -26,8 +26,8 @@ describe("StateStore", () => {
     // Clean up test database
     try {
       rmSync(TEST_DB_PATH, { force: true });
-      rmSync(TEST_DB_PATH + "-wal", { force: true });
-      rmSync(TEST_DB_PATH + "-shm", { force: true });
+      rmSync(`${TEST_DB_PATH}-wal`, { force: true });
+      rmSync(`${TEST_DB_PATH}-shm`, { force: true });
     } catch {
       // Ignore cleanup errors
     }
@@ -98,6 +98,7 @@ describe("StateStore", () => {
     expect(attempt.id).toBe(attemptId);
     expect(attempt.attemptNumber).toBe(1);
     expect(attempt.status).toBe("in-progress");
+    expect(attempt.outcomeKind).toBeNull();
     expect(attempt.startedAt).toBeGreaterThan(0);
   });
 
@@ -115,6 +116,7 @@ describe("StateStore", () => {
     store.commitCompletionBoundary({
       attemptId,
       status: "completed",
+      runStatus: "completed",
       outcomeKind: "done",
     });
 
@@ -123,6 +125,8 @@ describe("StateStore", () => {
     const attempt = run.attempts[0];
     if (!attempt) throw new Error("Attempt should exist");
     expect(attempt.status).toBe("completed");
+    expect(attempt.outcomeKind).toBe("done");
+    expect(run.status).toBe("completed");
     expect(run.attemptCount).toBe(1);
   });
 
@@ -145,6 +149,7 @@ describe("StateStore", () => {
     store.commitCompletionBoundary({
       attemptId,
       status: "completed",
+      runStatus: "completed",
       outcomeKind: "done",
     });
 
@@ -154,6 +159,7 @@ describe("StateStore", () => {
     const attempt = run.attempts[0];
     if (!attempt) throw new Error("Attempt should exist");
     expect(attempt.status).toBe("completed");
+    expect(attempt.outcomeKind).toBe("done");
   });
 
   test("re-committing a finished boundary is idempotent", () => {
@@ -171,6 +177,7 @@ describe("StateStore", () => {
     store.commitCompletionBoundary({
       attemptId,
       status: "completed",
+      runStatus: "completed",
       outcomeKind: "done",
     });
 
@@ -182,6 +189,7 @@ describe("StateStore", () => {
     store.commitCompletionBoundary({
       attemptId,
       status: "completed",
+      runStatus: "completed",
       outcomeKind: "done",
     });
 
@@ -193,6 +201,7 @@ describe("StateStore", () => {
     const reattempt = run.attempts[0];
     if (!reattempt) throw new Error("Attempt should exist");
     expect(reattempt.status).toBe("completed");
+    expect(reattempt.outcomeKind).toBe("done");
   });
 
   test("multiple attempts on a run are recorded correctly", () => {
@@ -208,6 +217,7 @@ describe("StateStore", () => {
     store.commitCompletionBoundary({
       attemptId: attempt1Id,
       status: "completed",
+      runStatus: "in-progress",
       outcomeKind: "progress",
     });
 
@@ -215,6 +225,7 @@ describe("StateStore", () => {
     store.commitCompletionBoundary({
       attemptId: attempt2Id,
       status: "completed",
+      runStatus: "completed",
       outcomeKind: "done",
     });
 
@@ -226,6 +237,9 @@ describe("StateStore", () => {
     if (!firstAttempt || !secondAttempt) throw new Error("Attempts should exist");
     expect(firstAttempt.attemptNumber).toBe(1);
     expect(secondAttempt.attemptNumber).toBe(2);
+    expect(firstAttempt.outcomeKind).toBe("progress");
+    expect(secondAttempt.outcomeKind).toBe("done");
+    expect(run.status).toBe("completed");
     expect(run.attemptCount).toBe(2);
   });
 
@@ -235,8 +249,8 @@ describe("StateStore", () => {
     const customPath = join(tmpdir(), "custom-state-test.sqlite");
     try {
       rmSync(customPath, { force: true });
-      rmSync(customPath + "-wal", { force: true });
-      rmSync(customPath + "-shm", { force: true });
+      rmSync(`${customPath}-wal`, { force: true });
+      rmSync(`${customPath}-shm`, { force: true });
     } catch {
       // Ignore
     }
@@ -257,8 +271,8 @@ describe("StateStore", () => {
     store.close();
     try {
       rmSync(customPath, { force: true });
-      rmSync(customPath + "-wal", { force: true });
-      rmSync(customPath + "-shm", { force: true });
+      rmSync(`${customPath}-wal`, { force: true });
+      rmSync(`${customPath}-shm`, { force: true });
     } catch {
       // Ignore
     }

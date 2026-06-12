@@ -7,7 +7,16 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/node_modules", "!**/dist", "!**/build", "!**/coverage", "!**/.git", "!**/v1/test/fixtures"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/build",
+      "!**/coverage",
+      "!**/.git",
+      "!**/v1/test/fixtures",
+      "!**/v2/test/fixtures"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -54,6 +63,14 @@
       "includes": ["v2/src/**/*.ts"],
       "linter": {
         "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "error",
+              "options": {
+                "maxAllowedComplexity": 25
+              }
+            }
+          },
           "style": {
             "noRestrictedImports": {
               "level": "error",
@@ -62,6 +79,38 @@
                   {
                     "group": ["v1/**"],
                     "message": "v2 code must not import from v1."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["shared/**/*.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": {
+              "level": "error",
+              "options": {
+                "maxAllowedComplexity": 25
+              }
+            }
+          },
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["v1/**"],
+                    "message": "shared code must not import from v1."
+                  },
+                  {
+                    "group": ["v2/**"],
+                    "message": "shared code must not import from v2."
                   }
                 ]
               }

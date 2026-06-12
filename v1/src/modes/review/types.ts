@@ -5,7 +5,7 @@ import type { AgentEntry } from "../../config.ts";
 export type ReviewAttemptOutcome = "ok" | "blocked" | "quota" | "model_config" | "error";
 
 /** Debate role for one review attempt. */
-export type ReviewRole = "adversary" | "defender" | "judge";
+export type ReviewRole = "adversary" | "advocate" | "adjudicator";
 
 /** Shared pass metadata exposed to adapters and telemetry hooks. */
 export type ReviewPassContext = {

@@ -1346,7 +1346,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         ...(ctx.opts.agents !== undefined ? { agents: ctx.opts.agents } : {}),
         iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
         ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
-        executorAgents: ctx.activeAgents,
+        actuatorAgents: ctx.activeAgents,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

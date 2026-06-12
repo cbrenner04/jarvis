@@ -150,10 +150,10 @@ describe("runPatchReviewPhase", () => {
         baseBranch: "main",
       });
       expect(reviewOrderCode).toBe(0);
-      expect(codex.calls).toHaveLength(3); // 3 roles per cycle (adversary, defender, judge)
+      expect(codex.calls).toHaveLength(3); // 3 roles per cycle (adversary, advocate, adjudicator)
       expect(codex.calls[0]?.prompt).toContain("Review: Adversary"); // First role is adversary
-      expect(codex.calls[1]?.prompt).toContain("Review: Defender"); // Second role is defender
-      expect(codex.calls[2]?.prompt).toContain("Review: Judge"); // Third role is judge
+      expect(codex.calls[1]?.prompt).toContain("Review: Advocate"); // Second role is advocate
+      expect(codex.calls[2]?.prompt).toContain("Review: Adjudicator"); // Third role is adjudicator
       expect(claude.calls).toHaveLength(0);
 
       harness.length = 0;
@@ -297,7 +297,7 @@ describe("runPatchReviewPhase", () => {
     }
   });
 
-  test("reviewer roles run three times per pass (adversary, defender, judge)", async () => {
+  test("reviewer roles run three times per pass (adversary, advocate, adjudicator)", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const roleCalls: string[] = [];
     try {
@@ -305,10 +305,10 @@ describe("runPatchReviewPhase", () => {
         // Detect role from prompt content (prompts have "Review: Adversary", etc.)
         if (prompt.includes("Review: Adversary")) {
           roleCalls.push("adversary");
-        } else if (prompt.includes("Review: Defender")) {
-          roleCalls.push("defender");
-        } else if (prompt.includes("Review: Judge")) {
-          roleCalls.push("judge");
+        } else if (prompt.includes("Review: Advocate")) {
+          roleCalls.push("advocate");
+        } else if (prompt.includes("Review: Adjudicator")) {
+          roleCalls.push("adjudicator");
         }
         return { kind: "ok", stdout: "findings", stderr: "" };
       });
@@ -329,26 +329,26 @@ describe("runPatchReviewPhase", () => {
       expect(code).toBe(0);
       // All three roles should be executed
       expect(roleCalls).toContain("adversary");
-      expect(roleCalls).toContain("defender");
-      expect(roleCalls).toContain("judge");
+      expect(roleCalls).toContain("advocate");
+      expect(roleCalls).toContain("adjudicator");
     } finally {
       cleanup();
     }
   });
 
-  test("empty verdict skips executor invocation", async () => {
+  test("empty verdict skips actuator invocation", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const harness: string[] = [];
     try {
-      // Judge returns empty verdict
+      // Adjudicator returns empty verdict
       const reviewer = new FakeAgent("claude", () => ({
         kind: "ok",
         stdout: "",
         stderr: "",
       }));
 
-      const executor = new FakeAgent("claude", () => {
-        throw new Error("Executor should not be called");
+      const actuator = new FakeAgent("claude", () => {
+        throw new Error("Actuator should not be called");
       });
 
       const code = await runPatchReviewPhase({
@@ -362,14 +362,14 @@ describe("runPatchReviewPhase", () => {
         },
         writeTelemetry: () => {},
         agents: { claude: reviewer },
-        executorAgents: [executor],
+        actuatorAgents: [actuator],
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
       });
 
       expect(code).toBe(0);
-      // Empty verdict should skip executor
-      expect(harness.some((e) => e.includes("executor"))).toBe(false);
+      // Empty verdict should skip actuator
+      expect(harness.some((e) => e.includes("actuator"))).toBe(false);
     } finally {
       cleanup();
     }

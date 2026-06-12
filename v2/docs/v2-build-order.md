@@ -104,8 +104,8 @@ order and category→model store are data). *TUI: workflow/step view of a run.*
 ### Phase 6 — Remaining behaviors: review-and-update, human
 
 The review-and-update loop — structured as the debate (read-only adversary →
-defender → judge → verdict, then a separate executor applies it; reviewers are
-reviewing-class, the executor executing-class) — and the human loop (pause
+advocate → adjudicator → verdict, then a separate actuator applies it; reviewers are
+reviewing-class, the actuator executing-class) — and the human loop (pause
 graceful / resume / kill immediate), made less clunky than v1 using the daemon
 steering API from Phase 3. Human-loop and blocked converge on "paused awaiting a
 human." Retires: the full behavior vocabulary. *TUI: approve / revise / resume /

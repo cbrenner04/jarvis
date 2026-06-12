@@ -108,7 +108,7 @@ function makeAdapter(overrides?: Partial<ReviewAdapter>): {
 }
 
 describe("runReview", () => {
-  test("runs debate cycle: adversary, defender, judge per cycle", async () => {
+  test("runs debate cycle: adversary, advocate, adjudicator per cycle", async () => {
     const { adapter, roles } = makeAdapter();
 
     await runReview({
@@ -119,7 +119,7 @@ describe("runReview", () => {
         makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "verdict", stderr: "" })),
     });
 
-    expect(roles).toEqual(["adversary", "defender", "judge", "adversary", "defender", "judge"]);
+    expect(roles).toEqual(["adversary", "advocate", "adjudicator", "adversary", "advocate", "adjudicator"]);
   });
 
   test("uses cli review pass override before config and default", async () => {
@@ -136,14 +136,14 @@ describe("runReview", () => {
     expect(overrideCode).toBe(0);
     expect(prompts.map((prompt) => `${prompt.passNumber}:${prompt.role}`)).toEqual([
       "1:adversary",
-      "1:defender",
-      "1:judge",
+      "1:advocate",
+      "1:adjudicator",
       "2:adversary",
-      "2:defender",
-      "2:judge",
+      "2:advocate",
+      "2:adjudicator",
       "3:adversary",
-      "3:defender",
-      "3:judge",
+      "3:advocate",
+      "3:adjudicator",
     ]);
 
     prompts.length = 0;
@@ -186,8 +186,8 @@ describe("runReview", () => {
     });
     expect(reviewPrompts.prompts.map((p) => `${p.passNumber}:${p.agent}:${p.role}`)).toEqual([
       "1:codex:adversary",
-      "1:codex:defender",
-      "1:codex:judge",
+      "1:codex:advocate",
+      "1:codex:adjudicator",
     ]);
 
     const fallbackPrompts = makeAdapter();
@@ -203,8 +203,8 @@ describe("runReview", () => {
     });
     expect(fallbackPrompts.prompts.map((p) => `${p.passNumber}:${p.agent}:${p.role}`)).toEqual([
       "1:cursor:adversary",
-      "1:cursor:defender",
-      "1:cursor:judge",
+      "1:cursor:advocate",
+      "1:cursor:adjudicator",
     ]);
   });
 
@@ -236,30 +236,30 @@ describe("runReview", () => {
     expect(prompts.map((prompt) => `${prompt.passNumber}:${prompt.role}:${prompt.agent}`)).toEqual([
       "1:adversary:claude",
       "1:adversary:codex",
-      "1:defender:claude",
-      "1:defender:codex",
-      "1:judge:claude",
-      "1:judge:codex",
+      "1:advocate:claude",
+      "1:advocate:codex",
+      "1:adjudicator:claude",
+      "1:adjudicator:codex",
       "2:adversary:claude",
       "2:adversary:codex",
-      "2:defender:claude",
-      "2:defender:codex",
-      "2:judge:claude",
-      "2:judge:codex",
+      "2:advocate:claude",
+      "2:advocate:codex",
+      "2:adjudicator:claude",
+      "2:adjudicator:codex",
     ]);
     expect(telemetry.map((event) => `${event.passNumber}:${event.role}:${event.agent.name}:${event.outcome}`)).toEqual([
       "1:adversary:claude:quota",
       "1:adversary:codex:ok",
-      "1:defender:claude:quota",
-      "1:defender:codex:ok",
-      "1:judge:claude:quota",
-      "1:judge:codex:ok",
+      "1:advocate:claude:quota",
+      "1:advocate:codex:ok",
+      "1:adjudicator:claude:quota",
+      "1:adjudicator:codex:ok",
       "2:adversary:claude:quota",
       "2:adversary:codex:ok",
-      "2:defender:claude:quota",
-      "2:defender:codex:ok",
-      "2:judge:claude:quota",
-      "2:judge:codex:ok",
+      "2:advocate:claude:quota",
+      "2:advocate:codex:ok",
+      "2:adjudicator:claude:quota",
+      "2:adjudicator:codex:ok",
     ]);
 
     const messages: string[] = [];
@@ -364,16 +364,16 @@ describe("runReview", () => {
       "blocker:1:adversary:claude",
       "commit:1:adversary:claude",
       "telemetry:1:adversary:claude:ok",
-      "build:1:defender:claude",
-      "enforce:1:defender:claude",
-      "blocker:1:defender:claude",
-      "commit:1:defender:claude",
-      "telemetry:1:defender:claude:ok",
-      "build:1:judge:claude",
-      "enforce:1:judge:claude",
-      "blocker:1:judge:claude",
-      "commit:1:judge:claude",
-      "telemetry:1:judge:claude:ok",
+      "build:1:advocate:claude",
+      "enforce:1:advocate:claude",
+      "blocker:1:advocate:claude",
+      "commit:1:advocate:claude",
+      "telemetry:1:advocate:claude:ok",
+      "build:1:adjudicator:claude",
+      "enforce:1:adjudicator:claude",
+      "blocker:1:adjudicator:claude",
+      "commit:1:adjudicator:claude",
+      "telemetry:1:adjudicator:claude:ok",
     ]);
     expect(success.committed).toHaveLength(3);
     expect(success.telemetry).toHaveLength(3);
@@ -448,15 +448,15 @@ describe("runReview", () => {
 
     rmSync(dir, { recursive: true, force: true });
     expect(code).toBe(0);
-    expect(rotations.length).toBe(3); // One per role (adversary, defender, judge)
+    expect(rotations.length).toBe(3); // One per role (adversary, advocate, adjudicator)
     expect(rotations).toEqual(["claude", "claude", "claude"]);
     expect(telemetry.map((event) => `${event.role}:${event.agent.name}:${event.outcome}`)).toEqual([
       "adversary:claude:quota",
       "adversary:codex:ok",
-      "defender:claude:quota",
-      "defender:codex:ok",
-      "judge:claude:quota",
-      "judge:codex:ok",
+      "advocate:claude:quota",
+      "advocate:codex:ok",
+      "adjudicator:claude:quota",
+      "adjudicator:codex:ok",
     ]);
   });
 
@@ -486,9 +486,9 @@ describe("runReview", () => {
     expect(telemetry[0]?.role).toBe("adversary");
   });
 
-  test("invokes executor with verdict after judge completes each cycle", async () => {
+  test("invokes actuator with verdict after adjudicator completes each cycle", async () => {
     const { adapter } = makeAdapter();
-    const executorCalls: string[] = [];
+    const actuatorCalls: string[] = [];
 
     await runReview({
       config: makeConfig({ reviewPasses: 2 }),
@@ -496,17 +496,17 @@ describe("runReview", () => {
       adapter,
       loadAgent: ({ name }: { name: string; model: string }) =>
         makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "verdict-content", stderr: "" })),
-      executor: async (verdict, ctx) => {
-        executorCalls.push(`execute:${ctx.passNumber}:${verdict}`);
+      actuator: async (verdict, ctx) => {
+        actuatorCalls.push(`execute:${ctx.passNumber}:${verdict}`);
       },
     });
 
-    expect(executorCalls).toEqual(["execute:1:verdict-content", "execute:2:verdict-content"]);
+    expect(actuatorCalls).toEqual(["execute:1:verdict-content", "execute:2:verdict-content"]);
   });
 
-  test("skips executor when verdict is empty", async () => {
+  test("skips actuator when verdict is empty", async () => {
     const { adapter } = makeAdapter();
-    const executorCalls: string[] = [];
+    const actuatorCalls: string[] = [];
 
     await runReview({
       config: makeConfig({ reviewPasses: 1 }),
@@ -514,12 +514,12 @@ describe("runReview", () => {
       adapter,
       loadAgent: ({ name }: { name: string; model: string }) =>
         makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "", stderr: "" })),
-      executor: async (verdict, ctx) => {
-        executorCalls.push(`execute:${ctx.passNumber}:${verdict}`);
+      actuator: async (verdict, ctx) => {
+        actuatorCalls.push(`execute:${ctx.passNumber}:${verdict}`);
       },
     });
 
-    expect(executorCalls).toHaveLength(0);
+    expect(actuatorCalls).toHaveLength(0);
   });
 
   test("passes prior cycle verdict to next cycle's adversary", async () => {
@@ -544,8 +544,8 @@ describe("runReview", () => {
           stdout: `verdict-${Math.random()}`,
           stderr: "",
         })),
-      executor: async () => {
-        // empty executor
+      actuator: async () => {
+        // empty actuator
       },
     });
 
@@ -553,7 +553,7 @@ describe("runReview", () => {
     expect(priorVerdictSeen).toMatch(/^verdict-/);
   });
 
-  test("executor errors are caught and exit code is mapped", async () => {
+  test("actuator errors are caught and exit code is mapped", async () => {
     const { adapter } = makeAdapter();
 
     const code = await runReview({
@@ -562,15 +562,15 @@ describe("runReview", () => {
       adapter,
       loadAgent: ({ name }: { name: string; model: string }) =>
         makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "verdict", stderr: "" })),
-      executor: async () => {
-        throw new Error("executor failed");
+      actuator: async () => {
+        throw new Error("actuator failed");
       },
     });
 
     expect(code).toBe(1);
   });
 
-  test("executor terminal errors propagate exit code", async () => {
+  test("actuator terminal errors propagate exit code", async () => {
     const { adapter } = makeAdapter();
 
     const code = await runReview({
@@ -579,8 +579,8 @@ describe("runReview", () => {
       adapter,
       loadAgent: ({ name }: { name: string; model: string }) =>
         makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "verdict", stderr: "" })),
-      executor: async () => {
-        throw new ReviewTerminalError("executor blocked", 7, { telemetryRecorded: true });
+      actuator: async () => {
+        throw new ReviewTerminalError("actuator blocked", 7, { telemetryRecorded: true });
       },
     });
 

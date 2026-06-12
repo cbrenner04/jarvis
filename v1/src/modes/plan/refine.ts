@@ -553,7 +553,7 @@ export function buildVerdictRefinePrompt(opts: {
   return basePrompt.trim();
 }
 
-export type VerdictExecutorOptions = {
+export type VerdictActuatorOptions = {
   worktreePath: string;
   name: string;
   config: Config;
@@ -567,9 +567,9 @@ export type VerdictExecutorOptions = {
 };
 
 /**
- * Run the verdict executor: apply a review verdict to the spec via one refine turn.
+ * Run the verdict actuator: apply a review verdict to the spec via one refine turn.
  */
-export async function runVerdictExecutor(opts: VerdictExecutorOptions): Promise<void> {
+export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<void> {
   const intentPath = opts.externalSpecRoot
     ? join(opts.externalSpecRoot, opts.name, "intent.md")
     : join(opts.worktreePath, opts.targetDir ?? "spec", opts.name, "intent.md");
@@ -589,7 +589,7 @@ export async function runVerdictExecutor(opts: VerdictExecutorOptions): Promise<
     });
   } catch (err) {
     if (err instanceof Error) {
-      throw new Error(`verdict executor prompt error: ${err.message}`);
+      throw new Error(`verdict actuator prompt error: ${err.message}`);
     }
     throw err;
   }
@@ -634,7 +634,7 @@ export async function runVerdictExecutor(opts: VerdictExecutorOptions): Promise<
 
     if (result.kind === "ok") {
       // Success
-      opts.stderr?.(`plan: verdict executor completed\n`);
+      opts.stderr?.(`plan: verdict actuator completed\n`);
       return;
     }
 
@@ -644,7 +644,7 @@ export async function runVerdictExecutor(opts: VerdictExecutorOptions): Promise<
     }
 
     // Error or model config: fail
-    throw new Error(`verdict executor error (${result.kind})`);
+    throw new Error(`verdict actuator error (${result.kind})`);
   }
 
   // All agents exhausted

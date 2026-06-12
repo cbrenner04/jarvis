@@ -98,13 +98,13 @@ Per-project config:
 - **Three categories: thinking / reviewing / executing.** *thinking* =
   heavyweight reasoning (plan draft/refine, hard design); *reviewing* = critique
   passes (the review debate's reviewer roles); *executing* = routine
-  implementation (the write loop, the review debate's verdict executor). The code
+  implementation (the write loop, the review debate's verdict actuator). The code
   allows adding more later, but this set is fixed. (Supersedes the earlier coarse
   "heavy/cheap" split.)
 - **A step names a category, not a model.** The runner walks the agent fallback
   order; for whichever agent it lands on, it uses that agent's model for the
   step's category. Step→category: write/implement = executing; plan draft/refine =
-  thinking; review reviewer roles = reviewing; the verdict executor runs in its
+  thinking; review reviewer roles = reviewing; the verdict actuator runs in its
   mode's authoring category (implement → executing, plan → thinking).
 - **Exactly one model per (category, agent); a gap is a hard error at load** — no
   skip, no default fallback. Price/model validation runs per (agent, model) pair,
@@ -138,21 +138,21 @@ Per-project config:
 The **review-and-update** behavior is a debate, not N identical critique passes
 (the shape designed in `v2/spec/2026-06-07T19-57-26Z-review-debate`):
 
-- **Read-only reviewers → a writing executor.** One cycle is three read-only
-  reviewer roles — adversary → defender → judge — then a separate executor. The
-  judge emits a **verdict**: an outcome-altitude instruction (what must be true and
-  why, never the diff). The executor is the *only* writer; for implement it is the
+- **Read-only reviewers → a writing actuator.** One cycle is three read-only
+  reviewer roles — adversary → advocate → adjudicator — then a separate actuator. The
+  adjudicator emits a **verdict**: an outcome-altitude instruction (what must be true and
+  why, never the diff). The actuator is the *only* writer; for implement it is the
   write loop, for plan the refine loop, run with the verdict as its task.
 - **This is why categories matter.** Reviewers are **reviewing**-class; the
-  executor runs in the mode's *authoring* category — implement → **executing**,
+  actuator runs in the mode's *authoring* category — implement → **executing**,
   plan → **thinking** (applying a verdict to a spec is still spec-authoring work).
-  The split that matters is reviewers ≠ executor with different models, not that
-  the executor is always "cheap." One role would force one model to do both — the
-  conflation the agent/model split above exists to avoid. Splitting judge from
-  executor also stops a reviewer grading its own fix, and lets the executor's diff
+  The split that matters is reviewers ≠ actuator with different models, not that
+  the actuator is always "cheap." One role would force one model to do both — the
+  conflation the agent/model split above exists to avoid. Splitting adjudicator from
+  actuator also stops a reviewer grading its own fix, and lets the actuator's diff
   re-enter the next cycle's debate.
 - **Verdict lives next to the spec**, distinct plan/patch filenames, overwritten
-  each cycle (full trail in git). Empty verdict → no executor run. Default is one
+  each cycle (full trail in git). Empty verdict → no actuator run. Default is one
   cycle; the harness adjudicates no materiality — nothing to find means an empty
   verdict, not a convergence gate.
 

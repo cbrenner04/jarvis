@@ -347,7 +347,7 @@ describe("runPlanReviewPhase", () => {
           );
           return { kind: "ok", stdout: "", stderr: "" };
         }
-        if (prompt.includes("Review: Judge")) {
+        if (prompt.includes("Review: Adjudicator")) {
           return { kind: "ok", stdout: "Tighten the resume criterion.\n", stderr: "" };
         }
         return { kind: "ok", stdout: "", stderr: "" };
@@ -370,7 +370,7 @@ describe("runPlanReviewPhase", () => {
       expect(result.exitCode).toBe(0);
       expect(prRefreshCount).toBe(1);
       const subject = execSync("git log -1 --format=%s", { cwd: worktreePath, encoding: "utf8" }).trim();
-      expect(subject).toBe("plan: review: executor r2");
+      expect(subject).toBe("plan: review: actuator r2");
     } finally {
       cleanup();
     }
@@ -409,15 +409,15 @@ describe("read-only reviewer enforcement", () => {
         return { kind: "ok", stdout: "adversary findings", stderr: "" };
       });
 
-      const defenderAgent = new FakeAgent("claude", (_c, _p, opts) => {
-        // Defender should see the original spec (adversary's edit was reverted)
+      const advocateAgent = new FakeAgent("claude", (_c, _p, opts) => {
+        // Advocate should see the original spec (adversary's edit was reverted)
         const spec = readFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "utf8");
         expect(spec).not.toContain("EDITED");
         expect(spec).toContain("# One");
-        return { kind: "ok", stdout: "defender rebuttal", stderr: "" };
+        return { kind: "ok", stdout: "advocate rebuttal", stderr: "" };
       });
 
-      const judgeAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      const adjudicatorAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
 
       let agentCallCount = 0;
       const result = await runPlanReviewPhase({
@@ -431,14 +431,14 @@ describe("read-only reviewer enforcement", () => {
         createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
-          if (agentCallCount === 2) return defenderAgent;
-          return judgeAgent;
+          if (agentCallCount === 2) return advocateAgent;
+          return adjudicatorAgent;
         },
       });
 
       expect(result.exitCode).toBe(0);
       expect(adversaryEdited).toBe(true);
-      expect(defenderAgent.calls).toHaveLength(1);
+      expect(advocateAgent.calls).toHaveLength(1);
       // Verify the spec file was restored to original
       const finalSpec = readFileSync(join(dir, "spec", "p-review", "00-one.md"), "utf8");
       expect(finalSpec).toContain("# One");
@@ -448,19 +448,19 @@ describe("read-only reviewer enforcement", () => {
     }
   });
 
-  test("reverts spec edits from defender role", async () => {
+  test("reverts spec edits from advocate role", async () => {
     const { dir, specDir, cleanup } = setupReviewRepo();
     try {
       const adversaryAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "adversary findings", stderr: "" }));
 
-      const defenderAgent = new FakeAgent("claude", (_c, _p, opts) => {
-        // Defender tries to edit the spec
-        writeFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "# DEFENDER HACKED\n");
-        return { kind: "ok", stdout: "defender rebuttal", stderr: "" };
+      const advocateAgent = new FakeAgent("claude", (_c, _p, opts) => {
+        // Advocate tries to edit the spec
+        writeFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "# ADVOCATE HACKED\n");
+        return { kind: "ok", stdout: "advocate rebuttal", stderr: "" };
       });
 
-      const judgeAgent = new FakeAgent("claude", (_c, _p, opts) => {
-        // Judge should see original spec
+      const adjudicatorAgent = new FakeAgent("claude", (_c, _p, opts) => {
+        // Adjudicator should see original spec
         const spec = readFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "utf8");
         expect(spec).not.toContain("HACKED");
         return { kind: "ok", stdout: "", stderr: "" };
@@ -478,28 +478,28 @@ describe("read-only reviewer enforcement", () => {
         createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
-          if (agentCallCount === 2) return defenderAgent;
-          return judgeAgent;
+          if (agentCallCount === 2) return advocateAgent;
+          return adjudicatorAgent;
         },
       });
 
       expect(result.exitCode).toBe(0);
-      expect(judgeAgent.calls).toHaveLength(1);
+      expect(adjudicatorAgent.calls).toHaveLength(1);
     } finally {
       cleanup();
     }
   });
 
-  test("reverts spec edits from judge role", async () => {
+  test("reverts spec edits from adjudicator role", async () => {
     const { dir, specDir, cleanup } = setupReviewRepo();
     try {
       const adversaryAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "adversary", stderr: "" }));
-      const defenderAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "defense", stderr: "" }));
+      const advocateAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "advocacy", stderr: "" }));
 
-      const judgeAgent = new FakeAgent("claude", (_c, _p, opts) => {
-        // Judge tries to edit the spec (not allowed)
-        writeFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "# JUDGE MODIFIED\n");
-        // Return empty verdict to avoid executor invocation
+      const adjudicatorAgent = new FakeAgent("claude", (_c, _p, opts) => {
+        // Adjudicator tries to edit the spec (not allowed)
+        writeFileSync(join(opts.cwd, "spec", "p-review", "00-one.md"), "# ADJUDICATOR MODIFIED\n");
+        // Return empty verdict to avoid actuator invocation
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
@@ -519,8 +519,8 @@ describe("read-only reviewer enforcement", () => {
         createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
-          if (agentCallCount === 2) return defenderAgent;
-          return judgeAgent;
+          if (agentCallCount === 2) return advocateAgent;
+          return adjudicatorAgent;
         },
       });
 
@@ -528,7 +528,7 @@ describe("read-only reviewer enforcement", () => {
       // Verify edit was reverted
       const finalSpec = readFileSync(join(dir, "spec", "p-review", "00-one.md"), "utf8");
       expect(finalSpec).toContain("# One");
-      expect(finalSpec).not.toContain("JUDGE MODIFIED");
+      expect(finalSpec).not.toContain("ADJUDICATOR MODIFIED");
       // Should log the revert
       expect(stderr).toContain("edited spec files (reverting)");
     } finally {
@@ -542,7 +542,7 @@ describe("verdict → refine seam", () => {
     const { dir, specDir, cleanup } = setupReviewRepo();
     try {
       const adversaryFindings = "## Adversary Findings\n- Issue 1\n- Issue 2\n";
-      const defenseRebuttal = "## Defense Rebuttal\n- Addressed Issue 1\n- Issue 2 is unavoidable\n";
+      const advocateRebuttal = "## Advocacy Rebuttal\n- Addressed Issue 1\n- Issue 2 is unavoidable\n";
 
       const adversaryAgent = new FakeAgent("claude", () => ({
         kind: "ok",
@@ -550,15 +550,15 @@ describe("verdict → refine seam", () => {
         stderr: "",
       }));
 
-      const defenderAgent = new FakeAgent("claude", (_c, prompt) => {
+      const advocateAgent = new FakeAgent("claude", (_c, prompt) => {
         // Verify adversary findings are in the prompt
         expect(prompt).toContain(adversaryFindings);
-        return { kind: "ok", stdout: defenseRebuttal, stderr: "" };
+        return { kind: "ok", stdout: advocateRebuttal, stderr: "" };
       });
 
-      const judgeAgent = new FakeAgent("claude", (_c, prompt) => {
-        // Verify defense rebuttal is in the prompt
-        expect(prompt).toContain(defenseRebuttal);
+      const adjudicatorAgent = new FakeAgent("claude", (_c, prompt) => {
+        // Verify advocacy rebuttal is in the prompt
+        expect(prompt).toContain(advocateRebuttal);
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
@@ -574,29 +574,29 @@ describe("verdict → refine seam", () => {
         createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
-          if (agentCallCount === 2) return defenderAgent;
-          return judgeAgent;
+          if (agentCallCount === 2) return advocateAgent;
+          return adjudicatorAgent;
         },
       });
 
       expect(result.exitCode).toBe(0);
-      expect(defenderAgent.calls).toHaveLength(1);
-      expect(judgeAgent.calls).toHaveLength(1);
+      expect(advocateAgent.calls).toHaveLength(1);
+      expect(adjudicatorAgent.calls).toHaveLength(1);
     } finally {
       cleanup();
     }
   });
 
-  test("persists verdict to verdict-plan.md in spec directory when executor would run", async () => {
+  test("persists verdict to verdict-plan.md in spec directory when actuator would run", async () => {
     const { dir, specDir, cleanup } = setupReviewRepo();
     try {
       const verdict =
         "## Spec Verdict\n\nThe spec needs refinement based on:\n- Missing acceptance criteria\n- Unclear intent\n";
 
       const adversaryAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
-      const defenderAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      const advocateAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
 
-      const judgeAgent = new FakeAgent("claude", () => ({
+      const adjudicatorAgent = new FakeAgent("claude", () => ({
         kind: "ok",
         stdout: verdict,
         stderr: "",
@@ -614,13 +614,13 @@ describe("verdict → refine seam", () => {
         createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
-          if (agentCallCount === 2) return defenderAgent;
-          return judgeAgent;
+          if (agentCallCount === 2) return advocateAgent;
+          return adjudicatorAgent;
         },
       });
 
-      // Executor will fail due to missing agent factory, but verdict should still be written
-      // The verdict file is written before the executor is called
+      // Actuator will fail due to missing agent factory, but verdict should still be written
+      // The verdict file is written before the actuator is called
       const verdictPath = join(specDir, "verdict-plan.md");
       const savedVerdict = readFileSync(verdictPath, "utf8");
       expect(savedVerdict).toContain("Spec Verdict");
@@ -630,20 +630,20 @@ describe("verdict → refine seam", () => {
     }
   });
 
-  test("skips verdict persistence and executor when judge returns empty verdict", async () => {
+  test("skips verdict persistence and actuator when adjudicator returns empty verdict", async () => {
     const { dir, specDir, cleanup } = setupReviewRepo();
     try {
       const adversaryAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
-      const defenderAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      const advocateAgent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
 
-      const judgeAgent = new FakeAgent("claude", () => ({
+      const adjudicatorAgent = new FakeAgent("claude", () => ({
         kind: "ok",
         stdout: "", // Empty verdict
         stderr: "",
       }));
 
       let agentCallCount = 0;
-      const _executorCalled = false;
+      const _actuatorCalled = false;
 
       const result = await runPlanReviewPhase({
         worktreePath: dir,
@@ -656,8 +656,8 @@ describe("verdict → refine seam", () => {
         createAgent: (_agentName) => {
           agentCallCount += 1;
           if (agentCallCount === 1) return adversaryAgent;
-          if (agentCallCount === 2) return defenderAgent;
-          return judgeAgent;
+          if (agentCallCount === 2) return advocateAgent;
+          return adjudicatorAgent;
         },
       });
 

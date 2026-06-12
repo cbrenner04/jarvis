@@ -47,9 +47,9 @@ export type ReviewPromptOpts = {
   totalPasses: number;
   /** Base branch to diff against. Defaults to `main`. */
   baseBranch?: string;
-  /** Review role: adversary, defender, or judge. */
-  role?: "adversary" | "defender" | "judge";
-  /** Prior role's artifact (e.g., adversary findings for defender). */
+  /** Review role: adversary, advocate, or adjudicator. */
+  role?: "adversary" | "advocate" | "adjudicator";
+  /** Prior role's artifact (e.g., adversary findings for advocate). */
   priorArtifact?: string;
 };
 
@@ -62,10 +62,10 @@ export function buildReviewPrompt(opts: ReviewPromptOpts): string {
 
   // Select role-specific prompt template
   const promptId =
-    role === "judge"
-      ? "patch.prompt.review.judge"
-      : role === "defender"
-        ? "patch.prompt.review.defender"
+    role === "adjudicator"
+      ? "patch.prompt.review.adjudicator"
+      : role === "advocate"
+        ? "patch.prompt.review.advocate"
         : "patch.prompt.review.adversary";
 
   const template = assemblePromptForStep({
@@ -99,16 +99,16 @@ export function buildReviewPrompt(opts: ReviewPromptOpts): string {
     REVIEW_PASS_CONTEXT: context,
   };
 
-  // Add role-specific placeholders for defender and judge
-  if (role === "defender") {
+  // Add role-specific placeholders for advocate and adjudicator
+  if (role === "advocate") {
     declarations.push({ name: "ADVERSARY_FINDINGS", type: "string" as const, required: true });
     values.ADVERSARY_FINDINGS = opts.priorArtifact || "(no prior findings)";
   }
 
-  if (role === "judge") {
-    declarations.push({ name: "DEFENDER_RESPONSE", type: "string" as const, required: true });
-    // For judge, priorArtifact should be the defender's response; if not available use a placeholder
-    values.DEFENDER_RESPONSE = opts.priorArtifact || "(no defender response)";
+  if (role === "adjudicator") {
+    declarations.push({ name: "ADVOCATE_RESPONSE", type: "string" as const, required: true });
+    // For adjudicator, priorArtifact should be the advocate's response; if not available use a placeholder
+    values.ADVOCATE_RESPONSE = opts.priorArtifact || "(no advocate response)";
   }
 
   const rendered = renderTemplateWithDeclarations(template, declarations, values);
@@ -179,7 +179,7 @@ function getBranchDiff(cwd: string, baseBranch: string): string {
   }
 }
 
-export function buildVerdictExecutorPrompt(verdict: string, specPath: string): string {
+export function buildVerdictActuatorPrompt(verdict: string, specPath: string): string {
   const registry = loadPromptRegistry();
   const template = assemblePromptForStep({
     registry,

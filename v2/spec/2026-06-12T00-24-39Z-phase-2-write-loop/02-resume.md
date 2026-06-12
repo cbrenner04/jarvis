@@ -46,20 +46,20 @@ what this resume read actually needs.
 
 ## Acceptance criteria
 
-- [ ] Re-invoking the loop for an existing run loads durable state and resumes
+- [x] Re-invoking the loop for an existing run loads durable state and resumes
   without resuming mid-step (test).
-- [ ] An interrupted run (attempt started, no committed boundary) re-runs that
+- [x] An interrupted run (attempt started, no committed boundary) re-runs that
   iteration over the dirty worktree (test).
-- [ ] A budget-soft-stopped run resumes and continues remaining work with a fresh
+- [x] A budget-soft-stopped run resumes and continues remaining work with a fresh
   per-invocation budget (test).
-- [ ] Re-running a run whose boundary already committed does not advance the
+- [x] Re-running a run whose boundary already committed does not advance the
   checkpoint/attempt-count twice or duplicate the outcome (test).
-- [ ] Resume rebuilds a missing worktree from its branch (test, or asserted reuse
+- [x] Resume rebuilds a missing worktree from its branch (test, or asserted reuse
   of the existing auto-materialization path).
-- [ ] Recovery decisions derive from durable state, not in-memory flags.
-- [ ] State/resume tests run against a temp/override SQLite path and write nothing
+- [x] Recovery decisions derive from durable state, not in-memory flags.
+- [x] State/resume tests run against a temp/override SQLite path and write nothing
   under `~/.jarvis`.
-- [ ] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and `bun run ready`
+- [x] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and `bun run ready`
   pass.
 
 ## Documentation updates

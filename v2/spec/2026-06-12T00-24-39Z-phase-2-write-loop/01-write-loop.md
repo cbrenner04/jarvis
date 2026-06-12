@@ -63,25 +63,25 @@ branch is 02.
 
 ## Acceptance criteria
 
-- [ ] A loop module in `v2/src` calls `executeWrite` repeatedly until a
+- [x] A loop module in `v2/src` calls `executeWrite` repeatedly until a
   terminal or soft-stop outcome.
-- [ ] `progress` loops again and consumes one of `N`; the artifact contract is
+- [x] `progress` loops again and consumes one of `N`; the artifact contract is
   not checked on a `progress` iteration (test).
-- [ ] `done` and `no-work` with a passing artifact contract each end the loop
+- [x] `done` and `no-work` with a passing artifact contract each end the loop
   successfully (test, both tokens).
-- [ ] `done`/`no-work` with a failing contract appends a `## Blocker` to the spec
+- [x] `done`/`no-work` with a failing contract appends a `## Blocker` to the spec
   file and stops with no further iteration (test).
-- [ ] `blocked` stops immediately with an outcome distinct from `contract_miss`
+- [x] `blocked` stops immediately with an outcome distinct from `contract_miss`
   (test).
-- [ ] Budget exhausted while still `progress` yields a soft-stop outcome distinct
+- [x] Budget exhausted while still `progress` yields a soft-stop outcome distinct
   from blocked/blocker and marked resumable (test).
-- [ ] `invocation_failure` is terminal (test).
-- [ ] Max iterations is per-invocation with a default and a CLI override; no
+- [x] `invocation_failure` is terminal (test).
+- [x] Max iterations is per-invocation with a default and a CLI override; no
   durable remaining-iterations column is read or written.
-- [ ] Cancellation propagates via the provided `AbortSignal`; the core registers
+- [x] Cancellation propagates via the provided `AbortSignal`; the core registers
   no process-level signal handler.
-- [ ] Each iteration persists through the store's transactional boundary.
-- [ ] No `v2 -> v1` imports; `bun run typecheck` and `bun test` pass.
+- [x] Each iteration persists through the store's transactional boundary.
+- [x] No `v2 -> v1` imports; `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

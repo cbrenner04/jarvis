@@ -254,4 +254,34 @@ describe("external worktree helper", () => {
 
     expect(existsSync(getExternalWorktreeLockPath(getLockRoot(jarvisRoot)))).toBe(false);
   });
+
+  test("recreates a missing but still-registered worktree", async () => {
+    const { repoRoot, jarvisRoot } = setupRepo();
+
+    const first = await withExternalWorktree(
+      {
+        projectRoot: repoRoot,
+        projectName: "demo",
+        branchName: "write-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      () => undefined,
+    );
+    rmSync(first.worktree.path, { recursive: true, force: true });
+
+    const second = await withExternalWorktree(
+      {
+        projectRoot: repoRoot,
+        projectName: "demo",
+        branchName: "write-run",
+        baseRef: "HEAD",
+        jarvisRoot,
+      },
+      () => "ok",
+    );
+
+    expect(second.worktree.reused).toBe(false);
+    expect(existsSync(second.worktree.path)).toBe(true);
+  });
 });

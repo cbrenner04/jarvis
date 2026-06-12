@@ -170,9 +170,9 @@ Outcome tokens:
   one of the loop's `N` max. The contract is **not** checked.
 - **`done`** — claims finished. Runner verifies the contract → pass advances,
   fail adds a `## Blocker`.
-- **`no-work`** — nothing left to do. Treated as `done`: the contract still wins
-  → pass advances, fail blocks. (Prevents an agent skipping required output by
-  claiming there was nothing to do.)
+- **`no-work`** — nothing left to do. Contract handling matches `done`:
+  pass advances, fail blocks. It remains a distinct durable outcome
+  classification rather than collapsing into `done`.
 - **`blocked`** — agent declares it's blocked. Never counts as `done`; runner
   stops and routes to a human loop.
 
@@ -286,9 +286,10 @@ streams stay out of the orchestration store.
   recovery path: never resume mid-step; replay from the last durable pre-step
   boundary. The write loop is the first consumer to need this; the daemon host
   later invokes the same recovery through its IPC surface without redefining it.
-- **Recovery derives from durable state, not in-memory flags.** The next-step
-  checkpoint on `runs` (or a terminal run status when nothing remains) plus the
-  durable attempt/outcome history determine where a run resumes.
+- **Recovery derives from durable state, not in-memory flags.** The resume key
+  is `(project, branch)`. The next-step checkpoint on `runs` (or a terminal run
+  status when nothing remains) plus the durable attempt/outcome history
+  determine where a run resumes.
 - **Worktree is reconstructible; the branch is durable.** The branch and its
   commits are the durable artifact in git; the worktree path is only a pointer.
   Resume recreates a missing worktree from its branch — carrying forward v1's

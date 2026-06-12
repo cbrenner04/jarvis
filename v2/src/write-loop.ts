@@ -59,11 +59,9 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     let runId: string;
     let lastAttempt: { attemptId: string; isInterrupted: boolean } | null = null;
 
-    const existingRun = store.findRunByIdentity({
+    const existingRun = store.findRunByProjectBranch({
       project: args.projectId,
-      specRef: args.specRef,
       branch: args.branch,
-      worktreePath,
     });
 
     if (existingRun) {
@@ -206,7 +204,7 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
           attemptId,
           status: "completed",
           runStatus: "completed",
-          outcomeKind: result.token === "done" ? "done" : "progress",
+          outcomeKind: result.token,
         });
         return {
           kind: "complete",

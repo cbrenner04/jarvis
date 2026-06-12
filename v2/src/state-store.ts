@@ -4,13 +4,20 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 /** Status values for a run. */
-export type RunStatus = "in-progress" | "interrupted" | "completed" | "blocked" | "budget-soft-stopped" | "failed";
+export type RunStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped" | "failed";
 
 /** Terminal status of an attempt. */
-export type AttemptStatus = "in-progress" | "interrupted" | "completed" | "blocked" | "budget-soft-stopped";
+export type AttemptStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped";
 
 /** Outcome classification for an attempt. */
-export type OutcomeKind = "done" | "progress" | "blocked" | "contract_miss" | "invocation_failure" | "invalid_token";
+export type OutcomeKind =
+  | "done"
+  | "no-work"
+  | "progress"
+  | "blocked"
+  | "contract_miss"
+  | "invocation_failure"
+  | "invalid_token";
 
 /** A durable run record. */
 export type Run = {
@@ -62,15 +69,10 @@ export interface StateStore {
   loadRun(runId: string): (Run & { attempts: Attempt[] }) | null;
 
   /**
-   * Find a run by its identity (project, specRef, branch, worktreePath).
+   * Find a run by its identity (project, branch).
    * Returns the most recent matching run, or null if none found.
    */
-  findRunByIdentity(args: {
-    project: string;
-    specRef: string;
-    branch: string;
-    worktreePath: string;
-  }): (Run & { attempts: Attempt[] }) | null;
+  findRunByProjectBranch(args: { project: string; branch: string }): (Run & { attempts: Attempt[] }) | null;
 
   /**
    * Record the start of a new attempt for a run.
@@ -92,6 +94,7 @@ export interface StateStore {
     status: AttemptStatus;
     runStatus: RunStatus;
     outcomeKind: OutcomeKind;
+    beforeRunUpdate?: () => void;
   }): void;
 
   /** Persist a run status update outside a completion boundary. */
@@ -131,7 +134,6 @@ class StateStoreImpl implements StateStore {
     const dir = dirname(dbPath);
     mkdirSync(dir, { recursive: true });
     this.db = new Database(dbPath);
-    this.db.exec("PRAGMA journal_mode = WAL");
     this.applyMigrations();
   }
 
@@ -267,19 +269,14 @@ class StateStoreImpl implements StateStore {
     };
   }
 
-  findRunByIdentity(args: {
-    project: string;
-    specRef: string;
-    branch: string;
-    worktreePath: string;
-  }): (Run & { attempts: Attempt[] }) | null {
+  findRunByProjectBranch(args: { project: string; branch: string }): (Run & { attempts: Attempt[] }) | null {
     const runStmt = this.db.prepare(`
       SELECT id FROM runs
-      WHERE project = ? AND spec_ref = ? AND branch = ? AND worktree_path = ?
-      ORDER BY created_at DESC
+      WHERE project = ? AND branch = ?
+      ORDER BY created_at DESC, rowid DESC
       LIMIT 1
     `);
-    const runRow = runStmt.get(args.project, args.specRef, args.branch, args.worktreePath) as RunIdentityRow | null;
+    const runRow = runStmt.get(args.project, args.branch) as RunIdentityRow | null;
     if (!runRow) return null;
 
     return this.loadRun(runRow.id);
@@ -305,6 +302,7 @@ class StateStoreImpl implements StateStore {
     status: AttemptStatus;
     runStatus: RunStatus;
     outcomeKind: OutcomeKind;
+    beforeRunUpdate?: () => void;
   }): void {
     const attemptStmt = this.db.prepare("SELECT run_id FROM attempts WHERE id = ?");
     const attemptRow = attemptStmt.get(args.attemptId) as AttemptLookupRow | null;
@@ -337,6 +335,8 @@ class StateStoreImpl implements StateStore {
         VALUES (?, ?, ?, ?)
       `);
       createOutcomeStmt.run(outcomeId, args.attemptId, args.outcomeKind, Date.now());
+
+      args.beforeRunUpdate?.();
 
       const updateRunStmt = this.db.prepare("UPDATE runs SET attempt_count = ?, status = ? WHERE id = ?");
       updateRunStmt.run(run.attemptCount + 1, args.runStatus, runId);

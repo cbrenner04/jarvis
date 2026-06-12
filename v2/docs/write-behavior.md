@@ -69,6 +69,11 @@ The loop classifies and routes results:
   remaining spec work with a fresh per-invocation budget.
 - **`invocation_failure`**: all agents exhausted / not wired. Terminal stop.
 
+Resume identity is `(project, branch)` only. Re-invoking the same project and
+branch resumes the most recent durable run even if `--base`, `--spec`, or the
+materialized worktree path differ. A different project or branch creates a fresh
+run.
+
 ## Exit codes
 
 - `0`: `complete` (success)

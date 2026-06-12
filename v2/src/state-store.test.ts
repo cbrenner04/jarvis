@@ -13,8 +13,6 @@ describe("StateStore", () => {
     // Clean up any existing test database
     try {
       rmSync(TEST_DB_PATH, { force: true });
-      rmSync(`${TEST_DB_PATH}-wal`, { force: true });
-      rmSync(`${TEST_DB_PATH}-shm`, { force: true });
     } catch {
       // Ignore cleanup errors
     }
@@ -26,8 +24,6 @@ describe("StateStore", () => {
     // Clean up test database
     try {
       rmSync(TEST_DB_PATH, { force: true });
-      rmSync(`${TEST_DB_PATH}-wal`, { force: true });
-      rmSync(`${TEST_DB_PATH}-shm`, { force: true });
     } catch {
       // Ignore cleanup errors
     }
@@ -130,7 +126,7 @@ describe("StateStore", () => {
     expect(run.attemptCount).toBe(1);
   });
 
-  test("commit boundary is atomic on failure mid-way", () => {
+  test("commit boundary rolls back attempt, outcome, and run checkpoint on mid-boundary failure", () => {
     const runId = store.createRun({
       project: "test-project",
       specRef: "main",
@@ -141,25 +137,26 @@ describe("StateStore", () => {
 
     const attemptId = store.recordAttemptStart(runId);
 
-    // For the purposes of this test, we'll verify that a normal boundary works.
-    // A true test of atomicity on mid-boundary failure would require injecting
-    // a failure into the transaction, which is complex in Bun's sqlite binding.
-    // The transaction mechanism ensures atomicity at the DB level.
-
-    store.commitCompletionBoundary({
-      attemptId,
-      status: "completed",
-      runStatus: "completed",
-      outcomeKind: "done",
-    });
+    expect(() =>
+      store.commitCompletionBoundary({
+        attemptId,
+        status: "completed",
+        runStatus: "completed",
+        outcomeKind: "done",
+        beforeRunUpdate: () => {
+          throw new Error("forced mid-boundary failure");
+        },
+      }),
+    ).toThrow("forced mid-boundary failure");
 
     const run = store.loadRun(runId);
     if (!run) throw new Error("Run should exist");
-    expect(run.attemptCount).toBe(1);
+    expect(run.attemptCount).toBe(0);
+    expect(run.status).toBe("in-progress");
     const attempt = run.attempts[0];
     if (!attempt) throw new Error("Attempt should exist");
-    expect(attempt.status).toBe("completed");
-    expect(attempt.outcomeKind).toBe("done");
+    expect(attempt.status).toBe("in-progress");
+    expect(attempt.outcomeKind).toBeNull();
   });
 
   test("re-committing a finished boundary is idempotent", () => {
@@ -218,7 +215,7 @@ describe("StateStore", () => {
       attemptId: attempt1Id,
       status: "completed",
       runStatus: "in-progress",
-      outcomeKind: "progress",
+      outcomeKind: "no-work",
     });
 
     const attempt2Id = store.recordAttemptStart(runId);
@@ -237,7 +234,7 @@ describe("StateStore", () => {
     if (!firstAttempt || !secondAttempt) throw new Error("Attempts should exist");
     expect(firstAttempt.attemptNumber).toBe(1);
     expect(secondAttempt.attemptNumber).toBe(2);
-    expect(firstAttempt.outcomeKind).toBe("progress");
+    expect(firstAttempt.outcomeKind).toBe("no-work");
     expect(secondAttempt.outcomeKind).toBe("done");
     expect(run.status).toBe("completed");
     expect(run.attemptCount).toBe(2);
@@ -249,8 +246,6 @@ describe("StateStore", () => {
     const customPath = join(tmpdir(), "custom-state-test.sqlite");
     try {
       rmSync(customPath, { force: true });
-      rmSync(`${customPath}-wal`, { force: true });
-      rmSync(`${customPath}-shm`, { force: true });
     } catch {
       // Ignore
     }
@@ -271,10 +266,42 @@ describe("StateStore", () => {
     store.close();
     try {
       rmSync(customPath, { force: true });
-      rmSync(`${customPath}-wal`, { force: true });
-      rmSync(`${customPath}-shm`, { force: true });
     } catch {
       // Ignore
     }
+  });
+
+  test("finds the latest run by project and branch even when specRef and worktree differ", () => {
+    const olderRunId = store.createRun({
+      project: "test-project",
+      specRef: "old-ref",
+      worktreePath: "/tmp/worktree-a",
+      branch: "test-branch",
+      specPath: "spec-a.md",
+    });
+    const newerRunId = store.createRun({
+      project: "test-project",
+      specRef: "new-ref",
+      worktreePath: "/tmp/worktree-b",
+      branch: "test-branch",
+      specPath: "spec-b.md",
+    });
+    store.createRun({
+      project: "test-project",
+      specRef: "other-ref",
+      worktreePath: "/tmp/worktree-c",
+      branch: "other-branch",
+      specPath: "spec-c.md",
+    });
+
+    const run = store.findRunByProjectBranch({
+      project: "test-project",
+      branch: "test-branch",
+    });
+
+    expect(run?.id).toBe(newerRunId);
+    expect(run?.id).not.toBe(olderRunId);
+    expect(run?.specRef).toBe("new-ref");
+    expect(run?.worktreePath).toBe("/tmp/worktree-b");
   });
 });

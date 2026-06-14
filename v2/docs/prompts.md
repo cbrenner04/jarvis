@@ -13,7 +13,7 @@ For shipped v1 runtime details and tests, see [v1/docs/prompt-governance.md](../
   one-line edit (no code change); frontmatter-less templates (e.g. `plan/name-only.md`,
   `plan/inline-draft.md`) stay off the list and are loaded directly by their call sites.
 - Runtime lookup is by prompt `id`, not file path.
-- First rollout scope: patch body/rules, plan draft/review/refine, and shared global/plan fragments.
+- First rollout scope: patch body/rules, plan draft/review/refine/review-actuator, and shared global/plan fragments.
 - Deferred from rollout: human-facing chooser/confirmation strings plus `plan/name-only.md` and `plan/inline-draft.md`.
 
 ## Schema

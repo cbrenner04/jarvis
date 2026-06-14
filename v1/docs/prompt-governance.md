@@ -5,8 +5,7 @@ This document defines prompt identity and validation for Jarvis-managed prompts.
 ## First Registry Rollout (Metadata-First)
 
 The first rollout includes shared global guidance fragments plus prompt
-artifacts that
-shape agent behavior in patch mode and plan draft/review/refine:
+artifacts that shape agent behavior in patch mode and plan draft/review/refine:
 
 - `global.terse` (`prompts/global/terse.md`) — shared terse fragment layered
   into agent-facing prompts
@@ -33,6 +32,7 @@ shape agent behavior in patch mode and plan draft/review/refine:
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
 - `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review` (`prompts/plan/review.md`)
+- `plan.prompt.review-actuator` (`prompts/plan/review-actuator.md`)
 - `plan.prompt.refine` (`prompts/plan/refine.md`)
 
 Deferred in this rollout:
@@ -136,8 +136,9 @@ Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and
 is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 
 - patch prompt body (`patch.prompt.body`, currently `@r3`)
-- plan draft/review/refine prompts (draft `@r4`, refine `@r6`, review `@r5`; review
+- plan draft/review/refine prompts (draft `@r6`, refine `@r8`, review `@r6`; review
   includes multiple pass contexts)
+- plan review actuator prompt (`plan.prompt.review-actuator`, currently `@r1`)
 - codex transport wrapper variant (`codex.exec.stdin+marker`)
 
 Coverage remains assembled-output focused: tests assert final rendered prompt

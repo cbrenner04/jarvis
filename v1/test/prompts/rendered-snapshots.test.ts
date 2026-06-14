@@ -6,7 +6,7 @@ import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../..
 import { buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
 import { buildPrDescriptionPrompt as buildPlanPrDescriptionPrompt } from "../../src/modes/plan/pr-description-prompt.ts";
-import { buildRefinePrompt } from "../../src/modes/plan/refine.ts";
+import { buildRefinePrompt, buildVerdictActuatorPrompt } from "../../src/modes/plan/refine.ts";
 import { buildReviewPrompt } from "../../src/modes/plan/review.ts";
 
 type WrapperVariant = "codex.exec.stdin+marker";
@@ -37,12 +37,14 @@ describe("rendered prompt snapshots", () => {
     expect(registry.getById("patch.prompt.body").metadata.revision).toBe("3");
     expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("6");
     expect(registry.getById("plan.prompt.review").metadata.revision).toBe("6");
+    expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("1");
     expect(registry.getById("plan.prompt.refine").metadata.revision).toBe("8");
 
     const patchKey = `${registry.getById("patch.prompt.body").metadata.id}@r${registry.getById("patch.prompt.body").metadata.revision}.shared.txt`;
     const draftKey = `${registry.getById("plan.prompt.draft").metadata.id}@r${registry.getById("plan.prompt.draft").metadata.revision}.shared.txt`;
     const reviewStepOneKey = `${registry.getById("plan.prompt.review.adversary").metadata.id}@r${registry.getById("plan.prompt.review.adversary").metadata.revision}.pass-1.shared.txt`;
     const reviewStepTwoKey = `${registry.getById("plan.prompt.review.adversary").metadata.id}@r${registry.getById("plan.prompt.review.adversary").metadata.revision}.pass-2.shared.txt`;
+    const reviewActuatorKey = `${registry.getById("plan.prompt.review-actuator").metadata.id}@r${registry.getById("plan.prompt.review-actuator").metadata.revision}.shared.txt`;
     const refineKey = `${registry.getById("plan.prompt.refine").metadata.id}@r${registry.getById("plan.prompt.refine").metadata.revision}.shared.txt`;
 
     const patch = buildPrompt("v1/spec/example/index.md", ["../shared-lib", "../infra"]);
@@ -73,11 +75,19 @@ describe("rendered prompt snapshots", () => {
       specGuidance: "Guide",
       turnsRemaining: 2,
     });
+    const reviewActuator = buildVerdictActuatorPrompt({
+      name: "prompt-registry",
+      intent: "Intent",
+      specGuidance: "Guide",
+      currentSpec: '<<<FILE name="00-task.md" BEGIN>>>\n- [ ] Task\n<<<FILE END>>>',
+      verdict: "Verdict",
+    });
 
     expect(patch).toBe(readFixture(patchKey));
     expect(draft).toBe(readFixture(draftKey));
     expect(reviewPass1).toBe(readFixture(reviewStepOneKey));
     expect(reviewPass2).toBe(readFixture(reviewStepTwoKey));
+    expect(reviewActuator).toBe(readFixture(reviewActuatorKey));
     expect(refine).toBe(readFixture(refineKey));
   });
 

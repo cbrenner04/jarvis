@@ -20,14 +20,15 @@ agent-order behavior is currently untestable.
 - Terminal exit 2 (`all-agents-quota`) fires only when every attempted agent returned `quota`. A chain with no success but ≥1 `model_config` fallthrough exits 3. Rules out: exit-2/all-agents-quota on a mixed chain where a non-quota failure occurred.
 - Generic `error` exits 3 and `watchdog` exits 8, halting the chain immediately on the failing agent (unchanged). Rules out: letting hard failures fall through to the next agent.
 - Add `agents?: Partial<Record<AgentName, Agent>>` to `PromptRunOptions`, applied like patch mode's `buildActiveAgents`. Rules out: testing agent order via fake binaries on PATH or leaving it untested.
-- Reuse `quota-harness-messages.ts`: per-agent quota fallthrough emits the shared rotation language; terminal exit-2 emits `HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED`. Rules out: bespoke prompt-only quota strings that diverge from patch/plan logs.
-- Telemetry stays one row capturing the terminal agent + outcome; intermediate fallback attempts remain stderr-only. Rules out: per-attempt telemetry rows or a redesign the intent scopes out.
+- Reuse `quota-harness-messages.ts`: per-agent quota fallthrough emits the shared lenient rotation line plus raw agent stderr; terminal exit-2 emits `HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED`. Rules out: bespoke prompt-only quota strings or dropping diagnostic stderr.
+- Telemetry stays one row capturing the last attempted agent/configured model and terminal outcome; intermediate fallback attempts remain stderr-only. Rules out: per-attempt telemetry rows or a redesign the intent scopes out.
 
 ## Task checklist
 
-- Change the `quota` branch to continue and track that a quota result was seen.
-- After the loop, when no agent succeeded: exit 2 + `HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED` if every attempted agent returned quota; otherwise exit 3 (model-config/other fallthrough).
-- Set `telemetryKind`/`exitReason` to match the terminal outcome (`quota`/`all-agents-quota` vs `model_config`/agent-failure).
+- Change the `quota` branch to update terminal-agent/model state, emit raw stderr plus the shared rotation line, and continue.
+- Replace the existing in-loop exit-2 assignment and generic post-loop `return 3` with terminal logic: exit 2 + `HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED` only if every attempted agent returned quota; otherwise exit 3.
+- Track whether any non-quota fallthrough occurred, not whether quota was seen.
+- Set `telemetryKind`/`exitReason` to match the terminal outcome: all-quota → `quota`/`all-agents-quota`; mixed or all-`model_config` with no success → `error`/`agent-failure`.
 - Add the `agents` override to `PromptRunOptions` and apply it when building the agent list.
 - Replace helper-only tests in `v1/test/modes/prompt/run.test.ts` with tests driving `promptCommand` against fake agents in a temp git repo (mirror `v1/test/run.test.ts` setup; use `skipGhCheck`).
 - Update docs.

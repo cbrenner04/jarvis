@@ -34,7 +34,7 @@ Phase 6 adds planned human pauses.
 - [x] Extend state/store types and migrations for paused/killed status and a
   stop-cause/disposition field sufficient to distinguish boundary-clean pause
   from interrupted kill/crash.
-- [ ] Add a pause boundary hook or minimal loop option so `executeWriteLoop`
+- [x] Add a pause boundary hook or minimal loop option so `executeWriteLoop`
   can stop cleanly between iterations without daemon-specific IPC knowledge.
 - [ ] Add abortable process-group support at the invocation binding seam needed
   for real child-process kill; keep tests injectable.

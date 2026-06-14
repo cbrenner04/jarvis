@@ -41,6 +41,7 @@ async function runLoop(args: {
   maxIterations?: number;
   artifactPath?: string;
   signal?: AbortSignal;
+  shouldPauseAtBoundary?: () => boolean;
   branchName?: string;
   baseRef?: string;
   specPath?: string;
@@ -66,6 +67,9 @@ async function runLoop(args: {
   }
   if (args.signal !== undefined) {
     loopInput.signal = args.signal;
+  }
+  if (args.shouldPauseAtBoundary !== undefined) {
+    loopInput.shouldPauseAtBoundary = args.shouldPauseAtBoundary;
   }
   try {
     return await executeWriteLoop(loopInput);
@@ -244,6 +248,95 @@ describe("write loop", () => {
 
     expect(result.iterationsConsumed).toBe(10); // Default max
     expect(result.kind).toBe("budget-exhausted");
+  });
+
+  test("pause at boundary stops after the current iteration commits with no in-progress attempt", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    let pauseRequested = false;
+    let calls = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async () => {
+          calls += 1;
+          pauseRequested = true;
+          return { kind: "ok", stdout: "progress", stderr: "" };
+        },
+      },
+    ];
+
+    const result = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings,
+      maxIterations: 5,
+      shouldPauseAtBoundary: () => pauseRequested,
+    });
+
+    expect(result.kind).toBe("paused-at-boundary");
+    expect(result.iterationsConsumed).toBe(1);
+    expect(result.resumable).toBe(true);
+    expect(calls).toBe(1);
+
+    const run = loadRunOnce(stateDbPath, result.runId);
+    expect(run?.status).toBe("paused");
+    expect(run?.stopCause).toBe("paused-at-boundary");
+    expect(run?.attempts).toHaveLength(1);
+    expect(run?.attempts[0]?.status).toBe("completed");
+    expect(run?.attempts[0]?.outcomeKind).toBe("progress");
+  });
+
+  test("resume after paused-at-boundary continues with the next iteration", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    let pauseRequested = false;
+    let calls = 0;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async ({ cwd }) => {
+          calls += 1;
+          if (calls === 1) {
+            pauseRequested = true;
+            return { kind: "ok", stdout: "progress", stderr: "" };
+          }
+          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      },
+    ];
+
+    const paused = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings,
+      maxIterations: 5,
+      shouldPauseAtBoundary: () => pauseRequested,
+    });
+
+    expect(paused.kind).toBe("paused-at-boundary");
+    expect(calls).toBe(1);
+
+    pauseRequested = false;
+    const resumed = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings,
+      maxIterations: 5,
+    });
+
+    expect(resumed.kind).toBe("complete");
+    expect(resumed.iterationsConsumed).toBe(1);
+    expect(calls).toBe(2);
+
+    const run = loadRunOnce(stateDbPath, resumed.runId);
+    expect(run?.status).toBe("completed");
+    expect(run?.attemptCount).toBe(2);
+    expect(run?.attempts).toHaveLength(2);
+    expect(run?.attempts[0]?.outcomeKind).toBe("progress");
+    expect(run?.attempts[1]?.outcomeKind).toBe("done");
   });
 
   test("cancellation propagates via AbortSignal", async () => {

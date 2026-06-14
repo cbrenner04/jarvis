@@ -9,6 +9,7 @@ import { executeWrite, type WriteExecuteInput } from "./write.ts";
 export type WriteLoopOutcomeKind =
   | "complete"
   | "progress"
+  | "paused-at-boundary"
   | "blocked"
   | "contract_miss"
   | "invocation_failure"
@@ -26,6 +27,12 @@ export type WriteLoopResult = {
 export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
   stateStore?: StateStore;
+  /**
+   * When this returns true at a loop boundary (after the prior iteration committed,
+   * before the next `executeWrite`), the loop stops with `paused-at-boundary`.
+   * Hosts poll steering state here; the loop has no IPC knowledge.
+   */
+  shouldPauseAtBoundary?: () => boolean;
 };
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -55,6 +62,11 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
     while (iterationsConsumed < maxIterations) {
       if (args.signal?.aborted) {
         return { kind: "progress", runId, iterationsConsumed, resumable: true };
+      }
+
+      if (args.shouldPauseAtBoundary?.()) {
+        store.setRunStatus(runId, "paused", "paused-at-boundary");
+        return { kind: "paused-at-boundary", runId, iterationsConsumed, resumable: true };
       }
 
       const attemptId = resumedAttemptId ?? store.recordAttemptStart(runId);

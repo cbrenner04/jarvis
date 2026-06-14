@@ -135,6 +135,7 @@ shared repo-level `prompts/plan/` tree:
 - `prompts/plan/name-only.md`
 - `prompts/plan/draft.md`
 - `prompts/plan/review.md`
+- `prompts/plan/review-actuator.md`
 - `prompts/plan/inline-draft.md`
 
 The corresponding `v1/src/modes/plan/*.ts` files remain loader/runtime logic:
@@ -207,22 +208,30 @@ fixtures (`v1/test/fixtures/prompts/rendered/<id>@r<revision>...shared.txt`).
 
 ### Phase 2: Self-review
 
-After `plan: draft` is pushed, jarvis runs zero or more review passes (default: `modes.review.passes`, currently `2`; overridable via `--review-passes`). Review agents come from `modes.review.agentOrder`, falling back to `modes.plan.agentOrder`. Each pass invokes an agent with a focused prompt (`prompts/plan/review.md`) that:
+After `plan: draft` is pushed, jarvis runs zero or more review cycles (default: `modes.review.passes`, currently `2`; overridable via `--review-passes`). Review agents come from `modes.review.agentOrder`, falling back to `modes.plan.agentOrder`. Each cycle runs read-only adversary, advocate, and adjudicator prompts (`prompts/plan/review-*.md`). The adjudicator writes a self-contained verdict; when non-empty, jarvis persists it as `verdict-plan.md` and invokes the actuator prompt (`prompts/plan/review-actuator.md`) to apply the verdict to generated spec files.
+
+Reviewer role prompts:
 
 - Inlines the current `intent.md` and all spec files.
 - Inlines `docs/spec-guidance.md`.
-- Asks the agent to critique the current spec tree against the intent and guidance, then rewrite files in place with a subtractive bias: prefer cutting over adding; do not grow the spec unless adding a genuinely missing decision, acceptance criterion, or required doc update; cut prose, never decisions.
-- Forbids creation of new files (except for new subspec files to replace existing ones) and forbids deletion of `index.md`.
+- Ask the agent to critique, defend, then adjudicate the current spec tree against the intent and guidance.
+- Revert any spec edits made by reviewer roles; reviewers are read-only.
+- Pass role artifacts forward inside the cycle: adversary findings → advocate, advocate response → adjudicator.
+
+The actuator prompt:
+
+- Inlines the current `intent.md`, all generated spec files, `docs/spec-guidance.md`, and the verdict.
+- Asks the agent to edit the generated spec files in place with targeted changes that satisfy the verdict.
+- Forbids editing `verdict-plan.md` and forbids creation of unrelated files.
 - Forbids modifications to `intent.md` except for appending a `## Blocker` section.
 
-Each pass is a single agent invocation; the agent does not decide when to stop or how many iterations to run. After each pass, the modified files are staged and committed as `plan: review <N>` (1-indexed).
+Each cycle is bounded by the configured pass count; the agents do not decide when to stop or how many cycles to run. Non-empty role and actuator artifacts are staged and committed as `plan: review: <role>` / `plan: review: actuator` (with resume suffixes when applicable). Empty verdicts skip the actuator and produce no actuator commit.
 
 **Prompt rendering:** Like the draft phase, review prompts use non-recursive template rendering so that placeholder-looking text in the current spec (e.g., `<CURRENT_SPEC>` appearing in the snapshot) is treated as literal data without recursive substitution.
-Review pass variants are snapshot-tested separately per pass context (`pass-1`,
-`pass-2`) so wording and delimiter boundaries are review-visible.
+Review role and actuator variants are snapshot-tested so wording and delimiter boundaries are review-visible.
 
-**Commit shape (for pass 1):**
-- Subject: `plan: review 1`
+**Commit shape (for actuator):**
+- Subject: `plan: review: actuator`
 - Body:
   ```
   Spec: spec/<spec-dir>/intent.md

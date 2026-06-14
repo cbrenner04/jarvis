@@ -10,6 +10,7 @@ plan/review.md
 plan/review-adversary.md
 plan/review-advocate.md
 plan/review-adjudicator.md
+plan/review-actuator.md
 plan/refine.md
 patch/instructions.md
 patch/pr-description.md

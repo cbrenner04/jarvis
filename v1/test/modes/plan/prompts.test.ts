@@ -4,6 +4,7 @@ import { buildInlineDraftPrompt } from "../../../src/modes/plan/inline-draft.ts"
 import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
 import {
   buildRefinePrompt,
+  buildVerdictActuatorPrompt,
   classifyRefineIntentOutcome,
   isValidRefineSkipAddition,
   isValidRefineTurnAddition,
@@ -145,6 +146,25 @@ describe("buildReviewPrompt", () => {
       currentSpec: "spec",
     });
     expect(prompt).toContain("This is the first review pass. The spec snapshot below is the original draft.");
+  });
+});
+
+describe("buildVerdictActuatorPrompt", () => {
+  test("targets spec files instead of intent refinement", () => {
+    const prompt = buildVerdictActuatorPrompt({
+      name: "p",
+      intent: "# Intent\n",
+      currentSpec: '<<<FILE name="00-one.md" BEGIN>>>\n# One\n<<<FILE END>>>',
+      specGuidance: "guidance",
+      verdict: "Add the missing AC.",
+    });
+
+    expect(prompt).toContain("Plan Mode — Review Actuator");
+    expect(prompt).toContain("Current Spec Files");
+    expect(prompt).toContain("Add the missing AC.");
+    expect(prompt).toContain("Do not edit `intent.md` unless appending a genuine `## Blocker` section.");
+    expect(prompt).not.toContain("Intent Refinement Phase");
+    expect(prompt).not.toContain("Do not write any other files.");
   });
 });
 

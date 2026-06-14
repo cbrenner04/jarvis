@@ -36,7 +36,7 @@ Phase 6 adds planned human pauses.
   from interrupted kill/crash.
 - [x] Add a pause boundary hook or minimal loop option so `executeWriteLoop`
   can stop cleanly between iterations without daemon-specific IPC knowledge.
-- [ ] Add abortable process-group support at the invocation binding seam needed
+- [x] Add abortable process-group support at the invocation binding seam needed
   for real child-process kill; keep tests injectable.
 - [ ] Extend daemon protocol with `run.pause`, `run.resume`, and `run.kill`.
 - [ ] Add CLI commands `pause <run-id>`, `resume <run-id>`, and `kill <run-id>`.
@@ -44,7 +44,7 @@ Phase 6 adds planned human pauses.
   requested, killed, and resume branch.
 - [ ] Co-located tests for graceful pause, resume, immediate kill, and crash-like
   interrupted resume.
-- [ ] Update invocation kill/abort contract docs if the binding seam changes.
+- [x] Update invocation kill/abort contract docs if the binding seam changes.
 - [ ] Run `bun run ready` for this materially invasive steering slice.
 
 ## Acceptance criteria
@@ -76,7 +76,7 @@ Phase 6 adds planned human pauses.
   and resume branch behavior for daemon-driven runs.
 - [x] `v2/docs/state-store.md`: document any new statuses/stop-cause fields and
   their resume reads.
-- [ ] `v2/docs/shared-invocation.md` or the actual durable invocation-binding
+- [x] `v2/docs/shared-invocation.md` or the actual durable invocation-binding
   home: document child-process kill/abort contracts if the seam changes.
 - [ ] `v2/docs/v2-architecture.md`: align with the as-built second-host model.
 - [ ] `v2/docs/v2-build-order.md` and `v2/spec/v2-meta-index.md`: check off

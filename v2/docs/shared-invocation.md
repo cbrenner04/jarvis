@@ -21,6 +21,14 @@ Bindings:
   ordered bindings. It is the seam where real `claude`/`codex`/`cursor` process
   spawning and quota classification land; until then each binding returns a
   terminal `error`, and tests inject their own bindings.
+- `runInvocationChild` and `createChildProcessBinding` in
+  `shared/invocation/spawn.ts` own real child-process lifecycle for bindings
+  that spawn a CLI. The child runs detached in its own process group; when
+  `AbortSignal` aborts, the harness sends SIGTERM to the group and escalates to
+  SIGKILL after `DEFAULT_ABORT_KILL_GRACE_MS` (override per call via
+  `abortKillGraceMs`). Aborted invocations settle as
+  `{ kind: "error", exitCode: -1, stderr: "aborted: <reason>" }`. Tests keep
+  injectable `invoke` implementations and do not require real child processes.
 
 Boundary:
 

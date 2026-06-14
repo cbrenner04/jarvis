@@ -11,7 +11,8 @@ export type RunStatus =
   | "budget-soft-stopped"
   | "failed"
   | "paused"
-  | "killed";
+  | "killed"
+  | "cleaned";
 
 /** How a steering stop completed; drives resume branching. */
 export type StopCause = "paused-at-boundary" | "interrupted";

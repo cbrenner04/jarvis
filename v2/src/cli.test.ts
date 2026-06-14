@@ -363,13 +363,30 @@ describe("v2 cli", () => {
     expect(JSON.parse(cap.read().stdout).result.accepted).toBe(true);
   });
 
+  test("cleanup autostarts the daemon and forwards run.cleanup", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-cleanup-"));
+
+    const code = await main(["cleanup", "run-4", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      callDaemonWithAutostart: async (request) => {
+        expect(request.method).toBe("run.cleanup");
+        expect(request.params).toEqual({ runId: "run-4" });
+        return { id: request.id, ok: true, result: { accepted: true } };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(cap.read().stdout).result.accepted).toBe(true);
+  });
+
   test("steering without run id prints usage and exits 1", async () => {
     const cap = captureIo();
 
     const code = await main(["pause"], cap.io);
 
     expect(code).toBe(1);
-    expect(cap.read().stderr).toContain("usage: jarvis <pause|resume|kill>");
+    expect(cap.read().stderr).toContain("usage: jarvis <pause|resume|kill|cleanup>");
   });
 
   test("log-tail autostarts the daemon and streams structured records", async () => {

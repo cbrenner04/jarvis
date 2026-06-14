@@ -109,7 +109,7 @@ export function reservesOwnership(status: RunStatus): boolean {
 
 /** Whether terminal status releases daemon ownership. */
 export function releasesOwnership(status: RunStatus): boolean {
-  return status === "completed" || status === "failed";
+  return status === "completed" || status === "failed" || status === "cleaned";
 }
 
 /**
@@ -232,6 +232,34 @@ export class RunManager {
     session.killRequested = true;
     this.deps.logRepository.append({ runId, level: "info", event: "run.kill-requested" });
     session.abortController.abort("steering-kill");
+    return { accepted: true };
+  }
+
+  /**
+   * Release an abandoned run's `(project, branch)` ownership without resuming it.
+   * Requires no live session, so it also frees runs stranded by a daemon restart
+   * (paused/killed/crashed-in-progress) that resume cannot reach.
+   */
+  cleanup(runId: string): RunSteeringResult {
+    const run = requireRun(this.deps.stateStore, runId);
+    if (this.activeRunIds.has(runId)) {
+      throw new SteeringError("invalid_state", "run is active; pause or kill before cleanup");
+    }
+    if (!reservesOwnership(run.status)) {
+      throw new SteeringError("invalid_state", `run status ${run.status} holds no ownership to release`);
+    }
+    this.deps.stateStore.setRunStatus(runId, "cleaned");
+    const key = ownershipKey(run.project, run.branch);
+    if (this.ownership.get(key) === runId) {
+      this.ownership.delete(key);
+    }
+    this.sessions.delete(runId);
+    this.deps.logRepository.append({
+      runId,
+      level: "info",
+      event: "run.cleaned",
+      data: { priorStatus: run.status },
+    });
     return { accepted: true };
   }
 

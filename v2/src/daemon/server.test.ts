@@ -417,6 +417,51 @@ describe("daemon server", () => {
     await waitForRunStatus(root, killRunId, "killed");
   });
 
+  test("run.cleanup releases a killed run's ownership over IPC", async () => {
+    let releaseIteration: (() => void) | undefined;
+    const iterationGate = new Promise<void>((resolve) => {
+      releaseIteration = resolve;
+    });
+    const root = mkdtempJarvisRoot();
+    const { socketPath } = await startHost(root, async (input) => {
+      await iterationGate;
+      const store = input.stateStore;
+      const run = store?.findRunByProjectBranch({
+        project: input.worktree.projectName,
+        branch: input.worktree.branchName,
+      });
+      return { kind: "progress", runId: run?.id ?? "missing", iterationsConsumed: 1, resumable: true };
+    });
+    const params = {
+      projectRoot: "/tmp/repo",
+      project: "demo",
+      branch: "cleanup",
+      base: "HEAD",
+      spec: "spec.md",
+      artifact: "proof.txt",
+    };
+
+    const started = await callDaemon({ id: "start-1", method: "run.start", params }, { socketPath });
+    const runId = (started.result as { runId: string }).runId;
+    await waitForActive(socketPath, runId);
+    await callDaemon({ id: "kill-1", method: "run.kill", params: { runId } }, { socketPath });
+    releaseIteration?.();
+    await waitForRunStatus(root, runId, "killed");
+
+    // The killed run still reserves (project, branch).
+    const conflict = await callDaemon({ id: "start-2", method: "run.start", params }, { socketPath });
+    expect(conflict.ok).toBe(false);
+    expect(conflict.error?.code).toBe("ownership_conflict");
+
+    const cleanup = await callDaemon({ id: "cleanup-1", method: "run.cleanup", params: { runId } }, { socketPath });
+    expect(cleanup.ok).toBe(true);
+    expect(cleanup.result).toEqual({ accepted: true });
+    await waitForRunStatus(root, runId, "cleaned");
+
+    const restart = await callDaemon({ id: "start-3", method: "run.start", params }, { socketPath });
+    expect(restart.ok).toBe(true);
+  });
+
   test("steering methods reject invalid params and unknown methods", async () => {
     const root = mkdtempJarvisRoot();
     const { socketPath } = await startHost(root);

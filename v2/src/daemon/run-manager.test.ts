@@ -345,6 +345,65 @@ describe("run manager", () => {
     });
   });
 
+  test("cleanup releases a restart-stranded run's ownership without a live session", async () => {
+    const { stateStore, logRepository, root } = createManager();
+    const runId = stateStore.createRun({
+      project: "stranded",
+      specRef: "HEAD",
+      worktreePath: "/tmp/wt-stranded",
+      branch: "b-stranded",
+      specPath: "spec.md",
+    });
+    stateStore.setRunStatus(runId, "killed", "interrupted");
+
+    // Fresh manager stands in for a daemon restart: ownership is rebuilt from
+    // durable state, but no in-memory session exists for this run.
+    const rebuilt = new RunManager({
+      stateStore,
+      logRepository,
+      jarvisRoot: root,
+      executeWriteLoop: completeLoop,
+      createBindings: () => simulatedBindings(["done"]),
+      registerActiveInvocation: () => {},
+      unregisterActiveInvocation: () => {},
+    });
+    const params = { ...baseParams(), project: "stranded", branch: "b-stranded" };
+    expect(() => rebuilt.start(params)).toThrow(OwnershipConflictError);
+    // Resume cannot reach a sessionless run after restart; cleanup is the escape.
+    expect(() => rebuilt.resume(runId)).toThrow(SteeringError);
+
+    expect(rebuilt.cleanup(runId)).toEqual({ accepted: true });
+    expect(stateStore.loadRun(runId)?.status).toBe("cleaned");
+    expect(logRepository.listRecords(runId).some((record) => record.event === "run.cleaned")).toBe(true);
+
+    // The slot is free again.
+    expect(() => rebuilt.start(params)).not.toThrow();
+    await waitFor(() => rebuilt.list().activeRunIds.length === 0);
+  });
+
+  test("cleanup rejects active and terminal runs", async () => {
+    let resolveDelay: (() => void) | undefined;
+    const delay = new Promise<void>((resolve) => {
+      resolveDelay = resolve;
+    });
+    const { manager, stateStore } = createManager({
+      executeWriteLoop: async (input) => {
+        await delay;
+        return completeLoop(input);
+      },
+    });
+
+    expect(() => manager.cleanup("missing")).toThrow(SteeringError);
+
+    const started = manager.start(baseParams());
+    await waitFor(() => manager.list().activeRunIds.includes(started.runId));
+    expect(() => manager.cleanup(started.runId)).toThrow(SteeringError);
+
+    resolveDelay?.();
+    await waitFor(() => stateStore.loadRun(started.runId)?.status === "completed");
+    expect(() => manager.cleanup(started.runId)).toThrow(SteeringError);
+  });
+
   test("steering rejects unknown runs and invalid lifecycle states", async () => {
     const { manager } = createManager();
     expect(() => manager.pause("missing")).toThrow(SteeringError);

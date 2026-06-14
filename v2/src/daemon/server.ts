@@ -107,6 +107,7 @@ export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
       case "run.pause":
       case "run.resume":
       case "run.kill":
+      case "run.cleanup":
         return handleSteeringRequest(request);
       default:
         return errorResponse(request.id, {
@@ -168,7 +169,9 @@ export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
           ? runManager.pause(parsed.value.runId)
           : request.method === "run.resume"
             ? runManager.resume(parsed.value.runId)
-            : runManager.kill(parsed.value.runId);
+            : request.method === "run.kill"
+              ? runManager.kill(parsed.value.runId)
+              : runManager.cleanup(parsed.value.runId);
       return okResponse(request.id, result);
     } catch (error) {
       if (error instanceof SteeringError) {

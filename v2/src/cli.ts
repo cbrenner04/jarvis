@@ -34,7 +34,7 @@ const WRITE_USAGE =
 const START_USAGE =
   "usage: jarvis start --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
 const LOG_TAIL_USAGE = "usage: jarvis log-tail <run-id> [--from-seq <n>]\n";
-const STEERING_USAGE = "usage: jarvis <pause|resume|kill> <run-id> [--jarvis-root <path>]\n";
+const STEERING_USAGE = "usage: jarvis <pause|resume|kill|cleanup> <run-id> [--jarvis-root <path>]\n";
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status|serve> [--jarvis-root <path>]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
@@ -99,7 +99,7 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     return runLogTailCli(argv.slice(1), out, runtimeDeps);
   }
 
-  if (command === "pause" || command === "resume" || command === "kill") {
+  if (command === "pause" || command === "resume" || command === "kill" || command === "cleanup") {
     return runSteeringCli(command, argv.slice(1), out, runtimeDeps);
   }
 
@@ -314,7 +314,7 @@ async function runRunStatusCli(argv: readonly string[], out: Io, deps: CliDeps):
 }
 
 async function runSteeringCli(
-  verb: "pause" | "resume" | "kill",
+  verb: "pause" | "resume" | "kill" | "cleanup",
   argv: readonly string[],
   out: Io,
   deps: CliDeps,
@@ -327,7 +327,8 @@ async function runSteeringCli(
 
   const jarvisRoot = parseJarvisRoot(argv) ?? deps.jarvisRoot();
   const socketPath = daemonSocketPath(jarvisRoot);
-  const method = verb === "pause" ? "run.pause" : verb === "resume" ? "run.resume" : "run.kill";
+  const method =
+    verb === "pause" ? "run.pause" : verb === "resume" ? "run.resume" : verb === "kill" ? "run.kill" : "run.cleanup";
   const response = await deps.callDaemonWithAutostart(
     { id: `run-${verb}`, method, params: { runId } },
     { jarvisRoot, socketPath },

@@ -6,7 +6,7 @@ Durable state for v2 runs and execution history: SQLite at `~/.jarvis/state/v2.s
 
 ## Schema
 
-- `runs` — orchestration identity, lifecycle, and checkpoint: `id`, `project`, `spec_ref`, `created_at`, `status` (`in-progress` | `completed` | `blocked` | `budget-soft-stopped` | `failed` | `paused` | `killed`), `stop_cause` (`paused-at-boundary` | `interrupted` | null — how the last steering stop completed; null when never steered or after resume clears it), `attempt_count` (durable resume checkpoint), `worktree_path` (reconstructible pointer), `branch` (durable), `spec_path`.
+- `runs` — orchestration identity, lifecycle, and checkpoint: `id`, `project`, `spec_ref`, `created_at`, `status` (`in-progress` | `completed` | `blocked` | `budget-soft-stopped` | `failed` | `paused` | `killed` | `cleaned`), `stop_cause` (`paused-at-boundary` | `interrupted` | null — how the last steering stop completed; null when never steered or after resume clears it), `attempt_count` (durable resume checkpoint), `worktree_path` (reconstructible pointer), `branch` (durable), `spec_path`.
 - `attempts` — one row per step attempt: `id`, `run_id`, `attempt_number`, `started_at`, `status` (`in-progress` | `completed`), plus the durable outcome once committed: `outcome_kind` (`done` | `no-work` | `progress` | `blocked` | `contract_miss` | `invocation_failure` | `invalid_token`) and `completed_at`.
 
 ## API

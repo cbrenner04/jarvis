@@ -23,8 +23,11 @@ boundary-clean or interrupted.
 - Process-group kill scope is limited to real child-process invocation bindings;
   tests keep injectable abort behavior. Rules out redesigning run orchestration
   into worker processes solely for kill.
-- CLI steering verbs are exactly `pause`, `resume`, and `kill`. Rules out adding
-  edit/message/reorder controls in Phase 3.
+- CLI steering verbs are `pause`, `resume`, and `kill`; ownership release adds
+  `cleanup` (the "explicit cleanup" path promised by the detached-runs subspec,
+  releasing an inactive run's `(project, branch)` without a live session so
+  restart-stranded runs are not wedged). Rules out adding edit/message/reorder
+  controls in Phase 3.
 
 Deferred to first consumer: pause reasons and human-loop decisions - pin when
 Phase 6 adds planned human pauses.
@@ -45,7 +48,10 @@ Phase 6 adds planned human pauses.
 - [x] Co-located tests for graceful pause, resume, immediate kill, and crash-like
   interrupted resume.
 - [x] Update invocation kill/abort contract docs if the binding seam changes.
-- [ ] Run `bun run ready` for this materially invasive steering slice.
+- [x] Add `run.cleanup` / `jarvis cleanup` to release an inactive run's
+  `(project, branch)` without a live session (the detached-runs "explicit
+  cleanup" path; also frees restart-stranded runs).
+- [x] Run `bun run ready` for this materially invasive steering slice.
 
 ## Acceptance criteria
 
@@ -62,12 +68,13 @@ Phase 6 adds planned human pauses.
 - [x] `jarvis resume <run-id>` after killed/crashed mid-step re-runs the
   interrupted attempt over the dirty worktree via the existing recovery path
   (test).
-- [x] Steering API rejects verbs other than pause/resume/kill.
+- [x] Steering API rejects verbs other than pause/resume/kill/cleanup.
 - [x] Structured logs expose requested and resulting steering states for tail
   consumers.
-- [x] No `v2 -> v1` imports; `bun run typecheck` passes. All steering tests (10/10 in
-  run-manager.test.ts) pass. Daemon socket tests blocked by test environment issue.
-- [ ] `bun run ready` blocked by test environment (Unix socket binding failures).
+- [x] `run.cleanup` releases an inactive run's ownership without a session and
+  rejects active/terminal runs (run-manager + server IPC tests).
+- [x] No `v2 -> v1` imports; `bun run typecheck` passes.
+- [x] `bun run ready` passes (1123/1123; socket tests require writable `/tmp`).
 
 ## Documentation updates
 

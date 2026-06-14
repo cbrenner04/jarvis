@@ -48,6 +48,7 @@ jarvis status [--jarvis-root <path>]
 jarvis pause <run-id> [--jarvis-root <path>]
 jarvis resume <run-id> [--jarvis-root <path>]
 jarvis kill <run-id> [--jarvis-root <path>]
+jarvis cleanup <run-id> [--jarvis-root <path>]
 jarvis log-tail <run-id> [--from-seq <n>] [--jarvis-root <path>]
 ```
 
@@ -59,6 +60,7 @@ jarvis log-tail <run-id> [--from-seq <n>] [--jarvis-root <path>]
 | `pause` | `run.pause` |
 | `resume` | `run.resume` |
 | `kill` | `run.kill` |
+| `cleanup` | `run.cleanup` |
 
 - `start` — accepts the same write-loop fields as `jarvis write`; returns a run
   ID after durable run creation and async scheduling (does not wait for loop
@@ -68,6 +70,9 @@ jarvis log-tail <run-id> [--from-seq <n>] [--jarvis-root <path>]
 - `pause` — requests graceful stop at the next write-loop boundary.
 - `resume` — schedules the next loop invocation; branches on durable `stop_cause`.
 - `kill` — aborts the active invocation immediately.
+- `cleanup` — releases an inactive, non-terminal run's `(project, branch)` without
+  resuming it (marks it `cleaned`); use it to reclaim a slot held by a killed or
+  restart-stranded run.
 - `log-tail` — replays stored records for the run, then streams live appends as
   JSON lines on stdout until interrupted.
 
@@ -104,12 +109,17 @@ See [`autostart.ts`](../src/daemon/autostart.ts).
 The daemon enforces at most one daemon-owned run per `(project, branch)` in
 memory. Ownership is reserved when a detached start is accepted and held while
 durable status is nonterminal: `in-progress`, `paused`, `blocked`,
-`budget-soft-stopped`, or `killed`. It releases on terminal `completed` or
-`failed`, or after explicit cleanup (steering subspec).
+`budget-soft-stopped`, or `killed`. It releases on terminal `completed`,
+`failed`, or `cleaned` (via `run.cleanup`).
 
 On startup the daemon rebuilds ownership guards from durable nonterminal runs so
 paused/killed exclusivity survives restarts. Conflicting `run.start` calls return
 `ownership_conflict` with the existing run ID before any worktree is shared.
+
+A daemon restart drops in-memory sessions, so `pause`/`resume`/`kill` against a
+run started before the restart return `missing_start_context`. `run.cleanup`
+needs no session: it is the escape hatch that releases a stranded run's
+`(project, branch)` — marking it `cleaned` — so a fresh run can take the slot.
 
 ## Methods
 
@@ -122,19 +132,24 @@ paused/killed exclusivity survives restarts. Conflicting `run.start` calls retur
 | `run.pause` | `{ accepted: true }` or steering errors |
 | `run.resume` | `{ accepted: true }` or steering errors |
 | `run.kill` | `{ accepted: true }` or steering errors |
+| `run.cleanup` | `{ accepted: true }` or steering errors |
 | `log.tail` | Stream — see below |
 
 Steering methods accept `{ "runId": string }`. Pause requests graceful stop at the
 next write-loop boundary; kill aborts the active invocation immediately; resume
 schedules the next loop invocation and branches on durable `stop_cause` (see
-[`write-behavior.md`](./write-behavior.md)). Errors: `invalid_params`,
+[`write-behavior.md`](./write-behavior.md)). `run.cleanup` releases the ownership
+of an inactive, non-terminal run without resuming it and marks it `cleaned`; it
+rejects active runs (`invalid_state` — pause or kill first) and terminal runs
+(`invalid_state` — no ownership to release). Errors: `invalid_params`,
 `run_not_found`, `invalid_state` (wrong lifecycle), `missing_start_context`
-(start params unavailable after daemon restart).
+(start params unavailable after daemon restart; does not apply to `run.cleanup`).
 
 | `status` | Meaning |
 | --- | --- |
 | `paused` | Stopped at a committed loop boundary (`stop_cause = paused-at-boundary`) |
 | `killed` | Active invocation aborted (`stop_cause = interrupted`) |
+| `cleaned` | Ownership released via `run.cleanup` without resuming to a terminal outcome |
 
 Steering emits structured log events on the run ID:
 
@@ -145,6 +160,7 @@ Steering emits structured log events on the run ID:
 | `run.resume-requested` | `run.resume` accepted; `data.resumeBranch` is `next-iteration` or `interrupted-attempt` |
 | `run.kill-requested` | `run.kill` accepted |
 | `run.killed` | Kill completed; `data.stopCause` is `interrupted` |
+| `run.cleaned` | `run.cleanup` released ownership; `data.priorStatus` is the status before cleanup |
 
 ### `run.start`
 

@@ -53,6 +53,9 @@ jarvis log-tail <run-id> [--from-seq <n>] [--jarvis-root <path>]
 | `start` | `run.start` |
 | `status` | `run.list` |
 | `log-tail` | `log.tail` |
+| `pause` | `run.pause` |
+| `resume` | `run.resume` |
+| `kill` | `run.kill` |
 
 - `start` — accepts the same write-loop fields as `jarvis write`; returns a run
   ID after durable run creation and async scheduling (does not wait for loop
@@ -110,9 +113,17 @@ paused/killed exclusivity survives restarts. Conflicting `run.start` calls retur
 | `stop` | `{ stopped: true }` or `active_invocations` error |
 | `run.start` | `{ runId }` or `ownership_conflict` / param errors |
 | `run.list` | `{ runs: RunListEntry[], activeRunIds }` |
+| `run.pause` | `{ accepted: true }` or steering errors |
+| `run.resume` | `{ accepted: true }` or steering errors |
+| `run.kill` | `{ accepted: true }` or steering errors |
 | `log.tail` | Stream — see below |
 
-Steering (`run.pause`, `run.resume`, `run.kill`) lands in a later subspec.
+Steering methods accept `{ "runId": string }`. Pause requests graceful stop at the
+next write-loop boundary; kill aborts the active invocation immediately; resume
+schedules the next loop invocation and branches on durable `stop_cause` (see
+[`write-behavior.md`](./write-behavior.md)). Errors: `invalid_params`,
+`run_not_found`, `invalid_state` (wrong lifecycle), `missing_start_context`
+(start params unavailable after daemon restart).
 
 ### `run.start`
 

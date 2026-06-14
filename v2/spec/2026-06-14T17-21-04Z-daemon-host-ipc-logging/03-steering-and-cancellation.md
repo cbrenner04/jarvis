@@ -38,7 +38,7 @@ Phase 6 adds planned human pauses.
   can stop cleanly between iterations without daemon-specific IPC knowledge.
 - [x] Add abortable process-group support at the invocation binding seam needed
   for real child-process kill; keep tests injectable.
-- [ ] Extend daemon protocol with `run.pause`, `run.resume`, and `run.kill`.
+- [x] Extend daemon protocol with `run.pause`, `run.resume`, and `run.kill`.
 - [ ] Add CLI commands `pause <run-id>`, `resume <run-id>`, and `kill <run-id>`.
 - [ ] Emit structured log records for pause requested, paused, resumed, kill
   requested, killed, and resume branch.
@@ -62,7 +62,7 @@ Phase 6 adds planned human pauses.
 - [ ] `jarvis resume <run-id>` after killed/crashed mid-step re-runs the
   interrupted attempt over the dirty worktree via the existing recovery path
   (test).
-- [ ] Steering API rejects verbs other than pause/resume/kill.
+- [x] Steering API rejects verbs other than pause/resume/kill.
 - [ ] Structured logs expose requested and resulting steering states for tail
   consumers.
 - [ ] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and

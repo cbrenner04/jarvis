@@ -346,6 +346,89 @@ describe("daemon server", () => {
     expect(conflict.ok).toBe(false);
     expect(conflict.error?.code).toBe("ownership_conflict");
   });
+
+  test("run.pause, run.resume, and run.kill accept steering params over IPC", async () => {
+    let releaseIteration: (() => void) | undefined;
+    let iterationGate = new Promise<void>((resolve) => {
+      releaseIteration = resolve;
+    });
+    let loopCalls = 0;
+    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const { socketPath } = await startHost(root, async (input) => {
+      loopCalls += 1;
+      await iterationGate;
+      const store = input.stateStore;
+      const run = store?.findRunByProjectBranch({
+        project: input.worktree.projectName,
+        branch: input.worktree.branchName,
+      });
+      const runId = run?.id ?? "missing";
+      if (input.shouldPauseAtBoundary?.()) {
+        store?.setRunStatus(runId, "paused", "paused-at-boundary");
+        return { kind: "paused-at-boundary", runId, iterationsConsumed: 1, resumable: true };
+      }
+      if (input.signal?.aborted) {
+        return { kind: "progress", runId, iterationsConsumed: 1, resumable: true };
+      }
+      store?.setRunStatus(runId, "completed");
+      return { kind: "complete", runId, iterationsConsumed: 1, resumable: false };
+    });
+    const params = {
+      projectRoot: "/tmp/repo",
+      project: "demo",
+      branch: "steer",
+      base: "HEAD",
+      spec: "spec.md",
+      artifact: "proof.txt",
+    };
+
+    const started = await callDaemon({ id: "start-1", method: "run.start", params }, { socketPath });
+    const runId = (started.result as { runId: string }).runId;
+    await waitForActive(socketPath, runId);
+
+    const pause = await callDaemon({ id: "pause-1", method: "run.pause", params: { runId } }, { socketPath });
+    expect(pause.ok).toBe(true);
+    expect(pause.result).toEqual({ accepted: true });
+    releaseIteration?.();
+    await waitForRunStatus(root, runId, "paused");
+
+    iterationGate = new Promise<void>((resolve) => {
+      releaseIteration = resolve;
+    });
+    const resume = await callDaemon({ id: "resume-1", method: "run.resume", params: { runId } }, { socketPath });
+    expect(resume.ok).toBe(true);
+    await waitForActive(socketPath, runId);
+    releaseIteration?.();
+    await waitForRunStatus(root, runId, "completed");
+    expect(loopCalls).toBe(2);
+
+    iterationGate = new Promise<void>((resolve) => {
+      releaseIteration = resolve;
+    });
+    const startedForKill = await callDaemon(
+      { id: "start-2", method: "run.start", params: { ...params, branch: "kill" } },
+      { socketPath },
+    );
+    const killRunId = (startedForKill.result as { runId: string }).runId;
+    await waitForActive(socketPath, killRunId);
+    const kill = await callDaemon({ id: "kill-1", method: "run.kill", params: { runId: killRunId } }, { socketPath });
+    expect(kill.ok).toBe(true);
+    releaseIteration?.();
+    await waitForRunStatus(root, killRunId, "killed");
+  });
+
+  test("steering methods reject invalid params and unknown methods", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const { socketPath } = await startHost(root);
+
+    const invalid = await callDaemon({ id: "pause-1", method: "run.pause", params: {} }, { socketPath });
+    expect(invalid.ok).toBe(false);
+    expect(invalid.error?.code).toBe("invalid_params");
+
+    const unknown = await callDaemon({ id: "steer-1", method: "run.steer", params: { runId: "x" } }, { socketPath });
+    expect(unknown.ok).toBe(false);
+    expect(unknown.error?.code).toBe("unknown_method");
+  });
 });
 
 async function sendRaw(socketPath: string, line: string): Promise<DaemonResponse> {
@@ -400,5 +483,25 @@ async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<voi
       throw new Error("condition not met before timeout");
     }
     await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+async function waitForActive(socketPath: string, runId: string): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started <= 2_000) {
+    const listed = await callDaemon({ id: `active-${runId}`, method: "run.list" }, { socketPath });
+    const activeRunIds = (listed.result as { activeRunIds: string[] }).activeRunIds;
+    if (activeRunIds.includes(runId)) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("run did not become active before timeout");
+}
+
+async function waitForRunStatus(root: string, runId: string, status: string): Promise<void> {
+  const stateStore = openStateStore(join(root, "state", "v2.sqlite"));
+  try {
+    await waitFor(() => stateStore.loadRun(runId)?.status === status, 2_000);
+  } finally {
+    stateStore.close();
   }
 }

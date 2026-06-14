@@ -22,7 +22,7 @@ import {
   ProtocolError,
   parseRequestLine,
 } from "./protocol.ts";
-import { OwnershipConflictError, parseRunStartParams, RunManager } from "./run-manager.ts";
+import { OwnershipConflictError, parseRunStartParams, parseRunSteeringParams, RunManager, SteeringError } from "./run-manager.ts";
 
 export type DaemonStatusResult = {
   pid: number;
@@ -138,6 +138,27 @@ export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
 
     if (request.method === "run.list") {
       return okResponse(request.id, runManager.list());
+    }
+
+    if (request.method === "run.pause" || request.method === "run.resume" || request.method === "run.kill") {
+      const parsed = parseRunSteeringParams(request.params, request.method);
+      if (!parsed.ok) {
+        return errorResponse(request.id, parsed.error);
+      }
+      try {
+        const result =
+          request.method === "run.pause"
+            ? runManager.pause(parsed.value.runId)
+            : request.method === "run.resume"
+              ? runManager.resume(parsed.value.runId)
+              : runManager.kill(parsed.value.runId);
+        return okResponse(request.id, result);
+      } catch (error) {
+        if (error instanceof SteeringError) {
+          return errorResponse(request.id, { code: error.code, message: error.message });
+        }
+        return errorResponse(request.id, protocolError(error));
+      }
     }
 
     return errorResponse(request.id, {

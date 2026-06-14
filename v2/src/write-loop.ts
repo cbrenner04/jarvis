@@ -74,6 +74,10 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
       const { result } = await executeWrite(args);
       iterationsConsumed += 1;
 
+      if (args.signal?.aborted) {
+        return { kind: "progress", runId, iterationsConsumed, resumable: true };
+      }
+
       if (result.kind === "progress") {
         store.commitCompletionBoundary({ attemptId, runStatus: "in-progress", outcomeKind: "progress" });
         continue;

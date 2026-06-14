@@ -20,8 +20,14 @@ export type RunStartParams = {
   maxIterations?: number;
 };
 
+/** IPC params for steering methods (`run.pause`, `run.resume`, `run.kill`). */
+export type RunSteeringParams = { runId: string };
+
 /** Result of an accepted detached run start. */
 export type RunStartResult = { runId: string };
+
+/** Result of an accepted steering request. */
+export type RunSteeringResult = { accepted: true };
 
 /** One run row for `run.list` / `jarvis status`. */
 export type RunListEntry = {
@@ -66,6 +72,16 @@ export class OwnershipConflictError extends Error {
   }
 }
 
+/** Thrown when a steering request cannot be applied to the target run. */
+export class SteeringError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 const OWNERSHIP_RESERVING_STATUSES: ReadonlySet<RunStatus> = new Set([
   "in-progress",
   "blocked",
@@ -73,6 +89,23 @@ const OWNERSHIP_RESERVING_STATUSES: ReadonlySet<RunStatus> = new Set([
   "paused",
   "killed",
 ]);
+
+const RESUMABLE_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "paused",
+  "killed",
+  "budget-soft-stopped",
+  "blocked",
+]);
+
+type RunSession = {
+  params: RunStartParams;
+  input: WriteLoopInput;
+  project: string;
+  branch: string;
+  abortController: AbortController;
+  pauseRequested: boolean;
+  killRequested: boolean;
+};
 
 /** Whether durable status keeps daemon `(project, branch)` ownership reserved. */
 export function reservesOwnership(status: RunStatus): boolean {
@@ -86,11 +119,12 @@ export function releasesOwnership(status: RunStatus): boolean {
 
 /**
  * Orchestrate detached write-loop runs: ownership guards, durable pre-create,
- * async scheduling, and structured run lifecycle logs.
+ * async scheduling, steering, and structured run lifecycle logs.
  */
 export class RunManager {
   private readonly ownership = new Map<string, string>();
   private readonly activeRunIds = new Set<string>();
+  private readonly sessions = new Map<string, RunSession>();
   private readonly deps: Required<Pick<RunManagerDeps, "executeWriteLoop" | "createBindings">> & RunManagerDeps;
 
   constructor(deps: RunManagerDeps) {
@@ -126,6 +160,7 @@ export class RunManager {
 
     const runId = prepareDetachedRunId(this.deps.stateStore, input);
     this.ownership.set(key, runId);
+    this.upsertSession(runId, params, input, params.project, params.branch);
 
     this.deps.logRepository.append({
       runId,
@@ -139,8 +174,58 @@ export class RunManager {
       },
     });
 
-    this.scheduleRun(input, runId, params.project, params.branch);
+    this.scheduleRun(runId);
     return { runId };
+  }
+
+  /** Request graceful pause at the next write-loop boundary. */
+  pause(runId: string): RunSteeringResult {
+    requireRun(this.deps.stateStore, runId);
+    if (!this.activeRunIds.has(runId)) {
+      throw new SteeringError("invalid_state", "run is not active");
+    }
+    const session = this.sessions.get(runId);
+    if (session === undefined) {
+      throw new SteeringError("missing_start_context", "run start context is unavailable");
+    }
+    session.pauseRequested = true;
+    return { accepted: true };
+  }
+
+  /** Resume a steered or budget-stopped run with the next write-loop invocation. */
+  resume(runId: string): RunSteeringResult {
+    const run = requireRun(this.deps.stateStore, runId);
+    if (this.activeRunIds.has(runId)) {
+      throw new SteeringError("invalid_state", "run is already active");
+    }
+    if (!RESUMABLE_STATUSES.has(run.status)) {
+      throw new SteeringError("invalid_state", `run status ${run.status} is not resumable`);
+    }
+    const session = this.sessions.get(runId);
+    if (session === undefined) {
+      throw new SteeringError("missing_start_context", "run start context is unavailable");
+    }
+    session.abortController = new AbortController();
+    session.pauseRequested = false;
+    session.killRequested = false;
+    this.deps.stateStore.setRunStatus(runId, "in-progress", null);
+    this.scheduleRun(runId);
+    return { accepted: true };
+  }
+
+  /** Abort the active invocation immediately and mark the run killed. */
+  kill(runId: string): RunSteeringResult {
+    requireRun(this.deps.stateStore, runId);
+    if (!this.activeRunIds.has(runId)) {
+      throw new SteeringError("invalid_state", "run is not active");
+    }
+    const session = this.sessions.get(runId);
+    if (session === undefined) {
+      throw new SteeringError("missing_start_context", "run start context is unavailable");
+    }
+    session.killRequested = true;
+    session.abortController.abort("steering-kill");
+    return { accepted: true };
   }
 
   /** List durable run snapshots plus daemon in-memory activity. */
@@ -149,17 +234,63 @@ export class RunManager {
     return { runs, activeRunIds: [...this.activeRunIds] };
   }
 
-  private scheduleRun(input: WriteLoopInput, runId: string, project: string, branch: string): void {
-    void this.runDetached(input, runId, project, branch);
+  private upsertSession(
+    runId: string,
+    params: RunStartParams,
+    input: WriteLoopInput,
+    project: string,
+    branch: string,
+  ): void {
+    const existing = this.sessions.get(runId);
+    if (existing !== undefined) {
+      existing.params = params;
+      existing.input = input;
+      existing.project = project;
+      existing.branch = branch;
+      existing.abortController = new AbortController();
+      existing.pauseRequested = false;
+      existing.killRequested = false;
+      return;
+    }
+    this.sessions.set(runId, {
+      params,
+      input,
+      project,
+      branch,
+      abortController: new AbortController(),
+      pauseRequested: false,
+      killRequested: false,
+    });
   }
 
-  private async runDetached(input: WriteLoopInput, runId: string, project: string, branch: string): Promise<void> {
+  private scheduleRun(runId: string): void {
+    void this.runDetached(runId);
+  }
+
+  private async runDetached(runId: string): Promise<void> {
+    const session = this.sessions.get(runId);
+    if (session === undefined) {
+      throw new Error(`missing session for run ${runId}`);
+    }
+
     this.activeRunIds.add(runId);
     this.deps.registerActiveInvocation(runId);
     this.deps.logRepository.append({ runId, level: "info", event: "run.started" });
 
+    const loopInput: WriteLoopInput = {
+      ...session.input,
+      stateStore: this.deps.stateStore,
+      signal: session.abortController.signal,
+      shouldPauseAtBoundary: () => session.pauseRequested,
+    };
+
     try {
-      const result = await this.deps.executeWriteLoop({ ...input, stateStore: this.deps.stateStore });
+      const result = await this.deps.executeWriteLoop(loopInput);
+
+      if (session.killRequested) {
+        this.deps.stateStore.setRunStatus(runId, "killed", "interrupted");
+      }
+
       this.deps.logRepository.append({
         runId,
         level: "info",
@@ -170,6 +301,10 @@ export class RunManager {
           resumable: result.resumable,
         },
       });
+
+      if (session.killRequested) {
+        return;
+      }
 
       const event = result.kind === "invocation_failure" ? "run.failed" : "run.finished";
       this.deps.logRepository.append({
@@ -183,6 +318,10 @@ export class RunManager {
         },
       });
     } catch (error: unknown) {
+      if (session.killRequested) {
+        this.deps.stateStore.setRunStatus(runId, "killed", "interrupted");
+        return;
+      }
       this.deps.logRepository.append({
         runId,
         level: "error",
@@ -196,7 +335,8 @@ export class RunManager {
       this.deps.unregisterActiveInvocation(runId);
       const run = this.deps.stateStore.loadRun(runId);
       if (run !== null && releasesOwnership(run.status)) {
-        this.ownership.delete(ownershipKey(project, branch));
+        this.ownership.delete(ownershipKey(session.project, session.branch));
+        this.sessions.delete(runId);
       }
     }
   }
@@ -255,6 +395,32 @@ export function parseRunStartParams(
   }
 
   return { ok: true, value: parsed };
+}
+
+/**
+ * Parse and validate steering params (`run.pause`, `run.resume`, `run.kill`).
+ * @returns Parsed params or a structured IPC error.
+ */
+export function parseRunSteeringParams(
+  params: unknown,
+  method: string,
+): { ok: true; value: RunSteeringParams } | { ok: false; error: { code: string; message: string } } {
+  if (typeof params !== "object" || params === null) {
+    return { ok: false, error: { code: "invalid_params", message: `${method} requires params object` } };
+  }
+  const runId = stringField(params as Record<string, unknown>, "runId");
+  if (runId === undefined) {
+    return { ok: false, error: { code: "invalid_params", message: `${method} requires string runId` } };
+  }
+  return { ok: true, value: { runId } };
+}
+
+function requireRun(store: StateStore, runId: string): Run {
+  const run = store.loadRun(runId);
+  if (run === null) {
+    throw new SteeringError("run_not_found", `run not found: ${runId}`);
+  }
+  return run;
 }
 
 function prepareDetachedRunId(store: StateStore, input: WriteLoopInput): string {

@@ -6,7 +6,7 @@ import { openLogRepository } from "../log-repository.ts";
 import { openStateStore } from "../state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import type { WriteLoopInput, WriteLoopResult } from "../write-loop.ts";
-import { OwnershipConflictError, RunManager, type RunManagerDeps, reservesOwnership } from "./run-manager.ts";
+import { OwnershipConflictError, RunManager, type RunManagerDeps, reservesOwnership, SteeringError } from "./run-manager.ts";
 
 describe("run manager", () => {
   const cleanups: Array<() => void> = [];
@@ -134,6 +134,126 @@ describe("run manager", () => {
 
     const events = logRepository.listRecords(started.runId).map((record) => record.event);
     expect(events).toEqual(["run.accepted", "run.started", "run.iteration", "run.finished"]);
+  });
+
+  test("pause accepts an active run and stops at the next loop boundary", async () => {
+    let releaseIteration: (() => void) | undefined;
+    const iterationGate = new Promise<void>((resolve) => {
+      releaseIteration = resolve;
+    });
+    let pauseChecked = false;
+    const { manager, stateStore, getLoopPromise } = createManager({
+      executeWriteLoop: async (input) => {
+        await iterationGate;
+        pauseChecked = input.shouldPauseAtBoundary?.() ?? false;
+        const store = input.stateStore;
+        const run = store?.findRunByProjectBranch({
+          project: input.worktree.projectName,
+          branch: input.worktree.branchName,
+        });
+        const runId = run?.id ?? "missing";
+        if (pauseChecked) {
+          store?.setRunStatus(runId, "paused", "paused-at-boundary");
+          return { kind: "paused-at-boundary", runId, iterationsConsumed: 1, resumable: true };
+        }
+        store?.setRunStatus(runId, "completed");
+        return { kind: "complete", runId, iterationsConsumed: 1, resumable: false };
+      },
+    });
+
+    const started = manager.start(baseParams());
+    await waitFor(() => manager.list().activeRunIds.includes(started.runId));
+    expect(manager.pause(started.runId)).toEqual({ accepted: true });
+    releaseIteration?.();
+    const loop = getLoopPromise();
+    if (loop !== undefined) await loop;
+    await waitFor(() => stateStore.loadRun(started.runId)?.status === "paused");
+    expect(pauseChecked).toBe(true);
+    expect(stateStore.loadRun(started.runId)?.stopCause).toBe("paused-at-boundary");
+  });
+
+  test("resume schedules a paused run without reusing the active invocation slot", async () => {
+    let releaseIteration: (() => void) | undefined;
+    let iterationGate = new Promise<void>((resolve) => {
+      releaseIteration = resolve;
+    });
+    let loopCalls = 0;
+    const { manager, stateStore } = createManager({
+      executeWriteLoop: async (input) => {
+        loopCalls += 1;
+        await iterationGate;
+        const store = input.stateStore;
+        const run = store?.findRunByProjectBranch({
+          project: input.worktree.projectName,
+          branch: input.worktree.branchName,
+        });
+        const runId = run?.id ?? "missing";
+        if (input.shouldPauseAtBoundary?.()) {
+          store?.setRunStatus(runId, "paused", "paused-at-boundary");
+          return { kind: "paused-at-boundary", runId, iterationsConsumed: 1, resumable: true };
+        }
+        store?.setRunStatus(runId, "completed");
+        return { kind: "complete", runId, iterationsConsumed: 1, resumable: false };
+      },
+    });
+
+    const started = manager.start(baseParams());
+    await waitFor(() => manager.list().activeRunIds.includes(started.runId));
+    manager.pause(started.runId);
+    releaseIteration?.();
+    await waitFor(() => stateStore.loadRun(started.runId)?.status === "paused");
+
+    iterationGate = new Promise<void>((resolve) => {
+      releaseIteration = resolve;
+    });
+    expect(manager.resume(started.runId)).toEqual({ accepted: true });
+    await waitFor(() => manager.list().activeRunIds.includes(started.runId));
+    releaseIteration?.();
+    await waitFor(() => stateStore.loadRun(started.runId)?.status === "completed");
+    expect(loopCalls).toBe(2);
+  });
+
+  test("kill aborts an active run and marks it killed", async () => {
+    let releaseIteration: (() => void) | undefined;
+    const iterationGate = new Promise<void>((resolve) => {
+      releaseIteration = resolve;
+    });
+    const { manager, stateStore } = createManager({
+      executeWriteLoop: async (input) => {
+        await iterationGate;
+        await new Promise<void>((resolve) => {
+          input.signal?.addEventListener("abort", () => resolve(), { once: true });
+          if (input.signal?.aborted) resolve();
+        });
+        const store = input.stateStore;
+        const run = store?.findRunByProjectBranch({
+          project: input.worktree.projectName,
+          branch: input.worktree.branchName,
+        });
+        const runId = run?.id ?? "missing";
+        return { kind: "progress", runId, iterationsConsumed: 1, resumable: true };
+      },
+    });
+
+    const started = manager.start(baseParams());
+    await waitFor(() => manager.list().activeRunIds.includes(started.runId));
+    expect(manager.kill(started.runId)).toEqual({ accepted: true });
+    releaseIteration?.();
+    await waitFor(() => stateStore.loadRun(started.runId)?.status === "killed");
+    expect(stateStore.loadRun(started.runId)?.stopCause).toBe("interrupted");
+  });
+
+  test("steering rejects unknown runs and invalid lifecycle states", async () => {
+    const { manager } = createManager();
+    expect(() => manager.pause("missing")).toThrow(SteeringError);
+    expect(() => manager.resume("missing")).toThrow(SteeringError);
+    expect(() => manager.kill("missing")).toThrow(SteeringError);
+
+    const started = manager.start(baseParams());
+    expect(() => manager.resume(started.runId)).toThrow(SteeringError);
+    await waitFor(() => manager.list().activeRunIds.length === 0);
+    expect(() => manager.pause(started.runId)).toThrow(SteeringError);
+    expect(() => manager.kill(started.runId)).toThrow(SteeringError);
   });
 });
 

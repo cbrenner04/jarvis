@@ -58,6 +58,16 @@ function withQuietGitDefaults<T extends { env?: NodeJS.ProcessEnv; stdio?: unkno
   };
 }
 
+function withInheritedEnv<T extends { env?: NodeJS.ProcessEnv }>(options: T | undefined): T {
+  if (options?.env !== undefined) {
+    return options;
+  }
+  return {
+    ...(options ?? ({} as T)),
+    env: process.env,
+  };
+}
+
 function isGitShellCommand(command: string): boolean {
   return /(^|[;&|]\s*)git(\s|$)/.test(command);
 }
@@ -73,7 +83,7 @@ mock.module("node:child_process", () => ({
     realExecFileSync(
       file,
       args,
-      file === "git" ? withQuietGitDefaults(options) : options,
+      file === "git" ? withQuietGitDefaults(options) : file === "gh" ? withInheritedEnv(options) : options,
     )) satisfies typeof childProcess.execFileSync,
   spawnSync: ((file: string, args?: readonly string[], options?: childProcess.SpawnSyncOptions) =>
     realSpawnSync(

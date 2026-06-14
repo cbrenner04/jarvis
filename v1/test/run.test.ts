@@ -1417,7 +1417,7 @@ exit 1
     expect(code).toBe(0);
     expect(readFileSync(pushLog, "utf8").trim().split("\n")).toEqual(["push -u origin feature", "push"]);
     expect(readFileSync(prLog, "utf8").trim().split("\n")).toEqual(["create"]);
-    expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(5);
+    expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(6);
     expect(readFileSync(prEditLog, "utf8").trim().split("\n")).toEqual(["edit"]);
     expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate"]);
     expect(readFileSync(readyLog, "utf8").trim().split("\n")).toEqual(["ready"]);

@@ -226,7 +226,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - Plan-mode opens the draft PR with a header-only body, then fills the narrative on the immediately-following body refresh: `updatePlanPrBody` invokes the head agent of `modes.plan.agentOrder` to author a short description followed by a `Decisions:` section, placed inside `<!-- jarvis:narrative:start/end -->` markers; generation failures result in no narrative section. Sources: `v1/src/modes/plan/pr.ts`, `v1/src/commands/plan.ts`
 - Plan mode rewrites existing PR bodies via `updatePlanPrBody` preserving any human-edited narrative inside the markers and regenerating the narrative when empty and an agent is available; header (with `targetDir`-aware title and file pointers) and attribution footer are regenerated each rewrite. Sources: `v1/src/modes/plan/pr.ts`, `v1/src/commands/plan.ts`
 - Patch-mode draft-to-ready transition requires an existing open PR, runs `bun run ready`, optionally creates/pushes `chore: apply pre-ready check:fix` if the ready gate dirties files, then calls `gh pr ready <branch>`. Sources: `v1/src/modes/patch/pr.ts`
-- Plan-mode ready transition is PR-state aware: no-op when no open PR or already ready, and only draft PRs run `bun run ready` followed by `gh pr ready <branch>`. Sources: `v1/src/modes/plan/pr.ts`
+- Plan-mode ready transition is PR-state aware: no-op when no open PR or already ready, and only draft PRs run `bun run ready` (committing any `check:fix` output) followed by `gh pr ready <branch>`. Sources: `v1/src/modes/plan/pr.ts`, `v1/src/ready-gate.ts`
 
 ### Attribution and PR footer behavior
 

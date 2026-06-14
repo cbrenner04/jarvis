@@ -1,6 +1,6 @@
 # Plan Mode
 
-Reference for `jarvis1 plan [<intent-file|"inline text">]` semantics: how it creates draft specs, how the phases work, and when it stops.
+Reference for `jarvis1 plan <intent-file|"inline text">` semantics: how it creates draft specs, how the phases work, and when it stops.
 
 ## Overview
 
@@ -28,7 +28,7 @@ Unlike `jarvis1 run`, which expects specs to be complete before PR readiness, pl
 Plan mode is useful for:
 
 - **Collaborative spec authoring**: agents draft specs from high-level intent, then refine them in multiple self-review passes.
-- **Non-interactive automation**: `jarvis1 plan intent.md`, `jarvis1 plan "inline text"`, and `jarvis1 plan` work end-to-end without human prompts.
+- **Non-interactive automation**: `jarvis1 plan intent.md` and `jarvis1 plan "inline text"` work end-to-end without human prompts.
 - **Spec validation before work**: review and edit the generated spec before implementation begins.
 
 
@@ -46,8 +46,7 @@ Successful runs omit chatty setup breadcrumbs by default (inline intent echoes,
 temporary slug previews, provisional worktrees, rename chatter). Harness /
 session logs still capture those details.
 
-**With `commit: true`:** Typical milestone stderr lines look like **`plan: interactive session started`**
-(TTY refine sessions when applicable), **`plan: refine commit pushed`**,
+**With `commit: true`:** Typical milestone stderr lines look like **`plan: refine commit pushed`**,
 **`plan: draft phase completed`**, **`plan: draft commit pushed`**,
 **`plan: draft PR #… opened`**, and review notifications such as
 **`plan: review pass k/n starting`** then **`plan: review pass k committed
@@ -84,7 +83,7 @@ Next steps:
 
 ## Input modes
 
-Plan mode accepts intent in three forms:
+Plan mode accepts intent in two forms. Fresh runs require a seed.
 
 ### File mode
 
@@ -106,21 +105,7 @@ Older date-only prefixes (for example **`spec/2026-05-11-v1/intent.md`** or **`v
 jarvis1 plan "Add dark mode toggle to the app settings"
 ```
 
-Jarvis runs one non-interactive agent turn that expands the inline text into a rough `intent.md` in the current working directory, then exits. This inline step does not run Phase 0 refinement, draft, review, worktree/branch setup, or resume prerequisites.
-
-To run the full committed plan pipeline, use file mode with an explicit intent file path:
-
-```sh
-jarvis1 plan path/to/intent.md
-```
-
-### No-argument mode
-
-```sh
-jarvis1 plan
-```
-
-Jarvis starts with an empty seed (`# Intent` only) and runs intent refinement immediately. This mode requires at least one refinement turn; `--refine-turns 0` is rejected because there is no initial intent text to plan from. This is not a live interview — the refine phase is non-interactive.
+Inline text now enters the same fresh-run pipeline as file seeds: jarvis seeds `intent.md`, runs one intent-draft pass to propose `name:` and shape the draft, then continues into refine/draft/review according to the normal fresh-run flow.
 
 ## Phases
 
@@ -132,6 +117,7 @@ Relocation stage one moved the five editable plan prompt templates to the
 shared repo-level `prompts/plan/` tree:
 
 - `prompts/plan/refine.md`
+- `prompts/plan/intent-draft.md`
 - `prompts/plan/name-only.md`
 - `prompts/plan/draft.md`
 - `prompts/plan/review.md`
@@ -146,17 +132,30 @@ no wording edits, prompt IDs, registries, metadata expansion, or snapshot
 revision system are introduced here. Interactive/operator prompt surfaces such
 as project disambiguation remain out of scope for this stage.
 
-### Phase 0: Intent Refinement
+### Phase 0: Intent Draft
 
-**With `commit: true`:** Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). **`intent.md` inside the eventual `spec/<spec-dir>/` tree captures** full intent for file/inline modes or **`# Intent` scaffolding** for no-argument runs, before refinement prompts begin (`--refine-turns`, default `3`).
+Fresh seeded runs always start by writing `intent.md` under the temporary spec directory, preserving the exact raw seed in a dedicated block and ensuring the file has frontmatter with `name:` plus any preserved non-`name` keys from a file seed.
 
-**With `commit: false`:** Jarvis creates the spec directory in Jarvis-owned storage (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`) and runs directly against the target directory root (which may or may not be a git repository), with **`intent.md` inside that external storage** capturing full intent or scaffolding.
+Jarvis then runs one non-interactive intent-draft pass that:
+
+- inspects the target repo for guidance,
+- rewrites `intent.md` into a rough editable draft,
+- preserves the exact raw-seed block byte-for-byte, and
+- proposes `name: <kebab-case>` in frontmatter.
+
+If the proposed name is missing or invalid, jarvis falls back to deterministic seed-derived naming before collision suffixing.
+
+### Phase 1: Intent Refinement
+
+**With `commit: true`:** Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). `intent.md` inside the eventual `spec/<spec-dir>/` tree is already seeded and intent-drafted before refinement turns begin (`--refine-turns`, default `3`).
+
+**With `commit: false`:** Jarvis creates the spec directory in Jarvis-owned storage (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`) and continues in one invocation through intent draft, refine, draft, and review with no git or PR handoff.
 
 Each turn is one non-interactive agent invocation. The prompt asks the agent to inspect the target repo as needed and refine `intent.md` by appending useful planning context: inferred constraints, assumptions, scope boundaries, risks, or draft-shaping notes. Refinement entries must be net-new versus prior entries; if a turn would only restate prior content, use `## Refine skip`. It cannot ask the terminal user questions or record a Q&A transcript. With `quotaFallback: "lenient"`, weak-quota fallback to the next agent runs only when **`git status --porcelain`** matches before and after that invocation (no disk mutations during the attempt); see [quota-signals.md](./quota-signals.md).
 
 After each turn, jarvis validates that `intent.md` preserves the human-authored seed above the first `## Refinement` heading (except the permitted `name:` frontmatter write) and then leaves one permitted outcome: consolidated `## Refinement` ledger content, `## Refine skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification.
 
-Intent refinement also requires the agent to propose a kebab-case spec name by writing `name: <kebab-case>` in a leading frontmatter-ish block in `intent.md`. If the budget is `0` in file/inline modes, jarvis still runs one naming-only agent invocation; if no name is proposed, jarvis falls back to deterministic derivation and logs a stderr note.
+Intent refinement no longer owns naming. `name:` is proposed in the intent-draft step. If `--refine-turns 0` is used, jarvis skips refinement entirely after intent draft; if the drafted `name:` is missing or invalid, jarvis falls back to deterministic derivation and logs a stderr note.
 
 Once a name is chosen (with collision suffixing if needed), jarvis stamps the filesystem-safe UTC prefix, renames the temporary worktree and branch to final identities (`.worktree/plan-<plan-name>/`, `plan/<plan-name>` — **still no timestamp**), commits, and pushes `plan: refine`. The commit subject is historical; it captures the intent-refinement result. The temporary branch is never pushed.
 
@@ -165,9 +164,9 @@ Once a name is chosen (with collision suffixing if needed), jarvis stamps the fi
 - Body: starts with **`Spec: spec/<spec-dir>/intent.md`** (example: `Spec: spec/2026-05-17T22-14-03Z-my-plan/intent.md`, or `Spec: spec/my-plan/intent.md` for legacy dirs) so the attribution renderer in `src/pr.ts` recognises it as a meta commit; followed by `Seeded from <intent path or "inline">`.
 - Pushed: immediately after commit.
 
-### Phase 0 Checkpoint (Committed file-path runs)
+### Phase 1 Checkpoint (Committed fresh runs)
 
-For fresh `commit: true` file-path runs (`jarvis1 plan spec/.../intent.md`), jarvis stops after `plan: refine` and appends an intent review `## Blocker`, then commits `plan: blocker` and opens/updates a draft PR that contains only `spec/<spec-dir>/intent.md`. No draft/review agent phases run on this first invocation.
+For fresh `commit: true` seeded runs (file or inline), jarvis stops after `plan: refine` and appends an intent review `## Blocker`, then commits `plan: blocker` and opens/updates a draft PR that contains only `spec/<spec-dir>/intent.md`. No draft/review agent phases run on this first invocation.
 
 Resume with:
 
@@ -175,9 +174,7 @@ Resume with:
 jarvis1 plan --resume-draft spec/<spec-dir>/intent.md
 ```
 
-Inline one-shot intent drafting (`jarvis1 plan "inline text"`) does not enter this checkpoint path.
-
-### Phase 1: Draft
+### Phase 2: Draft
 
 After `plan: refine` is pushed and the Phase 0 checkpoint has been cleared via `--resume-draft`, jarvis invokes an agent with a focused prompt (`prompts/plan/draft.md`) that:
 
@@ -206,7 +203,7 @@ fixtures (`v1/test/fixtures/prompts/rendered/<id>@r<revision>...shared.txt`).
 
 **Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during draft, the draft files are first committed as `plan: draft` (per the normal commit shape above) and then a separate `plan: blocker` commit captures the blocker; plan mode stops (see [Stop conditions](#stop-conditions)).
 
-### Phase 2: Self-review
+### Phase 3: Self-review
 
 After `plan: draft` is pushed, jarvis runs zero or more review cycles (default: `modes.review.passes`, currently `2`; overridable via `--review-passes`). Review agents come from `modes.review.agentOrder`, falling back to `modes.plan.agentOrder`. Each cycle runs read-only adversary, advocate, and adjudicator prompts (`prompts/plan/review-*.md`). The adjudicator writes a self-contained verdict; when non-empty, jarvis persists it as `verdict-plan.md` and invokes the actuator prompt (`prompts/plan/review-actuator.md`) to apply the verdict to generated spec files.
 
@@ -250,7 +247,7 @@ When at least one plan-phase agent invocation writes telemetry, Jarvis appends a
 
 Coverage:
 
-- **Phases**: intent-refinement turns, naming-only (`--refine-turns 0` on non-interactive intents), draft, and each review pass—all agent attempts participate in the same telemetry stream.
+- **Phases**: intent draft, intent-refinement turns, draft, and each review pass—all agent attempts participate in the same telemetry stream.
 
 - **Telemetry**: Rows use the configured `telemetryPath` JSONL file (same file as `jarvis1 run`), with **`mode: "plan"`** and **`plan_phase`** set to `refine`, `name-only`, `draft`, or `review`. Patch summaries ignore these rows; plan summaries ignore patch rows, so both modes can coexist in one file.
 
@@ -294,7 +291,7 @@ Plan mode writes a `repo:` line into the generated `index.md`. When the target p
 
 ### `--refine-turns <n>`
 
-Controls the intent-refinement budget. Default: `3`. `0` skips refinement turns for file/inline modes but still runs a naming-only agent pass. In no-argument mode, `0` is invalid and exits with: `plan: --refine-turns 0 is incompatible with interactive mode (no intent provided)`.
+Controls the intent-refinement budget. Default: `3`. `0` still runs the intent-draft step, then skips refinement entirely. There is no no-argument fresh mode.
 
 ### `--review-passes <n>`
 

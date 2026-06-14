@@ -128,7 +128,7 @@ describe("planCommand", () => {
         logClient: okLogClient,
       });
       expect(code).toBe(1);
-      expect(cap.err()).toContain("--resume requires a spec path");
+      expect(cap.err()).toContain("missing required seed");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -374,10 +374,6 @@ describe("planCommand target-repo resolution", () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
-      const existingInlineIntent = join(projectA, "spec", "wip-intents", "freeform-intent.md");
-      mkdirSync(dirname(existingInlineIntent), { recursive: true });
-      writeFileSync(existingInlineIntent, "existing\n", "utf8");
-
       const cap = captureIo();
       const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
@@ -387,7 +383,7 @@ describe("planCommand target-repo resolution", () => {
         config: { dir: cfgDir },
         logClient,
       });
-      expect(code).toBe(1);
+      expect(code).toBe(2);
       const inlineInv: PlanInvocation = {
         mode: "inline",
         intentText: "freeform intent",
@@ -399,13 +395,12 @@ describe("planCommand target-repo resolution", () => {
       expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(describePlanInvocation(inlineInv));
       expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
-      expect(cap.err()).toContain("already exists; refusing to overwrite");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("interactive mode + --cwd inside a registered project resolves to that project", async () => {
+  test("missing seed with --cwd exits before resolution side effects", async () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
@@ -419,18 +414,9 @@ describe("planCommand target-repo resolution", () => {
         config: { dir: cfgDir },
         logClient,
       });
-      expect(code).toBe(2);
-      expect(cap.err()).toContain("plan: interactive session started");
-      expect(cap.err()).not.toContain("plan: target project=");
-      expect(harnessTexts).toContain(
-        describePlanInvocation({
-          mode: "interactive",
-          cwd: projectA,
-          resume: false,
-          resumeDraft: false,
-        }),
-      );
-      expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("missing required seed");
+      expect(harnessTexts).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -465,10 +451,6 @@ describe("planCommand target-repo resolution", () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
-      const existingInlineIntent = join(projectA, "spec", "wip-intents", "freeform.md");
-      mkdirSync(dirname(existingInlineIntent), { recursive: true });
-      writeFileSync(existingInlineIntent, "existing\n", "utf8");
-
       const cap = captureIo();
       const { client: logClient, harnessTexts } = capturingLogClient();
       const code = await planCommand({
@@ -478,16 +460,15 @@ describe("planCommand target-repo resolution", () => {
         config: { dir: cfgDir },
         logClient,
       });
-      expect(code).toBe(1);
+      expect(code).toBe(2);
       expect(cap.err()).not.toContain("plan: target project=");
       expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
-      expect(cap.err()).toContain("already exists; refusing to overwrite");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("--repo <name> overrides path-walk fallback in interactive mode", async () => {
+  test("--repo <name> without a seed exits before resolution side effects", async () => {
     const { dir, cfgDir, projectA } = setupWorld();
     try {
       registerProject("project-a", projectA, { dir: cfgDir });
@@ -501,10 +482,9 @@ describe("planCommand target-repo resolution", () => {
         config: { dir: cfgDir },
         logClient,
       });
-      expect(code).toBe(2);
-      expect(cap.err()).toContain("plan: interactive session started");
-      expect(cap.err()).not.toContain("plan: target project=");
-      expect(harnessTexts).toContain(`plan: target project=project-a root=${projectA}`);
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("missing required seed");
+      expect(harnessTexts).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -518,7 +498,7 @@ describe("planCommand target-repo resolution", () => {
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: ["--repo", "nope"],
+        args: ["--repo", "nope", "seed"],
         cwd: dir,
         config: { dir: cfgDir },
         logClient: okLogClient,
@@ -542,7 +522,7 @@ describe("planCommand target-repo resolution", () => {
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: ["--repo", "project-a"],
+        args: ["--repo", "project-a", "seed"],
         cwd: dir,
         config: { dir: cfgDir },
         logClient: okLogClient,
@@ -574,7 +554,7 @@ describe("planCommand log-server preflight", () => {
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: ["--repo", "project-a"],
+        args: ["--repo", "project-a", "seed"],
         cwd: dir,
         config: { dir: cfgDir },
         logClient: failingLogClient("connect ECONNREFUSED 127.0.0.1:4310"),
@@ -598,7 +578,7 @@ describe("planCommand log-server preflight", () => {
       const cap = captureIo();
       const code = await planCommand({
         io: cap.io,
-        args: ["--repo", "project-a"],
+        args: ["--repo", "project-a", "seed"],
         cwd: dir,
         config: { dir: cfgDir },
         logClient: okLogClient,
@@ -622,7 +602,7 @@ describe("planCommand log-server preflight", () => {
       // failing client would surface a "log server unreachable" message.
       const code = await planCommand({
         io: cap.io,
-        args: ["--repo", "nope"],
+        args: ["--repo", "nope", "seed"],
         cwd: dir,
         config: { dir: cfgDir },
         logClient: failingLogClient("should not be called"),
@@ -676,15 +656,14 @@ describe("parsePlanArgs", () => {
     rmSync(tmp, { recursive: true, force: true });
   }
 
-  test("no positional → interactive", () => {
+  test("no positional → exit 1 missing required seed", () => {
     setup();
     try {
       const res = parsePlanArgs([], tmp);
-      expect(res.ok).toBe(true);
-      if (!res.ok) return;
-      expect(res.invocation.mode).toBe("interactive");
-      expect(res.invocation.cwd).toBe(tmp);
-      expect(res.invocation.resume).toBe(false);
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.exitCode).toBe(1);
+      expect(res.message).toContain("missing required seed");
     } finally {
       teardown();
     }
@@ -734,7 +713,7 @@ describe("parsePlanArgs", () => {
   test("--refine-turns valid", () => {
     setup();
     try {
-      const res = parsePlanArgs(["--refine-turns", "3"], tmp);
+      const res = parsePlanArgs(["--refine-turns", "3", "intent"], tmp);
       expect(res.ok).toBe(true);
       if (!res.ok) return;
       expect(res.invocation.refineTurns).toBe(3);
@@ -797,7 +776,7 @@ describe("parsePlanArgs", () => {
   test("--repo captured", () => {
     setup();
     try {
-      const res = parsePlanArgs(["--repo", "owner/repo"], tmp);
+      const res = parsePlanArgs(["--repo", "owner/repo", "intent"], tmp);
       expect(res.ok).toBe(true);
       if (!res.ok) return;
       expect(res.invocation.repo).toBe("owner/repo");
@@ -856,29 +835,25 @@ describe("parsePlanArgs", () => {
     }
   });
 
-  test("--resume sets flag inert", () => {
+  test("--resume without a path still fails parsing", () => {
     setup();
     try {
       const res = parsePlanArgs(["--resume"], tmp);
-      expect(res.ok).toBe(true);
-      if (!res.ok) return;
-      expect(res.invocation.resume).toBe(true);
-      expect(res.invocation.resumeDraft).toBe(false);
-      expect(res.invocation.mode).toBe("interactive");
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.message).toContain("missing required seed");
     } finally {
       teardown();
     }
   });
 
-  test("--resume-draft sets flag inert", () => {
+  test("--resume-draft without a path still fails parsing", () => {
     setup();
     try {
       const res = parsePlanArgs(["--resume-draft"], tmp);
-      expect(res.ok).toBe(true);
-      if (!res.ok) return;
-      expect(res.invocation.resume).toBe(false);
-      expect(res.invocation.resumeDraft).toBe(true);
-      expect(res.invocation.mode).toBe("interactive");
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.message).toContain("missing required seed");
     } finally {
       teardown();
     }
@@ -1231,25 +1206,10 @@ describe("deriveSpecName", () => {
     }
   });
 
-  test("interactive mode: base name is interactive-<short-timestamp>", async () => {
-    const { dir, projectRoot } = setupProjectDir();
-    try {
-      const inv: PlanInvocation = {
-        mode: "interactive",
-        cwd: projectRoot,
-        resume: false,
-        resumeDraft: false,
-      };
-      const name = await deriveSpecName(inv, projectRoot);
-      expect(name).toMatch(/^interactive-\d{4}-\d{2}-\d{2}-\d{4}$/);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
 });
 
 describe("phase-0 intent review gate", () => {
-  test("stops only for fresh committed file-mode runs", () => {
+  test("stops only for fresh committed seeded runs", () => {
     expect(
       shouldStopAfterPhase0Refine({
         commit: true,
@@ -1263,14 +1223,7 @@ describe("phase-0 intent review gate", () => {
         mode: "inline",
         resume: false,
       }),
-    ).toBe(false);
-    expect(
-      shouldStopAfterPhase0Refine({
-        commit: true,
-        mode: "interactive",
-        resume: false,
-      }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldStopAfterPhase0Refine({
         commit: false,
@@ -1383,7 +1336,7 @@ describe("plan review pass resolution", () => {
 });
 
 describe("seedIntentFile", () => {
-  test("file mode: copies intent file byte-for-byte to spec/<name>/intent.md", () => {
+  test("file mode: preserves the raw seed and adds writable frontmatter", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-file-"));
     try {
       const worktreePath = join(dir, "worktree");
@@ -1403,7 +1356,10 @@ describe("seedIntentFile", () => {
       const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
       expect(existsSync(writtenPath)).toBe(true);
       const written = readFileSync(writtenPath, "utf8");
-      expect(written).toBe(intentContent);
+      expect(written).toContain("name: my-spec");
+      expect(written).toContain("## Raw seed");
+      expect(written).toContain(`<<<RAW_SEED_BEGIN>>>\n${intentContent}\n<<<RAW_SEED_END>>>`);
+      expect(written).toContain("## Intent");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1429,14 +1385,43 @@ describe("seedIntentFile", () => {
 
       const writtenPath = join(worktreePath, "v1", "spec", "my-spec", "intent.md");
       expect(existsSync(writtenPath)).toBe(true);
-      expect(readFileSync(writtenPath, "utf8")).toBe(intentContent);
+      const written = readFileSync(writtenPath, "utf8");
+      expect(written).toContain("name: my-spec");
+      expect(written).toContain(`<<<RAW_SEED_BEGIN>>>\n${intentContent}\n<<<RAW_SEED_END>>>`);
       expect(existsSync(join(worktreePath, "spec", "my-spec", "intent.md"))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("file mode: with trailing newline preserved", () => {
+  test("file mode: preserves non-name frontmatter keys while normalizing name", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-frontmatter-"));
+    try {
+      const worktreePath = join(dir, "worktree");
+      mkdirSync(worktreePath);
+
+      const intentContent = "---\nowner: platform\nname: stale value\npriority: high\n---\n\nShip it.\n";
+      const sourceIntentPath = join(dir, "source-intent.md");
+      writeFileSync(sourceIntentPath, intentContent, "utf8");
+
+      seedIntentFile({
+        worktreePath,
+        name: "normalized-name",
+        mode: "file",
+        intentPath: sourceIntentPath,
+      });
+
+      const written = readFileSync(join(worktreePath, "spec", "normalized-name", "intent.md"), "utf8");
+      expect(written).toContain("owner: platform");
+      expect(written).toContain("priority: high");
+      expect(written).toContain("name: normalized-name");
+      expect(written).toContain("<<<RAW_SEED_BEGIN>>>");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("file mode: preserves a seed without a trailing newline inside the raw block", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-trailing-newline-"));
     try {
       const worktreePath = join(dir, "worktree");
@@ -1455,13 +1440,13 @@ describe("seedIntentFile", () => {
 
       const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
       const written = readFileSync(writtenPath, "utf8");
-      expect(written).toBe(intentContent);
+      expect(written).toContain(`<<<RAW_SEED_BEGIN>>>\n${intentContent}\n<<<RAW_SEED_END>>>`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("inline mode: writes text with exactly one trailing newline", () => {
+  test("inline mode: preserves exact raw text and seeds an editable intent section", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-inline-"));
     try {
       const worktreePath = join(dir, "worktree");
@@ -1477,13 +1462,15 @@ describe("seedIntentFile", () => {
       const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
       expect(existsSync(writtenPath)).toBe(true);
       const written = readFileSync(writtenPath, "utf8");
-      expect(written).toBe("add csv export to reports\n");
+      expect(written).toContain("name: my-spec");
+      expect(written).toContain("<<<RAW_SEED_BEGIN>>>\nadd csv export to reports\n<<<RAW_SEED_END>>>");
+      expect(written).toContain("## Intent");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("inline mode: exactly one newline even if text is empty", () => {
+  test("inline mode: preserves an empty raw seed", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-inline-empty-"));
     try {
       const worktreePath = join(dir, "worktree");
@@ -1498,30 +1485,32 @@ describe("seedIntentFile", () => {
 
       const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
       const written = readFileSync(writtenPath, "utf8");
-      expect(written).toBe("\n");
+      expect(written).toContain("<<<RAW_SEED_BEGIN>>>\n\n<<<RAW_SEED_END>>>");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  test("interactive mode: writes minimal seed intent", () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-interactive-"));
+  test("seeded intent preserves the raw seed block exactly", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-seed-raw-seed-"));
     try {
       const worktreePath = join(dir, "worktree");
       mkdirSync(worktreePath);
 
-      seedIntentFile({
+      const rawSeed = seedIntentFile({
         worktreePath,
         name: "my-spec",
-        mode: "interactive",
+        mode: "inline",
+        intentText: "ship csv export",
       });
 
       const writtenPath = join(worktreePath, "spec", "my-spec", "intent.md");
       expect(existsSync(writtenPath)).toBe(true);
       const written = readFileSync(writtenPath, "utf8");
-      expect(written).toBe(
-        "# Intent\n\n(Interactive session — no seed text. The refine phase will gather\nthe intent.)\n",
-      );
+      expect(rawSeed).toBe("ship csv export");
+      expect(written).toContain("name: my-spec");
+      expect(written).toContain("## Raw seed");
+      expect(written).toContain("<<<RAW_SEED_BEGIN>>>\nship csv export\n<<<RAW_SEED_END>>>");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

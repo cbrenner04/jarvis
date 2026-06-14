@@ -25,8 +25,7 @@ import {
 } from "../modes/plan/boundary.ts";
 import { commitPlanBlocker, commitPlanDraft, commitPlanRefine } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
-import { runInlineDraftTurn } from "../modes/plan/inline-draft.ts";
-import { runNameOnlyPhase } from "../modes/plan/name-only.ts";
+import { runIntentDraftTurn } from "../modes/plan/intent-draft.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "../modes/plan/plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "../modes/plan/pr.ts";
 import { type RefineTerminalOutcome, runRefinePhase } from "../modes/plan/refine.ts";
@@ -63,7 +62,7 @@ export type PlanCommandOptions = {
   skipGhCheck?: boolean;
 };
 
-export const PLAN_USAGE = `Usage: jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
+export const PLAN_USAGE = `Usage: jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] [--resume-draft] <intent-file|"inline text">
                             Run plan mode (draft specs under spec/…; see docs/plan-mode.md).
 `;
 
@@ -110,8 +109,6 @@ function derivePlanName(inv: PlanInvocation): string {
       const truncated = kebabbed.slice(0, 40);
       return truncated || "plan";
     }
-    case "interactive":
-      return `interactive-${new Date().toISOString().slice(0, 16).replace("T", "-").replace(":", "")}`;
   }
 }
 
@@ -143,6 +140,72 @@ export function parseIntentFrontmatter(text: string): {
     }
   }
   return {};
+}
+
+const RAW_SEED_BEGIN = "<<<RAW_SEED_BEGIN>>>";
+const RAW_SEED_END = "<<<RAW_SEED_END>>>";
+
+function splitLeadingFrontmatter(text: string): {
+  frontmatterLines: string[] | null;
+  body: string;
+} {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const lines = normalized.split("\n");
+  if ((lines[0] ?? "") !== "---") {
+    return { frontmatterLines: null, body: normalized };
+  }
+  for (let i = 1; i < lines.length; i += 1) {
+    if ((lines[i] ?? "") === "---") {
+      return {
+        frontmatterLines: lines.slice(1, i),
+        body: lines.slice(i + 1).join("\n"),
+      };
+    }
+  }
+  return { frontmatterLines: null, body: normalized };
+}
+
+function upsertNameFrontmatter(frontmatterLines: readonly string[] | null, name: string): string[] {
+  const kept = (frontmatterLines ?? []).filter((line) => !/^name:\s*/.test(line));
+  return [...kept, `name: ${name}`];
+}
+
+function renderFrontmatter(lines: readonly string[]): string {
+  return `---\n${lines.join("\n")}\n---`;
+}
+
+function buildSeededIntent(rawSeed: string, name: string): string {
+  const { frontmatterLines, body } = splitLeadingFrontmatter(rawSeed);
+  const nextFrontmatter = renderFrontmatter(upsertNameFrontmatter(frontmatterLines, name));
+  const trimmedBody = body.replace(/^\n+/, "");
+  const workingDraft = trimmedBody.length > 0 ? `${trimmedBody}${trimmedBody.endsWith("\n") ? "" : "\n"}` : "";
+  return `${nextFrontmatter}
+
+## Raw seed
+
+${RAW_SEED_BEGIN}
+${rawSeed}
+${RAW_SEED_END}
+
+## Intent
+
+${workingDraft}`;
+}
+
+function updateIntentName(text: string, name: string): string {
+  const { frontmatterLines, body } = splitLeadingFrontmatter(text);
+  return `${renderFrontmatter(upsertNameFrontmatter(frontmatterLines, name))}
+
+${body.replace(/^\n*/, "")}`;
+}
+
+function extractRawSeed(text: string): string | null {
+  const begin = text.indexOf(`${RAW_SEED_BEGIN}\n`);
+  if (begin === -1) return null;
+  const start = begin + RAW_SEED_BEGIN.length + 1;
+  const end = text.indexOf(`\n${RAW_SEED_END}`, start);
+  if (end === -1) return null;
+  return text.slice(start, end);
 }
 
 export function validateProposedName(name: string | undefined): {
@@ -443,7 +506,7 @@ async function ensureUniquePlanName(
   }
 }
 
-export type SeedIntentFileMode = "file" | "inline" | "interactive";
+export type SeedIntentFileMode = "file" | "inline";
 
 export type SeedIntentFileOptions = {
   worktreePath: string;
@@ -460,7 +523,7 @@ export type SeedIntentFileOptions = {
   externalSpecRoot?: string;
 };
 
-export function seedIntentFile(opts: SeedIntentFileOptions): void {
+export function seedIntentFile(opts: SeedIntentFileOptions): string {
   const targetDir = opts.targetDir ?? "spec";
   const specDir = opts.externalSpecRoot
     ? join(opts.externalSpecRoot, opts.name)
@@ -473,28 +536,26 @@ export function seedIntentFile(opts: SeedIntentFileOptions): void {
 
   mkdirSync(specDir, { recursive: true });
 
-  let content: string;
+  let rawSeed: string;
   if (opts.mode === "file") {
     if (!opts.intentPath) {
       throw new Error("intentPath required for file mode");
     }
     try {
-      content = readFileSync(opts.intentPath, "utf8");
+      rawSeed = readFileSync(opts.intentPath, "utf8");
     } catch (err) {
       throw new Error(`could not read intent file: ${(err as Error).message}`);
     }
-  } else if (opts.mode === "inline") {
+  } else {
     if (opts.intentText === undefined) {
       throw new Error("intentText required for inline mode");
     }
-    content = `${opts.intentText}\n`;
-  } else if (opts.mode === "interactive") {
-    content = "# Intent\n\n(Interactive session — no seed text. The refine phase will gather\nthe intent.)\n";
-  } else {
-    throw new Error(`unknown mode: ${opts.mode}`);
+    rawSeed = opts.intentText;
   }
 
+  const content = buildSeededIntent(rawSeed, opts.name);
   writeFileSync(intentPath, content, "utf8");
+  return rawSeed;
 }
 
 export function shouldStopAfterPhase0Refine(opts: {
@@ -502,7 +563,7 @@ export function shouldStopAfterPhase0Refine(opts: {
   mode: SeedIntentFileMode;
   resume: boolean;
 }): boolean {
-  return opts.commit && opts.mode === "file" && !opts.resume;
+  return opts.commit && !opts.resume;
 }
 
 export function appendPhase0ReviewGateBlocker(
@@ -544,12 +605,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const result = parsePlanArgs(args, processCwd);
     if (!result.ok) {
       opts.io.stderr(`${result.message}\n`);
+      if (result.message.includes("missing required seed")) {
+        opts.io.stdout(PLAN_USAGE);
+      }
       return result.exitCode;
     }
 
     const inv = result.invocation;
     // Resolve from a file-like path (matching run mode, which passes a spec
-    // file). For inline/interactive plan modes there's no real intent file, so
+    // file). For inline plan mode there's no real intent file yet, so
     // synthesize one inside cwd: resolveProject's `dirname()` then yields cwd
     // as the walk start, mirroring "as if there were a spec here".
     const candidatePath = inv.mode === "file" ? inv.intentPath : join(inv.cwd, "intent");
@@ -596,10 +660,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const planLogClient = entry.logClient;
     const logOutboundPrompt = (prompt: string): void => planHarnessLog(planLogClient, prompt, "outbound");
     planHarnessLog(planLogClient, describePlanInvocation(inv));
-    if (inv.mode === "interactive") {
-      opts.io.stderr("plan: interactive session started\n");
-    }
-
     const project = entry.resolution.resolved.project;
     planHarnessLog(planLogClient, `plan: target project=${project.key} root=${project.root}`);
 
@@ -611,55 +671,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       `plan: resolved flags specTimestamp=${specTimestamp} commit=${commit} targetDir=${targetDir}`,
     );
 
-    if (inv.mode === "interactive" && (inv.refineTurns ?? 3) === 0) {
-      opts.io.stderr("plan: --refine-turns 0 is incompatible with interactive mode\n(no intent text was provided)\n");
-      return 1;
-    }
-
-    if (inv.mode === "inline" && !inv.resume && !inv.resumeDraft) {
-      const inlineIntentPath = join(
-        project.root,
-        targetDir,
-        "wip-intents",
-        `${toKebabCase(inv.intentText.split(" ").slice(0, 4).join(" "))}.md`,
-      );
-      if (existsSync(inlineIntentPath)) {
-        opts.io.stderr(`plan: ${inlineIntentPath} already exists; refusing to overwrite\n`);
-        return 1;
-      }
-      mkdirSync(dirname(inlineIntentPath), { recursive: true });
-      writeFileSync(inlineIntentPath, `${inv.intentText}\n`, "utf8");
-      const inlineCfg = loadConfig(opts.config);
-      const inlineResult = await runInlineDraftTurn({
-        onOutboundPrompt: logOutboundPrompt,
-        worktreePath: project.root,
-        inlineIntent: inv.intentText,
-        intentPath: inlineIntentPath,
-        config: inlineCfg,
-        stderr: opts.io.stderr,
-      });
-      if (inlineResult.result.kind === "ok") {
-        opts.io.stderr(`plan: inline intent draft written to ${inlineIntentPath}\n`);
-        return 0;
-      }
-      if (inlineResult.result.kind === "quota") {
-        opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
-        return 2;
-      }
-      if (inlineResult.result.kind === "model_config") {
-        opts.io.stderr(`plan: model configuration error\n${inlineResult.result.stderr}\n`);
-        return 3;
-      }
-      opts.io.stderr(`plan: inline intent draft failed\n${inlineResult.result.stderr}\n`);
-      return 1;
-    }
-
     if (inv.resume || inv.resumeDraft) {
       const resumeFlag = inv.resume ? "--resume" : "--resume-draft";
-      if (inv.mode === "interactive") {
-        opts.io.stderr(`${resumeFlag} requires a spec path\n`);
-        return 1;
-      }
       if (inv.mode !== "file") {
         opts.io.stderr(`${resumeFlag} cannot be combined with intent text/file\n`);
         return 1;
@@ -773,8 +786,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             commitPlanRefine({
               worktreePath: resume.worktreePath,
               specDirBasename: resume.specDirBasename,
-              mode: "interactive",
-              intentPathOrLabel: "interactive",
+              mode: "inline",
+              intentPathOrLabel: "resume",
               completedTurns: refineResult.completedTurns,
               subjectSuffix: suffix,
               resumedBy: refineResult.agentLabel ?? "unknown",
@@ -1090,9 +1103,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       };
 
       // Seed the intent.md file into the worktree or external spec root
+      let rawSeed: string;
       try {
         if (inv.mode === "file") {
-          seedIntentFile({
+          rawSeed = seedIntentFile({
             worktreePath,
             name: specDirBasename,
             mode: "file",
@@ -1100,20 +1114,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             targetDir,
             ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           });
-        } else if (inv.mode === "inline") {
-          seedIntentFile({
+        } else {
+          rawSeed = seedIntentFile({
             worktreePath,
             name: specDirBasename,
             mode: "inline",
             intentText: inv.intentText,
-            targetDir,
-            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
-          });
-        } else {
-          seedIntentFile({
-            worktreePath,
-            name: specDirBasename,
-            mode: "interactive",
             targetDir,
             ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           });
@@ -1144,6 +1150,45 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           writer: planTelemetryWriter,
         });
       };
+
+      const tempSpecPath = externalSpecRoot
+        ? join(externalSpecRoot, specDirBasename)
+        : join(worktreePath, targetDir, specDirBasename);
+      const tempIntentPath = join(tempSpecPath, "intent.md");
+
+      const intentDraftResult = await runIntentDraftTurn({
+        onOutboundPrompt: logOutboundPrompt,
+        agentCwd: tempSpecPath,
+        worktreePath,
+        intentPath: tempIntentPath,
+        seededIntent: readFileSync(tempIntentPath, "utf8"),
+        config: cfg,
+        stderr: opts.io.stderr,
+      });
+      if (intentDraftResult.result.kind !== "ok") {
+        if (intentDraftResult.result.kind === "quota") {
+          opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during intent-draft\n`);
+          cleanupNoCommitTempSpec();
+          summarizePlan("quota-exhausted", specDirBasename);
+          return 2;
+        }
+        if (intentDraftResult.result.kind === "model_config") {
+          opts.io.stderr(`plan: model configuration error\n${intentDraftResult.result.stderr}`);
+          cleanupNoCommitTempSpec();
+          summarizePlan("model-config", specDirBasename);
+          return 3;
+        }
+        opts.io.stderr(`plan: intent-draft failed\n${intentDraftResult.result.stderr}`);
+        cleanupNoCommitTempSpec();
+        summarizePlan("agent-error", specDirBasename);
+        return 1;
+      }
+      if (extractRawSeed(readFileSync(tempIntentPath, "utf8")) !== rawSeed) {
+        opts.io.stderr("plan: intent-draft invalid output; raw seed was not preserved exactly\n");
+        cleanupNoCommitTempSpec();
+        summarizePlan("error", specDirBasename);
+        return 1;
+      }
 
       // Run refine phase
       let refineCompletedTurns = 0;
@@ -1195,35 +1240,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           if (refineResult.terminalOutcome !== undefined) {
             opts.io.stderr(`plan: refine: ${refineResult.terminalOutcome}\n`);
           }
-        } else if (inv.mode !== "interactive") {
-          const namingResult = await runNameOnlyPhase({
-            onOutboundPrompt: logOutboundPrompt,
-            worktreePath,
-            name: specDirBasename,
-            config: cfg,
-            stderr: opts.io.stderr,
-            planTelemetry: planTelemetryWriter,
-            targetDir,
-            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
-          });
-          if (namingResult.result.kind !== "ok") {
-            if (namingResult.result.kind === "quota") {
-              opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during naming-only phase\n`);
-              cleanupNoCommitTempSpec();
-              summarizePlan("quota-exhausted", specDirBasename);
-              return 2;
-            }
-            if (namingResult.result.kind === "model_config") {
-              opts.io.stderr(`plan: model configuration error\n${namingResult.result.stderr}`);
-              cleanupNoCommitTempSpec();
-              summarizePlan("model-config", specDirBasename);
-              return 3;
-            }
-            opts.io.stderr(`plan: naming-only phase failed\n${namingResult.result.stderr}`);
-            cleanupNoCommitTempSpec();
-            summarizePlan("agent-error", specDirBasename);
-            return 1;
-          }
+        } else {
+          refineTerminalOutcome = "skipped";
         }
       } catch (err) {
         opts.io.stderr(`plan: refine phase error: ${(err as Error).message}\n`);
@@ -1232,9 +1250,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
 
-      const tempIntentPath = externalSpecRoot
-        ? join(externalSpecRoot, specDirBasename, "intent.md")
-        : join(worktreePath, targetDir, specDirBasename, "intent.md");
       const tempIntent = readFileSync(tempIntentPath, "utf8");
       const parsedName = parseIntentFrontmatter(tempIntent).name;
       const validation = validateProposedName(parsedName);
@@ -1257,9 +1272,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         // Already checked; skip
       }
 
-      const finalIntentBody = tempIntent.startsWith("---\n")
-        ? tempIntent.replace(/^---\n[\s\S]*?\n---/, `---\nname: ${planName}\n---`)
-        : `---\nname: ${planName}\n---\n\n${tempIntent}`;
+      const finalIntentBody = updateIntentName(tempIntent, planName);
       writeFileSync(tempIntentPath, finalIntentBody, "utf8");
 
       // Rename temp spec directory to validated name
@@ -1345,16 +1358,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         if (commit) {
           try {
             // Create the refine commit first (with the blocked state)
-            const intentPathOrLabel =
-              inv.mode === "file"
-                ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
-                : inv.mode === "inline"
-                  ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
-                  : "interactive";
+            const intentPathOrLabel = inv.mode === "file" ? inv.intentPath : inv.intentText;
             commitPlanRefine({
               worktreePath: worktreePath as string,
               specDirBasename,
-              mode: inv.mode as "file" | "inline" | "interactive",
+              mode: inv.mode as "file" | "inline",
               intentPathOrLabel,
               completedTurns: refineCompletedTurns,
               refineOutcome: "blocker",
@@ -1380,7 +1388,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               agent: prDescAgent,
               timeoutMs: cfg.iterationTimeoutMs,
               io: opts.io,
-              branch: planBranch,
+              branch: `plan/${planName}`,
               base: baseBranch as string,
               worktreePath: worktreePath as string,
               name: planName,
@@ -1405,16 +1413,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       // Create plan: refine commit and push (only when commit: true)
       if (commit) {
         try {
-          const intentPathOrLabel =
-            inv.mode === "file"
-              ? (inv as Extract<typeof inv, { mode: "file" }>).intentPath
-              : inv.mode === "inline"
-                ? (inv as Extract<typeof inv, { mode: "inline" }>).intentText
-                : "interactive";
+          const intentPathOrLabel = inv.mode === "file" ? inv.intentPath : inv.intentText;
           commitPlanRefine({
             worktreePath: worktreePath as string,
             specDirBasename,
-            mode: inv.mode as "file" | "inline" | "interactive",
+            mode: inv.mode as "file" | "inline",
             intentPathOrLabel,
             completedTurns: refineCompletedTurns,
             targetDir,

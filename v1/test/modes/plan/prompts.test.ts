@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { buildDraftPrompt } from "../../../src/modes/plan/draft.ts";
-import { buildInlineDraftPrompt } from "../../../src/modes/plan/inline-draft.ts";
+import { buildIntentDraftPrompt } from "../../../src/modes/plan/intent-draft.ts";
 import { buildNameOnlyPrompt } from "../../../src/modes/plan/name-only.ts";
 import {
   buildRefinePrompt,
@@ -55,27 +55,29 @@ describe("buildDraftPrompt", () => {
   });
 });
 
-describe("buildInlineDraftPrompt", () => {
+describe("buildIntentDraftPrompt", () => {
   test("injects working directory, intent path, and inline intent", () => {
-    const prompt = buildInlineDraftPrompt({
+    const prompt = buildIntentDraftPrompt({
       workdir: "/repo",
       intentPath: "/repo/intent.md",
-      inlineIntent: "Add a basic login flow",
+      seededIntent: "Add a basic login flow",
     });
     expect(prompt).not.toContain("<WORKDIR>");
     expect(prompt).not.toContain("<INTENT_PATH>");
-    expect(prompt).not.toContain("<INLINE_INTENT>");
+    expect(prompt).not.toContain("<SEEDED_INTENT>");
     expect(prompt).toContain("/repo");
     expect(prompt).toContain("/repo/intent.md");
     expect(prompt).toContain("Add a basic login flow");
   });
 
-  test("includes anti-self-reference acceptance criteria contract", () => {
-    const prompt = buildInlineDraftPrompt({
+  test("includes raw-seed preservation and anti-self-reference rules", () => {
+    const prompt = buildIntentDraftPrompt({
       workdir: "/repo",
       intentPath: "/repo/intent.md",
-      inlineIntent: "x",
+      seededIntent: "x",
     });
+    expect(prompt).toContain("Keep the exact raw seed recoverable");
+    expect(prompt).toContain("name: <kebab-case>");
     expect(prompt).toContain("Do not propose self-referential deliverables");
     expect(prompt).toContain("outside the active spec directory");
   });

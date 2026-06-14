@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   getExternalWorktreeLockPath,
@@ -9,6 +8,7 @@ import {
   WorktreeBusyError,
   withExternalWorktree,
 } from "./external-worktree.ts";
+import { mkdtempJarvisRoot } from "./testing/jarvis-root.ts";
 
 const roots: string[] = [];
 
@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 function setupRepo(): { repoRoot: string; jarvisRoot: string } {
-  const root = mkdtempSync(join(tmpdir(), "jarvis-v2-worktree-"));
+  const root = mkdtempJarvisRoot("wt");
   roots.push(root);
   const repoRoot = join(root, "repo");
   const jarvisRoot = join(root, "jarvis-home");

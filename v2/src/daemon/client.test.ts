@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openLogRepository } from "../log-repository.ts";
+import { mkdtempJarvisDaemon } from "../testing/jarvis-root.ts";
 import { callDaemon } from "./client.ts";
-import { daemonSocketPath } from "./paths.ts";
 import { createDaemonHost } from "./server.ts";
 
 describe("daemon client", () => {
@@ -21,8 +19,7 @@ describe("daemon client", () => {
   });
 
   test("request IDs match responses", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
-    const socketPath = daemonSocketPath(root);
+    const { root, socketPath } = mkdtempJarvisDaemon();
     const host = createDaemonHost({
       socketPath,
       pid: 42,

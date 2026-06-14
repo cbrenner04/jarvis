@@ -1,10 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openLogRepository } from "../log-repository.ts";
+import { mkdtempJarvisDaemon } from "../testing/jarvis-root.ts";
 import { discoverJarvisExecutable, ensureDaemonRunning } from "./autostart.ts";
-import { daemonSocketPath } from "./paths.ts";
 import { createDaemonHost } from "./server.ts";
 
 describe("daemon autostart", () => {
@@ -17,8 +15,7 @@ describe("daemon autostart", () => {
   });
 
   test("ensureDaemonRunning reports already_running for a live socket", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-autostart-"));
-    const socketPath = daemonSocketPath(root);
+    const { root, socketPath } = mkdtempJarvisDaemon("a");
     const host = createDaemonHost({
       socketPath,
       logRepository: openLogRepository(join(root, "state", "logs.sqlite")),
@@ -37,8 +34,7 @@ describe("daemon autostart", () => {
   });
 
   test("ensureDaemonRunning spawns detached serve and waits for readiness", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-autostart-"));
-    const socketPath = daemonSocketPath(root);
+    const { root, socketPath } = mkdtempJarvisDaemon("a");
     let spawned = false;
     const host = createDaemonHost({
       socketPath,

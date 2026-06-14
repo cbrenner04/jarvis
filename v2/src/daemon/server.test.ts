@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openLogRepository } from "../log-repository.ts";
 import { openStateStore } from "../state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
+import { mkdtempJarvisRoot } from "../testing/jarvis-root.ts";
 import type { WriteLoopInput, WriteLoopResult } from "../write-loop.ts";
 import { callDaemon, isDaemonReachable, removeStaleSocket, tailDaemon } from "./client.ts";
 import { daemonSocketPath } from "./paths.ts";
@@ -55,7 +55,7 @@ describe("daemon server", () => {
   }
 
   test("status answers over the unix socket", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath } = await startHost(root);
 
     const response = await callDaemon({ id: "1", method: "status" }, { socketPath });
@@ -68,7 +68,7 @@ describe("daemon server", () => {
   });
 
   test("stop exits and removes the socket", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { host, socketPath } = await startHost(root);
 
     const response = await callDaemon({ id: "1", method: "stop" }, { socketPath });
@@ -79,7 +79,7 @@ describe("daemon server", () => {
   });
 
   test("second start against a live socket fails cleanly", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath } = await startHost(root);
     const second = createDaemonHost({
       socketPath,
@@ -91,7 +91,7 @@ describe("daemon server", () => {
   });
 
   test("stale socket is removed before bind", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const socketPath = daemonSocketPath(root);
     writeFileSync(socketPath, "");
     expect(await removeStaleSocket(socketPath)).toBe(true);
@@ -102,7 +102,7 @@ describe("daemon server", () => {
   });
 
   test("stop refuses active invocations and reports run IDs", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { host, socketPath } = await startHost(root);
     host.registerActiveInvocation("run-active");
 
@@ -117,7 +117,7 @@ describe("daemon server", () => {
   });
 
   test("stop succeeds when no active invocations remain", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { host, socketPath } = await startHost(root);
     host.registerActiveInvocation("run-done");
     host.unregisterActiveInvocation("run-done");
@@ -129,7 +129,7 @@ describe("daemon server", () => {
   });
 
   test("malformed JSON, unknown methods, and handler errors keep the daemon alive", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath } = await startHost(root);
 
     const malformed = await sendRaw(socketPath, "{");
@@ -144,7 +144,7 @@ describe("daemon server", () => {
   });
 
   test("log.tail replays history then streams live records", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath, logRepository } = await startHost(root);
     logRepository.append({ runId: "run-a", level: "info", event: "one" });
     logRepository.append({ runId: "run-a", level: "info", event: "two" });
@@ -172,7 +172,7 @@ describe("daemon server", () => {
   });
 
   test("log.tail accepts unknown run IDs and follows later appends", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath, logRepository } = await startHost(root);
 
     const seen: string[] = [];
@@ -197,7 +197,7 @@ describe("daemon server", () => {
   });
 
   test("log.tail resumes from sequence without replaying earlier records", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath, logRepository } = await startHost(root);
     logRepository.append({ runId: "run-a", level: "info", event: "one" });
     logRepository.append({ runId: "run-a", level: "info", event: "two" });
@@ -224,7 +224,7 @@ describe("daemon server", () => {
   });
 
   test("disconnect cleans up live tail subscribers without blocking append", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath, logRepository } = await startHost(root);
 
     const tail = tailDaemon(
@@ -243,7 +243,7 @@ describe("daemon server", () => {
   });
 
   test("request/response works while log.tail is open on the same socket", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath, logRepository } = await startHost(root);
     logRepository.append({ runId: "run-a", level: "info", event: "seed" });
 
@@ -257,7 +257,7 @@ describe("daemon server", () => {
   });
 
   test("run.start returns immediately and run.list reports durable snapshots", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath } = await startHost(root);
     const params = {
       projectRoot: "/tmp/repo",
@@ -280,7 +280,7 @@ describe("daemon server", () => {
   });
 
   test("run.start rejects conflicting project and branch ownership", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     let releaseLoop: (() => void) | undefined;
     const blocked = new Promise<void>((resolve) => {
       releaseLoop = resolve;
@@ -315,7 +315,7 @@ describe("daemon server", () => {
   });
 
   test("daemon startup rebuilds ownership from durable nonterminal runs", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const stateStore = openStateStore(join(root, "state", "v2.sqlite"));
     const runId = stateStore.createRun({
       project: "demo",
@@ -353,7 +353,7 @@ describe("daemon server", () => {
       releaseIteration = resolve;
     });
     let loopCalls = 0;
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath } = await startHost(root, async (input) => {
       loopCalls += 1;
       await iterationGate;
@@ -418,7 +418,7 @@ describe("daemon server", () => {
   });
 
   test("steering methods reject invalid params and unknown methods", async () => {
-    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const root = mkdtempJarvisRoot();
     const { socketPath } = await startHost(root);
 
     const invalid = await callDaemon({ id: "pause-1", method: "run.pause", params: {} }, { socketPath });

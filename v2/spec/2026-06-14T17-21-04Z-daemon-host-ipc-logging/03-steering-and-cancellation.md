@@ -86,10 +86,6 @@ Phase 6 adds planned human pauses.
 
 ## Blocker
 
-Test environment issue: daemon socket tests fail with `EPERM` when binding Unix sockets
-(all 21 failing tests in server.test.ts, autostart.test.ts, cli.test.ts, client.test.ts).
-Steering logic itself is fully implemented and correct — all 10 steering tests in
-run-manager.test.ts pass (pause boundary, resume after pause, kill, resume after kill, API
-validation). Typecheck and no cross-tree imports verified. Socket binding issue appears to
-be macOS/platform-specific test environment constraint, not a code defect; `bun run ready`
-blocked until test environment allows Unix socket binding.
+Resolved: daemon socket tests now use short `/tmp` paths via `mkdtempJarvisRoot` so
+Unix socket bind stays under the macOS path limit when TMPDIR points at a long worktree
+directory. `test-slices` preload probe timeout raised to match scoped `test:v2` runtime.

@@ -80,10 +80,11 @@ describe("Test slice boundaries", () => {
         .filter((entry) => !basename(entry).startsWith("jarvis-test-fake-agents-"))
         .join(":"),
     };
+    const opts = { env, stdio: "pipe" as const, timeout: 120_000 };
 
-    execSync("bun run test:v2", { env, stdio: "pipe" });
-    execSync("bun test ./shared/", { env, stdio: "pipe" });
-  });
+    execSync("bun run test:v2", opts);
+    execSync("bun test ./shared/", opts);
+  }, 180_000);
 
   it("ready script uses aggregate test command", async () => {
     const readyScript = await Bun.file("scripts/ready.ts").text();

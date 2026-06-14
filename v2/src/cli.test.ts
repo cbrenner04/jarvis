@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "./cli.ts";
 import { callDaemon } from "./daemon/client.ts";
-import { daemonSocketPath } from "./daemon/paths.ts";
 import { createDaemonHost } from "./daemon/server.ts";
 import { openLogRepository } from "./log-repository.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
+import { mkdtempJarvisDaemon, mkdtempJarvisRoot } from "./testing/jarvis-root.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./write-loop.ts";
 
 function captureIo() {
@@ -224,7 +224,7 @@ describe("v2 cli", () => {
 
   test("daemon status reports unreachable daemon without starting a run", async () => {
     const cap = captureIo();
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-"));
+    const root = mkdtempJarvisRoot("c");
 
     const code = await main(["daemon", "status", "--jarvis-root", root], cap.io, {
       jarvisRoot: () => root,
@@ -236,8 +236,7 @@ describe("v2 cli", () => {
 
   test("daemon start uses ensureDaemonRunning and prints structured result", async () => {
     const cap = captureIo();
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-"));
-    const socketPath = daemonSocketPath(root);
+    const { root, socketPath } = mkdtempJarvisDaemon("c");
 
     const code = await main(["daemon", "start", "--jarvis-root", root], cap.io, {
       jarvisRoot: () => root,
@@ -404,8 +403,7 @@ describe("v2 cli", () => {
 
   test("daemon lifecycle integrates start status and stop over temp socket", async () => {
     const cap = captureIo();
-    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-"));
-    const socketPath = daemonSocketPath(root);
+    const { root, socketPath } = mkdtempJarvisDaemon("c");
     const logRepository = openLogRepository(join(root, "state", "logs.sqlite"));
     const host = createDaemonHost({ socketPath, logRepository });
     await host.start();

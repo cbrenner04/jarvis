@@ -199,9 +199,10 @@ describe("runPatchShrinkPhase", () => {
     }
   });
 
-  test("no-op shrink leaves worktree unchanged", async () => {
+  test("no-op shrink leaves worktree unchanged without contract tests", async () => {
     const { dir, specPath, cleanup } = setupShrinkRepo();
     const harness: string[] = [];
+    let contractTestsRan = false;
     try {
       const headBefore = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
       const agent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "done", stderr: "" }));
@@ -211,7 +212,10 @@ describe("runPatchShrinkPhase", () => {
         specPath,
         allowlist: new Set(["impl.txt"]),
         skipPreShrinkGate: true,
-        runContractTests: () => true,
+        runContractTests: () => {
+          contractTestsRan = true;
+          return true;
+        },
         fanout: (tag, text) => {
           if (tag === "harness") harness.push(text.trim());
         },
@@ -222,7 +226,42 @@ describe("runPatchShrinkPhase", () => {
       });
       const headAfter = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
       expect(headAfter).toBe(headBefore);
+      expect(contractTestsRan).toBe(false);
       expect(harness.some((line) => line.includes("no changes"))).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("spec-only shrink edits collapse to no-op without contract tests", async () => {
+    const { dir, specPath, specDir, cleanup } = setupShrinkRepo();
+    let contractTestsRan = false;
+    try {
+      const headBefore = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+      const agent = new FakeAgent("claude", () => {
+        writeFileSync(join(specDir, "00-one.md"), "# 00\n\n## Acceptance criteria\n\n- [ ] done\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+      await runPatchShrinkPhase({
+        config: makeShrinkConfig(),
+        cwd: dir,
+        specPath,
+        allowlist: new Set(["impl.txt"]),
+        skipPreShrinkGate: true,
+        runContractTests: () => {
+          contractTestsRan = true;
+          return true;
+        },
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: agent },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+      const headAfter = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+      expect(headAfter).toBe(headBefore);
+      expect(contractTestsRan).toBe(false);
+      expect(readFileSync(join(specDir, "00-one.md"), "utf8")).toContain("- [x] done");
     } finally {
       cleanup();
     }

@@ -488,20 +488,6 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
   }
 
   const criteriaAfter = snapshotAllAcceptanceCriteria(opts.specPath);
-  const acRegression = hasAcceptanceCriteriaRegression(criteriaBefore, criteriaAfter);
-  const deletedTest = detectDeletedTestInScope(opts.cwd, opts.allowlist, preShrinkHead);
-  const testsPass = (opts.runContractTests ?? runTests)(opts.cwd);
-
-  if (acRegression || deletedTest || !testsPass) {
-    const reasons = [
-      ...(acRegression ? ["acceptance-criteria regression"] : []),
-      ...(deletedTest ? ["deleted test file in scope"] : []),
-      ...(!testsPass ? ["tests failing"] : []),
-    ];
-    opts.fanout("harness", `shrink: contract miss (${reasons.join(", ")}); reverting\n`, "stderr");
-    revertAllSince(opts.cwd, preShrinkHead);
-    return;
-  }
 
   const editedSpecFiles = detectSpecTreeEdits(specDir, opts.cwd);
   if (editedSpecFiles.length > 0) {
@@ -523,6 +509,21 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
   }).trim();
   if (porcelain === "") {
     opts.fanout("harness", "shrink: no changes\n", "stdout");
+    return;
+  }
+
+  const acRegression = hasAcceptanceCriteriaRegression(criteriaBefore, criteriaAfter);
+  const deletedTest = detectDeletedTestInScope(opts.cwd, opts.allowlist, preShrinkHead);
+  const testsPass = (opts.runContractTests ?? runTests)(opts.cwd);
+
+  if (acRegression || deletedTest || !testsPass) {
+    const reasons = [
+      ...(acRegression ? ["acceptance-criteria regression"] : []),
+      ...(deletedTest ? ["deleted test file in scope"] : []),
+      ...(!testsPass ? ["tests failing"] : []),
+    ];
+    opts.fanout("harness", `shrink: contract miss (${reasons.join(", ")}); reverting\n`, "stderr");
+    revertAllSince(opts.cwd, preShrinkHead);
     return;
   }
 

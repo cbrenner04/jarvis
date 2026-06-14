@@ -18,6 +18,12 @@ existing write loop remains the core execution path.
   Rules out replacing the only foreground debug path in this phase.
 - Enforce one active daemon-owned run per `(project, branch)` in memory. Rules
   out two daemon starts sharing one worktree.
+- Daemon-owned `(project, branch)` ownership is held for active, paused, blocked,
+  budget-soft-stopped, and killed runs, then released on done, failed, or
+  explicit cleanup. Rules out starting another daemon run over resumable or dirty
+  work.
+- Daemon startup rebuilds ownership guards from durable nonterminal run state.
+  Rules out losing paused/killed exclusivity across daemon restart.
 
 Deferred to first consumer: richer run-start inputs beyond the current write
 loop CLI fields - pin when project config/workflows land.
@@ -30,10 +36,12 @@ loop CLI fields - pin when project config/workflows land.
 - [ ] Emit structured log records for run accepted, started, iteration/result
   summary, and finished/failed.
 - [ ] Ensure daemon-owned active runs reserve `(project, branch)` until terminal
-  or killed.
+  or explicit cleanup according to the ownership lifetime decision.
 - [ ] Add CLI commands `start`, `status`, and `log-tail` as thin IPC clients.
 - [ ] Autostart the daemon for `start`, `status`, and `log-tail` if it is not
   already reachable.
+- [ ] Rebuild in-memory ownership from durable nonterminal run state on daemon
+  startup.
 - [ ] Co-located tests using injected bindings and temp state/log/socket paths.
 
 ## Acceptance criteria
@@ -48,16 +56,22 @@ loop CLI fields - pin when project config/workflows land.
   for that run (test).
 - [ ] Starting a second active daemon run for the same `(project, branch)` is
   rejected before sharing the worktree (test).
+- [ ] Starting a daemon with paused, blocked, budget-soft-stopped, or killed
+  durable runs rebuilds ownership and rejects conflicting starts until cleanup or
+  terminal release (test).
 - [ ] Detached runs use `executeWriteLoop`; the loop library does not gain
   daemon-specific process handlers or IPC knowledge.
 - [ ] CLI run-control commands autostart the daemon when unreachable; lifecycle
   commands from 00 still work explicitly (test).
-- [ ] No `v2 -> v1` imports; `bun run typecheck` and `bun test` pass.
+- [ ] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and
+  `bun run ready` pass.
 
 ## Documentation updates
 
 - [ ] `v2/docs/daemon.md`: add `run.start`, `run.list`, command mapping
-  (`start`, `status`, `log-tail`), autostart behavior, and active run ownership.
+  (`start`, `status`, `log-tail`), autostart behavior, run-status output, and
+  daemon-owned `(project, branch)` ownership lifetime.
 - [ ] `v2/docs/write-behavior.md`: document detached `jarvis start` as the
   daemon-driven path and keep `jarvis write` as foreground.
-- [ ] `v2/docs/v1-behaviors.md`: no change - additive v2-only run surface.
+- [ ] `v2/docs/v1-behaviors.md`: explicitly state this is an additive v2-only
+  run surface and does not alter v1 resume/lock behavior.

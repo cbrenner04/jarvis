@@ -11,13 +11,18 @@ boundary-clean or interrupted.
   paused or killed.
 - Pause uses a daemon pause request checked between write-loop iterations, not
   forced `AbortSignal` abort mid-iteration. Rules out losing work for a graceful
-  pause.
+  pause or reusing abort behavior that already means interrupted recovery.
 - Kill aborts the active invocation immediately through `AbortController` and
   process-group termination when the binding owns a child process. Rules out
   waiting for the next loop boundary on kill.
 - Resume after paused-at-boundary continues with the next iteration; resume after
   killed/crashed mid-step reuses the existing interrupted-attempt recovery path.
   Rules out a separate killed-run replay algorithm.
+- Pause records a boundary-clean disposition distinct from killed/crashed
+  interruption. Rules out re-running completed work after a graceful pause.
+- Process-group kill scope is limited to real child-process invocation bindings;
+  tests keep injectable abort behavior. Rules out redesigning run orchestration
+  into worker processes solely for kill.
 - CLI steering verbs are exactly `pause`, `resume`, and `kill`. Rules out adding
   edit/message/reorder controls in Phase 3.
 
@@ -39,12 +44,16 @@ Phase 6 adds planned human pauses.
   requested, killed, and resume branch.
 - [ ] Co-located tests for graceful pause, resume, immediate kill, and crash-like
   interrupted resume.
+- [ ] Update invocation kill/abort contract docs if the binding seam changes.
+- [ ] Run `bun run ready` for this materially invasive steering slice.
 
 ## Acceptance criteria
 
 - [ ] `jarvis pause <run-id>` on an active run records a pause request and the
   run stops at the next loop/iteration boundary with no in-progress attempt left
   uncommitted (test).
+- [ ] Pause completion records a boundary-clean disposition distinct from
+  killed/crashed interruption (test).
 - [ ] `jarvis resume <run-id>` after a boundary-clean pause continues with the
   next write-loop iteration rather than re-running the completed one (test).
 - [ ] `jarvis kill <run-id>` aborts an active invocation immediately, marks the
@@ -67,6 +76,9 @@ Phase 6 adds planned human pauses.
   and resume branch behavior for daemon-driven runs.
 - [ ] `v2/docs/state-store.md`: document any new statuses/stop-cause fields and
   their resume reads.
+- [ ] `v2/docs/shared-invocation.md` or the actual durable invocation-binding
+  home: document child-process kill/abort contracts if the seam changes.
+- [ ] `v2/docs/v2-architecture.md`: align with the as-built second-host model.
 - [ ] `v2/docs/v2-build-order.md` and `v2/spec/v2-meta-index.md`: check off
   Phase 3 after implementation passes.
 - [ ] `v2/docs/v1-behaviors.md`: no change - additive v2-only steering surface.

@@ -92,21 +92,15 @@ Concretely:
 - Reflect the daemon/IPC/logging surfaces in `v2/docs/v2-architecture.md` where
   the as-built shape diverges from the design notes.
 
-## Refinement
+## Refine skip
 
-- `03` must add a boundary-clean pause disposition distinct from interrupted kill/crash; rules out reusing existing `AbortSignal` abort, which already means interrupted recovery and would re-run completed work.
-- Daemon stop must refuse while any invocation is active and report active run IDs; rules out silently killing or orphaning running work on lifecycle stop.
-- Daemon stop may exit when runs are only paused, blocked, budget-soft-stopped, killed, failed, or done; rules out requiring a daemon process to stay resident for durable non-running states.
-- `02` must define `(project, branch)` ownership as held for active, paused, blocked, budget-soft-stopped, and killed runs, then released only on done, failed, or explicit cleanup; rules out starting another daemon run over resumable/dirty work.
-- Daemon startup must rebuild ownership guards from durable nonterminal run state; rules out losing paused/killed exclusivity across daemon restart.
-- `00`/`02` must separate `jarvis daemon status` (daemon health/socket/process) from `jarvis status` (run snapshots); rules out one command ambiguously mixing host liveness and run state.
-- Structured logs use a separate SQLite file under `~/.jarvis/state/` with log-repository bootstrap and forward-only migrations, not `v2.sqlite`/`StateStore`; rules out mixing rich event history into the orchestration store resume reads.
-- `01` `log.tail` must allow arbitrary run IDs, replay empty history, and follow later appends; rules out requiring detached run lifecycle before the log substrate can be tested.
-- Live tail must drop disconnected subscribers and isolate slow subscribers with bounded per-subscriber buffering or stream close; rules out append latency depending on any one client.
-- `01` must prove request/response and streaming frames coexist on one socket by issuing normal requests while a tail stream is open; rules out untested protocol multiplexing.
-- CLI autostart must specify executable discovery, readiness timeout, stdio detachment, and structured failure reporting before `start`/`status`/`log-tail` depend on it; rules out hidden shell-specific daemon launch behavior.
-- Process-group kill scope is limited to real child-process invocation bindings, with injectable abort behavior still covering tests; rules out redesigning run orchestration into worker processes solely for kill.
-- Any invocation binding kill/abort seam change must update `v2/docs/shared-invocation.md` or its actual durable home; rules out changing cancellation contracts only in code/spec prose.
-- Each materially invasive subspec (`00` daemon/IPC, `01` logging, `02` detached runs, `03` steering) must require `bun run ready`; rules out reserving full readiness evidence for the final steering slice only.
-- v1 docs entries must explicitly say these are additive v2-only surfaces and do not restate or alter v1 kill/resume/lock behavior; rules out accidental v1 parity drift.
-- `v2/docs/v2-architecture.md` must be aligned to the as-built second-host model when Phase 3 lands; rules out leaving older daemon-first wording as the durable architecture.
+No net-new load-bearing decision to pin. The architecture already fixes the
+steering semantics (pause graceful at boundary / resume branches on stop-cause /
+kill immediate via process-group SIGTERM→SIGKILL), the daemon-owns-orchestration-
+not-work split, and keeps rich logs/events out of the orchestration store — so
+"where structured logs live" is already decided in the doc the spec references.
+The remaining forks (IPC transport/framing, a distinct pause-vs-killed
+disposition field, in-daemon vs child-process model, log schema, autostart) are
+the intent's listed open questions; each belongs to its first caller in draft,
+and answering now would invent precision the repo's deferral rule forbids.
+

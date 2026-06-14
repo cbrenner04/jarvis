@@ -20,6 +20,14 @@ lifecycle/status. No run execution yet.
 - CLI autostarts the daemon only for run-control commands after this subspec's
   lifecycle commands exist. Rules out requiring an always-manual daemon start for
   later thin clients.
+- `jarvis daemon status` reports daemon health/socket/process state only; `jarvis
+  status` later reports run snapshots. Rules out one ambiguous status command.
+- `daemon stop` refuses while invocations are active and reports active run IDs;
+  it may stop when runs are paused, blocked, budget-soft-stopped, killed, failed,
+  or done. Rules out silently killing or orphaning active work.
+- CLI autostart must specify executable discovery, readiness timeout, stdio
+  detachment, and structured failure reporting before run-control commands
+  depend on it. Rules out shell-specific hidden launch behavior.
 
 Deferred to first consumer: authentication/authorization for IPC - pin when a
 non-local or multi-user caller exists.
@@ -34,6 +42,10 @@ non-local or multi-user caller exists.
   request IDs.
 - [ ] Implement daemon methods: `status` and `stop`.
 - [ ] Add CLI commands: `daemon start`, `daemon stop`, `daemon status`.
+- [ ] Make `daemon stop` reject active invocations with active run IDs and allow
+  non-running durable states.
+- [ ] Specify daemon autostart executable discovery, readiness timeout, stdio
+  detachment, and failure reporting for later run-control clients.
 - [ ] Keep `jarvis write` available as the foreground path until detached runs
   land in 02.
 - [ ] Co-located protocol/server/client/CLI tests.
@@ -46,18 +58,26 @@ non-local or multi-user caller exists.
   starting a run (test).
 - [ ] `jarvis daemon stop` asks the daemon to exit and removes or tolerates the
   stale socket on the next start (test).
+- [ ] `jarvis daemon stop` refuses while active invocations exist and reports
+  their run IDs; it succeeds with only paused, blocked, budget-soft-stopped,
+  killed, failed, or done runs (test).
 - [ ] A second daemon start against a live socket fails cleanly without replacing
   the running daemon (test).
 - [ ] Malformed JSON, unknown methods, and handler errors return structured
   error responses and keep the daemon alive (test).
 - [ ] Protocol/client tests prove request IDs match responses.
-- [ ] No `v2 -> v1` imports; `bun run typecheck` and `bun test` pass.
+- [ ] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and
+  `bun run ready` pass.
 
 ## Documentation updates
 
 - [ ] New `v2/docs/daemon.md`: daemon role, socket path, lifecycle commands,
-  NDJSON frame shape, single-instance rule, and that CLI/TUI are clients over
-  IPC.
+  NDJSON frame shape, single-instance rule, daemon vs run status distinction,
+  stop refusal rules, autostart semantics, and that CLI/TUI are clients over IPC.
 - [ ] `v2/docs/write-behavior.md`: note `jarvis write` remains the foreground
   host until detached `start` lands.
-- [ ] `v2/docs/v1-behaviors.md`: no change - additive v2-only host.
+- [ ] `v2/docs/v2-architecture.md`: align daemon host wording with the as-built
+  second-host model if lifecycle/IPC implementation diverges from older design
+  notes.
+- [ ] `v2/docs/v1-behaviors.md`: explicitly state this is an additive v2-only
+  host and does not alter v1 lock/run behavior.

@@ -30,17 +30,17 @@ reverted and the run completes on the pre-shrink code.
 
 ## Acceptance criteria
 
-- [ ] After a write run reaches terminal `complete`, the loop performs exactly one additional write step carrying the shrink rules (not the normal step rules) before returning `complete`.
-- [ ] When a run ends `blocked`, `contract_miss`, `budget-exhausted`, or `invocation_failure`, no shrink step runs.
-- [ ] When the shrink step reaches a clean terminal success, its changes are kept and the run returns `complete`.
-- [ ] When the shrink step does not reach a clean terminal success, the worktree is restored to its pre-shrink state and the run still returns `complete` with the run's terminal kind and status unchanged.
-- [ ] Re-invoking a completed run performs no shrink step.
-- [ ] Crash-mid-shrink recovery returns to committed `complete`, resets dirty worktree state, and does not re-run shrink.
-- [ ] The `write.shrink` rules text scopes simplification to `base..HEAD`, forbids deleting tests or regressing acceptance criteria, names the bloat patterns to hunt, narrows unused machinery to "no consumer and no spec'd future consumer," and states no numeric or line-count target.
-- [ ] Shrink diff validation reruns the suite and rejects deleted test files; AC non-regression remains an explicit prompt-only residual risk.
-- [ ] `v2/docs/write-behavior.md` documents the shrink step in the loop lifecycle (post-`complete`, discard-on-miss, never gates).
-- [ ] `v2/docs/coding-standards.md` cross-links the shrink checklist to the restraint principles (same patterns, gate surface vs prevention surface).
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] After a write run reaches terminal `complete`, the loop performs exactly one additional write step carrying the shrink rules (not the normal step rules) before returning `complete`.
+- [x] When a run ends `blocked`, `contract_miss`, `budget-exhausted`, or `invocation_failure`, no shrink step runs.
+- [x] When the shrink step reaches a clean terminal success, its changes are kept and the run returns `complete`.
+- [x] When the shrink step does not reach a clean terminal success, the worktree is restored to its pre-shrink state and the run still returns `complete` with the run's terminal kind and status unchanged.
+- [x] Re-invoking a completed run performs no shrink step.
+- [x] Crash-mid-shrink recovery returns to committed `complete`, resets dirty worktree state, and does not re-run shrink.
+- [x] The `write.shrink` rules text scopes simplification to `base..HEAD`, forbids deleting tests or regressing acceptance criteria, names the bloat patterns to hunt, narrows unused machinery to "no consumer and no spec'd future consumer," and states no numeric or line-count target.
+- [x] Shrink diff validation reruns the suite and rejects deleted test files; AC non-regression remains an explicit prompt-only residual risk.
+- [x] `v2/docs/write-behavior.md` documents the shrink step in the loop lifecycle (post-`complete`, discard-on-miss, never gates).
+- [x] `v2/docs/coding-standards.md` cross-links the shrink checklist to the restraint principles (same patterns, gate surface vs prevention surface).
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

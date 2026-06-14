@@ -4,6 +4,15 @@ The canonical restraint principles for v2 development are defined in the prompt 
 
 For the full principle text and decision notes, consult the artifact source directly — it is the single authoritative copy and is injected into the write-step prompt at each iteration.
 
+The post-completion shrink checklist (`write.shrink`) uses the same restraint
+targets as a cleanup gate instead of a prevention surface. It hunts the
+principles' recurring bloat patterns after the loop has already reached
+`complete`: derivable fields, pass-through wrappers, dead enum/status values,
+1:1 tables, repeated test literals, docs restating signatures, and unused
+machinery with no consumer and no spec'd future consumer. See
+[`write-behavior.md`](./write-behavior.md) for loop placement and discard-on-miss
+semantics.
+
 ## Structural-honesty gates
 
 A Biome linter gate enforces structural honesty in v2 and shared code via two rules:

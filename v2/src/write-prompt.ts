@@ -11,3 +11,10 @@ export function renderWriteExecutePrompt(args: { specPath: string; stepRules: st
     STEP_RULES: args.stepRules,
   }).trim();
 }
+
+export function renderWriteShrinkRules(args: { baseRef: string }): string {
+  const registry = loadPromptRegistry();
+  return renderArtifactTemplate(registry.getById("write.shrink"), {
+    BASE_REF: args.baseRef,
+  }).trim();
+}

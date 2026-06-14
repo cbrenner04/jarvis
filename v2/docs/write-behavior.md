@@ -25,6 +25,26 @@ The write prompt injects the v2 restraint principles (`write.principles`) at
 every iteration; see [`coding-standards.md`](./coding-standards.md) for the
 canonical principle text and rationale.
 
+After a terminal `complete`, the loop may run one extra shrink step before it
+returns. The loop first commits the completed boundary's worktree state, then
+checks the run diff from the run-start base commit (`base..HEAD`). Empty diff:
+skip shrink. Non-empty diff: run one more `executeWrite` call with the
+`write.shrink` checklist as the step-rules string, scoped to that committed run
+diff.
+
+Shrink is best-effort and never gates an already-complete run:
+
+- Clean shrink success (`done` / `no-work`, suite rerun green, no deleted test
+  files in the shrink diff): keep the shrink edits and return `complete`.
+- Any other shrink result (`blocked`, `progress`, `contract_miss`,
+  `invocation_failure`, red suite, deleted test file): restore the worktree to
+  the committed pre-shrink `HEAD` and still return `complete`.
+- Crash mid-shrink: the run was already durably `completed`, so re-invocation
+  restores committed `HEAD`, returns `complete`, and does not re-run shrink.
+
+Acceptance-criteria non-regression is still prompt-only here. The mechanical
+gate is limited to suite rerun plus deleted-test rejection.
+
 Current scope: real agent process spawning is not wired yet.
 `createAgentBindings` (see
 [`shared-invocation.md`](./shared-invocation.md)) returns terminal-`error`
@@ -72,6 +92,10 @@ The loop classifies and routes results:
   (distinct from `blocked`, marked resumable). Re-invoking the same run resumes
   remaining spec work with a fresh per-invocation budget.
 - **`invocation_failure`**: all agents exhausted / not wired. Terminal stop.
+
+Shrink runs only after the `done` / `no-work` path above resolves to terminal
+`complete`. It never runs after `blocked`, `contract_miss`, `budget-exhausted`,
+or `invocation_failure`, and it does not consume the normal iteration budget.
 
 Resume identity is `(project, branch)` only. Re-invoking the same project and
 branch resumes the most recent durable run even if `--base`, `--spec`, or the

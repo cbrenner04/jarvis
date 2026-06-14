@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
-import { renderWriteExecutePrompt } from "./write-prompt.ts";
+import { renderWriteExecutePrompt, renderWriteShrinkRules } from "./write-prompt.ts";
 
 describe("write prompt", () => {
   test("registers stable id write.execute", () => {
@@ -30,5 +30,20 @@ describe("write prompt", () => {
     // Count the numbered principles (1. through 7.) to verify all seven are present
     const principleMatches = rendered.match(/^\d+\. /gm);
     expect(principleMatches?.length).toBe(7);
+  });
+
+  test("registers stable id write.shrink", () => {
+    const registry = loadPromptRegistry();
+    expect(registry.getById("write.shrink").metadata.id).toBe("write.shrink");
+  });
+
+  test("renders shrink rules with base diff scope and guardrails", () => {
+    const rendered = renderWriteShrinkRules({ baseRef: "abc123" });
+
+    expect(rendered).toContain("`abc123..HEAD`");
+    expect(rendered).toContain("Do not regress acceptance criteria.");
+    expect(rendered).toContain("Do not delete tests.");
+    expect(rendered).toContain("no consumer and no spec'd future consumer");
+    expect(rendered).toContain("No numeric target.");
   });
 });

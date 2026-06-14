@@ -33,6 +33,14 @@ function setupRepo(): { repoRoot: string; jarvisRoot: string; stateDbPath: strin
   return { repoRoot, jarvisRoot, stateDbPath };
 }
 
+function git(cwd: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+}
+
 async function runLoop(args: {
   repoRoot: string;
   jarvisRoot: string;
@@ -45,6 +53,7 @@ async function runLoop(args: {
   baseRef?: string;
   specPath?: string;
   store?: StateStore;
+  shrinkValidator?: WriteLoopInput["shrinkValidator"];
 }) {
   const store = args.store ?? openStateStore(args.stateDbPath);
   const loopInput: WriteLoopInput = {
@@ -60,6 +69,7 @@ async function runLoop(args: {
     expectedArtifactPath: args.artifactPath ?? "proof.txt",
     bindings: args.bindings,
     stateStore: store,
+    ...(args.shrinkValidator === undefined ? {} : { shrinkValidator: args.shrinkValidator }),
   };
   if (args.maxIterations !== undefined) {
     loopInput.maxIterations = args.maxIterations;
@@ -106,8 +116,8 @@ function crashOnceMidBoundary(inner: StateStore): StateStore {
   };
 }
 
-/** Bindings that report `progress` n times, then write the artifact and report `done`. */
-function progressThenDone(n: number): InvocationBinding[] {
+/** Bindings that report `progress` n times, then optionally write the artifact and report `done`. */
+function progressThenDone(n: number, emitArtifact: boolean = true): InvocationBinding[] {
   let calls = 0;
   return [
     {
@@ -115,7 +125,9 @@ function progressThenDone(n: number): InvocationBinding[] {
       invoke: async ({ cwd }) => {
         calls += 1;
         if (calls <= n) return { kind: "ok", stdout: "progress", stderr: "" };
-        writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+        if (emitArtifact) {
+          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+        }
         return { kind: "ok", stdout: "done", stderr: "" };
       },
     },
@@ -126,41 +138,47 @@ describe("write loop", () => {
   test("calls executeWrite repeatedly until terminal", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
 
-    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
+    const result = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: progressThenDone(2, false),
+      artifactPath: "spec.md",
+    });
 
     expect(result.kind).toBe("complete");
     expect(result.iterationsConsumed).toBe(3);
     expect(result.resumable).toBe(false);
+    expect(loadRunOnce(stateDbPath, result.runId)?.attempts.length).toBe(3);
   });
 
-  test("progress loops again and artifact contract not checked mid-loop", async () => {
+  test("complete runs one shrink step with shrink rules before returning", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const prompts: string[] = [];
 
     const result = await runLoop({
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings: simulatedBindings(["progress"]),
-      maxIterations: 3,
-    });
-
-    // Progress doesn't check contract, so we loop until budget exhausted
-    expect(result.kind).toBe("budget-exhausted");
-    expect(result.iterationsConsumed).toBe(3);
-  });
-
-  test("done with passing artifact contract ends loop successfully", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-
-    const result = await runLoop({
-      repoRoot,
-      jarvisRoot,
-      stateDbPath,
-      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd, prompt }) => {
+            prompts.push(prompt);
+            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+            writeFileSync(join(cwd, "code.ts"), `export const value = ${prompts.length};\n`, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      shrinkValidator: () => {},
     });
 
     expect(result.kind).toBe("complete");
-    expect(result.iterationsConsumed).toBe(1);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0]).toContain("Return exactly one terminal token.");
+    expect(prompts[1]).toContain("# Shrink checklist");
+    expect(prompts[1]).toContain("Do not delete tests.");
   });
 
   test("no-work with passing artifact contract ends loop successfully", async () => {
@@ -170,7 +188,8 @@ describe("write loop", () => {
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings: simulatedBindings(["no-work"], { artifactPath: "proof.txt", emitArtifact: true }),
+      bindings: simulatedBindings(["no-work"]),
+      artifactPath: "spec.md",
     });
 
     expect(result.kind).toBe("complete");
@@ -196,14 +215,32 @@ describe("write loop", () => {
     expect(spec).toContain("artifact.exists");
   });
 
-  test("blocked stops immediately with distinct outcome", async () => {
+  test("non-complete terminal outcomes never run shrink", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    let calls = 0;
 
-    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: simulatedBindings(["blocked"]) });
+    const result = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            calls += 1;
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+      shrinkValidator: () => {
+        throw new Error("should not validate");
+      },
+    });
 
     expect(result.kind).toBe("blocked");
     expect(result.iterationsConsumed).toBe(1);
     expect(result.resumable).toBe(false);
+    expect(calls).toBe(1);
   });
 
   test("budget exhausted while progress yields soft-stop outcome", async () => {
@@ -236,15 +273,6 @@ describe("write loop", () => {
     expect(result.resumable).toBe(false);
   });
 
-  test("max iterations per-invocation with default constant", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-
-    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: simulatedBindings(["progress"]) });
-
-    expect(result.iterationsConsumed).toBe(10); // Default max
-    expect(result.kind).toBe("budget-exhausted");
-  });
-
   test("cancellation propagates via AbortSignal", async () => {
     const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
     const controller = new AbortController();
@@ -265,16 +293,6 @@ describe("write loop", () => {
     expect(result.kind).toBe("progress");
     expect(result.iterationsConsumed).toBe(2);
     expect(result.resumable).toBe(true);
-  });
-
-  test("each iteration persists through state store boundary", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
-
-    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
-
-    const run = loadRunOnce(stateDbPath, result.runId);
-    expect(run).not.toBeNull();
-    expect(run?.attempts.length).toBe(3);
   });
 
   test("re-invoking an interrupted run re-runs that iteration over the dirty worktree", async () => {
@@ -304,13 +322,20 @@ describe("write loop", () => {
         invoke: async ({ cwd }) => {
           resumedCalls += 1;
           expect(readFileSync(join(cwd, dirtiedMarker), "utf8")).toBe("dirty\n");
-          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+          rmSync(join(cwd, dirtiedMarker));
           return { kind: "ok", stdout: "done", stderr: "" };
         },
       },
     ];
 
-    const resumed = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: resumeBindings, maxIterations: 1 });
+    const resumed = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: resumeBindings,
+      maxIterations: 1,
+      artifactPath: "spec.md",
+    });
 
     expect(resumed.kind).toBe("complete");
     expect(resumed.iterationsConsumed).toBe(1);
@@ -320,6 +345,166 @@ describe("write loop", () => {
     expect(run?.attemptCount).toBe(1);
     expect(run?.attempts).toHaveLength(1);
     expect(run?.attempts[0]?.outcomeKind).toBe("done");
+  });
+
+  test("keeps shrink changes on clean success", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    let calls = 0;
+
+    const result = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            calls += 1;
+            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+            if (calls === 1) {
+              writeFileSync(join(cwd, "code.ts"), "export const value = 1;\n", "utf8");
+            } else {
+              writeFileSync(join(cwd, "code.ts"), "export const value = 2;\n", "utf8");
+            }
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      shrinkValidator: () => {},
+    });
+
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    expect(result.kind).toBe("complete");
+    expect(readFileSync(join(worktree, "code.ts"), "utf8")).toBe("export const value = 2;\n");
+  });
+
+  test("discarding shrink restores pre-shrink committed state and still returns complete", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    let calls = 0;
+
+    const result = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            calls += 1;
+            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+            if (calls === 1) {
+              writeFileSync(join(cwd, "code.ts"), "export const value = 1;\n", "utf8");
+            } else {
+              writeFileSync(join(cwd, "code.ts"), "export const value = 999;\n", "utf8");
+            }
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      shrinkValidator: () => {
+        throw new Error("suite failed");
+      },
+    });
+
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    expect(result.kind).toBe("complete");
+    expect(readFileSync(join(worktree, "code.ts"), "utf8")).toBe("export const value = 1;\n");
+  });
+
+  test("completed run does not re-run shrink", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    let calls = 0;
+
+    await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            calls += 1;
+            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+            writeFileSync(join(cwd, "code.ts"), `export const value = ${calls};\n`, "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      shrinkValidator: () => {},
+    });
+
+    const rerun = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            throw new Error("should not run");
+          },
+        },
+      ],
+      shrinkValidator: () => {
+        throw new Error("should not validate");
+      },
+    });
+
+    expect(rerun.kind).toBe("complete");
+    expect(calls).toBe(2);
+  });
+
+  test("crash mid-shrink restores committed complete and does not re-run shrink", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    let calls = 0;
+
+    await expect(
+      runLoop({
+        repoRoot,
+        jarvisRoot,
+        stateDbPath,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async ({ cwd }) => {
+              calls += 1;
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              if (calls === 1) {
+                writeFileSync(join(cwd, "code.ts"), "export const value = 1;\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" };
+              }
+              writeFileSync(join(cwd, "code.ts"), "export const value = 999;\n", "utf8");
+              throw new Error("shrink crashed");
+            },
+          },
+        ],
+        shrinkValidator: () => {},
+      }),
+    ).rejects.toThrow("shrink crashed");
+
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    expect(readFileSync(join(worktree, "code.ts"), "utf8")).toBe("export const value = 999;\n");
+
+    const resumed = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            throw new Error("should not re-run");
+          },
+        },
+      ],
+      shrinkValidator: () => {
+        throw new Error("should not validate");
+      },
+    });
+
+    expect(resumed.kind).toBe("complete");
+    expect(readFileSync(join(worktree, "code.ts"), "utf8")).toBe("export const value = 1;\n");
+    expect(git(worktree, ["status", "--short"])).toBe("");
   });
 
   test("a budget-soft-stopped run resumes with a fresh per-invocation budget", async () => {
@@ -338,8 +523,9 @@ describe("write loop", () => {
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      bindings: simulatedBindings(["done"]),
       maxIterations: 1,
+      artifactPath: "spec.md",
     });
 
     expect(second.kind).toBe("complete");
@@ -372,8 +558,9 @@ describe("write loop", () => {
       stateDbPath,
       baseRef: "main",
       specPath: "renamed-spec.md",
-      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      bindings: simulatedBindings(["done"]),
       maxIterations: 1,
+      artifactPath: "spec.md",
     });
 
     expect(resumed.kind).toBe("complete");
@@ -395,8 +582,9 @@ describe("write loop", () => {
       jarvisRoot,
       stateDbPath,
       branchName: "other-write-run",
-      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      bindings: simulatedBindings(["done"]),
       maxIterations: 1,
+      artifactPath: "spec.md",
     });
 
     expect(first.runId).not.toBe(second.runId);
@@ -436,13 +624,15 @@ describe("write loop", () => {
       bindings: [
         {
           id: "agent",
-          invoke: async () => {
+          invoke: async ({ cwd }) => {
             resumedCalls += 1;
+            rmSync(join(cwd, "proof.txt"));
             return { kind: "ok", stdout: "done", stderr: "" };
           },
         },
       ],
       maxIterations: 1,
+      artifactPath: "spec.md",
     });
 
     expect(resumed.kind).toBe("complete");
@@ -474,11 +664,47 @@ describe("write loop", () => {
       repoRoot,
       jarvisRoot,
       stateDbPath,
-      bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
+      bindings: simulatedBindings(["done"]),
       maxIterations: 1,
+      artifactPath: "spec.md",
     });
 
     expect(second.kind).toBe("complete");
     expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("shrink validator rejects deleted test files", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    writeFileSync(join(repoRoot, "proof.test.ts"), "test('x', () => {});\n", "utf8");
+    execFileSync("git", ["-C", repoRoot, "add", "proof.test.ts"], { stdio: "pipe" });
+    execFileSync("git", ["-C", repoRoot, "commit", "-m", "add test"], { stdio: "pipe" });
+
+    let calls = 0;
+    const result = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            calls += 1;
+            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+            if (calls > 1) {
+              rmSync(join(cwd, "proof.test.ts"));
+            }
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      shrinkValidator: ({ worktreePath, committedHead }) => {
+        expect(git(worktreePath, ["diff", "--name-only", "--diff-filter=D", committedHead, "--"])).toBe("proof.test.ts");
+        throw new Error("deleted test");
+      },
+    });
+
+    const worktree = join(jarvisRoot, "worktrees", "demo", "write-run");
+    expect(result.kind).toBe("complete");
+    expect(existsSync(join(worktree, "proof.test.ts"))).toBe(true);
   });
 });

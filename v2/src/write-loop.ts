@@ -1,7 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "./state-store.ts";
+import { renderWriteShrinkRules } from "./write-prompt.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
 
@@ -22,16 +24,19 @@ export type WriteLoopResult = {
   resumable: boolean;
 };
 
+type ShrinkValidator = (args: { worktreePath: string; committedHead: string }) => void;
+
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
 export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
   stateStore?: StateStore;
+  shrinkValidator?: ShrinkValidator;
 };
 
 const DEFAULT_MAX_ITERATIONS = 10;
 type StoredRun = NonNullable<ReturnType<StateStore["loadRun"]>>;
 type PreparedRun =
-  | { runId: string; worktreePath: string; resumedAttemptId: string | null }
+  | { runId: string; worktreePath: string; resumedAttemptId: string | null; runBaseRef: string }
   | { result: WriteLoopResult };
 
 /**
@@ -42,11 +47,12 @@ type PreparedRun =
 export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopResult> {
   const store = args.stateStore ?? openStateStore();
   const maxIterations = args.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  const shrinkValidator = args.shrinkValidator ?? validateShrinkResult;
 
   try {
     const prepared = prepareRun(args, store);
     if ("result" in prepared) return prepared.result;
-    const { runId, worktreePath } = prepared;
+    const { runId, worktreePath, runBaseRef } = prepared;
     let iterationsConsumed = 0;
     let resumedAttemptId = prepared.resumedAttemptId;
 
@@ -73,7 +79,18 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const terminal = terminalMapping(result);
       store.commitCompletionBoundary({ attemptId, runStatus: terminal.runStatus, outcomeKind: terminal.outcomeKind });
-      return { kind: terminal.kind, runId, iterationsConsumed, resumable: false };
+      if (terminal.kind !== "complete") {
+        return { kind: terminal.kind, runId, iterationsConsumed, resumable: false };
+      }
+      return await runShrinkStep({
+        args,
+        store,
+        runId,
+        worktreePath,
+        runBaseRef,
+        iterationsConsumed,
+        shrinkValidator,
+      });
     }
 
     store.setRunStatus(runId, "budget-soft-stopped");
@@ -93,24 +110,36 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
   });
 
   if (existingRun === null) {
+    const runBaseRef = resolveGitRef(args.worktree.projectRoot, args.worktree.baseRef);
     const runId = store.createRun({
       project: args.worktree.projectName,
-      specRef: args.worktree.baseRef,
+      specRef: runBaseRef,
       worktreePath,
       branch: args.worktree.branchName,
       specPath: args.specPath,
     });
-    return { runId, worktreePath, resumedAttemptId: null };
+    return { runId, worktreePath, resumedAttemptId: null, runBaseRef };
   }
 
   const lastAttempt = existingRun.attempts[existingRun.attempts.length - 1];
+  if (existingRun.status === "completed" && lastAttempt?.status === "in-progress") {
+    restoreCommittedHead(existingRun.worktreePath);
+    return { result: { kind: "complete", runId: existingRun.id, iterationsConsumed: 0, resumable: false } };
+  }
   if (lastAttempt?.status === "in-progress") {
     // Interrupted mid-step: re-run that iteration over the dirty worktree.
-    return { runId: existingRun.id, worktreePath, resumedAttemptId: lastAttempt.id };
+    return {
+      runId: existingRun.id,
+      worktreePath,
+      resumedAttemptId: lastAttempt.id,
+      runBaseRef: existingRun.specRef,
+    };
   }
 
   const committed = committedResult(existingRun);
-  return committed === null ? { runId: existingRun.id, worktreePath, resumedAttemptId: null } : { result: committed };
+  return committed === null
+    ? { runId: existingRun.id, worktreePath, resumedAttemptId: null, runBaseRef: existingRun.specRef }
+    : { result: committed };
 }
 
 function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): {
@@ -150,4 +179,110 @@ function resolveSpecPath(worktreePath: string, specPath: string): string {
 
 function appendBlockerToSpec(specPath: string, failedContractId: string): void {
   appendFileSync(specPath, `\n## Blocker\n\nArtifact contract check failed: ${failedContractId}\n`, "utf8");
+}
+
+async function runShrinkStep(args: {
+  args: WriteLoopInput;
+  store: StateStore;
+  runId: string;
+  worktreePath: string;
+  runBaseRef: string;
+  iterationsConsumed: number;
+  shrinkValidator: ShrinkValidator;
+}): Promise<WriteLoopResult> {
+  commitWorktreeBoundary(args.worktreePath);
+  if (isEmptyCommitRange(args.worktreePath, args.runBaseRef)) {
+    return { kind: "complete", runId: args.runId, iterationsConsumed: args.iterationsConsumed, resumable: false };
+  }
+
+  const committedHead = resolveGitRef(args.worktreePath, "HEAD");
+  const shrinkAttemptId = args.store.recordAttemptStart(args.runId);
+  const shrinkRules = renderWriteShrinkRules({ baseRef: args.runBaseRef });
+
+  const { result } = await executeWrite({ ...args.args, stepRules: shrinkRules });
+  if (result.kind === "complete") {
+    try {
+      args.shrinkValidator({ worktreePath: args.worktreePath, committedHead });
+      args.store.commitCompletionBoundary({
+        attemptId: shrinkAttemptId,
+        runStatus: "completed",
+        outcomeKind: result.token,
+      });
+      return { kind: "complete", runId: args.runId, iterationsConsumed: args.iterationsConsumed, resumable: false };
+    } catch {
+      // Discard-on-miss below.
+    }
+  }
+
+  restoreCommittedHead(args.worktreePath);
+  args.store.commitCompletionBoundary({ attemptId: shrinkAttemptId, runStatus: "completed", outcomeKind: "blocked" });
+  return { kind: "complete", runId: args.runId, iterationsConsumed: args.iterationsConsumed, resumable: false };
+}
+
+function validateShrinkResult(args: { worktreePath: string; committedHead: string }): void {
+  assertShrinkKeepsTests(args.worktreePath, args.committedHead);
+  execFileSync("bun", ["test"], {
+    cwd: args.worktreePath,
+    stdio: "pipe",
+  });
+}
+
+function assertShrinkKeepsTests(worktreePath: string, committedHead: string): void {
+  const deleted = execFileSync("git", ["diff", "--name-only", "--diff-filter=D", committedHead, "--"], {
+    cwd: worktreePath,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+    .trim()
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .filter(isTestFilePath);
+
+  if (deleted.length > 0) {
+    throw new Error(`shrink deleted test files: ${deleted.join(", ")}`);
+  }
+}
+
+function isTestFilePath(path: string): boolean {
+  return /(^|\/)__tests__(\/|$)|\.test\.[^/]+$/.test(path);
+}
+
+function commitWorktreeBoundary(worktreePath: string): void {
+  if (!hasWorktreeChanges(worktreePath)) return;
+  execFileSync("git", ["add", "-A"], { cwd: worktreePath, stdio: "pipe" });
+  execFileSync("git", ["commit", "-m", "jarvis: complete write boundary"], {
+    cwd: worktreePath,
+    stdio: "pipe",
+  });
+}
+
+function hasWorktreeChanges(worktreePath: string): boolean {
+  const status = execFileSync("git", ["status", "--short"], {
+    cwd: worktreePath,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return status.trim().length > 0;
+}
+
+function isEmptyCommitRange(worktreePath: string, baseRef: string): boolean {
+  const count = execFileSync("git", ["rev-list", "--count", `${baseRef}..HEAD`], {
+    cwd: worktreePath,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+  return count === "0";
+}
+
+function restoreCommittedHead(worktreePath: string): void {
+  execFileSync("git", ["reset", "--hard", "HEAD"], { cwd: worktreePath, stdio: "pipe" });
+  execFileSync("git", ["clean", "-fd"], { cwd: worktreePath, stdio: "pipe" });
+}
+
+function resolveGitRef(cwd: string, ref: string): string {
+  return execFileSync("git", ["rev-parse", ref], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }

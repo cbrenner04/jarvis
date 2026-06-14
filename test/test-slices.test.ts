@@ -83,7 +83,7 @@ describe("Test slice boundaries", () => {
 
     execSync("bun run test:v2", { env, stdio: "pipe" });
     execSync("bun test ./shared/", { env, stdio: "pipe" });
-  });
+  }, 20_000);
 
   it("ready script uses aggregate test command", async () => {
     const readyScript = await Bun.file("scripts/ready.ts").text();

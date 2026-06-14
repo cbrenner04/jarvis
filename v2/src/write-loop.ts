@@ -3,9 +3,9 @@ import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "./state-store.ts";
-import { renderWriteShrinkRules } from "./write-prompt.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";
+import { renderWriteShrinkRules } from "./write-prompt.ts";
 
 /** Classification of a loop outcome. */
 export type WriteLoopOutcomeKind =

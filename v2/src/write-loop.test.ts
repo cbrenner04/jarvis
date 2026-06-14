@@ -698,7 +698,9 @@ describe("write loop", () => {
         },
       ],
       shrinkValidator: ({ worktreePath, committedHead }) => {
-        expect(git(worktreePath, ["diff", "--name-only", "--diff-filter=D", committedHead, "--"])).toBe("proof.test.ts");
+        expect(git(worktreePath, ["diff", "--name-only", "--diff-filter=D", committedHead, "--"])).toBe(
+          "proof.test.ts",
+        );
         throw new Error("deleted test");
       },
     });

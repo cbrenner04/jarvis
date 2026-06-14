@@ -31,15 +31,15 @@ Fresh `jarvis1 plan <seed>` runs use one entry path for inline text and file see
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 plan "some cool prompt"` creates a committed plan branch/worktree path and produces `intent.md` instead of writing `v1/spec/wip-intents/*` and exiting.
-- [ ] `jarvis1 plan path/to/intent.md` follows the same fresh-run code path as inline text after seeding `intent.md`.
-- [ ] `jarvis1 plan ./missing.md` treats the argument as inline seed text because the path does not exist (test).
-- [ ] File-seed frontmatter preserves non-`name` keys and normalizes/replaces invalid or stale `name:` values (test).
-- [ ] `intent.md` preserves exact raw seed recoverability for inline and file seeds (test).
-- [ ] `jarvis1 plan` with no seed exits non-zero with plan usage before any agent invocation.
-- [ ] `--refine-turns 0` on a seeded fresh run creates the intent step and skips refine without invoking the removed no-arg incompatibility error.
-- [ ] `modes.plan.commit: false` runs through intent, refine, draft, and review in one invocation with no branch, commits, PR, or committed-mode handoff.
-- [ ] Tests cover inline seed, file seed, missing path-like seed, no-arg rejection, invalid/missing names, collision suffixing, temp cleanup, `--refine-turns 0`, and `commit: false` flow.
+- [x] `jarvis1 plan "some cool prompt"` creates a committed plan branch/worktree path and produces `intent.md` instead of writing `v1/spec/wip-intents/*` and exiting.
+- [x] `jarvis1 plan path/to/intent.md` follows the same fresh-run code path as inline text after seeding `intent.md`.
+- [x] `jarvis1 plan ./missing.md` treats the argument as inline seed text because the path does not exist (test).
+- [x] File-seed frontmatter preserves non-`name` keys and normalizes/replaces invalid or stale `name:` values (test).
+- [x] `intent.md` preserves exact raw seed recoverability for inline and file seeds (test).
+- [x] `jarvis1 plan` with no seed exits non-zero with plan usage before any agent invocation.
+- [x] `--refine-turns 0` on a seeded fresh run creates the intent step and skips refine without invoking the removed no-arg incompatibility error.
+- [x] `modes.plan.commit: false` runs through intent, refine, draft, and review in one invocation with no branch, commits, PR, or committed-mode handoff.
+- [x] Tests cover inline seed, file seed, missing path-like seed, no-arg rejection, invalid/missing names, collision suffixing, temp cleanup, `--refine-turns 0`, and `commit: false` flow.
 
 ## Documentation updates
 

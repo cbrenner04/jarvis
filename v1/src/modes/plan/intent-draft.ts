@@ -7,21 +7,28 @@ import type { AgentName, Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
+import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
-export function buildInlineDraftPrompt(opts: { workdir: string; intentPath: string; inlineIntent: string }): string {
-  const promptFile = join(import.meta.dir, "..", "..", "..", "..", "prompts", "plan", "inline-draft.md");
+export type IntentDraftSuccessAttempt = {
+  agentCli: AgentName;
+  configuredModel: string | undefined;
+  durationMs: number;
+};
+
+export function buildIntentDraftPrompt(opts: { workdir: string; intentPath: string; seededIntent: string }): string {
+  const promptFile = join(import.meta.dir, "..", "..", "..", "..", "prompts", "plan", "intent-draft.md");
   let template = readFileSync(promptFile, "utf8");
 
   try {
-    template = renderTemplate(template, new Set(["WORKDIR", "INTENT_PATH", "INLINE_INTENT"]), {
+    template = renderTemplate(template, new Set(["WORKDIR", "INTENT_PATH", "SEEDED_INTENT"]), {
       WORKDIR: opts.workdir,
       INTENT_PATH: opts.intentPath,
-      INLINE_INTENT: opts.inlineIntent,
+      SEEDED_INTENT: opts.seededIntent,
     });
   } catch (err) {
     if (err instanceof TemplateRenderingError) {
-      throw new Error(`inline-draft prompt configuration error: ${err.details}`);
+      throw new Error(`intent-draft prompt configuration error: ${err.details}`);
     }
     throw err;
   }
@@ -29,17 +36,17 @@ export function buildInlineDraftPrompt(opts: { workdir: string; intentPath: stri
   return template;
 }
 
-export async function runInlineDraftTurn(opts: {
+export async function runIntentDraftTurn(opts: {
+  agentCwd: string;
   worktreePath: string;
-  inlineIntent: string;
   intentPath: string;
+  seededIntent: string;
   config: Config;
   stderr?: (s: string) => void;
-  /** For tests only; defaults to real CLI agents. */
+  planTelemetry?: PlanTelemetryWriter | undefined;
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
-  /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
   onOutboundPrompt?: (prompt: string) => void;
-}): Promise<{ result: AgentResult; agentLabel: string | null }> {
+}): Promise<{ result: AgentResult; agentLabel: string | null; successAttempt?: IntentDraftSuccessAttempt }> {
   const agentOrder = opts.config.modes.plan.agentOrder;
   if (agentOrder.length === 0) {
     return {
@@ -53,10 +60,10 @@ export async function runInlineDraftTurn(opts: {
 
   let prompt: string;
   try {
-    prompt = buildInlineDraftPrompt({
-      workdir: opts.worktreePath,
+    prompt = buildIntentDraftPrompt({
+      workdir: opts.agentCwd,
       intentPath: opts.intentPath,
-      inlineIntent: opts.inlineIntent,
+      seededIntent: opts.seededIntent,
     });
   } catch (err) {
     if (err instanceof Error) {
@@ -82,7 +89,9 @@ export async function runInlineDraftTurn(opts: {
     agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const spawnResult = await agent.run(prompt, { cwd: opts.worktreePath });
+    const invocationStartedAt = Date.now();
+    const spawnResult = await agent.run(prompt, { cwd: opts.agentCwd });
+    const durationMs = Date.now() - invocationStartedAt;
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
       porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
@@ -98,8 +107,25 @@ export async function runInlineDraftTurn(opts: {
     emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
 
     if (result.kind === "ok") {
-      return { result, agentLabel };
+      return {
+        result,
+        agentLabel,
+        successAttempt: {
+          agentCli: entry.agent,
+          configuredModel: entry.model,
+          durationMs,
+        },
+      };
     }
+
+    opts.planTelemetry?.recordAgentAttempt({
+      phase: "intent",
+      agentCli: entry.agent,
+      configuredModel: entry.model,
+      durationMs,
+      result,
+    });
+
     if (result.kind === "quota") {
       continue;
     }

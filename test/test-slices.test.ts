@@ -82,8 +82,8 @@ describe("Test slice boundaries", () => {
     };
     const opts = { env, stdio: "pipe" as const, timeout: 120_000 };
 
-    execSync("bun run test:v2", opts);
-    execSync("bun test ./shared/", opts);
+    execSync("bun run test:v2", { env, stdio: "pipe" });
+    execSync("bun test ./shared/", { env, stdio: "pipe" });
   }, 180_000);
 
   it("ready script uses aggregate test command", async () => {

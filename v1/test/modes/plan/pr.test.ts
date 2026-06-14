@@ -217,6 +217,115 @@ describe("maybeMarkPlanPrReady", () => {
       });
     }).toThrow(multilineError);
   });
+
+  test("runReady does not dirty tree -> commitCheckFix not called, ghPrReady called", () => {
+    let runReadyCalled = false;
+    let commitCheckFixCalled = false;
+    let ghPrReadyCalled = false;
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      getOpenPrState: () => ({ state: "draft", number: 123 }),
+      runReady: (cwd) => {
+        runReadyCalled = true;
+        expect(cwd).toBe(gitDir);
+      },
+      commitCheckFix: () => {
+        commitCheckFixCalled = true;
+      },
+      ghPrReady: (branch, cwd) => {
+        ghPrReadyCalled = true;
+        expect(branch).toBe("feature");
+        expect(cwd).toBe(gitDir);
+      },
+    });
+
+    expect(runReadyCalled).toBe(true);
+    expect(commitCheckFixCalled).toBe(false);
+    expect(ghPrReadyCalled).toBe(true);
+  });
+
+  test("runReady dirties tree -> commitCheckFix called with correct args, then ghPrReady", () => {
+    let runReadyCalled = false;
+    let commitCheckFixCalled = false;
+    let commitCheckFixCwd = "";
+    let commitCheckFixAgentLabel = "";
+    let ghPrReadyCalled = false;
+
+    maybeMarkPlanPrReady({
+      branch: "feature",
+      cwd: gitDir,
+      agentLabel: "my-agent",
+      getOpenPrState: () => ({ state: "draft", number: 123 }),
+      runReady: (cwd) => {
+        runReadyCalled = true;
+        writeFileSync(join(cwd, "dirty.txt"), "dirty\n");
+      },
+      commitCheckFix: (cwd, agentLabel) => {
+        commitCheckFixCalled = true;
+        commitCheckFixCwd = cwd;
+        commitCheckFixAgentLabel = agentLabel;
+      },
+      ghPrReady: () => {
+        ghPrReadyCalled = true;
+      },
+    });
+
+    expect(runReadyCalled).toBe(true);
+    expect(commitCheckFixCalled).toBe(true);
+    expect(commitCheckFixCwd).toBe(gitDir);
+    expect(commitCheckFixAgentLabel).toBe("my-agent");
+    expect(ghPrReadyCalled).toBe(true);
+  });
+
+  test("runReady throws -> commitCheckFix not called, ghPrReady not called", () => {
+    let commitCheckFixCalled = false;
+    let ghPrReadyCalled = false;
+
+    expect(() => {
+      maybeMarkPlanPrReady({
+        branch: "feature",
+        cwd: gitDir,
+        getOpenPrState: () => ({ state: "draft", number: 123 }),
+        runReady: () => {
+          throw new Error("runReady failed");
+        },
+        commitCheckFix: () => {
+          commitCheckFixCalled = true;
+        },
+        ghPrReady: () => {
+          ghPrReadyCalled = true;
+        },
+      });
+    }).toThrow("runReady failed");
+
+    expect(commitCheckFixCalled).toBe(false);
+    expect(ghPrReadyCalled).toBe(false);
+  });
+
+  test("commitCheckFix throws -> ghPrReady not called", () => {
+    let ghPrReadyCalled = false;
+
+    expect(() => {
+      maybeMarkPlanPrReady({
+        branch: "feature",
+        cwd: gitDir,
+        getOpenPrState: () => ({ state: "draft", number: 123 }),
+        runReady: (cwd) => {
+          writeFileSync(join(cwd, "dirty.txt"), "dirty\n");
+        },
+        commitCheckFix: () => {
+          throw new Error("commitCheckFix failed");
+        },
+        ghPrReady: () => {
+          ghPrReadyCalled = true;
+        },
+      });
+    }).toThrow("commitCheckFix failed");
+
+    expect(ghPrReadyCalled).toBe(false);
+  });
 });
 
 describe("renderPlanAttribution", () => {

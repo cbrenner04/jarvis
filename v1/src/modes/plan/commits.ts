@@ -1,7 +1,50 @@
 import { execFileSync } from "node:child_process";
 import { relative, resolve } from "node:path";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import { pushCurrent } from "../../worktree.ts";
+import { hasUpstream, pushCurrent } from "../../worktree.ts";
+
+export type CommitPlanIntentOptions = {
+  worktreePath: string;
+  specDirBasename?: string;
+  name?: string;
+  mode: "file" | "inline" | "interactive";
+  intentPathOrLabel: string;
+  agentLabel: string;
+  subjectSuffix?: string;
+  /** Committed spec root (defaults to "spec" for backwards compatibility). */
+  targetDir?: string;
+};
+
+export function commitPlanIntent(opts: CommitPlanIntentOptions): void {
+  const specDirBasename = opts.specDirBasename ?? opts.name;
+  if (specDirBasename === undefined) {
+    throw new Error("specDirBasename is required");
+  }
+  execFileSync("git", ["add", "-A"], {
+    cwd: opts.worktreePath,
+    stdio: "pipe",
+  });
+
+  const bodyLine = seedSourceLine(opts.mode, opts.worktreePath, opts.intentPathOrLabel);
+  const subject = `plan: intent${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
+  const body = buildPlanBody(specDirBasename, [bodyLine], opts.targetDir);
+  const baseMessage = `${subject}\n\n${body}`;
+  const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
+
+  execFileSync("git", ["commit", "-F", "-"], {
+    cwd: opts.worktreePath,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: commitMessage,
+  });
+
+  try {
+    pushCurrent({ cwd: opts.worktreePath, firstPush: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(message);
+  }
+}
 
 export type CommitPlanRefineOptions = {
   worktreePath: string;
@@ -39,30 +82,9 @@ export function commitPlanRefine(opts: CommitPlanRefineOptions): void {
     stdio: "pipe",
   });
 
-  let bodyLine: string;
-  if (opts.mode === "file") {
-    // Check if the path is within the project root
-    const projectRoot = getProjectRoot(opts.worktreePath);
-    const resolvedIntentPath = resolve(opts.intentPathOrLabel);
-    const resolvedProjectRoot = resolve(projectRoot);
-    const relativePath = relative(resolvedProjectRoot, resolvedIntentPath);
-
-    if (relativePath.startsWith("..")) {
-      // Path is outside project root, use basename only
-      bodyLine = `Seeded from ${opts.intentPathOrLabel.split("/").pop()}`;
-    } else {
-      // Path is within project root, use relative path
-      bodyLine = `Seeded from ${relativePath}`;
-    }
-  } else if (opts.mode === "inline") {
-    bodyLine = `Seeded from inline`;
-  } else {
-    bodyLine = `Seeded from interactive`;
-  }
-
   const turns = opts.completedTurns ?? 0;
   const bodyLines =
-    opts.resumedBy === undefined ? [bodyLine, `Turns: ${turns}`] : [`Resumed by ${opts.resumedBy}.`, `Turns: ${turns}`];
+    opts.resumedBy === undefined ? [`Turns: ${turns}`] : [`Resumed by ${opts.resumedBy}.`, `Turns: ${turns}`];
 
   if (opts.refineOutcome === "skipped") {
     bodyLines.push("Outcome: explicit skip");
@@ -73,7 +95,6 @@ export function commitPlanRefine(opts: CommitPlanRefineOptions): void {
   const subject = `plan: refine${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(specDirBasename, bodyLines, opts.targetDir);
   const baseMessage = `${subject}\n\n${body}`;
-  // No agent attribution for the refine commit (no agent involved yet).
   const commitMessage = appendAgentTrailer(baseMessage, "");
 
   execFileSync("git", ["commit", "-F", "-"], {
@@ -84,7 +105,7 @@ export function commitPlanRefine(opts: CommitPlanRefineOptions): void {
   });
 
   try {
-    pushCurrent({ cwd: opts.worktreePath, firstPush: true });
+    pushCurrent({ cwd: opts.worktreePath, firstPush: !hasUpstream(opts.worktreePath) });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(message);
@@ -205,6 +226,16 @@ export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
     stdio: "pipe",
   });
 
+  const porcelain = execFileSync("git", ["status", "--porcelain"], {
+    cwd: opts.worktreePath,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+  const commitArgs = ["commit", "-F", "-"];
+  if (porcelain === "") {
+    commitArgs.push("--allow-empty");
+  }
+
   const subject = `plan: blocker${opts.subjectSuffix ? ` ${opts.subjectSuffix}` : ""}`;
   const body = buildPlanBody(
     specDirBasename,
@@ -214,7 +245,7 @@ export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
   const baseMessage = `${subject}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
-  execFileSync("git", ["commit", "-F", "-"], {
+  execFileSync("git", commitArgs, {
     cwd: opts.worktreePath,
     env: process.env,
     stdio: ["pipe", "pipe", "pipe"],
@@ -227,6 +258,28 @@ export function commitPlanBlocker(opts: CommitPlanBlockerOptions): void {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(message);
   }
+}
+
+function seedSourceLine(
+  mode: CommitPlanIntentOptions["mode"],
+  worktreePath: string,
+  intentPathOrLabel: string,
+): string {
+  if (mode === "file") {
+    const projectRoot = getProjectRoot(worktreePath);
+    const resolvedIntentPath = resolve(intentPathOrLabel);
+    const resolvedProjectRoot = resolve(projectRoot);
+    const relativePath = relative(resolvedProjectRoot, resolvedIntentPath);
+
+    if (relativePath.startsWith("..")) {
+      return `Seeded from ${intentPathOrLabel.split("/").pop()}`;
+    }
+    return `Seeded from ${relativePath}`;
+  }
+  if (mode === "inline") {
+    return "Seeded from inline";
+  }
+  return "Seeded from interactive";
 }
 
 function getProjectRoot(cwd: string): string {

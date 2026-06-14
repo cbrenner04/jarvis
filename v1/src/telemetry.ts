@@ -20,7 +20,7 @@ export type TelemetryMode = "patch" | "plan" | "prompt";
 
 /**Present on plan-mode invocation rows so summaries can attribute usage to a phase.*/
 export type PlanTelemetryPhase = "refine" | "name-only" | "draft" | "review";
-export type PatchTelemetryPhase = "implementation" | "review";
+export type PatchTelemetryPhase = "implementation" | "review" | "shrink";
 
 export type TelemetryRecord = {
   ts: string;

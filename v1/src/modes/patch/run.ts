@@ -48,6 +48,7 @@ import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } fro
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
 import { runPatchReviewPhase } from "./review.ts";
+import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import { parsePatchSpec } from "./spec.ts";
 import {
   type AcceptanceCriterion,
@@ -146,6 +147,7 @@ type LoggingContext = {
   specDisplayName: string;
   hasTelemetryWrites: () => boolean;
   patchIterationsCompletedForSummary: () => number;
+  implementationTouchedFiles: Set<string>;
 };
 
 type IterationContext = {
@@ -536,6 +538,7 @@ function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, logClient
   const telemetryPath = cfg.telemetryPath ?? null;
   let telemetryWrites = false;
   let patchIterationsCompletedForSummary = 0;
+  const implementationTouchedFiles = new Set<string>();
 
   const writeTelemetry: WriteTelemetry = (record) => {
     try {
@@ -563,7 +566,8 @@ function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, logClient
         record.kind === "ok" &&
         record.agent !== "harness" &&
         record.record_role !== "run_terminal" &&
-        record.patch_phase !== "review"
+        record.patch_phase !== "review" &&
+        record.patch_phase !== "shrink"
       ) {
         patchIterationsCompletedForSummary += 1;
       }
@@ -629,6 +633,7 @@ function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, logClient
     specDisplayName,
     hasTelemetryWrites: () => telemetryWrites,
     patchIterationsCompletedForSummary: () => patchIterationsCompletedForSummary,
+    implementationTouchedFiles,
   };
 }
 
@@ -756,6 +761,14 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const task = getFirstUncheckedTask(specPath);
   const taskExcerpt = task.line.slice(0, 140);
   const activeSubspecPath = isIndexSpec ? getActiveLinkedSubspecPath(specPath) : undefined;
+  const preIterationHead =
+    gitEnabled && existsSync(join(agentWorkingDir, ".git"))
+      ? execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: agentWorkingDir,
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim()
+      : null;
 
   // Check if the active subspec already has a blocker at the start
   if (activeSubspecPath !== undefined) {
@@ -1066,12 +1079,13 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                     fanout("harness", `failed to update PR body for ${afterSubspecPath}: ${message}\n`, "stderr");
                   }
                 }
-                // When a post-completion review phase will run, defer PR
-                // readiness to it: the review phase brackets passes with its own
-                // baseline `bun run ready` and the final `gh pr ready`. Marking
-                // ready here would move the PR out of draft before review runs.
-                const willRunReview = resolveReviewPasses(cfg, opts.reviewPasses) > 0;
-                if (!willRunReview) {
+                // When post-completion shrink or review will run, defer PR
+                // readiness to those phases.
+                const implementationIterations = logging.patchIterationsCompletedForSummary() + 1;
+                const willRunShrink = gitEnabled && implementationIterations > 0;
+                const willRunReview =
+                  gitEnabled && resolveReviewPasses(cfg, opts.reviewPasses) > 0 && implementationIterations > 0;
+                if (!willRunReview && !willRunShrink) {
                   maybeMarkReady({
                     indexPath: afterSpecPath,
                     cwd: agentWorkingDir,
@@ -1123,6 +1137,14 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
             }
           }
         }
+      }
+      if (preIterationHead !== null) {
+        accumulateImplementationTouchedFiles(
+          agentWorkingDir,
+          dirname(afterSpecPath),
+          preIterationHead,
+          logging.implementationTouchedFiles,
+        );
       }
       const after = countUnchecked(afterSpecPath);
       if (after === 0) {
@@ -1326,11 +1348,30 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   }
   logging.fanout("harness", "spec complete\n", "stdout");
 
-  // Determine if review should run. Passes resolve `--review-passes` →
-  // `modes.review.passes` → default. Review uses its own agent order via
-  // `runPatchReviewPhase`, independent of the implementation agents.
   const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
-  const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && logging.patchIterationsCompletedForSummary() > 0;
+  const implementationIterations = logging.patchIterationsCompletedForSummary();
+  const shouldRunShrink = preflight.gitEnabled && implementationIterations > 0;
+  const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && implementationIterations > 0;
+
+  if (shouldRunShrink) {
+    const { fanout, writeTelemetry } = ctx.logging;
+    try {
+      await runPatchShrinkPhase({
+        config: preflight.cfg,
+        cwd: preflight.agentWorkingDir,
+        specPath: preflight.specPath,
+        allowlist: logging.implementationTouchedFiles,
+        fanout,
+        writeTelemetry,
+        ...(ctx.opts.agents !== undefined ? { agents: ctx.opts.agents } : {}),
+        iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
+        ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      fanout("harness", `shrink phase error: ${message}\n`, "stderr");
+    }
+  }
 
   if (shouldRunReview) {
     const { fanout, writeTelemetry } = ctx.logging;
@@ -1355,6 +1396,17 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     }
     if (reviewExitCode !== 0) {
       return reviewExitCode;
+    }
+  } else if (preflight.gitEnabled) {
+    try {
+      maybeMarkReady({
+        indexPath: preflight.specPath,
+        cwd: preflight.agentWorkingDir,
+        agentLabel: "patch-complete",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logging.fanout("harness", `warning: failed to mark PR ready: ${message}\n`, "stderr");
     }
   }
 

@@ -636,4 +636,62 @@ describe("runSummary", () => {
     expect(summary).toContain("review attempts: 1");
     expect(summary).toContain("$0.07");
   });
+
+  test("patch summary excludes shrink from implementation attempts", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        mode: "patch",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.05,
+        cost_source: "agent",
+      },
+      {
+        ts: "2026-05-16T10:00:02.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 500,
+        kind: "ok",
+        exit_reason: "ok",
+        mode: "patch",
+        patch_phase: "shrink",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 50,
+          output_tokens: 25,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.02,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "criteria-complete",
+      iterations: 1,
+      durationMs: 2000,
+      specPath: "spec/foo/index.md",
+    });
+
+    expect(summary).toContain("iterations: 1");
+    expect(summary).toContain("attempts: 1");
+    expect(summary).not.toContain("shrink attempts");
+    expect(summary).toContain("$0.07");
+  });
 });

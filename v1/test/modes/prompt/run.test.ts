@@ -3,13 +3,13 @@ import { execSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import { loadConfig, registerProject, writeConfig } from "../../../src/config.ts";
-import { promptCommand, type PromptRunOptions } from "../../../src/modes/prompt/run.ts";
+import { type PromptRunOptions, promptCommand } from "../../../src/modes/prompt/run.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
 } from "../../../src/quota-harness-messages.ts";
-import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 
 function captureIo(): {
   io: PromptRunOptions["io"];
@@ -182,7 +182,9 @@ describe("promptCommand", () => {
     expect(stderr).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
     expect(stderr).toContain(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
     expect(stderr.match(new RegExp(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED, "g"))).toHaveLength(1);
-    expect(stderr.indexOf(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED)).toBeGreaterThan(stderr.indexOf("jarvis1: invoking codex"));
+    expect(stderr.indexOf(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED)).toBeGreaterThan(
+      stderr.indexOf("jarvis1: invoking codex"),
+    );
   });
 
   test("a successful first agent still drives the no-diff flow", async () => {
@@ -210,9 +212,13 @@ describe("promptCommand", () => {
     expect(code).toBe(0);
     const worktree = promptWorktreePath();
     const branch = execSync("git branch --show-current", { cwd: worktree, encoding: "utf8" }).trim();
-    expect(execSync("git log -1 --pretty=%B", { cwd: worktree, encoding: "utf8" })).toContain("Jarvis-Agent: fake-claude");
+    expect(execSync("git log -1 --pretty=%B", { cwd: worktree, encoding: "utf8" })).toContain(
+      "Jarvis-Agent: fake-claude",
+    );
     expect(branch).toContain("prompt/");
-    expect(execSync("git ls-remote --heads origin", { cwd: projectRoot, encoding: "utf8" })).toContain("refs/heads/prompt/");
+    expect(execSync("git ls-remote --heads origin", { cwd: projectRoot, encoding: "utf8" })).toContain(
+      "refs/heads/prompt/",
+    );
     const args = ghArgs();
     expect(args.slice(0, 10)).toEqual([
       "pr",
@@ -244,8 +250,12 @@ describe("promptCommand", () => {
     expect(code).toBe(0);
     const worktree = promptWorktreePath();
     const branch = execSync("git branch --show-current", { cwd: worktree, encoding: "utf8" }).trim();
-    expect(execSync("git log -1 --pretty=%B", { cwd: worktree, encoding: "utf8" })).toContain("Jarvis-Agent: fake-codex");
-    expect(execSync("git ls-remote --heads origin", { cwd: projectRoot, encoding: "utf8" })).toContain("refs/heads/prompt/");
+    expect(execSync("git log -1 --pretty=%B", { cwd: worktree, encoding: "utf8" })).toContain(
+      "Jarvis-Agent: fake-codex",
+    );
+    expect(execSync("git ls-remote --heads origin", { cwd: projectRoot, encoding: "utf8" })).toContain(
+      "refs/heads/prompt/",
+    );
     expect(ghArgs()).toContain(branch);
   });
 

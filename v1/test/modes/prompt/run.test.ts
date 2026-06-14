@@ -190,6 +190,7 @@ describe("promptCommand", () => {
     expect(codex.calls).toHaveLength(1);
     expect(cap.out()).toBe("codex answer\n");
     expect(cap.err()).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
+    expect(cap.err()).toContain("limit");
     expect(cap.err()).not.toContain(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
   });
 

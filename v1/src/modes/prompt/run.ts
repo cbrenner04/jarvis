@@ -389,7 +389,6 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
         ],
         {
           cwd: worktreePath,
-          env: process.env,
           stdio: "pipe",
         },
       );

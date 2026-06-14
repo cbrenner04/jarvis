@@ -76,13 +76,3 @@ Acceptance criteria for the eventual spec:
 
 Verified the ledger against `v1/src/modes/prompt/run.ts`: the three entries correctly capture the quota break→continue fix, the all-quota-vs-mixed exit-2/exit-3 distinction (the load-bearing consequence of making quota fall through), and the single-row telemetry stance. `model_config` already does `continue`; the all-`model_config` exhaustion case is subsumed by the exit-2 entry (any non-quota result → exit 3). Nothing load-bearing remains to add.
 
-## Blocker
-
-Review and approve `v2/spec/2026-06-14T17-01-11Z-prompt-mode-agent-fallback/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-06-14T17-01-11Z-prompt-mode-agent-fallback/intent.md`

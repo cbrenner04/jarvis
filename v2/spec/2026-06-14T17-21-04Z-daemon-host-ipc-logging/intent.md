@@ -104,13 +104,3 @@ disposition field, in-daemon vs child-process model, log schema, autostart) are
 the intent's listed open questions; each belongs to its first caller in draft,
 and answering now would invent precision the repo's deferral rule forbids.
 
-## Blocker
-
-Review and approve `v2/spec/2026-06-14T17-21-04Z-daemon-host-ipc-logging/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-06-14T17-21-04Z-daemon-host-ipc-logging/intent.md`

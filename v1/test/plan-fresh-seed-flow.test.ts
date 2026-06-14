@@ -1,21 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { planCommand } from "../src/commands/plan.ts";
-import { computeNoCommitSpecRoot, stripPlanSpecTimestampPrefix } from "../src/modes/plan/spec-paths.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
+import { computeNoCommitSpecRoot, stripPlanSpecTimestampPrefix } from "../src/modes/plan/spec-paths.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 
@@ -290,9 +282,11 @@ describe("plan fresh seed flow", () => {
         createAgent: createAgentFactory({ cfgDir: env.cfgDir }),
       });
 
-      expect(code).toBe(1);
+      expect(code).toBe(0);
       expect(cap.err()).toContain("plan: refine: skipped");
-      expect(cap.err()).toContain("plan: blocked");
+      expect(cap.err()).toContain("plan: intent commit pushed");
+      expect(cap.out()).toContain("jarvis1 plan --resume-draft");
+      expect(cap.err()).not.toContain("plan: blocked");
       expect(cap.err()).not.toContain("no-argument");
       expect(cap.err()).not.toContain("wip-intents");
 
@@ -304,7 +298,14 @@ describe("plan fresh seed flow", () => {
       expect(specDirs.length).toBe(1);
       const specDirBasename = specDirs[0] as string;
       expect(stripPlanSpecTimestampPrefix(specDirBasename)).toBe("some-cool-prompt");
-      const intentPath = join(env.projectRoot, ".worktree", "plan-some-cool-prompt", "spec", specDirBasename, "intent.md");
+      const intentPath = join(
+        env.projectRoot,
+        ".worktree",
+        "plan-some-cool-prompt",
+        "spec",
+        specDirBasename,
+        "intent.md",
+      );
       expect(existsSync(intentPath)).toBe(true);
       expect(readFileSync(intentPath, "utf8")).toContain("some cool prompt");
       expect(existsSync(join(env.projectRoot, "v1", "spec", "wip-intents"))).toBe(false);
@@ -329,7 +330,7 @@ describe("plan fresh seed flow", () => {
         createAgent: createAgentFactory({ proposedName: "ship-csv-export", cfgDir: env.cfgDir }),
       });
 
-      expect(code).toBe(1);
+      expect(code).toBe(0);
       expect(cap.err()).toContain("plan: refine: skipped");
 
       const worktrees = readdirSync(join(env.projectRoot, ".worktree"));
@@ -364,7 +365,7 @@ describe("plan fresh seed flow", () => {
         createAgent: createAgentFactory({ proposedName: "skip-refine-test", cfgDir: env.cfgDir }),
       });
 
-      expect(code).toBe(1);
+      expect(code).toBe(0);
       const err = cap.err();
       expect(err).toContain("plan: refine: skipped");
       expect(err).not.toMatch(/no-argument|no argument/i);
@@ -402,7 +403,11 @@ describe("plan fresh seed flow", () => {
       if (!project) {
         throw new Error("expected project");
       }
-      const externalRoot = computeNoCommitSpecRoot(env.cfgDir, { key: "project", root: env.projectRoot }, "no-commit-flow");
+      const externalRoot = computeNoCommitSpecRoot(
+        env.cfgDir,
+        { key: "project", root: env.projectRoot },
+        "no-commit-flow",
+      );
       expect(existsSync(join(externalRoot, "index.md"))).toBe(true);
       expect(existsSync(join(externalRoot, "intent.md"))).toBe(true);
       if (existsSync(join(env.projectRoot, ".worktree"))) {

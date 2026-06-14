@@ -419,7 +419,7 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
   blocker?: string | undefined;
   terminalOutcome?: RefineTerminalOutcome | undefined;
 }> {
-  const budgetTurns = opts.refineTurns ?? 3;
+  const budgetTurns = opts.refineTurns ?? 1;
 
   // If budget is 0, skip entirely
   if (budgetTurns === 0) {

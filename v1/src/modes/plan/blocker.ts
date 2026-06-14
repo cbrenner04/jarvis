@@ -1,5 +1,28 @@
 const headingPattern = /^(#{1,6})\s+(.+)$/;
 
+/** Marker text from the removed Phase-0 review-gate blocker (historical plans only). */
+const LEGACY_REVIEW_GATE_MARKER = "Review and approve";
+const LEGACY_REVIEW_GATE_TAIL = "before drafting subspecs";
+
+/**
+ * True when `body` is the historical jarvis-generated intent-review gate blocker.
+ * Genuine agent blockers are never treated as legacy.
+ */
+export function isLegacyReviewGateBlocker(body: string | undefined): boolean {
+  if (body === undefined) {
+    return false;
+  }
+  return body.includes(LEGACY_REVIEW_GATE_MARKER) && body.includes(LEGACY_REVIEW_GATE_TAIL);
+}
+
+/**
+ * True when `content` has a genuine `## Blocker` (not the legacy review gate).
+ */
+export function hasGenuineBlocker(content: string): boolean {
+  const detection = detectBlocker(content);
+  return detection.hasBlocker && !isLegacyReviewGateBlocker(detection.body);
+}
+
 /**
  * Detect if a file contains a ## Blocker section (case-sensitive, level-2).
  * Returns both whether a blocker exists and its body text (if any).

@@ -5,14 +5,13 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import {
-  appendPhase0ReviewGateBlocker,
   deriveSpecName,
   parseIntentFrontmatter,
   planCommand,
   renderPlanNextSteps,
+  renderPlanRefineHandoffNextSteps,
   resolveResumeSpecPath,
   seedIntentFile,
-  shouldStopAfterPhase0Refine,
   validateProposedName,
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";
@@ -1205,54 +1204,17 @@ describe("deriveSpecName", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
 });
 
-describe("phase-0 intent review gate", () => {
-  test("stops only for fresh committed seeded runs", () => {
-    expect(
-      shouldStopAfterPhase0Refine({
-        commit: true,
-        mode: "file",
-        resume: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldStopAfterPhase0Refine({
-        commit: true,
-        mode: "inline",
-        resume: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldStopAfterPhase0Refine({
-        commit: false,
-        mode: "file",
-        resume: false,
-      }),
-    ).toBe(false);
-    expect(
-      shouldStopAfterPhase0Refine({
-        commit: true,
-        mode: "file",
-        resume: true,
-      }),
-    ).toBe(false);
-  });
-
-  test("appends a blocker section for intent review with the concrete spec dir", () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-phase0-gate-"));
-    try {
-      const intentPath = join(dir, "intent.md");
-      writeFileSync(intentPath, "# Intent\n\nInitial request.\n", "utf8");
-      const out = appendPhase0ReviewGateBlocker(intentPath, "2026-05-20T02-41-21Z-plan-intent-review-gate");
-      expect(out).toContain("## Blocker");
-      expect(out).toContain("spec/2026-05-20T02-41-21Z-plan-intent-review-gate/intent.md");
-      expect(out).toContain("jarvis1 plan --resume-draft spec/");
-      expect(out).toContain("/intent.md");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+describe("plan refine handoff next steps", () => {
+  test("renderPlanRefineHandoffNextSteps cites resume-draft on the intent path", () => {
+    const text = renderPlanRefineHandoffNextSteps({
+      prUrl: "https://example.com/pull/42",
+      specDirBasename: "2026-05-20T02-41-21Z-plan-intent-review-gate",
+      targetDir: "spec",
+    });
+    expect(text).toContain("jarvis1 plan --resume-draft spec/");
+    expect(text).toContain("/intent.md");
   });
 });
 

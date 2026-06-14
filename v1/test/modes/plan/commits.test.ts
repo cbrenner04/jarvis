@@ -1,14 +1,48 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   commitPlanBlocker,
   commitPlanDraft,
+  commitPlanIntent,
   commitPlanRefine,
   commitPlanReview,
 } from "../../../src/modes/plan/commits.ts";
 import { setupPlanRemote } from "../../helpers/plan-fixtures.ts";
+
+describe("commitPlanIntent", () => {
+  test("creates intent commit with seed line and agent trailer", () => {
+    const { worktreeRoot, cleanup } = setupPlanRemote();
+    try {
+      execSync("git branch plan/test-spec", { cwd: worktreeRoot });
+      const worktreePath = join(worktreeRoot, "worktree");
+      mkdirSync(worktreePath);
+      execSync("git worktree add --no-checkout worktree plan/test-spec", { cwd: worktreeRoot });
+      execSync("git checkout plan/test-spec", { cwd: worktreePath });
+      mkdirSync(join(worktreePath, "spec", "test-spec"), { recursive: true });
+      writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "test intent");
+
+      commitPlanIntent({
+        worktreePath,
+        name: "test-spec",
+        mode: "inline",
+        intentPathOrLabel: "add feature",
+        agentLabel: "Claude Haiku",
+      });
+
+      const commitMsg = execSync("git log -1 --format=%B", {
+        cwd: worktreePath,
+        encoding: "utf8",
+      }).trim();
+      expect(commitMsg).toBe(
+        "plan: intent\n\nSpec: spec/test-spec/intent.md\n\nSeeded from inline\n\nJarvis-Agent: Claude Haiku",
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});
 
 describe("commitPlanRefine", () => {
   test("creates refine commit with correct message for file mode", () => {
@@ -44,7 +78,7 @@ describe("commitPlanRefine", () => {
         cwd: worktreePath,
         encoding: "utf8",
       }).trim();
-      expect(commitMsg).toBe("plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from test-intent.md\nTurns: 0");
+      expect(commitMsg).toBe("plan: refine\n\nSpec: spec/test-spec/intent.md\n\nTurns: 0");
 
       // Verify commit was pushed
       const remoteCommits = execSync("git log --oneline", {
@@ -92,7 +126,7 @@ describe("commitPlanRefine", () => {
         cwd: worktreePath,
         encoding: "utf8",
       }).trim();
-      expect(commitMsg).toBe("plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from inline\nTurns: 0");
+      expect(commitMsg).toBe("plan: refine\n\nSpec: spec/test-spec/intent.md\n\nTurns: 0");
 
       // Verify commit was pushed
       const remoteCommits = execSync("git log --oneline", {
@@ -134,7 +168,7 @@ describe("commitPlanRefine", () => {
         cwd: worktreePath,
         encoding: "utf8",
       }).trim();
-      expect(commitMsg).toBe("plan: refine\n\nSpec: spec/test-spec/intent.md\n\nSeeded from interactive\nTurns: 0");
+      expect(commitMsg).toBe("plan: refine\n\nSpec: spec/test-spec/intent.md\n\nTurns: 0");
 
       const remoteCommits = execSync("git log --oneline", {
         cwd: origin,
@@ -170,7 +204,18 @@ describe("commitPlanDraft", () => {
       });
       writeFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "test intent");
 
-      // Create refine commit first (this sets up the upstream branch)
+      // Create intent then refine commits (this sets up the upstream branch)
+      commitPlanIntent({
+        worktreePath,
+        name: "test-spec",
+        mode: "inline",
+        intentPathOrLabel: "test intent",
+        agentLabel: "Claude Haiku",
+      });
+      writeFileSync(
+        join(worktreePath, "spec", "test-spec", "intent.md"),
+        readFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "utf8").trimEnd() + "\n\n## Refine skip\n",
+      );
       commitPlanRefine({
         worktreePath,
         name: "test-spec",
@@ -216,10 +261,10 @@ describe("commitPlanDraft", () => {
       })
         .trim()
         .split("\n");
-      expect(remoteCommits.length).toBe(3);
-      // Verify the last two are refine and draft
+      expect(remoteCommits.length).toBe(4);
       expect(remoteCommits[0]).toContain("plan: draft");
       expect(remoteCommits[1]).toContain("plan: refine");
+      expect(remoteCommits[2]).toContain("plan: intent");
     } finally {
       cleanup();
     }

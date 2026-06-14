@@ -156,7 +156,7 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
     return {
       ok: false,
       exitCode: 1,
-      message: "plan: missing required seed (<intent-file|\"inline text\">)",
+      message: 'plan: missing required seed (<intent-file|"inline text">)',
     };
   }
 

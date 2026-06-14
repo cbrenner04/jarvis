@@ -46,14 +46,23 @@ Successful runs omit chatty setup breadcrumbs by default (inline intent echoes,
 temporary slug previews, provisional worktrees, rename chatter). Harness /
 session logs still capture those details.
 
-**With `commit: true`:** Typical milestone stderr lines look like **`plan: refine commit pushed`**,
-**`plan: draft phase completed`**, **`plan: draft commit pushed`**,
+**With `commit: true`:** Typical milestone stderr lines look like **`plan: intent commit pushed`**,
+**`plan: refine commit pushed`**, **`plan: draft phase completed`**, **`plan: draft commit pushed`**,
 **`plan: draft PR #… opened`**, and review notifications such as
 **`plan: review pass k/n starting`** then **`plan: review pass k committed
 and pushed`**. Blockers, validation failures, quota/model errors, and agent stderr
 stay visible untouched.
 
 Stdout ends with:
+
+```text
+Next steps:
+  1. Review the draft PR: https://…
+  2. When ready to draft subspecs, run:
+       jarvis1 plan --resume-draft <targetDir>/<spec-dir>/intent.md
+```
+
+After draft/review complete successfully, stdout instead prints the merge/resume/run block:
 
 ```text
 Next steps:
@@ -143,11 +152,17 @@ Jarvis then runs one non-interactive intent-draft pass that:
 - preserves the exact raw-seed block byte-for-byte, and
 - proposes `name: <kebab-case>` in frontmatter.
 
-If the proposed name is missing or invalid, jarvis falls back to deterministic seed-derived naming before collision suffixing.
+If the proposed name is missing or invalid, jarvis falls back to deterministic seed-derived naming before collision suffixing. Jarvis then renames the temporary worktree/branch to final identities (`.worktree/plan-<plan-name>/`, `plan/<plan-name>`) and, when `commit: true`, pushes **`plan: intent`**.
+
+**Commit shape (`plan: intent`):**
+- Subject: `plan: intent`
+- Body: starts with **`Spec: <targetDir>/<spec-dir>/intent.md`**, followed by `Seeded from <intent path or "inline">`.
+- `Jarvis-Agent` trailer: the intent-draft agent label.
+- Pushed: immediately after commit (first push sets upstream).
 
 ### Phase 1: Intent Refinement
 
-**With `commit: true`:** Jarvis starts on a temporary worktree (`.worktree/plan-tmp-<short-uuid>/`) and temporary branch (`plan/tmp-<short-uuid>`). `intent.md` inside the eventual `spec/<spec-dir>/` tree is already seeded and intent-drafted before refinement turns begin (`--refine-turns`, default `3`).
+**With `commit: true`:** Refinement runs on the final `plan/<plan-name>` branch after `plan: intent` is pushed (`--refine-turns`, default `1`).
 
 **With `commit: false`:** Jarvis creates the spec directory in Jarvis-owned storage (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`) and continues in one invocation through intent draft, refine, draft, and review with no git or PR handoff.
 
@@ -155,23 +170,21 @@ Each turn is one non-interactive agent invocation. The prompt asks the agent to 
 
 After each turn, jarvis validates that `intent.md` preserves the human-authored seed above the first `## Refinement` heading (except the permitted `name:` frontmatter write) and then leaves one permitted outcome: consolidated `## Refinement` ledger content, `## Refine skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification.
 
-Intent refinement no longer owns naming. `name:` is proposed in the intent-draft step. If `--refine-turns 0` is used, jarvis skips refinement entirely after intent draft; if the drafted `name:` is missing or invalid, jarvis falls back to deterministic derivation and logs a stderr note.
+Intent refinement no longer owns naming. `name:` is proposed in the intent-draft step. If `--refine-turns 0` is used, jarvis skips refinement entirely after `plan: intent`; if the drafted `name:` is missing or invalid, jarvis falls back to deterministic derivation and logs a stderr note.
 
-Once a name is chosen (with collision suffixing if needed), jarvis stamps the filesystem-safe UTC prefix, renames the temporary worktree and branch to final identities (`.worktree/plan-<plan-name>/`, `plan/<plan-name>` — **still no timestamp**), commits, and pushes `plan: refine`. The commit subject is historical; it captures the intent-refinement result. The temporary branch is never pushed.
+Once refinement finishes (or is skipped), jarvis commits and pushes **`plan: refine`** when `commit: true` and `--refine-turns > 0`. The temporary branch is never pushed before rename.
 
-**Commit shape:**
+**Commit shape (`plan: refine`):**
 - Subject: `plan: refine`
-- Body: starts with **`Spec: spec/<spec-dir>/intent.md`** (example: `Spec: spec/2026-05-17T22-14-03Z-my-plan/intent.md`, or `Spec: spec/my-plan/intent.md` for legacy dirs) so the attribution renderer in `src/pr.ts` recognises it as a meta commit; followed by `Seeded from <intent path or "inline">`.
+- Body: starts with **`Spec: <targetDir>/<spec-dir>/intent.md`**, followed by `Turns: <n>` and optional `Outcome: explicit skip` / `Outcome: blocker`.
 - Pushed: immediately after commit.
 
-### Phase 1 Checkpoint (Committed fresh runs)
+### Committed fresh-run handoff (after refine)
 
-For fresh `commit: true` seeded runs (file or inline), jarvis stops after `plan: refine` and appends an intent review `## Blocker`, then commits `plan: blocker` and opens/updates a draft PR that contains only `spec/<spec-dir>/intent.md`. No draft/review agent phases run on this first invocation.
-
-Resume with:
+For fresh `commit: true` seeded runs (file or inline), jarvis stops after `plan: intent` (and `plan: refine` when `--refine-turns > 0`): it opens or updates the branch's **open** draft PR, prints review-then-`--resume-draft` next steps, and exits **`0`**. No synthetic `## Blocker` is appended. Draft/review agent phases run only after:
 
 ```sh
-jarvis1 plan --resume-draft spec/<spec-dir>/intent.md
+jarvis1 plan --resume-draft <targetDir>/<spec-dir>/intent.md
 ```
 
 ### Phase 2: Draft
@@ -261,7 +274,7 @@ No summary is printed for configuration or project-resolution failures that occu
 
 ## PR body updates
 
-The draft PR opens after `plan: draft` is pushed. The PR body contains:
+The draft PR opens after the first committed fresh-run handoff (`plan: intent`, and `plan: refine` when refinement runs) or after the first `plan: draft` commit on `--resume-draft` paths. The PR body contains:
 
 1. **Header**: The spec title (from `index.md` if available) plus file references.
 2. **Narrative section**: A model-authored short description followed by `Decisions:` and an unordered list of notable decisions. This section is bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers for preservation.
@@ -278,7 +291,7 @@ This contract mirrors patch mode's narrative preservation semantics: humans can 
 
 The `modes.plan.commit` boolean (config v2) controls where plan-mode specs are written and whether git/GitHub are involved:
 
-- **`true` (default):** Plan specs are authored in a worktree on a branch under the target repo's `spec/<spec-dir>/` tree. Git commits (`plan: refine`, `plan: draft`, `plan: review N`) are made, a draft PR is opened, and `gh pr ready` runs programmatically on success. After merge to `main`, the spec is available to `jarvis1 run`.
+- **`true` (default):** Plan specs are authored in a worktree on a branch under the target repo's `spec/<spec-dir>/` tree. Git commits (`plan: intent`, `plan: refine`, `plan: draft`, `plan: review N`) are made, a draft PR is opened after the fresh-run refine handoff (or after `plan: draft` on resume paths), and `gh pr ready` runs programmatically on success. After merge to `main`, the spec is available to `jarvis1 run`.
 - **`false`:** Plan specs are written to Jarvis-owned storage outside the target directory (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`). No git branch, worktree, commits, or PR are created. Plan mode runs directly in the target directory root (which may or may not be a git repository). The generated `index.md` includes a portable `repo:` binding for later `jarvis1 run` invocations.
 
 When `commit: false`, the spec tree must include a usable `repo:` metadata line so `jarvis1 run` can later resolve the target repository independently of the spec file's location.
@@ -291,7 +304,7 @@ Plan mode writes a `repo:` line into the generated `index.md`. When the target p
 
 ### `--refine-turns <n>`
 
-Controls the intent-refinement budget. Default: `3`. `0` still runs the intent-draft step, then skips refinement entirely. There is no no-argument fresh mode.
+Controls the intent-refinement budget. Default: `1`. `0` still runs the intent-draft step and `plan: intent`, then skips refinement entirely. There is no no-argument fresh mode.
 
 ### `--review-passes <n>`
 
@@ -342,7 +355,7 @@ jarvis1 plan --resume-draft spec/2026-05-17T22-14-03Z-my-plan/intent.md
 Validation rules:
 
 - `<intent-path>` must point at `spec/<spec-dir>/intent.md` on disk.
-- `intent.md` must not contain a `## Blocker` section.
+- `intent.md` must not contain a genuine `## Blocker` section. Historical review-gate blockers jarvis generated before this handoff are ignored.
 - If `.worktree/plan-<plan-name>/` is missing, jarvis tries to recreate it from
   local `plan/<plan-name>` or `origin/plan/<plan-name>` and logs
   `plan: recreated worktree at <path> from <local|origin>`.
@@ -453,7 +466,7 @@ There is no fallback to patch-mode order; both must be configured.
 
 ### Draft open
 
-After the first `plan: draft` commit is pushed, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. GitHub renders the draft bit until **`gh pr ready` succeeds**. The PR title stays **`plan: <plan-name>`** — i.e., the slug shared with the branch (**not** the leading UTC segment of **`spec/`** paths when present). PR body internals:
+After the first `plan: draft` commit is pushed on a `--resume-draft` path, jarvis opens a draft PR via the same `ensureDraftPr` helper patch mode uses. GitHub renders the draft bit until **`gh pr ready` succeeds**. The PR title stays **`plan: <plan-name>`** — i.e., the slug shared with the branch (**not** the leading UTC segment of **`spec/`** paths when present). PR body internals:
 
 1. **Deterministic header**: the H1 from `spec/<spec-dir>/index.md` (or `# Plan: <plan-name>` when the index does not yet exist), followed by bullets that cite **`spec/<spec-dir>/intent.md`** and **`spec/<spec-dir>/index.md`**.
 2. **Narrative section**: a model-authored short description followed by `Decisions:` and an unordered list of notable decisions (bounded by `<!-- jarvis:narrative:start -->` and `<!-- jarvis:narrative:end -->` markers). Humans can edit the narrative between the markers; edits are preserved verbatim during PR body rewrites.
@@ -564,10 +577,12 @@ The intent of this enforcement is to prevent accidental or malicious modificatio
 
 Plan-mode commit subjects:
 
+- `plan: intent`
 - `plan: refine`
 - `plan: draft`
 - `plan: review <N>`
 - `plan: blocker`
+- `plan: intent r<n>`
 - `plan: refine r<n>`
 - `plan: review <N> r<n>`
 - `plan: blocker r<n>`

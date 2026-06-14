@@ -30,48 +30,48 @@ loop CLI fields - pin when project config/workflows land.
 
 ## Task checklist
 
-- [ ] Add daemon run manager code that accepts write-loop inputs and schedules
+- [x] Add daemon run manager code that accepts write-loop inputs and schedules
   `executeWriteLoop` asynchronously.
-- [ ] Extend daemon protocol with `run.start` and `run.list`.
-- [ ] Emit structured log records for run accepted, started, iteration/result
+- [x] Extend daemon protocol with `run.start` and `run.list`.
+- [x] Emit structured log records for run accepted, started, iteration/result
   summary, and finished/failed.
-- [ ] Ensure daemon-owned active runs reserve `(project, branch)` until terminal
+- [x] Ensure daemon-owned active runs reserve `(project, branch)` until terminal
   or explicit cleanup according to the ownership lifetime decision.
-- [ ] Add CLI commands `start`, `status`, and `log-tail` as thin IPC clients.
-- [ ] Autostart the daemon for `start`, `status`, and `log-tail` if it is not
+- [x] Add CLI commands `start`, `status`, and `log-tail` as thin IPC clients.
+- [x] Autostart the daemon for `start`, `status`, and `log-tail` if it is not
   already reachable.
-- [ ] Rebuild in-memory ownership from durable nonterminal run state on daemon
+- [x] Rebuild in-memory ownership from durable nonterminal run state on daemon
   startup.
-- [ ] Co-located tests using injected bindings and temp state/log/socket paths.
+- [x] Co-located tests using injected bindings and temp state/log/socket paths.
 
 ## Acceptance criteria
 
-- [ ] `jarvis start --project-root <path> --project <name> --branch <name>
+- [x] `jarvis start --project-root <path> --project <name> --branch <name>
   --base <ref> --spec <path> --artifact <path> [--agents <csv>]
   [--max-iterations <n>]` returns a run ID without waiting for completion
   (test).
-- [ ] `jarvis status` lists durable run snapshots, including active daemon runs
+- [x] `jarvis status` lists durable run snapshots, including active daemon runs
   and completed terminal runs (test).
-- [ ] `jarvis log-tail <run-id>` streams replayed and live structured records
+- [x] `jarvis log-tail <run-id>` streams replayed and live structured records
   for that run (test).
-- [ ] Starting a second active daemon run for the same `(project, branch)` is
+- [x] Starting a second active daemon run for the same `(project, branch)` is
   rejected before sharing the worktree (test).
-- [ ] Starting a daemon with paused, blocked, budget-soft-stopped, or killed
+- [x] Starting a daemon with paused, blocked, budget-soft-stopped, or killed
   durable runs rebuilds ownership and rejects conflicting starts until cleanup or
   terminal release (test).
-- [ ] Detached runs use `executeWriteLoop`; the loop library does not gain
+- [x] Detached runs use `executeWriteLoop`; the loop library does not gain
   daemon-specific process handlers or IPC knowledge.
-- [ ] CLI run-control commands autostart the daemon when unreachable; lifecycle
+- [x] CLI run-control commands autostart the daemon when unreachable; lifecycle
   commands from 00 still work explicitly (test).
-- [ ] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and
+- [x] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and
   `bun run ready` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/daemon.md`: add `run.start`, `run.list`, command mapping
+- [x] `v2/docs/daemon.md`: add `run.start`, `run.list`, command mapping
   (`start`, `status`, `log-tail`), autostart behavior, run-status output, and
   daemon-owned `(project, branch)` ownership lifetime.
-- [ ] `v2/docs/write-behavior.md`: document detached `jarvis start` as the
+- [x] `v2/docs/write-behavior.md`: document detached `jarvis start` as the
   daemon-driven path and keep `jarvis write` as foreground.
-- [ ] `v2/docs/v1-behaviors.md`: explicitly state this is an additive v2-only
+- [x] `v2/docs/v1-behaviors.md`: explicitly state this is an additive v2-only
   run surface and does not alter v1 resume/lock behavior.

@@ -2,8 +2,8 @@ import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
-import { ensureDaemonRunning, formatAutostartFailure } from "./daemon/autostart.ts";
-import { callDaemon } from "./daemon/client.ts";
+import { callDaemonWithAutostart, ensureDaemonRunning, formatAutostartFailure } from "./daemon/autostart.ts";
+import { callDaemon, tailDaemon } from "./daemon/client.ts";
 import { daemonSocketPath, defaultJarvisRoot } from "./daemon/paths.ts";
 import { fetchDaemonStatus, runDaemonServe } from "./daemon/server.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
@@ -18,17 +18,22 @@ type CliDeps = {
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[];
   ensureDaemonRunning: typeof ensureDaemonRunning;
   callDaemon: typeof callDaemon;
+  callDaemonWithAutostart: typeof callDaemonWithAutostart;
+  tailDaemon: typeof tailDaemon;
   fetchDaemonStatus: typeof fetchDaemonStatus;
   runDaemonServe: typeof runDaemonServe;
   jarvisRoot: () => string;
 };
 
-type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
+type WriteCliInput = { ok: true; input: WriteLoopInput; agents: readonly string[] } | { ok: false; message?: string };
 
 const DEFAULT_STEP_RULES = "Return exactly one terminal token: done|no-work|blocked|progress.";
 const DEFAULT_AGENTS = ["claude"] as const;
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
+const START_USAGE =
+  "usage: jarvis start --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
+const LOG_TAIL_USAGE = "usage: jarvis log-tail <run-id> [--from-seq <n>]\n";
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status|serve> [--jarvis-root <path>]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
@@ -41,6 +46,8 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     createBindings: createAgentBindings,
     ensureDaemonRunning,
     callDaemon,
+    callDaemonWithAutostart,
+    tailDaemon,
     fetchDaemonStatus,
     runDaemonServe,
     jarvisRoot: defaultJarvisRoot,
@@ -77,6 +84,18 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     );
 
     return exitCodeForWriteResult(loopResult.kind);
+  }
+
+  if (command === "start") {
+    return runStartCli(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "status") {
+    return runRunStatusCli(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "log-tail") {
+    return runLogTailCli(argv.slice(1), out, runtimeDeps);
   }
 
   if (command === "daemon") {
@@ -117,7 +136,9 @@ function parseWriteCliInput(argv: readonly string[], deps: CliDeps): WriteCliInp
     bindings: deps.createBindings(agents),
   };
 
-  return maxIterations === undefined ? { ok: true, input } : { ok: true, input: { ...input, maxIterations } };
+  return maxIterations === undefined
+    ? { ok: true, input, agents }
+    : { ok: true, input: { ...input, maxIterations }, agents };
 }
 
 function parseWriteArgs(argv: readonly string[]): Record<string, string | boolean | string[] | undefined> {
@@ -237,6 +258,131 @@ function parseJarvisRoot(argv: readonly string[]): string | undefined {
     }
   }
   return undefined;
+}
+
+async function runStartCli(argv: readonly string[], out: Io, deps: CliDeps): Promise<number> {
+  const jarvisRoot = parseJarvisRoot(argv) ?? deps.jarvisRoot();
+  const writeArgv = argv.filter((arg, index) => {
+    if (arg === "--jarvis-root") return false;
+    if (index > 0 && argv[index - 1] === "--jarvis-root") return false;
+    return true;
+  });
+  const parsed = parseWriteCliInput(writeArgv, deps);
+  if (!parsed.ok) {
+    if (parsed.message !== undefined) out.stderr(parsed.message);
+    out.stderr(START_USAGE);
+    return 1;
+  }
+
+  const socketPath = daemonSocketPath(jarvisRoot);
+  const input = parsed.input;
+  const params: Record<string, unknown> = {
+    projectRoot: input.worktree.projectRoot,
+    project: input.worktree.projectName,
+    branch: input.worktree.branchName,
+    base: input.worktree.baseRef,
+    spec: input.specPath,
+    artifact: input.expectedArtifactPath,
+    agents: [...parsed.agents],
+  };
+  if (input.maxIterations !== undefined) {
+    params.maxIterations = input.maxIterations;
+  }
+
+  const response = await deps.callDaemonWithAutostart(
+    { id: "run-start", method: "run.start", params },
+    { jarvisRoot, socketPath },
+  );
+  out.stdout(`${JSON.stringify(response, null, 2)}\n`);
+  return response.ok ? 0 : 1;
+}
+
+async function runRunStatusCli(argv: readonly string[], out: Io, deps: CliDeps): Promise<number> {
+  const jarvisRoot = parseJarvisRoot(argv) ?? deps.jarvisRoot();
+  const socketPath = daemonSocketPath(jarvisRoot);
+  const response = await deps.callDaemonWithAutostart(
+    { id: "run-list", method: "run.list" },
+    { jarvisRoot, socketPath },
+  );
+  out.stdout(`${JSON.stringify(response, null, 2)}\n`);
+  return response.ok ? 0 : 1;
+}
+
+async function runLogTailCli(argv: readonly string[], out: Io, deps: CliDeps): Promise<number> {
+  const parsed = parseLogTailArgs(argv);
+  if (!parsed.ok) {
+    out.stderr(LOG_TAIL_USAGE);
+    return 1;
+  }
+
+  const jarvisRoot = parseJarvisRoot(argv) ?? deps.jarvisRoot();
+  const socketPath = daemonSocketPath(jarvisRoot);
+  const autostart = await deps.callDaemonWithAutostart(
+    { id: "log-tail-probe", method: "status" },
+    { jarvisRoot, socketPath },
+  );
+  if (!autostart.ok) {
+    out.stdout(`${JSON.stringify(autostart, null, 2)}\n`);
+    return 1;
+  }
+
+  const params: { runId: string; fromSeq?: number } = { runId: parsed.runId };
+  if (parsed.fromSeq !== undefined) {
+    params.fromSeq = parsed.fromSeq;
+  }
+
+  const tail = deps.tailDaemon(params, {
+    socketPath,
+    timeoutMs: Number.POSITIVE_INFINITY,
+    onRecord: (record) => {
+      out.stdout(`${JSON.stringify(record)}\n`);
+    },
+  });
+
+  await new Promise<void>((resolve) => {
+    const onSignal = () => {
+      tail.close();
+      resolve();
+    };
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
+    void tail.done.finally(() => {
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+      resolve();
+    });
+  });
+
+  return 0;
+}
+
+function parseLogTailArgs(argv: readonly string[]): { ok: true; runId: string; fromSeq?: number } | { ok: false } {
+  let runId: string | undefined;
+  let fromSeq: number | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--jarvis-root") {
+      index += 1;
+      continue;
+    }
+    if (arg === "--from-seq") {
+      const raw = argv[index + 1];
+      if (typeof raw !== "string") return { ok: false };
+      const parsed = parseInt(raw, 10);
+      if (Number.isNaN(parsed) || parsed < 0) return { ok: false };
+      fromSeq = parsed;
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--")) {
+      return { ok: false };
+    }
+    if (runId === undefined && typeof arg === "string") {
+      runId = arg;
+    }
+  }
+  if (runId === undefined) return { ok: false };
+  return fromSeq === undefined ? { ok: true, runId } : { ok: true, runId, fromSeq };
 }
 
 if (import.meta.main) {

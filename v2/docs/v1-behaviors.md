@@ -297,6 +297,7 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 ## v2-only additive hosts
 
 - The v2 daemon (`jarvis daemon start|stop|status`) is an additive host under `v2/` with IPC at `~/.jarvis/daemon.sock`. It does not change v1 lock semantics, `jarvis1 run` behavior, or `.jarvis.lock` handling. Cross-process worktree serialization still uses the shared lock contract documented above. Sources: `v2/src/daemon/`, `v2/docs/daemon.md`, `shared/worktree-lock.ts`
+- Detached v2 run control (`jarvis start`, `jarvis status`, `jarvis log-tail`) is additive: it schedules the v2 write loop through the daemon and does not alter v1 resume/lock behavior. Foreground `jarvis write` remains unchanged. Sources: `v2/src/cli.ts`, `v2/src/daemon/run-manager.ts`, `v2/docs/daemon.md`, `v2/docs/write-behavior.md`
 
 ## Maintenance requirement for future v1 changes
 

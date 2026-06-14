@@ -3,7 +3,14 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export type RunStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped" | "failed";
+export type RunStatus =
+  | "in-progress"
+  | "completed"
+  | "blocked"
+  | "budget-soft-stopped"
+  | "failed"
+  | "paused"
+  | "killed";
 
 export type AttemptStatus = "in-progress" | "completed";
 
@@ -69,6 +76,9 @@ export interface StateStore {
 
   /** Persist a run status update outside a completion boundary. */
   setRunStatus(runId: string, status: RunStatus): void;
+
+  /** List all runs ordered by creation time (newest first). */
+  listRuns(): Run[];
 
   close(): void;
 }
@@ -195,6 +205,10 @@ class StateStoreImpl implements StateStore {
     this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
   }
 
+  listRuns(): Run[] {
+    return this.db.prepare(`SELECT ${RUN_COLUMNS} FROM runs ORDER BY created_at DESC, rowid DESC`).all() as Run[];
+  }
+
   close(): void {
     this.db.close();
   }
@@ -203,4 +217,9 @@ class StateStoreImpl implements StateStore {
 /** Open or create the state store; default path `~/.jarvis/state/v2.sqlite`. */
 export function openStateStore(storePath?: string): StateStore {
   return new StateStoreImpl(storePath ?? join(homedir(), ".jarvis", "state", "v2.sqlite"));
+}
+
+/** Default state DB path under a Jarvis data root. */
+export function defaultStateStorePath(jarvisRoot: string): string {
+  return join(jarvisRoot, "state", "v2.sqlite");
 }

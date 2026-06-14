@@ -4,31 +4,54 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type LogRepository, openLogRepository } from "../log-repository.ts";
+import { openStateStore } from "../state-store.ts";
+import { simulatedBindings } from "../testing/bindings.ts";
+import type { WriteLoopInput, WriteLoopResult } from "../write-loop.ts";
 import { callDaemon, isDaemonReachable, removeStaleSocket, tailDaemon } from "./client.ts";
 import { daemonSocketPath } from "./paths.ts";
 import { type DaemonResponse, encodeFrame, parseResponseLine } from "./protocol.ts";
-import { createDaemonHost } from "./server.ts";
+import { createDaemonHost, type DaemonHost } from "./server.ts";
 
 describe("daemon server", () => {
-  const hosts: Array<{ stop: () => Promise<void>; logRepository: LogRepository }> = [];
+  const hosts: DaemonHost[] = [];
 
   afterEach(async () => {
     while (hosts.length > 0) {
       const host = hosts.pop();
       if (host) {
         host.logRepository.close();
+        host.stateStore.close();
         await host.stop();
       }
     }
   });
 
-  async function startHost(root: string) {
+  async function startHost(root: string, loop?: (input: WriteLoopInput) => Promise<WriteLoopResult>) {
     const socketPath = daemonSocketPath(root);
     const logRepository = openLogRepository(join(root, "state", "logs.sqlite"));
-    const host = createDaemonHost({ socketPath, pid: 99, logRepository });
+    const stateStore = openStateStore(join(root, "state", "v2.sqlite"));
+    const host = createDaemonHost({
+      socketPath,
+      pid: 99,
+      logRepository,
+      stateStore,
+      createBindings: () => simulatedBindings(["done"]),
+      executeWriteLoop:
+        loop ??
+        (async (input) => {
+          const store = input.stateStore;
+          const run = store?.findRunByProjectBranch({
+            project: input.worktree.projectName,
+            branch: input.worktree.branchName,
+          });
+          const runId = run?.id ?? "missing";
+          store?.setRunStatus(runId, "completed");
+          return { kind: "complete", runId, iterationsConsumed: 1, resumable: false };
+        }),
+    });
     await host.start();
     hosts.push(host);
-    return { host, socketPath, logRepository };
+    return { host, socketPath, logRepository, stateStore };
   }
 
   test("status answers over the unix socket", async () => {
@@ -231,6 +254,97 @@ describe("daemon server", () => {
       socketPath,
       activeInvocationRunIds: [],
     });
+  });
+
+  test("run.start returns immediately and run.list reports durable snapshots", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const { socketPath } = await startHost(root);
+    const params = {
+      projectRoot: "/tmp/repo",
+      project: "demo",
+      branch: "ipc-run",
+      base: "HEAD",
+      spec: "spec.md",
+      artifact: "proof.txt",
+      agents: ["claude"],
+    };
+
+    const started = await callDaemon({ id: "start-1", method: "run.start", params }, { socketPath });
+    expect(started.ok).toBe(true);
+    expect(started.result).toEqual({ runId: expect.any(String) });
+
+    const listed = await callDaemon({ id: "list-1", method: "run.list" }, { socketPath });
+    expect(listed.ok).toBe(true);
+    const result = listed.result as { runs: Array<{ id: string; active: boolean; status: string }> };
+    expect(result.runs.some((run) => run.id === (started.result as { runId: string }).runId)).toBe(true);
+  });
+
+  test("run.start rejects conflicting project and branch ownership", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    let releaseLoop: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      releaseLoop = resolve;
+    });
+    const { socketPath } = await startHost(root, async (input) => {
+      await blocked;
+      const store = input.stateStore;
+      const run = store?.findRunByProjectBranch({
+        project: input.worktree.projectName,
+        branch: input.worktree.branchName,
+      });
+      const runId = run?.id ?? "missing";
+      store?.setRunStatus(runId, "completed");
+      return { kind: "complete", runId, iterationsConsumed: 1, resumable: false };
+    });
+    const params = {
+      projectRoot: "/tmp/repo",
+      project: "demo",
+      branch: "conflict",
+      base: "HEAD",
+      spec: "spec.md",
+      artifact: "proof.txt",
+    };
+
+    const first = await callDaemon({ id: "start-1", method: "run.start", params }, { socketPath });
+    expect(first.ok).toBe(true);
+
+    const second = await callDaemon({ id: "start-2", method: "run.start", params }, { socketPath });
+    expect(second.ok).toBe(false);
+    expect(second.error?.code).toBe("ownership_conflict");
+    releaseLoop?.();
+  });
+
+  test("daemon startup rebuilds ownership from durable nonterminal runs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
+    const stateStore = openStateStore(join(root, "state", "v2.sqlite"));
+    const runId = stateStore.createRun({
+      project: "demo",
+      specRef: "HEAD",
+      worktreePath: "/tmp/wt",
+      branch: "held",
+      specPath: "spec.md",
+    });
+    stateStore.setRunStatus(runId, "budget-soft-stopped");
+    stateStore.close();
+
+    const { socketPath } = await startHost(root);
+    const conflict = await callDaemon(
+      {
+        id: "start-1",
+        method: "run.start",
+        params: {
+          projectRoot: "/tmp/repo",
+          project: "demo",
+          branch: "held",
+          base: "HEAD",
+          spec: "spec.md",
+          artifact: "proof.txt",
+        },
+      },
+      { socketPath },
+    );
+    expect(conflict.ok).toBe(false);
+    expect(conflict.error?.code).toBe("ownership_conflict");
   });
 });
 

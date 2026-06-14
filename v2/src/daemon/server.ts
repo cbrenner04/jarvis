@@ -1,5 +1,6 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import {
   DAEMON_LOG_RUN_ID,
   defaultLogRepositoryPath,
@@ -7,6 +8,8 @@ import {
   type LogRepository,
   openLogRepository,
 } from "../log-repository.ts";
+import { defaultStateStorePath, openStateStore, type StateStore } from "../state-store.ts";
+import type { executeWriteLoop, WriteLoopInput } from "../write-loop.ts";
 import { callDaemon, isDaemonReachable, removeStaleSocket } from "./client.ts";
 import { daemonSocketPath, ensureJarvisRoot } from "./paths.ts";
 import {
@@ -19,6 +22,7 @@ import {
   ProtocolError,
   parseRequestLine,
 } from "./protocol.ts";
+import { OwnershipConflictError, parseRunStartParams, RunManager } from "./run-manager.ts";
 
 export type DaemonStatusResult = {
   pid: number;
@@ -30,6 +34,9 @@ export type DaemonHostOptions = {
   socketPath: string;
   pid?: number;
   logRepository?: LogRepository;
+  stateStore?: StateStore;
+  executeWriteLoop?: (input: WriteLoopInput) => Promise<Awaited<ReturnType<typeof executeWriteLoop>>>;
+  createBindings?: (agentIds: readonly string[]) => readonly InvocationBinding[];
 };
 
 export type DaemonHost = {
@@ -41,14 +48,30 @@ export type DaemonHost = {
   unregisterActiveInvocation(runId: string): void;
   handleRequest(request: DaemonRequest): DaemonResponse;
   logRepository: LogRepository;
+  stateStore: StateStore;
+  runManager: RunManager;
 };
 
 /** Create a daemon host bound to a Unix socket. */
 export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
   const activeInvocationRunIds = new Set<string>();
   const pid = options.pid ?? process.pid;
-  const logRepository =
-    options.logRepository ?? openLogRepository(defaultLogRepositoryPath(dirnameForSocket(options.socketPath)));
+  const jarvisRoot = dirnameForSocket(options.socketPath);
+  const logRepository = options.logRepository ?? openLogRepository(defaultLogRepositoryPath(jarvisRoot));
+  const stateStore = options.stateStore ?? openStateStore(defaultStateStorePath(jarvisRoot));
+  const runManager = new RunManager({
+    stateStore,
+    logRepository,
+    jarvisRoot,
+    ...(options.executeWriteLoop !== undefined ? { executeWriteLoop: options.executeWriteLoop } : {}),
+    ...(options.createBindings !== undefined ? { createBindings: options.createBindings } : {}),
+    registerActiveInvocation: (runId) => {
+      activeInvocationRunIds.add(runId);
+    },
+    unregisterActiveInvocation: (runId) => {
+      activeInvocationRunIds.delete(runId);
+    },
+  });
   let server: Server | null = null;
   let shuttingDown = false;
   let stoppedResolve: (() => void) | null = null;
@@ -88,6 +111,33 @@ export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
         code: "streaming_method",
         message: "log.tail must be handled on the connection stream",
       });
+    }
+
+    if (request.method === "run.start") {
+      const parsed = parseRunStartParams(request.params);
+      if (!parsed.ok) {
+        return errorResponse(request.id, parsed.error);
+      }
+      try {
+        return okResponse(request.id, runManager.start(parsed.value));
+      } catch (error) {
+        if (error instanceof OwnershipConflictError) {
+          return errorResponse(request.id, {
+            code: "ownership_conflict",
+            message: error.message,
+            data: {
+              project: error.project,
+              branch: error.branch,
+              existingRunId: error.existingRunId,
+            },
+          });
+        }
+        return errorResponse(request.id, protocolError(error));
+      }
+    }
+
+    if (request.method === "run.list") {
+      return okResponse(request.id, runManager.list());
     }
 
     return errorResponse(request.id, {
@@ -220,6 +270,8 @@ export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
   return {
     socketPath: options.socketPath,
     logRepository,
+    stateStore,
+    runManager,
     start: async () => {
       if (await isDaemonReachable(options.socketPath)) {
         throw new Error("daemon already running");
@@ -266,6 +318,7 @@ export async function runDaemonServe(options: DaemonHostOptions): Promise<void> 
   process.once("SIGTERM", onSignal);
   await host.waitUntilStopped();
   host.logRepository.close();
+  host.stateStore.close();
 }
 
 function logRecordFrame(requestId: string, record: unknown): DaemonStreamFrame {

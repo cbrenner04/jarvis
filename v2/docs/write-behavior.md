@@ -33,7 +33,17 @@ The control flow (loop, contract dispatch, outcome routing, state persistence,
 and resume) is exercised end-to-end in tests by injecting simulated bindings
 (`v2/src/testing/bindings.ts`); no simulation lives in the production CLI.
 
-## Command
+## Foreground vs daemon host
+
+`jarvis write` remains the foreground debug path: it runs `executeWriteLoop` in
+the CLI process and blocks until the loop finishes.
+
+Detached runs use `jarvis start`, which schedules the same loop through the
+daemon host over IPC. The command returns a run ID immediately after durable run
+creation and async scheduling; use `jarvis status` for snapshots and
+`jarvis log-tail <run-id>` for structured output. See [`daemon.md`](./daemon.md).
+
+## Command (foreground)
 
 ```
 jarvis write \
@@ -46,6 +56,8 @@ jarvis write \
   [--agents <csv>] \
   [--max-iterations <n>]
 ```
+
+Detached equivalent: `jarvis start` with the same flags (see [`daemon.md`](./daemon.md)).
 
 - Worktree path: `~/.jarvis/worktrees/<project>/<branch>/`.
 - Locking uses v1-compatible `.jarvis.lock` semantics, in a dedicated lock tree
@@ -92,14 +104,8 @@ Drive the path through the test seam:
 - `bun test v2/src/write-loop.test.ts` proves the loop: repeated iterations,
   outcome routing, contract checks, blocker appending, state persistence, and
   cancellation via `AbortSignal`.
-- `bun test v2/src/cli.test.ts` proves CLI arg parsing, agent forwarding, and
-  exit-code mapping.
+- `bun test v2/src/cli.test.ts` proves CLI arg parsing, agent forwarding, exit-code
+  mapping, and run-control IPC wiring (`start`, `status`, `log-tail`).
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.
-
-## Foreground vs daemon host
-
-`jarvis write` remains the foreground debug path. The daemon host (`jarvis daemon
-start`) is the long-lived second driver for detached runs and IPC clients; see
-[`daemon.md`](./daemon.md). Detached `jarvis start` lands in a later subspec.

@@ -12,8 +12,8 @@ daemon is a second driver, not a rewrite of the write loop.
   not store work products.
 
 `jarvis daemon status` reports daemon health only (socket reachability, pid,
-active invocation run IDs). `jarvis status` (later) reports run snapshots from
-durable state — different scope, different command.
+active invocation run IDs). `jarvis status` reports run snapshots from durable
+state plus daemon in-memory activity — different scope, different command.
 
 ## Socket and framing
 
@@ -40,6 +40,31 @@ jarvis daemon status [--jarvis-root <path>]
 - `status` — probes `status` over IPC without starting a run.
 - `stop` — asks the daemon to exit and unlinks the socket.
 
+## Run-control commands
+
+```
+jarvis start --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>] [--jarvis-root <path>]
+jarvis status [--jarvis-root <path>]
+jarvis log-tail <run-id> [--from-seq <n>] [--jarvis-root <path>]
+```
+
+| CLI | IPC method |
+| --- | --- |
+| `start` | `run.start` |
+| `status` | `run.list` |
+| `log-tail` | `log.tail` |
+
+- `start` — accepts the same write-loop fields as `jarvis write`; returns a run
+  ID after durable run creation and async scheduling (does not wait for loop
+  completion).
+- `status` — prints durable run snapshots with an `active` flag for in-flight
+  daemon invocations plus `activeRunIds`.
+- `log-tail` — replays stored records for the run, then streams live appends as
+  JSON lines on stdout until interrupted.
+
+Run-control commands autostart the daemon when the socket is unreachable (see
+**Autostart**). Lifecycle commands remain explicit — they do not autostart.
+
 ## Single-instance rule
 
 A socket that answers `status` is the guard. No PID-file ownership. Stale socket
@@ -53,7 +78,7 @@ files (present on disk but not answering `status`) are removed before bind.
 
 ## Autostart (run-control clients)
 
-Later run-control commands autostart the daemon when the socket is down:
+`start`, `status`, and `log-tail` autostart the daemon when the socket is down:
 
 - **Executable discovery** — prefer the `jarvis` wrapper path when invoked
   through it; otherwise `bun run <cli.ts> daemon serve`.
@@ -65,15 +90,58 @@ Later run-control commands autostart the daemon when the socket is down:
 
 See [`autostart.ts`](../src/daemon/autostart.ts).
 
-## Methods (current)
+## Daemon-owned worktree ownership
+
+The daemon enforces at most one daemon-owned run per `(project, branch)` in
+memory. Ownership is reserved when a detached start is accepted and held while
+durable status is nonterminal: `in-progress`, `paused`, `blocked`,
+`budget-soft-stopped`, or `killed`. It releases on terminal `completed` or
+`failed`, or after explicit cleanup (steering subspec).
+
+On startup the daemon rebuilds ownership guards from durable nonterminal runs so
+paused/killed exclusivity survives restarts. Conflicting `run.start` calls return
+`ownership_conflict` with the existing run ID before any worktree is shared.
+
+## Methods
 
 | Method | Result |
 | --- | --- |
 | `status` | `{ pid, socketPath, activeInvocationRunIds }` |
 | `stop` | `{ stopped: true }` or `active_invocations` error |
+| `run.start` | `{ runId }` or `ownership_conflict` / param errors |
+| `run.list` | `{ runs: RunListEntry[], activeRunIds }` |
 | `log.tail` | Stream — see below |
 
-Run control (`run.start`, `run.list`, steering) lands in later subspecs.
+Steering (`run.pause`, `run.resume`, `run.kill`) lands in a later subspec.
+
+### `run.start`
+
+Params mirror `jarvis write` / `jarvis start` CLI fields:
+
+```json
+{
+  "projectRoot": "/path/to/repo",
+  "project": "name",
+  "branch": "branch-name",
+  "base": "HEAD",
+  "spec": "spec.md",
+  "artifact": "proof.txt",
+  "agents": ["claude"],
+  "maxIterations": 10
+}
+```
+
+Returns `{ "runId": "<uuid>" }` after durable run creation (or resume-key lookup)
+and scheduling `executeWriteLoop` asynchronously. Emits structured log records:
+`run.accepted`, `run.started`, `run.iteration`, and `run.finished` or
+`run.failed`.
+
+### `run.list`
+
+No params. Returns all durable run rows (newest first) with fields
+`id`, `project`, `branch`, `status`, `createdAt`, `attemptCount`, `specPath`,
+`worktreePath`, and `active` (true when the daemon is currently executing that
+run). Also returns `activeRunIds` for convenience.
 
 ### `log.tail`
 
@@ -92,13 +160,14 @@ Structured log storage and subscriber rules: [`structured-logging.md`](./structu
 
 ## Foreground write
 
-`jarvis write` remains the foreground host until detached `start` lands. See
-[`write-behavior.md`](./write-behavior.md).
+`jarvis write` remains the foreground debug path. Detached runs use `jarvis start`.
+See [`write-behavior.md`](./write-behavior.md).
 
 ## Verification
 
-- `bun test v2/src/daemon/` — protocol, server, client, autostart, `log.tail`.
+- `bun test v2/src/daemon/` — protocol, server, client, autostart, run control,
+  `log.tail`.
 - `bun test v2/src/log-repository.test.ts` — append, replay, follow, slow-consumer drop.
-- `bun test v2/src/cli.test.ts` — lifecycle CLI wiring.
+- `bun test v2/src/cli.test.ts` — lifecycle and run-control CLI wiring.
 
 Tests use temp `--jarvis-root` paths and write nothing under `~/.jarvis`.

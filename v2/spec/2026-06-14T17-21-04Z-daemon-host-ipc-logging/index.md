@@ -8,5 +8,5 @@ Steering, Git/worktrees).
 
 - [x] [00 - Daemon lifecycle and IPC](./00-daemon-lifecycle-and-ipc.md)
 - [x] [01 - Structured per-run logs](./01-structured-per-run-logs.md)
-- [ ] [02 - Detached write runs](./02-detached-write-runs.md)
+- [x] [02 - Detached write runs](./02-detached-write-runs.md)
 - [ ] [03 - Steering and cancellation](./03-steering-and-cancellation.md)

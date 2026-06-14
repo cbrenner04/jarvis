@@ -42,6 +42,22 @@ const WRITE_ARGS = [
   "proof.txt",
 ];
 
+const START_ARGS = [
+  "start",
+  "--project-root",
+  "/tmp/repo",
+  "--project",
+  "demo",
+  "--branch",
+  "write-run",
+  "--base",
+  "HEAD",
+  "--spec",
+  "spec.md",
+  "--artifact",
+  "proof.txt",
+];
+
 function completeResult(): WriteLoopResult {
   return {
     kind: "complete",
@@ -253,6 +269,79 @@ describe("v2 cli", () => {
     expect(JSON.parse(cap.read().stdout).error.data.activeRunIds).toEqual(["run-1"]);
   });
 
+  test("start autostarts the daemon and returns a run id without blocking", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-start-"));
+    let startCalled = false;
+
+    const code = await main([...START_ARGS, "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      callDaemonWithAutostart: async (request) => {
+        if (request.method === "run.start") {
+          startCalled = true;
+          return { id: request.id, ok: true, result: { runId: "run-detached" } };
+        }
+        return { id: request.id, ok: false, error: { code: "unexpected", message: "unexpected" } };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(startCalled).toBe(true);
+    expect(JSON.parse(cap.read().stdout).result.runId).toBe("run-detached");
+  });
+
+  test("status autostarts the daemon and lists durable run snapshots", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-status-"));
+
+    const code = await main(["status", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      callDaemonWithAutostart: async (request) => {
+        expect(request.method).toBe("run.list");
+        return {
+          id: request.id,
+          ok: true,
+          result: {
+            runs: [{ id: "run-1", project: "demo", branch: "b", status: "completed", active: false }],
+            activeRunIds: [],
+          },
+        };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(cap.read().stdout).result.runs).toHaveLength(1);
+  });
+
+  test("log-tail autostarts the daemon and streams structured records", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-log-tail-"));
+    let autostartProbe = false;
+    let tailOpened = false;
+
+    const code = await main(["log-tail", "run-1", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      callDaemonWithAutostart: async (request) => {
+        autostartProbe = true;
+        expect(request.method).toBe("status");
+        return { id: request.id, ok: true, result: { pid: 1, socketPath: "/tmp/s", activeInvocationRunIds: [] } };
+      },
+      tailDaemon: (_params, options) => {
+        tailOpened = true;
+        options.onRecord({ event: "run.started", seq: 1 });
+        return {
+          close: () => {},
+          done: Promise.resolve({ id: "tail", ok: true, result: { closed: true } }),
+        };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(autostartProbe).toBe(true);
+    expect(tailOpened).toBe(true);
+    expect(cap.read().stdout).toContain('"event":"run.started"');
+  });
+
   test("daemon lifecycle integrates start status and stop over temp socket", async () => {
     const cap = captureIo();
     const root = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-"));
@@ -274,6 +363,7 @@ describe("v2 cli", () => {
     expect(stopCode).toBe(0);
     await host.waitUntilStopped();
     host.logRepository.close();
+    host.stateStore.close();
   });
 });
 

@@ -85,3 +85,14 @@ Guardrails:
   subspec-complete branch while shrink is still pending. Rules out a shrink
   hook only in `tryFinishSpecIfDone` that leaves `maybeMarkReady` on the
   iteration path — review-skipped runs would mark the PR ready before shrink.
+
+## Blocker
+
+Review and approve `v2/spec/2026-06-14T21-21-12Z-behavioral-acs-shrink-step-2/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-06-14T21-21-12Z-behavioral-acs-shrink-step-2/intent.md`

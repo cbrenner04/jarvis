@@ -40,45 +40,45 @@ Phase 6 adds planned human pauses.
   for real child-process kill; keep tests injectable.
 - [x] Extend daemon protocol with `run.pause`, `run.resume`, and `run.kill`.
 - [x] Add CLI commands `pause <run-id>`, `resume <run-id>`, and `kill <run-id>`.
-- [ ] Emit structured log records for pause requested, paused, resumed, kill
+- [x] Emit structured log records for pause requested, paused, resumed, kill
   requested, killed, and resume branch.
-- [ ] Co-located tests for graceful pause, resume, immediate kill, and crash-like
+- [x] Co-located tests for graceful pause, resume, immediate kill, and crash-like
   interrupted resume.
 - [x] Update invocation kill/abort contract docs if the binding seam changes.
 - [ ] Run `bun run ready` for this materially invasive steering slice.
 
 ## Acceptance criteria
 
-- [ ] `jarvis pause <run-id>` on an active run records a pause request and the
+- [x] `jarvis pause <run-id>` on an active run records a pause request and the
   run stops at the next loop/iteration boundary with no in-progress attempt left
   uncommitted (test).
-- [ ] Pause completion records a boundary-clean disposition distinct from
+- [x] Pause completion records a boundary-clean disposition distinct from
   killed/crashed interruption (test).
-- [ ] `jarvis resume <run-id>` after a boundary-clean pause continues with the
+- [x] `jarvis resume <run-id>` after a boundary-clean pause continues with the
   next write-loop iteration rather than re-running the completed one (test).
-- [ ] `jarvis kill <run-id>` aborts an active invocation immediately, marks the
+- [x] `jarvis kill <run-id>` aborts an active invocation immediately, marks the
   run killed, and leaves any dirty worktree recoverable (test with injected
   binding; process-group behavior covered where child bindings exist).
-- [ ] `jarvis resume <run-id>` after killed/crashed mid-step re-runs the
+- [x] `jarvis resume <run-id>` after killed/crashed mid-step re-runs the
   interrupted attempt over the dirty worktree via the existing recovery path
   (test).
 - [x] Steering API rejects verbs other than pause/resume/kill.
-- [ ] Structured logs expose requested and resulting steering states for tail
+- [x] Structured logs expose requested and resulting steering states for tail
   consumers.
 - [ ] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and
   `bun run ready` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/daemon.md`: add steering methods, CLI commands, status/stop-cause
+- [x] `v2/docs/daemon.md`: add steering methods, CLI commands, status/stop-cause
   meanings, and error cases.
-- [ ] `v2/docs/write-behavior.md`: document graceful pause, kill/crash recovery,
+- [x] `v2/docs/write-behavior.md`: document graceful pause, kill/crash recovery,
   and resume branch behavior for daemon-driven runs.
 - [x] `v2/docs/state-store.md`: document any new statuses/stop-cause fields and
   their resume reads.
 - [x] `v2/docs/shared-invocation.md` or the actual durable invocation-binding
   home: document child-process kill/abort contracts if the seam changes.
-- [ ] `v2/docs/v2-architecture.md`: align with the as-built second-host model.
+- [x] `v2/docs/v2-architecture.md`: align with the as-built second-host model.
 - [ ] `v2/docs/v2-build-order.md` and `v2/spec/v2-meta-index.md`: check off
   Phase 3 after implementation passes.
 - [ ] `v2/docs/v1-behaviors.md`: no change - additive v2-only steering surface.

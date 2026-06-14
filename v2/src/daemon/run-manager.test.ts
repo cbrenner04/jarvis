@@ -1,12 +1,20 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { InvocationBinding } from "../../../shared/invocation/execute.ts";
 import { openLogRepository } from "../log-repository.ts";
 import { openStateStore } from "../state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import type { WriteLoopInput, WriteLoopResult } from "../write-loop.ts";
-import { OwnershipConflictError, RunManager, type RunManagerDeps, reservesOwnership, SteeringError } from "./run-manager.ts";
+import {
+  OwnershipConflictError,
+  RunManager,
+  type RunManagerDeps,
+  reservesOwnership,
+  SteeringError,
+} from "./run-manager.ts";
 
 describe("run manager", () => {
   const cleanups: Array<() => void> = [];
@@ -142,7 +150,7 @@ describe("run manager", () => {
       releaseIteration = resolve;
     });
     let pauseChecked = false;
-    const { manager, stateStore, getLoopPromise } = createManager({
+    const { manager, stateStore, logRepository, getLoopPromise } = createManager({
       executeWriteLoop: async (input) => {
         await iterationGate;
         pauseChecked = input.shouldPauseAtBoundary?.() ?? false;
@@ -170,6 +178,11 @@ describe("run manager", () => {
     await waitFor(() => stateStore.loadRun(started.runId)?.status === "paused");
     expect(pauseChecked).toBe(true);
     expect(stateStore.loadRun(started.runId)?.stopCause).toBe("paused-at-boundary");
+
+    const events = logRepository.listRecords(started.runId).map((record) => record.event);
+    expect(events).toContain("run.pause-requested");
+    expect(events).toContain("run.paused");
+    expect(events).not.toContain("run.finished");
   });
 
   test("resume schedules a paused run without reusing the active invocation slot", async () => {
@@ -178,7 +191,7 @@ describe("run manager", () => {
       releaseIteration = resolve;
     });
     let loopCalls = 0;
-    const { manager, stateStore } = createManager({
+    const { manager, stateStore, logRepository } = createManager({
       executeWriteLoop: async (input) => {
         loopCalls += 1;
         await iterationGate;
@@ -211,6 +224,14 @@ describe("run manager", () => {
     releaseIteration?.();
     await waitFor(() => stateStore.loadRun(started.runId)?.status === "completed");
     expect(loopCalls).toBe(2);
+
+    const resumeRequested = logRepository
+      .listRecords(started.runId)
+      .find((record) => record.event === "run.resume-requested");
+    expect(resumeRequested?.data).toEqual({
+      priorStopCause: "paused-at-boundary",
+      resumeBranch: "next-iteration",
+    });
   });
 
   test("kill aborts an active run and marks it killed", async () => {
@@ -218,7 +239,7 @@ describe("run manager", () => {
     const iterationGate = new Promise<void>((resolve) => {
       releaseIteration = resolve;
     });
-    const { manager, stateStore } = createManager({
+    const { manager, stateStore, logRepository } = createManager({
       executeWriteLoop: async (input) => {
         await iterationGate;
         await new Promise<void>((resolve) => {
@@ -241,6 +262,87 @@ describe("run manager", () => {
     releaseIteration?.();
     await waitFor(() => stateStore.loadRun(started.runId)?.status === "killed");
     expect(stateStore.loadRun(started.runId)?.stopCause).toBe("interrupted");
+
+    const events = logRepository.listRecords(started.runId).map((record) => record.event);
+    expect(events).toContain("run.kill-requested");
+    expect(events).toContain("run.killed");
+  });
+
+  test("resume after killed mid-step re-runs the interrupted attempt over the dirty worktree", async () => {
+    const { repoRoot, jarvisRoot } = setupRepo();
+    const dirtiedMarker = "dirty.txt";
+    let firstInvoke = true;
+    const bindings: InvocationBinding[] = [
+      {
+        id: "agent",
+        invoke: async ({ cwd, signal }) => {
+          if (firstInvoke) {
+            firstInvoke = false;
+            writeFileSync(join(cwd, dirtiedMarker), "dirty\n", "utf8");
+            await new Promise<void>((resolve) => {
+              signal?.addEventListener("abort", () => resolve(), { once: true });
+              if (signal?.aborted) resolve();
+            });
+            return { kind: "error", exitCode: 1, stderr: "aborted" };
+          }
+          expect(readFileSync(join(cwd, dirtiedMarker), "utf8")).toBe("dirty\n");
+          writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+          return { kind: "ok", stdout: "done", stderr: "" };
+        },
+      },
+    ];
+
+    const stateStore = openStateStore(join(jarvisRoot, "state", "v2.sqlite"));
+    const logRepository = openLogRepository(join(jarvisRoot, "state", "logs.sqlite"));
+    cleanups.push(() => {
+      logRepository.close();
+      stateStore.close();
+    });
+    const active: string[] = [];
+    const manager = new RunManager({
+      stateStore,
+      logRepository,
+      jarvisRoot,
+      createBindings: () => bindings,
+      registerActiveInvocation: (runId) => {
+        active.push(runId);
+      },
+      unregisterActiveInvocation: (runId) => {
+        const index = active.indexOf(runId);
+        if (index >= 0) active.splice(index, 1);
+      },
+    });
+
+    const started = manager.start({
+      projectRoot: repoRoot,
+      project: "demo",
+      branch: "kill-resume",
+      base: "HEAD",
+      spec: "spec.md",
+      artifact: "proof.txt",
+    });
+    await waitFor(() => manager.list().activeRunIds.includes(started.runId));
+    manager.kill(started.runId);
+    await waitFor(() => stateStore.loadRun(started.runId)?.status === "killed");
+
+    const interrupted = stateStore.loadRun(started.runId);
+    expect(interrupted?.attempts).toHaveLength(1);
+    expect(interrupted?.attempts[0]?.status).toBe("in-progress");
+
+    manager.resume(started.runId);
+    await waitFor(() => stateStore.loadRun(started.runId)?.status === "completed");
+
+    const completed = stateStore.loadRun(started.runId);
+    expect(completed?.attemptCount).toBe(1);
+    expect(completed?.attempts[0]?.outcomeKind).toBe("done");
+
+    const resumeRequested = logRepository
+      .listRecords(started.runId)
+      .find((record) => record.event === "run.resume-requested");
+    expect(resumeRequested?.data).toEqual({
+      priorStopCause: "interrupted",
+      resumeBranch: "interrupted-attempt",
+    });
   });
 
   test("steering rejects unknown runs and invalid lifecycle states", async () => {
@@ -266,6 +368,21 @@ function baseParams() {
     spec: "spec.md",
     artifact: "proof.txt",
   };
+}
+
+function setupRepo(): { repoRoot: string; jarvisRoot: string } {
+  const root = mkdtempSync(join(tmpdir(), "jarvis-run-mgr-repo-"));
+  const repoRoot = join(root, "repo");
+  const jarvisRoot = join(root, "jarvis-home");
+
+  execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], { stdio: "pipe" });
+  writeFileSync(join(repoRoot, "spec.md"), "- [ ] work\n", "utf8");
+  execFileSync("git", ["-C", repoRoot, "add", "spec.md"], { stdio: "pipe" });
+  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], { stdio: "pipe" });
+
+  return { repoRoot, jarvisRoot };
 }
 
 async function completeLoop(input: WriteLoopInput): Promise<WriteLoopResult> {

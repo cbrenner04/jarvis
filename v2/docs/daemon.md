@@ -131,6 +131,21 @@ schedules the next loop invocation and branches on durable `stop_cause` (see
 `run_not_found`, `invalid_state` (wrong lifecycle), `missing_start_context`
 (start params unavailable after daemon restart).
 
+| `status` | Meaning |
+| --- | --- |
+| `paused` | Stopped at a committed loop boundary (`stop_cause = paused-at-boundary`) |
+| `killed` | Active invocation aborted (`stop_cause = interrupted`) |
+
+Steering emits structured log events on the run ID:
+
+| Event | When |
+| --- | --- |
+| `run.pause-requested` | `run.pause` accepted |
+| `run.paused` | Loop stopped at boundary |
+| `run.resume-requested` | `run.resume` accepted; `data.resumeBranch` is `next-iteration` or `interrupted-attempt` |
+| `run.kill-requested` | `run.kill` accepted |
+| `run.killed` | Kill completed; `data.stopCause` is `interrupted` |
+
 ### `run.start`
 
 Params mirror `jarvis write` / `jarvis start` CLI fields:

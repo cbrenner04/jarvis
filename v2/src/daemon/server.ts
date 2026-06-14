@@ -22,7 +22,13 @@ import {
   ProtocolError,
   parseRequestLine,
 } from "./protocol.ts";
-import { OwnershipConflictError, parseRunStartParams, parseRunSteeringParams, RunManager, SteeringError } from "./run-manager.ts";
+import {
+  OwnershipConflictError,
+  parseRunStartParams,
+  parseRunSteeringParams,
+  RunManager,
+  SteeringError,
+} from "./run-manager.ts";
 
 export type DaemonStatusResult = {
   pid: number;
@@ -80,91 +86,96 @@ export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
   });
 
   const handleRequest = (request: DaemonRequest): DaemonResponse => {
-    if (request.method === "status") {
-      return okResponse(request.id, {
-        pid,
-        socketPath: options.socketPath,
-        activeInvocationRunIds: [...activeInvocationRunIds],
-      } satisfies DaemonStatusResult);
-    }
-
-    if (request.method === "stop") {
-      if (activeInvocationRunIds.size > 0) {
+    switch (request.method) {
+      case "status":
+        return okResponse(request.id, {
+          pid,
+          socketPath: options.socketPath,
+          activeInvocationRunIds: [...activeInvocationRunIds],
+        } satisfies DaemonStatusResult);
+      case "stop":
+        return handleStopRequest(request);
+      case "log.tail":
         return errorResponse(request.id, {
-          code: "active_invocations",
-          message: "daemon has active invocations",
-          data: { activeRunIds: [...activeInvocationRunIds] },
+          code: "streaming_method",
+          message: "log.tail must be handled on the connection stream",
+        });
+      case "run.start":
+        return handleRunStartRequest(request);
+      case "run.list":
+        return okResponse(request.id, runManager.list());
+      case "run.pause":
+      case "run.resume":
+      case "run.kill":
+        return handleSteeringRequest(request);
+      default:
+        return errorResponse(request.id, {
+          code: "unknown_method",
+          message: `unknown method: ${request.method}`,
+        });
+    }
+  };
+
+  const handleStopRequest = (request: DaemonRequest): DaemonResponse => {
+    if (activeInvocationRunIds.size > 0) {
+      return errorResponse(request.id, {
+        code: "active_invocations",
+        message: "daemon has active invocations",
+        data: { activeRunIds: [...activeInvocationRunIds] },
+      });
+    }
+    logRepository.append({
+      runId: DAEMON_LOG_RUN_ID,
+      level: "info",
+      event: "daemon.stopping",
+      data: { pid },
+    });
+    queueShutdown();
+    return okResponse(request.id, { stopped: true });
+  };
+
+  const handleRunStartRequest = (request: DaemonRequest): DaemonResponse => {
+    const parsed = parseRunStartParams(request.params);
+    if (!parsed.ok) {
+      return errorResponse(request.id, parsed.error);
+    }
+    try {
+      return okResponse(request.id, runManager.start(parsed.value));
+    } catch (error) {
+      if (error instanceof OwnershipConflictError) {
+        return errorResponse(request.id, {
+          code: "ownership_conflict",
+          message: error.message,
+          data: {
+            project: error.project,
+            branch: error.branch,
+            existingRunId: error.existingRunId,
+          },
         });
       }
-      logRepository.append({
-        runId: DAEMON_LOG_RUN_ID,
-        level: "info",
-        event: "daemon.stopping",
-        data: { pid },
-      });
-      queueShutdown();
-      return okResponse(request.id, { stopped: true });
+      return errorResponse(request.id, protocolError(error));
     }
+  };
 
-    if (request.method === "log.tail") {
-      return errorResponse(request.id, {
-        code: "streaming_method",
-        message: "log.tail must be handled on the connection stream",
-      });
+  const handleSteeringRequest = (request: DaemonRequest): DaemonResponse => {
+    const parsed = parseRunSteeringParams(request.params, request.method);
+    if (!parsed.ok) {
+      return errorResponse(request.id, parsed.error);
     }
-
-    if (request.method === "run.start") {
-      const parsed = parseRunStartParams(request.params);
-      if (!parsed.ok) {
-        return errorResponse(request.id, parsed.error);
+    try {
+      const result =
+        request.method === "run.pause"
+          ? runManager.pause(parsed.value.runId)
+          : request.method === "run.resume"
+            ? runManager.resume(parsed.value.runId)
+            : runManager.kill(parsed.value.runId);
+      return okResponse(request.id, result);
+    } catch (error) {
+      if (error instanceof SteeringError) {
+        return errorResponse(request.id, { code: error.code, message: error.message });
       }
-      try {
-        return okResponse(request.id, runManager.start(parsed.value));
-      } catch (error) {
-        if (error instanceof OwnershipConflictError) {
-          return errorResponse(request.id, {
-            code: "ownership_conflict",
-            message: error.message,
-            data: {
-              project: error.project,
-              branch: error.branch,
-              existingRunId: error.existingRunId,
-            },
-          });
-        }
-        return errorResponse(request.id, protocolError(error));
-      }
+      return errorResponse(request.id, protocolError(error));
     }
-
-    if (request.method === "run.list") {
-      return okResponse(request.id, runManager.list());
-    }
-
-    if (request.method === "run.pause" || request.method === "run.resume" || request.method === "run.kill") {
-      const parsed = parseRunSteeringParams(request.params, request.method);
-      if (!parsed.ok) {
-        return errorResponse(request.id, parsed.error);
-      }
-      try {
-        const result =
-          request.method === "run.pause"
-            ? runManager.pause(parsed.value.runId)
-            : request.method === "run.resume"
-              ? runManager.resume(parsed.value.runId)
-              : runManager.kill(parsed.value.runId);
-        return okResponse(request.id, result);
-      } catch (error) {
-        if (error instanceof SteeringError) {
-          return errorResponse(request.id, { code: error.code, message: error.message });
-        }
-        return errorResponse(request.id, protocolError(error));
-      }
-    }
-
-    return errorResponse(request.id, {
-      code: "unknown_method",
-      message: `unknown method: ${request.method}`,
-    });
   };
 
   const queueShutdown = () => {

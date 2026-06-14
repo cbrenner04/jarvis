@@ -31,6 +31,11 @@ token/cost streams are not stored here.
 Daemon lifecycle records use run ID `_daemon` (e.g. `daemon.started`,
 `daemon.stopping`).
 
+Detached run steering records (same run ID as orchestration): `run.pause-requested`,
+`run.paused`, `run.resume-requested` (includes `resumeBranch`), `run.kill-requested`,
+`run.killed`. Lifecycle records include `run.accepted`, `run.started`,
+`run.iteration`, `run.finished`, and `run.failed`.
+
 ## API (`log-repository.ts`)
 
 - `append` — persist one record; assigns the next `seq` for the run.

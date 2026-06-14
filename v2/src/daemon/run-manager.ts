@@ -90,12 +90,7 @@ const OWNERSHIP_RESERVING_STATUSES: ReadonlySet<RunStatus> = new Set([
   "killed",
 ]);
 
-const RESUMABLE_STATUSES: ReadonlySet<RunStatus> = new Set([
-  "paused",
-  "killed",
-  "budget-soft-stopped",
-  "blocked",
-]);
+const RESUMABLE_STATUSES: ReadonlySet<RunStatus> = new Set(["paused", "killed", "budget-soft-stopped", "blocked"]);
 
 type RunSession = {
   params: RunStartParams;
@@ -189,6 +184,7 @@ export class RunManager {
       throw new SteeringError("missing_start_context", "run start context is unavailable");
     }
     session.pauseRequested = true;
+    this.deps.logRepository.append({ runId, level: "info", event: "run.pause-requested" });
     return { accepted: true };
   }
 
@@ -205,6 +201,16 @@ export class RunManager {
     if (session === undefined) {
       throw new SteeringError("missing_start_context", "run start context is unavailable");
     }
+    const priorStopCause = run.stopCause;
+    this.deps.logRepository.append({
+      runId,
+      level: "info",
+      event: "run.resume-requested",
+      data: {
+        priorStopCause,
+        resumeBranch: priorStopCause === "paused-at-boundary" ? "next-iteration" : "interrupted-attempt",
+      },
+    });
     session.abortController = new AbortController();
     session.pauseRequested = false;
     session.killRequested = false;
@@ -224,6 +230,7 @@ export class RunManager {
       throw new SteeringError("missing_start_context", "run start context is unavailable");
     }
     session.killRequested = true;
+    this.deps.logRepository.append({ runId, level: "info", event: "run.kill-requested" });
     session.abortController.abort("steering-kill");
     return { accepted: true };
   }
@@ -303,6 +310,22 @@ export class RunManager {
       });
 
       if (session.killRequested) {
+        this.deps.logRepository.append({
+          runId,
+          level: "info",
+          event: "run.killed",
+          data: { stopCause: "interrupted" },
+        });
+        return;
+      }
+
+      if (result.kind === "paused-at-boundary") {
+        this.deps.logRepository.append({
+          runId,
+          level: "info",
+          event: "run.paused",
+          data: { stopCause: "paused-at-boundary" },
+        });
         return;
       }
 
@@ -320,6 +343,12 @@ export class RunManager {
     } catch (error: unknown) {
       if (session.killRequested) {
         this.deps.stateStore.setRunStatus(runId, "killed", "interrupted");
+        this.deps.logRepository.append({
+          runId,
+          level: "info",
+          event: "run.killed",
+          data: { stopCause: "interrupted" },
+        });
         return;
       }
       this.deps.logRepository.append({

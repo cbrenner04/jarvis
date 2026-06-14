@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type LogRepository, openLogRepository } from "../log-repository.ts";
+import { openLogRepository } from "../log-repository.ts";
 import { openStateStore } from "../state-store.ts";
 import { simulatedBindings } from "../testing/bindings.ts";
 import type { WriteLoopInput, WriteLoopResult } from "../write-loop.ts";

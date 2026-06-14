@@ -43,6 +43,26 @@ daemon host over IPC. The command returns a run ID immediately after durable run
 creation and async scheduling; use `jarvis status` for snapshots and
 `jarvis log-tail <run-id>` for structured output. See [`daemon.md`](./daemon.md).
 
+## Daemon steering
+
+Detached runs expose `jarvis pause`, `resume`, and `kill` (see [`daemon.md`](./daemon.md)).
+
+- **Pause** — checked at loop boundaries via `shouldPauseAtBoundary`; the current
+  iteration commits before stop. Durable `status = paused`, `stop_cause =
+  paused-at-boundary`. No in-progress attempt remains.
+- **Kill** — aborts the active invocation immediately (`AbortSignal` + process-group
+  kill for child bindings). Durable `status = killed`, `stop_cause = interrupted`.
+  Any dirty worktree is left for recovery.
+- **Resume** branches on `stop_cause`:
+  - `paused-at-boundary` — continue with the next loop iteration (do not re-run
+    the completed one).
+  - `interrupted` (kill/crash mid-step) — re-run the interrupted attempt over the
+    dirty worktree (same path as crash recovery above).
+
+Structured steering events (`run.pause-requested`, `run.paused`,
+`run.resume-requested`, `run.kill-requested`, `run.killed`) are appended to the
+per-run log stream; see [`structured-logging.md`](./structured-logging.md).
+
 ## Command (foreground)
 
 ```

@@ -708,7 +708,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
 
   const targetDir = opts.targetDir ?? "spec";
 
-  // Create actuator that runs the verdict through the refine loop
+  // Create actuator that applies the verdict to generated spec files.
   const createActuator = () => {
     return async (verdict: string, ctx: { passNumber: number }): Promise<void> => {
       if (!verdict?.trim()) {
@@ -718,6 +718,8 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
       }
 
       opts.stderr?.(`plan: actuator running with verdict\n`);
+
+      const intentBefore = readFileSync(join(finalSpecPath, "intent.md"), "utf8");
 
       // Write verdict to durable doc next to the spec
       const verdictPath = join(finalSpecPath, "verdict-plan.md");
@@ -729,7 +731,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
         throw new ReviewTerminalError(message, 1);
       }
 
-      // Run the verdict actuator through refine
+      // Run the verdict actuator against the generated spec files.
       try {
         await runVerdictActuator({
           worktreePath: opts.worktreePath,
@@ -739,6 +741,7 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
           stderr: opts.stderr,
           planTelemetry: opts.planTelemetry,
           externalSpecRoot: opts.externalSpecRoot,
+          specDirPath: opts.specDirPath,
           targetDir,
           onOutboundPrompt: opts.onOutboundPrompt,
           createAgent: resolveAgent,
@@ -747,6 +750,22 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
         const message = err instanceof Error ? err.message : String(err);
         opts.stderr?.(`plan: verdict actuator failed: ${message}\n`);
         throw new ReviewTerminalError(message, 1);
+      }
+
+      const validation = validateReviewOutput(
+        opts.worktreePath,
+        opts.specDirBasename,
+        intentBefore,
+        opts.specDirPath,
+        targetDir,
+      );
+      if (!validation.valid) {
+        opts.stderr?.(`plan: actuator validation failed: ${validation.error}\n`);
+        throw new ReviewTerminalError(validation.error ?? "validation failed", 1);
+      }
+
+      if (!opts.commit) {
+        return;
       }
 
       // Commit actuator changes

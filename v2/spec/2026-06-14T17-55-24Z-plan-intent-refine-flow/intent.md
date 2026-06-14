@@ -74,3 +74,14 @@ catalog accordingly.
 ## Refine skip
 
 No net-new load-bearing decisions found.
+
+## Blocker
+
+Review and approve `v2/spec/2026-06-14T17-55-24Z-plan-intent-refine-flow/intent.md` before drafting subspecs.
+
+Optional feedback:
+- Add missing constraints, assumptions, and risks directly in `intent.md`.
+- If scope is unclear, append focused questions to this blocker section.
+
+Resume drafting once approved:
+`jarvis1 plan --resume-draft v2/spec/2026-06-14T17-55-24Z-plan-intent-refine-flow/intent.md`

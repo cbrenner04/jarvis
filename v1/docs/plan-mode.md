@@ -264,7 +264,7 @@ Coverage:
 
 - **Phases**: intent draft, intent-refinement turns, draft, and each review pass—all agent attempts participate in the same telemetry stream.
 
-- **Telemetry**: Rows use the configured `telemetryPath` JSONL file (same file as `jarvis1 run`), with **`mode: "plan"`** and **`plan_phase`** set to `refine`, `name-only`, `draft`, or `review`. Patch summaries ignore these rows; plan summaries ignore patch rows, so both modes can coexist in one file.
+- **Telemetry**: Rows use the configured `telemetryPath` JSONL file (same file as `jarvis1 run`), with **`mode: "plan"`** and **`plan_phase`** set to `intent`, `refine`, `name-only`, `draft`, or `review`. Intent and refine rows may include **`outcome`**: `success` (intent draft validated), `refined` (refine produced a refinement ledger), `skip` (refine appended `## Refine skip`), or `blocker` (refine appended `## Blocker`). Failed intent/refine attempts omit `outcome`. Patch summaries ignore these rows; plan summaries ignore patch rows, so both modes can coexist in one file.
 
 - **Labels**: The summary header reports **`phase attempts`** (count of non-`harness`, non-`run_terminal` invocation rows), not patch-style implementation iterations. Table rows use **`N attempt(s)`** per agent instead of **`N iteration(s)`**.
 

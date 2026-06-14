@@ -284,8 +284,10 @@ purposes:
 - **Run telemetry file**: append-only JSONL at `~/.jarvis/runs.jsonl` (or
   `telemetryPath` from config). Patch mode emits one invocation line per agent outcome
   (for example each `criteria-progress`, `criteria-complete`, or `quota`). Plan mode
-  emits analogous rows with **`mode: "plan"`** and **`plan_phase`** (`refine`,
-  `name-only`, `draft`, or `review`) so patch and plan summaries can filter a shared
+  emits analogous rows with **`mode: "plan"`** and **`plan_phase`** (`intent`,
+  `refine`, `name-only`, `draft`, or `review`). Intent and refine rows may
+  include **`outcome`** (`success`, `refined`, `skip`, `blocker`) after harness
+  validation; failed attempts omit it. Patch and plan summaries filter a shared
   file safely. When an iteration finishes the checklist, Jarvis emits `criteria-complete` with tokens
   and cost, followed by a short `completed-spec` line marked
   **`record_role: "run_terminal"`** so end-of-run summaries do not sum usage twice.

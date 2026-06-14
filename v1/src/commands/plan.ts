@@ -1136,6 +1136,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         seededIntent: readFileSync(tempIntentPath, "utf8"),
         config: cfg,
         stderr: opts.io.stderr,
+        planTelemetry: planTelemetryWriter,
         createAgent: resolveAgent,
       });
       if (intentDraftResult.result.kind !== "ok") {
@@ -1157,10 +1158,33 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
       if (extractRawSeed(readFileSync(tempIntentPath, "utf8")) !== rawSeed) {
+        if (intentDraftResult.successAttempt !== undefined) {
+          planTelemetryWriter.recordAgentAttempt({
+            phase: "intent",
+            agentCli: intentDraftResult.successAttempt.agentCli,
+            configuredModel: intentDraftResult.successAttempt.configuredModel,
+            durationMs: intentDraftResult.successAttempt.durationMs,
+            result: {
+              kind: "error",
+              exitCode: 1,
+              stderr: "plan: intent-draft invalid output; raw seed was not preserved exactly",
+            },
+          });
+        }
         opts.io.stderr("plan: intent-draft invalid output; raw seed was not preserved exactly\n");
         cleanupNoCommitTempSpec();
         summarizePlan("error", specDirBasename);
         return 1;
+      }
+      if (intentDraftResult.successAttempt !== undefined) {
+        planTelemetryWriter.recordAgentAttempt({
+          phase: "intent",
+          agentCli: intentDraftResult.successAttempt.agentCli,
+          configuredModel: intentDraftResult.successAttempt.configuredModel,
+          durationMs: intentDraftResult.successAttempt.durationMs,
+          result: intentDraftResult.result,
+          outcome: "success",
+        });
       }
 
       const intentDraftAgentLabel = intentDraftResult.agentLabel ?? "unknown";

@@ -76,13 +76,3 @@ Remaining choices (diff-base mechanism, quota behavior mid-shrink) are either
 implementer defaults or already subsumed by the discard-on-miss rule. Nothing
 load-bearing to add.
 
-## Blocker
-
-Review and approve `v2/spec/2026-06-14T16-59-37Z-behavioral-acs-shrink-step/intent.md` before drafting subspecs.
-
-Optional feedback:
-- Add missing constraints, assumptions, and risks directly in `intent.md`.
-- If scope is unclear, append focused questions to this blocker section.
-
-Resume drafting once approved:
-`jarvis1 plan --resume-draft v2/spec/2026-06-14T16-59-37Z-behavioral-acs-shrink-step/intent.md`

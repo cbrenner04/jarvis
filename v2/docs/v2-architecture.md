@@ -141,8 +141,9 @@ The **review-and-update** behavior is a debate, not N identical critique passes
 - **Read-only reviewers → a writing actuator.** One cycle is three read-only
   reviewer roles — adversary → advocate → adjudicator — then a separate actuator. The
   adjudicator emits a **verdict**: an outcome-altitude instruction (what must be true and
-  why, never the diff). The actuator is the *only* writer; for implement it is the
-  write loop, for plan the refine loop, run with the verdict as its task.
+  why, never the diff). The actuator is the *only* writer; for implement it updates
+  implementation files, while for plan it updates the generated spec tree from a
+  review-actuator prompt. Intent refinement remains a separate pre-draft behavior.
 - **This is why categories matter.** Reviewers are **reviewing**-class; the
   actuator runs in the mode's *authoring* category — implement → **executing**,
   plan → **thinking** (applying a verdict to a spec is still spec-authoring work).

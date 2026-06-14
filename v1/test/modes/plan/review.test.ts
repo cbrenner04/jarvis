@@ -375,6 +375,48 @@ describe("runPlanReviewPhase", () => {
       cleanup();
     }
   });
+
+  test("actuator applies verdict to spec files without refining intent", async () => {
+    const { dir, specDir, cleanup } = setupReviewRepo();
+    try {
+      const intentPath = join(specDir, "intent.md");
+      const specPath = join(specDir, "00-one.md");
+      const originalIntent = readFileSync(intentPath, "utf8");
+      const agent = new FakeAgent("claude", (_c, prompt, _opts) => {
+        if (prompt.includes("Review Actuator")) {
+          expect(prompt).toContain("Current Spec Files");
+          expect(prompt).toContain("Do not edit `intent.md` unless appending a genuine `## Blocker` section.");
+          expect(prompt).not.toContain("Intent Refinement Phase");
+          expect(prompt).not.toContain("Do not write any other files.");
+          writeFileSync(specPath, "# One\n\n## Acceptance criteria\n\n- [ ] verdict applied\n", "utf8");
+          return { kind: "ok", stdout: "", stderr: "" };
+        }
+        if (prompt.includes("Review: Adjudicator")) {
+          return { kind: "ok", stdout: "Add a concrete acceptance criterion.\n", stderr: "" };
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const stderr: string[] = [];
+      const result = await runPlanReviewPhase({
+        worktreePath: dir,
+        name: "p-review",
+        specDirBasename: "p-review",
+        config: makeReviewConfig({ planOrder: [CLAUDE_ENTRY], reviewPasses: 1 }),
+        reviewPassesOverride: 1,
+        commit: false,
+        specDirPath: specDir,
+        createAgent: () => agent,
+        stderr: (line) => stderr.push(line),
+      });
+
+      expect(result.exitCode, stderr.join("")).toBe(0);
+      expect(readFileSync(intentPath, "utf8")).toBe(originalIntent);
+      expect(readFileSync(specPath, "utf8")).toContain("verdict applied");
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("validateReviewOutput", () => {

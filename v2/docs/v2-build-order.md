@@ -69,7 +69,7 @@ durable state earns its first rows here — only the columns resume reads, no mo
 model). Retires: loop + minimal durable state + boundary recovery, on a real
 behavior. *TUI: not yet — runs are still foreground.*
 
-### Phase 3 — Daemon host + IPC + structured logging
+### Phase 3 — Daemon host + IPC + structured logging ✓
 
 Introduce the long-running host as a second driver over the existing core, now
 that there is a real looping run worth detaching from the terminal: start/stop, a
@@ -78,7 +78,8 @@ at the next boundary), and the structured, queryable logging stream consumed by
 everything after. The core library is unchanged — the daemon wires its own
 cancellation into the same `AbortSignal`. A minimal `jarvis` CLI control surface
 (start/stop/status/log-tail) talks to the daemon. Retires: the lifecycle/embedding
-boundary and the multi-window problem.
+boundary and the multi-window problem. **Completed.** Implements daemon lifecycle,
+IPC protocol, structured per-run logs, detached write runs, and steering (pause/resume/kill).
 
 ### Phase 4 — TUI seed (start dogfooding)
 

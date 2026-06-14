@@ -3,6 +3,9 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "./cli.ts";
+import { callDaemon } from "./daemon/client.ts";
+import { daemonSocketPath } from "./daemon/paths.ts";
+import { createDaemonHost } from "./daemon/server.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./write-loop.ts";
 
@@ -200,6 +203,74 @@ describe("v2 cli", () => {
 
     expect(captured?.bindings).toHaveLength(1);
     expect(captured?.bindings[0]?.invoke({ prompt: "p", cwd: "/tmp" })).resolves.toMatchObject({ kind: "error" });
+  });
+
+  test("daemon status reports unreachable daemon without starting a run", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-"));
+
+    const code = await main(["daemon", "status", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(cap.read().stdout)).toEqual({ reachable: false });
+  });
+
+  test("daemon start uses ensureDaemonRunning and prints structured result", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-"));
+    const socketPath = daemonSocketPath(root);
+
+    const code = await main(["daemon", "start", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      ensureDaemonRunning: async () => ({ ok: true }),
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(cap.read().stdout)).toEqual({ started: true, socketPath });
+  });
+
+  test("daemon stop exits 1 when active invocations block shutdown", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-"));
+
+    const code = await main(["daemon", "stop", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      callDaemon: async () => ({
+        id: "stop",
+        ok: false,
+        error: {
+          code: "active_invocations",
+          message: "daemon has active invocations",
+          data: { activeRunIds: ["run-1"] },
+        },
+      }),
+    });
+
+    expect(code).toBe(1);
+    expect(JSON.parse(cap.read().stdout).error.data.activeRunIds).toEqual(["run-1"]);
+  });
+
+  test("daemon lifecycle integrates start status and stop over temp socket", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-"));
+    const socketPath = daemonSocketPath(root);
+    const host = createDaemonHost({ socketPath });
+    await host.start();
+
+    const statusCode = await main(["daemon", "status", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+    });
+    expect(statusCode).toBe(0);
+    expect(JSON.parse(cap.read().stdout).reachable).toBe(true);
+
+    const stopCode = await main(["daemon", "stop", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      callDaemon,
+    });
+    expect(stopCode).toBe(0);
+    await host.waitUntilStopped();
   });
 });
 

@@ -34,50 +34,50 @@ non-local or multi-user caller exists.
 
 ## Task checklist
 
-- [ ] Add daemon host modules under `v2/src` (for example `daemon/server.ts`,
+- [x] Add daemon host modules under `v2/src` (for example `daemon/server.ts`,
   `daemon/client.ts`, `daemon/protocol.ts`) with exported contracts documented.
-- [ ] Bootstrap `~/.jarvis/` and bind `~/.jarvis/daemon.sock`; tests use temp
+- [x] Bootstrap `~/.jarvis/` and bind `~/.jarvis/daemon.sock`; tests use temp
   paths and write nothing under `~/.jarvis`.
-- [ ] Implement NDJSON request/response framing with parse/error handling and
+- [x] Implement NDJSON request/response framing with parse/error handling and
   request IDs.
-- [ ] Implement daemon methods: `status` and `stop`.
-- [ ] Add CLI commands: `daemon start`, `daemon stop`, `daemon status`.
-- [ ] Make `daemon stop` reject active invocations with active run IDs and allow
+- [x] Implement daemon methods: `status` and `stop`.
+- [x] Add CLI commands: `daemon start`, `daemon stop`, `daemon status`.
+- [x] Make `daemon stop` reject active invocations with active run IDs and allow
   non-running durable states.
-- [ ] Specify daemon autostart executable discovery, readiness timeout, stdio
+- [x] Specify daemon autostart executable discovery, readiness timeout, stdio
   detachment, and failure reporting for later run-control clients.
-- [ ] Keep `jarvis write` available as the foreground path until detached runs
+- [x] Keep `jarvis write` available as the foreground path until detached runs
   land in 02.
-- [ ] Co-located protocol/server/client/CLI tests.
+- [x] Co-located protocol/server/client/CLI tests.
 
 ## Acceptance criteria
 
-- [ ] `jarvis daemon start` starts a long-lived host that accepts `status` over
+- [x] `jarvis daemon start` starts a long-lived host that accepts `status` over
   the Unix socket (test with temp socket).
-- [ ] `jarvis daemon status` reports whether the daemon is reachable without
+- [x] `jarvis daemon status` reports whether the daemon is reachable without
   starting a run (test).
-- [ ] `jarvis daemon stop` asks the daemon to exit and removes or tolerates the
+- [x] `jarvis daemon stop` asks the daemon to exit and removes or tolerates the
   stale socket on the next start (test).
-- [ ] `jarvis daemon stop` refuses while active invocations exist and reports
+- [x] `jarvis daemon stop` refuses while active invocations exist and reports
   their run IDs; it succeeds with only paused, blocked, budget-soft-stopped,
   killed, failed, or done runs (test).
-- [ ] A second daemon start against a live socket fails cleanly without replacing
+- [x] A second daemon start against a live socket fails cleanly without replacing
   the running daemon (test).
-- [ ] Malformed JSON, unknown methods, and handler errors return structured
+- [x] Malformed JSON, unknown methods, and handler errors return structured
   error responses and keep the daemon alive (test).
-- [ ] Protocol/client tests prove request IDs match responses.
-- [ ] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and
+- [x] Protocol/client tests prove request IDs match responses.
+- [x] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and
   `bun run ready` pass.
 
 ## Documentation updates
 
-- [ ] New `v2/docs/daemon.md`: daemon role, socket path, lifecycle commands,
+- [x] New `v2/docs/daemon.md`: daemon role, socket path, lifecycle commands,
   NDJSON frame shape, single-instance rule, daemon vs run status distinction,
   stop refusal rules, autostart semantics, and that CLI/TUI are clients over IPC.
-- [ ] `v2/docs/write-behavior.md`: note `jarvis write` remains the foreground
+- [x] `v2/docs/write-behavior.md`: note `jarvis write` remains the foreground
   host until detached `start` lands.
-- [ ] `v2/docs/v2-architecture.md`: align daemon host wording with the as-built
+- [x] `v2/docs/v2-architecture.md`: align daemon host wording with the as-built
   second-host model if lifecycle/IPC implementation diverges from older design
   notes.
-- [ ] `v2/docs/v1-behaviors.md`: explicitly state this is an additive v2-only
+- [x] `v2/docs/v1-behaviors.md`: explicitly state this is an additive v2-only
   host and does not alter v1 lock/run behavior.

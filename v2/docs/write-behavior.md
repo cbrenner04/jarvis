@@ -97,3 +97,9 @@ Drive the path through the test seam:
 
 A live `jarvis write ...` runs the full pipeline and reports
 `"kind": "invocation_failure"` until process bindings land.
+
+## Foreground vs daemon host
+
+`jarvis write` remains the foreground debug path. The daemon host (`jarvis daemon
+start`) is the long-lived second driver for detached runs and IPC clients; see
+[`daemon.md`](./daemon.md). Detached `jarvis start` lands in a later subspec.

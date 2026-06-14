@@ -2,6 +2,10 @@ import { parseArgs } from "node:util";
 import packageJson from "../../package.json";
 import { createAgentBindings } from "../../shared/invocation/agents.ts";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import { ensureDaemonRunning, formatAutostartFailure } from "./daemon/autostart.ts";
+import { callDaemon } from "./daemon/client.ts";
+import { daemonSocketPath, defaultJarvisRoot } from "./daemon/paths.ts";
+import { fetchDaemonStatus, runDaemonServe } from "./daemon/server.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
 
 export type Io = {
@@ -12,6 +16,11 @@ export type Io = {
 type CliDeps = {
   executeWriteLoop: (input: WriteLoopInput) => Promise<Awaited<ReturnType<typeof executeWriteLoop>>>;
   createBindings: (agentIds: readonly string[]) => readonly InvocationBinding[];
+  ensureDaemonRunning: typeof ensureDaemonRunning;
+  callDaemon: typeof callDaemon;
+  fetchDaemonStatus: typeof fetchDaemonStatus;
+  runDaemonServe: typeof runDaemonServe;
+  jarvisRoot: () => string;
 };
 
 type WriteCliInput = { ok: true; input: WriteLoopInput } | { ok: false; message?: string };
@@ -20,6 +29,7 @@ const DEFAULT_STEP_RULES = "Return exactly one terminal token: done|no-work|bloc
 const DEFAULT_AGENTS = ["claude"] as const;
 const WRITE_USAGE =
   "usage: jarvis write --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
+const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status|serve> [--jarvis-root <path>]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
   const out = io ?? {
@@ -29,6 +39,11 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
   const runtimeDeps: CliDeps = {
     executeWriteLoop,
     createBindings: createAgentBindings,
+    ensureDaemonRunning,
+    callDaemon,
+    fetchDaemonStatus,
+    runDaemonServe,
+    jarvisRoot: defaultJarvisRoot,
     ...deps,
   };
   const command = argv[0];
@@ -62,6 +77,10 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
     );
 
     return exitCodeForWriteResult(loopResult.kind);
+  }
+
+  if (command === "daemon") {
+    return runDaemonCli(argv.slice(1), out, runtimeDeps);
   }
 
   out.stdout("v2 not ready\n");
@@ -172,6 +191,52 @@ function parseAgents(raw: string | undefined): readonly string[] | null {
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
   return agents.length === 0 ? null : agents;
+}
+
+async function runDaemonCli(argv: readonly string[], out: Io, deps: CliDeps): Promise<number> {
+  const subcommand = argv[0];
+  const jarvisRoot = parseJarvisRoot(argv) ?? deps.jarvisRoot();
+  const socketPath = daemonSocketPath(jarvisRoot);
+
+  if (subcommand === "serve") {
+    await deps.runDaemonServe({ socketPath });
+    return 0;
+  }
+
+  if (subcommand === "start") {
+    const started = await deps.ensureDaemonRunning({ jarvisRoot, socketPath });
+    out.stdout(
+      `${JSON.stringify(started.ok ? { started: true, socketPath } : formatAutostartFailure(started), null, 2)}\n`,
+    );
+    return started.ok ? 0 : 1;
+  }
+
+  if (subcommand === "status") {
+    const status = await deps.fetchDaemonStatus(socketPath);
+    out.stdout(`${JSON.stringify(status, null, 2)}\n`);
+    return 0;
+  }
+
+  if (subcommand === "stop") {
+    const response = await deps.callDaemon({ id: "stop", method: "stop" }, { socketPath });
+    out.stdout(`${JSON.stringify(response, null, 2)}\n`);
+    if (!response.ok && response.error?.code === "active_invocations") {
+      return 1;
+    }
+    return response.ok ? 0 : 1;
+  }
+
+  out.stderr(DAEMON_USAGE);
+  return 1;
+}
+
+function parseJarvisRoot(argv: readonly string[]): string | undefined {
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--jarvis-root" && typeof argv[index + 1] === "string") {
+      return argv[index + 1];
+    }
+  }
+  return undefined;
 }
 
 if (import.meta.main) {

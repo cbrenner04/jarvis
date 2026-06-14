@@ -198,11 +198,13 @@ a server/runner world (pause + route to a human loop vs. process exit).
 
 ### Interface
 
-- **Daemon-first.** A persistent daemon owns run state and exposes a programmatic
-  API from day one; the CLI, TUI, and any future web UI are thin clients over it.
-  This kills the multi-window problem immediately (runs detach from terminals)
-  and means orchestration logic is never rebuilt to add a surface. Matches the
-  vision's "embeddable, not a one-shot CLI lifecycle."
+- **Daemon host (v2).** A persistent process owns orchestration lifecycle and
+  exposes a local IPC API at `~/.jarvis/daemon.sock` (NDJSON request/response;
+  stream frames share the socket). The CLI, TUI, and any future web UI are thin
+  clients over it — `jarvis daemon start|stop|status` today; run control and logs
+  follow in later slices. `executeWriteLoop` stays the core execution path; the
+  daemon is a second driver, not a rewrite. `jarvis write` remains the foreground
+  host until detached runs land. See [`daemon.md`](daemon.md).
 - **TUI is the first UI client.** A terminal dashboard to launch / monitor /
   steer runs, with a separate server window streaming logs alongside it. Lighter
   on memory than a web UI (matters with concurrent agents + the local model) and

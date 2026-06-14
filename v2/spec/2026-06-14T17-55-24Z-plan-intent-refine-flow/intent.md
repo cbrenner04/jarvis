@@ -71,17 +71,3 @@ becomes clean exit, synthetic blocker removed), `--resume-draft` validation.
 catalog accordingly.
 - `v1/docs/config.md` — if the refine-turns default is documented there.
 
-## Refinement
-
-- `commit: false` runs intent, refine, draft, and review continuously with no PR handoff; rules out mirroring committed-mode intent/refine stops without commits.
-- Missing path-looking positional strings are inline seeds unless the path exists; rules out failing `jarvis1 plan ./missing.md`, and requires parser coverage.
-- File-seed frontmatter keeps non-`name` keys, while `name:` is normalized/replaced by the intent step; rules out trusting invalid or stale file-provided names.
-- Seed preservation means exact raw seed recoverability in `intent.md`; rules out satisfying preservation with only an agent paraphrase.
-- Invalid/missing intent names fall back to deterministic seed-derived names before collision suffixing; rules out proceeding with invalid branch/spec paths.
-- Branch/worktree/spec-dir collisions append numeric suffixes after name normalization, and temp worktrees/branches are cleaned after successful rename or failed setup; rules out overwriting existing plan state.
-- Committed PR handling opens or refreshes only the current branch's open draft PR; rules out broad rerun/idempotency semantics across closed PRs or unrelated branches.
-- Committed `--refine-turns 0` still commits `plan: intent`, opens/refreshes the draft PR, exits `0`, and prints the same review-then-`--resume-draft` handoff; rules out silently continuing to draft.
-- Legacy synthetic gate blockers are ignored only when they match the historical generated marker/text; rules out treating every existing `## Blocker` as synthetic.
-- Telemetry uses outcome `success | refined | skip | blocker` for intent/refine success states and omits or nulls outcome on failed attempts consistently with existing row shape; rules out overloading `refined` for intent success.
-- Telemetry changes must preserve existing plan summaries plus any scripts/reports that read plan JSONL rows; rules out updating only terminal summaries.
-- Durable docs: operator/workflow semantics live in `v1/docs/plan-mode.md`, v1 parity in `v2/docs/v1-behaviors.md`, config knobs in `v1/docs/config.md`, and cross-file design decisions in `v2/docs/`; rules out duplicating behavior prose in subspec-only notes.

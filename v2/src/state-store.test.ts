@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,6 +48,7 @@ describe("StateStore", () => {
     expect(run.branch).toBe("test-branch");
     expect(run.specPath).toBe("spec.md");
     expect(run.status).toBe("in-progress");
+    expect(run.stopCause).toBeNull();
     expect(run.attemptCount).toBe(0);
     expect(run.createdAt).toBeGreaterThan(0);
     expect(run.attempts).toEqual([]);
@@ -152,5 +154,59 @@ describe("StateStore", () => {
     expect(run?.id).not.toBe(olderRunId);
     expect(run?.specRef).toBe("new-ref");
     expect(run?.worktreePath).toBe("/tmp/worktree-b");
+  });
+
+  test("persists steering stop cause with paused and killed statuses", () => {
+    const runId = seedRun(store);
+
+    store.setRunStatus(runId, "paused", "paused-at-boundary");
+    expect(loadRunOrThrow(store, runId).stopCause).toBe("paused-at-boundary");
+
+    store.setRunStatus(runId, "killed", "interrupted");
+    const killed = loadRunOrThrow(store, runId);
+    expect(killed.status).toBe("killed");
+    expect(killed.stopCause).toBe("interrupted");
+
+    store.setRunStatus(runId, "in-progress", null);
+    const resumed = loadRunOrThrow(store, runId);
+    expect(resumed.status).toBe("in-progress");
+    expect(resumed.stopCause).toBeNull();
+  });
+
+  test("migrates legacy databases without stop_cause", () => {
+    store.close();
+    rmSync(TEST_DB_PATH, { force: true });
+    const legacyDb = new Database(TEST_DB_PATH);
+    legacyDb.exec(`
+      CREATE TABLE runs (
+        id TEXT PRIMARY KEY,
+        project TEXT NOT NULL,
+        spec_ref TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        worktree_path TEXT NOT NULL,
+        branch TEXT NOT NULL,
+        spec_path TEXT NOT NULL
+      );
+      CREATE TABLE attempts (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        attempt_number INTEGER NOT NULL,
+        started_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        outcome_kind TEXT,
+        completed_at INTEGER
+      );
+      INSERT INTO runs (id, project, spec_ref, created_at, status, attempt_count, worktree_path, branch, spec_path)
+      VALUES ('legacy-run', 'test-project', 'main', 1, 'in-progress', 0, '/tmp/worktree', 'test-branch', 'spec.md');
+    `);
+    legacyDb.close();
+
+    store = openStateStore(TEST_DB_PATH);
+    const run = loadRunOrThrow(store, "legacy-run");
+    expect(run.stopCause).toBeNull();
+    store.setRunStatus("legacy-run", "paused", "paused-at-boundary");
+    expect(loadRunOrThrow(store, "legacy-run").stopCause).toBe("paused-at-boundary");
   });
 });

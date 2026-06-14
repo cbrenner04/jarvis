@@ -6,7 +6,7 @@ export type Migration = { id: string; up: string };
 /** Ordered schema migrations. Add new ones at the end. */
 export const MIGRATIONS: Migration[] = [
   {
-    id: "001-create-runs",
+    id: "001-bootstrap-runs-attempts",
     up: `
       CREATE TABLE IF NOT EXISTS runs (
         id TEXT PRIMARY KEY,
@@ -18,33 +18,22 @@ export const MIGRATIONS: Migration[] = [
         worktree_path TEXT NOT NULL,
         branch TEXT NOT NULL,
         spec_path TEXT NOT NULL
-      )
-    `,
-  },
-  {
-    id: "002-create-attempts",
-    up: `
+      );
       CREATE TABLE IF NOT EXISTS attempts (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
         attempt_number INTEGER NOT NULL,
         started_at INTEGER NOT NULL,
         status TEXT NOT NULL,
+        outcome_kind TEXT,
+        completed_at INTEGER,
         FOREIGN KEY (run_id) REFERENCES runs(id)
       )
     `,
   },
   {
-    id: "003-create-outcomes",
-    up: `
-      CREATE TABLE IF NOT EXISTS outcomes (
-        id TEXT PRIMARY KEY,
-        attempt_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        completed_at INTEGER NOT NULL,
-        FOREIGN KEY (attempt_id) REFERENCES attempts(id)
-      )
-    `,
+    id: "002-add-run-stop-cause",
+    up: "ALTER TABLE runs ADD COLUMN stop_cause TEXT",
   },
 ];
 
@@ -56,12 +45,19 @@ export function applyMigrations(db: Database): void {
       applied_at INTEGER NOT NULL
     )
   `);
-  for (const migration of MIGRATIONS) runMigration(db, migration);
+  for (const migration of MIGRATIONS) {
+    runMigration(db, migration);
+  }
 }
 
 function runMigration(db: Database, migration: Migration): void {
   const exists = db.prepare("SELECT 1 FROM _migrations WHERE id = ?").get(migration.id);
   if (exists) return;
+
+  if (migration.id === "002-add-run-stop-cause" && columnExists(db, "runs", "stop_cause")) {
+    db.prepare("INSERT INTO _migrations (id, applied_at) VALUES (?, ?)").run(migration.id, Date.now());
+    return;
+  }
 
   try {
     db.exec(migration.up);
@@ -69,4 +65,9 @@ function runMigration(db: Database, migration: Migration): void {
   } catch (error) {
     throw new Error(`Migration ${migration.id} failed: ${error}`);
   }
+}
+
+function columnExists(db: Database, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return rows.some((row) => row.name === column);
 }

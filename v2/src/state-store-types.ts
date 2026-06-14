@@ -1,5 +1,15 @@
 /** Status values for a run. */
-export type RunStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped" | "failed";
+export type RunStatus =
+  | "in-progress"
+  | "completed"
+  | "blocked"
+  | "budget-soft-stopped"
+  | "failed"
+  | "paused"
+  | "killed";
+
+/** How a steering stop completed; drives resume branching. */
+export type StopCause = "paused-at-boundary" | "interrupted";
 
 /** Terminal status of an attempt. */
 export type AttemptStatus = "in-progress" | "completed" | "blocked" | "budget-soft-stopped";
@@ -21,6 +31,7 @@ export type Run = {
   specRef: string;
   createdAt: number;
   status: RunStatus;
+  stopCause: StopCause | null;
   attemptCount: number;
   worktreePath: string;
   branch: string;
@@ -93,7 +104,7 @@ export interface StateStore {
   }): void;
 
   /** Persist a run status update outside a completion boundary. */
-  setRunStatus(runId: string, status: RunStatus): void;
+  setRunStatus(runId: string, status: RunStatus, stopCause?: StopCause | null): void;
 
   close(): void;
 }

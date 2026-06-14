@@ -6,7 +6,7 @@ Durable state for v2 runs and execution history: SQLite at `~/.jarvis/state/v2.s
 
 ## Schema
 
-- `runs` — orchestration identity, lifecycle, and checkpoint: `id`, `project`, `spec_ref`, `created_at`, `status` (`in-progress` | `completed` | `blocked` | `budget-soft-stopped` | `failed`), `attempt_count` (durable resume checkpoint), `worktree_path` (reconstructible pointer), `branch` (durable), `spec_path`.
+- `runs` — orchestration identity, lifecycle, and checkpoint: `id`, `project`, `spec_ref`, `created_at`, `status` (`in-progress` | `completed` | `blocked` | `budget-soft-stopped` | `failed` | `paused` | `killed`), `stop_cause` (`paused-at-boundary` | `interrupted` | null — how the last steering stop completed; null when never steered or after resume clears it), `attempt_count` (durable resume checkpoint), `worktree_path` (reconstructible pointer), `branch` (durable), `spec_path`.
 - `attempts` — one row per step attempt: `id`, `run_id`, `attempt_number`, `started_at`, `status` (`in-progress` | `completed`), plus the durable outcome once committed: `outcome_kind` (`done` | `no-work` | `progress` | `blocked` | `contract_miss` | `invocation_failure` | `invalid_token`) and `completed_at`.
 
 ## API
@@ -17,11 +17,11 @@ Repository-style named ops keyed by durable IDs — no public SQL surface. Signa
 - `loadRun` / `findRunByProjectBranch` — read a run plus attempt history; the latter resolves the `(project, branch)` resume key to the most recent run.
 - `recordAttemptStart` — insert an `in-progress` attempt row.
 - `commitCompletionBoundary` — the one transactional write: attempt completion, outcome classification, and run checkpoint (`attempt_count` + status) commit or roll back together. Idempotent: re-committing a finished boundary is a no-op, so recovery can never double-advance the checkpoint or duplicate an outcome.
-- `setRunStatus` — status update outside a boundary. Current use: marking `budget-soft-stopped` when an invocation exits on budget after its last committed `progress` boundary.
+- `setRunStatus` — status update outside a boundary. Optional `stopCause` sets or clears the steering disposition (`paused-at-boundary` for boundary-clean pause, `interrupted` for kill/crash mid-step, `null` on resume). Current non-steering use: marking `budget-soft-stopped` when an invocation exits on budget after its last committed `progress` boundary.
 
 ## Semantics
 
 - Outcomes are deterministic classifications, not free-form payloads; the runner branches on them. No transcripts or cost streams — the store carries only what resume reads.
-- Recovery derives from durable state only: the `(project, branch)` lookup, run status, and attempt/outcome history. An attempt still `in-progress` is the interrupted-state read ("re-run that dirty iteration"); `interrupted` is never stored. `budget-soft-stopped` resumes with a fresh per-invocation budget; a terminal run status returns its stored result idempotently.
+- Recovery derives from durable state only: the `(project, branch)` lookup, run status, `stop_cause`, and attempt/outcome history. An attempt still `in-progress` is the interrupted-state read ("re-run that dirty iteration"); `interrupted` is never stored as a status. Resume after `paused` + `paused-at-boundary` continues with the next iteration; resume after `killed` + `interrupted` (or any in-progress attempt) re-runs the dirty iteration. `budget-soft-stopped` resumes with a fresh per-invocation budget; a terminal run status returns its stored result idempotently.
 
 See `v2-architecture.md` (**Runs, state & the human loop**, **Persistence**, **Recovery**) for the broader design.

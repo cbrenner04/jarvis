@@ -31,7 +31,7 @@ Phase 6 adds planned human pauses.
 
 ## Task checklist
 
-- [ ] Extend state/store types and migrations for paused/killed status and a
+- [x] Extend state/store types and migrations for paused/killed status and a
   stop-cause/disposition field sufficient to distinguish boundary-clean pause
   from interrupted kill/crash.
 - [ ] Add a pause boundary hook or minimal loop option so `executeWriteLoop`
@@ -74,7 +74,7 @@ Phase 6 adds planned human pauses.
   meanings, and error cases.
 - [ ] `v2/docs/write-behavior.md`: document graceful pause, kill/crash recovery,
   and resume branch behavior for daemon-driven runs.
-- [ ] `v2/docs/state-store.md`: document any new statuses/stop-cause fields and
+- [x] `v2/docs/state-store.md`: document any new statuses/stop-cause fields and
   their resume reads.
 - [ ] `v2/docs/shared-invocation.md` or the actual durable invocation-binding
   home: document child-process kill/abort contracts if the seam changes.

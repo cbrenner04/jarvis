@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { applyMigrations } from "./state-store-migrations.ts";
 
 export type RunStatus =
   | "in-progress"
@@ -11,6 +12,9 @@ export type RunStatus =
   | "failed"
   | "paused"
   | "killed";
+
+/** How a steering stop completed; drives resume branching. */
+export type StopCause = "paused-at-boundary" | "interrupted";
 
 export type AttemptStatus = "in-progress" | "completed";
 
@@ -31,6 +35,7 @@ export type Run = {
   specRef: string;
   createdAt: number;
   status: RunStatus;
+  stopCause: StopCause | null;
   attemptCount: number;
   worktreePath: string;
   branch: string;
@@ -74,8 +79,11 @@ export interface StateStore {
     beforeRunUpdate?: () => void;
   }): void;
 
-  /** Persist a run status update outside a completion boundary. */
-  setRunStatus(runId: string, status: RunStatus): void;
+  /**
+   * Persist a run status update outside a completion boundary.
+   * When `stopCause` is provided, also sets or clears the steering disposition.
+   */
+  setRunStatus(runId: string, status: RunStatus, stopCause?: StopCause | null): void;
 
   /** List all runs ordered by creation time (newest first). */
   listRuns(): Run[];
@@ -83,34 +91,8 @@ export interface StateStore {
   close(): void;
 }
 
-// Bootstrap is idempotent (IF NOT EXISTS). Schema changes are forward-only:
-// append migration statements when the first incompatible change lands.
-const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS runs (
-    id TEXT PRIMARY KEY,
-    project TEXT NOT NULL,
-    spec_ref TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    attempt_count INTEGER NOT NULL DEFAULT 0,
-    worktree_path TEXT NOT NULL,
-    branch TEXT NOT NULL,
-    spec_path TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS attempts (
-    id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    attempt_number INTEGER NOT NULL,
-    started_at INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    outcome_kind TEXT,
-    completed_at INTEGER,
-    FOREIGN KEY (run_id) REFERENCES runs(id)
-  );
-`;
-
 const RUN_COLUMNS = `id, project, spec_ref AS specRef, created_at AS createdAt, status,
-  attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath`;
+  stop_cause AS stopCause, attempt_count AS attemptCount, worktree_path AS worktreePath, branch, spec_path AS specPath`;
 
 const ATTEMPT_COLUMNS = `id, run_id AS runId, attempt_number AS attemptNumber, started_at AS startedAt, status,
   outcome_kind AS outcomeKind`;
@@ -121,7 +103,7 @@ class StateStoreImpl implements StateStore {
   constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
-    this.db.exec(SCHEMA);
+    applyMigrations(this.db);
   }
 
   createRun(args: {
@@ -201,8 +183,12 @@ class StateStoreImpl implements StateStore {
     })();
   }
 
-  setRunStatus(runId: string, status: RunStatus): void {
-    this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
+  setRunStatus(runId: string, status: RunStatus, stopCause?: StopCause | null): void {
+    if (stopCause === undefined) {
+      this.db.prepare("UPDATE runs SET status = ? WHERE id = ?").run(status, runId);
+      return;
+    }
+    this.db.prepare("UPDATE runs SET status = ?, stop_cause = ? WHERE id = ?").run(status, stopCause, runId);
   }
 
   listRuns(): Run[] {

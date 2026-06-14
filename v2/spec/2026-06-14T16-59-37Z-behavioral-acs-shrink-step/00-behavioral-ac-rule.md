@@ -18,18 +18,18 @@ unless the structure *is* the contract (a public API, a wire format).
 
 ## Task checklist
 
-- [ ] Add the behavioral-AC rule to `v1/docs/spec-guidance.md` near the subspec / acceptance-criteria guidance.
-- [ ] Add the same rule to the `## Rules` block of `prompts/plan/draft.md` (bump `revision`) and `prompts/plan/inline-draft.md`.
-- [ ] Update `v2/docs/v1-behaviors.md` for the plan authoring behavior change.
-- [ ] Run typecheck and prompt tests.
+- [x] Add the behavioral-AC rule to `v1/docs/spec-guidance.md` near the subspec / acceptance-criteria guidance.
+- [x] Add the same rule to the `## Rules` block of `prompts/plan/draft.md` (bump `revision`) and `prompts/plan/inline-draft.md`.
+- [x] Update `v2/docs/v1-behaviors.md` for the plan authoring behavior change.
+- [x] Run typecheck and prompt tests.
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/spec-guidance.md` instructs that acceptance criteria state observable behavior and stay silent on schema, tables, files, and shapes unless the structure is itself the contract (public API or wire format).
-- [ ] `prompts/plan/draft.md` and `prompts/plan/inline-draft.md` each carry that behavioral-AC authoring rule.
-- [ ] `prompts/plan/draft.md` has its `revision` bumped and rendered prompt fixtures updated.
-- [ ] `v2/docs/v1-behaviors.md` records the changed plan authoring behavior.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `v1/docs/spec-guidance.md` instructs that acceptance criteria state observable behavior and stay silent on schema, tables, files, and shapes unless the structure is itself the contract (public API or wire format).
+- [x] `prompts/plan/draft.md` and `prompts/plan/inline-draft.md` each carry that behavioral-AC authoring rule.
+- [x] `prompts/plan/draft.md` has its `revision` bumped and rendered prompt fixtures updated.
+- [x] `v2/docs/v1-behaviors.md` records the changed plan authoring behavior.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

@@ -22,3 +22,4 @@ Rules:
 - Do not run draft/review workflows.
 - Do not ask interactive questions.
 - Do not propose self-referential deliverables that only grade spec prose in this active spec tree; acceptance criteria must verify target state outside the active spec directory (code, tests, docs, operator behavior, or generated evidence).
+- Acceptance criteria state observable behavior; stay silent on schema, tables, files, and shapes unless the structure is the contract (public API or wire format).

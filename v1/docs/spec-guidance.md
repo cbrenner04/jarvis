@@ -164,6 +164,10 @@ has:
 - acceptance criteria
 - required documentation updates
 
+Acceptance criteria state observable behavior and stay silent on schema,
+tables, files, and shapes unless the structure is itself the contract (a public
+API or wire format).
+
 Any spec that changes **existing functionality** (not purely net-new work) must
 include updating `v2/docs/v1-behaviors.md` in its documentation updates — that
 catalog is the v1 parity baseline v2 review reads, so a behavior change that

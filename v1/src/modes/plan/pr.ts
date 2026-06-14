@@ -11,6 +11,7 @@ import {
   NARRATIVE_START_MARKER,
   readBranchCommits,
 } from "../../pr.ts";
+import { runReadyAndCommit } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
 /**
@@ -277,10 +278,18 @@ export function getOpenPrState(branch: string, cwd: string): OpenPrInfo {
 export type MaybeMarkPlanPrReadyOpts = {
   branch: string;
   cwd: string;
+  /** Test seam: agent label for the pre-ready check:fix commit trailer. */
+  agentLabel?: string;
   /** Test seam: get the open PR state. Defaults to `getOpenPrState`. */
   getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
-  /** Test seam: invoke `gh pr ready`. Defaults to `execFileSync`. */
+  /** Short-circuit seam: stubs the entire ready + commit + gh-pr-ready sequence. */
   markReady?: (branch: string, cwd: string) => void;
+  /** Seam for just `bun run ready`. Used by tests when markReady is absent. */
+  runReady?: (cwd: string) => void;
+  /** Seam for post-ready check:fix commit/push. Used by tests when markReady is absent. */
+  commitCheckFix?: (cwd: string, agentLabel: string) => void;
+  /** Seam for the `gh pr ready <branch>` shell-out. Used by tests when markReady is absent. */
+  ghPrReady?: (branch: string, cwd: string) => void;
 };
 
 /**
@@ -308,30 +317,28 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
   }
 
   // Draft PR: run gate and transition
-  const mark =
-    opts.markReady ??
-    ((branch, cwd) => {
-      try {
-        execFileSync("bun", ["run", "ready"], {
-          cwd,
-          env: process.env,
-          stdio: "pipe",
-        });
-      } catch (err) {
-        const out = err as NodeJS.ErrnoException & {
-          stdout?: Buffer;
-          stderr?: Buffer;
-        };
-        const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-        throw new Error(captured ? `bun run ready failed:\n${captured}` : `bun run ready failed`);
-      }
-      execFileSync("gh", ["pr", "ready", branch], {
-        cwd,
-        env: process.env,
-        stdio: "pipe",
-      });
+  if (opts.markReady) {
+    opts.markReady(opts.branch, opts.cwd);
+    return;
+  }
+
+  const realGhPrReady = (branch: string, cwd: string) => {
+    execFileSync("gh", ["pr", "ready", branch], {
+      cwd,
+      env: process.env,
+      stdio: "pipe",
     });
-  mark(opts.branch, opts.cwd);
+  };
+
+  runReadyAndCommit({
+    cwd: opts.cwd,
+    ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
+    ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+    ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
+  });
+
+  const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
+  ghPrReadyFn(opts.branch, opts.cwd);
 }
 
 export { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };

@@ -490,7 +490,7 @@ scripted phase succeeds (no blocker). The readiness transition begins with
 step — which may rewrite files — before `typecheck → test → check` proceeds.
 
 **Readiness transition behavior:**
-- If the branch's open PR is **draft**, the `bun run ready` gate runs. On success, `gh pr ready` flips the PR to ready. On gate failure, the PR remains draft.
+- If the branch's open PR is **draft**, the `bun run ready` gate runs. On success, any `check:fix` output is committed and pushed (`chore: apply pre-ready check:fix`), then `gh pr ready` flips the PR to ready. On gate failure, the PR remains draft.
 - If the branch's open PR is **already ready**, both the gate and GitHub transition are skipped; the PR remains ready and emits no warning.
 - If **no open PR exists**, the readiness helper is a silent no-op.
 

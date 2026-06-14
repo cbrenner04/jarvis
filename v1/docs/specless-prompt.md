@@ -39,18 +39,21 @@ The worktree is derived from the project root and includes a 6-character random 
 
 ## Single-pass execution
 
-Prompt mode is strictly single-pass: it invokes agents from `modes.prompt.agentOrder` in order until one succeeds, with shared quota fallback behavior identical to patch mode:
+Prompt mode is strictly single-pass: it invokes agents from `modes.prompt.agentOrder` in order until one succeeds or the chain hits a terminal failure.
 
 1. Load the prompt using the shared template system.
-2. Try agents in configured order until one succeeds.
-3. On successful run, check for git diffs:
+2. Try agents in configured order.
+3. Fallback policy by result kind:
+   - **`quota`**: print the agent stderr, emit the shared fallback line, and try the next agent.
+   - **`model_config`**: print the agent stderr and try the next agent.
+   - **generic `error`**: stop immediately with exit 3.
+   - **watchdog timeout**: stop immediately with exit 8.
+4. Terminal fallback outcomes:
+   - **Every attempted agent returned `quota`**: print `all agents quota-exhausted` and exit 2.
+   - **No success, but at least one attempted agent ended in non-quota fallback (`model_config`)**: exit 3.
+5. On successful run, check for git diffs:
    - **No diffs**: print the agent's output to stdout and exit 0 (no commit or PR).
    - **Diffs present**: commit all changes, push, and open a draft PR, then exit 0.
-4. On all-agents quota exhaustion (or model-config hard error), exit with the corresponding code:
-   - Quota exhausted: exit 2.
-   - Model configuration error: exit 3.
-   - Agent failure: exit 3.
-   - Timeout: exit 8.
 
 ## Diff vs. no-diff outcomes
 
@@ -95,8 +98,8 @@ Manual narrative insertion (as supported in patch-mode PRs) is not supported in 
 | --- | --- | --- |
 | 0 | Success | Agent succeeded; output printed (no-diff) or PR opened (diffs). |
 | 1 | Error | Git disabled, project not registered, GitHub auth failed, commit/push/PR creation failed, or other hard error. |
-| 2 | Quota exhausted | All configured agents reported quota-related errors. |
-| 3 | Agent/model failure | Last agent failed with a hard error, or model configuration error for all agents. |
+| 2 | Quota exhausted | Every attempted agent reported quota-related errors. |
+| 3 | Agent/model failure | A hard agent error stopped the chain, or fallback ended with no success after at least one non-quota result. |
 | 8 | Timeout | Iteration timeout (`iterationTimeoutMs`) fired during agent execution. |
 
 ## Configuration

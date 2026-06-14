@@ -35,12 +35,12 @@ agent-order behavior is currently untestable.
 
 ## Acceptance criteria
 
-- [ ] A Bun test drives `promptCommand` with prompt order `[claude, codex]` where `claude` returns `quota` and `codex` returns `ok` with no diffs; it asserts both agents were invoked in order, exit code is `0`, and `codex`'s stdout was printed.
-- [ ] A Bun test with prompt order `[claude, codex]` where both return `quota` asserts both agents were invoked and exit code is `2`, with the shared all-agents-quota stderr emitted only after the second agent.
-- [ ] A Bun test proves a successful first agent still drives both the no-diff (stdout printed, no commit) and diff (commit + push + PR) flows; a successful fallback agent (first quota, second ok) drives the diff flow identically.
-- [ ] A Bun test with prompt order `[claude, codex]` where `claude` returns `model_config` and `codex` returns `quota` (no success) asserts exit code `3`, not `2`.
-- [ ] A Bun test asserts a generic `error` from the first agent halts the chain (exit `3`) without invoking the second agent.
-- [ ] `bun run typecheck` and `bun test v1/test/modes/prompt/run.test.ts` pass.
+- [x] A Bun test drives `promptCommand` with prompt order `[claude, codex]` where `claude` returns `quota` and `codex` returns `ok` with no diffs; it asserts both agents were invoked in order, exit code is `0`, and `codex`'s stdout was printed.
+- [x] A Bun test with prompt order `[claude, codex]` where both return `quota` asserts both agents were invoked and exit code is `2`, with the shared all-agents-quota stderr emitted only after the second agent.
+- [x] A Bun test proves a successful first agent still drives both the no-diff (stdout printed, no commit) and diff (commit + push + PR) flows; a successful fallback agent (first quota, second ok) drives the diff flow identically.
+- [x] A Bun test with prompt order `[claude, codex]` where `claude` returns `model_config` and `codex` returns `quota` (no success) asserts exit code `3`, not `2`.
+- [x] A Bun test asserts a generic `error` from the first agent halts the chain (exit `3`) without invoking the second agent.
+- [x] `bun run typecheck` and `bun test v1/test/modes/prompt/run.test.ts` pass.
 
 ## Documentation updates
 

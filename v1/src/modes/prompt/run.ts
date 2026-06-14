@@ -2,11 +2,16 @@ import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
-import type { Agent } from "../../agents/types.ts";
+import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import { type ConfigOptions, findProjectMatchForPath, loadConfig, setProjectOrigin } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
+import {
+  HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessQuotaFallbackLenientLine,
+} from "../../quota-harness-messages.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
@@ -17,8 +22,24 @@ export type PromptRunOptions = {
   io: Io;
   projectPath: string;
   config: ConfigOptions | undefined;
+  agents?: Partial<Record<AgentName, Agent>>;
   skipGhCheck?: boolean | undefined;
 };
+
+function buildActiveAgents(opts: PromptRunOptions): Agent[] {
+  const cfg = loadConfig(opts.config);
+  const overrides = opts.agents;
+  const agents: Agent[] = [];
+  for (const entry of cfg.modes.prompt.agentOrder) {
+    const override = overrides?.[entry.agent];
+    if (override !== undefined) {
+      agents.push(override);
+      continue;
+    }
+    agents.push(createAgent(entry.agent, entry.model));
+  }
+  return agents;
+}
 
 function generateNonce(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -140,10 +161,7 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     const basePrompt = buildPrompt(opts.promptText);
 
     // Load agents
-    const agents: Agent[] = [];
-    for (const entry of cfg.modes.prompt.agentOrder) {
-      agents.push(createAgent(entry.agent, entry.model));
-    }
+    const agents = buildActiveAgents(opts);
 
     if (agents.length === 0) {
       opts.io.stderr("jarvis1: no agents configured\n");
@@ -156,6 +174,7 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     let agentUsedLocal: Agent | undefined;
     let agentOutput = "";
     let agentSuccess = false;
+    let allAttemptedAgentsWereQuota = true;
     let watchdogKillHandle: NodeJS.Timeout | null = null;
 
     for (const agent of agents) {
@@ -198,12 +217,13 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
         watchdogKillHandle.unref();
       }
 
-      let result = await agent.run(basePrompt, {
+      const spawnResult = await agent.run(basePrompt, {
         cwd: worktreePath,
         onSpawned: (child) => {
           watchdogPgid = child.pid;
         },
       });
+      let result = spawnResult;
 
       // Clear watchdog timeout
       if (watchdogKillHandle) {
@@ -231,11 +251,28 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
       );
 
       if (result.kind === "quota") {
-        opts.io.stderr(`${result.stderr}\n`);
-        exitCode = 2;
-        exitReason = "all-agents-quota";
-        telemetryKind = "quota";
         agentUsedLocal = agent;
+        if (result.stderr.length > 0) {
+          opts.io.stderr(result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`);
+        }
+        if (agent !== agents.at(-1)) {
+          const line =
+            spawnResult.kind === "error"
+              ? harnessQuotaFallbackLenientLine(spawnResult.exitCode)
+              : HARNESS_QUOTA_FALLBACK_STRICT;
+          opts.io.stderr(`${agent.name}: ${line}\n`);
+          continue;
+        }
+        if (allAttemptedAgentsWereQuota) {
+          exitCode = 2;
+          exitReason = "all-agents-quota";
+          telemetryKind = "quota";
+          opts.io.stderr(`${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+        } else {
+          exitCode = 3;
+          exitReason = "agent-failure";
+          telemetryKind = "error";
+        }
         break;
       }
 
@@ -249,11 +286,12 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
 
       if (result.kind === "model_config") {
         opts.io.stderr(`${result.stderr}\n`);
-        telemetryKind = "model_config";
+        allAttemptedAgentsWereQuota = false;
+        agentUsedLocal = agent;
         continue; // Try next agent
       }
 
-      // Last agent failed
+      allAttemptedAgentsWereQuota = false;
       opts.io.stderr(`agent failed: ${result.stderr}\n`);
       exitCode = 3;
       exitReason = "agent-failure";
@@ -269,6 +307,13 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     }
 
     if (!agentSuccess || !agentUsed) {
+      if (allAttemptedAgentsWereQuota) {
+        exitReason = "all-agents-quota";
+        telemetryKind = "quota";
+        return 2;
+      }
+      exitReason = "agent-failure";
+      telemetryKind = "error";
       return 3;
     }
 
@@ -338,6 +383,7 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
         ],
         {
           cwd: worktreePath,
+          env: process.env,
           stdio: "pipe",
         },
       );

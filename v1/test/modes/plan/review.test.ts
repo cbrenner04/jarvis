@@ -339,7 +339,7 @@ describe("runPlanReviewPhase", () => {
   test("uses resume pass numbering, rK suffix, and refreshes PR body on commit", async () => {
     const { worktreePath, cleanup } = setupReviewWorktree();
     try {
-      const agent = new FakeAgent("claude", (_c, prompt, _opts) => {
+      const agent = new FakeAgent("claude", (_c, prompt, opts) => {
         if (prompt.includes("Review Verdict")) {
           writeFileSync(
             join(opts.cwd, "spec", "p-review", "00-one.md"),

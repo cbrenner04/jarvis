@@ -174,6 +174,37 @@ Keep subspecs atomic. If one unchecked item requires unrelated code paths,
 multiple product decisions, or verification that cannot run independently, split
 it into separate numbered subspec files and link each one from `index.md`.
 
+### Behavioral acceptance criteria
+
+Acceptance criteria describe **observable operator or runtime behavior** — what
+an implementer or reviewer can verify without mandating incidental layout.
+
+- **Product specs** (target-repo work): state outcomes ("quota exhaustion falls
+  through to the next configured agent", "a failed ready gate leaves the PR
+  draft"). Stay silent on schema, tables, files, modules, and shapes unless the
+  structure *is* the contract (public API surface, wire format, on-disk artifact
+  the operator must find).
+- **Harness subspecs** (jarvis repo work): may name hooks, telemetry fields,
+  prompt IDs, and internal symbols when structure is the contract.
+
+Good (product):
+
+```md
+- [ ] Quota exhaustion during patch run falls through to the next configured agent.
+```
+
+Bad (product):
+
+```md
+- [ ] Quota classification lives in a dedicated module with unit tests.
+```
+
+Good (harness, structure is the contract):
+
+```md
+- [ ] `patch_phase: "shrink"` is excluded from implementation iteration counts in run summary.
+```
+
 Subspec heading contract (enforced by patch mode parser):
 - Acceptance criteria must use the exact heading `## Acceptance criteria`.
 - Blockers must use the exact heading `## Blocker`.

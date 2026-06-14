@@ -2,7 +2,7 @@
 id: plan.prompt.review-actuator
 behavior: plan
 kind: step
-revision: 1
+revision: 2
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, VERDICT:string!]
 remove: [global.naming]
 ---
@@ -55,6 +55,7 @@ The text between `<<<VERDICT_BEGIN>>>` and `<<<VERDICT_END>>>` is the adjudicate
 - Do not run tests.
 - Do not expand scope beyond the verdict.
 - Each subspec must have an exact `## Acceptance criteria` section with checkboxes.
+- Rewrite structural **product** acceptance criteria into behavioral ones (observable outcomes, not mandated layout). Preserve harness criteria that name internal structure when structure is the contract.
 - If the verdict cannot be applied without human clarification, append an exact `## Blocker` section to `intent.md`. Do not invent answers.
 
 ## Instructions

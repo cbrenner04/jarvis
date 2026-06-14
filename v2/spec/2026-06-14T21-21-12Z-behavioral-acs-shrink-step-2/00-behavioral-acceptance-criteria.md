@@ -15,19 +15,19 @@ Plan-mode acceptance criteria that name files, modules, tables, or shapes mandat
 
 ## Tasks
 
-- [ ] Add a behavioral-AC section to `v1/docs/spec-guidance.md` with positive/negative examples (observable outcomes vs structural mandates) and the product-vs-harness distinction.
-- [ ] Update `prompts/plan/draft.md` and live review surfaces (`plan.prompt.review.adversary`, `plan.prompt.review-actuator`) so generated/reviewed product subspecs use behavioral acceptance criteria.
-- [ ] Bump prompt `revision` fields and registry expectations for touched plan prompt IDs (`plan.prompt.draft`, `plan.prompt.review.adversary`, `plan.prompt.review-actuator`).
-- [ ] Add or extend prompt render/registry tests if the repo already asserts plan prompt content for similar rules.
+- [x] Add a behavioral-AC section to `v1/docs/spec-guidance.md` with positive/negative examples (observable outcomes vs structural mandates) and the product-vs-harness distinction.
+- [x] Update `prompts/plan/draft.md` and live review surfaces (`plan.prompt.review.adversary`, `plan.prompt.review-actuator`) so generated/reviewed product subspecs use behavioral acceptance criteria.
+- [x] Bump prompt `revision` fields and registry expectations for touched plan prompt IDs (`plan.prompt.draft`, `plan.prompt.review.adversary`, `plan.prompt.review-actuator`).
+- [x] Add or extend prompt render/registry tests if the repo already asserts plan prompt content for similar rules.
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/spec-guidance.md` documents that acceptance criteria describe observable behavior and stay silent on schema, tables, files, and shapes unless structure is the contract; harness subspecs may name internal structure when it is the contract.
-- [ ] `plan.prompt.draft` instructs behavioral acceptance criteria for product specs with at least one observable-outcome example and one structural anti-example.
-- [ ] `plan.prompt.review.adversary` and `plan.prompt.review-actuator` instruct reviewers to rewrite structural product acceptance criteria into behavioral ones.
-- [ ] Prompt registry load and render tests pass for touched plan prompt IDs.
+- [x] `v1/docs/spec-guidance.md` documents that acceptance criteria describe observable behavior and stay silent on schema, tables, files, and shapes unless structure is the contract; harness subspecs may name internal structure when it is the contract.
+- [x] `plan.prompt.draft` instructs behavioral acceptance criteria for product specs with at least one observable-outcome example and one structural anti-example.
+- [x] `plan.prompt.review.adversary` and `plan.prompt.review-actuator` instruct reviewers to rewrite structural product acceptance criteria into behavioral ones.
+- [x] Prompt registry load and render tests pass for touched plan prompt IDs.
 
 ## Documentation updates
 
-- [ ] `v1/docs/spec-guidance.md` — behavioral-AC rule (primary deliverable).
-- [ ] `v2/docs/v1-behaviors.md` — plan-mode spec authoring expects behavioral acceptance criteria.
+- [x] `v1/docs/spec-guidance.md` — behavioral-AC rule (primary deliverable).
+- [x] `v2/docs/v1-behaviors.md` — plan-mode spec authoring expects behavioral acceptance criteria.

@@ -36,6 +36,8 @@ export type RefinePhaseOptions = {
   targetDir?: string;
   /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
   onOutboundPrompt?: (prompt: string) => void;
+  /** For tests only; defaults to real CLI agents. */
+  createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
 };
 
 /** Outcome for default CLI reporting after the refine phase completes. */
@@ -109,6 +111,7 @@ export async function runRefineTurn(opts: {
   targetDir?: string;
   /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
   onOutboundPrompt?: (prompt: string) => void;
+  createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
 }): Promise<{
   result: AgentResult;
   agentLabel: string | null;
@@ -157,7 +160,7 @@ export async function runRefineTurn(opts: {
   let agentLabel: string | null = null;
 
   for (const entry of agentOrder) {
-    const agent = createAgent(entry.agent, entry.model);
+    const agent = (opts.createAgent ?? createAgent)(entry.agent, entry.model);
     agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
@@ -445,6 +448,7 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
       ...(opts.externalSpecRoot !== undefined ? { externalSpecRoot: opts.externalSpecRoot } : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
       ...(opts.onOutboundPrompt !== undefined ? { onOutboundPrompt: opts.onOutboundPrompt } : {}),
+      ...(opts.createAgent !== undefined ? { createAgent: opts.createAgent } : {}),
     });
 
     // Update agent label (use the most recent non-null one)

@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { createAgent } from "../agents/factory.ts";
-import type { Agent } from "../agents/types.ts";
+import { createAgent as defaultCreateAgent } from "../agents/factory.ts";
+import type { Agent, AgentName } from "../agents/types.ts";
 import {
   CONFIG_DIR,
   findProjectForPath,
@@ -32,7 +32,7 @@ import { type RefineTerminalOutcome, runRefinePhase } from "../modes/plan/refine
 import { hasWorkingTreeChanges, runPlanReviewPhase } from "../modes/plan/review.ts";
 import {
   computeNoCommitSpecRoot,
-  ensureNoCommitSpecRoot,
+  computeProjectSafeId,
   formatPlanSpecTimestamp,
   stripPlanSpecTimestampPrefix,
 } from "../modes/plan/spec-paths.ts";
@@ -60,6 +60,8 @@ export type PlanCommandOptions = {
   logClient?: LogClient;
   /** Skip git/gh checks and worktree creation (for tests). */
   skipGhCheck?: boolean;
+  /** Override agent construction (for tests). */
+  createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
 };
 
 export const PLAN_USAGE = `Usage: jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] [--resume-draft] <intent-file|"inline text">
@@ -622,7 +624,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     // Decisions). Resolved from the head of the plan agent order; generation
     // degrades gracefully to no narrative if it fails or is unavailable.
     const prAgentEntry = cfg.modes.plan.agentOrder[0];
-    const prDescAgent = prAgentEntry ? createAgent(prAgentEntry.agent, prAgentEntry.model) : undefined;
+    const resolveAgent: (agentName: AgentName, model: string | undefined) => Agent =
+      opts.createAgent ?? ((agentName, model) => defaultCreateAgent(agentName, model ?? ""));
+    const prDescAgent = prAgentEntry ? resolveAgent(prAgentEntry.agent, prAgentEntry.model) : undefined;
     const entryOpts: Parameters<typeof enterMode>[0] = {
       candidatePath,
       io: { stderr: opts.io.stderr },
@@ -757,6 +761,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             stderr: opts.io.stderr,
             planTelemetry: resumePlanTelemetry,
             targetDir: resumeTargetDir,
+            createAgent: resolveAgent,
             ...(resume.externalSpecRoot !== undefined ? { externalSpecRoot: resume.externalSpecRoot } : {}),
           });
           if (refineResult.result.kind !== "ok") {
@@ -849,6 +854,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             stderr: opts.io.stderr,
             planTelemetry: resumePlanTelemetry,
             targetDir: resumeTargetDir,
+            createAgent: resolveAgent,
           });
           if (draftResult.result.kind !== "ok") {
             if (draftResult.result.kind === "quota") {
@@ -955,6 +961,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           commit: true,
           checkBoundary: false,
           logNoChangeSkip: false,
+          createAgent: resolveAgent,
           updatePrBody: async () => {
             await safeUpdatePrBody({
               agent: prDescAgent,
@@ -1075,12 +1082,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       // Load config once for use in refine and draft phases
       const cfg = loadConfig(opts.config);
+      const jarvisConfigDir = opts.config?.dir ?? CONFIG_DIR;
 
       // For no-commit runs, create the external spec root directory early (before any agent writes)
       // and check for collisions before seeding the intent.
       let externalSpecRoot: string | undefined;
       if (commit === false) {
-        externalSpecRoot = ensureNoCommitSpecRoot(CONFIG_DIR, project, specDirBasename);
+        externalSpecRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
+        mkdirSync(externalSpecRoot, { recursive: true });
       }
 
       // Check for collision in the external spec root for no-commit runs
@@ -1164,6 +1173,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         seededIntent: readFileSync(tempIntentPath, "utf8"),
         config: cfg,
         stderr: opts.io.stderr,
+        createAgent: resolveAgent,
       });
       if (intentDraftResult.result.kind !== "ok") {
         if (intentDraftResult.result.kind === "quota") {
@@ -1209,6 +1219,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             stderr: opts.io.stderr,
             planTelemetry: planTelemetryWriter,
             targetDir,
+            createAgent: resolveAgent,
             ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           });
 
@@ -1242,6 +1253,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
         } else {
           refineTerminalOutcome = "skipped";
+          opts.io.stderr(`plan: refine: ${refineTerminalOutcome}\n`);
         }
       } catch (err) {
         opts.io.stderr(`plan: refine phase error: ${(err as Error).message}\n`);
@@ -1520,6 +1532,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           stderr: opts.io.stderr,
           planTelemetry: planTelemetryWriter,
           targetDir,
+          createAgent: resolveAgent,
         });
 
         // Check if draft succeeded
@@ -1766,6 +1779,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           commit,
           checkBoundary: true,
           logNoChangeSkip: true,
+          createAgent: resolveAgent,
           ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           projectRoot: project.root,
           ...(commit
@@ -1836,7 +1850,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         });
       } else {
         // For commit: false, show the absolute path and jarvis run command
-        const noCommitSpecRoot = computeNoCommitSpecRoot(CONFIG_DIR, project, specDirBasename);
+        const noCommitSpecRoot = computeNoCommitSpecRoot(jarvisConfigDir, project, specDirBasename);
         const indexPath = join(noCommitSpecRoot, "index.md");
         opts.io.stdout(`Spec written to ${indexPath}\nRun with: jarvis1 run ${indexPath}\n`);
       }

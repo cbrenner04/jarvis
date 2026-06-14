@@ -122,7 +122,7 @@ shared repo-level `prompts/plan/` tree:
 - `prompts/plan/draft.md`
 - `prompts/plan/review.md`
 - `prompts/plan/review-actuator.md`
-- `prompts/plan/inline-draft.md`
+- `prompts/plan/intent-draft.md`
 
 The corresponding `v1/src/modes/plan/*.ts` files remain loader/runtime logic:
 template loading, rewrite handling, and non-recursive rendering behavior.

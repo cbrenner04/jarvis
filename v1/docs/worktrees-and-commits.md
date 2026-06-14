@@ -207,7 +207,7 @@ values before pushing. The temporary branch is never pushed to origin.
 **Phase commits** in plan mode have special subjects:
 
 - `plan: refine` — historical subject for the intent-refinement result:
-  seeded `intent.md` from user input (file, inline, or no-argument mode), plus
+  seeded `intent.md` from user input (file or inline), plus
   appended refinement/skip/blocker sections and the final proposed `name:` line
   after temp-slot rename.
 - `plan: draft` — commits the initial agent-drafted spec tree.

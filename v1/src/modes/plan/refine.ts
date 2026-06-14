@@ -292,7 +292,7 @@ export async function runRefineTurn(opts: {
         const validationError: AgentResult = {
           kind: "error",
           exitCode: 1,
-          stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; preserve the human-authored seed above ${REFINE_HEADING} exactly (except permitted name frontmatter), then consolidate from ${REFINE_HEADING} downward`,
+          stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; preserve frontmatter, ## Raw seed, raw-seed markers, and ## Intent above ${REFINE_HEADING} exactly, then consolidate from ${REFINE_HEADING} downward`,
         };
         opts.planTelemetry?.recordAgentAttempt({
           phase: "refine",
@@ -414,7 +414,7 @@ function ledgerFromHeading(text: string, heading: string): string | null {
 }
 
 /**
- * Validate refine consolidation: preserve frozen seed above first ledger heading.
+ * Validate refine consolidation: preserve frozen post-seed layout above first ledger heading.
  */
 export function isValidRefineTurnAddition(before: string, after: string, _turnNumber: number): boolean {
   const afterLedger = ledgerFromHeading(after, REFINE_HEADING);
@@ -423,7 +423,7 @@ export function isValidRefineTurnAddition(before: string, after: string, _turnNu
   }
   const beforePrefix = prefixBeforeHeading(before, REFINE_HEADING);
   const afterPrefix = prefixBeforeHeading(after, REFINE_HEADING);
-  return stripFrontmatter(afterPrefix).trimEnd() === stripFrontmatter(beforePrefix).trimEnd();
+  return afterPrefix.trimEnd() === beforePrefix.trimEnd();
 }
 
 /**
@@ -446,7 +446,7 @@ export function isValidRefineSkipAddition(before: string, after: string): boolea
   }
   const beforePrefix = prefixBeforeHeading(beforeNormalized, REFINE_HEADING);
   const afterPrefix = prefixBeforeHeading(afterWithoutSkip, REFINE_HEADING);
-  return stripFrontmatter(afterPrefix).trimEnd() === stripFrontmatter(beforePrefix).trimEnd();
+  return afterPrefix.trimEnd() === beforePrefix.trimEnd();
 }
 
 /**

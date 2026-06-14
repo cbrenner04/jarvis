@@ -171,16 +171,17 @@ describe("buildVerdictActuatorPrompt", () => {
 });
 
 describe("refine/name-only prompts", () => {
-  test("refine prompt includes name-frontmatter requirements", () => {
+  test("refine prompt preserves post-seed layout and forbids naming changes", () => {
     const prompt = buildRefinePrompt({
       name: "test-name",
       intent: "# Intent\n",
       specGuidance: "guidance",
       turnsRemaining: 2,
     });
-    expect(prompt).toContain("name: <kebab-case>");
-    expect(prompt).toContain("max 40 chars");
-    expect(prompt).toContain("reserved (`index`, `intent`)");
+    expect(prompt).toContain("## Raw seed");
+    expect(prompt).toContain("<<<RAW_SEED_BEGIN>>>");
+    expect(prompt).toContain("naming was finalized in the intent-draft step");
+    expect(prompt).not.toContain("name: <kebab-case>");
     expect(prompt).toContain("Do not propose self-referential deliverables");
     expect(prompt).toContain("outside the active spec directory");
   });
@@ -218,25 +219,103 @@ describe("refine/name-only prompts", () => {
 });
 
 describe("refine intent validation", () => {
-  test("accepts frontmatter naming plus rewritten refinement ledger", () => {
-    const before =
-      "jarvis should move completed spec to spec/completed/ when 'jarvis cleanup' is used\n\n## Refinement\n\n- prior decision\n";
-    const after = `---
+  test("accepts rewritten refinement ledger when post-seed layout is unchanged", () => {
+    const before = `---
 name: cleanup-completed-specs
 ---
 
-${before}
+## Raw seed
+
+<<<RAW_SEED_BEGIN>>>
+seed
+<<<RAW_SEED_END>>>
+
+## Intent
+
+Drafted.
+
+## Refinement
+
+- prior decision
+`;
+    const after = `${before}
 - updated constraint
 `;
 
     expect(isValidRefineTurnAddition(before, after, 1)).toBe(true);
   });
 
-  test("rejects non-frontmatter edits before refinement heading", () => {
-    const before = "initial intent\n\n## Refinement\n\n- one\n";
+  test("rejects frontmatter name changes before refinement heading", () => {
+    const before = `---
+name: old-name
+---
+
+## Raw seed
+
+<<<RAW_SEED_BEGIN>>>
+seed
+<<<RAW_SEED_END>>>
+
+## Intent
+
+Drafted.
+
+## Refinement
+
+- one
+`;
     const after = `---
 name: renamed
 ---
+
+## Raw seed
+
+<<<RAW_SEED_BEGIN>>>
+seed
+<<<RAW_SEED_END>>>
+
+## Intent
+
+Drafted.
+
+## Refinement
+
+- two
+`;
+
+    expect(isValidRefineTurnAddition(before, after, 1)).toBe(false);
+  });
+
+  test("rejects edits to ## Intent before refinement heading", () => {
+    const before = `---
+name: plan
+---
+
+## Raw seed
+
+<<<RAW_SEED_BEGIN>>>
+seed
+<<<RAW_SEED_END>>>
+
+## Intent
+
+initial intent
+
+## Refinement
+
+- one
+`;
+    const after = `---
+name: plan
+---
+
+## Raw seed
+
+<<<RAW_SEED_BEGIN>>>
+seed
+<<<RAW_SEED_END>>>
+
+## Intent
 
 changed intent
 

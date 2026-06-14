@@ -8,7 +8,7 @@ import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import { detectBlocker } from "./blocker.ts";
+import { detectBlocker, hasGenuineBlocker } from "./blocker.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
@@ -299,10 +299,9 @@ export function validateDraftOutput(
   // Check if blocker was added to intent.md
   const intentPath = join(specDir, "intent.md");
   const intentAfter = readFileSync(intentPath, "utf8");
-  const blockerDetection = detectBlocker(intentAfter);
 
-  if (blockerDetection.hasBlocker) {
-    // If blocker exists, we can return early (spec generation doesn't need to have succeeded)
+  if (hasGenuineBlocker(intentAfter)) {
+    const blockerDetection = detectBlocker(intentAfter);
     return {
       valid: true,
       error: null,

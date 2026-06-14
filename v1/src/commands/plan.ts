@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { createAgent as defaultCreateAgent } from "../agents/factory.ts";
@@ -237,6 +237,79 @@ function _removeSpecDirIfPresent(worktreePath: string, specDirBasename: string, 
   const specDir = join(worktreePath, targetDir, specDirBasename);
   if (existsSync(specDir)) {
     rmSync(specDir, { recursive: true, force: true });
+  }
+}
+
+function externalSpecDirCollides(
+  externalSpecRoot: string,
+  planName: string,
+  specTimestamp: boolean,
+): boolean {
+  if (!existsSync(externalSpecRoot)) {
+    return false;
+  }
+  try {
+    for (const entry of readdirSync(externalSpecRoot)) {
+      if (specTimestamp) {
+        if (stripPlanSpecTimestampPrefix(entry) === planName) {
+          return true;
+        }
+      } else if (entry === planName) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function planNameCollides(
+  projectRoot: string,
+  planName: string,
+  targetDir: string,
+  externalSpecRoot: string | undefined,
+  specTimestamp: boolean,
+): boolean {
+  if (existsSync(join(projectRoot, targetDir, planName))) {
+    return true;
+  }
+  if (existsSync(join(projectRoot, ".worktree", `plan-${planName}`))) {
+    return true;
+  }
+  if (remoteSpecBranchExists(projectRoot, planName)) {
+    return true;
+  }
+  if (externalSpecRoot !== undefined && externalSpecDirCollides(externalSpecRoot, planName, specTimestamp)) {
+    return true;
+  }
+  return false;
+}
+
+function cleanupCommittedTempPlanState(
+  projectRoot: string,
+  tempPlanName: string,
+  worktreePath: string | null,
+  targetDir: string,
+): void {
+  if (worktreePath !== null && existsSync(worktreePath)) {
+    _removeSpecDirIfPresent(worktreePath, tempPlanName, targetDir);
+    try {
+      execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
+        cwd: projectRoot,
+        stdio: "pipe",
+      });
+    } catch {
+      // best effort
+    }
+  }
+  try {
+    execFileSync("git", ["branch", "-D", `plan/${tempPlanName}`], {
+      cwd: projectRoot,
+      stdio: "pipe",
+    });
+  } catch {
+    // best effort
   }
 }
 
@@ -483,17 +556,20 @@ async function ensureUniquePlanName(
   projectRoot: string,
   baseName: string,
   targetDir: string = "spec",
+  opts?: { externalSpecRoot?: string; specTimestamp?: boolean },
 ): Promise<string> {
+  const externalSpecRoot = opts?.externalSpecRoot;
+  const specTimestamp = opts?.specTimestamp ?? false;
   let finalName = baseName;
+  if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp)) {
+    return finalName;
+  }
   let suffix = 2;
   while (true) {
-    const specDirExists = existsSync(join(projectRoot, targetDir, finalName));
-    const worktreeDirExists = existsSync(join(projectRoot, ".worktree", `plan-${finalName}`));
-    const remoteBranchExists = remoteSpecBranchExists(projectRoot, finalName);
-    if (!specDirExists && !worktreeDirExists && !remoteBranchExists) {
+    finalName = `${baseName}-${suffix}`;
+    if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp)) {
       return finalName;
     }
-    finalName = `${baseName}-${suffix}`;
     suffix += 1;
   }
 }
@@ -1099,6 +1175,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       } catch (err) {
         opts.io.stderr(`failed to seed intent file: ${(err as Error).message}\n`);
         cleanupNoCommitTempSpec();
+        if (commit) {
+          cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
+        }
         return 1;
       }
 
@@ -1143,17 +1222,26 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         if (intentDraftResult.result.kind === "quota") {
           opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during intent-draft\n`);
           cleanupNoCommitTempSpec();
+          if (commit) {
+            cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
+          }
           summarizePlan("quota-exhausted", specDirBasename);
           return 2;
         }
         if (intentDraftResult.result.kind === "model_config") {
           opts.io.stderr(`plan: model configuration error\n${intentDraftResult.result.stderr}`);
           cleanupNoCommitTempSpec();
+          if (commit) {
+            cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
+          }
           summarizePlan("model-config", specDirBasename);
           return 3;
         }
         opts.io.stderr(`plan: intent-draft failed\n${intentDraftResult.result.stderr}`);
         cleanupNoCommitTempSpec();
+        if (commit) {
+          cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
+        }
         summarizePlan("agent-error", specDirBasename);
         return 1;
       }
@@ -1173,6 +1261,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
         opts.io.stderr("plan: intent-draft invalid output; raw seed was not preserved exactly\n");
         cleanupNoCommitTempSpec();
+        if (commit) {
+          cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
+        }
         summarizePlan("error", specDirBasename);
         return 1;
       }
@@ -1201,7 +1292,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           `plan: agent did not propose a valid name; falling back to deterministic derivation (${chosenBaseName})\n`,
         );
       }
-      planName = await ensureUniquePlanName(project.root, chosenBaseName, targetDir);
+      planName = await ensureUniquePlanName(project.root, chosenBaseName, targetDir, {
+        ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
+        specTimestamp,
+      });
       specDirBasename = specTimestamp ? `${formatPlanSpecTimestamp()}-${planName}` : planName;
       planHarnessLog(planLogClient, `plan: spec name=${planName}`);
       planBranch = `plan/${planName}`;
@@ -1219,6 +1313,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       } catch (err) {
         opts.io.stderr(`plan: failed to rename spec directory: ${(err as Error).message}\n`);
         cleanupNoCommitTempSpec();
+        if (commit) {
+          cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
+        }
         summarizePlan("error", specDirBasename);
         return 1;
       }
@@ -1269,6 +1366,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               ? (err as { stderr: Buffer }).stderr.toString("utf8")
               : (err as Error).message;
           opts.io.stderr(message);
+          if (commit) {
+            cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
+          }
           summarizePlan("error", specDirBasename);
           return 1;
         }

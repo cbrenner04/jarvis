@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { planCommand, renderPlanRefineHandoffNextSteps } from "../src/commands/plan.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
@@ -77,6 +77,16 @@ Drafted.
         } else if (this.#mode === "refine-skip") {
           writeFileSync(intentPath, `${body.trimEnd()}\n\n## Refine skip\n`, "utf8");
         }
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (prompt.includes("Draft Phase")) {
+      const intentPath = findIntentPath(opts.cwd);
+      if (intentPath !== null) {
+        const specDir = dirname(intentPath);
+        mkdirSync(specDir, { recursive: true });
+        writeFileSync(join(specDir, "index.md"), "# Draft spec\n\n- [ ] [00 - One](./00-one.md)\n");
+        writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One.\n");
       }
       return { kind: "ok", stdout: "", stderr: "" };
     }
@@ -313,6 +323,102 @@ Resume drafting once approved:
     const content = "## Blocker\n\nNeed clarification on API surface.\n";
     expect(hasGenuineBlocker(content)).toBe(true);
     expect(isLegacyReviewGateBlocker("Need clarification on API surface.")).toBe(false);
+  });
+});
+
+function legacyGateIntentBody(): string {
+  return `---
+name: handoff-plan
+---
+
+## Raw seed
+
+<<<RAW_SEED_BEGIN>>>
+seed prompt
+<<<RAW_SEED_END>>>
+
+## Intent
+
+Drafted.
+
+## Blocker
+
+Review and approve \`spec/handoff-plan/intent.md\` before drafting subspecs.
+
+Resume drafting once approved:
+\`jarvis1 plan --resume-draft spec/handoff-plan/intent.md\`
+`;
+}
+
+function setupResumeDraftEnv(intentBody: string) {
+  const env = setupHandoffEnv();
+  const specDir = "handoff-plan";
+  const planName = "handoff-plan";
+  const worktreePath = join(env.projectRoot, ".worktree", `plan-${planName}`);
+
+  execSync(`git checkout -b plan/${planName}`, { cwd: env.projectRoot });
+  mkdirSync(join(env.projectRoot, "spec", specDir), { recursive: true });
+  writeFileSync(join(env.projectRoot, "spec", specDir, "intent.md"), intentBody, "utf8");
+  execSync("git add spec", { cwd: env.projectRoot });
+  execSync("git commit -m 'plan: intent'", { cwd: env.projectRoot });
+  execSync(`git push -u origin plan/${planName}`, { cwd: env.projectRoot });
+  execSync("git checkout main", { cwd: env.projectRoot });
+  execSync(`git worktree add --checkout "${worktreePath}" "plan/${planName}"`, { cwd: env.projectRoot });
+
+  return { ...env, specDir, worktreePath };
+}
+
+describe("resume-draft integration", () => {
+  test("proceeds when only the historical generated gate blocker is present", async () => {
+    const env = setupResumeDraftEnv(legacyGateIntentBody());
+    try {
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--resume-draft", join(env.worktreePath, "spec", env.specDir, "intent.md"), "--review-passes", "1"],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: () => new HandoffAgent("refine-skip"),
+      });
+
+      expect(cap.err()).not.toContain("--resume-draft requires `## Blocker` to be cleared");
+      expect(cap.err()).toContain("plan: resume r1 started");
+      expect(existsSync(join(env.worktreePath, "spec", env.specDir, "index.md"))).toBe(true);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("refuses when a genuine ## Blocker exists", async () => {
+    const env = setupResumeDraftEnv(`---
+name: handoff-plan
+---
+
+## Intent
+
+Need scope.
+
+## Blocker
+
+Need clarification on API surface.
+`);
+    try {
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--resume-draft", join(env.worktreePath, "spec", env.specDir, "intent.md")],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: () => new HandoffAgent("refine-skip"),
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("--resume-draft requires `## Blocker` to be cleared");
+    } finally {
+      env.cleanup();
+    }
   });
 });
 

@@ -496,4 +496,65 @@ describe("plan fresh seed flow", () => {
       env.cleanup();
     }
   });
+
+  test("commit: true cleans temp branch and worktree after intent-draft failure", async () => {
+    const env = setupFreshSeedEnv();
+    try {
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["cleanup committed failure"],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createAgentFactory({ failIntentDraft: true, cfgDir: env.cfgDir }),
+      });
+
+      expect(code).toBe(1);
+      const worktreeRoot = join(env.projectRoot, ".worktree");
+      if (existsSync(worktreeRoot)) {
+        expect(readdirSync(worktreeRoot).some((name) => name.startsWith("plan-tmp-"))).toBe(false);
+      }
+      const branches = execSync("git branch --list 'plan/tmp-*'", {
+        cwd: env.projectRoot,
+        encoding: "utf8",
+      }).trim();
+      expect(branches).toBe("");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("commit: false suffix-collides external spec dirs with the same derived name", async () => {
+    const env = setupFreshSeedEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      const projectCfg = cfg.projects.project;
+      if (!projectCfg) {
+        throw new Error("expected project config");
+      }
+      projectCfg.plan = { commit: false, specTimestamp: false };
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      mkdirSync(join(externalRoot, "some-cool-prompt"), { recursive: true });
+      writeFileSync(join(externalRoot, "some-cool-prompt", "intent.md"), "existing\n");
+
+      const cap = captureIo();
+      await planCommand({
+        io: cap.io,
+        args: ["--refine-turns", "0", "--review-passes", "0", "some cool prompt"],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createAgentFactory({ cfgDir: env.cfgDir }),
+      });
+
+      expect(existsSync(join(externalRoot, "some-cool-prompt-2", "intent.md"))).toBe(true);
+      const firstIntent = readFileSync(join(externalRoot, "some-cool-prompt", "intent.md"), "utf8");
+      expect(firstIntent).toBe("existing\n");
+    } finally {
+      env.cleanup();
+    }
+  });
 });

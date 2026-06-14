@@ -21,7 +21,13 @@ Plan mode creates a dedicated worktree and branch (`plan/<plan-name>` and `.work
 - No commits, pushes, or draft PR are created.
 - The generated `index.md` includes a `repo:` binding so `jarvis1 run` can resolve the target repository.
 
-**With `commit: true`:** Fresh seeded runs stop after `plan: intent` (and `plan: refine` when `--refine-turns > 0`): jarvis opens or updates the branch's open draft PR, prints review-then-`--resume-draft` next steps, and exits **`0`**. After `--resume-draft`, draft and review run; when every phase succeeds without a blocker, **`gh pr ready` runs automatically** (same readiness transition as patch mode). **Stdout Next steps** after the full pipeline: jarvis prints the PR URL plus exact `jarvis1 plan --resume …` and `jarvis1 run …` commands using **`<targetDir>/<spec-dir>/` paths** (e.g., `spec/…` for default repos, `v1/spec/…` for configured roots). That block deliberately **does not** ask you to toggle draft/readiness manually.
+**With `commit: true`:** Fresh seeded runs stop after `plan: intent` (and `plan: refine` when `--refine-turns > 0`): jarvis opens or updates the branch's open draft PR, prints review-then-`--resume-draft` next steps, and exits **`0`**. After `--resume-draft`, draft and review run; when every phase succeeds without a blocker, **`gh pr ready` runs automatically** (same readiness transition as patch mode).
+
+**Stdout Next steps (committed fresh-run handoff):** after `plan: intent` / `plan: refine`, jarvis prints the PR URL and `jarvis1 plan --resume-draft <targetDir>/<spec-dir>/intent.md` only — not merge/run commands yet.
+
+**Stdout Next steps (full pipeline complete):** after draft/review succeed, jarvis prints the PR URL plus exact `jarvis1 plan --resume …` and `jarvis1 run …` commands using **`<targetDir>/<spec-dir>/` paths** (e.g., `spec/…` for default repos, `v1/spec/…` for configured roots). That block deliberately **does not** ask you to toggle draft/readiness manually.
+
+Operator/workflow decisions for the committed fresh-run handoff, PR scoping, and `--resume-draft` blocker rules are summarized in [v2/docs/v1-behaviors.md](../../v2/docs/v1-behaviors.md) (plan-mode bullets and flow matrix); this doc is the primary phase reference.
 
 **With `commit: false`:** There is no PR. **Stdout Next steps:** jarvis prints the absolute path to the external spec (e.g., `~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md`) plus exact `jarvis1 plan --resume …` and `jarvis1 run …` commands using that absolute path.
 
@@ -55,7 +61,7 @@ session logs still capture those details.
 and pushed`**. Blockers, validation failures, quota/model errors, and agent stderr
 stay visible untouched.
 
-Stdout ends with:
+Stdout ends with the **committed fresh-run handoff** block (review PR, then `--resume-draft`):
 
 ```text
 Next steps:
@@ -64,7 +70,7 @@ Next steps:
        jarvis1 plan --resume-draft <targetDir>/<spec-dir>/intent.md
 ```
 
-After draft/review complete successfully, stdout instead prints the merge/resume/run block:
+After draft/review complete successfully, stdout instead prints the **full pipeline** merge/resume/run block:
 
 ```text
 Next steps:
@@ -133,7 +139,6 @@ shared repo-level `prompts/plan/` tree:
 - `prompts/plan/draft.md`
 - `prompts/plan/review.md`
 - `prompts/plan/review-actuator.md`
-- `prompts/plan/intent-draft.md`
 
 The corresponding `v1/src/modes/plan/*.ts` files remain loader/runtime logic:
 template loading, rewrite handling, and non-recursive rendering behavior.
@@ -170,9 +175,9 @@ If the proposed name is missing or invalid, jarvis falls back to deterministic s
 
 Each turn is one non-interactive agent invocation. The prompt asks the agent to inspect the target repo as needed and refine `intent.md` by appending useful planning context: inferred constraints, assumptions, scope boundaries, risks, or draft-shaping notes. Refinement entries must be net-new versus prior entries; if a turn would only restate prior content, use `## Refine skip`. It cannot ask the terminal user questions or record a Q&A transcript. With `quotaFallback: "lenient"`, weak-quota fallback to the next agent runs only when **`git status --porcelain`** matches before and after that invocation (no disk mutations during the attempt); see [quota-signals.md](./quota-signals.md).
 
-After each turn, jarvis validates that `intent.md` preserves the human-authored seed above the first `## Refinement` heading (except the permitted `name:` frontmatter write) and then leaves one permitted outcome: consolidated `## Refinement` ledger content, `## Refine skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification.
+After each turn, jarvis validates that `intent.md` preserves the post-seed layout above the first `## Refinement` heading (`## Raw seed`, raw-seed markers, and `## Intent` byte-for-byte) and then leaves one permitted outcome: consolidated `## Refinement` ledger content, `## Refine skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification.
 
-Intent refinement no longer owns naming. `name:` is proposed in the intent-draft step. If `--refine-turns 0` is used, jarvis skips refinement entirely after `plan: intent`; if the drafted `name:` is missing or invalid, jarvis falls back to deterministic derivation and logs a stderr note.
+Intent refinement no longer owns naming. `name:` is proposed in the intent-draft step. If `--refine-turns 0` is used, jarvis skips refinement entirely after `plan: intent`.
 
 Once refinement finishes (or is skipped), jarvis commits and pushes **`plan: refine`** when `commit: true` and `--refine-turns > 0`. The temporary branch is never pushed before rename.
 
@@ -188,6 +193,8 @@ For fresh `commit: true` seeded runs (file or inline), jarvis stops after `plan:
 ```sh
 jarvis1 plan --resume-draft <targetDir>/<spec-dir>/intent.md
 ```
+
+See [v2/docs/v1-behaviors.md](../../v2/docs/v1-behaviors.md) for the flow matrix and `--resume-draft` legacy-blocker rule.
 
 ### Phase 2: Draft
 
@@ -584,7 +591,6 @@ Plan-mode commit subjects:
 - `plan: draft`
 - `plan: review <N>`
 - `plan: blocker`
-- `plan: intent r<n>`
 - `plan: refine r<n>`
 - `plan: review <N> r<n>`
 - `plan: blocker r<n>`

@@ -249,7 +249,11 @@ function runTests(cwd: string): boolean {
   }
 }
 
-function commitShrinkPass(agentLabel: string, cwd: string, opts: { branch: string; base: string; specPath: string }): void {
+function commitShrinkPass(
+  agentLabel: string,
+  cwd: string,
+  opts: { branch: string; base: string; specPath: string },
+): void {
   const porcelain = execFileSync("git", ["status", "--porcelain"], {
     cwd,
     encoding: "utf8",
@@ -461,7 +465,8 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         iteration: 1,
         durationMs,
         kind: "error",
-        exitReason: result.kind === "error" && result.stderr.includes("aborted: shrink-timeout") ? "timeout" : "agent-error",
+        exitReason:
+          result.kind === "error" && result.stderr.includes("aborted: shrink-timeout") ? "timeout" : "agent-error",
         patch_phase: "shrink",
         ...telemetryMeta,
       });

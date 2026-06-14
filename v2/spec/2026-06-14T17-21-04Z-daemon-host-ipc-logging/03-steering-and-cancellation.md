@@ -39,7 +39,7 @@ Phase 6 adds planned human pauses.
 - [x] Add abortable process-group support at the invocation binding seam needed
   for real child-process kill; keep tests injectable.
 - [x] Extend daemon protocol with `run.pause`, `run.resume`, and `run.kill`.
-- [ ] Add CLI commands `pause <run-id>`, `resume <run-id>`, and `kill <run-id>`.
+- [x] Add CLI commands `pause <run-id>`, `resume <run-id>`, and `kill <run-id>`.
 - [ ] Emit structured log records for pause requested, paused, resumed, kill
   requested, killed, and resume branch.
 - [ ] Co-located tests for graceful pause, resume, immediate kill, and crash-like

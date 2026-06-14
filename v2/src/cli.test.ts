@@ -313,6 +313,66 @@ describe("v2 cli", () => {
     expect(JSON.parse(cap.read().stdout).result.runs).toHaveLength(1);
   });
 
+  test("pause autostarts the daemon and forwards run.pause", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-pause-"));
+
+    const code = await main(["pause", "run-1", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      callDaemonWithAutostart: async (request) => {
+        expect(request.method).toBe("run.pause");
+        expect(request.params).toEqual({ runId: "run-1" });
+        return { id: request.id, ok: true, result: { accepted: true } };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(cap.read().stdout).result.accepted).toBe(true);
+  });
+
+  test("resume autostarts the daemon and forwards run.resume", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-resume-"));
+
+    const code = await main(["resume", "run-2", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      callDaemonWithAutostart: async (request) => {
+        expect(request.method).toBe("run.resume");
+        expect(request.params).toEqual({ runId: "run-2" });
+        return { id: request.id, ok: true, result: { accepted: true } };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(cap.read().stdout).result.accepted).toBe(true);
+  });
+
+  test("kill autostarts the daemon and forwards run.kill", async () => {
+    const cap = captureIo();
+    const root = mkdtempSync(join(tmpdir(), "jarvis-cli-kill-"));
+
+    const code = await main(["kill", "run-3", "--jarvis-root", root], cap.io, {
+      jarvisRoot: () => root,
+      callDaemonWithAutostart: async (request) => {
+        expect(request.method).toBe("run.kill");
+        expect(request.params).toEqual({ runId: "run-3" });
+        return { id: request.id, ok: true, result: { accepted: true } };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(cap.read().stdout).result.accepted).toBe(true);
+  });
+
+  test("steering without run id prints usage and exits 1", async () => {
+    const cap = captureIo();
+
+    const code = await main(["pause"], cap.io);
+
+    expect(code).toBe(1);
+    expect(cap.read().stderr).toContain("usage: jarvis <pause|resume|kill>");
+  });
+
   test("log-tail autostarts the daemon and streams structured records", async () => {
     const cap = captureIo();
     const root = mkdtempSync(join(tmpdir(), "jarvis-cli-log-tail-"));

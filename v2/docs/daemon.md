@@ -45,6 +45,9 @@ jarvis daemon status [--jarvis-root <path>]
 ```
 jarvis start --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>] [--jarvis-root <path>]
 jarvis status [--jarvis-root <path>]
+jarvis pause <run-id> [--jarvis-root <path>]
+jarvis resume <run-id> [--jarvis-root <path>]
+jarvis kill <run-id> [--jarvis-root <path>]
 jarvis log-tail <run-id> [--from-seq <n>] [--jarvis-root <path>]
 ```
 
@@ -62,6 +65,9 @@ jarvis log-tail <run-id> [--from-seq <n>] [--jarvis-root <path>]
   completion).
 - `status` — prints durable run snapshots with an `active` flag for in-flight
   daemon invocations plus `activeRunIds`.
+- `pause` — requests graceful stop at the next write-loop boundary.
+- `resume` — schedules the next loop invocation; branches on durable `stop_cause`.
+- `kill` — aborts the active invocation immediately.
 - `log-tail` — replays stored records for the run, then streams live appends as
   JSON lines on stdout until interrupted.
 
@@ -81,7 +87,7 @@ files (present on disk but not answering `status`) are removed before bind.
 
 ## Autostart (run-control clients)
 
-`start`, `status`, and `log-tail` autostart the daemon when the socket is down:
+`start`, `status`, `pause`, `resume`, `kill`, and `log-tail` autostart the daemon when the socket is down:
 
 - **Executable discovery** — prefer the `jarvis` wrapper path when invoked
   through it; otherwise `bun run <cli.ts> daemon serve`.

@@ -34,6 +34,7 @@ const WRITE_USAGE =
 const START_USAGE =
   "usage: jarvis start --project-root <path> --project <name> --branch <name> --base <ref> --spec <path> --artifact <path> [--agents <csv>] [--max-iterations <n>]\n";
 const LOG_TAIL_USAGE = "usage: jarvis log-tail <run-id> [--from-seq <n>]\n";
+const STEERING_USAGE = "usage: jarvis <pause|resume|kill> <run-id> [--jarvis-root <path>]\n";
 const DAEMON_USAGE = "usage: jarvis daemon <start|stop|status|serve> [--jarvis-root <path>]\n";
 
 export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliDeps>): Promise<number> {
@@ -96,6 +97,10 @@ export async function main(argv: readonly string[], io?: Io, deps?: Partial<CliD
 
   if (command === "log-tail") {
     return runLogTailCli(argv.slice(1), out, runtimeDeps);
+  }
+
+  if (command === "pause" || command === "resume" || command === "kill") {
+    return runSteeringCli(command, argv.slice(1), out, runtimeDeps);
   }
 
   if (command === "daemon") {
@@ -308,6 +313,29 @@ async function runRunStatusCli(argv: readonly string[], out: Io, deps: CliDeps):
   return response.ok ? 0 : 1;
 }
 
+async function runSteeringCli(
+  verb: "pause" | "resume" | "kill",
+  argv: readonly string[],
+  out: Io,
+  deps: CliDeps,
+): Promise<number> {
+  const runId = parseRunIdArgs(argv);
+  if (runId === undefined) {
+    out.stderr(STEERING_USAGE);
+    return 1;
+  }
+
+  const jarvisRoot = parseJarvisRoot(argv) ?? deps.jarvisRoot();
+  const socketPath = daemonSocketPath(jarvisRoot);
+  const method = verb === "pause" ? "run.pause" : verb === "resume" ? "run.resume" : "run.kill";
+  const response = await deps.callDaemonWithAutostart(
+    { id: `run-${verb}`, method, params: { runId } },
+    { jarvisRoot, socketPath },
+  );
+  out.stdout(`${JSON.stringify(response, null, 2)}\n`);
+  return response.ok ? 0 : 1;
+}
+
 async function runLogTailCli(argv: readonly string[], out: Io, deps: CliDeps): Promise<number> {
   const parsed = parseLogTailArgs(argv);
   if (!parsed.ok) {
@@ -354,6 +382,24 @@ async function runLogTailCli(argv: readonly string[], out: Io, deps: CliDeps): P
   });
 
   return 0;
+}
+
+function parseRunIdArgs(argv: readonly string[]): string | undefined {
+  let runId: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--jarvis-root") {
+      index += 1;
+      continue;
+    }
+    if (arg?.startsWith("--")) {
+      return undefined;
+    }
+    if (runId === undefined && typeof arg === "string") {
+      runId = arg;
+    }
+  }
+  return runId;
 }
 
 function parseLogTailArgs(argv: readonly string[]): { ok: true; runId: string; fromSeq?: number } | { ok: false } {

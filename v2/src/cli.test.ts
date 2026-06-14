@@ -6,6 +6,7 @@ import { main } from "./cli.ts";
 import { callDaemon } from "./daemon/client.ts";
 import { daemonSocketPath } from "./daemon/paths.ts";
 import { createDaemonHost } from "./daemon/server.ts";
+import { openLogRepository } from "./log-repository.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
 import type { WriteLoopInput, WriteLoopResult } from "./write-loop.ts";
 
@@ -256,7 +257,8 @@ describe("v2 cli", () => {
     const cap = captureIo();
     const root = mkdtempSync(join(tmpdir(), "jarvis-cli-daemon-"));
     const socketPath = daemonSocketPath(root);
-    const host = createDaemonHost({ socketPath });
+    const logRepository = openLogRepository(join(root, "state", "logs.sqlite"));
+    const host = createDaemonHost({ socketPath, logRepository });
     await host.start();
 
     const statusCode = await main(["daemon", "status", "--jarvis-root", root], cap.io, {
@@ -271,6 +273,7 @@ describe("v2 cli", () => {
     });
     expect(stopCode).toBe(0);
     await host.waitUntilStopped();
+    host.logRepository.close();
   });
 });
 

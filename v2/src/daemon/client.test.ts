@@ -2,24 +2,32 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { openLogRepository } from "../log-repository.ts";
 import { callDaemon } from "./client.ts";
 import { daemonSocketPath } from "./paths.ts";
 import { createDaemonHost } from "./server.ts";
 
 describe("daemon client", () => {
-  const hosts: Array<{ stop: () => Promise<void> }> = [];
+  const hosts: Array<{ stop: () => Promise<void>; logRepository: { close: () => void } }> = [];
 
   afterEach(async () => {
     while (hosts.length > 0) {
       const host = hosts.pop();
-      if (host) await host.stop();
+      if (host) {
+        host.logRepository.close();
+        await host.stop();
+      }
     }
   });
 
   test("request IDs match responses", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-daemon-"));
     const socketPath = daemonSocketPath(root);
-    const host = createDaemonHost({ socketPath, pid: 42 });
+    const host = createDaemonHost({
+      socketPath,
+      pid: 42,
+      logRepository: openLogRepository(join(root, "state", "logs.sqlite")),
+    });
     await host.start();
     hosts.push(host);
 

@@ -33,50 +33,50 @@ pin when the TUI or workflow view renders them.
 
 ## Task checklist
 
-- [ ] Add a structured log module under `v2/src` with append, list/read, and
+- [x] Add a structured log module under `v2/src` with append, list/read, and
   follow subscription operations; exported symbols get doc-comments.
-- [ ] Persist logs under `~/.jarvis/state/` by default; tests use temp overrides.
-- [ ] Add daemon methods `log.tail` (replay + follow) and any needed internal
+- [x] Persist logs under `~/.jarvis/state/` by default; tests use temp overrides.
+- [x] Add daemon methods `log.tail` (replay + follow) and any needed internal
   append hook.
-- [ ] Define streamed IPC frame shape for log records and terminal stream close.
-- [ ] Add subscriber cleanup and slow-subscriber isolation.
-- [ ] Add tests for append ordering, replay from sequence, live follow, and
+- [x] Define streamed IPC frame shape for log records and terminal stream close.
+- [x] Add subscriber cleanup and slow-subscriber isolation.
+- [x] Add tests for append ordering, replay from sequence, live follow, and
   stream close, including arbitrary run IDs with initially empty history.
-- [ ] Add an IPC test that issues normal request/response calls while a
+- [x] Add an IPC test that issues normal request/response calls while a
   `log.tail` stream is open on the same socket.
-- [ ] Emit daemon lifecycle log records where useful without logging transcripts
+- [x] Emit daemon lifecycle log records where useful without logging transcripts
   or token/cost streams.
 
 ## Acceptance criteria
 
-- [ ] A log repository in `v2/src` appends structured records keyed by run ID
+- [x] A log repository in `v2/src` appends structured records keyed by run ID
   and returns per-run sequence-ordered records (test).
-- [ ] Tests use a caller-supplied temp path and write nothing under
+- [x] Tests use a caller-supplied temp path and write nothing under
   `~/.jarvis`.
-- [ ] `log.tail` over IPC replays prior records for a run and then streams live
+- [x] `log.tail` over IPC replays prior records for a run and then streams live
   records appended after the tail starts (test).
-- [ ] `log.tail` accepts unknown run IDs, emits no historical records, and
+- [x] `log.tail` accepts unknown run IDs, emits no historical records, and
   follows later appends for that ID (test).
-- [ ] Tail supports resuming from an explicit sequence number without duplicating
+- [x] Tail supports resuming from an explicit sequence number without duplicating
   earlier records (test).
-- [ ] Disconnected live-tail subscribers are cleaned up, and one slow subscriber
+- [x] Disconnected live-tail subscribers are cleaned up, and one slow subscriber
   cannot block appends to the log repository (test).
-- [ ] Request/response frames still work while a `log.tail` stream is active on
+- [x] Request/response frames still work while a `log.tail` stream is active on
   the same socket (test).
-- [ ] Log records are structured JSON objects, not raw text lines; transcript
+- [x] Log records are structured JSON objects, not raw text lines; transcript
   bodies and token/cost streams are not stored.
-- [ ] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and
+- [x] No `v2 -> v1` imports; `bun run typecheck`, `bun test`, and
   `bun run ready` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/daemon.md`: add the `log.tail` method, stream frame shape, and
+- [x] `v2/docs/daemon.md`: add the `log.tail` method, stream frame shape, and
   replay/follow semantics.
-- [ ] New `v2/docs/structured-logging.md`: storage location, minimal record
+- [x] New `v2/docs/structured-logging.md`: storage location, minimal record
   fields, separate migration/bootstrap path, per-run sequence ordering,
   replay/follow behavior, subscriber cleanup/slow-consumer handling, and boundary
   from orchestration state.
-- [ ] `v2/docs/v2-architecture.md`: update the Interface/logging note from
+- [x] `v2/docs/v2-architecture.md`: update the Interface/logging note from
   "later" to the as-built structured stream, cross-linking
   `structured-logging.md`.
-- [ ] `v2/docs/v1-behaviors.md`: no change - additive v2-only logging.
+- [x] `v2/docs/v1-behaviors.md`: no change - additive v2-only logging.

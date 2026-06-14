@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { openLogRepository } from "../log-repository.ts";
 import { discoverJarvisExecutable, ensureDaemonRunning } from "./autostart.ts";
 import { daemonSocketPath } from "./paths.ts";
 import { createDaemonHost } from "./server.ts";
@@ -18,7 +19,10 @@ describe("daemon autostart", () => {
   test("ensureDaemonRunning reports already_running for a live socket", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-autostart-"));
     const socketPath = daemonSocketPath(root);
-    const host = createDaemonHost({ socketPath });
+    const host = createDaemonHost({
+      socketPath,
+      logRepository: openLogRepository(join(root, "state", "logs.sqlite")),
+    });
     await host.start();
 
     const result = await ensureDaemonRunning({ jarvisRoot: root, socketPath });
@@ -29,13 +33,17 @@ describe("daemon autostart", () => {
     });
 
     await host.stop();
+    host.logRepository.close();
   });
 
   test("ensureDaemonRunning spawns detached serve and waits for readiness", async () => {
     const root = mkdtempSync(join(tmpdir(), "jarvis-autostart-"));
     const socketPath = daemonSocketPath(root);
     let spawned = false;
-    const host = createDaemonHost({ socketPath });
+    const host = createDaemonHost({
+      socketPath,
+      logRepository: openLogRepository(join(root, "state", "logs.sqlite")),
+    });
 
     const result = await ensureDaemonRunning({
       jarvisRoot: root,
@@ -51,5 +59,6 @@ describe("daemon autostart", () => {
     expect(spawned).toBe(true);
     expect(result.ok).toBe(true);
     await host.stop();
+    host.logRepository.close();
   });
 });

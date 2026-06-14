@@ -210,9 +210,11 @@ a server/runner world (pause + route to a human loop vs. process exit).
   on memory than a web UI (matters with concurrent agents + the local model) and
   works over SSH to the work machine without port-forwarding. Richer clients
   (web) can be added later over the same API.
-- **Logs need improvement, but later.** Structured, queryable logging (per the
-  vision) is the eventual target; the first cut can stream the existing log shape
-  and improve from there.
+- **Structured logging (v2).** Per-run appendable records in
+  `~/.jarvis/state/logs.sqlite`, separate from orchestration state. The daemon
+  exposes `log.tail` (replay + live follow) over the IPC socket; clients order by
+  per-run sequence, not wall clock. See [`structured-logging.md`](structured-logging.md)
+  and [`daemon.md`](daemon.md).
 
 Steering (the API surface the TUI drives):
 

@@ -6,6 +6,7 @@ import {
   ProtocolError,
   parseRequestLine,
   parseResponseLine,
+  parseStreamLine,
 } from "./protocol.ts";
 
 describe("daemon protocol", () => {
@@ -46,5 +47,14 @@ describe("daemon protocol", () => {
     const err = errorResponse("req", { code: "x", message: "y" });
     expect(parseResponseLine(encodeFrame(ok).trim())).toEqual(ok);
     expect(parseResponseLine(encodeFrame(err).trim())).toEqual(err);
+  });
+
+  test("parseStreamLine accepts log stream frames", () => {
+    expect(parseStreamLine('{"kind":"stream","id":"t1","event":"log.record","data":{"seq":1}}')).toEqual({
+      kind: "stream",
+      id: "t1",
+      event: "log.record",
+      data: { seq: 1 },
+    });
   });
 });

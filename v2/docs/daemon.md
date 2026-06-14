@@ -21,8 +21,8 @@ durable state — different scope, different command.
 - Newline-delimited JSON frames.
 - Request: `{ "id": string, "method": string, "params"?: unknown }`.
 - Response: `{ "id": string, "ok": boolean, "result"?: unknown, "error"?: { "code", "message", "data"? } }`.
-- Stream frames (later): `{ "kind": "stream", "id", "event", "data"? }` on the
-  same socket, with one terminal response frame per request.
+- Stream frames share the socket: `{ "kind": "stream", "id", "event", "data"? }`
+  with one terminal response frame per request when the stream ends.
 
 Request `id` must match the response `id`.
 
@@ -71,8 +71,24 @@ See [`autostart.ts`](../src/daemon/autostart.ts).
 | --- | --- |
 | `status` | `{ pid, socketPath, activeInvocationRunIds }` |
 | `stop` | `{ stopped: true }` or `active_invocations` error |
+| `log.tail` | Stream — see below |
 
-Run control (`run.start`, `run.list`, steering, logs) lands in later subspecs.
+Run control (`run.start`, `run.list`, steering) lands in later subspecs.
+
+### `log.tail`
+
+Params: `{ "runId": string, "fromSeq"?: number }`.
+
+1. Replay stored records for `runId` with `seq > fromSeq` (or all when omitted)
+   as stream frames: `{ "kind": "stream", "id", "event": "log.record", "data": <record> }`.
+2. Follow live appends for the same run on the same request `id`.
+3. On slow-consumer drop: `{ "event": "log.close", "data": { "reason": "slow_consumer" } }`
+   then terminal `{ "ok": true, "result": { "closed": true, "reason": "slow_consumer" } }`.
+4. Unknown `runId`: no replay; still follows later appends for that ID.
+
+Request/response methods on the same socket continue while a tail is open.
+
+Structured log storage and subscriber rules: [`structured-logging.md`](./structured-logging.md).
 
 ## Foreground write
 
@@ -81,7 +97,8 @@ Run control (`run.start`, `run.list`, steering, logs) lands in later subspecs.
 
 ## Verification
 
-- `bun test v2/src/daemon/` — protocol, server, client, autostart.
+- `bun test v2/src/daemon/` — protocol, server, client, autostart, `log.tail`.
+- `bun test v2/src/log-repository.test.ts` — append, replay, follow, slow-consumer drop.
 - `bun test v2/src/cli.test.ts` — lifecycle CLI wiring.
 
 Tests use temp `--jarvis-root` paths and write nothing under `~/.jarvis`.

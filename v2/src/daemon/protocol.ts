@@ -101,6 +101,34 @@ export function errorResponse(id: string, error: DaemonError): DaemonResponse {
   return { id, ok: false, error };
 }
 
+/**
+ * Parse one NDJSON line into a stream frame.
+ * @throws When JSON is invalid or the frame shape is not a stream frame.
+ */
+export function parseStreamLine(line: string): DaemonStreamFrame {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    throw new ProtocolError("invalid_json", "stream frame is not valid JSON");
+  }
+
+  if (
+    !isRecord(parsed) ||
+    parsed.kind !== "stream" ||
+    typeof parsed.id !== "string" ||
+    typeof parsed.event !== "string"
+  ) {
+    throw new ProtocolError("invalid_stream", "stream frame must include kind, id, and event");
+  }
+
+  const frame: DaemonStreamFrame = { kind: "stream", id: parsed.id, event: parsed.event };
+  if (parsed.data !== undefined) {
+    frame.data = parsed.data;
+  }
+  return frame;
+}
+
 /** Thrown when a frame cannot be parsed as the expected protocol shape. */
 export class ProtocolError extends Error {
   readonly code: string;

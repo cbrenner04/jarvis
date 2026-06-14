@@ -1,10 +1,18 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
+import {
+  DAEMON_LOG_RUN_ID,
+  defaultLogRepositoryPath,
+  type LogFollowHandle,
+  type LogRepository,
+  openLogRepository,
+} from "../log-repository.ts";
 import { callDaemon, isDaemonReachable, removeStaleSocket } from "./client.ts";
 import { daemonSocketPath, ensureJarvisRoot } from "./paths.ts";
 import {
   type DaemonRequest,
   type DaemonResponse,
+  type DaemonStreamFrame,
   encodeFrame,
   errorResponse,
   okResponse,
@@ -21,6 +29,7 @@ export type DaemonStatusResult = {
 export type DaemonHostOptions = {
   socketPath: string;
   pid?: number;
+  logRepository?: LogRepository;
 };
 
 export type DaemonHost = {
@@ -31,12 +40,15 @@ export type DaemonHost = {
   registerActiveInvocation(runId: string): void;
   unregisterActiveInvocation(runId: string): void;
   handleRequest(request: DaemonRequest): DaemonResponse;
+  logRepository: LogRepository;
 };
 
 /** Create a daemon host bound to a Unix socket. */
 export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
   const activeInvocationRunIds = new Set<string>();
   const pid = options.pid ?? process.pid;
+  const logRepository =
+    options.logRepository ?? openLogRepository(defaultLogRepositoryPath(dirnameForSocket(options.socketPath)));
   let server: Server | null = null;
   let shuttingDown = false;
   let stoppedResolve: (() => void) | null = null;
@@ -61,8 +73,21 @@ export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
           data: { activeRunIds: [...activeInvocationRunIds] },
         });
       }
+      logRepository.append({
+        runId: DAEMON_LOG_RUN_ID,
+        level: "info",
+        event: "daemon.stopping",
+        data: { pid },
+      });
       queueShutdown();
       return okResponse(request.id, { stopped: true });
+    }
+
+    if (request.method === "log.tail") {
+      return errorResponse(request.id, {
+        code: "streaming_method",
+        message: "log.tail must be handled on the connection stream",
+      });
     }
 
     return errorResponse(request.id, {
@@ -84,27 +109,117 @@ export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
 
   const handleConnection = (socket: Socket) => {
     let buffer = "";
+    const tailHandles = new Set<LogFollowHandle>();
+
+    const closeTails = (reason: "disconnected" | "slow_consumer") => {
+      for (const handle of tailHandles) {
+        handle.close();
+      }
+      tailHandles.clear();
+      if (reason === "disconnected" && !socket.destroyed) {
+        // Terminal responses for open tails are omitted when the client disconnects abruptly.
+      }
+    };
+
+    socket.on("close", () => {
+      closeTails("disconnected");
+    });
+
     socket.on("data", (chunk) => {
       buffer += chunk.toString();
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const line of lines) {
         if (!line.trim()) continue;
-        let response: DaemonResponse;
-        try {
-          const request = parseRequestLine(line);
-          response = handleRequest(request);
-        } catch (error) {
-          const requestId = extractRequestId(line) ?? "invalid";
-          response = errorResponse(requestId, protocolError(error));
-        }
-        socket.write(encodeFrame(response));
+        void dispatchLine(socket, line, tailHandles);
       }
     });
   };
 
+  const dispatchLine = async (socket: Socket, line: string, tailHandles: Set<LogFollowHandle>): Promise<void> => {
+    let request: DaemonRequest;
+    try {
+      request = parseRequestLine(line);
+    } catch (error) {
+      const requestId = extractRequestId(line) ?? "invalid";
+      socket.write(encodeFrame(errorResponse(requestId, protocolError(error))));
+      return;
+    }
+
+    if (request.method === "log.tail") {
+      await handleLogTail(socket, request, tailHandles);
+      return;
+    }
+
+    try {
+      socket.write(encodeFrame(handleRequest(request)));
+    } catch (error) {
+      socket.write(encodeFrame(errorResponse(request.id, protocolError(error))));
+    }
+  };
+
+  const handleLogTail = async (
+    socket: Socket,
+    request: DaemonRequest,
+    tailHandles: Set<LogFollowHandle>,
+  ): Promise<void> => {
+    const params = parseLogTailParams(request.params);
+    if (!params.ok) {
+      socket.write(encodeFrame(errorResponse(request.id, params.error)));
+      return;
+    }
+
+    const { runId, fromSeq } = params.value;
+    const replayed = logRepository.listRecords(runId, fromSeq);
+    for (const record of replayed) {
+      if (!writeStreamFrame(socket, logRecordFrame(request.id, record))) {
+        return;
+      }
+    }
+
+    let follow: LogFollowHandle;
+    const followOptions: { fromSeq?: number; onDropped: () => void } = {
+      onDropped: () => {
+        writeStreamFrame(socket, {
+          kind: "stream",
+          id: request.id,
+          event: "log.close",
+          data: { reason: "slow_consumer" },
+        });
+        socket.write(
+          encodeFrame(
+            okResponse(request.id, {
+              closed: true,
+              reason: "slow_consumer",
+            }),
+          ),
+        );
+        tailHandles.delete(follow);
+      },
+    };
+    const lastReplayedSeq = replayed.at(-1)?.seq;
+    if (lastReplayedSeq !== undefined) {
+      followOptions.fromSeq = lastReplayedSeq;
+    } else if (fromSeq !== undefined) {
+      followOptions.fromSeq = fromSeq;
+    }
+
+    follow = logRepository.follow(
+      runId,
+      (record) => {
+        if (!writeStreamFrame(socket, logRecordFrame(request.id, record))) {
+          follow.close();
+          tailHandles.delete(follow);
+        }
+      },
+      followOptions,
+    );
+    tailHandles.add(follow);
+  };
+
   return {
     socketPath: options.socketPath,
+    logRepository,
     start: async () => {
       if (await isDaemonReachable(options.socketPath)) {
         throw new Error("daemon already running");
@@ -115,6 +230,12 @@ export function createDaemonHost(options: DaemonHostOptions): DaemonHost {
         server = createServer(handleConnection);
         server.once("error", reject);
         server.listen(options.socketPath, () => resolve());
+      });
+      logRepository.append({
+        runId: DAEMON_LOG_RUN_ID,
+        level: "info",
+        event: "daemon.started",
+        data: { pid, socketPath: options.socketPath },
       });
     },
     stop: async () => {
@@ -144,6 +265,35 @@ export async function runDaemonServe(options: DaemonHostOptions): Promise<void> 
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
   await host.waitUntilStopped();
+  host.logRepository.close();
+}
+
+function logRecordFrame(requestId: string, record: unknown): DaemonStreamFrame {
+  return { kind: "stream", id: requestId, event: "log.record", data: record };
+}
+
+function writeStreamFrame(socket: Socket, frame: DaemonStreamFrame): boolean {
+  if (socket.destroyed) return false;
+  try {
+    socket.write(encodeFrame(frame));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function parseLogTailParams(
+  params: unknown,
+): { ok: true; value: { runId: string; fromSeq?: number } } | { ok: false; error: { code: string; message: string } } {
+  if (typeof params !== "object" || params === null || typeof (params as { runId?: unknown }).runId !== "string") {
+    return { ok: false, error: { code: "invalid_params", message: "log.tail requires string runId" } };
+  }
+  const runId = (params as { runId: string }).runId;
+  const fromSeq = (params as { fromSeq?: unknown }).fromSeq;
+  if (fromSeq !== undefined && (typeof fromSeq !== "number" || !Number.isInteger(fromSeq) || fromSeq < 0)) {
+    return { ok: false, error: { code: "invalid_params", message: "fromSeq must be a non-negative integer" } };
+  }
+  return { ok: true, value: fromSeq === undefined ? { runId } : { runId, fromSeq } };
 }
 
 function dirnameForSocket(socketPath: string): string {

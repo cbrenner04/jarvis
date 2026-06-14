@@ -7,6 +7,6 @@ local IPC API, a structured log stream, and CLI controls. Source of truth:
 Steering, Git/worktrees).
 
 - [x] [00 - Daemon lifecycle and IPC](./00-daemon-lifecycle-and-ipc.md)
-- [ ] [01 - Structured per-run logs](./01-structured-per-run-logs.md)
+- [x] [01 - Structured per-run logs](./01-structured-per-run-logs.md)
 - [ ] [02 - Detached write runs](./02-detached-write-runs.md)
 - [ ] [03 - Steering and cancellation](./03-steering-and-cancellation.md)

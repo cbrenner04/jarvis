@@ -78,6 +78,7 @@ describe("buildInlineDraftPrompt", () => {
     });
     expect(prompt).toContain("Do not propose self-referential deliverables");
     expect(prompt).toContain("outside the active spec directory");
+    expect(prompt).toContain("state observable behavior");
   });
 });
 
@@ -191,6 +192,7 @@ describe("refine/name-only prompts", () => {
     });
     expect(prompt).toContain("Do not propose self-referential deliverables");
     expect(prompt).toContain("outside the active spec directory");
+    expect(prompt).toContain("state observable behavior");
   });
 
   test("refine prompt does not describe interactive questions or question tools", () => {

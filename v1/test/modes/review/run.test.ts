@@ -586,4 +586,25 @@ describe("runReview", () => {
 
     expect(code).toBe(7);
   });
+
+  test("actuator terminal errors record telemetry with adjudicator context", async () => {
+    const { adapter, telemetry } = makeAdapter();
+
+    const code = await runReview({
+      config: makeConfig({ reviewPasses: 1, reviewOrder: [{ agent: "codex", model: "gpt-5.3-codex" }] }),
+      cwd: "/tmp/review",
+      adapter,
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "verdict", stderr: "" })),
+      actuator: async () => {
+        throw new ReviewTerminalError("actuator-timeout", 1);
+      },
+    });
+
+    expect(code).toBe(1);
+    const failure = telemetry.at(-1);
+    expect(failure?.outcome).toBe("error");
+    expect(failure?.role).toBe("adjudicator");
+    expect(failure?.agentEntry.model).toBe("gpt-5.3-codex");
+  });
 });

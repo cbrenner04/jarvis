@@ -71,7 +71,7 @@ async function runRoleAttempt(
   adapter: ReviewAdapter,
   agentOrder: Array<{ agent: AgentName; model: string }>,
   opts: RunReviewOptions,
-): Promise<string | null> {
+): Promise<{ artifact: string | null; attempt: ReviewAttemptContext }> {
   const roleContext: ReviewPassContext = { ...passContext, role };
   const remainingAgents = [...agentOrder];
 
@@ -150,7 +150,7 @@ async function runRoleAttempt(
           ...attempt,
           outcome: "ok",
         });
-        return spawnResult.kind === "ok" ? spawnResult.stdout : null;
+        return { artifact: spawnResult.kind === "ok" ? spawnResult.stdout : null, attempt };
       } catch (err) {
         if (err instanceof ReviewTerminalError) {
           throw err;
@@ -213,25 +213,26 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
     }
 
     try {
-      const adversaryArtifact = await runRoleAttempt("adversary", passContext, adapter, agentOrder, opts);
+      const adversaryResult = await runRoleAttempt("adversary", passContext, adapter, agentOrder, opts);
       if (opts.isInterrupted?.()) {
         return 130;
       }
 
       const advocateContext: ReviewPassContext = {
         ...passContext,
-        ...(adversaryArtifact ? { priorArtifact: adversaryArtifact } : {}),
+        ...(adversaryResult.artifact ? { priorArtifact: adversaryResult.artifact } : {}),
       };
-      const advocateArtifact = await runRoleAttempt("advocate", advocateContext, adapter, agentOrder, opts);
+      const advocateResult = await runRoleAttempt("advocate", advocateContext, adapter, agentOrder, opts);
       if (opts.isInterrupted?.()) {
         return 130;
       }
 
       const adjudicatorContext: ReviewPassContext = {
         ...passContext,
-        ...(advocateArtifact ? { priorArtifact: advocateArtifact } : {}),
+        ...(advocateResult.artifact ? { priorArtifact: advocateResult.artifact } : {}),
       };
-      const verdict = await runRoleAttempt("adjudicator", adjudicatorContext, adapter, agentOrder, opts);
+      const adjudicatorResult = await runRoleAttempt("adjudicator", adjudicatorContext, adapter, agentOrder, opts);
+      const verdict = adjudicatorResult.artifact;
 
       if (verdict?.trim()) {
         priorVerdict = verdict;
@@ -240,7 +241,7 @@ export async function runReview(opts: RunReviewOptions): Promise<number> {
             await opts.actuator(verdict, passContext);
           } catch (err) {
             if (err instanceof ReviewTerminalError) {
-              return await recordAdapterFailure(adapter, { ...passContext } as ReviewAttemptContext, err);
+              return await recordAdapterFailure(adapter, adjudicatorResult.attempt, err);
             }
             const message = err instanceof Error ? err.message : String(err);
             throw new ReviewTerminalError(`actuator failed: ${message}`, 1);

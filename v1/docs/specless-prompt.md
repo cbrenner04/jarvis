@@ -39,18 +39,16 @@ The worktree is derived from the project root and includes a 6-character random 
 
 ## Single-pass execution
 
-Prompt mode is strictly single-pass: it invokes agents from `modes.prompt.agentOrder` in order until one succeeds, with shared quota fallback behavior identical to patch mode:
+Prompt mode is strictly single-pass: it invokes agents from `modes.prompt.agentOrder` in order until one succeeds or the chain ends:
 
 1. Load the prompt using the shared template system.
-2. Try agents in configured order until one succeeds.
+2. Try agents in configured order. Fallback-eligible outcomes (`quota`, `model_config`) advance to the next agent; generic `error` (exit 3) and iteration timeout (exit 8) halt immediately on the failing agent.
 3. On successful run, check for git diffs:
    - **No diffs**: print the agent's output to stdout and exit 0 (no commit or PR).
    - **Diffs present**: commit all changes, push, and open a draft PR, then exit 0.
-4. On all-agents quota exhaustion (or model-config hard error), exit with the corresponding code:
-   - Quota exhausted: exit 2.
-   - Model configuration error: exit 3.
-   - Agent failure: exit 3.
-   - Timeout: exit 8.
+4. When no agent succeeds:
+   - Exit 2 only when every attempted agent returned `quota` (all-agents quota exhaustion).
+   - Exit 3 when a non-quota fallthrough (`model_config`) ended the chain, or when the final agent failed without all-quota exhaustion.
 
 ## Diff vs. no-diff outcomes
 
@@ -95,8 +93,8 @@ Manual narrative insertion (as supported in patch-mode PRs) is not supported in 
 | --- | --- | --- |
 | 0 | Success | Agent succeeded; output printed (no-diff) or PR opened (diffs). |
 | 1 | Error | Git disabled, project not registered, GitHub auth failed, commit/push/PR creation failed, or other hard error. |
-| 2 | Quota exhausted | All configured agents reported quota-related errors. |
-| 3 | Agent/model failure | Last agent failed with a hard error, or model configuration error for all agents. |
+| 2 | Quota exhausted | Every attempted agent returned quota-related errors. |
+| 3 | Agent/model failure | Generic agent error, model-configuration fallthrough without success, or a mixed chain that did not end in all-quota exhaustion. |
 | 8 | Timeout | Iteration timeout (`iterationTimeoutMs`) fired during agent execution. |
 
 ## Configuration

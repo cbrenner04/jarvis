@@ -21,5 +21,6 @@ patch/review-adjudicator.md
 patch/rules.md
 write/execute.md
 write/principles.md
+write/shrink.md
 prompt/instructions.md
 prompt/rules.md

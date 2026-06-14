@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
-import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
+import { executeWriteLoop, loadShrinkStepRules, type WriteLoopInput } from "./write-loop.ts";
 
 const roots: string[] = [];
 
@@ -45,21 +46,26 @@ async function runLoop(args: {
   baseRef?: string;
   specPath?: string;
   store?: StateStore;
+  suiteRunner?: (cwd: string) => boolean;
+  shrinkPassthrough?: boolean;
 }) {
   const store = args.store ?? openStateStore(args.stateDbPath);
+  const bindings =
+    args.shrinkPassthrough === false ? args.bindings : bindingsWithShrinkPassthrough(args.bindings);
   const loopInput: WriteLoopInput = {
     worktree: {
       projectRoot: args.repoRoot,
       projectName: "demo",
       branchName: args.branchName ?? "write-run",
-      baseRef: args.baseRef ?? "HEAD",
+      baseRef: args.baseRef ?? "main",
       jarvisRoot: args.jarvisRoot,
     },
     specPath: args.specPath ?? "spec.md",
     stepRules: "Return exactly one terminal token.",
     expectedArtifactPath: args.artifactPath ?? "proof.txt",
-    bindings: args.bindings,
+    bindings,
     stateStore: store,
+    suiteRunner: args.suiteRunner ?? (() => true),
   };
   if (args.maxIterations !== undefined) {
     loopInput.maxIterations = args.maxIterations;
@@ -72,6 +78,36 @@ async function runLoop(args: {
   } finally {
     store.close();
   }
+}
+
+/** After loop complete, answer shrink with `no-work` so existing tests stay focused on loop behavior. */
+function bindingsWithShrinkPassthrough(bindings: readonly InvocationBinding[]): InvocationBinding[] {
+  let loopTerminalSeen = false;
+  const inner = bindings[0];
+  if (inner === undefined) throw new Error("bindings required");
+
+  return [
+    {
+      id: "with-shrink",
+      invoke: async (invokeArgs) => {
+        if (loopTerminalSeen) {
+          return { kind: "ok", stdout: "no-work", stderr: "" };
+        }
+        const result = await inner.invoke(invokeArgs);
+        if (result.kind === "ok") {
+          const token = result.stdout.trim();
+          if (token === "done" || token === "no-work") {
+            loopTerminalSeen = true;
+          }
+        }
+        return result;
+      },
+    },
+  ];
+}
+
+function worktreePath(jarvisRoot: string, branchName = "write-run"): string {
+  return join(jarvisRoot, "worktrees", "demo", branchName);
 }
 
 function loadRunOnce(stateDbPath: string, runId: string) {
@@ -480,5 +516,325 @@ describe("write loop", () => {
 
     expect(second.kind).toBe("complete");
     expect(existsSync(worktreePath)).toBe(true);
+  });
+
+  test("after complete runs one shrink step with shrink rules outside the iteration budget", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const prompts: string[] = [];
+    let calls = 0;
+
+    const result = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      shrinkPassthrough: false,
+      maxIterations: 1,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ prompt, cwd }) => {
+            calls += 1;
+            prompts.push(prompt);
+            if (calls === 1) {
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              writeFileSync(join(cwd, "bloat.txt"), "extra\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            return { kind: "ok", stdout: "no-work", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("complete");
+    expect(result.iterationsConsumed).toBe(1);
+    expect(calls).toBe(2);
+    expect(prompts[1]).toContain("Shrink pass");
+    expect(prompts[1]).toContain("..HEAD");
+    expect(prompts[0]).not.toContain("Shrink pass");
+  });
+
+  test("terminal non-complete outcomes do not run shrink", async () => {
+    let calls = 0;
+
+    const blockedRepo = setupRepo();
+    const blocked = await runLoop({
+      ...blockedRepo,
+      branchName: "blocked-run",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            calls += 1;
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+      shrinkPassthrough: false,
+    });
+    expect(blocked.kind).toBe("blocked");
+    expect(calls).toBe(1);
+
+    calls = 0;
+    const contractMissRepo = setupRepo();
+    const contractMiss = await runLoop({
+      ...contractMissRepo,
+      branchName: "contract-miss-run",
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            calls += 1;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      shrinkPassthrough: false,
+    });
+    expect(contractMiss.kind).toBe("contract_miss");
+    expect(calls).toBe(1);
+
+    calls = 0;
+    const budgetRepo = setupRepo();
+    const budget = await runLoop({
+      ...budgetRepo,
+      branchName: "budget-run",
+      bindings: simulatedBindings(["progress"]),
+      maxIterations: 1,
+      shrinkPassthrough: false,
+    });
+    expect(budget.kind).toBe("budget-exhausted");
+
+    calls = 0;
+    const failureRepo = setupRepo();
+    const invocationFailure = await runLoop({
+      ...failureRepo,
+      branchName: "failure-run",
+      bindings: simulatedBindings(["quota", "quota"]),
+      shrinkPassthrough: false,
+    });
+    expect(invocationFailure.kind).toBe("invocation_failure");
+  });
+
+  test("clean shrink success keeps changes", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const wt = worktreePath(jarvisRoot);
+
+    await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      shrinkPassthrough: false,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd, prompt }) => {
+            if (!prompt.includes("Shrink pass")) {
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              writeFileSync(join(cwd, "bloat.txt"), "extra\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            unlinkSync(join(cwd, "bloat.txt"));
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(existsSync(join(wt, "bloat.txt"))).toBe(false);
+    expect(existsSync(join(wt, "proof.txt"))).toBe(true);
+  });
+
+  test("shrink miss restores the pre-shrink worktree and still returns complete", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const wt = worktreePath(jarvisRoot);
+
+    const result = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      shrinkPassthrough: false,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd, prompt }) => {
+            if (!prompt.includes("Shrink pass")) {
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              writeFileSync(join(cwd, "bloat.txt"), "extra\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            unlinkSync(join(cwd, "bloat.txt"));
+            return { kind: "ok", stdout: "blocked", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("complete");
+    expect(existsSync(join(wt, "bloat.txt"))).toBe(true);
+  });
+
+  test("re-invoking a completed run performs no shrink step", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    let calls = 0;
+
+    await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      shrinkPassthrough: false,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd }) => {
+            calls += 1;
+            writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+    expect(calls).toBe(2);
+
+    calls = 0;
+    const resumed = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            calls += 1;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      shrinkPassthrough: false,
+    });
+
+    expect(resumed.kind).toBe("complete");
+    expect(calls).toBe(0);
+  });
+
+  test("crash-mid-shrink recovery returns complete and resets dirty worktree without re-shrinking", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const wt = worktreePath(jarvisRoot);
+    let calls = 0;
+
+    await expect(
+      runLoop({
+        repoRoot,
+        jarvisRoot,
+        stateDbPath,
+        shrinkPassthrough: false,
+        bindings: [
+          {
+            id: "agent",
+            invoke: async ({ cwd, prompt }) => {
+              calls += 1;
+              if (!prompt.includes("Shrink pass")) {
+                writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+                writeFileSync(join(cwd, "bloat.txt"), "keep\n", "utf8");
+                return { kind: "ok", stdout: "done", stderr: "" };
+              }
+              writeFileSync(join(cwd, "dirty-shrink.txt"), "partial\n", "utf8");
+              throw new Error("crash mid-shrink");
+            },
+          },
+        ],
+      }),
+    ).rejects.toThrow("crash mid-shrink");
+    expect(calls).toBe(2);
+    expect(existsSync(join(wt, "dirty-shrink.txt"))).toBe(true);
+
+    calls = 0;
+    const recovered = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            calls += 1;
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+      shrinkPassthrough: false,
+    });
+
+    expect(recovered.kind).toBe("complete");
+    expect(calls).toBe(0);
+    expect(existsSync(join(wt, "dirty-shrink.txt"))).toBe(false);
+    expect(existsSync(join(wt, "bloat.txt"))).toBe(true);
+  });
+
+  test("shrink mechanical gate rejects deleted test files", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const wt = worktreePath(jarvisRoot);
+    writeFileSync(join(repoRoot, "sample.test.ts"), "test('x', () => {});\n", "utf8");
+    execFileSync("git", ["-C", repoRoot, "add", "sample.test.ts"], { stdio: "pipe" });
+    execFileSync("git", ["-C", repoRoot, "commit", "-m", "add test"], { stdio: "pipe" });
+
+    await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      shrinkPassthrough: false,
+      suiteRunner: () => true,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async ({ cwd, prompt }) => {
+            if (!prompt.includes("Shrink pass")) {
+              writeFileSync(join(cwd, "proof.txt"), "ok\n", "utf8");
+              return { kind: "ok", stdout: "done", stderr: "" };
+            }
+            unlinkSync(join(cwd, "sample.test.ts"));
+            return { kind: "ok", stdout: "done", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(existsSync(join(wt, "sample.test.ts"))).toBe(true);
+  });
+
+  test("empty base..HEAD short-circuits shrink", async () => {
+    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    writeFileSync(join(repoRoot, "proof.txt"), "ok\n", "utf8");
+    execFileSync("git", ["-C", repoRoot, "add", "proof.txt"], { stdio: "pipe" });
+    execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed proof"], { stdio: "pipe" });
+
+    let calls = 0;
+    const result = await runLoop({
+      repoRoot,
+      jarvisRoot,
+      stateDbPath,
+      shrinkPassthrough: false,
+      bindings: [
+        {
+          id: "agent",
+          invoke: async () => {
+            calls += 1;
+            return { kind: "ok", stdout: "no-work", stderr: "" };
+          },
+        },
+      ],
+    });
+
+    expect(result.kind).toBe("complete");
+    expect(calls).toBe(1);
+  });
+
+  test("write.shrink rules scope base..HEAD and name bloat patterns", () => {
+    const rules = loadShrinkStepRules("abc123");
+    expect(rules).toContain("abc123..HEAD");
+    expect(rules).toContain("Do not delete tests");
+    expect(rules).toContain("no consumer and no spec'd future consumer");
+    expect(rules).not.toMatch(/\d+\s*lines?/i);
+    expect(loadPromptRegistry().getById("write.shrink").metadata.id).toBe("write.shrink");
   });
 });

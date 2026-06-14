@@ -4,6 +4,8 @@ The canonical restraint principles for v2 development are defined in the prompt 
 
 For the full principle text and decision notes, consult the artifact source directly — it is the single authoritative copy and is injected into the write-step prompt at each iteration.
 
+The post-complete shrink checklist (`write.shrink` in [prompts/write/shrink.md](../../prompts/write/shrink.md)) hunts the same bloat patterns as the restraint principles, but as a dedicated removal pass after spec completion rather than in-generation prevention. The loop enforces a narrow mechanical gate (suite green, no deleted test files); AC non-regression remains prompt-only. See [`write-behavior.md`](./write-behavior.md).
+
 ## Structural-honesty gates
 
 A Biome linter gate enforces structural honesty in v2 and shared code via two rules:

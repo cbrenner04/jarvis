@@ -1,5 +1,7 @@
-import { appendFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
+import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
 import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "./state-store.ts";
 import type { StepRunResult } from "./step-runner.ts";
@@ -22,10 +24,14 @@ export type WriteLoopResult = {
   resumable: boolean;
 };
 
+/** Re-run the project test suite after shrink; test seam defaults to `bun test`. */
+export type SuiteRunner = (cwd: string) => boolean;
+
 /** Input for the write loop. Run identity derives from `worktree` (project, branch, base). */
 export type WriteLoopInput = WriteExecuteInput & {
   maxIterations?: number;
   stateStore?: StateStore;
+  suiteRunner?: SuiteRunner;
 };
 
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -73,7 +79,13 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const terminal = terminalMapping(result);
       store.commitCompletionBoundary({ attemptId, runStatus: terminal.runStatus, outcomeKind: terminal.outcomeKind });
-      return { kind: terminal.kind, runId, iterationsConsumed, resumable: false };
+
+      if (terminal.kind !== "complete") {
+        return { kind: terminal.kind, runId, iterationsConsumed, resumable: false };
+      }
+
+      await runShrinkStep(args, worktreePath);
+      return { kind: "complete", runId, iterationsConsumed, resumable: false };
     }
 
     store.setRunStatus(runId, "budget-soft-stopped");
@@ -109,7 +121,7 @@ function prepareRun(args: WriteLoopInput, store: StateStore): PreparedRun {
     return { runId: existingRun.id, worktreePath, resumedAttemptId: lastAttempt.id };
   }
 
-  const committed = committedResult(existingRun);
+  const committed = committedResult(existingRun, worktreePath);
   return committed === null ? { runId: existingRun.id, worktreePath, resumedAttemptId: null } : { result: committed };
 }
 
@@ -127,8 +139,11 @@ function terminalMapping(result: Exclude<StepRunResult, { kind: "progress" }>): 
 }
 
 /** Terminal result already committed by a prior invocation, returned idempotently; null when resumable. */
-function committedResult(run: StoredRun): WriteLoopResult | null {
-  if (run.status === "completed") return { kind: "complete", runId: run.id, iterationsConsumed: 0, resumable: false };
+function committedResult(run: StoredRun, worktreePath: string): WriteLoopResult | null {
+  if (run.status === "completed") {
+    restoreWorktreeToHead(worktreePath);
+    return { kind: "complete", runId: run.id, iterationsConsumed: 0, resumable: false };
+  }
   if (run.status === "failed") {
     return { kind: "invocation_failure", runId: run.id, iterationsConsumed: 0, resumable: false };
   }
@@ -142,6 +157,114 @@ function committedResult(run: StoredRun): WriteLoopResult | null {
     };
   }
   return null; // in-progress or budget-soft-stopped: resume
+}
+
+/**
+ * One post-complete shrink invocation outside the iteration budget. Commits the
+ * complete boundary first; discard-on-miss restores to that commit without
+ * changing run status.
+ */
+async function runShrinkStep(args: WriteLoopInput, worktreePath: string): Promise<void> {
+  gitCommitAll(worktreePath, "jarvis: complete boundary");
+
+  const baseRef = args.worktree.baseRef;
+  if (!gitDiffExists(worktreePath, baseRef)) return;
+
+  const preShrinkHead = gitHead(worktreePath);
+  const diffBase = gitDiffBase(worktreePath, baseRef);
+  const shrinkRules = loadShrinkStepRules(diffBase);
+
+  const { result } = await executeWrite({ ...args, stepRules: shrinkRules });
+
+  if (!isShrinkSuccess(result, args, worktreePath, preShrinkHead)) {
+    gitRestoreHead(worktreePath, preShrinkHead);
+  }
+}
+
+function isShrinkSuccess(
+  result: StepRunResult,
+  args: WriteLoopInput,
+  worktreePath: string,
+  preShrinkHead: string,
+): boolean {
+  if (result.kind !== "complete") return false;
+
+  const suiteRunner = args.suiteRunner ?? defaultSuiteRunner;
+  if (!suiteRunner(worktreePath)) return false;
+  if (shrinkDiffDeletesTestFiles(worktreePath, preShrinkHead)) return false;
+
+  return true;
+}
+
+/** Load `write.shrink` and inject the run-start base ref for `base..HEAD` scope. */
+export function loadShrinkStepRules(baseRef: string): string {
+  const shrinkBody = loadPromptRegistry().getById("write.shrink").body;
+  return shrinkBody.replaceAll("<BASE_REF>", baseRef).trim();
+}
+
+function defaultSuiteRunner(projectRoot: string): boolean {
+  try {
+    execFileSync("bun", ["test"], { cwd: projectRoot, stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function gitDiffBase(cwd: string, baseRef: string): string {
+  return execFileSync("git", ["merge-base", baseRef, "HEAD"], { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+}
+
+function gitDiffExists(cwd: string, baseRef: string): boolean {
+  const diffBase = gitDiffBase(cwd, baseRef);
+  try {
+    execFileSync("git", ["diff", "--quiet", diffBase, "HEAD"], { cwd, stdio: "pipe" });
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function gitCommitAll(cwd: string, message: string): void {
+  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+  const status = execFileSync("git", ["status", "--porcelain"], { cwd, encoding: "utf8", stdio: "pipe" });
+  if (status.trim().length === 0) return;
+  execFileSync("git", ["commit", "-m", message], { cwd, stdio: "pipe" });
+}
+
+function gitHead(cwd: string): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+}
+
+function gitRestoreHead(cwd: string, head: string): void {
+  execFileSync("git", ["reset", "--hard", head], { cwd, stdio: "pipe" });
+  execFileSync("git", ["clean", "-fd"], { cwd, stdio: "pipe" });
+}
+
+function restoreWorktreeToHead(worktreePath: string): void {
+  if (!existsSync(worktreePath)) return;
+  try {
+    gitRestoreHead(worktreePath, gitHead(worktreePath));
+  } catch {
+    // Missing or invalid worktree — nothing to reset.
+  }
+}
+
+function shrinkDiffDeletesTestFiles(cwd: string, preShrinkHead: string): boolean {
+  const output = execFileSync("git", ["diff", "--name-status", preShrinkHead], {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  for (const line of output.split("\n")) {
+    const match = /^D\t(.+)$/.exec(line.trim());
+    if (match?.[1] !== undefined && isTestFile(match[1])) return true;
+  }
+  return false;
+}
+
+function isTestFile(path: string): boolean {
+  return path.endsWith(".test.ts") || path.endsWith(".test.tsx");
 }
 
 function resolveSpecPath(worktreePath: string, specPath: string): string {

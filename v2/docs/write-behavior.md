@@ -78,6 +78,33 @@ branch resumes the most recent durable run even if `--base`, `--spec`, or the
 materialized worktree path differ. A different project or branch creates a fresh
 run.
 
+## Post-complete shrink step
+
+After terminal `complete` (`done`/`no-work` with passing artifact contract), the
+loop commits the complete boundary to git, then runs exactly one additional
+`executeWrite` step outside the per-invocation iteration budget. The loop loads
+`write.shrink` and passes its body (with the run-start `--base` ref injected) as
+the step rules — not the normal write-step rules.
+
+Shrink runs only when `base..HEAD` is non-empty after the complete-boundary
+commit. It never runs for `blocked`, `contract_miss`, `budget-exhausted`, or
+`invocation_failure`.
+
+Success is terminal `done`/`no-work` with passing `artifact.exists`, a green
+suite re-run in the worktree, and no deleted test files in the shrink diff. AC
+non-regression is prompt-only until a verification runner exists.
+
+On a shrink miss (failed terminal, red suite, or deleted test file), the
+worktree is restored to the committed complete boundary. The run stays
+`completed` and returns `complete` — shrink never gates an already-complete run.
+
+Re-invoking a `completed` run returns `complete` idempotently with no shrink
+step. Crash-mid-shrink recovery uses the same path: reset dirty worktree state
+to committed HEAD and do not re-run shrink.
+
+See [`coding-standards.md`](./coding-standards.md) for how the shrink checklist
+relates to the restraint principles.
+
 ## Exit codes
 
 - `0`: `complete` (success)

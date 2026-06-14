@@ -22,12 +22,12 @@ Plan telemetry records intent as its own phase and stores per-step outcomes for 
 
 ## Acceptance criteria
 
-- [ ] Intent-draft agent attempts write telemetry rows with `mode: "plan"` and `plan_phase: "intent"`.
-- [ ] Intent/refine telemetry rows include outcome `refined`, `skip`, or `blocker` when the phase reaches one of those states.
-- [ ] Intent success uses outcome `success`; refine success uses `refined`; skips and blockers use `skip`/`blocker`; failed attempts omit or null outcome consistently.
-- [ ] Refine skip is queryable from telemetry without comparing row counts.
-- [ ] Existing draft/review telemetry rows, plan summaries, and JSONL-consuming scripts/reports keep their current behavior except for accepting the new phase/outcome fields.
-- [ ] Tests cover intent phase telemetry, success outcome, refined outcome, skip outcome, blocker outcome, failed-attempt outcome shape, summary compatibility, and any updated JSONL consumers.
+- [x] Intent-draft agent attempts write telemetry rows with `mode: "plan"` and `plan_phase: "intent"`.
+- [x] Intent/refine telemetry rows include outcome `refined`, `skip`, or `blocker` when the phase reaches one of those states.
+- [x] Intent success uses outcome `success`; refine success uses `refined`; skips and blockers use `skip`/`blocker`; failed attempts omit or null outcome consistently.
+- [x] Refine skip is queryable from telemetry without comparing row counts.
+- [x] Existing draft/review telemetry rows, plan summaries, and JSONL-consuming scripts/reports keep their current behavior except for accepting the new phase/outcome fields.
+- [x] Tests cover intent phase telemetry, success outcome, refined outcome, skip outcome, blocker outcome, failed-attempt outcome shape, summary compatibility, and any updated JSONL consumers.
 
 ## Documentation updates
 

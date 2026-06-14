@@ -1,5 +1,10 @@
 import type { AgentName, AgentResult } from "../../agents/types.ts";
-import { appendTelemetryLine, type PlanTelemetryPhase, type TelemetryKind } from "../../telemetry.ts";
+import {
+  appendTelemetryLine,
+  type PlanStepOutcome,
+  type PlanTelemetryPhase,
+  type TelemetryKind,
+} from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 
 function telemetryKindForResult(r: AgentResult): TelemetryKind {
@@ -27,6 +32,8 @@ function exitReasonForPlanAttempt(phase: PlanTelemetryPhase, r: AgentResult): st
       break;
   }
   switch (phase) {
+    case "intent":
+      return "plan-intent-ok";
     case "refine":
       return "plan-refine-ok";
     case "name-only":
@@ -45,6 +52,8 @@ export type PlanTelemetryWriter = {
     configuredModel: string | undefined;
     durationMs: number;
     result: AgentResult;
+    /**Intent/refine terminal state; omit on failed attempts.*/
+    outcome?: PlanStepOutcome | undefined;
   }) => void;
   hasAgentInvocationWrites: () => boolean;
 };
@@ -63,6 +72,7 @@ export function createPlanTelemetryWriter(args: {
       configuredModel: string | undefined;
       durationMs: number;
       result: AgentResult;
+      outcome?: PlanStepOutcome | undefined;
     }): void {
       const kind = telemetryKindForResult(opts.result);
       const base = {
@@ -75,6 +85,7 @@ export function createPlanTelemetryWriter(args: {
         exit_reason: exitReasonForPlanAttempt(opts.phase, opts.result),
         mode: "plan" as const,
         plan_phase: opts.phase,
+        ...(opts.outcome !== undefined ? { outcome: opts.outcome } : {}),
         ...(opts.configuredModel !== undefined ? { configured_model: opts.configuredModel } : {}),
       };
       seq += 1;

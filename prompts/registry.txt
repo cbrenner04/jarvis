@@ -4,6 +4,7 @@ global/naming.md
 shared/pr-description.md
 plan/decisions-ledger.md
 plan/defer-to-consumer.md
+plan/intent-draft.md
 plan/draft.md
 plan/pr-description.md
 plan/review.md

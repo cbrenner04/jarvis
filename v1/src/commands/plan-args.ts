@@ -14,8 +14,7 @@ export type PlanInvocationCommon = {
 
 export type PlanInvocation =
   | (PlanInvocationCommon & { mode: "file"; intentPath: string })
-  | (PlanInvocationCommon & { mode: "inline"; intentText: string })
-  | (PlanInvocationCommon & { mode: "interactive" });
+  | (PlanInvocationCommon & { mode: "inline"; intentText: string });
 
 export type PlanParseResult =
   | { ok: true; invocation: PlanInvocation }
@@ -154,7 +153,11 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
   if (targetDir !== undefined) common.targetDir = targetDir;
 
   if (positional.length === 0) {
-    return { ok: true, invocation: { ...common, mode: "interactive" } };
+    return {
+      ok: false,
+      exitCode: 1,
+      message: 'plan: missing required seed (<intent-file|"inline text">)',
+    };
   }
 
   const positionalArg = positional[0] as string;
@@ -189,7 +192,5 @@ export function describePlanInvocation(inv: PlanInvocation): string {
       return `plan: file intent=${inv.intentPath}`;
     case "inline":
       return `plan: inline intent=${JSON.stringify(inv.intentText)}`;
-    case "interactive":
-      return "plan: interactive";
   }
 }

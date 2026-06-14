@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
-import { runInlineDraftTurn } from "../../../src/modes/plan/inline-draft.ts";
+import { runIntentDraftTurn } from "../../../src/modes/plan/intent-draft.ts";
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -48,10 +48,10 @@ const testConfig: Config = {
   projects: {},
 };
 
-describe("runInlineDraftTurn", () => {
+describe("runIntentDraftTurn", () => {
   test("passes intentPath through to the agent prompt", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-inline-draft-intent-path-"));
-    const intentPath = join(dir, "spec", "wip-intents", "my-feature.md");
+    const intentPath = join(dir, "spec", "my-feature", "intent.md");
     try {
       execSync("git init -b main", { cwd: dir });
       execSync("git config user.email 'test@example.com'", { cwd: dir });
@@ -63,10 +63,11 @@ describe("runInlineDraftTurn", () => {
         stderr: "",
       }));
 
-      await runInlineDraftTurn({
+      await runIntentDraftTurn({
+        agentCwd: dir,
         worktreePath: dir,
-        inlineIntent: "add login",
         intentPath,
+        seededIntent: "add login",
         config: testConfig,
         createAgent: () => agent,
       });
@@ -95,10 +96,11 @@ describe("runInlineDraftTurn", () => {
         stderr: "",
       }));
 
-      const { result, agentLabel } = await runInlineDraftTurn({
+      const { result, agentLabel } = await runIntentDraftTurn({
+        agentCwd: dir,
         worktreePath: dir,
-        inlineIntent: "foo bar baz",
         intentPath: "text",
+        seededIntent: "foo bar baz",
         config: testConfig,
         createAgent: (name) => (name === "claude" ? claude : codex),
       });
@@ -126,11 +128,12 @@ describe("runInlineDraftTurn", () => {
         stderr: "quota b",
       }));
 
-      const { result } = await runInlineDraftTurn({
+      const { result } = await runIntentDraftTurn({
+        agentCwd: dir,
         worktreePath: dir,
-        inlineIntent: "foo bar baz",
         config: testConfig,
         intentPath: "test",
+        seededIntent: "foo bar baz",
         createAgent: (name) => (name === "claude" ? claude : codex),
       });
 

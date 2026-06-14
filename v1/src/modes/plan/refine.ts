@@ -36,6 +36,8 @@ export type RefinePhaseOptions = {
   targetDir?: string;
   /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
   onOutboundPrompt?: (prompt: string) => void;
+  /** For tests only; defaults to real CLI agents. */
+  createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
 };
 
 /** Outcome for default CLI reporting after the refine phase completes. */
@@ -109,6 +111,7 @@ export async function runRefineTurn(opts: {
   targetDir?: string;
   /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
   onOutboundPrompt?: (prompt: string) => void;
+  createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
 }): Promise<{
   result: AgentResult;
   agentLabel: string | null;
@@ -157,7 +160,7 @@ export async function runRefineTurn(opts: {
   let agentLabel: string | null = null;
 
   for (const entry of agentOrder) {
-    const agent = createAgent(entry.agent, entry.model);
+    const agent = (opts.createAgent ?? createAgent)(entry.agent, entry.model);
     agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
@@ -179,13 +182,7 @@ export async function runRefineTurn(opts: {
     );
     emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
 
-    opts.planTelemetry?.recordAgentAttempt({
-      phase: "refine",
-      agentCli: entry.agent,
-      configuredModel: entry.model,
-      durationMs: Date.now() - invocationStartedAt,
-      result,
-    });
+    const durationMs = Date.now() - invocationStartedAt;
 
     if (result.kind === "ok") {
       // Agent succeeded; validate the output
@@ -194,6 +191,14 @@ export async function runRefineTurn(opts: {
       // Check for blocker
       const blockerDetection = detectBlocker(intentAfter);
       if (blockerDetection.hasBlocker) {
+        opts.planTelemetry?.recordAgentAttempt({
+          phase: "refine",
+          agentCli: entry.agent,
+          configuredModel: entry.model,
+          durationMs,
+          result,
+          outcome: "blocker",
+        });
         return {
           result,
           agentLabel,
@@ -204,6 +209,14 @@ export async function runRefineTurn(opts: {
 
       // Explicit non-interactive skip.
       if (isValidRefineSkipAddition(intentBefore, intentAfter)) {
+        opts.planTelemetry?.recordAgentAttempt({
+          phase: "refine",
+          agentCli: entry.agent,
+          configuredModel: entry.model,
+          durationMs,
+          result,
+          outcome: "skip",
+        });
         return {
           result,
           agentLabel,
@@ -217,12 +230,20 @@ export async function runRefineTurn(opts: {
       const hasRefinementSection = hasHeading(intentAfter, REFINE_HEADING);
 
       if (!wasModified) {
+        const validationError: AgentResult = {
+          kind: "error",
+          exitCode: 1,
+          stderr: `refine: intent.md unchanged on turn ${opts.turnNumber}; write ${REFINE_HEADING}, append ${REFINE_SKIP_HEADING}, or append ## Blocker`,
+        };
+        opts.planTelemetry?.recordAgentAttempt({
+          phase: "refine",
+          agentCli: entry.agent,
+          configuredModel: entry.model,
+          durationMs,
+          result: validationError,
+        });
         return {
-          result: {
-            kind: "error",
-            exitCode: 1,
-            stderr: `refine: intent.md unchanged on turn ${opts.turnNumber}; write ${REFINE_HEADING}, append ${REFINE_SKIP_HEADING}, or append ## Blocker`,
-          },
+          result: validationError,
           agentLabel,
           continueRefine: false,
         };
@@ -230,38 +251,71 @@ export async function runRefineTurn(opts: {
 
       if (!hasRefinementSection) {
         if (isFrontmatterOnlyChange(intentBefore, intentAfter)) {
+          const validationError: AgentResult = {
+            kind: "error",
+            exitCode: 1,
+            stderr: `refine: intent.md only changed frontmatter on turn ${opts.turnNumber}; write ${REFINE_HEADING} or append ${REFINE_SKIP_HEADING} to the body`,
+          };
+          opts.planTelemetry?.recordAgentAttempt({
+            phase: "refine",
+            agentCli: entry.agent,
+            configuredModel: entry.model,
+            durationMs,
+            result: validationError,
+          });
           return {
-            result: {
-              kind: "error",
-              exitCode: 1,
-              stderr: `refine: intent.md only changed frontmatter on turn ${opts.turnNumber}; write ${REFINE_HEADING} or append ${REFINE_SKIP_HEADING} to the body`,
-            },
+            result: validationError,
             agentLabel,
             continueRefine: false,
           };
         }
+        const validationError: AgentResult = {
+          kind: "error",
+          exitCode: 1,
+          stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; expected ${REFINE_HEADING}, ${REFINE_SKIP_HEADING}, or ## Blocker`,
+        };
+        opts.planTelemetry?.recordAgentAttempt({
+          phase: "refine",
+          agentCli: entry.agent,
+          configuredModel: entry.model,
+          durationMs,
+          result: validationError,
+        });
         return {
-          result: {
-            kind: "error",
-            exitCode: 1,
-            stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; expected ${REFINE_HEADING}, ${REFINE_SKIP_HEADING}, or ## Blocker`,
-          },
+          result: validationError,
           agentLabel,
           continueRefine: false,
         };
       }
 
       if (!isValidRefineTurnAddition(intentBefore, intentAfter, opts.turnNumber)) {
+        const validationError: AgentResult = {
+          kind: "error",
+          exitCode: 1,
+          stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; preserve frontmatter, ## Raw seed, raw-seed markers, and ## Intent above ${REFINE_HEADING} exactly, then consolidate from ${REFINE_HEADING} downward`,
+        };
+        opts.planTelemetry?.recordAgentAttempt({
+          phase: "refine",
+          agentCli: entry.agent,
+          configuredModel: entry.model,
+          durationMs,
+          result: validationError,
+        });
         return {
-          result: {
-            kind: "error",
-            exitCode: 1,
-            stderr: `refine: invalid intent.md modification on turn ${opts.turnNumber}; preserve the human-authored seed above ${REFINE_HEADING} exactly (except permitted name frontmatter), then consolidate from ${REFINE_HEADING} downward`,
-          },
+          result: validationError,
           agentLabel,
           continueRefine: false,
         };
       }
+
+      opts.planTelemetry?.recordAgentAttempt({
+        phase: "refine",
+        agentCli: entry.agent,
+        configuredModel: entry.model,
+        durationMs,
+        result,
+        outcome: "refined",
+      });
 
       // Continue the refine phase
       return {
@@ -270,6 +324,14 @@ export async function runRefineTurn(opts: {
         continueRefine: true,
       };
     }
+
+    opts.planTelemetry?.recordAgentAttempt({
+      phase: "refine",
+      agentCli: entry.agent,
+      configuredModel: entry.model,
+      durationMs,
+      result,
+    });
 
     if (result.kind === "quota") {
       continue;
@@ -352,7 +414,7 @@ function ledgerFromHeading(text: string, heading: string): string | null {
 }
 
 /**
- * Validate refine consolidation: preserve frozen seed above first ledger heading.
+ * Validate refine consolidation: preserve frozen post-seed layout above first ledger heading.
  */
 export function isValidRefineTurnAddition(before: string, after: string, _turnNumber: number): boolean {
   const afterLedger = ledgerFromHeading(after, REFINE_HEADING);
@@ -361,7 +423,7 @@ export function isValidRefineTurnAddition(before: string, after: string, _turnNu
   }
   const beforePrefix = prefixBeforeHeading(before, REFINE_HEADING);
   const afterPrefix = prefixBeforeHeading(after, REFINE_HEADING);
-  return stripFrontmatter(afterPrefix).trimEnd() === stripFrontmatter(beforePrefix).trimEnd();
+  return afterPrefix.trimEnd() === beforePrefix.trimEnd();
 }
 
 /**
@@ -384,7 +446,7 @@ export function isValidRefineSkipAddition(before: string, after: string): boolea
   }
   const beforePrefix = prefixBeforeHeading(beforeNormalized, REFINE_HEADING);
   const afterPrefix = prefixBeforeHeading(afterWithoutSkip, REFINE_HEADING);
-  return stripFrontmatter(afterPrefix).trimEnd() === stripFrontmatter(beforePrefix).trimEnd();
+  return afterPrefix.trimEnd() === beforePrefix.trimEnd();
 }
 
 /**
@@ -416,7 +478,7 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
   blocker?: string | undefined;
   terminalOutcome?: RefineTerminalOutcome | undefined;
 }> {
-  const budgetTurns = opts.refineTurns ?? 3;
+  const budgetTurns = opts.refineTurns ?? 1;
 
   // If budget is 0, skip entirely
   if (budgetTurns === 0) {
@@ -445,6 +507,7 @@ export async function runRefinePhase(opts: RefinePhaseOptions): Promise<{
       ...(opts.externalSpecRoot !== undefined ? { externalSpecRoot: opts.externalSpecRoot } : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
       ...(opts.onOutboundPrompt !== undefined ? { onOutboundPrompt: opts.onOutboundPrompt } : {}),
+      ...(opts.createAgent !== undefined ? { createAgent: opts.createAgent } : {}),
     });
 
     // Update agent label (use the most recent non-null one)

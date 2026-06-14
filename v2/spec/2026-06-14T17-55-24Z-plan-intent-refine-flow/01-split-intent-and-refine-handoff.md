@@ -31,15 +31,15 @@ Committed fresh plans produce two history steps: `plan: intent` for intent creat
 
 ## Acceptance criteria
 
-- [ ] A successful committed fresh run creates `plan: intent` followed by `plan: refine`.
-- [ ] Successful committed fresh refine opens or updates a draft PR, prints `--resume-draft <intent>` next steps, and exits `0`.
-- [ ] Committed `--refine-turns 0` creates `plan: intent`, opens or updates the draft PR, prints the same `--resume-draft <intent>` next steps, and exits `0`.
-- [ ] No synthetic `## Blocker` is appended to `intent.md` after successful refine.
-- [ ] A genuine agent-authored `## Blocker` during refine commits `plan: blocker` and exits `1`.
-- [ ] `jarvis1 plan --resume-draft <intent>` proceeds when no genuine blocker exists, ignores only historical generated gate blockers, and still refuses when a genuine `## Blocker` exists.
-- [ ] PR open/update is scoped to the current branch's open draft PR; closed or unrelated PRs are not reused.
-- [ ] Default refine budget is one turn unless `--refine-turns` overrides it.
-- [ ] Tests cover commit ordering, PR creation after refine, no synthetic blocker, genuine blocker preservation, resume-draft validation, and default refine-turn count.
+- [x] A successful committed fresh run creates `plan: intent` followed by `plan: refine`.
+- [x] Successful committed fresh refine opens or updates a draft PR, prints `--resume-draft <intent>` next steps, and exits `0`.
+- [x] Committed `--refine-turns 0` creates `plan: intent`, opens or updates the draft PR, prints the same `--resume-draft <intent>` next steps, and exits `0`.
+- [x] No synthetic `## Blocker` is appended to `intent.md` after successful refine.
+- [x] A genuine agent-authored `## Blocker` during refine commits `plan: blocker` and exits `1`.
+- [x] `jarvis1 plan --resume-draft <intent>` proceeds when no genuine blocker exists, ignores only historical generated gate blockers, and still refuses when a genuine `## Blocker` exists.
+- [x] PR open/update is scoped to the current branch's open draft PR; closed or unrelated PRs are not reused.
+- [x] Default refine budget is one turn unless `--refine-turns` overrides it.
+- [x] Tests cover commit ordering, PR creation after refine, no synthetic blocker, genuine blocker preservation, resume-draft validation, and default refine-turn count.
 
 ## Documentation updates
 

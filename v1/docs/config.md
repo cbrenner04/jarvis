@@ -86,9 +86,13 @@ The `modes.prompt` mode config accepts only `agentOrder`; the optional `commit` 
 
 The optional `modes.plan.commit` boolean (default `true`) controls where plan-mode specs are authored and whether git/GitHub participation is enabled:
 
-**`true` (default):** Plan specs are authored inside the target repository under `spec/<spec-dir>/` on a git branch. A draft PR is opened and `gh pr ready` runs programmatically on success. This is the normal collaborative spec-authoring workflow.
+**`true` (default):** Plan specs are authored inside the target repository under `spec/<spec-dir>/` on a git branch. Fresh seeded runs commit `plan: intent` (and `plan: refine` when `--refine-turns > 0`), open or update a draft PR, and exit with `--resume-draft` handoff; draft/review continue after that resume. `gh pr ready` runs programmatically when every phase succeeds. See [plan-mode.md](./plan-mode.md#committed-fresh-run-handoff-after-refine).
 
 **`false`:** Plan specs are authored in Jarvis-owned storage at `~/.jarvis/specs/<project-safe-id>/<spec-dir>/` outside the target repository. No git worktree, branch, commits, or PR are created. Plan mode runs directly in the target repo root. The generated spec includes a `repo:` binding so `jarvis run` can resolve the target repository later. Use this mode when specs should not be committed to the repo or when you want to generate and immediately execute a spec without the PR review cycle.
+
+## Plan CLI flags (not in config)
+
+`--refine-turns` and `--review-passes` are per-invocation CLI flags only; they are not stored in `config.json`. `--refine-turns` defaults to `1` (`0` still commits `plan: intent` then skips refinement). `--review-passes` defaults to `modes.review.passes` (currently `2`). Full semantics: [plan-mode.md](./plan-mode.md#flags).
 
 ## `targetDir` (plan mode, commit=true only)
 

@@ -214,7 +214,7 @@ describe("commitPlanDraft", () => {
       });
       writeFileSync(
         join(worktreePath, "spec", "test-spec", "intent.md"),
-        readFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "utf8").trimEnd() + "\n\n## Refine skip\n",
+        `${readFileSync(join(worktreePath, "spec", "test-spec", "intent.md"), "utf8").trimEnd()}\n\n## Refine skip\n`,
       );
       commitPlanRefine({
         worktreePath,

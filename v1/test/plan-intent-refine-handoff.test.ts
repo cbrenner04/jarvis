@@ -373,7 +373,7 @@ describe("resume-draft integration", () => {
     const env = setupResumeDraftEnv(legacyGateIntentBody());
     try {
       const cap = captureIo();
-      const code = await planCommand({
+      const _code = await planCommand({
         io: cap.io,
         args: ["--resume-draft", join(env.worktreePath, "spec", env.specDir, "intent.md"), "--review-passes", "1"],
         cwd: env.projectRoot,

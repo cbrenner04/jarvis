@@ -133,17 +133,26 @@ describe("plan step outcomes", () => {
         createAgent: () => agent,
       });
 
-      expect(draft.successAttempt).toBeDefined();
+      const successAttempt = draft.successAttempt;
+      expect(successAttempt).toBeDefined();
+      if (!successAttempt) {
+        throw new Error("expected successAttempt");
+      }
       writer.recordAgentAttempt({
         phase: "intent",
-        agentCli: draft.successAttempt!.agentCli,
-        configuredModel: draft.successAttempt!.configuredModel,
-        durationMs: draft.successAttempt!.durationMs,
+        agentCli: successAttempt.agentCli,
+        configuredModel: successAttempt.configuredModel,
+        durationMs: successAttempt.durationMs,
         result: draft.result,
         outcome: "success",
       });
 
-      const row = readTelemetry(telemetryPath)[0]!;
+      const rows = readTelemetry(telemetryPath);
+      expect(rows).toHaveLength(1);
+      const row = rows[0];
+      if (!row) {
+        throw new Error("expected telemetry row");
+      }
       expect(row.mode).toBe("plan");
       expect(row.plan_phase).toBe("intent");
       expect(row.outcome).toBe("success");
@@ -182,7 +191,7 @@ describe("plan step outcomes", () => {
         writeFileSync(intentPath, "seed\n", "utf8");
 
         const writer = createPlanTelemetryWriter({ telemetryPath, namespace: "plan:proj:tmp" });
-        const agent = new FakeAgent("claude", (_prompt, opts) => {
+        const agent = new FakeAgent("claude", (_prompt, _opts) => {
           writeFileSync(intentPath, testCase.after, "utf8");
           return { kind: "ok", stdout: "", stderr: "" };
         });
@@ -197,7 +206,12 @@ describe("plan step outcomes", () => {
           createAgent: () => agent,
         });
 
-        const row = readTelemetry(telemetryPath)[0]!;
+        const rows = readTelemetry(telemetryPath);
+        expect(rows).toHaveLength(1);
+        const row = rows[0];
+        if (!row) {
+          throw new Error("expected telemetry row");
+        }
         expect(row.mode).toBe("plan");
         expect(row.plan_phase).toBe("refine");
         expect(row.outcome).toBe(testCase.outcome);
@@ -230,7 +244,12 @@ describe("plan step outcomes", () => {
       });
 
       expect(turn.result.kind).toBe("error");
-      const row = readTelemetry(telemetryPath)[0]!;
+      const rows = readTelemetry(telemetryPath);
+      expect(rows).toHaveLength(1);
+      const row = rows[0];
+      if (!row) {
+        throw new Error("expected telemetry row");
+      }
       expect(row.plan_phase).toBe("refine");
       expect(row.kind).toBe("error");
       expect(row.outcome).toBeUndefined();

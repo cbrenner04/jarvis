@@ -240,11 +240,7 @@ function _removeSpecDirIfPresent(worktreePath: string, specDirBasename: string, 
   }
 }
 
-function externalSpecDirCollides(
-  externalSpecRoot: string,
-  planName: string,
-  specTimestamp: boolean,
-): boolean {
+function externalSpecDirCollides(externalSpecRoot: string, planName: string, specTimestamp: boolean): boolean {
   if (!existsSync(externalSpecRoot)) {
     return false;
   }

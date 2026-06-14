@@ -62,17 +62,73 @@ Guardrails:
 
 ## Refinement
 
-- A shrink iteration that misses the contract (AC regresses / test deleted /
-  tests red) is discarded, not propagated: its changes are reverted and ready
-  proceeds on the pre-shrink code. Rules out treating shrink as an ordinary
-  write iteration whose failed terminal contract aborts the run — an optional
-  cleanup pass must never gate an already-complete, passing spec.
+Commit ordering (supersedes the earlier "reverted, ready proceeds on pre-shrink
+code" entry — same intent, now mechanically concrete):
 
-## Refine skip
+- Commit the terminal `complete` boundary *before* shrink runs; shrink is a
+  second `executeWrite` step over the committed-complete worktree. Rules out
+  shrinking pre-commit, where a shrink crash would leave a complete spec with no
+  durable boundary and re-run already-done iterations.
+- Pre-shrink ref *is* the committed `complete` HEAD — no new durable ref. On
+  in-process miss, reset the worktree to HEAD and proceed to ready on the
+  complete code. Rules out the deferred separate snapshot ref: the commit
+  already is the ref.
+- Crash mid-shrink: the run is already committed `complete`; recovery returns
+  `complete` idempotently and resets any dirty worktree to HEAD — shrink simply
+  didn't happen, never re-runs as a normal write step. Rules out commit-after
+  (re-runs shrink as an ordinary iteration over partially-reverted code).
+- "Never gates ready" therefore holds because `complete` is committed before
+  shrink, not because shrink changes are reverted; discard is scoped to
+  in-process miss.
 
-Intent is complete: placement decisions pinned, guardrails enumerated, and the
-one load-bearing edge case (shrink-miss discarded, never gates ready) captured.
-Remaining choices (diff-base mechanism, quota behavior mid-shrink) are either
-implementer defaults or already subsumed by the discard-on-miss rule. Nothing
-load-bearing to add.
+Verification contract (the review verdict is correct: `ready` cannot enforce
+two of the three guardrails):
+
+- Shrink's mechanical gate = suite re-runs green AND the shrink diff
+  (`base..HEAD`, see below) deletes no test files. Pin both now. Do not name
+  `ready` as enforcer — it runs the suite (a deleted test makes it *greener*)
+  and never reads ACs.
+- AC-non-regression stays prompt-only until a verification runner lands; accept
+  the residual risk explicitly. Rules out claiming a mechanical AC gate that
+  does not exist. Prompt-only risk is thus narrow and concentrated on this one
+  guardrail — for the bulk of the diff, restraint and the shrink objective are
+  aligned.
+
+Scope base ref:
+
+- Inject the run-start commit into the shrink prompt as the diff base; "the
+  run's diff" is `base..HEAD`. Rules out leaving diff-base as prose — it is the
+  central scope guardrail and must be machine-anchored.
+
+Terminal classification:
+
+- Keep-vs-discard keys on terminal `complete` (from `done`/`no-work`);
+  `blocked`/`progress` = miss → discard. Constrain shrink rules text to emit
+  only `done`/`no-work`. Step runs once, so `progress` cannot iterate.
+
+Budget + empty diff:
+
+- Shrink fires after terminal `complete`, outside the iteration budget; a run
+  completing on its last allowed iteration still gets the shrink invocation.
+- Empty/near-empty `base..HEAD` (e.g. `no-work` completion): short-circuit, skip
+  shrink — no wasted invocation.
+
+Loop mechanism (correct the architecture description):
+
+- The loop reads the `write.shrink` prompt body and passes it as the step-rules
+  string to a second write step — render-step prompt loading unchanged, no new
+  loop responsibility, no step-type branching. Rules out hardcoding a second
+  rules constant in the loop (the real alternative; there is no CLI
+  `--step-rules` path).
+
+Subspec scope adjustments for the draft:
+
+- `00`: add the `v2/docs/v1-behaviors.md` entry — the new authoring rule changes
+  observable `jarvis1 plan` output.
+- `01`: narrow the "machinery with no consumer yet" pattern to "no consumer
+  *and* no spec'd future consumer" so the checklist cannot delete
+  intentionally staged-skeleton interfaces.
+- `01` ACs: (a) re-invoking a `completed` run performs no shrink step;
+  (b) crash-mid-shrink recovers to committed `complete` with worktree reset and
+  no re-shrink; (c) the mandated `draft.md` revision bump.
 

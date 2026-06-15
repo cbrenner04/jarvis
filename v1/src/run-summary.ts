@@ -89,7 +89,7 @@ function attemptLine(record: TelemetryRecord): boolean {
 }
 
 function isImplementationAttempt(record: TelemetryRecord): boolean {
-  return attemptLine(record) && record.patch_phase !== "review";
+  return attemptLine(record) && record.patch_phase !== "review" && record.patch_phase !== "shrink";
 }
 
 function isReviewAttempt(record: TelemetryRecord): boolean {

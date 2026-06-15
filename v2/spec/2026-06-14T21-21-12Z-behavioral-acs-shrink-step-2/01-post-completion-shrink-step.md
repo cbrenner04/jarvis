@@ -39,19 +39,19 @@ Patch-run implementations accumulate bloat that `global.terse` and `patch.rules`
 
 ## Acceptance criteria
 
-- [ ] `git: true` runs with implementation iterations execute shrink after completion + clean worktree and before review or `maybeMarkReady`.
-- [ ] Shrink runs only on files touched during implementation iterations; edits outside that set are reverted post-invocation.
-- [ ] Spec-tree edits during shrink are reverted; acceptance-criteria checkbox state is unchanged.
-- [ ] A shrink pass that leaves tests red, deletes a test file under shrink scope on repo test paths, or regresses an acceptance criterion (checked pre-shrink → unchecked post-shrink) is fully reverted; review/ready proceeds on pre-shrink code.
-- [ ] Any other unsuccessful shrink invocation (quota exhaustion, timeout, spawn error) discards worktree changes and continues without elevating run exit code.
-- [ ] Pre-shrink `bun run ready` failure logs a warning, skips shrink, and continues to review/`maybeMarkReady`.
-- [ ] A no-op shrink pass leaves the worktree unchanged and does not add a commit.
-- [ ] A non-empty shrink pass produces one shrink commit with attribution trailer and refreshed PR footer.
-- [ ] `maybeMarkReady` is not called from the per-iteration completion path while shrink is still pending.
-- [ ] Shrink is skipped when `git: false` or when the run completed zero implementation iterations.
-- [ ] Telemetry records the shrink invocation with `patch_phase: "shrink"`.
-- [ ] `patch_phase: "shrink"` is excluded from `patchIterationsCompletedForSummary` and run-summary implementation attempt counts (`isImplementationAttempt`).
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `git: true` runs with implementation iterations execute shrink after completion + clean worktree and before review or `maybeMarkReady`.
+- [x] Shrink runs only on files touched during implementation iterations; edits outside that set are reverted post-invocation.
+- [x] Spec-tree edits during shrink are reverted; acceptance-criteria checkbox state is unchanged.
+- [x] A shrink pass that leaves tests red, deletes a test file under shrink scope on repo test paths, or regresses an acceptance criterion (checked pre-shrink → unchecked post-shrink) is fully reverted; review/ready proceeds on pre-shrink code.
+- [x] Any other unsuccessful shrink invocation (quota exhaustion, timeout, spawn error) discards worktree changes and continues without elevating run exit code.
+- [x] Pre-shrink `bun run ready` failure logs a warning, skips shrink, and continues to review/`maybeMarkReady`.
+- [x] A no-op shrink pass leaves the worktree unchanged and does not add a commit.
+- [x] A non-empty shrink pass produces one shrink commit with attribution trailer and refreshed PR footer.
+- [x] `maybeMarkReady` is not called from the per-iteration completion path while shrink is still pending.
+- [x] Shrink is skipped when `git: false` or when the run completed zero implementation iterations.
+- [x] Telemetry records the shrink invocation with `patch_phase: "shrink"`.
+- [x] `patch_phase: "shrink"` is excluded from `patchIterationsCompletedForSummary` and run-summary implementation attempt counts (`isImplementationAttempt`).
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

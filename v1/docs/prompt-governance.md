@@ -29,6 +29,7 @@ artifacts that shape agent behavior in patch mode and plan draft/review/refine:
 - `patch.prompt.body` (`prompts/patch/instructions.md`)
 - `patch.prompt.pr-description` (`prompts/patch/pr-description.md`)
 - `patch.rules` (`prompts/patch/rules.md`)
+- `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse` only (not `patch.rules`)
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
 - `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review` (`prompts/plan/review.md`)
@@ -91,6 +92,7 @@ Shared rendering follows this contract:
 - Patch layering is `global.documentation -> global.naming -> global.terse -> patch.prompt.body`.
 - Plan layering is `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`.
 - `patch.rules` remains step-owned injected content, not an always-layered patch fragment.
+- `patch.prompt.shrink` is a post-completion step prompt (not layered into `patch.prompt.body`). It layers `global.terse` only — not `global.documentation`, `global.naming`, or `patch.rules`. Prevention surfaces (`global.terse`, `patch.rules`) run during implementation; `patch.prompt.shrink` is the post-completion gate that hunts named bloat patterns after the spec is complete.
 - `global.documentation` requires docs-first execution order: read relevant
   durable docs/specs before code edits, and update docs/specs in the same
   subspec when behavior/architecture/workflow/prompt/operator-facing semantics

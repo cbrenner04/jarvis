@@ -196,6 +196,40 @@ describe("refine/name-only prompts", () => {
     expect(prompt).toContain("outside the active spec directory");
   });
 
+  test("draft prompt includes behavioral acceptance criteria contract", () => {
+    const prompt = buildDraftPrompt({
+      name: "test-name",
+      intent: "intent",
+      specGuidance: "guidance",
+    });
+    expect(prompt).toContain("observable behavior, not implementation structure");
+    expect(prompt).toContain("quota exhaustion falls through to the next configured agent");
+    expect(prompt).toContain("quota classification lives in a dedicated module");
+  });
+
+  test("review adversary prompt flags structural product acceptance criteria", () => {
+    const prompt = buildReviewPrompt({
+      name: "x",
+      intent: "i",
+      specGuidance: "g",
+      currentSpec: "spec",
+    });
+    expect(prompt).toContain("Structural **product** acceptance criteria");
+    expect(prompt).toContain("observable outcomes");
+  });
+
+  test("review actuator prompt rewrites structural product acceptance criteria", () => {
+    const prompt = buildVerdictActuatorPrompt({
+      name: "p",
+      intent: "# Intent\n",
+      currentSpec: "spec",
+      specGuidance: "guidance",
+      verdict: "Fix ACs.",
+    });
+    expect(prompt).toContain("Rewrite structural **product** acceptance criteria into behavioral ones");
+    expect(prompt).toContain("when structure is the contract");
+  });
+
   test("refine prompt does not describe interactive questions or question tools", () => {
     const prompt = buildRefinePrompt({
       name: "n",

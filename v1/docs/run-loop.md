@@ -175,8 +175,42 @@ The review phase flow is:
 3. **Final ready**: runs `bun run ready` again, then `gh pr ready` to transition 
    the PR from draft to ready.
 
-Telemetry records review pass invocations with `patch_phase: "review"` so they 
+Telemetry records review pass invocations with `patch_phase: "review"` so they
 are distinguishable from implementation iterations in `~/.jarvis/runs.jsonl`.
+
+### Post-completion shrink
+
+After implementation is complete (zero unchecked boxes), a clean worktree, and
+`git: true`, a single shrink agent invocation runs when the run completed at
+least one implementation iteration. Shrink is skipped when `git: false` or when
+no implementation iterations ran (for example checkbox-only first-iteration
+completion). When shrink or review will run, the per-subspec completion path
+defers PR readiness (`maybeMarkReady`) to the post-completion phases.
+
+Order: **shrink → review (when configured) → `maybeMarkReady`**.
+
+Shrink phase flow:
+
+1. **Pre-shrink gate**: runs `bun run ready` with the same commit/push semantics
+   as the review baseline helper. Failure logs a warning and skips shrink (review
+   and/or `maybeMarkReady` still proceed).
+2. **Shrink invocation**: one agent call with `patch.prompt.shrink` + `global.terse`
+   (not `patch.rules`). Prompt includes the completed spec tree (read-only), an
+   explicit allowlist of files touched during implementation iterations, and a
+   run-scoped diff (allowlisted files only, not the full branch). The agent may
+   edit only allowlisted paths.
+3. **Post-invocation enforcement**: spec-tree edits are reverted; edits outside
+   the allowlist are reverted. Contract validation requires passing `bun test`, no
+   deleted `*.test.ts` under shrink scope, and no acceptance-criteria regression
+   (a criterion checked pre-shrink must not become unchecked). Any contract miss
+   or unsuccessful invocation (quota exhaustion, timeout, spawn error) discards
+   all shrink worktree changes and continues without elevating the run exit code.
+4. **Commit**: non-empty surviving changes produce one `shrink:` commit with
+   `Jarvis-Agent:` attribution and PR footer refresh; no-op leaves no commit.
+
+Telemetry records the shrink invocation with `patch_phase: "shrink"`. Shrink
+does not count toward `maxIterations` or run-summary implementation attempt
+counts (`patchIterationsCompletedForSummary`, `isImplementationAttempt`).
 
 ## Loop-only mode (`git: false`)
 

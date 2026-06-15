@@ -135,3 +135,10 @@ it was a planning unit too large to trust.
 - No line-count enforcement in patch-mode implementation prompts.
 - No re-plan of v2 phase 3+ here. Re-plan phase 3 and beyond with the new sizing
   rule after this lands.
+
+## Refinement
+
+- The ~1000-line threshold lives in `v1/docs/spec-guidance.md`; draft/review
+  prompts reference the sizing rule without hardcoding the number — rules out
+  baking `1000` into prompt text, which the plan-prompt coherence principle
+  forbids and which would drift from the doc.

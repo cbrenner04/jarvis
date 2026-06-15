@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
-import { appendAgentTrailer } from "../../commit-trailer.ts";
 import {
   checkPrExists,
   extractGeneratedNarrativeContent,
@@ -12,7 +11,7 @@ import {
   NARRATIVE_START_MARKER,
   renderAttributionSummary,
 } from "../../pr.ts";
-import { pushCurrent } from "../../worktree.ts";
+import { type RunReadyAndCommitOpts, runReadyAndCommit } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 import { parsePatchSpec } from "./spec.ts";
 
@@ -187,15 +186,8 @@ function defaultWritePrBody(branch: string, body: string, cwd: string): void {
   });
 }
 
-export type RunReadyAndCommitOpts = {
-  cwd: string;
-  /** Test seam: agent label for the commit trailer. Threaded to the `commitCheckFix` seam. */
-  agentLabel?: string;
-  /** Seam for just `bun run ready`. Defaults to execFileSync call. */
-  runReady?: (cwd: string) => void;
-  /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only when tree is dirty after runReady. */
-  commitCheckFix?: (cwd: string, agentLabel: string) => void;
-};
+export type { RunReadyAndCommitOpts };
+export { runReadyAndCommit };
 
 export type MaybeMarkReadyOpts = {
   indexPath: string;
@@ -213,72 +205,6 @@ export type MaybeMarkReadyOpts = {
   /** Seam for the `gh pr ready <branch>` shell-out. Used by tests to verify it is/isn't called. Defaults to execFileSync call. */
   ghPrReady?: (branch: string, cwd: string) => void;
 };
-
-// Shared baseline gate logic: run bun run ready and commit check:fix if needed.
-// Used by both the baseline gate before review passes and the final ready after review.
-// Leaves tree clean and PR in draft state (no gh pr ready).
-export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
-  // Default implementations
-  const realBunRunReady = (cwd: string) => {
-    try {
-      execFileSync("bun", ["run", "ready"], {
-        cwd,
-        env: process.env,
-        stdio: "pipe",
-      });
-    } catch (err) {
-      const out = err as NodeJS.ErrnoException & {
-        stdout?: Buffer;
-        stderr?: Buffer;
-      };
-      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-      throw new Error(captured ? `bun run ready failed:\n${captured}` : `bun run ready failed`);
-    }
-  };
-
-  const realCommitCheckFix = (cwd: string, agentLabel: string) => {
-    execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
-    const commitMessage = appendAgentTrailer("chore: apply pre-ready check:fix", agentLabel);
-    execFileSync("git", ["commit", "-F", "-"], {
-      cwd,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      input: commitMessage,
-    });
-
-    // Idempotency guard: re-check for dirty state
-    const porcelain = execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
-    if (porcelain !== "") {
-      const dirtyBranch = getCurrentBranch(cwd);
-      throw new Error(
-        `pre-ready check:fix commit succeeded but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
-      );
-    }
-
-    // Push after successful commit
-    pushCurrent({ cwd, firstPush: false });
-  };
-
-  const runReadyFn = opts.runReady ?? realBunRunReady;
-  const commitCheckFixFn = opts.commitCheckFix ?? realCommitCheckFix;
-
-  runReadyFn(opts.cwd);
-
-  // Check for dirty state after running ready
-  const porcelain = execFileSync("git", ["status", "--porcelain"], {
-    cwd: opts.cwd,
-    encoding: "utf8",
-    stdio: "pipe",
-  }).trim();
-
-  if (porcelain !== "") {
-    commitCheckFixFn(opts.cwd, opts.agentLabel ?? "");
-  }
-}
 
 export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   if (!linkedSubspecsAreComplete(readFileSync(opts.indexPath, "utf8"))) {

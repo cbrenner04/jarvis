@@ -332,7 +332,7 @@ describe("run", () => {
     expect(cap.err()).toContain("bogus");
   });
 
-  test("plan with no args fails the log-server preflight (exit 1) when the log server is not reachable", async () => {
+  test("plan with no args fails parsing before the log-server preflight", async () => {
     // Pin logServerUrl to a deliberately-unreachable port so the test is
     // robust to whether a real log server is running on the host.
     writeFileSync(
@@ -368,11 +368,8 @@ describe("run", () => {
     );
     const cap = captureIo();
     const code = await run(["plan"], { io: cap.io, config: { dir: cfgDir } });
-    // The stub message is gated behind a successful preflight; see
-    // test/plan-command.test.ts for the stub-message coverage with an
-    // injected log client.
     expect(code).toBe(1);
-    expect(cap.err()).toContain("log server unreachable");
+    expect(cap.err()).toContain("missing required seed");
   });
 
   test("plan --help prints usage to stdout and exits 0", async () => {

@@ -19,7 +19,10 @@ export type TelemetryRecordRole = "invocation" | "run_terminal";
 export type TelemetryMode = "patch" | "plan" | "prompt";
 
 /**Present on plan-mode invocation rows so summaries can attribute usage to a phase.*/
-export type PlanTelemetryPhase = "refine" | "name-only" | "draft" | "review";
+export type PlanTelemetryPhase = "intent" | "refine" | "name-only" | "draft" | "review";
+
+/**Terminal intent/refine state after harness validation; omitted on failed attempts.*/
+export type PlanStepOutcome = "success" | "refined" | "skip" | "blocker";
 export type PatchTelemetryPhase = "implementation" | "review" | "shrink";
 
 export type TelemetryRecord = {
@@ -41,6 +44,8 @@ export type TelemetryRecord = {
   /** Discriminator so patch and plan sessions can share one JSONL file safely.*/
   mode?: TelemetryMode;
   plan_phase?: PlanTelemetryPhase;
+  /**Set on intent/refine rows when validation reaches a terminal state; omitted on failures.*/
+  outcome?: PlanStepOutcome | null;
   patch_phase?: PatchTelemetryPhase;
   watchdog_pgid?: number;
 };

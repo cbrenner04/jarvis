@@ -120,17 +120,16 @@ rule applies to plan-generated specs the same as hand-written ones.
 
 ## Authoring with `jarvis1 plan`
 
-When using `jarvis1 plan [<intent-file|"inline text">]` to generate a spec, plan mode produces specs that conform to the conventions documented in this file: an `index.md` file with an H1 title and a GitHub-style task list of links to atomic subspecs, plus numbered subspec files (`00-*.md`, `01-*.md`, etc.) each with an exact `## Acceptance criteria` section containing checkboxes.
+When using `jarvis1 plan <intent-file|"inline text">` to generate a spec, plan mode produces specs that conform to the conventions documented in this file: an `index.md` file with an H1 title and a GitHub-style task list of links to atomic subspecs, plus numbered subspec files (`00-*.md`, `01-*.md`, etc.) each with an exact `## Acceptance criteria` section containing checkboxes.
 
 The generated spec tree is opened as a draft PR for review and editing. After you review the generated index and subspecs on the PR, you can edit the files directly (plan mode preserves manual edits across review passes) and merge the PR to `main`. Once merged, the spec becomes available to `jarvis1 run` for implementation work.
 
 Plan-mode prompts forbid self-referential deliverables: do not write acceptance criteria that only grade prose inside the active spec directory. Criteria must verify target state outside that directory (code, tests, docs, operator behavior, or generated evidence).
 
-Plan mode also supports no-argument sessions (`jarvis1 plan`) for fuzzy intents:
-Jarvis seeds `intent.md` with `# Intent`, then runs a non-interactive
-intent-refinement pass before drafting. The agent can append inferred scope,
-assumptions, risks, or a visible `## Blocker` if human clarification is needed;
-it does not ask questions live.
+Fresh plan runs require a seed. File and inline seeds both enter the same flow:
+jarvis seeds `intent.md`, preserves the exact raw seed in a dedicated block,
+runs one non-interactive intent-draft pass to shape the editable draft and
+propose `name:`, then continues with the normal plan pipeline.
 
 Plan-generated specs follow the same merge-first rule: do not run `jarvis1 run` against the spec until after the plan PR is merged to `main`.
 

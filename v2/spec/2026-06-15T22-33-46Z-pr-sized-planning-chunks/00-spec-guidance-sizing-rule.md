@@ -2,9 +2,9 @@
 
 `v1/docs/spec-guidance.md` is the canonical home of the sizing rule and the only
 place the numeric threshold lives. The doc is injected wholesale as
-`SPEC_GUIDANCE` into every plan prompt (draft, review, adversary, advocate,
-actuator), so stating the rule here reaches all of them; subspecs 01/02 make the
-prompts act on it explicitly.
+`SPEC_GUIDANCE` into every live plan prompt (draft, adversary, advocate,
+adjudicator, actuator), so stating the rule here reaches all of them; subspecs
+01/02 make the prompts act on it explicitly.
 
 Today the "Subspecs" section says subspecs are atomic and independently
 implementable/testable but says nothing about review size, so a subspec can be

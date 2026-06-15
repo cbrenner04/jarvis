@@ -28,8 +28,13 @@ injected as `SPEC_GUIDANCE` into this prompt).
 - Bump the `revision` in `prompts/plan/draft.md` frontmatter and add the matching
   `plan.prompt.draft@r<n>.shared.txt` rendered snapshot under
   `v1/test/fixtures/prompts/rendered/`.
+- Update the hardcoded draft-revision expectation in
+  `v1/test/prompts/rendered-snapshots.test.ts`
+  (`getById("plan.prompt.draft").metadata.revision).toBe("7")` → new revision),
+  else the snapshot test fails.
 - Record in `v2/docs/v1-behaviors.md`: the plan draft prompt decomposes intents
-  into PR-sized subspecs and splits likely-oversize ones.
+  into PR-sized subspecs and splits likely-oversize ones. (Appends to the same
+  file as 00/02; merge in index order to avoid a textual conflict.)
 
 ## Acceptance criteria
 
@@ -39,9 +44,10 @@ injected as `SPEC_GUIDANCE` into this prompt).
       before writing them.
 - [ ] `prompts/plan/draft.md` references the spec-guidance sizing rule rather
       than stating any numeric line threshold.
-- [ ] `prompts/plan/draft.md` `revision` is bumped and the matching rendered
-      snapshot fixture exists; `bun test` passes (registry, renderer, snapshot
-      tests).
+- [ ] `prompts/plan/draft.md` `revision` is bumped, the matching rendered
+      snapshot fixture exists, and the hardcoded draft-revision expectation in
+      `rendered-snapshots.test.ts` is updated to match; `bun test` passes
+      (registry, renderer, snapshot tests).
 - [ ] `v2/docs/v1-behaviors.md` records that the plan draft prompt produces
       PR-sized subspecs and splits likely-oversize ones.
 

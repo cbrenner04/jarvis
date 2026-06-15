@@ -159,14 +159,12 @@ function visitSpecFiles(dir: string, cwd: string, indent: string, lines: string[
 
 function getBranchDiff(cwd: string, baseBranch: string): string {
   try {
-    // Find the common ancestor with the base branch, then diff to HEAD.
     const mergeBase = execFileSync("git", ["merge-base", baseBranch, "HEAD"], {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
     }).trim();
 
-    // Get diff from merge-base to HEAD
     const diff = execFileSync("git", ["diff", mergeBase], {
       cwd,
       encoding: "utf8",
@@ -177,6 +175,63 @@ function getBranchDiff(cwd: string, baseBranch: string): string {
   } catch (err) {
     return `(failed to generate diff: ${err instanceof Error ? err.message : String(err)})`;
   }
+}
+
+function getRunScopedDiff(cwd: string, allowlist: string[], baseBranch: string): string {
+  if (allowlist.length === 0) {
+    return "(no allowed files)";
+  }
+  try {
+    const mergeBase = execFileSync("git", ["merge-base", baseBranch, "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    const diff = execFileSync("git", ["diff", mergeBase, "HEAD", "--", ...allowlist], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    return diff || "(no changes)";
+  } catch (err) {
+    return `(failed to generate diff: ${err instanceof Error ? err.message : String(err)})`;
+  }
+}
+
+export type ShrinkPromptOpts = {
+  specPath: string;
+  cwd: string;
+  allowlist: string[];
+  baseBranch?: string;
+};
+
+/** Build shrink prompt: run-scoped diff, allowlist, read-only spec tree; no patch.rules. */
+export function buildShrinkPrompt(opts: ShrinkPromptOpts): string {
+  const registry = loadPromptRegistry();
+  const template = assemblePromptForStep({
+    registry,
+    stepPromptId: "patch.prompt.shrink",
+  });
+
+  const specTree = buildSpecTree(dirname(opts.specPath), opts.cwd);
+  const allowlistBlock = opts.allowlist.map((path) => `- ${path}`).join("\n");
+  const runScopedDiff = getRunScopedDiff(opts.cwd, opts.allowlist, opts.baseBranch ?? "main");
+
+  return renderTemplateWithDeclarations(
+    template,
+    [
+      { name: "SPEC_PATH", type: "string", required: true },
+      { name: "SPEC_TREE", type: "string", required: true },
+      { name: "ALLOWLIST", type: "string", required: true },
+      { name: "RUN_SCOPED_DIFF", type: "string", required: true },
+    ],
+    {
+      SPEC_PATH: opts.specPath,
+      SPEC_TREE: specTree,
+      ALLOWLIST: allowlistBlock || "(empty)",
+      RUN_SCOPED_DIFF: runScopedDiff,
+    },
+  ).trim();
 }
 
 export function buildVerdictActuatorPrompt(verdict: string, specPath: string): string {

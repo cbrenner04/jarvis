@@ -23,7 +23,7 @@ export type PlanTelemetryPhase = "intent" | "refine" | "name-only" | "draft" | "
 
 /**Terminal intent/refine state after harness validation; omitted on failed attempts.*/
 export type PlanStepOutcome = "success" | "refined" | "skip" | "blocker";
-export type PatchTelemetryPhase = "implementation" | "review";
+export type PatchTelemetryPhase = "implementation" | "review" | "shrink";
 
 export type TelemetryRecord = {
   ts: string;

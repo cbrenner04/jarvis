@@ -36,9 +36,10 @@ describe("rendered prompt snapshots", () => {
 
   test("shared snapshots are keyed by id and revision", () => {
     expect(registry.getById("patch.prompt.body").metadata.revision).toBe("3");
-    expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("6");
+    expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("7");
     expect(registry.getById("plan.prompt.review").metadata.revision).toBe("6");
-    expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("1");
+    expect(registry.getById("plan.prompt.review.adversary").metadata.revision).toBe("2");
+    expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("2");
     expect(registry.getById("plan.prompt.refine").metadata.revision).toBe("9");
     expect(registry.getById("plan.prompt.intent-draft").metadata.revision).toBe("1");
 

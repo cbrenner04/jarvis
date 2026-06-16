@@ -133,14 +133,16 @@ function hasPrerequisitesSection(text: string): boolean {
 export function validateReadyIntent(
   readyIntentPath: string,
   targetDir: string,
-): {
-  ok: true;
-  name: string;
-  content: string;
-} | {
-  ok: false;
-  message: string;
-} {
+):
+  | {
+      ok: true;
+      name: string;
+      content: string;
+    }
+  | {
+      ok: false;
+      message: string;
+    } {
   if (!isExistingFile(readyIntentPath)) {
     return {
       ok: false,
@@ -1108,18 +1110,18 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     }
 
     // Check for collision and determine final plan name
-    let planName = await ensureUniquePlanName(project.root, readyIntentName, targetDir, {
+    const planName = await ensureUniquePlanName(project.root, readyIntentName, targetDir, {
       ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
       specTimestamp,
     });
-    let specDirBasename = specTimestamp ? `${formatPlanSpecTimestamp()}-${planName}` : planName;
+    const specDirBasename = specTimestamp ? `${formatPlanSpecTimestamp()}-${planName}` : planName;
     planHarnessLog(planLogClient, `plan: spec name=${planName}`);
 
     // Create worktree for fresh mode (only if it's a git repo and gh is available).
     // For commit: false, use the main checkout as worktreePath.
     const isGitRepo = existsSync(join(project.root, ".git"));
     let worktreePath: string | null = null;
-    let planBranch = `plan/${planName}`;
+    const planBranch = `plan/${planName}`;
 
     // Enter the main plan flow if: commit is false (using project root directly),
     // or if commit is true and we can create a worktree

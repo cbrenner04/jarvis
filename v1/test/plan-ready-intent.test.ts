@@ -30,10 +30,7 @@ describe("ready-intent validation", () => {
       const readyIntentsDir = join(dir, "ready-intents");
       mkdirSync(readyIntentsDir, { recursive: true });
       const readyIntentPath = join(readyIntentsDir, "test-feature.md");
-      writeFileSync(
-        readyIntentPath,
-        "---\nname: test-feature\n---\n\n## Prerequisites\n\nSome content\n",
-      );
+      writeFileSync(readyIntentPath, "---\nname: test-feature\n---\n\n## Prerequisites\n\nSome content\n");
 
       const result = validateReadyIntent(readyIntentPath, "spec");
       expect(result.ok).toBe(true);
@@ -52,10 +49,7 @@ describe("ready-intent validation", () => {
       const readyIntentsDir = join(dir, "ready-intents");
       mkdirSync(readyIntentsDir, { recursive: true });
       const readyIntentPath = join(readyIntentsDir, "test-feature.md");
-      writeFileSync(
-        readyIntentPath,
-        "---\nname: different-name\n---\n\n## Prerequisites\n\nSome content\n",
-      );
+      writeFileSync(readyIntentPath, "---\nname: different-name\n---\n\n## Prerequisites\n\nSome content\n");
 
       const result = validateReadyIntent(readyIntentPath, "spec");
       expect(result.ok).toBe(false);

@@ -25,7 +25,6 @@ import {
 } from "../modes/plan/boundary.ts";
 import { commitPlanBlocker, commitPlanDraft, commitPlanIntent, commitPlanRefine } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
-import { runIntentDraftTurn } from "../modes/plan/intent-draft.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "../modes/plan/plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "../modes/plan/pr.ts";
 import { type RefineTerminalOutcome, runRefinePhase } from "../modes/plan/refine.ts";

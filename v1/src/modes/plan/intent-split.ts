@@ -25,7 +25,7 @@ export function buildIntentSplitPrompt(opts: {
   stagingDir: string;
 }): string {
   const registry = loadPromptRegistry();
-  const artifact = registry.getById("plan.prompt.intent-split");
+  const artifact = registry.getById("intent.prompt.split");
   let template = assemblePromptForStep({
     registry,
     stepPromptId: artifact.metadata.id,

@@ -1,5 +1,5 @@
 ---
-id: plan.prompt.intent-split
+id: intent.prompt.split
 behavior: plan
 kind: step
 revision: 1

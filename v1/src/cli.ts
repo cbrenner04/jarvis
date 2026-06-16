@@ -81,7 +81,7 @@ Commands:
                     Inspect a dirty or orphaned worktree.
   review-feedback <worktree-name>
                     Address PR review feedback on an existing patch worktree.
-  plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
+  plan [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md; --resume-draft expects spec/<…>/intent.md).
   intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">
                     Split one seed into authored intents under ready-intents/ and open a draft PR.

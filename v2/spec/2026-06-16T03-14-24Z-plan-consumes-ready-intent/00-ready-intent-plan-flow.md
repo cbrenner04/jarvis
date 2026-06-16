@@ -34,16 +34,16 @@ produce one spec PR.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 plan <targetDir>/ready-intents/<name>.md` accepts a ready-intent with matching `name:` frontmatter and `## Prerequisites`, then creates committed branch/worktree/spec output named from `name:` and copies the source bytes to `<targetDir>/<spec-dir>/intent.md` without modifying the source ready-intent.
-- [ ] With `modes.plan.commit: false`, fresh plan accepts the same ready-intent shape, copies it to external `intent.md`, runs draft/review, prints no-commit next steps, and performs no commit, PR open/update, or ready transition.
-- [ ] Arbitrary markdown, `<targetDir>/wip-intents/*.md`, old generated `intent.md`, inline fresh plan input, and missing-path raw seeds fail with operator guidance to use `jarvis1 intent` before `jarvis1 plan`.
-- [ ] Missing, invalid, or filename-mismatched `name:` frontmatter, and missing `## Prerequisites`, fail before any temporary or final branch, worktree, spec directory, or external no-commit spec directory remains.
-- [ ] The first fresh-plan agent phase and summary attempt label is `plan_phase: "draft"`: no fresh run produces `plan: intent` or `plan: refine` commits, telemetry rows, or summary attempts.
-- [ ] Draft and review prompts receive the copied ready-intent with frontmatter, sentinels, and `## Prerequisites` preserved; non-empty prerequisites are not blocked, validated, resolved, or enforced.
-- [ ] Fresh committed plan opens or updates the draft PR after `plan: draft`, continues through review in the same invocation, and attempts the ready transition only after successful draft/review completion.
-- [ ] `jarvis1 plan --resume-draft <intent.md>` exits with guidance to use `jarvis1 plan <ready-intent>` for fresh work or `jarvis1 plan --resume <index.md>` for post-draft review.
-- [ ] Existing draft/review behavior still works after the collapsed entry flow: spec files are generated, review passes can update them, blockers stop the run, quota fallback rotates through configured plan agents, PR attribution/body updates occur, and successful committed runs attempt ready transition.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `jarvis1 plan <targetDir>/ready-intents/<name>.md` accepts a ready-intent with matching `name:` frontmatter and `## Prerequisites`, then creates committed branch/worktree/spec output named from `name:` and copies the source bytes to `<targetDir>/<spec-dir>/intent.md` without modifying the source ready-intent.
+- [x] With `modes.plan.commit: false`, fresh plan accepts the same ready-intent shape, copies it to external `intent.md`, runs draft/review, prints no-commit next steps, and performs no commit, PR open/update, or ready transition.
+- [x] Arbitrary markdown, `<targetDir>/wip-intents/*.md`, old generated `intent.md`, inline fresh plan input, and missing-path raw seeds fail with operator guidance to use `jarvis1 intent` before `jarvis1 plan`.
+- [x] Missing, invalid, or filename-mismatched `name:` frontmatter, and missing `## Prerequisites`, fail before any temporary or final branch, worktree, spec directory, or external no-commit spec directory remains.
+- [x] The first fresh-plan agent phase and summary attempt label is `plan_phase: "draft"`: no fresh run produces `plan: intent` or `plan: refine` commits, telemetry rows, or summary attempts.
+- [x] Draft and review prompts receive the copied ready-intent with frontmatter, sentinels, and `## Prerequisites` preserved; non-empty prerequisites are not blocked, validated, resolved, or enforced.
+- [x] Fresh committed plan opens or updates the draft PR after `plan: draft`, continues through review in the same invocation, and attempts the ready transition only after successful draft/review completion.
+- [x] `jarvis1 plan --resume-draft <intent.md>` exits with guidance to use `jarvis1 plan <ready-intent>` for fresh work or `jarvis1 plan --resume <index.md>` for post-draft review.
+- [x] Existing draft/review behavior still works after the collapsed entry flow: spec files are generated, review passes can update them, blockers stop the run, quota fallback rotates through configured plan agents, PR attribution/body updates occur, and successful committed runs attempt ready transition.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

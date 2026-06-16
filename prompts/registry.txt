@@ -4,8 +4,6 @@ global/naming.md
 shared/pr-description.md
 plan/decisions-ledger.md
 plan/defer-to-consumer.md
-plan/intent-draft.md
-plan/intent-split.md
 plan/draft.md
 plan/pr-description.md
 plan/review.md
@@ -13,7 +11,6 @@ plan/review-adversary.md
 plan/review-advocate.md
 plan/review-adjudicator.md
 plan/review-actuator.md
-plan/refine.md
 patch/instructions.md
 patch/pr-description.md
 patch/review.md
@@ -26,3 +23,4 @@ write/execute.md
 write/principles.md
 prompt/instructions.md
 prompt/rules.md
+intent/split.md

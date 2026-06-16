@@ -28,11 +28,9 @@ describe("prompt registry load validation", () => {
     expect(ids).toContain("plan.prompt.draft");
     expect(ids).toContain("plan.decisions-ledger");
     expect(ids).toContain("plan.defer-to-consumer");
-    expect(ids).toContain("plan.prompt.intent-draft");
-    expect(ids).toContain("plan.prompt.intent-split");
     expect(ids).toContain("plan.prompt.review");
     expect(ids).toContain("plan.prompt.review-actuator");
-    expect(ids).toContain("plan.prompt.refine");
+    expect(ids).toContain("intent.prompt.split");
     expect(ids).toContain("write.execute");
   });
 
@@ -59,6 +57,17 @@ describe("prompt registry load validation", () => {
       "id: override.prompt\nbehavior: plan\nkind: step\nrevision: 1\noverrides: [missing.target]",
     );
     expect(() => createPromptRegistry([writePromptFixture(entry)])).toThrow("unknown explicit override target");
+  });
+
+  test("retired plan intent-authoring prompts are unavailable", () => {
+    const registry = createPromptRegistry();
+    const ids = registry.all().map((artifact) => artifact.metadata.id);
+
+    // intent-draft and intent-split moved to intent mode; refine retired with
+    // the intent/refine pipeline (no longer reachable from plan or resume).
+    expect(ids).not.toContain("plan.prompt.intent-draft");
+    expect(ids).not.toContain("plan.prompt.intent-split");
+    expect(ids).not.toContain("plan.prompt.refine");
   });
 
   test("parses placeholder declarations from frontmatter", () => {

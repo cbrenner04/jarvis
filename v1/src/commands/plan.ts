@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { createAgent as defaultCreateAgent } from "../agents/factory.ts";
@@ -23,11 +23,11 @@ import {
   type BoundaryCheckResult,
   revertPaths,
 } from "../modes/plan/boundary.ts";
-import { commitPlanBlocker, commitPlanDraft, commitPlanIntent, commitPlanRefine } from "../modes/plan/commits.ts";
+import { commitPlanBlocker, commitPlanDraft, commitPlanRefine } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "../modes/plan/plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "../modes/plan/pr.ts";
-import { type RefineTerminalOutcome, runRefinePhase } from "../modes/plan/refine.ts";
+import { runRefinePhase } from "../modes/plan/refine.ts";
 import { hasWorkingTreeChanges, runPlanReviewPhase } from "../modes/plan/review.ts";
 import {
   computeNoCommitSpecRoot,
@@ -40,7 +40,7 @@ import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts
 import type { resolveTargetRepo } from "../repo.ts";
 import { planSummary } from "../run-summary.ts";
 import { createPlanWorktree, createWorktreeSymlinks, ensureExistingBranchWorktree } from "../worktree.ts";
-import { describePlanInvocation, isExistingFile, type PlanInvocation, parsePlanArgs } from "./plan-args.ts";
+import { describePlanInvocation, isExistingFile, parsePlanArgs } from "./plan-args.ts";
 
 export type PlanIo = {
   stdout: (s: string) => void;
@@ -80,7 +80,7 @@ function planHarnessLog(logClient: LogClient, text: string, tag: "harness" | "ou
     .catch(() => {});
 }
 
-const TEMP_PLAN_PREFIX = "tmp-";
+const _TEMP_PLAN_PREFIX = "tmp-";
 
 export function parseIntentFrontmatter(text: string): {
   name?: string | undefined;
@@ -116,7 +116,7 @@ function hasPrerequisitesSection(text: string): boolean {
 
 export function validateReadyIntent(
   readyIntentPath: string,
-  targetDir: string,
+  _targetDir: string,
 ):
   | {
       ok: true;
@@ -138,7 +138,7 @@ export function validateReadyIntent(
   const filename = basename(readyIntentPath);
   const nameWithoutExt = filename.replace(/\.md$/, "");
   const dir = dirname(readyIntentPath);
-  const expectedDir = join(dirname(dir), "ready-intents");
+  const _expectedDir = join(dirname(dir), "ready-intents");
 
   if (!dir.endsWith("ready-intents")) {
     return {
@@ -243,14 +243,14 @@ ${RAW_SEED_END}
 ${workingDraft}`;
 }
 
-function updateIntentName(text: string, name: string): string {
+function _updateIntentName(text: string, name: string): string {
   const { frontmatterLines, body } = splitLeadingFrontmatter(text);
   return `${renderFrontmatter(upsertNameFrontmatter(frontmatterLines, name))}
 
 ${body.replace(/^\n*/, "")}`;
 }
 
-function extractRawSeed(text: string): string | null {
+function _extractRawSeed(text: string): string | null {
   const begin = text.indexOf(`${RAW_SEED_BEGIN}\n`);
   if (begin === -1) return null;
   const start = begin + RAW_SEED_BEGIN.length + 1;
@@ -258,7 +258,6 @@ function extractRawSeed(text: string): string | null {
   if (end === -1) return null;
   return text.slice(start, end);
 }
-
 
 function remoteSpecBranchExists(projectRoot: string, branchName: string): boolean {
   try {
@@ -1620,7 +1619,7 @@ async function openOrRefreshDraftPr(args: {
   }
 }
 
-async function handoffAfterFreshRefine(args: {
+async function _handoffAfterFreshRefine(args: {
   io: PlanIo;
   planBranch: string;
   baseBranch: string;

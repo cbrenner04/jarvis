@@ -66,18 +66,24 @@ export interface CreatePlanWorktreeOptions {
   baseBranch?: string;
 }
 
-export async function createPlanWorktree(opts: CreatePlanWorktreeOptions): Promise<string> {
-  const dirPrefix = "plan-";
-  const branchPrefix = "plan/";
-  const worktreePath = join(opts.projectRoot, ".worktree", dirPrefix + opts.name);
-  const branchName = branchPrefix + opts.name;
+type CreateManagedWorktreeOptions = {
+  projectRoot: string;
+  name: string;
+  dirPrefix: string;
+  branchPrefix: string;
+  kind: string;
+  baseBranch?: string;
+};
+
+async function createManagedWorktree(opts: CreateManagedWorktreeOptions): Promise<string> {
+  const worktreePath = join(opts.projectRoot, ".worktree", opts.dirPrefix + opts.name);
+  const branchName = opts.branchPrefix + opts.name;
 
   bestEffortFetch(opts.projectRoot);
 
-  // Fail loudly if the plan worktree already exists
   if (existsSync(worktreePath)) {
     throw new Error(
-      `plan worktree already exists at ${worktreePath}; resolve with \`jarvis1 cleanup\` or remove manually`,
+      `${opts.kind} worktree already exists at ${worktreePath}; resolve with \`jarvis1 cleanup\` or remove manually`,
     );
   }
 
@@ -108,6 +114,17 @@ export async function createPlanWorktree(opts: CreatePlanWorktreeOptions): Promi
   }
 
   return worktreePath;
+}
+
+export async function createPlanWorktree(opts: CreatePlanWorktreeOptions): Promise<string> {
+  return createManagedWorktree({
+    projectRoot: opts.projectRoot,
+    name: opts.name,
+    dirPrefix: "plan-",
+    branchPrefix: "plan/",
+    kind: "plan",
+    ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+  });
 }
 
 export interface CreatePromptWorktreeOptions {
@@ -124,91 +141,26 @@ export interface CreateIntentWorktreeOptions {
 }
 
 export async function createIntentWorktree(opts: CreateIntentWorktreeOptions): Promise<string> {
-  const dirPrefix = "intent-";
-  const branchPrefix = "intent/";
-  const worktreePath = join(opts.projectRoot, ".worktree", dirPrefix + opts.name);
-  const branchName = branchPrefix + opts.name;
-
-  bestEffortFetch(opts.projectRoot);
-
-  if (existsSync(worktreePath)) {
-    throw new Error(
-      `intent worktree already exists at ${worktreePath}; resolve with \`jarvis1 cleanup\` or remove manually`,
-    );
-  }
-
-  const branchExists = branchExistsLocal(opts.projectRoot, branchName);
-  const branchExistsRemote = branchExistsOnOrigin(opts.projectRoot, branchName);
-
-  if (branchExists || branchExistsRemote) {
-    if (!branchExists && branchExistsRemote) {
-      execFileSync("git", ["branch", branchName, `origin/${branchName}`], {
-        cwd: opts.projectRoot,
-        stdio: "pipe",
-      });
-    }
-    execFileSync("git", ["worktree", "add", "--checkout", worktreePath, branchName], {
-      cwd: opts.projectRoot,
-      stdio: "pipe",
-    });
-  } else {
-    const baseBranch = opts.baseBranch ?? (await getBaseBranch(opts.projectRoot));
-    execFileSync("git", ["branch", branchName, baseBranch], {
-      cwd: opts.projectRoot,
-      stdio: "pipe",
-    });
-    execFileSync("git", ["worktree", "add", worktreePath, branchName], {
-      cwd: opts.projectRoot,
-      stdio: "pipe",
-    });
-  }
-
-  return worktreePath;
+  return createManagedWorktree({
+    projectRoot: opts.projectRoot,
+    name: opts.name,
+    dirPrefix: "intent-",
+    branchPrefix: "intent/",
+    kind: "intent",
+    ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+  });
 }
 
 export async function createPromptWorktree(opts: CreatePromptWorktreeOptions): Promise<string> {
-  const dirPrefix = "prompt-";
-  const branchPrefix = "prompt/";
   const name = `${opts.timestamp}-${opts.nonce}`;
-  const worktreePath = join(opts.projectRoot, ".worktree", dirPrefix + name);
-  const branchName = branchPrefix + name;
-
-  bestEffortFetch(opts.projectRoot);
-
-  // Fail loudly if the prompt worktree already exists
-  if (existsSync(worktreePath)) {
-    throw new Error(
-      `prompt worktree already exists at ${worktreePath}; resolve with \`jarvis1 cleanup\` or remove manually`,
-    );
-  }
-
-  const branchExists = branchExistsLocal(opts.projectRoot, branchName);
-  const branchExistsRemote = branchExistsOnOrigin(opts.projectRoot, branchName);
-
-  if (branchExists || branchExistsRemote) {
-    if (!branchExists && branchExistsRemote) {
-      execFileSync("git", ["branch", branchName, `origin/${branchName}`], {
-        cwd: opts.projectRoot,
-        stdio: "pipe",
-      });
-    }
-    execFileSync("git", ["worktree", "add", "--checkout", worktreePath, branchName], {
-      cwd: opts.projectRoot,
-      stdio: "pipe",
-    });
-  } else {
-    const baseBranch = opts.baseBranch ?? (await getBaseBranch(opts.projectRoot));
-    execFileSync("git", ["branch", branchName, baseBranch], {
-      cwd: opts.projectRoot,
-      stdio: "pipe",
-    });
-    execFileSync("git", ["worktree", "add", worktreePath, branchName], {
-      cwd: opts.projectRoot,
-      stdio: "pipe",
-    });
-  }
-
-  return worktreePath;
+  return createManagedWorktree({
+    projectRoot: opts.projectRoot,
+    name,
+    dirPrefix: "prompt-",
+    branchPrefix: "prompt/",
+    kind: "prompt",
+    ...(opts.baseBranch !== undefined ? { baseBranch: opts.baseBranch } : {}),
+  });
 }
 
 export async function ensurePatchWorktreeForExistingBranch(

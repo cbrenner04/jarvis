@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
-import { loadConfig, type ProjectMatch, resolvePlanFlags } from "../config.ts";
+import { loadConfig, resolvePlanFlags } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
@@ -124,15 +124,12 @@ export function parseIntentArgs(argv: readonly string[], processCwd: string): In
   const cwd = cwdFlag !== undefined ? (isAbsolute(cwdFlag) ? cwdFlag : resolve(processCwd, cwdFlag)) : processCwd;
   const arg = positional[0] as string;
   const candidatePath = isAbsolute(arg) ? arg : resolve(cwd, arg);
-
-  if (isExistingFile(candidatePath)) {
-    const invocation: IntentInvocation = { mode: "file", seedPath: candidatePath, cwd };
-    if (repo !== undefined) invocation.repo = repo;
-    return { ok: true, invocation };
+  const invocation: IntentInvocation = isExistingFile(candidatePath)
+    ? { mode: "file", seedPath: candidatePath, cwd }
+    : { mode: "inline", seedText: arg, cwd };
+  if (repo !== undefined) {
+    invocation.repo = repo;
   }
-
-  const invocation: IntentInvocation = { mode: "inline", seedText: arg, cwd };
-  if (repo !== undefined) invocation.repo = repo;
   return { ok: true, invocation };
 }
 
@@ -144,32 +141,14 @@ function deriveRunName(inv: IntentInvocation): string {
   return toKebabCase(words.join(" ")).slice(0, 40) || "intent";
 }
 
-function relativeSeedLabel(seedPath: string, project: ProjectMatch): string {
-  const rel = relative(project.root, seedPath);
+function relativeSeedLabel(projectRoot: string, seedPath: string): string {
+  const rel = relative(projectRoot, seedPath);
   return rel.startsWith("..") ? seedPath : rel;
 }
 
 function isPathInside(parent: string, child: string): boolean {
   const rel = relative(parent, child);
   return rel === "" || (!rel.startsWith("..") && !rel.startsWith("../"));
-}
-
-function getCurrentBranch(cwd: string): string {
-  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
-  }).trim();
-}
-
-function getPrUrl(cwd: string, branch: string): string {
-  return execFileSync("gh", ["pr", "view", branch, "--json", "url", "-q", ".url"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
-  }).trim();
 }
 
 function listModifiedPaths(cwd: string): string[] {
@@ -417,9 +396,10 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
     return 1;
   }
 
-  const seedLabel = inv.mode === "file" ? relativeSeedLabel(inv.seedPath, project) : "inline";
+  const seedLabel = inv.mode === "file" ? relativeSeedLabel(project.root, inv.seedPath) : "inline";
   const seedContent = inv.mode === "file" ? readFileSync(inv.seedPath, "utf8") : inv.seedText;
-  const runName = `${deriveRunName(inv)}-${randomUUID().slice(0, 8)}`;
+  const runStem = deriveRunName(inv);
+  const runName = `${runStem}-${randomUUID().slice(0, 8)}`;
   const branch = `intent/${runName}`;
   let worktreePath: string;
   try {
@@ -429,7 +409,12 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
     opts.io.stderr(`failed to create intent worktree: ${(err as Error).message}\n`);
     return 1;
   }
-  const baseBranch = getCurrentBranch(project.root);
+  const baseBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd: project.root,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  }).trim();
   const stageDir = join(worktreePath, STAGE_DIR_NAME);
   mkdirSync(stageDir, { recursive: true });
   let completed = false;
@@ -464,17 +449,19 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       return 1;
     }
 
-    mkdirSync(join(worktreePath, targetDir, "ready-intents"), { recursive: true });
+    const emittedNames = validation.intents.map((intent) => intent.slug);
     const readyDirRel = `${targetDir}/ready-intents`;
+    const readyDirPath = join(worktreePath, readyDirRel);
+    mkdirSync(readyDirPath, { recursive: true });
     for (const intent of validation.intents) {
-      const destination = join(worktreePath, targetDir, "ready-intents", `${intent.slug}.md`);
+      const destination = join(readyDirPath, `${intent.slug}.md`);
       if (existsSync(destination)) {
         opts.io.stderr(`intent: ${readyDirRel}/${intent.slug}.md already exists; refusing to overwrite\n`);
         return 1;
       }
     }
     for (const intent of validation.intents) {
-      renameSync(intent.path, join(worktreePath, targetDir, "ready-intents", `${intent.slug}.md`));
+      renameSync(intent.path, join(readyDirPath, `${intent.slug}.md`));
     }
     rmSync(stageDir, { recursive: true, force: true });
 
@@ -483,7 +470,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       branch,
       readyDirRel,
       seedLabel,
-      emittedNames: validation.intents.map((intent) => intent.slug),
+      emittedNames,
       agentLabel: splitResult.agentLabel ?? "unknown",
     });
     opts.io.stderr(`intent: split commit pushed\n`);
@@ -491,13 +478,13 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
     const prResult = await ensureDraftPr({
       branch,
       base: baseBranch,
-      title: `intent: ${deriveRunName(inv)}`,
+      title: `intent: ${runStem}`,
       bodyGenerator: async () =>
         [
           "# Intent split",
           "",
           `- Seed: \`${seedLabel}\``,
-          ...validation.intents.map((intent) => `- Intent: \`${targetDir}/ready-intents/${intent.slug}.md\``),
+          ...emittedNames.map((name) => `- Intent: \`${targetDir}/ready-intents/${name}.md\``),
         ].join("\n"),
       footer: renderAttribution({
         cwd: worktreePath,
@@ -505,12 +492,17 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       }),
       cwd: worktreePath,
     });
-    const prUrl = getPrUrl(worktreePath, branch);
+    const prUrl = execFileSync("gh", ["pr", "view", branch, "--json", "url", "-q", ".url"], {
+      cwd: worktreePath,
+      env: process.env,
+      stdio: "pipe",
+      encoding: "utf8",
+    }).trim();
     opts.io.stdout(
       renderIntentNextSteps({
         prUrl,
         targetDir,
-        emittedNames: validation.intents.map((intent) => intent.slug),
+        emittedNames,
       }),
     );
     opts.io.stderr(`intent: draft PR #${prResult.number} ${prResult.created ? "opened" : "updated"}\n`);

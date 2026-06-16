@@ -22,6 +22,8 @@ const okLogClient: LogClient = {
   send: async () => {},
 };
 
+const TWO_BEHAVIOR_SEED = "Split this into two reviewable behaviors";
+
 function captureIo() {
   let out = "";
   let err = "";
@@ -37,6 +39,19 @@ function captureIo() {
     out: () => out,
     err: () => err,
   };
+}
+
+function intentFile(name: string, body: string, prerequisites: string[] = []): string {
+  return `---
+name: ${name}
+---
+
+## Intent
+
+${body}
+
+## Prerequisites
+${prerequisites.length === 0 ? "" : `\n${prerequisites.map((line) => `- ${line}`).join("\n")}\n`}`;
 }
 
 class SplitAgent implements Agent {
@@ -59,52 +74,11 @@ class SplitAgent implements Agent {
       return { kind: "ok", stdout: "", stderr: "" };
     }
     if (this.#mode === "ok-one") {
-      writeFileSync(
-        join(stageDir, "single-behavior.md"),
-        `---
-name: single-behavior
----
-
-## Intent
-
-One behavior.
-
-## Prerequisites
-`,
-        "utf8",
-      );
+      writeFileSync(join(stageDir, "single-behavior.md"), intentFile("single-behavior", "One behavior."), "utf8");
       return { kind: "ok", stdout: "", stderr: "" };
     }
-    writeFileSync(
-      join(stageDir, "slice-one.md"),
-      `---
-name: slice-one
----
-
-## Intent
-
-First behavior.
-
-## Prerequisites
-`,
-      "utf8",
-    );
-    writeFileSync(
-      join(stageDir, "slice-two.md"),
-      `---
-name: slice-two
----
-
-## Intent
-
-Second behavior.
-
-## Prerequisites
-
-- First behavior.
-`,
-      "utf8",
-    );
+    writeFileSync(join(stageDir, "slice-one.md"), intentFile("slice-one", "First behavior."), "utf8");
+    writeFileSync(join(stageDir, "slice-two.md"), intentFile("slice-two", "Second behavior.", ["First behavior."]), "utf8");
     return { kind: "ok", stdout: "", stderr: "" };
   }
 
@@ -234,7 +208,7 @@ describe("intentCommand", () => {
       const cap = captureIo();
       const code = await intentCommand({
         io: cap.io,
-        args: ["Split this into two reviewable behaviors"],
+        args: [TWO_BEHAVIOR_SEED],
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
@@ -303,7 +277,7 @@ describe("intentCommand", () => {
       const cap = captureIo();
       const code = await intentCommand({
         io: cap.io,
-        args: ["Split this into two reviewable behaviors"],
+        args: [TWO_BEHAVIOR_SEED],
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
@@ -324,7 +298,7 @@ describe("intentCommand", () => {
       const cap = captureIo();
       const code = await intentCommand({
         io: cap.io,
-        args: ["Split this into two reviewable behaviors"],
+        args: [TWO_BEHAVIOR_SEED],
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
@@ -346,7 +320,7 @@ describe("intentCommand", () => {
       const cap = captureIo();
       const code = await intentCommand({
         io: cap.io,
-        args: ["Split this into two reviewable behaviors"],
+        args: [TWO_BEHAVIOR_SEED],
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,

@@ -142,3 +142,9 @@ prerequisites in this change.
 - Prerequisite enforcement.
 - Patch mode / `jarvis1 run`.
 - A compatibility shim for old raw-seed plan runs.
+
+## Refinement
+
+- Copy the ready-intent into the generated spec directory as `intent.md`; do not move, delete, or archive the source ready-intent, because destructive consumption belongs with later prerequisite/work-queue enforcement.
+- Fresh committed `jarvis1 plan <ready-intent>` runs draft, review, and ready transition in one invocation; do not preserve the old `plan: intent`/`plan: refine` PR handoff or require `--resume-draft`, because those phases leave plan owning removed intent-authoring workflow.
+- Derive plan/spec naming from ready-intent frontmatter `name:`; do not run name-only fallback or infer from source filename, because intent authoring already finalized the name.

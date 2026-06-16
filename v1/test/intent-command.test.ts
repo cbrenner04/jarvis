@@ -78,7 +78,11 @@ class SplitAgent implements Agent {
       return { kind: "ok", stdout: "", stderr: "" };
     }
     writeFileSync(join(stageDir, "slice-one.md"), intentFile("slice-one", "First behavior."), "utf8");
-    writeFileSync(join(stageDir, "slice-two.md"), intentFile("slice-two", "Second behavior.", ["First behavior."]), "utf8");
+    writeFileSync(
+      join(stageDir, "slice-two.md"),
+      intentFile("slice-two", "Second behavior.", ["First behavior."]),
+      "utf8",
+    );
     return { kind: "ok", stdout: "", stderr: "" };
   }
 

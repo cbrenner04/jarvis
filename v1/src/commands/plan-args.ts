@@ -12,9 +12,7 @@ export type PlanInvocationCommon = {
   resumeDraft: boolean;
 };
 
-export type PlanInvocation =
-  | (PlanInvocationCommon & { mode: "file"; intentPath: string })
-  | (PlanInvocationCommon & { mode: "inline"; intentText: string });
+export type PlanInvocation = PlanInvocationCommon & { mode: "file"; readyIntentPath: string };
 
 export type PlanParseResult =
   | { ok: true; invocation: PlanInvocation }
@@ -156,41 +154,34 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
     return {
       ok: false,
       exitCode: 1,
-      message: 'plan: missing required seed (<intent-file|"inline text">)',
+      message: 'plan: missing required ready-intent (<targetDir>/ready-intents/<name>.md)',
     };
   }
 
   const positionalArg = positional[0] as string;
   const candidatePath = isAbsolute(positionalArg) ? positionalArg : resolve(cwd, positionalArg);
-  // In resume modes the positional is a spec path (spec/<dir>/intent.md or
-  // index.md) that identifies an existing plan. It need not exist relative to
-  // cwd — for commit-mode plans the spec lives inside the plan worktree, not
-  // the repo the user is standing in. prepareResume re-derives the worktree
-  // from the spec dir name, so always treat it as a path here rather than
-  // silently falling back to inline intent text.
+
   if (resume || resumeDraft) {
     return {
       ok: true,
-      invocation: { ...common, mode: "file", intentPath: candidatePath },
+      invocation: { ...common, mode: "file", readyIntentPath: candidatePath },
     };
   }
+
   if (isExistingFile(candidatePath)) {
     return {
       ok: true,
-      invocation: { ...common, mode: "file", intentPath: candidatePath },
+      invocation: { ...common, mode: "file", readyIntentPath: candidatePath },
     };
   }
+
   return {
-    ok: true,
-    invocation: { ...common, mode: "inline", intentText: positionalArg },
+    ok: false,
+    exitCode: 1,
+    message: `plan: path does not exist or is not a file: ${positionalArg}\nUse \`jarvis1 intent\` to author a ready-intent, then \`jarvis1 plan <targetDir>/ready-intents/<name>.md\``,
   };
 }
 
 export function describePlanInvocation(inv: PlanInvocation): string {
-  switch (inv.mode) {
-    case "file":
-      return `plan: file intent=${inv.intentPath}`;
-    case "inline":
-      return `plan: inline intent=${JSON.stringify(inv.intentText)}`;
-  }
+  return `plan: ready-intent=${inv.readyIntentPath}`;
 }

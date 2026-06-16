@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { createAgent as defaultCreateAgent } from "../agents/factory.ts";
@@ -64,7 +64,7 @@ export type PlanCommandOptions = {
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
 };
 
-export const PLAN_USAGE = `Usage: jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] [--resume-draft] <intent-file|"inline text">
+export const PLAN_USAGE = `Usage: jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
                             Run plan mode (draft specs under spec/…; see docs/plan-mode.md).
 `;
 
@@ -88,19 +88,11 @@ function toKebabCase(str: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function derivePlanName(inv: PlanInvocation): string {
-  switch (inv.mode) {
-    case "file": {
-      const filename = basename(inv.intentPath);
-      const nameWithoutExt = filename.replace(/\.[^.]*$/, "");
-      return toKebabCase(nameWithoutExt) || "plan";
-    }
-    case "inline": {
-      const words = inv.intentText.split(/\s+/).slice(0, 6);
-      const kebabbed = toKebabCase(words.join(" "));
-      const truncated = kebabbed.slice(0, 40);
-      return truncated || "plan";
-    }
+function isExistingFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
   }
 }
 
@@ -132,6 +124,83 @@ export function parseIntentFrontmatter(text: string): {
     }
   }
   return {};
+}
+
+function hasPrerequisitesSection(text: string): boolean {
+  const normalized = text.replace(/\r\n/g, "\n");
+  return /^## Prerequisites\s*$/m.test(normalized);
+}
+
+export function validateReadyIntent(
+  readyIntentPath: string,
+  targetDir: string,
+): {
+  ok: true;
+  name: string;
+  content: string;
+} | {
+  ok: false;
+  message: string;
+} {
+  if (!isExistingFile(readyIntentPath)) {
+    return {
+      ok: false,
+      message: `plan: ready-intent file not found: ${readyIntentPath}`,
+    };
+  }
+
+  // Validate path is under <targetDir>/ready-intents/
+  const filename = basename(readyIntentPath);
+  const nameWithoutExt = filename.replace(/\.md$/, "");
+  const dir = dirname(readyIntentPath);
+  const expectedDir = join(dirname(dir), "ready-intents");
+
+  if (!dir.endsWith("ready-intents")) {
+    return {
+      ok: false,
+      message: `plan: ready-intent must be located in <targetDir>/ready-intents/; got ${readyIntentPath}\nUse \`jarvis1 intent\` to author a ready-intent.`,
+    };
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(readyIntentPath, "utf8");
+  } catch (err) {
+    return {
+      ok: false,
+      message: `plan: could not read ready-intent: ${(err as Error).message}`,
+    };
+  }
+
+  // Validate frontmatter
+  const fm = parseIntentFrontmatter(content);
+  if (!fm.name) {
+    return {
+      ok: false,
+      message: `plan: ready-intent frontmatter missing required \`name:\` field`,
+    };
+  }
+
+  if (fm.name !== nameWithoutExt) {
+    return {
+      ok: false,
+      message: `plan: ready-intent \`name:\` frontmatter (${JSON.stringify(fm.name)}) does not match filename (${JSON.stringify(nameWithoutExt)})`,
+    };
+  }
+
+  // Validate Prerequisites section
+  if (!hasPrerequisitesSection(content)) {
+    return {
+      ok: false,
+      message: `plan: ready-intent missing required \`## Prerequisites\` section`,
+    };
+  }
+
+  return {
+    ok: true,
+    name: fm.name,
+    content,
+  };
 }
 
 const RAW_SEED_BEGIN = "<<<RAW_SEED_BEGIN>>>";
@@ -511,48 +580,6 @@ function prepareResume(args: {
   };
 }
 
-export async function deriveSpecName(
-  inv: PlanInvocation,
-  projectRoot: string,
-  targetDir: string = "spec",
-): Promise<string> {
-  let name = derivePlanName(inv);
-
-  // Check reserved names
-  if (RESERVED_NAMES.has(name)) {
-    name = "plan";
-  }
-
-  // Check for collisions and append suffix if needed
-  let finalName = name;
-  const specDirExists = existsSync(join(projectRoot, targetDir, finalName));
-  const worktreeDirExists = existsSync(join(projectRoot, ".worktree", `plan-${finalName}`));
-  const remoteBranchExists = remoteSpecBranchExists(projectRoot, finalName);
-
-  if (!specDirExists && !worktreeDirExists && !remoteBranchExists) {
-    // No collision, return the name as-is
-    return finalName;
-  }
-
-  // There's a collision, start with suffix -2
-  let suffix = 2;
-  while (true) {
-    finalName = `${name}-${suffix}`;
-
-    const specDirExists = existsSync(join(projectRoot, targetDir, finalName));
-    const worktreeDirExists = existsSync(join(projectRoot, ".worktree", `plan-${finalName}`));
-    const remoteBranchExists = remoteSpecBranchExists(projectRoot, finalName);
-
-    if (!specDirExists && !worktreeDirExists && !remoteBranchExists) {
-      break;
-    }
-
-    suffix += 1;
-  }
-
-  return finalName;
-}
-
 async function ensureUniquePlanName(
   projectRoot: string,
   baseName: string,
@@ -654,11 +681,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     }
 
     const inv = result.invocation;
-    // Resolve from a file-like path (matching run mode, which passes a spec
-    // file). For inline plan mode there's no real intent file yet, so
-    // synthesize one inside cwd: resolveProject's `dirname()` then yields cwd
-    // as the walk start, mirroring "as if there were a spec here".
-    const candidatePath = inv.mode === "file" ? inv.intentPath : join(inv.cwd, "intent");
+    const candidatePath = inv.readyIntentPath;
     const cfg = loadConfig(opts.config);
     // Agent used to author the model-written PR narrative (Description +
     // Decisions). Resolved from the head of the plan agent order; generation
@@ -716,15 +739,16 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     );
 
     if (inv.resume || inv.resumeDraft) {
-      const resumeFlag = inv.resume ? "--resume" : "--resume-draft";
-      if (inv.mode !== "file") {
-        opts.io.stderr(`${resumeFlag} cannot be combined with intent text/file\n`);
+      if (inv.resumeDraft) {
+        opts.io.stderr(
+          `plan: --resume-draft is no longer supported. Use \`jarvis1 plan <ready-intent>\` for fresh work or \`jarvis1 plan --resume <index.md>\` for post-draft review.\n`,
+        );
         return 1;
       }
       const reviewPasses = resolveReviewPasses(cfg, inv.reviewPasses);
       const refineTurns = inv.resume ? (inv.refineTurns ?? 0) : 0;
       if (reviewPasses === 0 && refineTurns === 0) {
-        opts.io.stderr(`${resumeFlag} requires at least one phase\n`);
+        opts.io.stderr(`--resume requires at least one phase\n`);
         return 1;
       }
 
@@ -732,7 +756,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       try {
         resume = prepareResume({
           projectRoot: project.root,
-          specPath: inv.intentPath,
+          specPath: inv.readyIntentPath,
           mode: inv.resume ? "resume" : "resume-draft",
           ...(opts.config !== undefined ? { config: opts.config } : {}),
         });
@@ -1064,18 +1088,38 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       return 0;
     }
 
-    const tempId = crypto.randomUUID().slice(0, 8);
-    const tempPlanName = `${TEMP_PLAN_PREFIX}${tempId}`;
-    let planName = tempPlanName;
-    let specDirBasename = tempPlanName;
-    planHarnessLog(planLogClient, `plan: temporary plan name=${tempPlanName}`);
+    // Validate ready-intent BEFORE creating any artifacts
+    const readyIntentValidation = validateReadyIntent(inv.readyIntentPath, targetDir);
+    if (!readyIntentValidation.ok) {
+      opts.io.stderr(`${readyIntentValidation.message}\n`);
+      return 1;
+    }
 
-    // Create worktree for file or inline mode (only if it's a git repo and gh is available).
+    const readyIntentName = readyIntentValidation.name;
+    const readyIntentContent = readyIntentValidation.content;
+    planHarnessLog(planLogClient, `plan: ready-intent name=${readyIntentName}`);
+
+    const jarvisConfigDir = opts.config?.dir ?? CONFIG_DIR;
+
+    // For no-commit runs, create the external spec root directory early
+    let externalSpecRoot: string | undefined;
+    if (commit === false) {
+      externalSpecRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
+      mkdirSync(externalSpecRoot, { recursive: true });
+    }
+
+    // Check for collision and determine final plan name
+    let planName = await ensureUniquePlanName(project.root, readyIntentName, targetDir, {
+      ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
+      specTimestamp,
+    });
+    let specDirBasename = specTimestamp ? `${formatPlanSpecTimestamp()}-${planName}` : planName;
+    planHarnessLog(planLogClient, `plan: spec name=${planName}`);
+
+    // Create worktree for fresh mode (only if it's a git repo and gh is available).
     // For commit: false, use the main checkout as worktreePath.
     const isGitRepo = existsSync(join(project.root, ".git"));
     let worktreePath: string | null = null;
-
-    // Prepare plan branch name early (doesn't depend on git)
     let planBranch = `plan/${planName}`;
 
     // Enter the main plan flow if: commit is false (using project root directly),
@@ -1088,9 +1132,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         try {
           worktreePath = await createPlanWorktree({
             projectRoot: project.root,
-            name: tempPlanName,
+            name: planName,
           });
-          const cfg = loadConfig(opts.config);
           createWorktreeSymlinks(project.root, worktreePath, cfg.worktreeSymlinks);
           planHarnessLog(planLogClient, `plan: worktree created at ${worktreePath}`);
         } catch (err) {
@@ -1098,7 +1141,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           // Handle local-only branch collision with a specific error message
           if (message.includes("already exists") && message.includes(".worktree")) {
             opts.io.stderr(
-              `plan: local branch plan/${planName} already exists; delete it with \`git branch -D plan/${planName}\` and re-run\n`,
+              `plan: local branch ${planBranch} already exists; delete it with \`git branch -D ${planBranch}\` and re-run\n`,
             );
           } else {
             opts.io.stderr(`failed to create plan worktree: ${message}\n`);
@@ -1120,64 +1163,29 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         baseBranch = getCurrentBranch(project.root);
       }
 
-      // Load config once for use in refine and draft phases
-      const cfg = loadConfig(opts.config);
-      const jarvisConfigDir = opts.config?.dir ?? CONFIG_DIR;
-
-      // For no-commit runs, create the external spec root directory early (before any agent writes)
-      // and check for collisions before seeding the intent.
-      let externalSpecRoot: string | undefined;
-      if (commit === false) {
-        externalSpecRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
-        mkdirSync(externalSpecRoot, { recursive: true });
-      }
-
-      // Check for collision in the external spec root for no-commit runs
-      // This happens BEFORE any agent invocation or intent seeding
-      if (commit === false && externalSpecRoot) {
-        const tempSpecPath = join(externalSpecRoot, specDirBasename);
-        if (existsSync(tempSpecPath)) {
-          opts.io.stderr(`${tempSpecPath} already exists. Rename or remove it before running again.\n`);
-          return 1;
-        }
-      }
-
       const cleanupNoCommitTempSpec = (): void => {
         if (commit === false && externalSpecRoot) {
-          const tempSpecPath = join(externalSpecRoot, specDirBasename);
-          if (existsSync(tempSpecPath)) {
-            rmSync(tempSpecPath, { recursive: true, force: true });
+          const finalSpecPath = join(externalSpecRoot, specDirBasename);
+          if (existsSync(finalSpecPath)) {
+            rmSync(finalSpecPath, { recursive: true, force: true });
           }
         }
       };
 
-      // Seed the intent.md file into the worktree or external spec root
-      let rawSeed: string;
+      // Create spec directory and write ready-intent to intent.md (byte-for-byte copy)
+      const finalSpecPath = externalSpecRoot
+        ? join(externalSpecRoot, specDirBasename)
+        : join(worktreePath, targetDir, specDirBasename);
+      const intentPath = join(finalSpecPath, "intent.md");
+
       try {
-        if (inv.mode === "file") {
-          rawSeed = seedIntentFile({
-            worktreePath,
-            name: specDirBasename,
-            mode: "file",
-            intentPath: inv.intentPath,
-            targetDir,
-            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
-          });
-        } else {
-          rawSeed = seedIntentFile({
-            worktreePath,
-            name: specDirBasename,
-            mode: "inline",
-            intentText: inv.intentText,
-            targetDir,
-            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
-          });
-        }
+        mkdirSync(finalSpecPath, { recursive: true });
+        writeFileSync(intentPath, readyIntentContent, "utf8");
       } catch (err) {
-        opts.io.stderr(`failed to seed intent file: ${(err as Error).message}\n`);
+        opts.io.stderr(`failed to write intent file: ${(err as Error).message}\n`);
         cleanupNoCommitTempSpec();
         if (commit) {
-          cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
+          cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
         }
         return 1;
       }
@@ -1185,7 +1193,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       const planStartedAt = new Date();
       const planStartedMs = Date.now();
       const planTelemetryPath = cfg.telemetryPath ?? null;
-      const planNsBase = `plan:${project.key}:${tempPlanName}`;
+      const planNsBase = `plan:${project.key}:${planName}`;
       const planTelemetryWriter = createPlanTelemetryWriter({
         telemetryPath: planTelemetryPath,
         namespace: planNsBase,
@@ -1203,371 +1211,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         });
       };
 
-      const tempSpecPath = externalSpecRoot
-        ? join(externalSpecRoot, specDirBasename)
-        : join(worktreePath, targetDir, specDirBasename);
-      const tempIntentPath = join(tempSpecPath, "intent.md");
-
-      const intentDraftResult = await runIntentDraftTurn({
-        onOutboundPrompt: logOutboundPrompt,
-        agentCwd: tempSpecPath,
-        worktreePath,
-        intentPath: tempIntentPath,
-        seededIntent: readFileSync(tempIntentPath, "utf8"),
-        config: cfg,
-        stderr: opts.io.stderr,
-        planTelemetry: planTelemetryWriter,
-        createAgent: resolveAgent,
-      });
-      if (intentDraftResult.result.kind !== "ok") {
-        if (intentDraftResult.result.kind === "quota") {
-          opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during intent-draft\n`);
-          cleanupNoCommitTempSpec();
-          if (commit) {
-            cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
-          }
-          summarizePlan("quota-exhausted", specDirBasename);
-          return 2;
-        }
-        if (intentDraftResult.result.kind === "model_config") {
-          opts.io.stderr(`plan: model configuration error\n${intentDraftResult.result.stderr}`);
-          cleanupNoCommitTempSpec();
-          if (commit) {
-            cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
-          }
-          summarizePlan("model-config", specDirBasename);
-          return 3;
-        }
-        opts.io.stderr(`plan: intent-draft failed\n${intentDraftResult.result.stderr}`);
-        cleanupNoCommitTempSpec();
-        if (commit) {
-          cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
-        }
-        summarizePlan("agent-error", specDirBasename);
-        return 1;
-      }
-      if (extractRawSeed(readFileSync(tempIntentPath, "utf8")) !== rawSeed) {
-        if (intentDraftResult.successAttempt !== undefined) {
-          planTelemetryWriter.recordAgentAttempt({
-            phase: "intent",
-            agentCli: intentDraftResult.successAttempt.agentCli,
-            configuredModel: intentDraftResult.successAttempt.configuredModel,
-            durationMs: intentDraftResult.successAttempt.durationMs,
-            result: {
-              kind: "error",
-              exitCode: 1,
-              stderr: "plan: intent-draft invalid output; raw seed was not preserved exactly",
-            },
-          });
-        }
-        opts.io.stderr("plan: intent-draft invalid output; raw seed was not preserved exactly\n");
-        cleanupNoCommitTempSpec();
-        if (commit) {
-          cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
-        }
-        summarizePlan("error", specDirBasename);
-        return 1;
-      }
-      if (intentDraftResult.successAttempt !== undefined) {
-        planTelemetryWriter.recordAgentAttempt({
-          phase: "intent",
-          agentCli: intentDraftResult.successAttempt.agentCli,
-          configuredModel: intentDraftResult.successAttempt.configuredModel,
-          durationMs: intentDraftResult.successAttempt.durationMs,
-          result: intentDraftResult.result,
-          outcome: "success",
-        });
-      }
-
-      const intentDraftAgentLabel = intentDraftResult.agentLabel ?? "unknown";
-
-      const tempIntent = readFileSync(tempIntentPath, "utf8");
-      const parsedName = parseIntentFrontmatter(tempIntent).name;
-      const nameValidation = validateProposedName(parsedName);
-      let chosenBaseName: string;
-      if (nameValidation.valid && nameValidation.normalized !== undefined) {
-        chosenBaseName = nameValidation.normalized;
-      } else {
-        chosenBaseName = await deriveSpecName(inv, project.root, targetDir);
-        opts.io.stderr(
-          `plan: agent did not propose a valid name; falling back to deterministic derivation (${chosenBaseName})\n`,
-        );
-      }
-      planName = await ensureUniquePlanName(project.root, chosenBaseName, targetDir, {
-        ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
-        specTimestamp,
-      });
-      specDirBasename = specTimestamp ? `${formatPlanSpecTimestamp()}-${planName}` : planName;
-      planHarnessLog(planLogClient, `plan: spec name=${planName}`);
-      planBranch = `plan/${planName}`;
-
-      const finalIntentBody = updateIntentName(tempIntent, planName);
-      writeFileSync(tempIntentPath, finalIntentBody, "utf8");
-
-      // Rename temp spec directory to validated name
-      try {
-        if (commit === false && externalSpecRoot) {
-          renameSync(join(externalSpecRoot, tempPlanName), join(externalSpecRoot, specDirBasename));
-        } else {
-          renameSync(join(worktreePath, targetDir, tempPlanName), join(worktreePath, targetDir, specDirBasename));
-        }
-      } catch (err) {
-        opts.io.stderr(`plan: failed to rename spec directory: ${(err as Error).message}\n`);
-        cleanupNoCommitTempSpec();
-        if (commit) {
-          cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
-        }
-        summarizePlan("error", specDirBasename);
-        return 1;
-      }
-
-      let finalSpecPath: string;
-      if (commit === false && externalSpecRoot) {
-        finalSpecPath = join(externalSpecRoot, specDirBasename);
-      } else {
-        finalSpecPath = join(worktreePath, targetDir, specDirBasename);
-      }
-
       if (commit === false) {
         injectRepoLineIntoIndex(finalSpecPath, project);
-      }
-
-      if (commit !== false) {
-        try {
-          execFileSync("git", ["branch", "-m", `plan/${tempPlanName}`, `plan/${planName}`], {
-            cwd: worktreePath as string,
-            stdio: "pipe",
-          });
-          const nextWorktreePath = join(project.root, ".worktree", `plan-${planName}`);
-          execFileSync("git", ["worktree", "move", worktreePath as string, nextWorktreePath], {
-            cwd: project.root,
-            stdio: "pipe",
-          });
-          worktreePath = nextWorktreePath;
-          finalSpecPath = join(worktreePath, targetDir, specDirBasename);
-          const oldBranch = `plan/${tempPlanName}`;
-          const localBranches = execFileSync("git", ["branch", "--list", oldBranch], {
-            cwd: project.root,
-            stdio: "pipe",
-            encoding: "utf8",
-          }).trim();
-          if (localBranches.length > 0) {
-            execFileSync("git", ["branch", "-D", oldBranch], {
-              cwd: project.root,
-              stdio: "pipe",
-            });
-          }
-          planHarnessLog(planLogClient, `plan: renamed worktree and branch to plan/${planName}`);
-        } catch (err) {
-          const message =
-            typeof err === "object" &&
-            err !== null &&
-            "stderr" in err &&
-            Buffer.isBuffer((err as { stderr: unknown }).stderr)
-              ? (err as { stderr: Buffer }).stderr.toString("utf8")
-              : (err as Error).message;
-          opts.io.stderr(message);
-          if (commit) {
-            cleanupCommittedTempPlanState(project.root, tempPlanName, worktreePath, targetDir);
-          }
-          summarizePlan("error", specDirBasename);
-          return 1;
-        }
       }
 
       if (interrupted) {
         opts.io.stderr(`plan: interrupted\n`);
         summarizePlan("sigint", specDirBasename);
         return 130;
-      }
-
-      if (commit) {
-        try {
-          const intentPathOrLabel = inv.mode === "file" ? inv.intentPath : inv.intentText;
-          commitPlanIntent({
-            worktreePath: worktreePath as string,
-            specDirBasename,
-            mode: inv.mode as "file" | "inline",
-            intentPathOrLabel,
-            agentLabel: intentDraftAgentLabel,
-            targetDir,
-          });
-          opts.io.stderr(`plan: intent commit pushed\n`);
-        } catch (err) {
-          opts.io.stderr(`${(err as Error).message}\n`);
-          summarizePlan("error", specDirBasename);
-          return 1;
-        }
-      }
-
-      const refineBudget = inv.refineTurns ?? 1;
-      let refineCompletedTurns = 0;
-      let refineBlocker: string | undefined;
-      let refineAgentLabel: string | null = null;
-      let refineTerminalOutcome: RefineTerminalOutcome | undefined;
-
-      try {
-        if (refineBudget > 0) {
-          const refineResult = await runRefinePhase({
-            onOutboundPrompt: logOutboundPrompt,
-            worktreePath,
-            name: specDirBasename,
-            config: cfg,
-            refineTurns: refineBudget,
-            stderr: opts.io.stderr,
-            planTelemetry: planTelemetryWriter,
-            targetDir,
-            createAgent: resolveAgent,
-            ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
-          });
-
-          if (refineResult.result.kind !== "ok") {
-            if (refineResult.result.kind === "quota") {
-              opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} during refine\n`);
-              cleanupNoCommitTempSpec();
-              summarizePlan("quota-exhausted", specDirBasename);
-              return 2;
-            }
-            if (refineResult.result.kind === "model_config") {
-              opts.io.stderr(`plan: model configuration error\n${refineResult.result.stderr}`);
-              cleanupNoCommitTempSpec();
-              summarizePlan("model-config", specDirBasename);
-              return 3;
-            }
-            opts.io.stderr(`plan: refine phase failed\n${refineResult.result.stderr}`);
-            cleanupNoCommitTempSpec();
-            summarizePlan("agent-error", specDirBasename);
-            return 1;
-          }
-
-          refineCompletedTurns = refineResult.completedTurns;
-          refineAgentLabel = refineResult.agentLabel;
-          refineBlocker = refineResult.blocker;
-          refineTerminalOutcome = refineResult.terminalOutcome;
-          if (refineResult.terminalOutcome !== undefined) {
-            opts.io.stderr(`plan: refine: ${refineResult.terminalOutcome}\n`);
-          }
-        } else {
-          refineTerminalOutcome = "skipped";
-          opts.io.stderr(`plan: refine: ${refineTerminalOutcome}\n`);
-        }
-      } catch (err) {
-        opts.io.stderr(`plan: refine phase error: ${(err as Error).message}\n`);
-        cleanupNoCommitTempSpec();
-        summarizePlan("error", specDirBasename);
-        return 1;
-      }
-
-      if (refineBlocker !== undefined) {
-        if (commit) {
-          try {
-            commitPlanRefine({
-              worktreePath: worktreePath as string,
-              specDirBasename,
-              mode: inv.mode as "file" | "inline",
-              intentPathOrLabel: inv.mode === "file" ? inv.intentPath : inv.intentText,
-              completedTurns: refineCompletedTurns,
-              refineOutcome: "blocker",
-              targetDir,
-            });
-            opts.io.stderr(`plan: refine commit pushed\n`);
-
-            const agentLabel = refineAgentLabel ?? "unknown";
-            const reason = firstNonEmptyLine(refineBlocker);
-
-            commitPlanBlocker({
-              worktreePath: worktreePath as string,
-              specDirBasename,
-              agentLabel,
-              reason,
-              specFilesCount: 0,
-              targetDir,
-            });
-            opts.io.stderr(`plan: blocker commit pushed\n`);
-
-            await openOrRefreshDraftPr({
-              io: opts.io,
-              planBranch,
-              baseBranch: baseBranch as string,
-              worktreePath: worktreePath as string,
-              planName,
-              specDirBasename,
-              targetDir,
-            });
-            await safeUpdatePrBody({
-              agent: prDescAgent,
-              timeoutMs: cfg.iterationTimeoutMs,
-              io: opts.io,
-              branch: planBranch,
-              base: baseBranch as string,
-              worktreePath: worktreePath as string,
-              name: planName,
-              specDirBasename,
-              targetDir,
-            });
-          } catch (err) {
-            opts.io.stderr(`${(err as Error).message}\n`);
-            summarizePlan("error", specDirBasename);
-            return 1;
-          }
-        }
-
-        opts.io.stderr(`plan: blocked\n`);
-        if (refineBlocker) {
-          opts.io.stderr(`\n## Blocker\n\n${refineBlocker}\n`);
-        }
-        summarizePlan("blocker", specDirBasename);
-        return 1;
-      }
-
-      if (commit && refineBudget > 0) {
-        try {
-          commitPlanRefine({
-            worktreePath: worktreePath as string,
-            specDirBasename,
-            mode: inv.mode as "file" | "inline",
-            intentPathOrLabel: inv.mode === "file" ? inv.intentPath : inv.intentText,
-            completedTurns: refineCompletedTurns,
-            targetDir,
-            ...(refineTerminalOutcome === "skipped" || refineTerminalOutcome === "blocker"
-              ? { refineOutcome: refineTerminalOutcome }
-              : {}),
-          });
-          opts.io.stderr(`plan: refine commit pushed\n`);
-        } catch (err) {
-          opts.io.stderr(`${(err as Error).message}\n`);
-          summarizePlan("error", specDirBasename);
-          return 1;
-        }
-      }
-
-      if (commit) {
-        try {
-          const prUrl = await handoffAfterFreshRefine({
-            io: opts.io,
-            planBranch,
-            baseBranch: baseBranch as string,
-            worktreePath: worktreePath as string,
-            planName,
-            specDirBasename,
-            targetDir,
-            prDescAgent,
-            iterationTimeoutMs: cfg.iterationTimeoutMs,
-          });
-          opts.io.stdout(
-            renderPlanRefineHandoffNextSteps({
-              prUrl,
-              specDirBasename,
-              targetDir,
-            }),
-          );
-        } catch (err) {
-          opts.io.stderr(`${(err as Error).message}\n`);
-          summarizePlan("error", specDirBasename);
-          return 1;
-        }
-        summarizePlan("refine-handoff", specDirBasename);
-        return 0;
       }
 
       // Run draft phase: invoke agent to generate spec tree

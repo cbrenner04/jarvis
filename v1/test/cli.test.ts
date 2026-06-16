@@ -377,7 +377,7 @@ describe("run", () => {
     const cap = captureIo();
     const code = await run(["plan"], { io: cap.io, config: { dir: cfgDir } });
     expect(code).toBe(1);
-    expect(cap.err()).toContain("missing required seed");
+    expect(cap.err()).toContain("missing required ready-intent");
   });
 
   test("plan --help prints usage to stdout and exits 0", async () => {

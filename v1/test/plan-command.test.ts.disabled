@@ -5,13 +5,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import {
-  deriveSpecName,
   parseIntentFrontmatter,
   planCommand,
   renderPlanNextSteps,
   renderPlanRefineHandoffNextSteps,
   resolveResumeSpecPath,
-  seedIntentFile,
+  validateReadyIntent,
   validateProposedName,
 } from "../src/commands/plan.ts";
 import type { PlanInvocation } from "../src/commands/plan-args.ts";

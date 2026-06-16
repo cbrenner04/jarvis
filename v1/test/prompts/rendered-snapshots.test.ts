@@ -6,8 +6,8 @@ import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../..
 import { buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
 import { buildPrDescriptionPrompt as buildPlanPrDescriptionPrompt } from "../../src/modes/plan/pr-description-prompt.ts";
-import { buildVerdictActuatorPrompt } from "../../src/modes/plan/verdict-actuator.ts";
 import { buildReviewPrompt } from "../../src/modes/plan/review.ts";
+import { buildVerdictActuatorPrompt } from "../../src/modes/plan/verdict-actuator.ts";
 
 type WrapperVariant = "codex.exec.stdin+marker";
 

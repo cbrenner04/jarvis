@@ -112,9 +112,7 @@ function hasPrerequisitesSection(text: string): boolean {
   return /^## Prerequisites\s*$/m.test(normalized);
 }
 
-export function validateReadyIntent(
-  readyIntentPath: string,
-):
+export function validateReadyIntent(readyIntentPath: string):
   | {
       ok: true;
       name: string;

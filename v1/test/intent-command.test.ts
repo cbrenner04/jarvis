@@ -246,6 +246,8 @@ describe("intentCommand", () => {
     });
     expect(prompt).toContain("Before editing code, read the relevant durable docs/specs");
     expect(prompt).toContain("Be terse in communication artifacts");
+    expect(prompt).toContain("one prerequisite behavior per physical line as `- ...`");
+    expect(prompt).toContain("Leave the `## Prerequisites` body empty when there are no prerequisites.");
     expect(prompt).not.toContain("No planning labels in code.");
   });
 

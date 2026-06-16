@@ -187,6 +187,20 @@ function hasPrerequisitesSection(text: string): boolean {
   return /^## Prerequisites\s*$/m.test(text.replace(/\r\n/g, "\n"));
 }
 
+function hasValidPrerequisitesSection(text: string): boolean {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const headingMatch = /^## Prerequisites\s*$/m.exec(normalized);
+  if (headingMatch === null || headingMatch.index === undefined) return false;
+  const afterHeading = normalized.slice(headingMatch.index + headingMatch[0].length);
+  const nextHeading = afterHeading.search(/^##\s/m);
+  const body = (nextHeading === -1 ? afterHeading : afterHeading.slice(0, nextHeading)).trim();
+  if (body.length === 0) return true;
+  return body
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .every((line) => /^- \S.*$/.test(line));
+}
+
 function validateIntentStage(
   stagingDir: string,
   modifiedPaths: string[],
@@ -246,6 +260,12 @@ function validateIntentStage(
       return {
         ok: false,
         error: `intent: ${basename(path)} is missing ## Prerequisites`,
+      };
+    }
+    if (!hasValidPrerequisitesSection(content)) {
+      return {
+        ok: false,
+        error: `intent: ${basename(path)} must list prerequisites as one bullet per line`,
       };
     }
     intents.push({ slug, path });

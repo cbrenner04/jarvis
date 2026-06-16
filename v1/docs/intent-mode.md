@@ -48,6 +48,7 @@ Each emitted file:
 - is named `<name>.md`
 - declares matching frontmatter `name: <name>`
 - includes a `## Prerequisites` section
+- uses one bullet line per prerequisite behavior when prerequisites are non-empty
 
 `name:` collisions are hard errors. If `<targetDir>/ready-intents/<name>.md`
 already exists, the run aborts without overwriting files and without opening a

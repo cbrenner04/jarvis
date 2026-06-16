@@ -16,6 +16,7 @@ import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agen
 import { intentCommand, parseIntentArgs } from "../src/commands/intent.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
+import { buildIntentSplitPrompt } from "../src/modes/plan/intent-split.ts";
 
 const okLogClient: LogClient = {
   assertReachable: async () => {},
@@ -56,9 +57,9 @@ ${prerequisites.length === 0 ? "" : `\n${prerequisites.map((line) => `- ${line}`
 
 class SplitAgent implements Agent {
   readonly name: AgentName;
-  readonly #mode: "ok-two" | "ok-one" | "invalid" | "quota";
+  readonly #mode: "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty";
 
-  constructor(name: AgentName, mode: "ok-two" | "ok-one" | "invalid" | "quota") {
+  constructor(name: AgentName, mode: "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty") {
     this.name = name;
     this.#mode = mode;
   }
@@ -69,8 +70,31 @@ class SplitAgent implements Agent {
     }
     const stageDir = join(opts.cwd, ".jarvis-intent-stage");
     mkdirSync(stageDir, { recursive: true });
+    if (this.#mode === "quota-dirty") {
+      writeFileSync(join(stageDir, "stale.md"), intentFile("stale", "Should be cleared."), "utf8");
+      return { kind: "quota", stderr: "synthetic quota after writes" };
+    }
     if (this.#mode === "invalid") {
       writeFileSync(join(stageDir, "bad-name.md"), "---\nname: wrong-name\n---\n\n## Intent\n\nBroken.\n", "utf8");
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "invalid-prerequisites") {
+      writeFileSync(
+        join(stageDir, "bad-prereqs.md"),
+        `---
+name: bad-prereqs
+---
+
+## Intent
+
+Broken.
+
+## Prerequisites
+
+Needs another behavior first.
+`,
+        "utf8",
+      );
       return { kind: "ok", stdout: "", stderr: "" };
     }
     if (this.#mode === "ok-one") {
@@ -162,7 +186,9 @@ exit 0
   };
 }
 
-function createAgentFactory(modes: Partial<Record<AgentName, "ok-two" | "ok-one" | "invalid" | "quota">>) {
+function createSplitAgentFactory(
+  modes: Partial<Record<AgentName, "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty">>,
+) {
   return (name: AgentName): Agent => new SplitAgent(name, modes[name] ?? "ok-two");
 }
 
@@ -206,6 +232,18 @@ describe("parseIntentArgs", () => {
 });
 
 describe("intentCommand", () => {
+  test("intent-split prompt uses governed layering and honors global removal", () => {
+    const prompt = buildIntentSplitPrompt({
+      workdir: "/tmp/worktree",
+      seedLabel: "inline",
+      seedContent: "Split reporting",
+      stagingDir: ".jarvis-intent-stage",
+    });
+    expect(prompt).toContain("Before editing code, read the relevant durable docs/specs");
+    expect(prompt).toContain("Be terse in communication artifacts");
+    expect(prompt).not.toContain("No planning labels in code.");
+  });
+
   test("inline seed writes N intents to ready-intents and opens a draft PR", async () => {
     const env = setupEnv();
     try {
@@ -216,7 +254,7 @@ describe("intentCommand", () => {
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
-        createAgent: createAgentFactory({ claude: "ok-two" }),
+        createAgent: createSplitAgentFactory({ claude: "ok-two" }),
       });
       expect(code).toBe(0);
       expect(cap.err()).toContain("intent: split commit pushed");
@@ -254,7 +292,7 @@ describe("intentCommand", () => {
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
-        createAgent: createAgentFactory({ claude: "ok-one" }),
+        createAgent: createSplitAgentFactory({ claude: "ok-one" }),
       });
       expect(code).toBe(0);
       const worktree = findIntentWorktree(env.projectRoot);
@@ -285,7 +323,7 @@ describe("intentCommand", () => {
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
-        createAgent: createAgentFactory({ claude: "ok-two" }),
+        createAgent: createSplitAgentFactory({ claude: "ok-two" }),
       });
       expect(code).toBe(1);
       expect(cap.err()).toContain("spec/ready-intents/slice-one.md already exists");
@@ -306,10 +344,32 @@ describe("intentCommand", () => {
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
-        createAgent: createAgentFactory({ claude: "invalid" }),
+        createAgent: createSplitAgentFactory({ claude: "invalid" }),
       });
       expect(code).toBe(1);
       expect(cap.err()).toContain("must declare name: bad-name");
+      expect(existsSync(env.prState)).toBe(false);
+      expect(existsSync(join(env.projectRoot, ".worktree"))).toBe(true);
+      expect(readdirSync(join(env.projectRoot, ".worktree"))).toHaveLength(0);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("non-bullet prerequisites abort without partial ready-intents or a PR", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "invalid-prerequisites" }),
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("must list prerequisites as one bullet per line");
       expect(existsSync(env.prState)).toBe(false);
       expect(existsSync(join(env.projectRoot, ".worktree"))).toBe(true);
       expect(readdirSync(join(env.projectRoot, ".worktree"))).toHaveLength(0);
@@ -328,11 +388,33 @@ describe("intentCommand", () => {
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
-        createAgent: createAgentFactory({ claude: "quota", codex: "ok-two" }),
+        createAgent: createSplitAgentFactory({ claude: "quota", codex: "ok-two" }),
       });
       expect(code).toBe(0);
       expect(cap.err()).toContain("intent: claude: quota exhausted; falling back");
       expect(cap.out()).toContain("jarvis1 plan spec/ready-intents/slice-two.md");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("quota fallback retries with a clean stage directory", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "quota-dirty", codex: "ok-one" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("intent: claude: quota exhausted; falling back");
+      const worktree = findIntentWorktree(env.projectRoot);
+      expect(existsSync(join(worktree, "spec", "ready-intents", "stale.md"))).toBe(false);
+      expect(existsSync(join(worktree, "spec", "ready-intents", "single-behavior.md"))).toBe(true);
     } finally {
       env.cleanup();
     }

@@ -1,6 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
+import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
+import { enforceDelimiterPolicy, PromptRenderingError, renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
@@ -10,7 +13,6 @@ import {
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
-import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 export function buildIntentSplitPrompt(opts: {
   workdir: string;
@@ -18,17 +20,28 @@ export function buildIntentSplitPrompt(opts: {
   seedContent: string;
   stagingDir: string;
 }): string {
-  const promptFile = join(import.meta.dir, "..", "..", "..", "..", "prompts", "plan", "intent-split.md");
-  let template = readFileSync(promptFile, "utf8");
+  const registry = loadPromptRegistry();
+  const artifact = registry.getById("plan.prompt.intent-split");
+  let template = assemblePromptForStep({
+    registry,
+    stepPromptId: artifact.metadata.id,
+  });
+
+  enforceDelimiterPolicy({
+    value: opts.seedContent,
+    begin: "<<<SEED_BEGIN>>>",
+    end: "<<<SEED_END>>>",
+    placeholderName: "SEED_CONTENT",
+  });
 
   try {
-    template = renderTemplate(template, new Set(["WORKDIR", "SEED_LABEL", "SEED_CONTENT"]), {
+    template = renderTemplateWithDeclarations(template, artifact.metadata.placeholders, {
       WORKDIR: opts.workdir,
       SEED_LABEL: opts.seedLabel,
       SEED_CONTENT: opts.seedContent,
     });
   } catch (err) {
-    if (err instanceof TemplateRenderingError) {
+    if (err instanceof PromptRenderingError) {
       throw new Error(`intent-split prompt configuration error: ${err.details}`);
     }
     throw err;
@@ -74,6 +87,12 @@ function readGitPorcelainSnapshot(cwd: string): string | null {
   } catch {
     return null;
   }
+}
+
+function resetIntentStageDir(worktreePath: string, stagingDir: string): void {
+  const stagePath = join(worktreePath, stagingDir);
+  rmSync(stagePath, { recursive: true, force: true });
+  mkdirSync(stagePath, { recursive: true });
 }
 
 export async function runIntentSplitTurn(opts: {
@@ -125,6 +144,7 @@ export async function runIntentSplitTurn(opts: {
   let agentLabel: string | null = null;
 
   for (const entry of agentOrder) {
+    resetIntentStageDir(opts.worktreePath, opts.stagingDir);
     const agent = resolveAgent(entry.agent, entry.model);
     agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 

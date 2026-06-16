@@ -31,13 +31,13 @@ only spec draft/review prompts.
 
 ## Acceptance criteria
 
-- [ ] Plan prompt registry/governance docs no longer list `plan.prompt.intent-draft`, `plan.prompt.refine`, or `plan.prompt.intent-split` as active plan prompts.
-- [ ] `jarvis1 intent` uses an intent-owned split prompt ID/file, and no intent-authoring prompt is duplicated under plan ownership.
-- [ ] Active plan prompt surfaces are limited to `plan.prompt.draft`, `plan.prompt.review`, `plan.prompt.review.adversary`, `plan.prompt.review.advocate`, `plan.prompt.review.adjudicator`, `plan.prompt.review-actuator`, `plan.prompt.pr-description`, and the plan fragments those prompts use.
-- [ ] Prompt tests prove fresh plan cannot load or render the retired plan intent-authoring prompt IDs through plan prompt lookup.
-- [ ] Plan draft/review/review-actuator prompt snapshots reflect the ready-intent input model and still include sentinel-delimited intent data plus spec guidance.
-- [ ] `v1/docs/intent-mode.md`, `v1/docs/prompt-governance.md`, `v2/docs/prompts.md`, and `v2/docs/v1-behaviors.md` agree that raw-seed authoring belongs before plan and that plan starts at spec draft.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] Plan prompt registry/governance docs no longer list `plan.prompt.intent-draft`, `plan.prompt.refine`, or `plan.prompt.intent-split` as active plan prompts.
+- [x] `jarvis1 intent` uses an intent-owned split prompt ID/file, and no intent-authoring prompt is duplicated under plan ownership.
+- [x] Active plan prompt surfaces are limited to `plan.prompt.draft`, `plan.prompt.review`, `plan.prompt.review.adversary`, `plan.prompt.review.advocate`, `plan.prompt.review.adjudicator`, `plan.prompt.review-actuator`, `plan.prompt.pr-description`, and the plan fragments those prompts use.
+- [x] Prompt tests prove fresh plan cannot load or render the retired plan intent-authoring prompt IDs through plan prompt lookup.
+- [x] Plan draft/review/review-actuator prompt snapshots reflect the ready-intent input model and still include sentinel-delimited intent data plus spec guidance.
+- [x] `v1/docs/intent-mode.md`, `v1/docs/prompt-governance.md`, `v2/docs/prompts.md`, and `v2/docs/v1-behaviors.md` agree that raw-seed authoring belongs before plan and that plan starts at spec draft.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

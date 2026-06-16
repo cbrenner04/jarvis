@@ -5,7 +5,7 @@ This document defines prompt identity and validation for Jarvis-managed prompts.
 ## First Registry Rollout (Metadata-First)
 
 The first rollout includes shared global guidance fragments plus prompt
-artifacts that shape agent behavior in patch mode and plan draft/review/refine:
+artifacts that shape agent behavior in patch mode and plan draft/review:
 
 - `global.terse` (`prompts/global/terse.md`) — shared terse fragment layered
   into agent-facing prompts
@@ -17,10 +17,10 @@ artifacts that shape agent behavior in patch mode and plan draft/review/refine:
   into patch-mode prompts; forbids planning labels in code identifiers,
   filenames, types, and public API
 - `plan.defer-to-consumer` (`prompts/plan/defer-to-consumer.md`) — shared
-  plan-only deferral fragment layered into plan draft/review/refine prompts to
+  plan-only deferral fragment layered into plan draft/review prompts to
   avoid inventing precision before a first caller exists
 - `plan.decisions-ledger` (`prompts/plan/decisions-ledger.md`) — shared
-  plan-only structure fragment layered into plan draft/review/refine prompts to
+  plan-only structure fragment layered into plan draft/review prompts to
   require atomic decision/constraint/assumption ledger entries over narrative prose
 - `shared.pr-description` (`prompts/shared/pr-description.md`) — shared
   PR-description fragment used by patch and plan PR-body generation steps to
@@ -31,18 +31,15 @@ artifacts that shape agent behavior in patch mode and plan draft/review/refine:
 - `patch.rules` (`prompts/patch/rules.md`)
 - `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse` only (not `patch.rules`)
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
-- `plan.prompt.intent-split` (`prompts/plan/intent-split.md`)
 - `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review` (`prompts/plan/review.md`)
 - `plan.prompt.review-actuator` (`prompts/plan/review-actuator.md`)
-- `plan.prompt.refine` (`prompts/plan/refine.md`)
+- `intent.prompt.split` (`prompts/intent/split.md`) — intent-owned seed splitting prompt
 
 Deferred in this rollout:
 
 - Human-facing chooser/confirmation text (for example
   `v1/src/disambiguation-prompt.ts`)
-- Plan authoring helpers not yet migrated to the shared contract (currently
-  `name-only.md` and `inline-draft.md`)
 
 ## Required Metadata
 
@@ -91,7 +88,7 @@ Shared rendering follows this contract:
 - Remove directives are strict runtime behavior (removal is honored, not
   best-effort).
 - Patch layering is `global.documentation -> global.naming -> global.terse -> patch.prompt.body`.
-- Plan layering is `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`.
+- Plan draft/review layering is `global.documentation -> global.terse -> plan.decisions-ledger -> plan.defer-to-consumer -> plan.prompt.*`.
 - `patch.rules` remains step-owned injected content, not an always-layered patch fragment.
 - `patch.prompt.shrink` is a post-completion step prompt (not layered into `patch.prompt.body`). It layers `global.terse` only — not `global.documentation`, `global.naming`, or `patch.rules`. Prevention surfaces (`global.terse`, `patch.rules`) run during implementation; `patch.prompt.shrink` is the post-completion gate that hunts named bloat patterns after the spec is complete.
 - `global.documentation` requires docs-first execution order: read relevant
@@ -139,9 +136,9 @@ Current snapshot coverage lives under `v1/test/fixtures/prompts/rendered/` and
 is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 
 - patch prompt body (`patch.prompt.body`, currently `@r3`)
-- plan draft/review/refine prompts (draft `@r6`, refine `@r8`, review `@r6`; review
+- plan draft/review prompts (draft `@r7`, review `@r6`; review
   includes multiple pass contexts)
-- plan review actuator prompt (`plan.prompt.review-actuator`, currently `@r1`)
+- plan review actuator prompt (`plan.prompt.review-actuator`, currently `@r2`)
 - codex transport wrapper variant (`codex.exec.stdin+marker`)
 
 Coverage remains assembled-output focused: tests assert final rendered prompt

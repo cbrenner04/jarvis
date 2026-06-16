@@ -149,3 +149,7 @@ that delivered it is implementation detail.
 - Requiring prerequisites for every intent.
 - Reworking patch-mode implementation flow beyond emitting or recording the
   completion signal needed by enforcement.
+
+## Refine skip
+
+No net-new load-bearing decision found; existing intent already captures the enforceable contract and leaves mechanism choice to the spec.

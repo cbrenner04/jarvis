@@ -149,3 +149,13 @@ against merged reality.
 - The `plan` refactor (seed 02) and prerequisite enforcement (seed 03).
 - Stacked-PR automation, PR batching, anti-fatigue workflow.
 - Line-count enforcement in patch-mode implementation prompts.
+
+## Refine skip
+
+No load-bearing decision is missing. The intent already pins the non-default
+choices: one PR per spec with spec-count as the lever; the splitter prompt
+references the ~1000-line rule but never hardcodes the figure; the
+`Prerequisites` section is declared/operator-honored but unenforced so seed 03 is
+purely additive; intents authored up front, specs lazily. The remaining unstated
+detail — `ready-intents/`'s path — is the obvious sibling of
+`v2/spec/wip-intents/`, which a reasonable implementer reaches by default.

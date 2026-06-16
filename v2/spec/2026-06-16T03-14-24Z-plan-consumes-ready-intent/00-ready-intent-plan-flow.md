@@ -8,32 +8,41 @@ produce one spec PR.
 
 ## Decisions
 
-- Fresh `jarvis1 plan <path>` requires an existing ready-intent file, not inline text or a missing-path seed -- rules out preserving raw-seed compatibility in plan.
-- Plan derives `<plan-name>` from ready-intent frontmatter `name:` and treats a missing/invalid name as a usage error -- rules out name-only fallback or filename inference.
-- Plan copies the ready-intent to the generated spec directory as `intent.md` and leaves the source file untouched -- rules out destructive consumption before prerequisite/work-queue enforcement.
-- Fresh committed plan runs draft, review, and ready transition in one invocation -- rules out the old `plan: intent`/`plan: refine` PR handoff and `--resume-draft` requirement.
+- Fresh `jarvis1 plan <path>` accepts only an existing `.md` file under the resolved `<targetDir>/ready-intents/` -- rules out arbitrary markdown, `wip-intents/*.md`, old generated `intent.md`, inline text, and missing-path raw seeds.
+- A ready-intent must have frontmatter `name:` matching its filename stem and a `## Prerequisites` section, which may be empty -- rules out treating arbitrary frontmatter markdown as plan-ready input.
+- Plan derives `<plan-name>` from ready-intent frontmatter `name:` and treats a missing/invalid/mismatched name as a usage error before creating plan artifacts -- rules out name-only fallback or filename inference.
+- Invalid ready-intent input leaves no temporary or final branch, worktree, spec directory, or external no-commit spec directory -- rules out observable partial plan artifacts after validation failure.
+- Plan copies the ready-intent bytes to the generated spec directory as `intent.md` and leaves the source file untouched -- rules out destructive consumption before prerequisite/work-queue enforcement.
+- Fresh committed plan opens/updates the draft PR after `plan: draft`, then continues review and ready transition in the same invocation -- rules out the old pre-draft PR handoff.
+- Fresh no-commit plan follows the same ready-intent entry contract and runs draft/review without PR or ready transition -- rules out retaining raw-seed no-commit authoring.
+- `--resume-draft` is rejected with guidance to start from a ready-intent or resume from `index.md` -- rules out preserving the removed intent/refine handoff path.
 - Ready-intent `Prerequisites` content is prompt context only -- rules out prerequisite validation/enforcement before seed 03.
-- No `plan_phase: "intent"` or `plan_phase: "refine"` telemetry rows are emitted by fresh plan -- rules out preserving removed phases as no-op attempts.
+- Fresh plan's first telemetry phase is `plan_phase: "draft"`, and no `plan_phase: "intent"` or `plan_phase: "refine"` rows appear in attempts or summaries -- rules out preserving removed phases as no-op attempts.
 - Existing post-draft resume behavior stays `--resume <index.md>` -- rules out expanding this change into resume redesign.
 
 ## Task checklist
 
-- [ ] Update fresh plan argument handling so `<path>` must resolve to a ready-intent file and inline/missing-path raw seeds fail with guidance to run `jarvis1 intent` first.
-- [ ] Create the plan worktree/branch/spec directory from ready-intent `name:` frontmatter; fail fast when `name:` is missing or invalid.
-- [ ] Copy the ready-intent into the generated spec directory as `intent.md` without moving, deleting, or archiving the source.
-- [ ] Start fresh plan at the draft phase, then run the existing review passes, PR body updates, attribution, quota fallback, telemetry, and ready transition.
-- [ ] Remove fresh-run `plan: intent`, `plan: refine`, and committed `--resume-draft` handoff from the active flow.
-- [ ] Keep blocker handling, review-actuator behavior, no-commit output, and post-draft `--resume <index.md>` behavior aligned with existing plan contracts unless directly contradicted here.
-- [ ] Update tests for ready-intent input, `Prerequisites` pass-through, frontmatter naming, copied `intent.md`, removed intent/refine commits, and raw-seed rejection.
+- [ ] Update fresh plan argument handling so `<path>` must resolve to `<targetDir>/ready-intents/<name>.md`; reject inline text, missing paths, `wip-intents/*.md`, old generated `intent.md`, and arbitrary markdown with guidance to run `jarvis1 intent` first.
+- [ ] Validate frontmatter `name:` and required `## Prerequisites` before creating branch/worktree/spec output in commit and no-commit modes.
+- [ ] Create committed plan branch/worktree/spec directory, or no-commit external spec directory, from valid `name:` frontmatter only.
+- [ ] Copy the ready-intent byte-for-byte into the generated spec directory as `intent.md` without moving, deleting, archiving, or rewriting the source.
+- [ ] Start fresh plan at `plan_phase: "draft"`, then run existing review passes, PR body updates, attribution, quota fallback, telemetry, and committed ready transition.
+- [ ] Keep no-commit output aligned with existing no-commit contracts except that fresh input is ready-intent only and there is no PR/ready transition.
+- [ ] Remove fresh-run `plan: intent`, `plan: refine`, committed `--resume-draft` handoff, and active `--resume-draft` execution.
+- [ ] Keep blocker handling, review-actuator behavior, and post-draft `--resume <index.md>` behavior aligned with existing plan contracts unless directly contradicted here.
+- [ ] Update tests for ready-intent location/shape, `Prerequisites` pass-through, frontmatter naming, copied `intent.md`, removed intent/refine attempts, raw-seed rejection, no-commit flow, invalid-input atomicity, and `--resume-draft` rejection.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 plan <ready-intent-file>` creates a plan branch/worktree/spec directory named from `name:` frontmatter and copies the consumed file to `<targetDir>/<spec-dir>/intent.md` without modifying the source ready-intent.
-- [ ] The first fresh-plan agent phase is spec drafting: no fresh committed run produces `plan: intent` or `plan: refine` commits, no fresh plan summary includes `plan_phase: "intent"` or `plan_phase: "refine"` attempts, and no `--resume-draft` handoff is required before draft/review.
-- [ ] Draft and review prompts receive the full copied ready-intent, including `## Prerequisites`, while non-empty prerequisites are not blocked, validated, resolved, or enforced.
-- [ ] Inline fresh plan input and missing-path raw seeds fail with operator guidance to use `jarvis1 intent` before `jarvis1 plan`.
-- [ ] Missing or invalid ready-intent `name:` frontmatter fails before creating a final plan branch/worktree or spec output.
-- [ ] Existing draft/review behavior still works after the collapsed entry flow: spec files are generated, review passes can update them, blockers stop the run, quota fallback rotates through configured plan agents, PR attribution/body updates occur, and a successful committed run attempts the ready transition.
+- [ ] `jarvis1 plan <targetDir>/ready-intents/<name>.md` accepts a ready-intent with matching `name:` frontmatter and `## Prerequisites`, then creates committed branch/worktree/spec output named from `name:` and copies the source bytes to `<targetDir>/<spec-dir>/intent.md` without modifying the source ready-intent.
+- [ ] With `modes.plan.commit: false`, fresh plan accepts the same ready-intent shape, copies it to external `intent.md`, runs draft/review, prints no-commit next steps, and performs no commit, PR open/update, or ready transition.
+- [ ] Arbitrary markdown, `<targetDir>/wip-intents/*.md`, old generated `intent.md`, inline fresh plan input, and missing-path raw seeds fail with operator guidance to use `jarvis1 intent` before `jarvis1 plan`.
+- [ ] Missing, invalid, or filename-mismatched `name:` frontmatter, and missing `## Prerequisites`, fail before any temporary or final branch, worktree, spec directory, or external no-commit spec directory remains.
+- [ ] The first fresh-plan agent phase and summary attempt label is `plan_phase: "draft"`: no fresh run produces `plan: intent` or `plan: refine` commits, telemetry rows, or summary attempts.
+- [ ] Draft and review prompts receive the copied ready-intent with frontmatter, sentinels, and `## Prerequisites` preserved; non-empty prerequisites are not blocked, validated, resolved, or enforced.
+- [ ] Fresh committed plan opens or updates the draft PR after `plan: draft`, continues through review in the same invocation, and attempts the ready transition only after successful draft/review completion.
+- [ ] `jarvis1 plan --resume-draft <intent.md>` exits with guidance to use `jarvis1 plan <ready-intent>` for fresh work or `jarvis1 plan --resume <index.md>` for post-draft review.
+- [ ] Existing draft/review behavior still works after the collapsed entry flow: spec files are generated, review passes can update them, blockers stop the run, quota fallback rotates through configured plan agents, PR attribution/body updates occur, and successful committed runs attempt ready transition.
 - [ ] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates

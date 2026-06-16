@@ -2,7 +2,7 @@
 id: patch.prompt.shrink
 behavior: patch
 kind: step
-revision: 1
+revision: 2
 remove: [global.documentation, global.naming]
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, ALLOWLIST:string!, RUN_SCOPED_DIFF:string!]
 ---
@@ -43,10 +43,11 @@ Hunt and remove bloat matching these patterns only — no numeric line-count tar
 - repeated test literals (duplicated fixtures that could share one helper)
 - docs restating signatures (comments that repeat params/returns the types already express)
 - machinery with no consumer yet (helpers, types, or config only referenced by dead code)
+- local reimplementations of existing `shared/*` helpers (import the shared utility instead of inlining exec/spawn)
 
 ## Rules
 
 - Do not edit spec files or tick/untick acceptance criteria.
 - Do not add features, tests for new behavior, or expand scope.
 - Preserve observable behavior; run tests before finishing.
-- Prefer deletion and inlining over renames or reshuffles.
+- Prefer deletion. Reuse existing `shared/*` helpers before inlining; inline only when nothing shared fits.

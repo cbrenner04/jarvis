@@ -3,7 +3,6 @@ import { isAbsolute, resolve } from "node:path";
 import { validateTargetDir } from "../config.ts";
 
 export type PlanInvocationCommon = {
-  refineTurns?: number;
   reviewPasses?: number;
   repo?: string;
   targetDir?: string;
@@ -18,7 +17,7 @@ export type PlanParseResult =
   | { ok: true; invocation: PlanInvocation }
   | { ok: false; exitCode: number; message: string };
 
-const FLAGS_WITH_VALUE = new Set(["--refine-turns", "--review-passes", "--repo", "--cwd", "--target-dir"]);
+const FLAGS_WITH_VALUE = new Set(["--review-passes", "--repo", "--cwd", "--target-dir"]);
 
 function parseNonNegativeInteger(
   raw: string,
@@ -49,7 +48,6 @@ export function isExistingFile(path: string): boolean {
 }
 
 export function parsePlanArgs(argv: readonly string[], processCwd: string): PlanParseResult {
-  let refineTurns: number | undefined;
   let reviewPasses: number | undefined;
   let repo: string | undefined;
   let targetDir: string | undefined;
@@ -79,14 +77,6 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
       }
       i += 1;
       switch (arg) {
-        case "--refine-turns": {
-          const parsed = parseNonNegativeInteger(value, arg);
-          if (!parsed.ok) {
-            return { ok: false, exitCode: 1, message: parsed.message };
-          }
-          refineTurns = parsed.value;
-          break;
-        }
         case "--review-passes": {
           const parsed = parseNonNegativeInteger(value, arg);
           if (!parsed.ok) {
@@ -145,7 +135,6 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
   const cwd = cwdFlag !== undefined ? (isAbsolute(cwdFlag) ? cwdFlag : resolve(processCwd, cwdFlag)) : processCwd;
 
   const common: PlanInvocationCommon = { cwd, resume, resumeDraft };
-  if (refineTurns !== undefined) common.refineTurns = refineTurns;
   if (reviewPasses !== undefined) common.reviewPasses = reviewPasses;
   if (repo !== undefined) common.repo = repo;
   if (targetDir !== undefined) common.targetDir = targetDir;

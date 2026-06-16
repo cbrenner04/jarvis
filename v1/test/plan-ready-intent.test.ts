@@ -14,7 +14,7 @@ describe("ready-intent validation", () => {
       const readyIntentPath = join(readyIntentsDir, "test-feature.md");
       writeFileSync(readyIntentPath, "---\nname: test-feature\n---\n\nSome content\n");
 
-      const result = validateReadyIntent(readyIntentPath, "spec");
+      const result = validateReadyIntent(readyIntentPath);
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.message).toContain("Prerequisites");
@@ -32,7 +32,7 @@ describe("ready-intent validation", () => {
       const readyIntentPath = join(readyIntentsDir, "test-feature.md");
       writeFileSync(readyIntentPath, "---\nname: test-feature\n---\n\n## Prerequisites\n\nSome content\n");
 
-      const result = validateReadyIntent(readyIntentPath, "spec");
+      const result = validateReadyIntent(readyIntentPath);
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.name).toBe("test-feature");
@@ -51,7 +51,7 @@ describe("ready-intent validation", () => {
       const readyIntentPath = join(readyIntentsDir, "test-feature.md");
       writeFileSync(readyIntentPath, "---\nname: different-name\n---\n\n## Prerequisites\n\nSome content\n");
 
-      const result = validateReadyIntent(readyIntentPath, "spec");
+      const result = validateReadyIntent(readyIntentPath);
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.message).toContain("does not match filename");

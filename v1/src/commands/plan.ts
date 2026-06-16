@@ -14,7 +14,6 @@ import {
 } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
-import { hasGenuineBlocker } from "../modes/plan/blocker.ts";
 import {
   appendBoundaryBlocker,
   assertNoCommitExternalSpecBoundary,
@@ -23,12 +22,11 @@ import {
   type BoundaryCheckResult,
   revertPaths,
 } from "../modes/plan/boundary.ts";
-import { commitPlanBlocker, commitPlanDraft, commitPlanRefine } from "../modes/plan/commits.ts";
+import { commitPlanBlocker, commitPlanDraft } from "../modes/plan/commits.ts";
 import { runDraftPhase, validateDraftOutput } from "../modes/plan/draft.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "../modes/plan/plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "../modes/plan/pr.ts";
-import { runRefinePhase } from "../modes/plan/refine.ts";
-import { hasWorkingTreeChanges, runPlanReviewPhase } from "../modes/plan/review.ts";
+import { runPlanReviewPhase } from "../modes/plan/review.ts";
 import {
   computeNoCommitSpecRoot,
   computeProjectSafeId,
@@ -63,7 +61,7 @@ export type PlanCommandOptions = {
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
 };
 
-export const PLAN_USAGE = `Usage: jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
+export const PLAN_USAGE = `Usage: jarvis1 plan [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
                             Run plan mode (draft specs under spec/…; see docs/plan-mode.md).
 `;
 
@@ -116,7 +114,6 @@ function hasPrerequisitesSection(text: string): boolean {
 
 export function validateReadyIntent(
   readyIntentPath: string,
-  _targetDir: string,
 ):
   | {
       ok: true;
@@ -134,13 +131,12 @@ export function validateReadyIntent(
     };
   }
 
-  // Validate path is under <targetDir>/ready-intents/
+  // Validate the file lives directly in a `ready-intents/` directory.
   const filename = basename(readyIntentPath);
   const nameWithoutExt = filename.replace(/\.md$/, "");
   const dir = dirname(readyIntentPath);
-  const _expectedDir = join(dirname(dir), "ready-intents");
 
-  if (!dir.endsWith("ready-intents")) {
+  if (basename(dir) !== "ready-intents") {
     return {
       ok: false,
       message: `plan: ready-intent must be located in <targetDir>/ready-intents/; got ${readyIntentPath}\nUse \`jarvis1 intent\` to author a ready-intent.`,
@@ -186,77 +182,6 @@ export function validateReadyIntent(
     name: fm.name,
     content,
   };
-}
-
-const RAW_SEED_BEGIN = "<<<RAW_SEED_BEGIN>>>";
-const RAW_SEED_END = "<<<RAW_SEED_END>>>";
-
-function splitLeadingFrontmatter(text: string): {
-  frontmatterLines: string[] | null;
-  body: string;
-} {
-  const normalized = text.replace(/\r\n/g, "\n");
-  const lines = normalized.split("\n");
-  if ((lines[0] ?? "") !== "---") {
-    return { frontmatterLines: null, body: normalized };
-  }
-  for (let i = 1; i < lines.length; i += 1) {
-    if ((lines[i] ?? "") === "---") {
-      return {
-        frontmatterLines: lines.slice(1, i),
-        body: lines.slice(i + 1).join("\n"),
-      };
-    }
-  }
-  return { frontmatterLines: null, body: normalized };
-}
-
-function upsertNameFrontmatter(frontmatterLines: readonly string[] | null, name: string): string[] {
-  const kept = (frontmatterLines ?? []).filter((line) => !/^name:\s*/.test(line));
-  return [...kept, `name: ${name}`];
-}
-
-function renderFrontmatter(lines: readonly string[]): string {
-  return `---\n${lines.join("\n")}\n---`;
-}
-
-function buildSeededIntent(rawSeed: string, name: string): string {
-  const { frontmatterLines, body } = splitLeadingFrontmatter(rawSeed);
-  const nextFrontmatter = renderFrontmatter(upsertNameFrontmatter(frontmatterLines, name));
-  const trimmedBody = body.replace(/^\n+/, "");
-  const workingDraft = trimmedBody.length > 0 ? `${trimmedBody}${trimmedBody.endsWith("\n") ? "" : "\n"}` : "";
-  return `${nextFrontmatter}
-
-## Raw seed
-
-<details>
-<summary>Raw seed</summary>
-
-${RAW_SEED_BEGIN}
-${rawSeed}
-${RAW_SEED_END}
-
-</details>
-
-## Intent
-
-${workingDraft}`;
-}
-
-function _updateIntentName(text: string, name: string): string {
-  const { frontmatterLines, body } = splitLeadingFrontmatter(text);
-  return `${renderFrontmatter(upsertNameFrontmatter(frontmatterLines, name))}
-
-${body.replace(/^\n*/, "")}`;
-}
-
-function _extractRawSeed(text: string): string | null {
-  const begin = text.indexOf(`${RAW_SEED_BEGIN}\n`);
-  if (begin === -1) return null;
-  const start = begin + RAW_SEED_BEGIN.length + 1;
-  const end = text.indexOf(`\n${RAW_SEED_END}`, start);
-  if (end === -1) return null;
-  return text.slice(start, end);
 }
 
 function remoteSpecBranchExists(projectRoot: string, branchName: string): boolean {
@@ -567,58 +492,6 @@ async function ensureUniquePlanName(
   }
 }
 
-export type SeedIntentFileMode = "file" | "inline";
-
-export type SeedIntentFileOptions = {
-  worktreePath: string;
-  name: string;
-  mode: SeedIntentFileMode;
-  intentPath?: string;
-  intentText?: string;
-  /** Committed spec root (defaults to "spec" for backwards compatibility). */
-  targetDir?: string;
-  /**
-   * Optional external spec root for no-commit specs.
-   * If provided, the spec is seeded here instead of under worktreePath/spec/.
-   */
-  externalSpecRoot?: string;
-};
-
-export function seedIntentFile(opts: SeedIntentFileOptions): string {
-  const targetDir = opts.targetDir ?? "spec";
-  const specDir = opts.externalSpecRoot
-    ? join(opts.externalSpecRoot, opts.name)
-    : join(opts.worktreePath, targetDir, opts.name);
-  const intentPath = join(specDir, "intent.md");
-
-  if (existsSync(intentPath)) {
-    throw new Error(`intent.md already exists at ${intentPath}; will not overwrite`);
-  }
-
-  mkdirSync(specDir, { recursive: true });
-
-  let rawSeed: string;
-  if (opts.mode === "file") {
-    if (!opts.intentPath) {
-      throw new Error("intentPath required for file mode");
-    }
-    try {
-      rawSeed = readFileSync(opts.intentPath, "utf8");
-    } catch (err) {
-      throw new Error(`could not read intent file: ${(err as Error).message}`);
-    }
-  } else {
-    if (opts.intentText === undefined) {
-      throw new Error("intentText required for inline mode");
-    }
-    rawSeed = opts.intentText;
-  }
-
-  const content = buildSeededIntent(rawSeed, opts.name);
-  writeFileSync(intentPath, content, "utf8");
-  return rawSeed;
-}
-
 export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   const args = opts.args ?? [];
   if (args.includes("--help") || args.includes("-h")) {
@@ -639,7 +512,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const result = parsePlanArgs(args, processCwd);
     if (!result.ok) {
       opts.io.stderr(`${result.message}\n`);
-      if (result.message.includes("missing required seed")) {
+      if (result.message.includes("missing required ready-intent")) {
         opts.io.stdout(PLAN_USAGE);
       }
       return result.exitCode;
@@ -711,9 +584,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
       const reviewPasses = resolveReviewPasses(cfg, inv.reviewPasses);
-      const refineTurns = inv.resume ? (inv.refineTurns ?? 0) : 0;
-      if (reviewPasses === 0 && refineTurns === 0) {
-        opts.io.stderr(`--resume requires at least one phase\n`);
+      if (reviewPasses === 0) {
+        opts.io.stderr(`--resume requires at least one review pass\n`);
         return 1;
       }
 
@@ -722,7 +594,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         resume = prepareResume({
           projectRoot: project.root,
           specPath: inv.readyIntentPath,
-          mode: inv.resume ? "resume" : "resume-draft",
+          mode: "resume",
           ...(opts.config !== undefined ? { config: opts.config } : {}),
         });
       } catch (err) {
@@ -742,18 +614,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       }
 
       const resumeTargetDir = targetDir;
-      const resumeIntentPath = resume.externalSpecRoot
-        ? join(resume.externalSpecRoot, resume.specDirBasename, "intent.md")
-        : join(resume.worktreePath, resumeTargetDir, resume.specDirBasename, "intent.md");
-      if (inv.resumeDraft) {
-        const intentBody = readFileSync(resumeIntentPath, "utf8");
-        if (hasGenuineBlocker(intentBody)) {
-          opts.io.stderr(
-            `--resume-draft requires \`## Blocker\` to be cleared in ${resumeTargetDir}/${resume.specDirBasename}/intent.md\n`,
-          );
-          return 1;
-        }
-      }
       const resumePlanStartedAt = new Date();
       const resumePlanStartedMs = Date.now();
       const resumeTelemetryPath = cfg.telemetryPath ?? null;
@@ -774,201 +634,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           writer: resumePlanTelemetry,
         });
       };
-      if (refineTurns > 0) {
-        if (interrupted) {
-          opts.io.stderr(`plan: interrupted\n`);
-          summarizeResume("sigint");
-          return 130;
-        }
-        try {
-          const refineResult = await runRefinePhase({
-            onOutboundPrompt: logOutboundPrompt,
-            worktreePath: resume.worktreePath,
-            name: resume.specDirBasename,
-            config: cfg,
-            refineTurns,
-            stderr: opts.io.stderr,
-            planTelemetry: resumePlanTelemetry,
-            targetDir: resumeTargetDir,
-            createAgent: resolveAgent,
-            ...(resume.externalSpecRoot !== undefined ? { externalSpecRoot: resume.externalSpecRoot } : {}),
-          });
-          if (refineResult.result.kind !== "ok") {
-            if (refineResult.result.kind === "quota") {
-              opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
-              summarizeResume("quota-exhausted");
-              return 2;
-            }
-            if (refineResult.result.kind === "model_config") {
-              opts.io.stderr(`plan: model configuration error\n${refineResult.result.stderr}`);
-              summarizeResume("model-config");
-              return 3;
-            }
-            opts.io.stderr(`plan: refine phase failed\n${refineResult.result.stderr}`);
-            summarizeResume("agent-error");
-            return 1;
-          }
-          if (interrupted) {
-            opts.io.stderr(`plan: interrupted\n`);
-            summarizeResume("sigint");
-            return 130;
-          }
-          if (refineResult.terminalOutcome !== undefined) {
-            opts.io.stderr(`plan: refine: ${refineResult.terminalOutcome}\n`);
-          }
-          if (hasWorkingTreeChanges(resume.worktreePath)) {
-            commitPlanRefine({
-              worktreePath: resume.worktreePath,
-              specDirBasename: resume.specDirBasename,
-              mode: "inline",
-              intentPathOrLabel: "resume",
-              completedTurns: refineResult.completedTurns,
-              subjectSuffix: suffix,
-              resumedBy: refineResult.agentLabel ?? "unknown",
-              targetDir: resumeTargetDir,
-              ...(refineResult.terminalOutcome === "skipped" || refineResult.terminalOutcome === "blocker"
-                ? { refineOutcome: refineResult.terminalOutcome }
-                : {}),
-            });
-          }
-          if (refineResult.blocker !== undefined) {
-            commitPlanBlocker({
-              worktreePath: resume.worktreePath,
-              specDirBasename: resume.specDirBasename,
-              agentLabel: refineResult.agentLabel ?? "unknown",
-              reason: firstNonEmptyLine(refineResult.blocker),
-              specFilesCount: countSpecFiles(join(resume.worktreePath, resumeTargetDir, resume.specDirBasename)),
-              subjectSuffix: suffix,
-              targetDir: resumeTargetDir,
-            });
-            await safeUpdatePrBody({
-              agent: prDescAgent,
-              timeoutMs: cfg.iterationTimeoutMs,
-              io: opts.io,
-              branch,
-              base: getCurrentBranch(project.root),
-              worktreePath: resume.worktreePath,
-              name: resume.planName,
-              specDirBasename: resume.specDirBasename,
-              targetDir: resumeTargetDir,
-            });
-            opts.io.stderr(`plan: blocked\n`);
-            opts.io.stderr(`\n## Blocker\n\n${refineResult.blocker}\n`);
-            summarizeResume("blocker");
-            return 1;
-          }
-        } catch (err) {
-          opts.io.stderr(`${(err as Error).message}\n`);
-          summarizeResume("error");
-          return 1;
-        }
-      }
-
-      if (inv.resumeDraft) {
-        let draftResult: Awaited<ReturnType<typeof runDraftPhase>>;
-        let draftBlocker: string | undefined;
-        let draftSpecFilesCount = 0;
-        try {
-          const finalSpecPath = resume.externalSpecRoot
-            ? join(resume.externalSpecRoot, resume.specDirBasename)
-            : join(resume.worktreePath, resumeTargetDir, resume.specDirBasename);
-          const intentBefore = readFileSync(resumeIntentPath, "utf8");
-          draftResult = await runDraftPhase({
-            onOutboundPrompt: logOutboundPrompt,
-            worktreePath: resume.worktreePath,
-            name: resume.specDirBasename,
-            ...(resume.externalSpecRoot ? { specDirPath: finalSpecPath } : {}),
-            config: cfg,
-            intentBefore,
-            stderr: opts.io.stderr,
-            planTelemetry: resumePlanTelemetry,
-            targetDir: resumeTargetDir,
-            createAgent: resolveAgent,
-          });
-          if (draftResult.result.kind !== "ok") {
-            if (draftResult.result.kind === "quota") {
-              opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
-              summarizeResume("quota-exhausted");
-              return 2;
-            }
-            if (draftResult.result.kind === "model_config") {
-              opts.io.stderr(`plan: model configuration error\n${draftResult.result.stderr}`);
-              summarizeResume("model-config");
-              return 3;
-            }
-            opts.io.stderr(`plan: draft phase failed\n${draftResult.result.stderr}`);
-            summarizeResume("agent-error");
-            return 1;
-          }
-          const validation = validateDraftOutput(
-            resume.worktreePath,
-            resume.specDirBasename,
-            intentBefore,
-            finalSpecPath,
-          );
-          if (!validation.valid) {
-            opts.io.stderr(`plan: draft validation failed: ${validation.error}\n`);
-            summarizeResume("error");
-            return 1;
-          }
-          draftBlocker = validation.blocker;
-          draftSpecFilesCount = draftResult.subspecCount ?? 0;
-          if (draftBlocker === undefined && draftResult.subspecCount === null) {
-            opts.io.stderr(`plan: could not count subspecs\n`);
-            summarizeResume("error");
-            return 1;
-          }
-          commitPlanDraft({
-            worktreePath: resume.worktreePath,
-            specDirBasename: resume.specDirBasename,
-            agentLabel: draftResult.agentLabel ?? "unknown",
-            subspecCount: draftSpecFilesCount,
-            subjectSuffix: suffix,
-            targetDir: resumeTargetDir,
-          });
-          await safeUpdatePrBody({
-            agent: prDescAgent,
-            timeoutMs: cfg.iterationTimeoutMs,
-            io: opts.io,
-            branch,
-            base: getCurrentBranch(project.root),
-            worktreePath: resume.worktreePath,
-            name: resume.planName,
-            specDirBasename: resume.specDirBasename,
-            targetDir: resumeTargetDir,
-          });
-          if (draftBlocker !== undefined) {
-            commitPlanBlocker({
-              worktreePath: resume.worktreePath,
-              specDirBasename: resume.specDirBasename,
-              agentLabel: draftResult.agentLabel ?? "unknown",
-              reason: firstNonEmptyLine(draftBlocker),
-              specFilesCount: draftSpecFilesCount,
-              subjectSuffix: suffix,
-              targetDir: resumeTargetDir,
-            });
-            await safeUpdatePrBody({
-              agent: prDescAgent,
-              timeoutMs: cfg.iterationTimeoutMs,
-              io: opts.io,
-              branch,
-              base: getCurrentBranch(project.root),
-              worktreePath: resume.worktreePath,
-              name: resume.planName,
-              specDirBasename: resume.specDirBasename,
-              targetDir: resumeTargetDir,
-            });
-            opts.io.stderr(`plan: blocked\n`);
-            opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
-            summarizeResume("blocker");
-            return 1;
-          }
-        } catch (err) {
-          opts.io.stderr(`${(err as Error).message}\n`);
-          summarizeResume("error");
-          return 1;
-        }
-      }
 
       if (reviewPasses > 0) {
         const resumeSpecPath = resume.externalSpecRoot
@@ -1054,7 +719,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     }
 
     // Validate ready-intent BEFORE creating any artifacts
-    const readyIntentValidation = validateReadyIntent(inv.readyIntentPath, targetDir);
+    const readyIntentValidation = validateReadyIntent(inv.readyIntentPath);
     if (!readyIntentValidation.ok) {
       opts.io.stderr(`${readyIntentValidation.message}\n`);
       return 1;
@@ -1543,22 +1208,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   }
 }
 
-export function renderPlanRefineHandoffNextSteps(args: {
-  prUrl: string;
-  specDirBasename: string;
-  targetDir?: string;
-}): string {
-  const targetDir = args.targetDir ?? "spec";
-  return [
-    "",
-    "Next steps:",
-    `  1. Review the draft PR: ${args.prUrl}`,
-    "  2. When ready to draft subspecs, run:",
-    `       jarvis1 plan --resume-draft ${targetDir}/${args.specDirBasename}/intent.md`,
-    "",
-  ].join("\n");
-}
-
 export function renderPlanNextSteps(args: {
   prUrl: string;
   planName?: string;
@@ -1582,75 +1231,6 @@ export function renderPlanNextSteps(args: {
     `       jarvis1 run ${targetDir}/${specDirBasename}/index.md`,
     "",
   ].join("\n");
-}
-
-async function openOrRefreshDraftPr(args: {
-  io: PlanIo;
-  planBranch: string;
-  baseBranch: string;
-  worktreePath: string;
-  planName: string;
-  specDirBasename: string;
-  targetDir: string;
-}): Promise<void> {
-  const prResult = await ensureDraftPr({
-    branch: args.planBranch,
-    base: args.baseBranch,
-    title: `plan: ${args.planName}`,
-    bodyGenerator: async () =>
-      buildPlanPrHeader({
-        name: args.planName,
-        specDirBasename: args.specDirBasename,
-        worktreePath: args.worktreePath,
-        targetDir: args.targetDir,
-      }),
-    footer: renderAttribution({
-      cwd: args.worktreePath,
-      base: args.baseBranch,
-    }),
-    cwd: args.worktreePath,
-  });
-  const prUrl = getPrUrl(args.worktreePath, args.planBranch);
-  args.io.stdout(`${prUrl}\n`);
-  if (prResult.created) {
-    args.io.stderr(`plan: draft PR #${prResult.number} opened\n`);
-  } else {
-    args.io.stderr(`plan: draft PR #${prResult.number} updated\n`);
-  }
-}
-
-async function _handoffAfterFreshRefine(args: {
-  io: PlanIo;
-  planBranch: string;
-  baseBranch: string;
-  worktreePath: string;
-  planName: string;
-  specDirBasename: string;
-  targetDir: string;
-  prDescAgent: Agent | undefined;
-  iterationTimeoutMs: number;
-}): Promise<string> {
-  await openOrRefreshDraftPr({
-    io: args.io,
-    planBranch: args.planBranch,
-    baseBranch: args.baseBranch,
-    worktreePath: args.worktreePath,
-    planName: args.planName,
-    specDirBasename: args.specDirBasename,
-    targetDir: args.targetDir,
-  });
-  await safeUpdatePrBody({
-    agent: args.prDescAgent,
-    timeoutMs: args.iterationTimeoutMs,
-    io: args.io,
-    branch: args.planBranch,
-    base: args.baseBranch,
-    worktreePath: args.worktreePath,
-    name: args.planName,
-    specDirBasename: args.specDirBasename,
-    targetDir: args.targetDir,
-  });
-  return getPrUrl(args.worktreePath, args.planBranch);
 }
 
 function getCurrentBranch(cwd: string): string {
@@ -1790,14 +1370,6 @@ function firstNonEmptyLine(text: string): string {
 }
 
 /** Count subspec files under a spec directory matching the `NN-*.md` shape. */
-function countSpecFiles(specDirPath: string): number {
-  if (!existsSync(specDirPath)) {
-    return 0;
-  }
-  const { readdirSync } = require("node:fs") as typeof import("node:fs");
-  return readdirSync(specDirPath).filter((f) => /^\d{2}-.*\.md$/.test(f)).length;
-}
-
 /**
  * Try to detect git origin from a project root directory.
  * Returns the non-empty trimmed stdout from `git -C <root> remote get-url origin`,

@@ -63,9 +63,11 @@ describe("prompt registry load validation", () => {
     const registry = createPromptRegistry();
     const ids = registry.all().map((artifact) => artifact.metadata.id);
 
+    // intent-draft and intent-split moved to intent mode; refine retired with
+    // the intent/refine pipeline (no longer reachable from plan or resume).
     expect(ids).not.toContain("plan.prompt.intent-draft");
-    expect(ids).not.toContain("plan.prompt.refine");
     expect(ids).not.toContain("plan.prompt.intent-split");
+    expect(ids).not.toContain("plan.prompt.refine");
   });
 
   test("parses placeholder declarations from frontmatter", () => {

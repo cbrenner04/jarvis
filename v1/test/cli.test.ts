@@ -229,7 +229,7 @@ describe("run", () => {
     expect(out).toContain("config");
     expect(out).toContain("log-server");
     expect(out).toContain("review-feedback <worktree-name>");
-    expect(out).toContain("plan [--refine-turns <n>]");
+    expect(out).toContain("plan [--review-passes <n>]");
     expect(out).toContain("Draft specs via plan mode");
     expect(out).toContain('intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">');
     expect(out).toContain("help");
@@ -377,7 +377,7 @@ describe("run", () => {
     const cap = captureIo();
     const code = await run(["plan"], { io: cap.io, config: { dir: cfgDir } });
     expect(code).toBe(1);
-    expect(cap.err()).toContain("missing required seed");
+    expect(cap.err()).toContain("missing required ready-intent");
   });
 
   test("plan --help prints usage to stdout and exits 0", async () => {
@@ -387,7 +387,7 @@ describe("run", () => {
       config: { dir: cfgDir },
     });
     expect(code).toBe(0);
-    expect(cap.out()).toContain("--refine-turns");
+    expect(cap.out()).toContain("--review-passes");
     expect(cap.out()).toContain("docs/plan-mode.md");
   });
 

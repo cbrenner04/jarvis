@@ -32,8 +32,7 @@ rg '\bagent\.run\(' src --glob '*.ts' -l
 | Module | Role |
 | --- | --- |
 | `src/modes/patch/run.ts` | Single-agent patch iteration: timeouts/SIGINT handling on **`error`**; **`ok`** → progress/completion logic; spawn **`quota`** → rotate `activeAgents`; **`model_config`** → fatal; spawn **`error`** → **`applyQuotaFallbackWhenAllowed`** then quota rotation or fatal **`error`**. |
-| `src/modes/plan/refine.ts` | **`runRefineTurn`**: inner loop over **`modes.plan.agentOrder`**; porcelain guard + **`applyQuotaFallbackWhenAllowed`** + **`emitPlanAgentQuotaFallback`**; **`ok`** → intent validation / continue-or-stop; **`quota`** → next agent; **`model_config`** → fatal; remaining **`error`** → next agent (hard error does not stop the inner loop). |
-| `src/modes/plan/draft.ts` | Draft phase inner loop: same porcelain + quota fallback pipe as refine; **`ok`** → subspec count success; **`quota`** → next agent; **`model_config`** → fatal; **`error`** → next agent; exhaustion returns last result. |
+| `src/modes/plan/draft.ts` | Draft phase inner loop over **`modes.plan.agentOrder`**: porcelain guard + **`applyQuotaFallbackWhenAllowed`** + **`emitPlanAgentQuotaFallback`**; **`ok`** → subspec count success; **`quota`** → next agent; **`model_config`** → fatal; remaining **`error`** → next agent (hard error does not stop the inner loop); exhaustion returns last result. |
 | `src/modes/review/run.ts` | Shared review pass loop (plan + patch): porcelain guard + **`applyQuotaFallbackWhenAllowed`**; **`quota`** rotates within a pass; **`model_config`** → exit `3`; other **`error`** exits that pass (no agent rotation). Agent chain resets each pass. |
 | `src/modes/plan/review.ts` | Plan review adapter + **`emitPlanAgentQuotaFallback`** via **`onQuotaRotation`**. |
 | `src/modes/patch/review.ts` | Patch review adapter; per-pass timeout in **`loadAgent`**; harness quota stderr via **`onQuotaRotation`**. |

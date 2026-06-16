@@ -26,9 +26,9 @@ import {
 import { commitPlanBlocker, commitPlanReview } from "./commits.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
-import { runVerdictActuator } from "./refine.ts";
 import { hasSpecDirChanges, resolvePlanSpecDirPath, snapshotSpecDirFiles } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
+import { runVerdictActuator } from "./verdict-actuator.ts";
 
 /**
  * Build the review phase prompt by injecting intent.md, current spec files, and guidance.

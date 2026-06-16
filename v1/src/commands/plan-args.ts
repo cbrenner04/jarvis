@@ -3,7 +3,6 @@ import { isAbsolute, resolve } from "node:path";
 import { validateTargetDir } from "../config.ts";
 
 export type PlanInvocationCommon = {
-  refineTurns?: number;
   reviewPasses?: number;
   repo?: string;
   targetDir?: string;
@@ -12,15 +11,13 @@ export type PlanInvocationCommon = {
   resumeDraft: boolean;
 };
 
-export type PlanInvocation =
-  | (PlanInvocationCommon & { mode: "file"; intentPath: string })
-  | (PlanInvocationCommon & { mode: "inline"; intentText: string });
+export type PlanInvocation = PlanInvocationCommon & { mode: "file"; readyIntentPath: string };
 
 export type PlanParseResult =
   | { ok: true; invocation: PlanInvocation }
   | { ok: false; exitCode: number; message: string };
 
-const FLAGS_WITH_VALUE = new Set(["--refine-turns", "--review-passes", "--repo", "--cwd", "--target-dir"]);
+const FLAGS_WITH_VALUE = new Set(["--review-passes", "--repo", "--cwd", "--target-dir"]);
 
 function parseNonNegativeInteger(
   raw: string,
@@ -42,7 +39,7 @@ function parseNonNegativeInteger(
   return { ok: true, value: n };
 }
 
-function isExistingFile(path: string): boolean {
+export function isExistingFile(path: string): boolean {
   try {
     return statSync(path).isFile();
   } catch {
@@ -51,7 +48,6 @@ function isExistingFile(path: string): boolean {
 }
 
 export function parsePlanArgs(argv: readonly string[], processCwd: string): PlanParseResult {
-  let refineTurns: number | undefined;
   let reviewPasses: number | undefined;
   let repo: string | undefined;
   let targetDir: string | undefined;
@@ -81,14 +77,6 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
       }
       i += 1;
       switch (arg) {
-        case "--refine-turns": {
-          const parsed = parseNonNegativeInteger(value, arg);
-          if (!parsed.ok) {
-            return { ok: false, exitCode: 1, message: parsed.message };
-          }
-          refineTurns = parsed.value;
-          break;
-        }
         case "--review-passes": {
           const parsed = parseNonNegativeInteger(value, arg);
           if (!parsed.ok) {
@@ -147,7 +135,6 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
   const cwd = cwdFlag !== undefined ? (isAbsolute(cwdFlag) ? cwdFlag : resolve(processCwd, cwdFlag)) : processCwd;
 
   const common: PlanInvocationCommon = { cwd, resume, resumeDraft };
-  if (refineTurns !== undefined) common.refineTurns = refineTurns;
   if (reviewPasses !== undefined) common.reviewPasses = reviewPasses;
   if (repo !== undefined) common.repo = repo;
   if (targetDir !== undefined) common.targetDir = targetDir;
@@ -156,41 +143,34 @@ export function parsePlanArgs(argv: readonly string[], processCwd: string): Plan
     return {
       ok: false,
       exitCode: 1,
-      message: 'plan: missing required seed (<intent-file|"inline text">)',
+      message: "plan: missing required ready-intent (<targetDir>/ready-intents/<name>.md)",
     };
   }
 
   const positionalArg = positional[0] as string;
   const candidatePath = isAbsolute(positionalArg) ? positionalArg : resolve(cwd, positionalArg);
-  // In resume modes the positional is a spec path (spec/<dir>/intent.md or
-  // index.md) that identifies an existing plan. It need not exist relative to
-  // cwd — for commit-mode plans the spec lives inside the plan worktree, not
-  // the repo the user is standing in. prepareResume re-derives the worktree
-  // from the spec dir name, so always treat it as a path here rather than
-  // silently falling back to inline intent text.
+
   if (resume || resumeDraft) {
     return {
       ok: true,
-      invocation: { ...common, mode: "file", intentPath: candidatePath },
+      invocation: { ...common, mode: "file", readyIntentPath: candidatePath },
     };
   }
+
   if (isExistingFile(candidatePath)) {
     return {
       ok: true,
-      invocation: { ...common, mode: "file", intentPath: candidatePath },
+      invocation: { ...common, mode: "file", readyIntentPath: candidatePath },
     };
   }
+
   return {
-    ok: true,
-    invocation: { ...common, mode: "inline", intentText: positionalArg },
+    ok: false,
+    exitCode: 1,
+    message: `plan: path does not exist or is not a file: ${positionalArg}\nUse \`jarvis1 intent\` to author a ready-intent, then \`jarvis1 plan <targetDir>/ready-intents/<name>.md\``,
   };
 }
 
 export function describePlanInvocation(inv: PlanInvocation): string {
-  switch (inv.mode) {
-    case "file":
-      return `plan: file intent=${inv.intentPath}`;
-    case "inline":
-      return `plan: inline intent=${JSON.stringify(inv.intentText)}`;
-  }
+  return `plan: ready-intent=${inv.readyIntentPath}`;
 }

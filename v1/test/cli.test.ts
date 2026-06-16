@@ -169,6 +169,13 @@ describe("parseArgs", () => {
     });
   });
 
+  test("intent with extra args", () => {
+    expect(parseArgs(["intent", "--repo", "foo", "seed.md"])).toEqual({
+      kind: "intent",
+      rest: ["--repo", "foo", "seed.md"],
+    });
+  });
+
   test("prompt with text", () => {
     expect(parseArgs(["prompt", "hello world"])).toEqual({
       kind: "prompt",
@@ -224,6 +231,7 @@ describe("run", () => {
     expect(out).toContain("review-feedback <worktree-name>");
     expect(out).toContain("plan [--refine-turns <n>]");
     expect(out).toContain("Draft specs via plan mode");
+    expect(out).toContain('intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">');
     expect(out).toContain("help");
   });
 

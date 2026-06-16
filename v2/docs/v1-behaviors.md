@@ -13,7 +13,7 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 
 ### Command surface
 
-- The shipped top-level subcommands are `run`, `init`, `config`, `log-server`, `cleanup`, `triage`, `review-feedback`, `plan`, `prompt`, `prices`, and `help` (including `-h`/`--help` aliases to help output). Sources: `v1/src/cli.ts`
+- The shipped top-level subcommands are `run`, `init`, `config`, `log-server`, `cleanup`, `triage`, `review-feedback`, `plan`, `intent`, `prompt`, `prices`, and `help` (including `-h`/`--help` aliases to help output). Sources: `v1/src/cli.ts`
 - Unknown subcommands exit non-zero and print usage, while parse-time argument errors also print usage with a command-specific error prefix. Sources: `v1/src/cli.ts`
 - `review-feedback` requires a non-empty `<worktree-name>` and exits with usage when omitted, while `triage` accepts an optional worktree argument and otherwise runs a no-arg listing mode. Sources: `v1/src/cli.ts`, `v1/src/commands/triage.ts`
 - `prices` is a two-operation command surface (`show` and `edit`) rather than one flat action, and missing/unknown prices subcommands print command-specific usage. Sources: `v1/src/commands/prices.ts`, `v1/src/commands/prices-show.ts`, `v1/src/commands/prices-edit.ts`
@@ -75,6 +75,20 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - On committed `--resume`/`--resume-draft`, if `.worktree/plan-<name>` is missing, jarvis best-effort fetches and auto-recreates it from local `plan/<name>` or `origin/plan/<name>` (logging recreate source), but it still enforces the later `origin` presence check and still fails with the original missing-worktree error when neither local nor remote branch exists. Sources: `v1/src/commands/plan.ts`, `v1/src/worktree.ts`
 - Plan `commit: false` mode writes spec output to Jarvis-owned external spec roots and emits absolute-path next-step commands for later `jarvis1 run` execution instead of creating git commits, pushes, or PR transitions. Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/spec-paths.ts`, `v1/docs/plan-mode.md`
 - Plan mode enforces a write boundary before each draft/review commit: agent writes must stay within the active spec directory (and, for `commit: false`, the external spec root). On a boundary violation, commit-mode plans revert the offending paths, append a boundary `## Blocker`, commit a `plan: blocker`, and exit `1`; no-commit plans append the blocker and exit `1` without reverting. Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/boundary.ts`
+
+### Intent mode
+
+- `jarvis1 intent` is a separate mode entrypoint with its own parser, usage text, and handler; `--help` exits `0` with intent-specific usage while parse errors print targeted `intent:` messages. Sources: `v1/src/cli.ts`, `v1/src/commands/intent.ts`
+- Intent mode requires committed plan routing (`plan.commit=true`); if the resolved project is configured for no-commit plan mode, intent mode exits with a targeted error instead of running without a PR. Sources: `v1/src/commands/intent.ts`, `v1/docs/intent-mode.md`
+- Fresh intent mode requires exactly one seed. The positional argument is treated as a file only when the path exists; otherwise it is treated as inline text. File seeds must live under `<targetDir>/wip-intents/`. Sources: `v1/src/commands/intent.ts`, `v1/docs/intent-mode.md`
+- Intent mode uses the same committed plan-root resolution as plan mode and writes authored intents to `<targetDir>/ready-intents/`. Sources: `v1/src/commands/intent.ts`, `v1/docs/intent-mode.md`
+- Running intent mode splits one seed into N behavior-level intents, writes only `<name>.md` files under `ready-intents/`, requires matching `name:` frontmatter and a `## Prerequisites` section in each file, and never writes spec `index.md` files or numbered subspecs. Sources: `v1/src/commands/intent.ts`, `v1/docs/intent-mode.md`
+- A single-behavior seed is valid and still runs the full flow, emitting exactly one authored intent. Sources: `v1/src/commands/intent.ts`, `v1/test/intent-command.test.ts`
+- Intent-name collisions are hard errors: if `<targetDir>/ready-intents/<name>.md` already exists, the run aborts without overwriting files and without opening a PR. Sources: `v1/src/commands/intent.ts`, `v1/test/intent-command.test.ts`
+- Splitter output is staged and validated before move/commit. Invalid output aborts without partial `ready-intents/` writes or a PR. Sources: `v1/src/commands/intent.ts`, `v1/src/modes/plan/intent-split.ts`, `v1/test/intent-command.test.ts`
+- Intent mode reuses the plan agent order and quota-fallback rules for the splitter step; quota exhaustion falls through to the next configured agent and terminal exhaustion exits with the shared all-agents-exhausted wording. Sources: `v1/src/commands/intent.ts`, `v1/src/modes/plan/intent-split.ts`, `v1/test/intent-command.test.ts`
+- The raw seed in `wip-intents/` is left in place after fan-out. Sources: `v1/src/commands/intent.ts`, `v1/test/intent-command.test.ts`
+- Successful committed intent runs create a dedicated `intent/<name>` branch and `.worktree/intent-<name>` worktree, commit the `ready-intents/` split, and open or update a draft PR for operator review before any later `jarvis1 plan` runs. Sources: `v1/src/commands/intent.ts`, `v1/src/worktree.ts`, `v1/src/pr.ts`, `v1/docs/intent-mode.md`
 
 ### Plan-mode flow matrix
 

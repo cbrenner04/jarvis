@@ -117,6 +117,55 @@ export interface CreatePromptWorktreeOptions {
   baseBranch?: string;
 }
 
+export interface CreateIntentWorktreeOptions {
+  projectRoot: string;
+  name: string;
+  baseBranch?: string;
+}
+
+export async function createIntentWorktree(opts: CreateIntentWorktreeOptions): Promise<string> {
+  const dirPrefix = "intent-";
+  const branchPrefix = "intent/";
+  const worktreePath = join(opts.projectRoot, ".worktree", dirPrefix + opts.name);
+  const branchName = branchPrefix + opts.name;
+
+  bestEffortFetch(opts.projectRoot);
+
+  if (existsSync(worktreePath)) {
+    throw new Error(
+      `intent worktree already exists at ${worktreePath}; resolve with \`jarvis1 cleanup\` or remove manually`,
+    );
+  }
+
+  const branchExists = branchExistsLocal(opts.projectRoot, branchName);
+  const branchExistsRemote = branchExistsOnOrigin(opts.projectRoot, branchName);
+
+  if (branchExists || branchExistsRemote) {
+    if (!branchExists && branchExistsRemote) {
+      execFileSync("git", ["branch", branchName, `origin/${branchName}`], {
+        cwd: opts.projectRoot,
+        stdio: "pipe",
+      });
+    }
+    execFileSync("git", ["worktree", "add", "--checkout", worktreePath, branchName], {
+      cwd: opts.projectRoot,
+      stdio: "pipe",
+    });
+  } else {
+    const baseBranch = opts.baseBranch ?? (await getBaseBranch(opts.projectRoot));
+    execFileSync("git", ["branch", branchName, baseBranch], {
+      cwd: opts.projectRoot,
+      stdio: "pipe",
+    });
+    execFileSync("git", ["worktree", "add", worktreePath, branchName], {
+      cwd: opts.projectRoot,
+      stdio: "pipe",
+    });
+  }
+
+  return worktreePath;
+}
+
 export async function createPromptWorktree(opts: CreatePromptWorktreeOptions): Promise<string> {
   const dirPrefix = "prompt-";
   const branchPrefix = "prompt/";

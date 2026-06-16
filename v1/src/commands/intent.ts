@@ -1,0 +1,520 @@
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { type Agent, type AgentName } from "../agents/types.ts";
+import { loadConfig, type ProjectMatch, resolvePlanFlags } from "../config.ts";
+import type { LogClient } from "../logging.ts";
+import { enterMode } from "../mode-entry.ts";
+import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
+import { renderAttribution, ensureDraftPr } from "../pr.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
+import { createIntentWorktree, createWorktreeSymlinks } from "../worktree.ts";
+
+export type IntentIo = {
+  stdout: (s: string) => void;
+  stderr: (s: string) => void;
+};
+
+export type IntentCommandOptions = {
+  io: IntentIo;
+  args?: readonly string[];
+  cwd?: string;
+  config?: { dir?: string };
+  logClient?: LogClient;
+  createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
+};
+
+type IntentInvocationCommon = {
+  repo?: string;
+  cwd: string;
+};
+
+export type IntentInvocation =
+  | (IntentInvocationCommon & { mode: "file"; seedPath: string })
+  | (IntentInvocationCommon & { mode: "inline"; seedText: string });
+
+export type IntentParseResult =
+  | { ok: true; invocation: IntentInvocation }
+  | { ok: false; exitCode: number; message: string };
+
+const FLAGS_WITH_VALUE = new Set(["--repo", "--cwd"]);
+
+export const INTENT_USAGE = `Usage: jarvis1 intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">
+                             Split one seed into authored intents under ready-intents/ and open a draft PR.
+`;
+
+const STAGE_DIR_NAME = ".jarvis-intent-stage";
+const INTENT_FILE_RE = /^[a-z0-9-]+$/;
+
+function planHarnessLog(logClient: LogClient, text: string, tag: "harness" | "outbound" = "harness"): void {
+  void logClient
+    .send({
+      namespace: "jarvis",
+      text,
+      tag,
+    })
+    .catch(() => {});
+}
+
+function toKebabCase(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function isExistingFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function parseIntentArgs(argv: readonly string[], processCwd: string): IntentParseResult {
+  let repo: string | undefined;
+  let cwdFlag: string | undefined;
+  const positional: string[] = [];
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i] as string;
+    if (FLAGS_WITH_VALUE.has(arg)) {
+      const value = argv[i + 1];
+      if (value === undefined) {
+        return {
+          ok: false,
+          exitCode: 1,
+          message: `intent: missing value for ${arg}`,
+        };
+      }
+      i += 1;
+      if (arg === "--repo") {
+        repo = value;
+      } else {
+        cwdFlag = value;
+      }
+      continue;
+    }
+    if (arg.startsWith("--")) {
+      return {
+        ok: false,
+        exitCode: 1,
+        message: `intent: unknown flag ${arg}`,
+      };
+    }
+    positional.push(arg);
+  }
+
+  if (positional.length === 0) {
+    return {
+      ok: false,
+      exitCode: 1,
+      message: 'intent: missing required seed (<raw-seed-file|"inline text">)',
+    };
+  }
+  if (positional.length > 1) {
+    return {
+      ok: false,
+      exitCode: 1,
+      message: "intent: too many arguments",
+    };
+  }
+
+  const cwd = cwdFlag !== undefined ? (isAbsolute(cwdFlag) ? cwdFlag : resolve(processCwd, cwdFlag)) : processCwd;
+  const arg = positional[0] as string;
+  const candidatePath = isAbsolute(arg) ? arg : resolve(cwd, arg);
+
+  if (isExistingFile(candidatePath)) {
+    const invocation: IntentInvocation = { mode: "file", seedPath: candidatePath, cwd };
+    if (repo !== undefined) invocation.repo = repo;
+    return { ok: true, invocation };
+  }
+
+  const invocation: IntentInvocation = { mode: "inline", seedText: arg, cwd };
+  if (repo !== undefined) invocation.repo = repo;
+  return { ok: true, invocation };
+}
+
+function deriveRunName(inv: IntentInvocation): string {
+  if (inv.mode === "file") {
+    return toKebabCase(basename(inv.seedPath).replace(/\.[^.]*$/, "")) || "intent";
+  }
+  const words = inv.seedText.split(/\s+/).slice(0, 6);
+  return toKebabCase(words.join(" ")).slice(0, 40) || "intent";
+}
+
+function relativeSeedLabel(seedPath: string, project: ProjectMatch): string {
+  const rel = relative(project.root, seedPath);
+  return rel.startsWith("..") ? seedPath : rel;
+}
+
+function isPathInside(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !rel.startsWith("../"));
+}
+
+function getCurrentBranch(cwd: string): string {
+  return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  }).trim();
+}
+
+function getPrUrl(cwd: string, branch: string): string {
+  return execFileSync("gh", ["pr", "view", branch, "--json", "url", "-q", ".url"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  }).trim();
+}
+
+function listModifiedPaths(cwd: string): string[] {
+  const output = execFileSync("git", ["status", "--porcelain"], {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+    encoding: "utf8",
+  });
+  return output
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line !== "")
+    .map((line) => line.slice(3));
+}
+
+function parseIntentFrontmatterName(text: string): string | null {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  if ((lines[0] ?? "") !== "---") {
+    return null;
+  }
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (line === "---") {
+      break;
+    }
+    const match = /^name:\s*(.+)\s*$/.exec(line);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+  return null;
+}
+
+function hasPrerequisitesSection(text: string): boolean {
+  return /^## Prerequisites\s*$/m.test(text.replace(/\r\n/g, "\n"));
+}
+
+function validateIntentStage(stagingDir: string, modifiedPaths: string[]): {
+  ok: true;
+  intents: { slug: string; path: string }[];
+} | { ok: false; error: string } {
+  const allowedPrefix = `${STAGE_DIR_NAME}/`;
+  const rogue = modifiedPaths.filter((path) => path !== STAGE_DIR_NAME && !path.startsWith(allowedPrefix));
+  if (rogue.length > 0) {
+    return {
+      ok: false,
+      error: `intent: splitter wrote outside ${STAGE_DIR_NAME}/: ${rogue.join(", ")}`,
+    };
+  }
+
+  const dirEntries = readdirSync(stagingDir, { withFileTypes: true });
+  for (const entry of dirEntries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) {
+      return {
+        ok: false,
+        error: `intent: invalid splitter output ${entry.name}; expected only markdown files`,
+      };
+    }
+  }
+
+  const files = listStageMarkdownFiles(stagingDir);
+  if (files.length === 0) {
+    return { ok: false, error: "intent: splitter produced no intent files" };
+  }
+
+  const seen = new Set<string>();
+  const intents: { slug: string; path: string }[] = [];
+  for (const path of files) {
+    const slug = basename(path, ".md");
+    if (!INTENT_FILE_RE.test(slug) || /^\d+-/.test(slug) || slug === "index") {
+      return {
+        ok: false,
+        error: `intent: invalid emitted filename ${basename(path)}; expected <name>.md with no ordering prefix`,
+      };
+    }
+    if (seen.has(slug)) {
+      return { ok: false, error: `intent: duplicate emitted name ${slug}` };
+    }
+    seen.add(slug);
+    const content = readFileSync(path, "utf8");
+    const frontmatterName = parseIntentFrontmatterName(content);
+    if (frontmatterName !== slug) {
+      return {
+        ok: false,
+        error: `intent: ${basename(path)} must declare name: ${slug}`,
+      };
+    }
+    if (!hasPrerequisitesSection(content)) {
+      return {
+        ok: false,
+        error: `intent: ${basename(path)} is missing ## Prerequisites`,
+      };
+    }
+    intents.push({ slug, path });
+  }
+
+  return { ok: true, intents };
+}
+
+function commitIntentSplit(opts: {
+  worktreePath: string;
+  branch: string;
+  readyDirRel: string;
+  seedLabel: string;
+  emittedNames: string[];
+  agentLabel: string;
+}): void {
+  execFileSync("git", ["add", "-A"], {
+    cwd: opts.worktreePath,
+    env: process.env,
+    stdio: "pipe",
+  });
+  const message = [
+    `intent: split ${opts.emittedNames.length} intent${opts.emittedNames.length === 1 ? "" : "s"}`,
+    "",
+    `Spec: ${opts.readyDirRel}/`,
+    "",
+    `Seeded from ${opts.seedLabel}`,
+    `Intents: ${opts.emittedNames.join(", ")}`,
+    "",
+    `Jarvis-Agent: ${opts.agentLabel}`,
+  ].join("\n");
+  execFileSync("git", ["commit", "-m", message], {
+    cwd: opts.worktreePath,
+    env: process.env,
+    stdio: "pipe",
+  });
+  execFileSync("git", ["push", "-u", "origin", opts.branch], {
+    cwd: opts.worktreePath,
+    env: process.env,
+    stdio: "pipe",
+  });
+}
+
+function cleanupIntentState(projectRoot: string, worktreePath: string, branch: string): void {
+  try {
+    execFileSync("git", ["worktree", "remove", "--force", worktreePath], {
+      cwd: projectRoot,
+      env: process.env,
+      stdio: "pipe",
+    });
+  } catch {
+    // best-effort
+  }
+  try {
+    execFileSync("git", ["branch", "-D", branch], {
+      cwd: projectRoot,
+      env: process.env,
+      stdio: "pipe",
+    });
+  } catch {
+    // best-effort
+  }
+}
+
+function renderIntentNextSteps(args: { prUrl: string; targetDir: string; emittedNames: string[] }): string {
+  const lines = [
+    "",
+    "Next steps:",
+    `  1. Review the draft PR: ${args.prUrl}`,
+    "  2. Draft specs one intent at a time with:",
+  ];
+  for (const name of args.emittedNames) {
+    lines.push(`       jarvis1 plan ${args.targetDir}/ready-intents/${name}.md`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+export async function intentCommand(opts: IntentCommandOptions): Promise<number> {
+  const args = opts.args ?? [];
+  if (args.includes("--help") || args.includes("-h")) {
+    opts.io.stdout(INTENT_USAGE);
+    return 0;
+  }
+
+  const processCwd = opts.cwd ?? process.cwd();
+  const parsed = parseIntentArgs(args, processCwd);
+  if (!parsed.ok) {
+    opts.io.stderr(`${parsed.message}\n`);
+    if (parsed.message.includes("missing required seed")) {
+      opts.io.stdout(INTENT_USAGE);
+    }
+    return parsed.exitCode;
+  }
+
+  const inv = parsed.invocation;
+  const candidatePath = inv.mode === "file" ? inv.seedPath : join(inv.cwd, "intent");
+  const cfg = loadConfig(opts.config);
+  const entryOpts: Parameters<typeof enterMode>[0] = {
+    candidatePath,
+    io: { stderr: opts.io.stderr },
+    logServerUrl: cfg.logServerUrl,
+  };
+  if (inv.repo !== undefined) {
+    entryOpts.repoFlag = inv.repo;
+  }
+  if (opts.config !== undefined) {
+    entryOpts.config = opts.config;
+  }
+  if (opts.logClient !== undefined) {
+    entryOpts.logClient = opts.logClient;
+  }
+  const entry = await enterMode(entryOpts);
+  if (entry.kind === "error") {
+    opts.io.stderr(`${entry.message}\n`);
+    return 1;
+  }
+  if (entry.kind === "ambiguous") {
+    const names = entry.candidates.map((c) => `  - ${c.key}`).join("\n");
+    opts.io.stderr(`${entry.reason}\nMatching projects:\n${names}\nPass --repo <name> to disambiguate.\n`);
+    return 1;
+  }
+  if (entry.kind === "needs-prompt") {
+    opts.io.stderr(
+      "could not determine a target project for this intent and no projects are registered. Run `jarvis1 init` in a target repo, or pass --repo <name|url>.\n",
+    );
+    return 1;
+  }
+  if (entry.kind === "log-error") {
+    return entry.exitCode;
+  }
+
+  const project = entry.resolution.resolved.project;
+  const fullProject = cfg.projects[project.key];
+  const { commit, targetDir } = resolvePlanFlags(cfg, fullProject);
+  if (!commit) {
+    opts.io.stderr("intent: requires plan.commit=true so fan-out can open a draft PR\n");
+    return 1;
+  }
+
+  const planLogClient = entry.logClient;
+  planHarnessLog(planLogClient, `intent: target project=${project.key} root=${project.root}`);
+  planHarnessLog(planLogClient, `intent: resolved flags commit=${commit} targetDir=${targetDir}`);
+
+  const wipDir = join(project.root, targetDir, "wip-intents");
+  if (inv.mode === "file" && !isPathInside(wipDir, inv.seedPath)) {
+    opts.io.stderr(`intent: raw seed files must live under ${targetDir}/wip-intents/\n`);
+    return 1;
+  }
+
+  const seedLabel = inv.mode === "file" ? relativeSeedLabel(inv.seedPath, project) : "inline";
+  const seedContent = inv.mode === "file" ? readFileSync(inv.seedPath, "utf8") : inv.seedText;
+  const runName = `${deriveRunName(inv)}-${randomUUID().slice(0, 8)}`;
+  const branch = `intent/${runName}`;
+  let worktreePath: string;
+  try {
+    worktreePath = await createIntentWorktree({ projectRoot: project.root, name: runName });
+    createWorktreeSymlinks(project.root, worktreePath, cfg.worktreeSymlinks);
+  } catch (err) {
+    opts.io.stderr(`failed to create intent worktree: ${(err as Error).message}\n`);
+    return 1;
+  }
+  const baseBranch = getCurrentBranch(project.root);
+  const stageDir = join(worktreePath, STAGE_DIR_NAME);
+  mkdirSync(stageDir, { recursive: true });
+  let completed = false;
+
+  try {
+    const splitResult = await runIntentSplitTurn({
+      worktreePath,
+      seedLabel,
+      seedContent,
+      stagingDir: STAGE_DIR_NAME,
+      config: cfg,
+      stderr: opts.io.stderr,
+      ...(opts.createAgent !== undefined ? { createAgent: opts.createAgent } : {}),
+      onOutboundPrompt: (prompt) => planHarnessLog(planLogClient, prompt, "outbound"),
+    });
+    if (splitResult.result.kind !== "ok") {
+      if (splitResult.result.kind === "quota") {
+        opts.io.stderr(`intent: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+        return 2;
+      }
+      if (splitResult.result.kind === "model_config") {
+        opts.io.stderr(`intent: model configuration error\n${splitResult.result.stderr}`);
+        return 3;
+      }
+      opts.io.stderr(`intent: split failed\n${splitResult.result.stderr}`);
+      return 1;
+    }
+
+    const validation = validateIntentStage(stageDir, listModifiedPaths(worktreePath));
+    if (!validation.ok) {
+      opts.io.stderr(`${validation.error}\n`);
+      return 1;
+    }
+
+    mkdirSync(join(worktreePath, targetDir, "ready-intents"), { recursive: true });
+    const readyDirRel = `${targetDir}/ready-intents`;
+    for (const intent of validation.intents) {
+      const destination = join(worktreePath, targetDir, "ready-intents", `${intent.slug}.md`);
+      if (existsSync(destination)) {
+        opts.io.stderr(`intent: ${readyDirRel}/${intent.slug}.md already exists; refusing to overwrite\n`);
+        return 1;
+      }
+    }
+    for (const intent of validation.intents) {
+      renameSync(intent.path, join(worktreePath, targetDir, "ready-intents", `${intent.slug}.md`));
+    }
+    rmSync(stageDir, { recursive: true, force: true });
+
+    commitIntentSplit({
+      worktreePath,
+      branch,
+      readyDirRel,
+      seedLabel,
+      emittedNames: validation.intents.map((intent) => intent.slug),
+      agentLabel: splitResult.agentLabel ?? "unknown",
+    });
+    opts.io.stderr(`intent: split commit pushed\n`);
+
+    const prResult = await ensureDraftPr({
+      branch,
+      base: baseBranch,
+      title: `intent: ${deriveRunName(inv)}`,
+      bodyGenerator: async () =>
+        [
+          "# Intent split",
+          "",
+          `- Seed: \`${seedLabel}\``,
+          ...validation.intents.map((intent) => `- Intent: \`${targetDir}/ready-intents/${intent.slug}.md\``),
+        ].join("\n"),
+      footer: renderAttribution({
+        cwd: worktreePath,
+        base: baseBranch,
+      }),
+      cwd: worktreePath,
+    });
+    const prUrl = getPrUrl(worktreePath, branch);
+    opts.io.stdout(renderIntentNextSteps({
+      prUrl,
+      targetDir,
+      emittedNames: validation.intents.map((intent) => intent.slug),
+    }));
+    opts.io.stderr(`intent: draft PR #${prResult.number} ${prResult.created ? "opened" : "updated"}\n`);
+    completed = true;
+    return 0;
+  } finally {
+    if (existsSync(stageDir)) {
+      rmSync(stageDir, { recursive: true, force: true });
+    }
+    if (!completed) {
+      cleanupIntentState(project.root, worktreePath, branch);
+    }
+  }
+}

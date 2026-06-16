@@ -64,32 +64,32 @@ emits the intents; the splitter prompt and sizing rule come from 00.
 
 ## Acceptance criteria
 
-- [ ] `jarvis intent "<prompt>"` and `jarvis intent <raw-seed-file>` (from
+- [x] `jarvis intent "<prompt>"` and `jarvis intent <raw-seed-file>` (from
       `wip-intents/`) both start the fan-out flow.
-- [ ] Running intent mode against a seed produces the N-way split (via the 00
+- [x] Running intent mode against a seed produces the N-way split (via the 00
       splitter) and writes N authored intent files to `ready-intents/` —
       resolved as a sibling of `wip-intents/` under the same configured location
       plan commits use — each named `<name>.md` from its `name:` slug with no
       ordering prefix, carrying a `name:` and a `Prerequisites` section, and
       writes no spec `index.md` or numbered subspecs.
-- [ ] A single-behavior seed writes exactly one intent and still completes the
+- [x] A single-behavior seed writes exactly one intent and still completes the
       flow (N=1 is not an error).
-- [ ] An emitted `name:` colliding with an existing `ready-intents/` file aborts
+- [x] An emitted `name:` colliding with an existing `ready-intents/` file aborts
       without overwriting it.
-- [ ] Splitter quota exhaustion falls through to the next configured agent;
+- [x] Splitter quota exhaustion falls through to the next configured agent;
       unparseable or invalid splitter output aborts the run without writing
       partial `ready-intents/` files or opening a PR.
-- [ ] The `wip-intents/` raw seed remains in place after fan-out.
-- [ ] Intent mode opens a draft intent PR — targeting the same repo plan-mode
+- [x] The `wip-intents/` raw seed remains in place after fan-out.
+- [x] Intent mode opens a draft intent PR — targeting the same repo plan-mode
       `commit: true` commits to — aggregating the split for operator review, and
       produces no spec directory.
-- [ ] Intent mode reuses the existing turn/runner plumbing (agent invocation,
+- [x] Intent mode reuses the existing turn/runner plumbing (agent invocation,
       quota fallback, worktree/commit/PR scaffolding), runs no refine pass at
       fan-out, and does not extract or refactor plan-mode machinery.
-- [ ] `v1/docs/intent-mode.md` documents the `jarvis intent` flow (seed → N
+- [x] `v1/docs/intent-mode.md` documents the `jarvis intent` flow (seed → N
       intents → `ready-intents/` → intent PR) and that the lever is the count of
       specs, one PR per spec.
-- [ ] `v2/docs/v1-behaviors.md` records the `jarvis intent` mode behavior.
+- [x] `v2/docs/v1-behaviors.md` records the `jarvis intent` mode behavior.
 
 ## Documentation updates
 

@@ -131,6 +131,23 @@ jarvis seeds `intent.md`, preserves the exact raw seed in a dedicated block,
 runs one non-interactive intent-draft pass to shape the editable draft and
 propose `name:`, then continues with the normal plan pipeline.
 
+When a seed is too broad for one spec/PR, split it into authored intents first.
+Use these size boundaries:
+
+- A **subspec** is commit-sized: one atomic, independently testable change.
+- An **intent** is behavior-sized: one independently observable behavior that
+  can later draft into one spec.
+- A **spec** is PR-sized: one reviewable unit made of one or more subspecs.
+
+Treat reviewability as a warning, not a hard cap: if one spec looks likely to
+land around ~1000 changed lines including tests and docs, split earlier into
+multiple behavior-sized intents/specs rather than stretching one PR.
+
+For intent files, `wip-intents/` is raw-seed input and `ready-intents/` is
+authored-intent output. Fan-out writes reviewed, behavior-level intents to
+`ready-intents/`; later `jarvis1 plan` runs consume those intents one at a
+time.
+
 Plan-generated specs follow the same merge-first rule: do not run `jarvis1 run` against the spec until after the plan PR is merged to `main`.
 
 When you iterate with

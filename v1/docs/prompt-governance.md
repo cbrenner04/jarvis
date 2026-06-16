@@ -31,6 +31,7 @@ artifacts that shape agent behavior in patch mode and plan draft/review/refine:
 - `patch.rules` (`prompts/patch/rules.md`)
 - `patch.prompt.shrink` (`prompts/patch/shrink.md`) — post-completion simplification gate; layered with `global.terse` only (not `patch.rules`)
 - `plan.prompt.draft` (`prompts/plan/draft.md`)
+- `plan.prompt.intent-split` (`prompts/plan/intent-split.md`)
 - `plan.prompt.pr-description` (`prompts/plan/pr-description.md`)
 - `plan.prompt.review` (`prompts/plan/review.md`)
 - `plan.prompt.review-actuator` (`prompts/plan/review-actuator.md`)

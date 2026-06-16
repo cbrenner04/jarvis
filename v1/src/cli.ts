@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from "node:path";
 import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
+import { intentCommand } from "./commands/intent.ts";
 import { logServerCommand } from "./commands/log-server.ts";
 import { planCommand } from "./commands/plan.ts";
 import { pricesCommand } from "./commands/prices.ts";
@@ -29,6 +30,7 @@ export type Subcommand =
   | "triage"
   | "review-feedback"
   | "plan"
+  | "intent"
   | "prompt"
   | "prices"
   | "help";
@@ -50,6 +52,7 @@ export type ParsedArgs =
   | { kind: "triage"; worktreeName?: string }
   | { kind: "review-feedback"; worktreeName?: string }
   | { kind: "plan"; rest: string[] }
+  | { kind: "intent"; rest: string[] }
   | {
       kind: "prompt";
       text: string;
@@ -80,6 +83,8 @@ Commands:
                     Address PR review feedback on an existing patch worktree.
   plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] [--resume-draft] [<intent-file|"inline text">]
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md; --resume-draft expects spec/<…>/intent.md).
+  intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">
+                    Split one seed into authored intents under ready-intents/ and open a draft PR.
   prompt [--repo <name|path|url>] <text>
                     Run an agent against a prompt in a registered project.
   prices            View or edit pricing data for cost tracking.
@@ -202,6 +207,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
     }
     case "plan":
       return { kind: "plan", rest };
+    case "intent":
+      return { kind: "intent", rest };
     case "prompt": {
       let repo: string | undefined;
       const args = [...rest];
@@ -420,6 +427,19 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         planOpts.config = opts.config;
       }
       return planCommand(planOpts);
+    }
+    case "intent": {
+      const intentOpts: Parameters<typeof intentCommand>[0] = {
+        io,
+        args: parsed.rest,
+      };
+      if (opts.cwd !== undefined) {
+        intentOpts.cwd = opts.cwd;
+      }
+      if (opts.config !== undefined) {
+        intentOpts.config = opts.config;
+      }
+      return intentCommand(intentOpts);
     }
     case "prompt": {
       if (parsed.text.trim() === "") {

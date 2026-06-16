@@ -79,6 +79,13 @@ three ordered seeds and depends on the prior behaviors:
 - `jarvis1 plan` consumes one ready-intent and carries its prerequisites as
   drafting context.
 
+## Prerequisites
+
+- `jarvis1 intent` exists as a split mode that emits authored ready-intents into
+  `ready-intents/`, each carrying a `## Prerequisites` section.
+- `jarvis1 plan` consumes a single ready-intent from `ready-intents/` and carries
+  its declared prerequisites into drafting context.
+
 ## Problem
 
 Ready-intents can declare prerequisite behaviors, but today those declarations

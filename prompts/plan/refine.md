@@ -2,7 +2,7 @@
 id: plan.prompt.refine
 behavior: plan
 kind: step
-revision: 9
+revision: 10
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, SPEC_GUIDANCE:string!, TURNS_REMAINING:string!]
 remove: [global.naming]
 ---
@@ -34,7 +34,7 @@ The text between `<<<SPEC_GUIDANCE_BEGIN>>>` and `<<<SPEC_GUIDANCE_END>>>` is re
 
 - Inspect the target repo as needed (read-only exploration).
 - Preserve leading frontmatter (`--- ... ---`) exactly, including `name:` — naming was finalized in the intent-draft step.
-- Preserve the post-seed layout above `## Refinement` exactly: `## Raw seed`, the `<<<RAW_SEED_BEGIN>>>` / `<<<RAW_SEED_END>>>` block, and `## Intent` must remain byte-for-byte unchanged.
+- Preserve the post-seed layout above `## Refinement` exactly: `## Raw seed`, its `<details>`/`<summary>` wrapper, the `<<<RAW_SEED_BEGIN>>>` / `<<<RAW_SEED_END>>>` block, and `## Intent` must remain byte-for-byte unchanged.
 - Refine owns everything from `## Refinement` onward. Rewrite/consolidate that region in place each turn.
 - Do not commit or push.
 - Do not run tests.

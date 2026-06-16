@@ -175,7 +175,7 @@ If the proposed name is missing or invalid, jarvis falls back to deterministic s
 
 Each turn is one non-interactive agent invocation. The prompt asks the agent to inspect the target repo as needed and refine `intent.md` by appending useful planning context: inferred constraints, assumptions, scope boundaries, risks, or draft-shaping notes. Refinement entries must be net-new versus prior entries; if a turn would only restate prior content, use `## Refine skip`. It cannot ask the terminal user questions or record a Q&A transcript. With `quotaFallback: "lenient"`, weak-quota fallback to the next agent runs only when **`git status --porcelain`** matches before and after that invocation (no disk mutations during the attempt); see [quota-signals.md](./quota-signals.md).
 
-After each turn, jarvis validates that `intent.md` preserves the post-seed layout above the first `## Refinement` heading (`## Raw seed`, raw-seed markers, and `## Intent` byte-for-byte) and then leaves one permitted outcome: consolidated `## Refinement` ledger content, `## Refine skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification.
+After each turn, jarvis validates that `intent.md` preserves the post-seed layout above the first `## Refinement` heading (`## Raw seed` with its `<details>`/`<summary>` wrapper, raw-seed markers, and `## Intent` byte-for-byte) and then leaves one permitted outcome: consolidated `## Refinement` ledger content, `## Refine skip` when no useful refinement is needed, or `## Blocker` when drafting would need human clarification.
 
 Intent refinement no longer owns naming. `name:` is proposed in the intent-draft step. If `--refine-turns 0` is used, jarvis skips refinement entirely after `plan: intent`.
 

@@ -46,7 +46,7 @@ Guide
 
 - Inspect the target repo as needed (read-only exploration).
 - Preserve leading frontmatter (`--- ... ---`) exactly, including `name:` — naming was finalized in the intent-draft step.
-- Preserve the post-seed layout above `## Refinement` exactly: `## Raw seed`, the `<<<RAW_SEED_BEGIN>>>` / `<<<RAW_SEED_END>>>` block, and `## Intent` must remain byte-for-byte unchanged.
+- Preserve the post-seed layout above `## Refinement` exactly: `## Raw seed`, its `<details>`/`<summary>` wrapper, the `<<<RAW_SEED_BEGIN>>>` / `<<<RAW_SEED_END>>>` block, and `## Intent` must remain byte-for-byte unchanged.
 - Refine owns everything from `## Refinement` onward. Rewrite/consolidate that region in place each turn.
 - Do not commit or push.
 - Do not run tests.

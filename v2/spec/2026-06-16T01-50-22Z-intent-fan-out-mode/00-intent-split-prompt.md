@@ -44,21 +44,21 @@ command that invokes the prompt lands in 01.
 
 ## Acceptance criteria
 
-- [ ] A registered prompt step (present in `prompts/registry.txt` and
+- [x] A registered prompt step (present in `prompts/registry.txt` and
       `v1/docs/prompt-governance.md`, passing registry-load validation) instructs
       an N-way split along independently observable behaviors, preferring vertical
       slices over umbrella bundles. (Runtime that the split is actually produced
       is graded in 01.)
-- [ ] The splitter prompt references the `v1/docs/spec-guidance.md` reviewability
+- [x] The splitter prompt references the `v1/docs/spec-guidance.md` reviewability
       rule and contains no hardcoded line-count figure.
-- [ ] The splitter prompt requires each emitted intent to carry a `name:` and a
+- [x] The splitter prompt requires each emitted intent to carry a `name:` and a
       `Prerequisites` section listing prerequisite behaviors (not intent names),
       one behavior per bullet line, declared and operator-honored, not enforced.
-- [ ] `v1/docs/spec-guidance.md` states the sizing rule distinguishing a
+- [x] `v1/docs/spec-guidance.md` states the sizing rule distinguishing a
       commit-sized subspec, a behavior-sized intent, and a PR-sized spec, and
       gives ~1000 changed lines (incl. tests/docs) as a reviewability warning,
       not a hard cap.
-- [ ] `v1/docs/spec-guidance.md` documents `ready-intents/` as the authored-intent
+- [x] `v1/docs/spec-guidance.md` documents `ready-intents/` as the authored-intent
       output dir and `wip-intents/` as the raw-seed input.
 
 ## Documentation updates

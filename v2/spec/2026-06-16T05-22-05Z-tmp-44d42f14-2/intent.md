@@ -63,3 +63,7 @@ Let an operator re-enter the post-completion review phase on an already-complete
 - Exact CLI spelling for review resume (flag vs. subcommand) — pin once command parsing and current `run` flags are specified.
 - How resume discovers the existing PR/worktree for an already-complete spec (config lookup, branch convention, or operator-supplied).
 
+## Refine skip
+
+No load-bearing decision is missing. The scope-defining choices (resume targets completed specs vs. synthetic task; patch-run not plan-resume) are already recorded, and the two genuinely-undecided items (CLI spelling; existing PR/worktree discovery) are logged as open questions for the draft phase to pin with the first consumer. Anything else would be restatement or an inferable default.
+

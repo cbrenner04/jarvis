@@ -2,7 +2,7 @@
 id: plan.prompt.intent-draft
 behavior: plan
 kind: step
-revision: 1
+revision: 2
 placeholders: [WORKDIR:string!, INTENT_PATH:string!, SEEDED_INTENT:string!]
 remove: [global.naming]
 ---
@@ -26,7 +26,7 @@ Seeded request
 
 1. Inspect the target repository for guidance, conventions, and relevant docs.
 2. Rewrite `/repo/work/intent.md` as a rough, editable intent draft.
-3. Keep the exact raw seed recoverable: preserve the `## Raw seed` section and everything between `<<<RAW_SEED_BEGIN>>>` and `<<<RAW_SEED_END>>>` byte-for-byte.
+3. Keep the exact raw seed recoverable: preserve the `## Raw seed` section, its `<details>`/`<summary>` wrapper, and everything between `<<<RAW_SEED_BEGIN>>>` and `<<<RAW_SEED_END>>>` byte-for-byte.
 4. Keep or add a leading frontmatter block and include `name: <kebab-case>` in it.
 
 ## Rules

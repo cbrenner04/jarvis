@@ -175,9 +175,14 @@ function buildSeededIntent(rawSeed: string, name: string): string {
 
 ## Raw seed
 
+<details>
+<summary>Raw seed</summary>
+
 ${RAW_SEED_BEGIN}
 ${rawSeed}
 ${RAW_SEED_END}
+
+</details>
 
 ## Intent
 

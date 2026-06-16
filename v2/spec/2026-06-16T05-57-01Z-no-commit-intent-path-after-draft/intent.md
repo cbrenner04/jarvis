@@ -97,3 +97,7 @@ In `commit: false` plan runs, Jarvis writes the external `intent.md` after the i
 - Changing no-commit spec storage layout.
 - Adding a PR or git handoff for `commit: false`.
 - Changing completion semantics for generated `index.md`.
+
+## Refinement
+
+- Emit the early external `intent.md` path on stdout; rule out stderr-only milestone logging because the existing no-commit handoff is stdout.

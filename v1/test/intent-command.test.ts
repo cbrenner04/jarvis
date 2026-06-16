@@ -59,7 +59,10 @@ class SplitAgent implements Agent {
   readonly name: AgentName;
   readonly #mode: "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty";
 
-  constructor(name: AgentName, mode: "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty") {
+  constructor(
+    name: AgentName,
+    mode: "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty",
+  ) {
     this.name = name;
     this.#mode = mode;
   }
@@ -187,7 +190,9 @@ exit 0
 }
 
 function createSplitAgentFactory(
-  modes: Partial<Record<AgentName, "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty">>,
+  modes: Partial<
+    Record<AgentName, "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty">
+  >,
 ) {
   return (name: AgentName): Agent => new SplitAgent(name, modes[name] ?? "ok-two");
 }

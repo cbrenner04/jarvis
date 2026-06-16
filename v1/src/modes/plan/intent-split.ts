@@ -3,7 +3,11 @@ import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
-import { enforceDelimiterPolicy, PromptRenderingError, renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
+import {
+  enforceDelimiterPolicy,
+  PromptRenderingError,
+  renderTemplateWithDeclarations,
+} from "../../../../shared/prompts/render.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";

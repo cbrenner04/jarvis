@@ -22,6 +22,9 @@ command that invokes the prompt lands in 01.
 - `Prerequisites` lists prerequisite *behaviors*, not intent names, true
   dependencies only; declared and operator-honored, not enforced — rules out
   listing intent filenames or wiring enforcement now (kept additive for seed 03).
+- `Prerequisites` entries are one behavior per bullet line — rules out free-prose
+  lists, so seed 03's enforcement only adds a check against a fixed shape and
+  stays purely additive. The behavior→intent matching rule is deferred to 03.
 
 ## Task checklist
 
@@ -31,8 +34,8 @@ command that invokes the prompt lands in 01.
       `v1/docs/prompt-governance.md`.
 - [ ] Prompt instructs: split by independently observable behavior, prefer
       vertical slices, emit one terse behavior-level intent per slice, each with
-      a `name:` and a `Prerequisites` section (behaviors, true deps,
-      declared/unenforced).
+      a `name:` and a `Prerequisites` section (one behavior per bullet line, true
+      deps, declared/unenforced).
 - [ ] Prompt references the spec-guidance reviewability rule with no literal
       line-count figure.
 - [ ] `v1/docs/spec-guidance.md`: add the sizing rule (commit-sized subspec vs.
@@ -42,14 +45,15 @@ command that invokes the prompt lands in 01.
 ## Acceptance criteria
 
 - [ ] A registered prompt step (present in `prompts/registry.txt` and
-      `v1/docs/prompt-governance.md`, passing registry-load validation) drafts an
-      N-way split, instructing a split along independently observable behaviors
-      and preferring vertical slices over umbrella bundles.
+      `v1/docs/prompt-governance.md`, passing registry-load validation) instructs
+      an N-way split along independently observable behaviors, preferring vertical
+      slices over umbrella bundles. (Runtime that the split is actually produced
+      is graded in 01.)
 - [ ] The splitter prompt references the `v1/docs/spec-guidance.md` reviewability
       rule and contains no hardcoded line-count figure.
 - [ ] The splitter prompt requires each emitted intent to carry a `name:` and a
       `Prerequisites` section listing prerequisite behaviors (not intent names),
-      declared and operator-honored, not enforced.
+      one behavior per bullet line, declared and operator-honored, not enforced.
 - [ ] `v1/docs/spec-guidance.md` states the sizing rule distinguishing a
       commit-sized subspec, a behavior-sized intent, and a PR-sized spec, and
       gives ~1000 changed lines (incl. tests/docs) as a reviewability warning,

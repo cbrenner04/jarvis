@@ -40,7 +40,7 @@ function parseNonNegativeInteger(
   return { ok: true, value: n };
 }
 
-function isExistingFile(path: string): boolean {
+export function isExistingFile(path: string): boolean {
   try {
     return statSync(path).isFile();
   } catch {

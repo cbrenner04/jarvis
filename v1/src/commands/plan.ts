@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { createAgent as defaultCreateAgent } from "../agents/factory.ts";
@@ -40,7 +40,7 @@ import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts
 import type { resolveTargetRepo } from "../repo.ts";
 import { planSummary } from "../run-summary.ts";
 import { createPlanWorktree, createWorktreeSymlinks, ensureExistingBranchWorktree } from "../worktree.ts";
-import { describePlanInvocation, type PlanInvocation, parsePlanArgs } from "./plan-args.ts";
+import { describePlanInvocation, isExistingFile, type PlanInvocation, parsePlanArgs } from "./plan-args.ts";
 
 export type PlanIo = {
   stdout: (s: string) => void;
@@ -80,22 +80,6 @@ function planHarnessLog(logClient: LogClient, text: string, tag: "harness" | "ou
     .catch(() => {});
 }
 
-function toKebabCase(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function isExistingFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-
-const RESERVED_NAMES = new Set(["index", "intent"]);
 const TEMP_PLAN_PREFIX = "tmp-";
 
 export function parseIntentFrontmatter(text: string): {
@@ -275,25 +259,6 @@ function extractRawSeed(text: string): string | null {
   return text.slice(start, end);
 }
 
-export function validateProposedName(name: string | undefined): {
-  valid: boolean;
-  normalized?: string | undefined;
-} {
-  if (name === undefined) {
-    return { valid: false };
-  }
-  const normalized = name.trim();
-  if (!/^[a-z0-9-]+$/.test(normalized)) {
-    return { valid: false };
-  }
-  if (normalized.length === 0 || normalized.length > 40) {
-    return { valid: false };
-  }
-  if (RESERVED_NAMES.has(normalized)) {
-    return { valid: false };
-  }
-  return { valid: true, normalized };
-}
 
 function remoteSpecBranchExists(projectRoot: string, branchName: string): boolean {
   try {

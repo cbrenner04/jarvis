@@ -4,6 +4,9 @@ name: intent-fan-out-mode
 
 ## Raw seed
 
+<details>
+<summary>Raw seed</summary>
+
 <<<RAW_SEED_BEGIN>>>
 # PR-sized work via intent fan-out — `jarvis intent` mode
 
@@ -81,6 +84,8 @@ paying for it where it doesn't.
 - Line-count enforcement in patch-mode implementation prompts.
 
 <<<RAW_SEED_END>>>
+
+</details>
 
 ## Intent
 

@@ -1,13 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { type Agent, type AgentName } from "../agents/types.ts";
+import type { Agent, AgentName } from "../agents/types.ts";
 import { loadConfig, type ProjectMatch, resolvePlanFlags } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
-import { renderAttribution, ensureDraftPr } from "../pr.ts";
+import { ensureDraftPr, renderAttribution } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import { createIntentWorktree, createWorktreeSymlinks } from "../worktree.ts";
 
@@ -208,10 +208,15 @@ function hasPrerequisitesSection(text: string): boolean {
   return /^## Prerequisites\s*$/m.test(text.replace(/\r\n/g, "\n"));
 }
 
-function validateIntentStage(stagingDir: string, modifiedPaths: string[]): {
-  ok: true;
-  intents: { slug: string; path: string }[];
-} | { ok: false; error: string } {
+function validateIntentStage(
+  stagingDir: string,
+  modifiedPaths: string[],
+):
+  | {
+      ok: true;
+      intents: { slug: string; path: string }[];
+    }
+  | { ok: false; error: string } {
   const allowedPrefix = `${STAGE_DIR_NAME}/`;
   const rogue = modifiedPaths.filter((path) => path !== STAGE_DIR_NAME && !path.startsWith(allowedPrefix));
   if (rogue.length > 0) {
@@ -501,11 +506,13 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       cwd: worktreePath,
     });
     const prUrl = getPrUrl(worktreePath, branch);
-    opts.io.stdout(renderIntentNextSteps({
-      prUrl,
-      targetDir,
-      emittedNames: validation.intents.map((intent) => intent.slug),
-    }));
+    opts.io.stdout(
+      renderIntentNextSteps({
+        prUrl,
+        targetDir,
+        emittedNames: validation.intents.map((intent) => intent.slug),
+      }),
+    );
     opts.io.stderr(`intent: draft PR #${prResult.number} ${prResult.created ? "opened" : "updated"}\n`);
     completed = true;
     return 0;

@@ -1,12 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
-import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
+import {
+  HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessQuotaFallbackLenientLine,
+} from "../../quota-harness-messages.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 export function buildIntentSplitPrompt(opts: {

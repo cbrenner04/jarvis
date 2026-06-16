@@ -1,8 +1,8 @@
 import { isAbsolute, resolve } from "node:path";
 import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
-import { intentCommand } from "./commands/intent.ts";
 import { init as runInit } from "./commands/init.ts";
+import { intentCommand } from "./commands/intent.ts";
 import { logServerCommand } from "./commands/log-server.ts";
 import { planCommand } from "./commands/plan.ts";
 import { pricesCommand } from "./commands/prices.ts";

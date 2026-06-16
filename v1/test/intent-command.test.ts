@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
@@ -225,7 +234,7 @@ describe("intentCommand", () => {
       const cap = captureIo();
       const code = await intentCommand({
         io: cap.io,
-        args: ['Split this into two reviewable behaviors'],
+        args: ["Split this into two reviewable behaviors"],
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
@@ -294,7 +303,7 @@ describe("intentCommand", () => {
       const cap = captureIo();
       const code = await intentCommand({
         io: cap.io,
-        args: ['Split this into two reviewable behaviors'],
+        args: ["Split this into two reviewable behaviors"],
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
@@ -315,7 +324,7 @@ describe("intentCommand", () => {
       const cap = captureIo();
       const code = await intentCommand({
         io: cap.io,
-        args: ['Split this into two reviewable behaviors'],
+        args: ["Split this into two reviewable behaviors"],
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
@@ -337,7 +346,7 @@ describe("intentCommand", () => {
       const cap = captureIo();
       const code = await intentCommand({
         io: cap.io,
-        args: ['Split this into two reviewable behaviors'],
+        args: ["Split this into two reviewable behaviors"],
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,

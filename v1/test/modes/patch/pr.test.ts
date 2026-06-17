@@ -483,29 +483,8 @@ describe("maybeMarkReady", () => {
 });
 
 describe("generatePrDescription", () => {
-  const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
-  const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
-
-  function _createMockAgent(
-    description: string = "Updated feature",
-    decisions: string = "- Use async generation\n- Store in markers",
-  ): Agent {
-    const content = `${description}\n\nDecisions:\n${decisions}`;
-    const response = `${PR_DESCRIPTION_BEGIN}\n${content}\n${PR_DESCRIPTION_END}`;
-    return {
-      name: "claude",
-      async run(): Promise<AgentResult> {
-        return {
-          kind: "ok",
-          stdout: response,
-          stderr: "",
-        };
-      },
-      attributionLabel(): string {
-        return "test-agent";
-      },
-    };
-  }
+   const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
+   const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
 
   test("extracts sentinel-wrapped output, stripping preamble", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
@@ -932,5 +911,45 @@ describe("updatePrBody with generation", () => {
 
     expect(writtenBody).not.toContain(NARRATIVE_START_MARKER);
     expect(writtenBody).not.toContain(NARRATIVE_END_MARKER);
+  });
+
+  test("end-to-end: preamble + malformed sentinel yields header-only body on null return", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout:
+            "I'll review the actual spec files...\n\n" +
+            `${PR_DESCRIPTION_BEGIN}\n` +
+            "Updated feature\n\nDecisions:\n- Use async\n",
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
+    let writtenBody = "";
+    await updatePrBody({
+      indexPath,
+      branch: "feature",
+      base: "main",
+      cwd: dir,
+      fetchPrBody: () => "",
+      writePrBody: (_branch, body) => {
+        writtenBody = body;
+      },
+      renderFooter: () => "",
+      agent,
+    });
+
+    expect(writtenBody).toBe("# Spec");
+    expect(writtenBody).not.toContain(NARRATIVE_START_MARKER);
+    expect(writtenBody).not.toContain(NARRATIVE_END_MARKER);
+    expect(writtenBody).not.toContain("I'll review");
   });
 });

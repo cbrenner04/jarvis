@@ -563,29 +563,51 @@ describe("updatePlanPrBody", () => {
     expect(written).toContain("Human edited body");
     expect(written).not.toContain("REGEN");
   });
+
+  test("end-to-end: preamble + well-delimited description yields no narrative section on null return", async () => {
+    const specDirPath = writeSpec("v1/spec");
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout:
+            "I'll review the actual spec files...\n\n" +
+            `${PR_DESCRIPTION_BEGIN}\n` +
+            "Updated plan\n\nDecisions:\n- Use async\n",
+          stderr: "",
+        };
+      },
+      attributionLabel: () => "test-agent",
+    };
+
+    let written = "";
+    await updatePlanPrBody({
+      indexPath: join(specDirPath, "index.md"),
+      specDirPath,
+      branch: "feature",
+      base: "base",
+      cwd: gitDir,
+      targetDir: "v1/spec",
+      intentContent: "intent body",
+      agent,
+      fetchPrBody: () => "",
+      writePrBody: (_b, body) => {
+        written = body;
+      },
+      renderFooter: () => "",
+    });
+
+    expect(written).toContain("# Real Spec Title");
+    expect(written).not.toContain(NARRATIVE_START_MARKER);
+    expect(written).not.toContain(NARRATIVE_END_MARKER);
+    expect(written).not.toContain("I'll review");
+  });
 });
 
 describe("generatePrDescription", () => {
   const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
   const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
-
-  function _createMockAgent(description: string = "Updated plan", decisions: string = "- Use async generation"): Agent {
-    const content = `${description}\n\nDecisions:\n${decisions}`;
-    const response = `${PR_DESCRIPTION_BEGIN}\n${content}\n${PR_DESCRIPTION_END}`;
-    return {
-      name: "claude",
-      async run(): Promise<AgentResult> {
-        return {
-          kind: "ok",
-          stdout: response,
-          stderr: "",
-        };
-      },
-      attributionLabel(): string {
-        return "test-agent";
-      },
-    };
-  }
 
   test("extracts sentinel-wrapped output, stripping preamble", async () => {
     const indexPath = join(gitDir, "index.md");

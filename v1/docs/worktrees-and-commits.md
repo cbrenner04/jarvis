@@ -137,15 +137,15 @@ The PR body has three sections, in order:
 2. **Narrative section** bracketed by stable HTML-comment markers:
 
    ```
-    <!-- jarvis:narrative:start -->
-    <Description — short summary of the work>
+   <!-- jarvis:narrative:start -->
+   <Description — short summary of the work>
 
-    Decisions:
-    <unordered list of notable decisions>
-    <!-- jarvis:narrative:end -->
-    ```
+   Decisions:
+   <unordered list of notable decisions>
+   <!-- jarvis:narrative:end -->
+   ```
 
-    The narrative is model-authored. The model wraps the Description + `Decisions:` block in literal `<<<PR_DESCRIPTION_BEGIN>>>` and `<<<PR_DESCRIPTION_END>>>` sentinels; the harness extracts only the content between them. Absent or malformed sentinels (opening or closing missing, or closing before opening), extracted content lacking `Decisions:`, or an injected sentinel in the spec context yield no narrative and fall back to the deterministic header (no markers, no leaked preamble). When properly delimited and containing `Decisions:`, the narrative contains a short description followed by the `Decisions:` section with an unordered list of notable decisions. Reviewers may edit text *inside* the markers; jarvis preserves human edits verbatim on subsequent rewrites and regenerates the narrative only when it is empty or still machine-owned.
+     The narrative is model-authored. The model wraps the Description + `Decisions:` block in literal `<<<PR_DESCRIPTION_BEGIN>>>` and `<<<PR_DESCRIPTION_END>>>` sentinels; the harness extracts only the content between them. Absent or malformed sentinels (opening or closing missing, or closing before opening), extracted content lacking `Decisions:`, or an injected sentinel in the spec context yield no narrative on first generation and fall back to the deterministic header (no markers, no leaked preamble). When properly delimited and containing `Decisions:`, the narrative contains a short description followed by the `Decisions:` section with an unordered list of notable decisions. Reviewers may edit text *inside* the markers; jarvis preserves human edits verbatim on subsequent rewrites and regenerates the narrative only when it is empty or still machine-owned. On rewrite, when regeneration returns null (due to absent/malformed sentinels, injected sentinel, or missing `Decisions:`), the prior machine-owned narrative is preserved as-is rather than being cleared.
 3. **Attribution footer** rendered from the `Jarvis-Agent` git trailers on
    the PR-branch subspec commits, separated from the body by a `---` rule.
    The footer is one compact deduped summary line:

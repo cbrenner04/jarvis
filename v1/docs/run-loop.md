@@ -115,6 +115,31 @@ regardless of dirty or untracked files in the agent's working directory.
 A spec with no task list checkboxes is malformed. Jarvis fails fast instead of
 treating it as complete.
 
+### Completion-transition ready gate
+
+When a `git: true` patch run reaches the completion transition (zero unchecked
+boxes and a clean worktree), Jarvis runs `bun run ready` once, harness-side,
+before proceeding to post-completion phases (shrink, review, `maybeMarkReady`).
+This completion-transition gate runs through the existing `runReadyAndCommit`
+path and consumes zero agent tokens.
+
+On success, the harness records a green result keyed to:
+- **HEAD sha**: Read via a separate `git rev-parse HEAD` *after*
+  `runReadyAndCommit` returns, capturing the post-commit state if
+  `check:fix` landed a commit.
+- **Clean worktree**: Verified after `runReadyAndCommit` completes.
+
+This recorded result is available to post-completion phases (shrink and review
+gates in `01`). If the completion-transition ready fails, no green result is
+recorded and the run proceeds unchanged into the existing post-completion
+phases with the same exit code and stop reasons.
+
+The completion-transition gate is reached at most once per run (in
+`tryFinishSpecIfDone`, which early-returns whenever unchecked boxes remain).
+When the run does not reach the completion transition with `git: true`
+(loop-only `git: false`, zero implementation iterations, or an earlier stop),
+no completion-transition ready runs.
+
 ### Completion output
 
 On successful completion, the run terminal prints `spec complete` followed (on

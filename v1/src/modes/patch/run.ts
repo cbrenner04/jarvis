@@ -47,6 +47,7 @@ import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } fro
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
+import { type RunReadyAndCommitOpts, runReadyAndCommit } from "../../ready-gate.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import { parsePatchSpec } from "./spec.ts";
@@ -163,6 +164,10 @@ type IterationContext = {
     opencodeUnavailableNoted: boolean;
     cursorUnavailableNoted: boolean;
     currentController: AbortController | null;
+    completionTransitionReadyResult?: {
+      /** HEAD sha after runReadyAndCommit returned */
+      headSha: string;
+    };
   };
 };
 
@@ -1365,6 +1370,28 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   const implementationIterations = logging.patchIterationsCompletedForSummary();
   const shouldRunShrink = preflight.gitEnabled && implementationIterations > 0;
   const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && implementationIterations > 0;
+
+  // Completion-transition ready gate: run once at the completion transition for git: true runs
+  if (preflight.gitEnabled) {
+    try {
+      runReadyAndCommit({
+        cwd: preflight.agentWorkingDir,
+        agentLabel: "completion-transition",
+      });
+      // On green, record the result keyed to HEAD sha + clean worktree
+      const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: preflight.agentWorkingDir,
+        encoding: "utf8",
+        stdio: "pipe",
+      }).trim();
+      ctx.state.completionTransitionReadyResult = { headSha };
+    } catch (err) {
+      // On red, preserve current post-completion behavior unchanged
+      const message = err instanceof Error ? err.message : String(err);
+      logging.fanout("harness", `warning: completion-transition ready gate failed: ${message}\n`, "stderr");
+    }
+  }
+
 
   if (shouldRunShrink) {
     const { fanout, writeTelemetry } = ctx.logging;

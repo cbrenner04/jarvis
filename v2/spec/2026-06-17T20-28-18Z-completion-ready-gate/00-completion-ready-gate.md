@@ -82,12 +82,12 @@ when the gates consume the recorded result.
 
 ## Acceptance criteria
 
-- [ ] A `git: true` patch run that reaches the completion transition runs `bun run ready` once at that transition, harness-side, before any post-completion phase.
-- [ ] The completion-transition `ready` runs through the existing `runReadyAndCommit` path (no separate ready runner) and consumes zero agent tokens.
-- [ ] On a green completion-transition `ready`, the harness records a green result keyed to the HEAD sha after `runReadyAndCommit` returns plus a clean worktree.
-- [ ] When `runReadyAndCommit` lands a `check:fix` commit, the recorded green result is keyed to the post-commit HEAD sha, not the pre-gate sha.
-- [ ] On a red completion-transition `ready`, no green result is recorded and the run proceeds into the existing post-completion phases (shrink, review, `maybeMarkReady`) with the same exit code and stop reasons as before this change.
-- [ ] A run that does not reach the completion transition with `git: true` (loop-only `git: false`, zero implementation iterations, or an earlier stop) runs no completion-transition `ready` and records no green result.
+- [x] A `git: true` patch run that reaches the completion transition runs `bun run ready` once at that transition, harness-side, before any post-completion phase.
+- [x] The completion-transition `ready` runs through the existing `runReadyAndCommit` path (no separate ready runner) and consumes zero agent tokens.
+- [x] On a green completion-transition `ready`, the harness records a green result keyed to the HEAD sha after `runReadyAndCommit` returns plus a clean worktree.
+- [x] When `runReadyAndCommit` lands a `check:fix` commit, the recorded green result is keyed to the post-commit HEAD sha, not the pre-gate sha.
+- [x] On a red completion-transition `ready`, no green result is recorded and the run proceeds into the existing post-completion phases (shrink, review, `maybeMarkReady`) with the same exit code and stop reasons as before this change.
+- [x] A run that does not reach the completion transition with `git: true` (loop-only `git: false`, zero implementation iterations, or an earlier stop) runs no completion-transition `ready` and records no green result.
 
 ## Documentation updates
 

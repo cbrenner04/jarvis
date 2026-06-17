@@ -598,6 +598,124 @@ describe("runCommand", () => {
     expect(cap.out()).toContain("spec complete");
   });
 
+  describe("completion-transition ready gate", () => {
+    test("runs bun run ready at the completion transition for git: true runs", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+      let readyCallCount = 0;
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("records completion-transition ready green result keyed to HEAD sha + clean worktree", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      // Verify the completion happened
+      expect(cap.out()).toContain("spec complete");
+      // Verify worktree is clean after completion
+      const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" });
+      expect(status.trim()).toBe("");
+    });
+
+    test("records post-check:fix HEAD sha when completion-transition ready lands a commit", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+      // Verify the final HEAD sha is recorded (no newer commits after ready gate)
+      const finalHeadSha = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
+      expect(finalHeadSha).toMatch(/^[0-9a-f]{40}$/);
+    });
+
+    test("completion-transition ready red does not record green result and proceeds to shrink/review", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+  });
+
   test("completes after an agent flips an unchecked box", async () => {
     const spec = writeNamedSpec("feature", "- [ ] todo\n");
     const cap = captureIo();
@@ -1455,7 +1573,7 @@ exit 1
     expect(readFileSync(prLog, "utf8").trim().split("\n")).toEqual(["create"]);
     expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(6);
     expect(readFileSync(prEditLog, "utf8").trim().split("\n")).toEqual(["edit"]);
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate"]);
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate", "ready-gate"]);
     expect(readFileSync(readyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     expect(readFileSync(createCommitCount, "utf8").trim()).toBe("1");
     expect(readFileSync(readyCommitCount, "utf8").trim()).toBe("2");
@@ -1611,7 +1729,7 @@ exit 1
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(3);
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate"]);
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate", "ready-gate"]);
     const expectedDegenerateBody = [
       "<!-- jarvis:narrative:start -->",
       "Auto-generated by jarvis",

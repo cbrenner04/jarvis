@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export const GRACE_PERIOD_MS = 5000; // 5 seconds for SIGTERM before SIGKILL
 export const TIMEOUT_EXIT_CODE = 124; // Matches GNU timeout(1)
+export const HEARTBEAT_MS = 15000; // Liveness ping for silent long-running steps
 const SIGNAL_EXIT_CODES: Partial<Record<NodeJS.Signals, number>> = {
   SIGINT: 130,
   SIGTERM: 143,
@@ -27,6 +28,16 @@ export function parseTimeout(): number {
 
 export function runCommand(name: string, args: string[], deadlineMs: number, elapsedMs: number): Promise<number> {
   return new Promise((resolve) => {
+    // Heartbeat so a silent long step (e.g. `bun test` runs ~3min with no output
+    // under bunfig `onlyFailures`) doesn't look like a hang.
+    const stepStart = Date.now();
+    process.stderr.write(`ready: running ${name} ${args.join(" ")}\n`);
+    const heartbeat = setInterval(() => {
+      const secs = Math.round((Date.now() - stepStart) / 1000);
+      process.stderr.write(`ready: …still running ${name} ${args.join(" ")} (${secs}s)\n`);
+    }, HEARTBEAT_MS);
+    heartbeat.unref();
+
     const child = spawn(name, args, {
       detached: true,
       stdio: "inherit",
@@ -74,6 +85,7 @@ export function runCommand(name: string, args: string[], deadlineMs: number, ela
     const onSigterm = () => onSignal("SIGTERM");
 
     const cleanup = () => {
+      clearInterval(heartbeat);
       clearTimeout(timeoutHandle);
       if (forceKillHandle) {
         clearTimeout(forceKillHandle);

@@ -1,0 +1,35 @@
+I'll ground myself in the actual code before issuing a verdict. Let me verify the key claims about the source citation, validation ordering, and the out-of-scope changes.The High finding is confirmed: line 66 cites `v1/src/modes/plan/run.ts` which does not exist (the glob shows no `run.ts` in that directory). Let me verify where the exit-1-on-blocker actually lives, the control-flow ordering claims, and the bunfig/timeout contradiction.Now let me verify the exact control-flow around the draft blocker exit (return before review) and the boundary/interrupt ordering relative to validation.All key claims are now grounded. Confirmed findings:
+
+1. **High (source citation):** `v1/src/modes/plan/run.ts` does not exist — the glob of `v1/src/modes/plan/*.ts` shows no `run.ts`. The exit-1-on-blocker lives in `v1/src/commands/plan.ts:1083` (verified: `return 1` at the draft-blocker handler, which precedes the review phase at `:1101`). Line 66's `Sources:` is a dangling reference in the v2 parity baseline.
+
+2. **Low (wording overstatement):** The blocker check at `draft.ts:289-300` short-circuits only the index/subspec/intent-mod checks *inside* `validateDraftOutput`. The interrupt check (`plan.ts:893`) runs *before* validation; the boundary check (`plan.ts:929`) runs *after* validation returns. So "short-circuit all other checks" reads broader than reality.
+
+3. **bunfig/timeout contradiction:** `bunfig.toml:2` sets `timeout = 30000` and the README documents that 30s timeout as enforced via `bunfig.toml`. The diff's `setup-fake-agents.ts` comment claims bun ignores it. Real contradiction left unreconciled.
+
+4. **Out-of-scope changes:** `scripts/ready.ts` (heartbeat) and `test/setup-fake-agents.ts` (`setDefaultTimeout`) are root-level files outside the subspec's scope (`prompts/**`, `v1/**`, docs) and outside its task list.
+
+5. **Test naming/coverage:** Confirmed via the diff — the satisfied/empty-`none` tests use a fake agent that unconditionally writes index+subspecs; they would pass with the gate prompt block deleted. Their names overclaim.
+
+Now I have enough to issue the verdict.
+
+---
+
+# Verdict — Required Refinements
+
+The implemented mechanism (a prompt-only prerequisite gate plus the `validateDraftOutput` reorder so a no-`index.md` blocker surfaces as a blocker rather than an index error) is sound and faithfully realizes the spec. The reorder is correct and load-bearing, and the draft-blocker exit is structurally guaranteed to precede the review phase. The following refinements are required before this is ready.
+
+## Required
+
+1. **Fix the dangling source citation in the v2 parity baseline.** `v2/docs/v1-behaviors.md` (the draft-validation-order bullet) lists `v1/src/modes/plan/run.ts` as a source. That file does not exist. The exit-`1`-on-blocker behavior the bullet describes lives in `v1/src/commands/plan.ts`. `v1-behaviors.md` is the durable v2-parity reference; a source pointer to a non-existent file rots that doc and must be corrected to the real location. Outcome: every `Sources:` path on that bullet resolves to an existing file.
+
+2. **Correct the overstated control-flow claim on the same bullet.** That bullet states the blocker check causes prerequisite-gate failures to "short-circuit all other checks." That is broader than the code: the blocker check short-circuits only the `index.md`-existence, numbered-subspec, and intent-modification checks *inside* `validateDraftOutput`. It does not precede the interrupt check (which runs before validation) or the write-boundary check (which runs after validation returns, before the blocker commit). Outcome: the bullet describes the short-circuit as scoped to the checks within `validateDraftOutput`, not "all other checks," so the parity baseline is not misleading.
+
+3. **Reconcile or revert the out-of-scope harness changes, and resolve the timeout-doc contradiction they introduce.** This subspec's scope is `prompts/**`, `v1/**`, and docs; its task list is the prompt gate, the `validateDraftOutput` reorder, the snapshot bump, and the gate tests. The branch also edits two root-level files unrelated to that scope: a heartbeat addition in `scripts/ready.ts` and a `setDefaultTimeout(30000)` call in `test/setup-fake-agents.ts`. Repo conventions forbid unauthorized harness changes and speculative refactors within a subspec. Worse, the `setup-fake-agents.ts` change asserts in a comment that bun ignores `bunfig.toml`'s `[test] timeout`, yet `bunfig.toml` still sets `timeout = 30000` and the README documents that timeout as enforced — an unreconciled operator-semantics contradiction. Outcome: these two changes are removed from this branch (to be handled in their own spec if wanted); if any timeout change is retained, the `bunfig.toml` comment, README timeout section, and the new code comment must tell one consistent story. The prerequisite-gate work must stand alone in the diff.
+
+4. **Make the satisfied / empty-`none` gate tests assert what they claim, or rename them.** Two new tests are titled as if they exercise the gate ("satisfied prerequisites draft normally", "empty or 'none' prerequisites skip gate and draft normally"), but they drive a fake agent that unconditionally writes `index.md` and a subspec regardless of the gate text; they would pass even if the `## Prerequisite Gate` block were deleted from the prompt. As written they verify only that the reorder did not break the clean-draft path — a legitimate regression guard, but not what their names assert. Outcome: either rename them to reflect that they verify the clean-draft path still produces index+subspecs after the reorder, or strengthen them to additionally assert the assembled prompt carries the gate text (and, for the empty case, the empty-body-skip instruction) alongside the `## Prerequisites` body. The test names must not overclaim coverage the harness cannot provide for a prompt-only judgment.
+
+## Not required
+
+- **End-to-end re-testing of the blocker→exit-`1`→stderr→return-before-review chain.** That path is pre-existing, untouched, and already exercised by the established `## Blocker` plumbing; the only new branch (the reorder) is unit-tested at the seam. AC1–AC3 are satisfied by composing the newly-tested reorder onto that proven path. Re-driving the full `plan.ts` command here would test unchanged code. (A single targeted integration test at the reorder seam is welcome but optional.)
+- **Closing the prompt-only fail-open gap.** An agent that internally judges a prerequisite absent but neglects to append `## Blocker` drafts anyway. This is an inherent property of every prompt-driven guarantee in this harness and follows directly from the explicit spec decision that the draft agent makes the call as its first step (a dedicated checker agent and a harness parser were both ruled out). No code change is warranted.
+- **Single-subspec cohesion, the `@r7`/`@r8` fixture coexistence, and the end-appended `## Blocker` handling** are all correct and require no action.

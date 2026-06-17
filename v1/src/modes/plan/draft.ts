@@ -286,17 +286,7 @@ export function validateDraftOutput(
 ): { valid: boolean; error: string | null; blocker?: string | undefined } {
   const specDir = resolvePlanSpecDirPath(worktreePath, name, specDirPath, targetDir);
 
-  // Check index.md exists
-  const indexPath = join(specDir, "index.md");
-  if (!existsSync(indexPath)) {
-    return { valid: false, error: "index.md was not created" };
-  }
-
-  // Check at least one NN-*.md exists
-  const files = readdirSync(specDir);
-  const hasSubspecs = files.some((f: string) => /^\d{2}-.*\.md$/.test(f));
-
-  // Check if blocker was added to intent.md
+  // Check if blocker was added to intent.md (do this before index.md check)
   const intentPath = join(specDir, "intent.md");
   const intentAfter = readFileSync(intentPath, "utf8");
 
@@ -308,6 +298,16 @@ export function validateDraftOutput(
       blocker: blockerDetection.body,
     };
   }
+
+  // Check index.md exists
+  const indexPath = join(specDir, "index.md");
+  if (!existsSync(indexPath)) {
+    return { valid: false, error: "index.md was not created" };
+  }
+
+  // Check at least one NN-*.md exists
+  const files = readdirSync(specDir);
+  const hasSubspecs = files.some((f: string) => /^\d{2}-.*\.md$/.test(f));
 
   if (!hasSubspecs) {
     return {

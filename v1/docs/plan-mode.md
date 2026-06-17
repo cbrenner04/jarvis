@@ -95,7 +95,7 @@ The ready-intent must:
 - carry frontmatter with a `name:` field that matches the filename (`name: my-feature` ⇔ `my-feature.md`), and
 - contain a `## Prerequisites` section.
 
-Validation runs **before** any branch, worktree, or spec directory is created; invalid input fails with operator guidance to author a ready-intent with `jarvis1 intent` first. Prerequisites are copied into the spec as prompt context but are not validated or enforced at plan entry. Plan mode does not require running from any specific directory — the path is resolved from the current working directory. Arbitrary markdown, `wip-intents/*.md`, an old generated `intent.md`, inline text, and non-existent paths are all rejected.
+Validation runs **before** any branch, worktree, or spec directory is created; invalid input fails with operator guidance to author a ready-intent with `jarvis1 intent` first. Prerequisites are copied into the spec as prompt context but are **validated and enforced in the draft phase**, not at plan entry (entry validation only checks the `## Prerequisites` section is present). Plan mode does not require running from any specific directory — the path is resolved from the current working directory. Arbitrary markdown, `wip-intents/*.md`, an old generated `intent.md`, inline text, and non-existent paths are all rejected.
 
 ## Phases
 
@@ -124,6 +124,7 @@ Jarvis invokes an agent with a focused prompt (`prompts/plan/draft.md`) that:
 
 - Inlines the copied `intent.md` and `docs/spec-guidance.md`.
 - Asks the agent to read the target repo for context.
+- **Before producing any spec content, performs a prerequisite gate:** the agent reads existing repo files and judges whether each behavior in the intent's `## Prerequisites` section is legibly present (observable in committed code, tests, or docs; prose describing future work does not count). If every prerequisite is clearly present, the agent proceeds to normal spec drafting. If the agent cannot cleanly confirm a prerequisite from existing files, it appends a `## Blocker` section to `intent.md` naming each unconfirmed behavior, writes no `index.md` or subspecs, and plan exits non-zero with the blocker body on stderr. An empty or bareword-`none` `## Prerequisites` body skips the gate entirely.
 - Instructs the agent to produce `<targetDir>/<spec-dir>/index.md` plus one or more atomic subspecs (`00-*.md`, `01-*.md`, etc.).
 - Forbids modifications to `intent.md` except for appending a `## Blocker` section.
 

@@ -20,6 +20,7 @@ import {
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { checkPrExists, ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
+import { runReadyAndCommit } from "../../ready-gate.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -170,6 +171,10 @@ type IterationOutcome =
   | { kind: "continue" }
   | { kind: "return"; exitCode: number }
   | { kind: "exit"; exitCode: number };
+
+type CompletionReadyGateResult =
+  | { kind: "green" }
+  | { kind: "red"; failureText: string };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
   const runStartedAt = new Date();
@@ -1342,6 +1347,23 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   }
 }
 
+async function runCompletionReadyGate(ctx: IterationContext): Promise<CompletionReadyGateResult> {
+  const { preflight, logging } = ctx;
+  logging.fanout("harness", "completion: running ready gate\n", "stdout");
+
+  try {
+    runReadyAndCommit({
+      cwd: preflight.agentWorkingDir,
+      agentLabel: "completion-ready",
+    });
+    return { kind: "green" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logging.fanout("harness", `completion: ready gate failed: ${message}\n`, "stderr");
+    return { kind: "red", failureText: message };
+  }
+}
+
 async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null> {
   const { preflight, logging } = ctx;
   if (countUnchecked(preflight.specPath) !== 0) {
@@ -1365,6 +1387,18 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   const implementationIterations = logging.patchIterationsCompletedForSummary();
   const shouldRunShrink = preflight.gitEnabled && implementationIterations > 0;
   const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && implementationIterations > 0;
+  const shouldRunCompletionReadyGate = preflight.gitEnabled && implementationIterations > 0;
+
+  // Run completion ready gate before shrink and review
+  if (shouldRunCompletionReadyGate) {
+    const gateResult = await runCompletionReadyGate(ctx);
+    if (gateResult.kind === "red") {
+      // Red completion ready gate: return the failure text for loop-back handling
+      // (will be consumed in 01-red-loopback-iteration.md)
+      return null; // TODO: return loop-back signal when 01 is implemented
+    }
+    // Green: proceed to shrink/review
+  }
 
   if (shouldRunShrink) {
     const { fanout, writeTelemetry } = ctx.logging;

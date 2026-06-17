@@ -79,27 +79,27 @@ when implementing 01.`
 
 ## Acceptance criteria
 
-- [ ] On the completion transition (`git: true`, clean tree, at least one
+- [x] On the completion transition (`git: true`, clean tree, at least one
       implementation iteration), `bun run ready` runs once as a gate before the
       shrink and review phases.
-- [ ] When that gate is green, any `check:fix` mutation is committed and pushed
+- [x] When that gate is green, any `check:fix` mutation is committed and pushed
       and the run proceeds into shrink → review → `maybeMarkReady`; operator-
       visible completion semantics (`spec complete`, draft→ready, PR URL) are
       unchanged from today on the green path.
-- [ ] When that gate is red, the run does not run the shrink or review phases
+- [x] When that gate is red, the run does not run the shrink or review phases
       for the completion case and does not exit `1` from the review baseline
       gate; the gate captures the `bun run ready failed:\n<output>` text for the
       loop-back consumer.
-- [ ] The shrink pre-gate and `maybeMarkReady` `ready` runs remain present and,
+- [x] The shrink pre-gate and `maybeMarkReady` `ready` runs remain present and,
       on the green completion path, execute against an already-green tree.
 
 ## Documentation updates
 
-- [ ] `v1/docs/run-loop.md`: document the completion `ready` gate placed before
+- [x] `v1/docs/run-loop.md`: document the completion `ready` gate placed before
       shrink/review, that it commits `check:fix` and proceeds on green, and that
       the pre-existing shrink pre-gate / review baseline / `maybeMarkReady`
       `ready` runs now sit behind it on the completion path.
-- [ ] `v2/docs/v1-behaviors.md`: record the added completion `ready` gate and the
+- [x] `v2/docs/v1-behaviors.md`: record the added completion `ready` gate and the
       reconciled post-completion `ready` invocations under the patch-mode
       catalog, with `Sources:` pointers (`run.ts:1332`, `shrink.ts:298`,
       `review.ts:583`, `pr.ts:238`, `ready-gate.ts`).

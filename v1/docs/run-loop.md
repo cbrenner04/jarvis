@@ -178,6 +178,29 @@ The review phase flow is:
 Telemetry records review pass invocations with `patch_phase: "review"` so they
 are distinguishable from implementation iterations in `~/.jarvis/runs.jsonl`.
 
+### Completion `ready` gate
+
+After the spec is complete (zero unchecked boxes) and `git: true` is in effect,
+the harness runs a completion-stage `ready` gate before any shrink or review
+phases. This gate runs `bun run ready` with the same commit/push semantics as
+the review baseline gate and pre-shrink gate: check:fix output is committed if
+present.
+
+The completion gate:
+
+1. Runs only when `gitEnabled`, the tree is clean, and at least one 
+   implementation iteration occurred (checkpoint: not on `git: false` modes or 
+   checkbox-only completion).
+2. On green: commits any `check:fix` output and proceeds to shrink → review 
+   → `maybeMarkReady` (if configured).
+3. On red: captures the failure text and handles it per the loop-back 
+   completion behavior (specs `01-red-loopback-iteration.md` and 
+   `02-stuck-red-stop.md`). The shrink and review phases do not run on red.
+
+The pre-shrink gate, review baseline gate, and `maybeMarkReady` `ready` 
+invocations remain in place as green-path backstops and are unaffected by the 
+completion gate.
+
 ### Post-completion shrink
 
 After implementation is complete (zero unchecked boxes), a clean worktree, and

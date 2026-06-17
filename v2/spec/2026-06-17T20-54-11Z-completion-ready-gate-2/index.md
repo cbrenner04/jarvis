@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Run `ready` once at completion, reuse on unchanged tree](./00-completion-ready-gate.md)
+- [ ] [00 - Run `ready` at the completion transition, reuse on unchanged tree](./00-completion-ready-gate.md)

@@ -818,6 +818,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         return 1;
       }
 
+      // For no-commit runs, print the external intent.md path early so it is not lost if a later phase fails
+      if (commit === false) {
+        opts.io.stdout(`Intent: ${intentPath}\n`);
+      }
+
       const planStartedAt = new Date();
       const planStartedMs = Date.now();
       const planTelemetryPath = cfg.telemetryPath ?? null;

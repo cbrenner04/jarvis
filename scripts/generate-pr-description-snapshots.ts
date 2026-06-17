@@ -19,9 +19,9 @@ console.log("\n=== Plan PR Description Prompt ===");
 console.log(planPrompt);
 
 const fixtureDir = "./v1/test/fixtures/prompts/rendered";
-writeFileSync(join(fixtureDir, "patch.prompt.pr-description@r1.shared.txt"), `${patchPrompt}\n`);
-writeFileSync(join(fixtureDir, "plan.prompt.pr-description@r1.shared.txt"), `${planPrompt}\n`);
+writeFileSync(join(fixtureDir, "patch.prompt.pr-description@r2.shared.txt"), patchPrompt);
+writeFileSync(join(fixtureDir, "plan.prompt.pr-description@r2.shared.txt"), planPrompt);
 
 console.log("\nSnapshots written to:");
-console.log(join(fixtureDir, "patch.prompt.pr-description@r1.shared.txt"));
-console.log(join(fixtureDir, "plan.prompt.pr-description@r1.shared.txt"));
+console.log(join(fixtureDir, "patch.prompt.pr-description@r2.shared.txt"));
+console.log(join(fixtureDir, "plan.prompt.pr-description@r2.shared.txt"));

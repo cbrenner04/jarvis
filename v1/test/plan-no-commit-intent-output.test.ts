@@ -74,13 +74,13 @@ describe("plan mode: no-commit Intent: output", () => {
         // Expected to fail
       });
 
-       // Intent: path should be printed even though draft fails
-       const output = cap.out();
-       expect(output).toMatch(/^Intent: .*intent\.md\n/);
+      // Intent: path should be printed even though draft fails
+      const output = cap.out();
+      expect(output).toMatch(/^Intent: .*intent\.md\n/);
 
-       // The path should contain specs/ and test-intent
-       expect(output).toContain("/specs/");
-       expect(output).toContain("test-intent");
+      // The path should contain specs/ and test-intent
+      expect(output).toContain("/specs/");
+      expect(output).toContain("test-intent");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

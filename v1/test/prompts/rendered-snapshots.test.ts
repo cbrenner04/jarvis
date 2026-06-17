@@ -99,11 +99,11 @@ describe("rendered prompt snapshots", () => {
   });
 
   test("patch and plan PR-description prompts include shared fragment", () => {
-    expect(registry.getById("patch.prompt.pr-description").metadata.revision).toBe("1");
-    expect(registry.getById("plan.prompt.pr-description").metadata.revision).toBe("1");
+    expect(registry.getById("patch.prompt.pr-description").metadata.revision).toBe("2");
+    expect(registry.getById("plan.prompt.pr-description").metadata.revision).toBe("2");
 
-    const patchKey = `patch.prompt.pr-description@r1.shared.txt`;
-    const planKey = `plan.prompt.pr-description@r1.shared.txt`;
+    const patchKey = `patch.prompt.pr-description@r2.shared.txt`;
+    const planKey = `plan.prompt.pr-description@r2.shared.txt`;
 
     const patch = buildPatchPrDescriptionPrompt({
       specPath: "v1/spec/example/index.md",

@@ -22,12 +22,14 @@ Do not guess answers that belong to the first caller.
 Record each such choice inline as: `Deferred to first consumer: <decision> — pin when a caller needs it`.
 Extra precision on behavior no current code exercises is a warning sign, not rigor.
 
-Author a PR description consisting of a short summary followed by a `Decisions:` section:
+Author a PR description consisting of a short summary followed by a `Decisions:` section. Wrap your response in literal `<<<PR_DESCRIPTION_BEGIN>>>` and `<<<PR_DESCRIPTION_END>>>` sentinels. Emit no content outside the sentinels.
 
+<<<PR_DESCRIPTION_BEGIN>>>
 <Description — short and sweet but enough to describe the work>
 
 Decisions:
 <unordered list of notable decisions>
+<<<PR_DESCRIPTION_END>>>
 
 The Description should be concise but useful. The Decisions list should capture what mattered in the choice. Let the model decide what's appropriate for each.
 

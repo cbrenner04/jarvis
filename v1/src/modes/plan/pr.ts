@@ -343,14 +343,17 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
 
 export { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 
+const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
+const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
 const PR_DESCRIPTION_CONTEXT_MAX_CHARS = 40_000;
 
 /**
  * Generate the PR description by calling the model with the PR description prompt.
  * Returns the model's response containing Description + Decisions section.
  *
- * Validates that the response contains the expected shape. Returns null if
- * generation fails or validation fails.
+ * Extracts the content between PR_DESCRIPTION_BEGIN and PR_DESCRIPTION_END sentinels.
+ * Validates that the extracted content contains the expected shape. Returns null if
+ * generation fails, sentinels are malformed/absent, or validation fails.
  */
 export async function generatePrDescription(opts: {
   indexPath: string;
@@ -374,7 +377,27 @@ export async function generatePrDescription(opts: {
       return null;
     }
 
-    const description = result.stdout.trim();
+    const stdout = result.stdout.trim();
+    
+    // Extract content between sentinels
+    const beginIndex = stdout.indexOf(PR_DESCRIPTION_BEGIN);
+    if (beginIndex === -1) {
+      return null;
+    }
+
+    const endIndex = stdout.indexOf(PR_DESCRIPTION_END, beginIndex + PR_DESCRIPTION_BEGIN.length);
+    if (endIndex === -1) {
+      return null;
+    }
+
+    const description = stdout
+      .slice(beginIndex + PR_DESCRIPTION_BEGIN.length, endIndex)
+      .trim();
+
+    if (description.length === 0) {
+      return null;
+    }
+
     if (!description.includes("Decisions:")) {
       return null;
     }

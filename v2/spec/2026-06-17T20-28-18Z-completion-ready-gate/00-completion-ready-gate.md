@@ -11,33 +11,43 @@ green result that later phases could reuse.
 
 This subspec adds the single completion-transition `ready` run and the recorded
 green result. It does not yet change the post-completion gates to reuse it (that
-is `01`); after this subspec alone they still run `ready` unconditionally, so
-behavior is additive and the slice ships independently.
+is `01`); after this subspec alone they still run `ready` unconditionally. So
+`00` landed alone *adds* a `ready` run on the green common path — the completion
+gate plus the still-unchanged shrink/review gates — temporarily raising the
+wall-clock the intent targets, and the recorded result is dead state until `01`
+consumes it. The slice is still green and outcome-preserving (it changes no exit
+code or stop reason); the wall-clock reduction is realized only once `00` and
+`01` land together, which is the expectation.
 
 ## Behavior
 
-When a `git: true` patch run reaches the completion transition — the point where
-`tryFinishSpecIfDone` confirms zero unchecked boxes and a clean worktree, after
-`spec complete` and before the shrink/review/`maybeMarkReady` phases — the
-harness runs `bun run ready` once, harness-side (zero agent tokens), through the
-existing `runReadyAndCommit` path.
+When a `git: true` patch run reaches the completion transition — the point in
+`tryFinishSpecIfDone` where it confirms zero unchecked boxes and a clean
+worktree, after `spec complete` and before the shrink/review/`maybeMarkReady`
+phases — the harness runs `bun run ready` once, harness-side (zero agent
+tokens), through the existing `runReadyAndCommit` path.
 
 - On green (`runReadyAndCommit` returns without throwing): the harness records a
   green result keyed to the resulting tree state — the post-`runReadyAndCommit`
-  HEAD sha plus a clean worktree. (`runReadyAndCommit` may itself land a
-  `check:fix` commit, moving HEAD; the recorded sha is the one after it
-  returns.) This recorded result is held for the post-completion phases to
-  consume in `01`.
+  HEAD sha plus a clean worktree. `runReadyAndCommit` returns no value and may
+  itself land a `check:fix` commit (moving HEAD); the recorded sha is read by a
+  separate `git rev-parse HEAD` *after* it returns, so it is the post-commit sha.
+  This recorded result is held for the post-completion phases to consume in `01`.
 - On red (`runReadyAndCommit` throws): the harness does not record a green
   result and falls through to the pre-existing post-completion behavior
   unchanged — shrink pre-gate, review baseline, and `maybeMarkReady` run exactly
   as they do today. This slice introduces no new red stop reason, no loop-back,
   and no change to the run exit code on red.
 
-The completion transition is reached at most once per run, so `ready` runs at
-most once here. When the run does not reach the completion transition with
-`git: true` (loop-only `git: false`, no implementation iterations, an earlier
-stop), no completion-transition `ready` runs and no green result is recorded.
+The new gate lives inside `tryFinishSpecIfDone`, which early-returns whenever
+unchecked boxes remain, so the completion transition is reached at most once per
+run and `ready` runs at most once here. This is distinct from the per-iteration
+early-ready `maybeMarkReady` call in the iteration loop, which fires *before*
+the completion transition on the path where neither shrink nor review will run;
+that per-iteration site is out of scope for `00` (it is addressed in `01`). When
+the run does not reach the completion transition with `git: true` (loop-only
+`git: false`, no implementation iterations, an earlier stop), no
+completion-transition `ready` runs and no green result is recorded.
 
 Deferred to first consumer: the exact predicate a post-completion gate uses to
 decide the tree is "unchanged since the recorded green result" — pin in `01`
@@ -57,10 +67,14 @@ when the gates consume the recorded result.
 
 ## Tasks
 
-- Run `bun run ready` once at the completion transition for `git: true` runs,
-  via `runReadyAndCommit`, before the shrink/review/`maybeMarkReady` phases.
-- On green, capture a recorded result keyed to the post-`runReadyAndCommit` HEAD
-  sha and clean worktree, available to the post-completion phase entry.
+- In `tryFinishSpecIfDone`, run `bun run ready` once at the completion
+  transition for `git: true` runs, via `runReadyAndCommit`, after `spec
+  complete` and before the shrink/review/`maybeMarkReady` phases.
+- On green, read HEAD with a separate `git rev-parse HEAD` after
+  `runReadyAndCommit` returns and capture a recorded result keyed to that
+  post-commit sha and clean worktree, available to the post-completion phase
+  entry. Leave the per-iteration early-ready `maybeMarkReady` site untouched in
+  `00` (it is in scope for `01`).
 - On red, preserve current post-completion behavior with no new stop reason or
   exit-code change.
 - Cover green-capture and red-fallthrough with tests using the existing
@@ -77,9 +91,17 @@ when the gates consume the recorded result.
 
 ## Documentation updates
 
+Doc partition with `01`: `00` *adds* the new completion-gate behavior only; it
+does not touch the existing shrink/review gate descriptions (those are edited in
+`01` to record reuse). This keeps each behavior in one durable home with no
+overlapping edits.
+
 - `v1/docs/run-loop.md`: in the Completion section, document the single
   completion-transition `ready` gate (harness-side, zero tokens, via
   `runReadyAndCommit`), the green result recorded keyed to HEAD sha + clean
-  worktree, and that red falls through to the existing post-completion phases.
+  worktree (the sha read after `runReadyAndCommit` returns, post-`check:fix`),
+  and that red falls through to the existing post-completion phases unchanged.
 - `v2/docs/v1-behaviors.md`: add the completion-transition `ready` gate and the
-  recorded green result (keyed to tree state) as a behavior, with sources.
+  recorded green result (keyed to tree state) as a new behavior entry, with
+  sources (`v1/src/modes/patch/run.ts`, `v1/src/ready-gate.ts`,
+  `v1/docs/run-loop.md`).

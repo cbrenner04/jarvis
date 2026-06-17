@@ -57,13 +57,13 @@ unticked.
 
 ## Acceptance criteria
 
-- [ ] On a clean patch iteration with a resolvable active subspec that ticks no acceptance criterion and leaves the unchecked count unchanged, the no-progress stop output names each unticked acceptance criterion of the active subspec.
-- [ ] The same stop output contains the substring `tick the satisfied acceptance criteria` pointing the operator to recover if the work is already done.
-- [ ] The named criteria block follows the `made no progress; stopping` sentence, separated by a blank line.
-- [ ] The no-progress stop still exits `4`.
-- [ ] The no-progress stop output still contains the text `made no progress; stopping`.
-- [ ] A clean no-progress stop on a run with no resolvable active subspec keeps the generic message and names no criteria.
-- [ ] The lenient-quota, agent-error, and dirty-worktree stop paths are unchanged.
+- [x] On a clean patch iteration with a resolvable active subspec that ticks no acceptance criterion and leaves the unchecked count unchanged, the no-progress stop output names each unticked acceptance criterion of the active subspec.
+- [x] The same stop output contains the substring `tick the satisfied acceptance criteria` pointing the operator to recover if the work is already done.
+- [x] The named criteria block follows the `made no progress; stopping` sentence, separated by a blank line.
+- [x] The no-progress stop still exits `4`.
+- [x] The no-progress stop output still contains the text `made no progress; stopping`.
+- [x] A clean no-progress stop on a run with no resolvable active subspec keeps the generic message and names no criteria.
+- [x] The lenient-quota, agent-error, and dirty-worktree stop paths are unchanged.
 
 ## Out of scope
 

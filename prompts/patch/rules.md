@@ -20,9 +20,8 @@ Execute active spec only.
 - Active task = first unchecked subspec link in `index.md`. Work that subspec only.
 - Subspec acceptance criteria must be under an exact `## Acceptance criteria` heading (case-sensitive, level-2).
 - Blockers must be under an exact `## Blocker` heading (case-sensitive, level-2).
-- Inside the active subspec, tick `- [ ]` acceptance-criteria items as you actually satisfy them. Do not tick speculatively. Do not tick anything else.
+- Inside the active subspec, tick `- [ ]` acceptance-criteria items as you actually satisfy them. Do not tick speculatively. Do not tick anything else. Tick every confirmed-satisfied criterion as a mandatory final step; if criteria are already `- [ ]` on entry but their work is already complete, re-verify and then tick—never report "already done" and stop without ticking.
 - Do not edit `index.md`. Jarvis flips the index checkbox itself when all acceptance criteria are checked.
-- Tick every confirmed-satisfied acceptance criterion as a mandatory final step. If acceptance criteria are already `- [ ]` on entry but their work is already complete, re-verify and then tick; never report "already done" and stop without ticking.
 - Jarvis re-invokes for the next iteration; iterate the same subspec until all its acceptance criteria are checked.
 - Use commands from target repo `AGENTS.md`; no equivalents.
 - Run required typecheck/tests before ticking the criteria they cover.

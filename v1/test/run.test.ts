@@ -1105,6 +1105,42 @@ describe("runCommand", () => {
     expect(readFileSync(spec, "utf8")).toContain("- [ ] [00 - One](./00-one.md)");
   });
 
+  test("exits 4 with unticked criteria guidance when linked subspec clean iteration makes no progress", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    const subspec = join(specDir, "00-one.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Item A.\n- [ ] Item B.\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      // Agent runs clean but doesn't tick anything
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(4);
+    expect(cap.err()).toContain("iteration 1 made no progress; stopping");
+    expect(cap.err()).toContain("Unticked acceptance criteria:");
+    expect(cap.err()).toContain("- Item A.");
+    expect(cap.err()).toContain("- Item B.");
+    expect(cap.err()).toContain("tick the satisfied acceptance criteria");
+  });
+
   test("WIP-commits partial acceptance-criteria progress and re-iterates on the same subspec", async () => {
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });
     execSync('git config user.email "jarvis-test@example.com"', {

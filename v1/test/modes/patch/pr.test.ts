@@ -483,8 +483,8 @@ describe("maybeMarkReady", () => {
 });
 
 describe("generatePrDescription", () => {
-   const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
-   const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
+  const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
+  const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
 
   test("extracts sentinel-wrapped output, stripping preamble", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");

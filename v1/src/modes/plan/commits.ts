@@ -150,7 +150,7 @@ export function commitPlanDraft(opts: CommitPlanDraftOptions): void {
   });
 
   try {
-    pushCurrent({ cwd: opts.worktreePath, firstPush: false });
+    pushCurrent({ cwd: opts.worktreePath, firstPush: !hasUpstream(opts.worktreePath) });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(message);

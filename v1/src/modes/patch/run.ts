@@ -1190,6 +1190,19 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       if (after === before && !subspecCompleted && !subspecProgressed) {
         printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
         fanout("harness", `iteration ${iteration} made no progress; stopping\n`, "stderr");
+
+        if (afterSubspecPath !== undefined) {
+          const untickedCriteria = snapshotAcceptanceCriteria(afterSubspecPath).filter((c) => !c.checked);
+          if (untickedCriteria.length > 0) {
+            const criteriaList = untickedCriteria.map((c) => `  - ${c.text}`).join("\n");
+            fanout(
+              "harness",
+              `\nUnticked acceptance criteria:\n${criteriaList}\n\nIf the work is done, tick the satisfied acceptance criteria and rerun.\n`,
+              "stderr",
+            );
+          }
+        }
+
         writeTelemetry({
           agent: agent.name,
           iteration,

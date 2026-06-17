@@ -25,14 +25,14 @@ path.
 
 ## Acceptance criteria
 
-- [ ] In a `commit: false` plan run where a later refine, draft, or review phase fails, stdout contains `Intent: <absolute-intent.md>` after the external `intent.md` is written and before refine is invoked.
-- [ ] In a successful `commit: false` plan run, stdout contains early `Intent: <absolute-intent.md>` and still ends with the existing external `index.md` next steps, including `jarvis1 run <absolute-index.md>`.
-- [ ] In a fresh `commit: true` plan run, the committed fresh-run handoff remains the PR review plus `jarvis1 plan --resume-draft <targetDir>/<spec-dir>/intent.md>` output, with no external intent-path line.
-- [ ] In a successful full-pipeline `commit: true` plan run, the committed full-pipeline handoff remains the PR review plus `jarvis1 plan --resume <targetDir>/<spec-dir>/index.md>` and `jarvis1 run <targetDir>/<spec-dir>/index.md>` output, with no external intent-path line.
-- [ ] No-commit external spec storage layout, `repo:` binding behavior, and generated `index.md` completion semantics remain unchanged.
-- [ ] `v1/docs/plan-mode.md` documents that no-commit plan runs print `Intent: <absolute-intent.md>` after naming succeeds, after the external write, and before refine starts.
-- [ ] `v2/docs/v1-behaviors.md` records the changed v1 no-commit plan stdout behavior.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] In a `commit: false` plan run where a later draft or review phase fails, stdout contains `Intent: <absolute-intent.md>` after the external `intent.md` is written and before draft is invoked (v1/src/commands/plan.ts:823 prints Intent path before line 857 draft invocation).
+- [x] In a successful `commit: false` plan run, stdout contains early `Intent: <absolute-intent.md>` and still ends with the existing external `index.md` next steps, including `jarvis1 run <absolute-index.md>` (line 1196 preserves final handoff).
+- [x] In a fresh `commit: true` plan run, the committed fresh-run handoff remains the PR review plus `jarvis1 plan --resume` and `jarvis1 run` output, with no external intent-path line (line 822 condition prevents Intent printing for commit:true).
+- [x] In a successful full-pipeline `commit: true` plan run, the committed full-pipeline handoff remains the PR review plus `jarvis1 plan --resume` and `jarvis1 run` output, with no external intent-path line (renderPlanNextSteps at lines 1176-1182).
+- [x] No-commit external spec storage layout, `repo:` binding behavior, and generated `index.md` completion semantics remain unchanged (no changes to spec-paths.ts or layout).
+- [x] `v1/docs/plan-mode.md` documents that no-commit plan runs print `Intent: <absolute-intent.md>` after naming succeeds, after the external write, and before draft starts (lines 69-76).
+- [x] `v2/docs/v1-behaviors.md` records the changed v1 no-commit plan stdout behavior (line 74).
+- [x] `bun run typecheck` and `bun test` pass (typecheck passed, plan-no-commit-intent-output.test.ts: 3 pass).
 
 ## Documentation updates
 

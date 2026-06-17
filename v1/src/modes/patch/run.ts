@@ -1191,7 +1191,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
         fanout("harness", `iteration ${iteration} made no progress; stopping\n`, "stderr");
 
-        // If active subspec is resolvable, name its unticked criteria for operator recovery
         if (afterSubspecPath !== undefined) {
           const untickedCriteria = snapshotAcceptanceCriteria(afterSubspecPath).filter((c) => !c.checked);
           if (untickedCriteria.length > 0) {

@@ -1103,7 +1103,7 @@ describe("runCommand", () => {
     expect(cap.err()).toContain("Inspect the dirty worktree");
     expect(cap.err()).toContain("jarvis1 triage");
     expect(readFileSync(spec, "utf8")).toContain("- [ ] [00 - One](./00-one.md)");
-   });
+  });
 
   test("exits 4 with unticked criteria guidance when linked subspec clean iteration makes no progress", async () => {
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });

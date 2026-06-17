@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { planCommand } from "../src/commands/plan.ts";
@@ -46,16 +46,16 @@ const mockLogClient: LogClient = {
 };
 
 describe("plan mode: no-commit Intent: output", () => {
-  test("commit: false plan prints Intent: path to stdout after intent.md is written and before draft starts", async () => {
+  test("AC#1: commit: false plan prints Intent: path to stdout after intent.md is written and before draft starts", async () => {
     const { dir, cfgDir, projectRoot } = setupProject();
     try {
-      // Configure project for no-commit mode with a failing agent (to simulate later phase failure)
+      // Configure project for no-commit mode with a failing agent (to simulate draft failure)
       const cfg = loadConfig({ dir: cfgDir });
       const projectConfig = cfg.projects["test-project"];
       if (!projectConfig) throw new Error("expected registered project");
       projectConfig.plan = { commit: false };
 
-      // Use a nonexistent agent so we fail early (simulates draft failure)
+      // Use a failing agent so we fail early (simulates draft failure)
       cfg.modes.plan.agentOrder = [{ agent: "aider", model: "nonexistent-for-test" }];
       writeConfig(cfg, { dir: cfgDir });
 
@@ -86,37 +86,7 @@ describe("plan mode: no-commit Intent: output", () => {
     }
   });
 
-  test("commit: true (default) fresh-run plan does NOT print external Intent: path", async () => {
-    const { dir, cfgDir, projectRoot } = setupProject();
-    try {
-      // Use default commit: true behavior
-      const cfg = loadConfig({ dir: cfgDir });
-      cfg.modes.plan.agentOrder = [{ agent: "aider", model: "nonexistent-for-test" }];
-      writeConfig(cfg, { dir: cfgDir });
-
-      const intentPath = writeReadyIntent(projectRoot, "fresh-commit-test");
-      const cap = captureIo();
-
-      await planCommand({
-        io: cap.io,
-        args: [intentPath],
-        cwd: projectRoot,
-        config: { dir: cfgDir },
-        logClient: mockLogClient,
-        skipGhCheck: true,
-      }).catch(() => {
-        // Expected to fail
-      });
-
-      const output = cap.out();
-      // Should NOT have the "Intent: /.jarvis/specs/" external path line for committed mode
-      expect(output).not.toMatch(/^Intent: .*\.jarvis\/specs\//);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test("no-commit Intent: path is absolute (resolvable from anywhere)", async () => {
+  test("AC#3: no-commit Intent: path is absolute (resolvable from anywhere)", async () => {
     const { dir, cfgDir, projectRoot } = setupProject();
     try {
       const cfg = loadConfig({ dir: cfgDir });

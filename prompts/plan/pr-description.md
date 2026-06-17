@@ -2,7 +2,7 @@
 id: plan.prompt.pr-description
 behavior: plan
 kind: step
-revision: 1
+revision: 2
 placeholders: [INTENT:string!, SPEC_CONTEXT:string!]
 add: [shared.pr-description]
 ---

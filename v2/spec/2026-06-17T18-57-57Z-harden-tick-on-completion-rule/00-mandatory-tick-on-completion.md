@@ -67,25 +67,25 @@ zero-unchecked path completes with exit `0` and a PR.
 
 ## Acceptance criteria
 
-- [ ] `prompts/patch/rules.md` states ticking every confirmed-satisfied
+- [x] `prompts/patch/rules.md` states ticking every confirmed-satisfied
       acceptance criterion as a mandatory final step of an iteration, not an
       optional stop condition.
-- [ ] `prompts/patch/rules.md` explicitly directs that acceptance criteria left
+- [x] `prompts/patch/rules.md` explicitly directs that acceptance criteria left
       `- [ ]` on entry whose work is already complete must be re-verified and
       then ticked, and must not be reported as "already done" and left unticked.
-- [ ] `prompts/patch/rules.md` still restricts ticking to genuinely-satisfied
+- [x] `prompts/patch/rules.md` still restricts ticking to genuinely-satisfied
       criteria and still forbids speculative ticking.
-- [ ] `prompts/patch/rules.md` does not instruct the harness to tick acceptance
+- [x] `prompts/patch/rules.md` does not instruct the harness to tick acceptance
       criteria; ticking acceptance criteria remains the agent's action. The
       existing sentence that Jarvis flips the `index.md` checkbox itself is left
       intact.
-- [ ] `prompts/patch/rules.md` frontmatter `revision:` is `2`.
-- [ ] `bun test` passes, including `v1/test/prompts/rendered-snapshots.test.ts`,
+- [x] `prompts/patch/rules.md` frontmatter `revision:` is `2`.
+- [x] `bun test` passes, including `v1/test/prompts/rendered-snapshots.test.ts`,
       with the regenerated `patch.prompt.body@r3` shared and codex-wrapper
       fixtures (same filenames) reflecting the new rules body text.
-- [ ] `v1/src/modes/patch/run.ts` and the `iteration <N> made no progress;
+- [x] `v1/src/modes/patch/run.ts` and the `iteration <N> made no progress;
       stopping` message are unchanged by this spec.
-- [ ] `v2/docs/v1-behaviors.md` records that patch rules require re-verifying and
+- [x] `v2/docs/v1-behaviors.md` records that patch rules require re-verifying and
       ticking already-satisfied acceptance criteria as a mandatory final step,
       with the agent (not the harness) owning the tick.
 

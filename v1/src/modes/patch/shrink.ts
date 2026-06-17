@@ -70,6 +70,13 @@ export type PatchShrinkPhaseOptions = {
   runContractTests?: (cwd: string) => boolean;
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
   baseBranch?: string;
+  /** Recorded green result from completion transition: reuse when tree unchanged, refresh on re-run. */
+  recordedGreenResult?: {
+    /** HEAD sha from completion transition ready gate (post-`runReadyAndCommit`). */
+    headSha: string;
+  };
+  /** Refresh callback: called when pre-shrink gate re-runs `ready` and succeeds, to update the recorded result. */
+  refreshRecordedGreenResult?: (headSha: string) => void;
 };
 
 /** True when `file` is under `specDir`. */

@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Sentinel-delimited PR-description extraction](./00-sentinel-extraction.md)
+- [x] [00 - Sentinel-delimited PR-description extraction](./00-sentinel-extraction.md)

@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Draft-agent prerequisite gate](./00-draft-agent-prerequisite-gate.md)
+- [x] [00 - Draft-agent prerequisite gate](./00-draft-agent-prerequisite-gate.md)

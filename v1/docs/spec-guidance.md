@@ -148,6 +148,12 @@ authored-intent output. Fan-out writes reviewed, behavior-level intents to
 `ready-intents/`; later `jarvis1 plan` runs consume those intents one at a
 time.
 
+### Intent prerequisites
+
+Authored intents may declare a `## Prerequisites` section listing dependencies: existing code paths, documented behaviors, or shared infrastructure the new spec depends on (e.g., "quota fallback is implemented", "the workspace contains a config file with a `modes` key"). During plan mode's draft phase, the agent checks the target repo to confirm each prerequisite is observable in committed code, tests, or docs. If all prerequisites are cleanly confirmed, drafting proceeds normally. If any prerequisite cannot be clearly confirmed, the agent appends a `## Blocker` section to `intent.md` naming the unconfirmed behavior, writes no spec files, and plan exits non-zero; the operator must resolve the missing behavior or revise the intent. An empty or bareword-`none` `## Prerequisites` body skips the gate entirely and drafting proceeds immediately.
+
+Prerequisites are validation gates, not just context: they ensure every work item lands on a firm foundation. Use this section only for critical dependencies that genuinely block the spec's design (e.g., "v1 quota classification exists" for a plan refactoring it). Do not use prerequisites as a generic checklist of nice-to-haves or incidental reading materials — keep them minimal and specific to the intent's scope.
+
 Plan-generated specs follow the same merge-first rule: do not run `jarvis1 run` against the spec until after the plan PR is merged to `main`.
 
 When you iterate with

@@ -10,11 +10,17 @@
 // unaffected; tests asserting "binary not found" use a bare name we do not stub
 // (e.g. "fake"), so they still get ENOENT.
 
-import { mock } from "bun:test";
+import { mock, setDefaultTimeout } from "bun:test";
 import * as childProcess from "node:child_process";
 import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Enforce the per-test timeout. bun 1.3.x ignores `[test] timeout` in
+// bunfig.toml (only `--timeout` is honored), so without this the suite falls
+// back to bun's 5000ms default and git-backed tests that run just over 5s
+// (e.g. the patch review phase) time out intermittently, looking like hangs.
+setDefaultTimeout(30000);
 
 const realExecSync = childProcess.execSync;
 const realExecFileSync = childProcess.execFileSync;

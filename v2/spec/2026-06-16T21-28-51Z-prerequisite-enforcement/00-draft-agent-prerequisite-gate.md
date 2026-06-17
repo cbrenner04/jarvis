@@ -66,15 +66,15 @@ Deferred to first consumer: any machine-readable per-behavior confirmation forma
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 plan <ready-intent>` exits non-zero and writes no `index.md` or numbered subspecs when a declared prerequisite behavior cannot be confirmed in existing repo files.
-- [ ] On that failure, stderr includes the blocker body naming each unconfirmed prerequisite behavior.
-- [ ] The prerequisite judgment happens before any spec content is produced, so a failed gate runs no review passes (the draft-blocker path returns before the review phase in `v1/src/commands/plan.ts`) and produces no `index.md`/subspec files.
-- [ ] A ready-intent whose declared prerequisite behaviors are legibly present in the repo proceeds into normal spec drafting (and review).
-- [ ] A ready-intent with an empty or bareword-`none` `## Prerequisites` body proceeds into normal spec drafting without a gate failure.
-- [ ] `validateDraftOutput` reports a genuine `## Blocker` in `intent.md` as a blocker even when no `index.md` exists, instead of an "index.md was not created" error; a partial-file gate failure (blocker present, some files written) and a zero-file gate failure behave identically.
-- [ ] The assembled `plan.prompt.draft` prompt instructs the draft agent to confirm each behavior in the intent's `## Prerequisites` section against existing committed repo files (code, tests, or docs) as its first action, to fail closed (treat "cannot confirm" as absent) by appending `## Blocker`, and to write nothing to `intent.md` on a pass.
-- [ ] No completion record, behavior ledger, or `v2/docs/v1-behaviors.md` completion entry is added or required by the mechanism.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `jarvis1 plan <ready-intent>` exits non-zero and writes no `index.md` or numbered subspecs when a declared prerequisite behavior cannot be confirmed in existing repo files.
+- [x] On that failure, stderr includes the blocker body naming each unconfirmed prerequisite behavior.
+- [x] The prerequisite judgment happens before any spec content is produced, so a failed gate runs no review passes (the draft-blocker path returns before the review phase in `v1/src/commands/plan.ts`) and produces no `index.md`/subspec files.
+- [x] A ready-intent whose declared prerequisite behaviors are legibly present in the repo proceeds into normal spec drafting (and review).
+- [x] A ready-intent with an empty or bareword-`none` `## Prerequisites` body proceeds into normal spec drafting without a gate failure.
+- [x] `validateDraftOutput` reports a genuine `## Blocker` in `intent.md` as a blocker even when no `index.md` exists, instead of an "index.md was not created" error; a partial-file gate failure (blocker present, some files written) and a zero-file gate failure behave identically.
+- [x] The assembled `plan.prompt.draft` prompt instructs the draft agent to confirm each behavior in the intent's `## Prerequisites` section against existing committed repo files (code, tests, or docs) as its first action, to fail closed (treat "cannot confirm" as absent) by appending `## Blocker`, and to write nothing to `intent.md` on a pass.
+- [x] No completion record, behavior ledger, or `v2/docs/v1-behaviors.md` completion entry is added or required by the mechanism.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

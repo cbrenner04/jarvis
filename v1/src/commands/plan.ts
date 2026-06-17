@@ -78,8 +78,6 @@ function planHarnessLog(logClient: LogClient, text: string, tag: "harness" | "ou
     .catch(() => {});
 }
 
-
-
 export function parseIntentFrontmatter(text: string): {
   name?: string | undefined;
 } {
@@ -877,26 +875,26 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           createAgent: resolveAgent,
         });
 
-         // Check if draft succeeded
-         if (draftResult.result.kind !== "ok") {
-           if (draftResult.result.kind === "quota") {
-             opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
-             emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-             summarizePlan("quota-exhausted", specDirBasename);
-             return 2;
-           }
-           if (draftResult.result.kind === "model_config") {
-             opts.io.stderr(`plan: model configuration error\n${draftResult.result.stderr}`);
-             emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-             summarizePlan("model-config", specDirBasename);
-             return 3;
-           }
-           // Generic error
-           opts.io.stderr(`plan: draft phase failed\n${draftResult.result.stderr}`);
-           emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-           summarizePlan("agent-error", specDirBasename);
-           return 1;
-         }
+        // Check if draft succeeded
+        if (draftResult.result.kind !== "ok") {
+          if (draftResult.result.kind === "quota") {
+            opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+            emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+            summarizePlan("quota-exhausted", specDirBasename);
+            return 2;
+          }
+          if (draftResult.result.kind === "model_config") {
+            opts.io.stderr(`plan: model configuration error\n${draftResult.result.stderr}`);
+            emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+            summarizePlan("model-config", specDirBasename);
+            return 3;
+          }
+          // Generic error
+          opts.io.stderr(`plan: draft phase failed\n${draftResult.result.stderr}`);
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+          summarizePlan("agent-error", specDirBasename);
+          return 1;
+        }
 
         // Check for interrupt before any commit
         if (interrupted) {
@@ -906,38 +904,38 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           return 130;
         }
 
-         // Validate output
-         const validation = validateDraftOutput(worktreePath, specDirBasename, intentBefore, finalSpecPath);
-         if (!validation.valid) {
-           opts.io.stderr(`plan: draft validation failed: ${validation.error}\n`);
-           emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-           summarizePlan("error", specDirBasename);
-           return 1;
-         }
+        // Validate output
+        const validation = validateDraftOutput(worktreePath, specDirBasename, intentBefore, finalSpecPath);
+        if (!validation.valid) {
+          opts.io.stderr(`plan: draft validation failed: ${validation.error}\n`);
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+          summarizePlan("error", specDirBasename);
+          return 1;
+        }
 
         // Check if a blocker was raised
         if (validation.blocker !== undefined) {
           draftBlocker = validation.blocker;
         }
 
-         draftSpecFilesCount = draftResult.subspecCount ?? 0;
-         if (draftBlocker === undefined && draftResult.subspecCount === null) {
-           opts.io.stderr(`plan: could not count subspecs\n`);
-           emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-           summarizePlan("error", specDirBasename);
-           return 1;
-         }
+        draftSpecFilesCount = draftResult.subspecCount ?? 0;
+        if (draftBlocker === undefined && draftResult.subspecCount === null) {
+          opts.io.stderr(`plan: could not count subspecs\n`);
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+          summarizePlan("error", specDirBasename);
+          return 1;
+        }
 
         opts.io.stderr(`plan: draft phase completed\n`);
         if (commit === false) {
           injectRepoLineIntoIndex(finalSpecPath, project);
         }
-       } catch (err) {
-         opts.io.stderr(`plan: draft phase error: ${(err as Error).message}\n`);
-         emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-         summarizePlan("error", specDirBasename);
-         return 1;
-       }
+      } catch (err) {
+        opts.io.stderr(`plan: draft phase error: ${(err as Error).message}\n`);
+        emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+        summarizePlan("error", specDirBasename);
+        return 1;
+      }
 
       // Check boundary before draft commit
       const boundaryCheck = commit
@@ -993,12 +991,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             summarizePlan("error", specDirBasename);
             return 1;
           }
-         }
+        }
 
-         opts.io.stderr(`plan: blocked\n`);
-         emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-         summarizePlan("blocker", specDirBasename);
-         return 1;
+        opts.io.stderr(`plan: blocked\n`);
+        emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+        summarizePlan("blocker", specDirBasename);
+        return 1;
       }
 
       // Always create a `plan: draft` commit for whatever the agent produced (when commit: true)
@@ -1087,15 +1085,15 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             summarizePlan("error", specDirBasename);
             return 1;
           }
-         }
+        }
 
-         opts.io.stderr(`plan: blocked\n`);
-         if (draftBlocker) {
-           opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
-         }
-         emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-         summarizePlan("blocker", specDirBasename);
-         return 1;
+        opts.io.stderr(`plan: blocked\n`);
+        if (draftBlocker) {
+          opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
+        }
+        emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+        summarizePlan("blocker", specDirBasename);
+        return 1;
       }
 
       // Post-draft body refresh (header now reflects the real index.md).
@@ -1155,33 +1153,33 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             opts.io.stderr(`plan: review pass ${pass}/${total} starting\n`);
           },
         });
-         if (reviewResult.interrupted) {
-           opts.io.stderr(`plan: interrupted\n`);
-           emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-           summarizePlan("sigint", specDirBasename);
-           return 130;
-         }
-         if (reviewResult.exitCode === 2) {
-           emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-           summarizePlan("quota-exhausted", specDirBasename);
-           return 2;
-         }
-         if (reviewResult.exitCode === 3) {
-           emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-           summarizePlan("model-config", specDirBasename);
-           return 3;
-         }
-         if (reviewResult.exitCode !== 0) {
-           if (reviewResult.blocker !== undefined) {
-             opts.io.stderr(`\n## Blocker\n\n${reviewResult.blocker}\n`);
-             emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-             summarizePlan("blocker", specDirBasename);
-           } else {
-             emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
-             summarizePlan(reviewResult.exitCode === 1 ? "agent-error" : "error", specDirBasename);
-           }
-           return reviewResult.exitCode;
-         }
+        if (reviewResult.interrupted) {
+          opts.io.stderr(`plan: interrupted\n`);
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+          summarizePlan("sigint", specDirBasename);
+          return 130;
+        }
+        if (reviewResult.exitCode === 2) {
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+          summarizePlan("quota-exhausted", specDirBasename);
+          return 2;
+        }
+        if (reviewResult.exitCode === 3) {
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+          summarizePlan("model-config", specDirBasename);
+          return 3;
+        }
+        if (reviewResult.exitCode !== 0) {
+          if (reviewResult.blocker !== undefined) {
+            opts.io.stderr(`\n## Blocker\n\n${reviewResult.blocker}\n`);
+            emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+            summarizePlan("blocker", specDirBasename);
+          } else {
+            emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
+            summarizePlan(reviewResult.exitCode === 1 ? "agent-error" : "error", specDirBasename);
+          }
+          return reviewResult.exitCode;
+        }
       }
 
       if (commit) {
@@ -1388,7 +1386,11 @@ function firstNonEmptyLine(text: string): string {
 }
 
 /** Emit breadcrumb for preserved no-commit spec directory on failure. */
-function emitPreservedSpecDirBreadcrumb(io: PlanIo, externalSpecRoot: string | undefined, specDirBasename: string): void {
+function emitPreservedSpecDirBreadcrumb(
+  io: PlanIo,
+  externalSpecRoot: string | undefined,
+  specDirBasename: string,
+): void {
   if (externalSpecRoot) {
     const finalSpecPath = join(externalSpecRoot, specDirBasename);
     io.stderr(`Spec preserved at ${finalSpecPath}\n`);

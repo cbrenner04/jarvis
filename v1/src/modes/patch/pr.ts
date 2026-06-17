@@ -77,7 +77,7 @@ export async function generatePrDescription(opts: {
     }
 
     const stdout = result.stdout.trim();
-    
+
     // Extract content between sentinels
     const beginIndex = stdout.indexOf(PR_DESCRIPTION_BEGIN);
     if (beginIndex === -1) {
@@ -89,9 +89,7 @@ export async function generatePrDescription(opts: {
       return null;
     }
 
-    const description = stdout
-      .slice(beginIndex + PR_DESCRIPTION_BEGIN.length, endIndex)
-      .trim();
+    const description = stdout.slice(beginIndex + PR_DESCRIPTION_BEGIN.length, endIndex).trim();
 
     if (description.length === 0) {
       return null;

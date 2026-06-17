@@ -483,9 +483,15 @@ describe("maybeMarkReady", () => {
 });
 
 describe("generatePrDescription", () => {
-  function createMockAgent(
-    response: string = "Updated feature\n\nDecisions:\n- Use async generation\n- Store in markers",
+  const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
+  const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
+
+  function _createMockAgent(
+    description: string = "Updated feature",
+    decisions: string = "- Use async generation\n- Store in markers",
   ): Agent {
+    const content = `${description}\n\nDecisions:\n${decisions}`;
+    const response = `${PR_DESCRIPTION_BEGIN}\n${content}\n${PR_DESCRIPTION_END}`;
     return {
       name: "claude",
       async run(): Promise<AgentResult> {
@@ -501,18 +507,173 @@ describe("generatePrDescription", () => {
     };
   }
 
-  test("generates description with model when provided valid spec", async () => {
+  test("extracts sentinel-wrapped output, stripping preamble", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
 
-    const agent = createMockAgent();
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout:
+            "I'll review the actual spec files...\n\n" +
+            `${PR_DESCRIPTION_BEGIN}\n` +
+            "Updated feature\n\nDecisions:\n- Use async generation\n- Store in markers\n" +
+            `${PR_DESCRIPTION_END}`,
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
     const result = await generatePrDescription({
       specPath: indexPath,
       agent,
       cwd: dir,
     });
 
+    expect(result).toBeTruthy();
     expect(result).toContain("Updated feature");
     expect(result).toContain("Decisions:");
+    expect(result).not.toContain("I'll review");
+  });
+
+  test("strips trailing chatter after closing sentinel", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout:
+            `${PR_DESCRIPTION_BEGIN}\n` +
+            "Updated feature\n\nDecisions:\n- Use async\n" +
+            `${PR_DESCRIPTION_END}\n` +
+            "Here's some trailing commentary that should be discarded.",
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
+    const result = await generatePrDescription({
+      specPath: indexPath,
+      agent,
+      cwd: dir,
+    });
+
+    expect(result).toBeTruthy();
+    expect(result).toContain("Updated feature");
+    expect(result).not.toContain("trailing commentary");
+  });
+
+  test("returns null when opening sentinel is absent", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout: `Updated feature\n\nDecisions:\n- Missing opening\n${PR_DESCRIPTION_END}`,
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
+    const result = await generatePrDescription({
+      specPath: indexPath,
+      agent,
+      cwd: dir,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null when closing sentinel is absent", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout: `${PR_DESCRIPTION_BEGIN}\nUpdated feature\n\nDecisions:\n- Missing closing`,
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
+    const result = await generatePrDescription({
+      specPath: indexPath,
+      agent,
+      cwd: dir,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null when closing sentinel appears before opening", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout: `${PR_DESCRIPTION_END}\nGarbage\n${PR_DESCRIPTION_BEGIN}`,
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
+    const result = await generatePrDescription({
+      specPath: indexPath,
+      agent,
+      cwd: dir,
+    });
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null when sentinel-delimited content lacks Decisions:", async () => {
+    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
+
+    const agent: Agent = {
+      name: "claude",
+      async run(): Promise<AgentResult> {
+        return {
+          kind: "ok",
+          stdout: `${PR_DESCRIPTION_BEGIN}\nJust a description without the required section\n${PR_DESCRIPTION_END}`,
+          stderr: "",
+        };
+      },
+      attributionLabel(): string {
+        return "test-agent";
+      },
+    };
+
+    const result = await generatePrDescription({
+      specPath: indexPath,
+      agent,
+      cwd: dir,
+    });
+
+    expect(result).toBeNull();
   });
 
   test("includes linked subspec content in the prompt", async () => {
@@ -526,7 +687,7 @@ describe("generatePrDescription", () => {
         prompt = receivedPrompt;
         return {
           kind: "ok",
-          stdout: "Updated feature\n\nDecisions:\n- Use details",
+          stdout: `${PR_DESCRIPTION_BEGIN}\nUpdated feature\n\nDecisions:\n- Use details\n${PR_DESCRIPTION_END}`,
           stderr: "",
         };
       },
@@ -554,7 +715,7 @@ describe("generatePrDescription", () => {
         seenSignal = opts.signal;
         return {
           kind: "ok",
-          stdout: "Updated feature\n\nDecisions:\n- Signal",
+          stdout: `${PR_DESCRIPTION_BEGIN}\nUpdated feature\n\nDecisions:\n- Signal\n${PR_DESCRIPTION_END}`,
           stderr: "",
         };
       },
@@ -569,19 +730,6 @@ describe("generatePrDescription", () => {
     });
 
     expect(seenSignal).toBe(controller.signal);
-  });
-
-  test("returns null when model response lacks Decisions section", async () => {
-    writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
-
-    const agent = createMockAgent("Just a description without decisions");
-    const result = await generatePrDescription({
-      specPath: indexPath,
-      agent,
-      cwd: dir,
-    });
-
-    expect(result).toBeNull();
   });
 
   test("returns null when agent fails", async () => {
@@ -612,15 +760,19 @@ describe("generatePrDescription", () => {
 });
 
 describe("updatePrBody with generation", () => {
+  const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
+  const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
+
   function createMockAgent(
     response: string = "Updated feature\n\nDecisions:\n- Use async generation\n- Store in markers",
   ): Agent {
+    const wrappedResponse = `${PR_DESCRIPTION_BEGIN}\n${response}\n${PR_DESCRIPTION_END}`;
     return {
       name: "claude",
       async run(): Promise<AgentResult> {
         return {
           kind: "ok",
-          stdout: response,
+          stdout: wrappedResponse,
           stderr: "",
         };
       },
@@ -721,12 +873,19 @@ describe("updatePrBody with generation", () => {
   test("preserves edited generated narrative when hash no longer matches", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
 
+    const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
+    const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
+
     let ran = false;
     const agent: Agent = {
       name: "claude",
       async run(): Promise<AgentResult> {
         ran = true;
-        return { kind: "ok", stdout: "REGEN\n\nDecisions:\n- x", stderr: "" };
+        return {
+          kind: "ok",
+          stdout: `${PR_DESCRIPTION_BEGIN}\nREGEN\n\nDecisions:\n- x\n${PR_DESCRIPTION_END}`,
+          stderr: "",
+        };
       },
       attributionLabel: () => "test-agent",
     };

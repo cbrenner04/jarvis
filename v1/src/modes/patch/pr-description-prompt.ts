@@ -1,7 +1,6 @@
-import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
-import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
+import { enforceDelimiterPolicy, renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
 
 const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
 const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";

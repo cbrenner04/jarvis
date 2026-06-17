@@ -2,7 +2,7 @@
 id: patch.prompt.pr-description
 behavior: patch
 kind: step
-revision: 1
+revision: 2
 placeholders: [SPEC_PATH:string!, SPEC_CONTEXT:string!]
 add: [shared.pr-description]
 ---

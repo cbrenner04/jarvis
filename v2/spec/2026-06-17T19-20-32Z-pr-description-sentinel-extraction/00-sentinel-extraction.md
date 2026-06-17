@@ -100,34 +100,34 @@ can't suppress preamble.
 
 ## Acceptance criteria
 
-- [ ] `prompts/shared/pr-description.md` instructs the model to wrap the
+- [x] `prompts/shared/pr-description.md` instructs the model to wrap the
       Description + `Decisions:` block in the literal `<<<PR_DESCRIPTION_BEGIN>>>`
       / `<<<PR_DESCRIPTION_END>>>` sentinels and to emit no content outside them.
-- [ ] Patch-mode `generatePrDescription`, given agent stdout containing
+- [x] Patch-mode `generatePrDescription`, given agent stdout containing
       conversational preamble before the opening sentinel followed by a
       well-formed sentinel-delimited Description + `Decisions:` block, returns
       only the inner block with no preamble.
-- [ ] Plan-mode `generatePrDescription`, given the same shape of input, returns
+- [x] Plan-mode `generatePrDescription`, given the same shape of input, returns
       only the inner block with no preamble.
-- [ ] Both impls discard any text after the closing sentinel.
-- [ ] Both impls return `null` when the opening sentinel is absent, the closing
+- [x] Both impls discard any text after the closing sentinel.
+- [x] Both impls return `null` when the opening sentinel is absent, the closing
       sentinel is absent, or the closing sentinel appears before the first
       opening sentinel.
-- [ ] Both impls return `null` when the sentinel-delimited content does not
+- [x] Both impls return `null` when the sentinel-delimited content does not
       contain `Decisions:`.
-- [ ] When a spec/intent file body fed into `SPEC_CONTEXT` (or plan `INTENT`)
+- [x] When a spec/intent file body fed into `SPEC_CONTEXT` (or plan `INTENT`)
       literally contains a sentinel token, the affected `generatePrDescription`
       returns `null` (guarded) rather than extracting an injected sentinel.
-- [ ] On the `null` return, patch mode assembles a header-only PR body (no
+- [x] On the `null` return, patch mode assembles a header-only PR body (no
       narrative markers, no leaked preamble) and plan mode assembles a body with
       no narrative section — the observable end-to-end body outcome.
-- [ ] Both `patch.prompt.pr-description` and `plan.prompt.pr-description` report
+- [x] Both `patch.prompt.pr-description` and `plan.prompt.pr-description` report
       `revision` `2`; the rendered PR-description prompt fixtures are
       `v1/test/fixtures/prompts/rendered/patch.prompt.pr-description@r2.shared.txt`
       and `…/plan.prompt.pr-description@r2.shared.txt`, the prior `@r1` fixtures
       are removed, and the rendered-snapshot test (with its updated revision
       assertions) passes.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

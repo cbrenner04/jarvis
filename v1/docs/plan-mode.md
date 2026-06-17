@@ -66,9 +66,11 @@ Notice there is **no** bullet telling reviewers to toggle draft/readiness — ja
 
 **With `commit: false`:** Milestone stderr lines for draft and review are similar (the target directory does not need to be a git repository; no "commit pushed" or "PR opened" steps since there is no GitHub integration).
 
-Stdout ends with:
+Stdout includes an early `Intent:` line after the external `intent.md` is written and before any later phase can fail, then ends with the final spec handoff:
 
 ```text
+Intent: ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/intent.md
+…
 Spec written to ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md
 Run with: jarvis1 run ~/.jarvis/specs/groceries/2026-05-18T14-30-45Z-feature/index.md
 ```

@@ -94,6 +94,11 @@ function disableReviewByDefault(opts: RunCommandOptions): RunCommandOptions {
 
 async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
   return runCommand({
+    // Default the completion `ready` gate to green so completion-path tests do
+    // not invoke a real `bun run ready` in their temp worktrees. Tests that
+    // exercise the gate pass their own `runCompletionReadyGate`, which wins via
+    // the spread below.
+    runCompletionReadyGate: () => ({ kind: "green" }),
     ...disableReviewByDefault(opts),
     skipGhCheck: true,
   });
@@ -422,6 +427,7 @@ describe("runCommand", () => {
         skipGhCheck: true,
         logClient: slowLogClient,
         handleSignals: false,
+        runCompletionReadyGate: () => ({ kind: "green" }),
       }),
     );
     const elapsedMs = Date.now() - startedAt;
@@ -457,6 +463,7 @@ describe("runCommand", () => {
         skipGhCheck: true,
         logClient: throwingLogClient,
         handleSignals: false,
+        runCompletionReadyGate: () => ({ kind: "green" }),
       }),
     );
 
@@ -606,17 +613,12 @@ describe("runCommand", () => {
     execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
     const spec = writeSpec("- [ ] todo\n");
     execSync("git add index.md && git commit -m init", { cwd: projectRoot });
-    
+
     const cap = captureIo();
-    let readyGateCalled = false;
-    const claude = new FakeAgent("claude", (callCount) => {
-      // First call: complete the spec
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
-      }
-      // Shrink phase (if it runs)
+    const gateCalls: string[] = [];
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      execSync("git add index.md && git commit -m done", { cwd: projectRoot });
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
@@ -627,15 +629,21 @@ describe("runCommand", () => {
       agents: { claude },
       handleSignals: false,
       reviewPasses: 0, // Disable review to isolate the completion gate
+      runCompletionReadyGate: (cwd) => {
+        gateCalls.push(cwd);
+        return { kind: "green" };
+      },
     });
 
     expect(code).toBe(0);
     expect(cap.out()).toContain("spec complete");
     expect(cap.out()).toContain("completion: running ready gate");
-    // When green, proceeds past the completion gate
+    // Gate runs once on the green completion path; no fix-up iteration.
+    expect(gateCalls).toHaveLength(1);
+    expect(claude.calls).toHaveLength(1);
   });
 
-  test("completion ready gate: red gate does not proceed to shrink/review", async () => {
+  test("completion ready gate: red gate loops back into one fix-up iteration, then completes", async () => {
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });
     execSync('git config user.email "jarvis-test@example.com"', {
       cwd: projectRoot,
@@ -643,19 +651,22 @@ describe("runCommand", () => {
     execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
     const spec = writeSpec("- [ ] todo\n");
     execSync("git add index.md && git commit -m init", { cwd: projectRoot });
-    
+
     const cap = captureIo();
-    const claude = new FakeAgent("claude", () => {
-      writeFileSync(spec, "- [x] todo\n");
-      execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+    const prompts: string[] = [];
+    const claude = new FakeAgent("claude", (callCount, prompt) => {
+      prompts.push(prompt);
+      if (callCount === 1) {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+      }
+      // The fix-up iteration (call 2) makes no checkbox change; progress is the
+      // completion gate going red -> green.
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    // TODO: Once loop-back is implemented in 01, this test will be extended
-    // to verify the red gate returns a loop-back signal that feeds back into
-    // the iteration loop rather than proceeding to shrink/review.
-    // For now, verify that the red gate path is exercised.
-
+    // Red on the first gate check (drives the loop-back), green afterwards.
+    let gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
       io: cap.io,
@@ -663,10 +674,22 @@ describe("runCommand", () => {
       agents: { claude },
       handleSignals: false,
       reviewPasses: 0,
+      runCompletionReadyGate: () => {
+        gateCalls += 1;
+        return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\nboom" } : { kind: "green" };
+      },
     });
 
     expect(code).toBe(0);
+    expect(cap.err()).toContain("completion: ready gate failed");
+    expect(cap.out()).toContain("fix-up: ready failure");
     expect(cap.out()).toContain("spec complete");
+    // One normal iteration plus one fix-up iteration.
+    expect(claude.calls).toHaveLength(2);
+    // The fix-up prompt carries the captured ready failure text.
+    expect(prompts[1]).toContain("bun run ready failed:");
+    // The fix-up iteration must not trip the checkbox no-progress stop.
+    expect(cap.err()).not.toContain("made no progress");
   });
 
   test("completes after an agent flips an unchecked box", async () => {
@@ -948,6 +971,7 @@ describe("runCommand", () => {
         skipGhCheck: true,
         logClient,
         handleSignals: false,
+        runCompletionReadyGate: () => ({ kind: "green" }),
       }),
     );
 
@@ -1526,7 +1550,9 @@ exit 1
     expect(readFileSync(prLog, "utf8").trim().split("\n")).toEqual(["create"]);
     expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(6);
     expect(readFileSync(prEditLog, "utf8").trim().split("\n")).toEqual(["edit"]);
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate"]);
+    // Three `bun run ready` invocations on the completion path: the completion
+    // gate, the shrink pre-gate backstop, and maybeMarkReady.
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate", "ready-gate"]);
     expect(readFileSync(readyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     expect(readFileSync(createCommitCount, "utf8").trim()).toBe("1");
     expect(readFileSync(readyCommitCount, "utf8").trim()).toBe("2");
@@ -1682,7 +1708,9 @@ exit 1
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(3);
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate"]);
+    // Three `bun run ready` invocations on the completion path: the completion
+    // gate, the shrink pre-gate backstop, and maybeMarkReady.
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate", "ready-gate"]);
     const expectedDegenerateBody = [
       "<!-- jarvis:narrative:start -->",
       "Auto-generated by jarvis",

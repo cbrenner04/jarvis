@@ -605,6 +605,38 @@ describe("runCommand", () => {
     expect(cap.out()).toContain("spec complete");
   });
 
+  test("orphan reap failure does not change the run exit code", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const spec = writeSpec("- [ ] todo\n");
+    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    // The reap entry point throws in both the per-iteration `finally` and at
+    // finalize; the run must still complete with its normal exit code.
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      __testReapFn: () => {
+        throw new Error("induced reap failure");
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("spec complete");
+  });
+
   test("completion ready gate: green gate proceeds to shrink/review with check:fix committed", async () => {
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });
     execSync('git config user.email "jarvis-test@example.com"', {

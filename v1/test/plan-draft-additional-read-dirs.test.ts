@@ -3,9 +3,9 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { planCommand } from "../src/commands/plan.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
-import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import type { LogClient } from "../src/logging.ts";
 
 class FakeAgent implements Agent {
@@ -87,21 +87,21 @@ describe("planCommand (additionalReadDirs production gate)", () => {
       const cap = captureIo();
 
       // Create a single fake agent that captures all calls
-       const fakeAgent = new FakeAgent("claude", (_c, _p, _opts) => {
-         // For the first call (draft), create the spec structure
-         if (_c === 1) {
-           // Extract external spec dir from the Intent: line
-           const intentOutput = cap.out();
-           const match = intentOutput.match(/^Intent: (.+?)\/intent\.md\n/m);
-           if (!match || !match[1]) throw new Error("Intent: path not found in output");
-           const externalSpecDir = match[1];
+      const fakeAgent = new FakeAgent("claude", (_c, _p, _opts) => {
+        // For the first call (draft), create the spec structure
+        if (_c === 1) {
+          // Extract external spec dir from the Intent: line
+          const intentOutput = cap.out();
+          const match = intentOutput.match(/^Intent: (.+?)\/intent\.md\n/m);
+          if (!match || !match[1]) throw new Error("Intent: path not found in output");
+          const externalSpecDir = match[1];
 
-           writeFileSync(join(externalSpecDir, "index.md"), "# Draft spec\n\n- [ ] [00](./00-one.md)\n");
-           writeFileSync(join(externalSpecDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
-         }
-         // For subsequent calls (review, verdict), return ok
-         return { kind: "ok", stdout: "", stderr: "" };
-       });
+          writeFileSync(join(externalSpecDir, "index.md"), "# Draft spec\n\n- [ ] [00](./00-one.md)\n");
+          writeFileSync(join(externalSpecDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
+        }
+        // For subsequent calls (review, verdict), return ok
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
 
       // Call planCommand with createAgent injection
       const result = await planCommand({

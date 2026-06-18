@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { appendAgentTrailer } from "./commit-trailer.ts";
+import { getCurrentBranch } from "../../shared/git.ts";
 import { pushCurrent } from "./worktree.ts";
 
 /**
@@ -11,14 +12,7 @@ export function isTreeUnchangedSinceRecordedGreen(opts: { cwd: string; recordedG
     return false;
   }
 
-  // Check if current HEAD matches recorded sha
-  const currentHeadSha = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: opts.cwd,
-    encoding: "utf8",
-    stdio: "pipe",
-  }).trim();
-
-  if (currentHeadSha !== opts.recordedGreenHeadSha) {
+  if (getCurrentHeadSha(opts.cwd) !== opts.recordedGreenHeadSha) {
     return false;
   }
 
@@ -111,14 +105,4 @@ export function getCurrentHeadSha(cwd: string): string {
     encoding: "utf8",
     stdio: "pipe",
   }).trim();
-}
-
-function getCurrentBranch(cwd: string): string {
-  const output = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
-  });
-  return output.trim();
 }

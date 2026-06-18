@@ -600,11 +600,7 @@ describe("runCommand", () => {
 
   describe("completion-transition ready gate", () => {
     test("runs bun run ready at the completion transition for git: true runs", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -627,11 +623,7 @@ describe("runCommand", () => {
     });
 
     test("records completion-transition ready green result keyed to HEAD sha + clean worktree", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -658,11 +650,7 @@ describe("runCommand", () => {
     });
 
     test("records post-check:fix HEAD sha when completion-transition ready lands a commit", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -688,11 +676,7 @@ describe("runCommand", () => {
     });
 
     test("completion-transition ready red does not record green result and proceeds to shrink/review", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -717,11 +701,7 @@ describe("runCommand", () => {
 
   describe("post-completion gate reuse", () => {
     test("on the default common path, in-scope reusable gates run ready exactly once total", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -752,11 +732,7 @@ describe("runCommand", () => {
     });
 
     test("tree is unchanged only when HEAD sha matches and worktree is clean", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -783,11 +759,7 @@ describe("runCommand", () => {
     });
 
     test("when tree is unchanged, shrink pre-gate skips ready and reuses recorded result", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -811,11 +783,7 @@ describe("runCommand", () => {
     });
 
     test("when tree is unchanged, review baseline gate skips ready and reuses recorded result", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -839,11 +807,7 @@ describe("runCommand", () => {
     });
 
     test("when tree is unchanged, maybeMarkReady skips ready, verifies clean worktree, and proceeds to gh pr ready", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -870,11 +834,7 @@ describe("runCommand", () => {
     });
 
     test("when shrink lands a commit, review baseline re-runs ready and refreshes recorded result", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -898,11 +858,7 @@ describe("runCommand", () => {
     });
 
     test("when check:fix commit moves HEAD, next gate sees changed tree and re-runs ready", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -926,11 +882,7 @@ describe("runCommand", () => {
     });
 
     test("when shrink bails on empty allowlist, shrink pre-gate contributes no ready run", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -954,11 +906,7 @@ describe("runCommand", () => {
     });
 
     test("when no green result recorded at completion transition, every gate runs ready itself", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -982,11 +930,7 @@ describe("runCommand", () => {
     });
 
     test("review final gate still runs ready unconditionally before gh pr ready", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
@@ -4397,6 +4341,14 @@ describe("review phase", () => {
     expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
   });
 });
+
+function setupGit(): void {
+  execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+  execSync('git config user.email "jarvis-test@example.com"', {
+    cwd: projectRoot,
+  });
+  execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+}
 
 function writeSpec(contents: string): string {
   const spec = join(projectRoot, "index.md");

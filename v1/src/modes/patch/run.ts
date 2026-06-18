@@ -45,7 +45,12 @@ import {
 } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
-import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
+import {
+  countUnchecked,
+  findBlockerInLinkedSubspecs,
+  getActiveLinkedSubspecPath,
+  getFirstUncheckedTask,
+} from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
 import { runPatchReviewPhase } from "./review.ts";
@@ -80,6 +85,14 @@ export type RunCommandOptions = {
   disambiguate?: DisambiguateFn;
   /** Value of the `--review-passes` CLI flag, if given. */
   reviewPasses?: number;
+  /**
+   * Test seam for the completion `ready` gate. Replaces the real `bun run
+   * ready` + `check:fix` commit run in `runCompletionReadyGate`. Return
+   * `{ kind: "green" }` to proceed into the post-completion phases, or
+   * `{ kind: "red", failureText }` to drive the loop-back fix-up iteration.
+   * Production callers must not set this.
+   */
+  runCompletionReadyGate?: (cwd: string) => CompletionReadyGateResult;
   /**
    * Test-only override for the watchdog/abort SIGKILL grace period in
    * milliseconds. Lets timing tests bound their wall-clock cost without
@@ -164,6 +177,8 @@ type IterationContext = {
     opencodeUnavailableNoted: boolean;
     cursorUnavailableNoted: boolean;
     currentController: AbortController | null;
+    completionLoopbackSignal: CompletionLoopbackSignal | null;
+    previousCompletionFailureText: string | null;
     completionTransitionReadyResult?: {
       /** HEAD sha after runReadyAndCommit returned */
       headSha: string;
@@ -175,6 +190,12 @@ type IterationOutcome =
   | { kind: "continue" }
   | { kind: "return"; exitCode: number }
   | { kind: "exit"; exitCode: number };
+
+type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string };
+
+type CompletionLoopbackSignal = {
+  failureText: string;
+};
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {
   const runStartedAt = new Date();
@@ -238,6 +259,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     opencodeUnavailableNoted: false,
     cursorUnavailableNoted: false,
     currentController: null as AbortController | null,
+    completionLoopbackSignal: null as CompletionLoopbackSignal | null,
+    previousCompletionFailureText: null as string | null,
   };
 
   const onSigint = () => {
@@ -706,11 +729,59 @@ function mapExitCodeToReason(exitCode: number): string {
       return "timeout";
     case 9:
       return "worktree-locked";
+    case 10:
+      return "ready-stuck-red";
     case 130:
       return "sigint";
     default:
       return `exit-${exitCode}`;
   }
+}
+
+/**
+ * Normalize a ready failure text by stripping known non-deterministic content.
+ * This allows comparison of two failures to detect whether the failure has changed
+ * substantively or only in noise (timings, paths, etc.).
+ */
+function normalizeReadyFailureText(text: string): string {
+  let normalized = text;
+
+  // Strip absolute worktree paths: replace with [WORKTREE_PATH]
+  normalized = normalized.replace(/\/[\w\-./]+\/\.worktree\/[\w\-./]+/g, "[WORKTREE_PATH]");
+
+  // Strip durations like "1234ms", "5.67s", etc.
+  normalized = normalized.replace(/\b\d+(?:\.\d+)?(?:ms|s|m|h)\b/g, "[DURATION]");
+
+  // Strip wall-clock timings like "12:34:56"
+  normalized = normalized.replace(/\b\d{1,2}:\d{2}:\d{2}\b/g, "[TIME]");
+
+  // Strip dates like "2026-06-17", "June 17", etc.
+  normalized = normalized.replace(
+    /\b(?:\d{4}-\d{2}-\d{2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2})\b/gi,
+    "[DATE]",
+  );
+
+  // Strip deadline/timeout messaging like "deadline in 12m34s"
+  normalized = normalized.replace(/deadline\s+in\s+\d+[mshd](?:\d+[mshd])?/gi, "[DEADLINE]");
+
+  // Strip numeric IDs and hashes
+  normalized = normalized.replace(/\b[0-9a-f]{7,}\b/g, "[HASH]");
+
+  return normalized;
+}
+
+/**
+ * Compare two ready failure texts after normalization.
+ * Returns true if the failures are effectively unchanged (only noise differs),
+ * false if the failures have substantively changed.
+ */
+function isReadyFailureUnchanged(previousText: string | null, currentText: string): boolean {
+  if (previousText === null) {
+    return false;
+  }
+  const normalizedPrevious = normalizeReadyFailureText(previousText);
+  const normalizedCurrent = normalizeReadyFailureText(currentText);
+  return normalizedPrevious === normalizedCurrent;
 }
 
 async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
@@ -737,12 +808,26 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   state.latestIterationStdout = [];
   state.latestIterationStderr = [];
   const before = countUnchecked(specPath);
+  let isFixupIteration = false;
   if (before === 0) {
-    // tryFinishSpecIfDone returns null only when countUnchecked !== 0; since
-    // we just observed before === 0 it returns either 0 (spec complete) or 6
-    // (worktree blocker). Default to 0 if it ever races to null.
-    const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
-    return { kind: "return", exitCode: done };
+    if (state.completionLoopbackSignal === null) {
+      // Normal completion flow: tryFinishSpecIfDone returns null only when countUnchecked !== 0; since
+      // we just observed before === 0 it returns either 0 (spec complete) or 6
+      // (worktree blocker). Default to 0 if it ever races to null.
+      const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+      if (state.completionLoopbackSignal !== null) {
+        // Red completion gate set a loop-back signal: run a fix-up iteration in
+        // this same iteration (fall through to build the fix-up prompt below).
+        isFixupIteration = true;
+      } else {
+        return { kind: "return", exitCode: done };
+      }
+    } else {
+      // A loop-back signal carried over from a prior iteration's red completion
+      // gate: run another fix-up iteration. The post-fix-up gate re-check (and
+      // any completion) happens in the after === 0 block once the agent returns.
+      isFixupIteration = true;
+    }
   }
 
   const agent = activeAgents[0];
@@ -763,8 +848,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
   const configuredPatchModel = configuredPatchModelEntry?.model;
 
-  const task = getFirstUncheckedTask(specPath);
-  const taskExcerpt = task.line.slice(0, 140);
+  // For fix-up iterations, we don't get a task from the spec; instead we use the captured failure text
+  const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);
+  const taskExcerpt = isFixupIteration ? "ready: fix bun run ready failure" : task?.line.slice(0, 140);
   const activeSubspecPath = isIndexSpec ? getActiveLinkedSubspecPath(specPath) : undefined;
   const preIterationHead =
     gitEnabled && existsSync(join(agentWorkingDir, ".git"))
@@ -776,7 +862,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       : null;
 
   // Check if the active subspec already has a blocker at the start
-  if (activeSubspecPath !== undefined) {
+  // Skip for fix-up iterations since there's no active unchecked subspec
+  if (!isFixupIteration && activeSubspecPath !== undefined) {
     const parsedSubspec = parsePatchSpec(readFileSync(activeSubspecPath, "utf8"));
     if (parsedSubspec.blocker !== undefined) {
       const blockerBody = parsedSubspec.blocker;
@@ -796,7 +883,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
 
   let beforeCriteria: AcceptanceCriterion[] = [];
   let hasBlockerBefore = false;
-  if (activeSubspecPath !== undefined) {
+  if (!isFixupIteration && activeSubspecPath !== undefined) {
     const beforeParse = parsePatchSpec(readFileSync(activeSubspecPath, "utf8"));
     hasBlockerBefore = beforeParse.blocker !== undefined;
     beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
@@ -811,18 +898,31 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       return { kind: "return", exitCode: 1 };
     }
   }
-  const banner = `project: ${preflight.project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task.ordinal}/${task.total} ${taskExcerpt} | agent: ${agent.name}\n`;
-  fanout("harness", banner, "stdout", {
+  const banner = isFixupIteration
+    ? `project: ${preflight.project.key} | spec: ${specDisplayName} | iteration: ${iteration} | fix-up: ready failure | agent: ${agent.name}\n`
+    : `project: ${preflight.project.key} | spec: ${specDisplayName} | iteration: ${iteration} | current-task: ${task?.ordinal}/${task?.total} ${taskExcerpt} | agent: ${agent.name}\n`;
+  const bannerAnnotations: LogAnnotations = {
     project: preflight.project.key,
     spec: specDisplayName,
     iteration,
-    currentTask: taskExcerpt,
-    currentTaskOrdinal: task.ordinal,
-    currentTaskTotal: task.total,
     agent: agent.name,
-  });
+  };
+  if (!isFixupIteration) {
+    if (taskExcerpt !== undefined) {
+      bannerAnnotations.currentTask = taskExcerpt;
+    }
+    if (task?.ordinal !== undefined) {
+      bannerAnnotations.currentTaskOrdinal = task.ordinal;
+    }
+    if (task?.total !== undefined) {
+      bannerAnnotations.currentTaskTotal = task.total;
+    }
+  }
+  fanout("harness", banner, "stdout", bannerAnnotations);
   const projectSiblings = preflight.cfg.projects[preflight.project.key]?.siblings;
-  const prompt = buildPrompt(specPath, projectSiblings);
+  const prompt = isFixupIteration
+    ? buildFixupPrompt(specPath, state.completionLoopbackSignal?.failureText ?? "", projectSiblings)
+    : buildPrompt(specPath, projectSiblings);
   fanout("outbound", prompt, null, {
     iteration,
     agent: agent.name,
@@ -1149,6 +1249,57 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           }
         }
       }
+
+      // For fix-up iterations, check for a blocker added during the iteration
+      // without depending on an unchecked linked subspec (which doesn't exist at full completion).
+      // The blocker check takes precedence over other completion processing.
+      if (isFixupIteration && isIndexSpec) {
+        const blockerInfo = findBlockerInLinkedSubspecs(afterSpecPath);
+        if (blockerInfo !== undefined) {
+          if (gitEnabled) {
+            try {
+              // For fix-up iterations, we don't have granular before/after criteria,
+              // so we commit with empty checkedTotal
+              commitWipProgressWithBlocker(blockerInfo.path, {
+                cwd: agentWorkingDir,
+                newlyChecked: [],
+                checkedTotal: 0,
+                total: 0,
+                blockerBody: blockerInfo.body,
+                agentLabel: agent.attributionLabel(),
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout("harness", `failed to commit blocker for ${blockerInfo.path}: ${message}\n`, "stderr");
+              return { kind: "return", exitCode: 1 };
+            }
+
+            if (!opts.skipGhCheck) {
+              try {
+                const firstPush = !hasUpstream(agentWorkingDir);
+                pushCurrent({ cwd: agentWorkingDir, firstPush });
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                fanout("harness", `failed to push blocker commit for ${blockerInfo.path}: ${message}\n`, "stderr");
+                return { kind: "return", exitCode: 1 };
+              }
+            }
+          }
+
+          const blockerText = `${blockerInfo.path}\n\n${blockerInfo.body}`;
+          fanout("harness", `${blockerText}\n`, "stderr");
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "blocked",
+            exitReason: "blocker-detected",
+            ...telemetryMeta,
+          });
+          return { kind: "return", exitCode: 7 };
+        }
+      }
+
       if (preIterationHead !== null) {
         accumulateImplementationTouchedFiles(
           agentWorkingDir,
@@ -1173,6 +1324,13 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         // we just observed after === 0 so it returns 0 (spec complete) or 6
         // (worktree blocker). Default to 0 if it ever races to null.
         const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+        // Check if a loop-back signal was set (red completion gate)
+        if (state.completionLoopbackSignal !== null) {
+          // Loop back for fix-up iteration: don't write the completion telemetry,
+          // just continue to the next iteration
+          state.iteration += 1;
+          return { kind: "continue" };
+        }
         writeTelemetry({
           agent: agent.name,
           iteration,
@@ -1198,7 +1356,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         });
         return { kind: "return", exitCode: 0 };
       }
-      if (after === before && !subspecCompleted && !subspecProgressed) {
+      // For fix-up iterations, we don't check no-progress since all boxes are already checked;
+      // instead we re-check ready at the start of the next iteration
+      if (!isFixupIteration && after === before && !subspecCompleted && !subspecProgressed) {
         printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
         fanout("harness", `iteration ${iteration} made no progress; stopping\n`, "stderr");
 
@@ -1353,6 +1513,47 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   }
 }
 
+function buildFixupPrompt(specPath: string, failureText: string, siblings?: string[]): string {
+  // The fix-up iteration's task is the captured `bun run ready` failure, not an
+  // unchecked spec task. Reuse the normal patch prompt (spec context + rules)
+  // and prepend the completion-gate failure as the work to do.
+  const base = buildPrompt(specPath, siblings);
+  const preamble = [
+    "The spec checklist is complete, but the completion `ready` gate failed:",
+    "",
+    failureText.trim(),
+    "",
+    "Fix the cause of this `bun run ready` failure. Do not edit the spec checklist; all boxes are already ticked.",
+    "",
+  ].join("\n");
+  return `${preamble}\n${base}`;
+}
+
+async function runCompletionReadyGate(ctx: IterationContext): Promise<CompletionReadyGateResult> {
+  const { preflight, logging, opts } = ctx;
+  logging.fanout("harness", "completion: running ready gate\n", "stdout");
+
+  if (opts.runCompletionReadyGate !== undefined) {
+    const result = opts.runCompletionReadyGate(preflight.agentWorkingDir);
+    if (result.kind === "red") {
+      logging.fanout("harness", `completion: ready gate failed: ${result.failureText}\n`, "stderr");
+    }
+    return result;
+  }
+
+  try {
+    runReadyAndCommit({
+      cwd: preflight.agentWorkingDir,
+      agentLabel: "completion-ready",
+    });
+    return { kind: "green" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logging.fanout("harness", `completion: ready gate failed: ${message}\n`, "stderr");
+    return { kind: "red", failureText: message };
+  }
+}
+
 async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null> {
   const { preflight, logging } = ctx;
   if (countUnchecked(preflight.specPath) !== 0) {
@@ -1376,25 +1577,68 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   const implementationIterations = logging.patchIterationsCompletedForSummary();
   const shouldRunShrink = preflight.gitEnabled && implementationIterations > 0;
   const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && implementationIterations > 0;
+  const shouldRunCompletionReadyGate = preflight.gitEnabled && implementationIterations > 0;
 
-  // Completion-transition ready gate: run once at the completion transition for git: true runs
-  if (preflight.gitEnabled) {
-    try {
-      runReadyAndCommit({
-        cwd: preflight.agentWorkingDir,
-        agentLabel: "completion-transition",
-      });
-      // On green, record the result keyed to HEAD sha + clean worktree
-      const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: preflight.agentWorkingDir,
-        encoding: "utf8",
-        stdio: "pipe",
-      }).trim();
-      ctx.state.completionTransitionReadyResult = { headSha };
-    } catch (err) {
-      // On red, preserve current post-completion behavior unchanged
-      const message = err instanceof Error ? err.message : String(err);
-      logging.fanout("harness", `warning: completion-transition ready gate failed: ${message}\n`, "stderr");
+  // Run completion ready gate before shrink and review
+  if (shouldRunCompletionReadyGate) {
+    const gateResult = await runCompletionReadyGate(ctx);
+    if (gateResult.kind === "red") {
+      // Red completion ready gate.
+      // Check if this is a stuck-red stop: failure unchanged and no new checkbox/blocker
+      const hasNewBlocker = findBlockerInLinkedSubspecs(preflight.specPath) !== undefined;
+      const isStuckRed =
+        ctx.state.previousCompletionFailureText !== null &&
+        isReadyFailureUnchanged(ctx.state.previousCompletionFailureText, gateResult.failureText) &&
+        countUnchecked(preflight.specPath) === 0 &&
+        !hasNewBlocker;
+
+      if (isStuckRed) {
+        // Stuck-red stop: the failure is unchanged, no new checkbox, no new blocker
+        const worktreeName = basename(preflight.agentWorkingDir);
+        logging.fanout(
+          "harness",
+          `bun run ready failed:\n${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          "stderr",
+        );
+        logging.writeTelemetry({
+          agent: "harness",
+          iteration: ctx.state.iteration,
+          durationMs: 0,
+          kind: "ok",
+          exitReason: "ready-stuck-red",
+          record_role: "run_terminal",
+        });
+        // Clear the loop-back signal so the caller returns exit 10 instead of
+        // treating the still-set signal as another fix-up loop.
+        ctx.state.completionLoopbackSignal = null;
+        return 10;
+      }
+
+      // Red but failure changed: loop back for another fix-up iteration
+      ctx.state.previousCompletionFailureText = gateResult.failureText;
+      ctx.state.completionLoopbackSignal = { failureText: gateResult.failureText };
+      return null;
+    }
+    // Green: the gate passed. Clear any loop-back signal and previous failure text
+    // so the caller finalizes completion instead of looping again.
+    ctx.state.completionLoopbackSignal = null;
+    ctx.state.previousCompletionFailureText = null;
+    // This single completion gate doubles as the completion-transition ready
+    // gate: on green, record the result keyed to HEAD sha + clean worktree so
+    // the downstream shrink, review, and maybeMarkReady phases reuse it instead
+    // of re-running `bun run ready`.
+    if (preflight.gitEnabled && existsSync(join(preflight.agentWorkingDir, ".git"))) {
+      try {
+        const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: preflight.agentWorkingDir,
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        ctx.state.completionTransitionReadyResult = { headSha };
+      } catch {
+        // No HEAD sha available (e.g. not a git worktree in tests): skip
+        // recording; downstream gates fall back to running ready themselves.
+      }
     }
   }
 

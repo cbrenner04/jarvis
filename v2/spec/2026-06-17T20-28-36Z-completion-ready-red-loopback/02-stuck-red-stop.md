@@ -105,33 +105,33 @@ reconciliation.
 
 ## Acceptance criteria
 
-- [ ] When `ready` is still red after a fix-up iteration with no new checkbox,
+- [x] When `ready` is still red after a fix-up iteration with no new checkbox,
       no new `## Blocker`, and an unchanged (post-normalization) captured `ready`
       failure, the run stops with exit `10`.
-- [ ] Exit `10` maps to a recoverable stop reason (`ready-stuck-red`) distinct
+- [x] Exit `10` maps to a recoverable stop reason (`ready-stuck-red`) distinct
       from no-progress (not `4`) and from the hard error (not `1`).
-- [ ] On that stop, stderr names the captured `ready` failure text and a
+- [x] On that stop, stderr names the captured `ready` failure text and a
       worktree pointer (the worktree path and `jarvis1 triage <worktree-name>`).
-- [ ] A captured `ready` failure body that differs after normalization between
+- [x] A captured `ready` failure body that differs after normalization between
       fix-up iterations is treated as progress: the run loops again rather than
       stopping.
-- [ ] A noise-only difference (e.g. changed timings or absolute paths with an
+- [x] A noise-only difference (e.g. changed timings or absolute paths with an
       otherwise identical failure) is treated as unchanged and does not by itself
       keep the run looping.
-- [ ] The stuck-red stop emits a telemetry record carrying the
+- [x] The stuck-red stop emits a telemetry record carrying the
       `ready-stuck-red` reason so the stop is observable in telemetry/summary.
-- [ ] No completion-path run exits `1` solely because `ready` was red: the
+- [x] No completion-path run exits `1` solely because `ready` was red: the
       review baseline gate (`review.ts:583`) is left as an unreachable backstop
       or softened per the pinned decision.
 
 ## Documentation updates
 
-- [ ] `v1/docs/run-loop.md`: add the exit-`10` `ready-stuck-red` row to the
+- [x] `v1/docs/run-loop.md`: add the exit-`10` `ready-stuck-red` row to the
       stop-conditions table, document the stuck-red stop (captured failure +
       worktree pointer), the normalized changed-vs-unchanged failure test, and
       the baseline-gate disposition; add exit `10` to the list that prints the
       bounded output tail if applicable.
-- [ ] `v2/docs/v1-behaviors.md`: record the stuck-red completion stop (exit `10`,
+- [x] `v2/docs/v1-behaviors.md`: record the stuck-red completion stop (exit `10`,
       `ready-stuck-red`), the normalized failure-change test, and the baseline-
       gate reconciliation under the patch-mode catalog, with `Sources:` pointers
       (`run.ts:682`/`1190`, `review.ts:583`, `ready-gate.ts`).

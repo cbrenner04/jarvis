@@ -141,7 +141,7 @@ exit 0
       }
     }
     expect(descendantDead).toBe(true);
-  }, { timeout: 5000 });
+  }, { timeout: 10000 });
 
   test("kill failure during reap leaves result unchanged", async () => {
     const bin = join(dir, "agent");

@@ -4817,6 +4817,9 @@ describe("--resume-review: review resume on completed specs", () => {
       config: { dir: cfgDir },
       agents: { claude },
       resumeReview: true,
+      // CI has no authenticated gh; skip the gh-ready preflight so this test
+      // exercises the resume-review branch-existence guard, not assertGhReady.
+      skipGhCheck: true,
       logClient: { assertReachable: async () => {}, send: async () => {} },
       handleSignals: false,
     });

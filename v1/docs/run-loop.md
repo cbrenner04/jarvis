@@ -641,6 +641,31 @@ jarvis1 log-server
 On exit `4`, `5`, and `10`, the bounded tail of recent agent output is printed to the
 terminal to help diagnose why progress stalled.
 
+## Agent process lifecycle
+
+Agents are spawned with `detached: true` in their own process group
+(`v1/src/agents/spawn.ts`). On normal completion with exit code `0` and no
+abort reason, Jarvis best-effort reaps in-group stragglers via
+`process.kill(-pgid, "SIGKILL")` from a `child.on("exit")` handler. The reap is
+non-fatal: a kill error (including `ESRCH` on a clean close where the agent left
+no descendant) is swallowed and does not affect the settled result kind or exit
+code.
+
+**Deadlock rationale**: The reap runs on `exit` rather than on the close branch
+because `close` fires only after the agent's stdout/stderr streams tear down. If
+a straggler inherited the agent's stdout/stderr pipes, it holds them open
+indefinitely, preventing stream teardown and causing settlement (which waits for
+stream end) to deadlock. The `exit` event fires when the process itself
+terminates, independent of pipe state; killing the group then closes those
+inherited pipes, allowing the streams to end and settlement to proceed.
+
+Reaping does **not** run when `code !== 0`, on the error-settle path,
+quota/model-config branches, the `child.on("error")` path, or during abort/timeout
+(which have their own group-kill logic).
+
+Only in-group descendants are targeted: a process that left the agent's process
+group (e.g. started its own session) is out of scope and is not killed.
+
 When an iteration timeout fires, Jarvis logs a single watchdog line to both the
 run terminal and session log:
 `[watchdog] iteration timeout fired after Nms; killing agent pgid <pgid>`.

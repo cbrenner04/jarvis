@@ -89,3 +89,104 @@ fi
     }
   });
 });
+
+describe("runAgent process group reaping", () => {
+  test(
+    "normal close with in-group descendant reaped",
+    async () => {
+      const bin = join(dir, "agent");
+      const pidFile = join(dir, "descendant.pid");
+      const script = `#!/usr/bin/env bash
+# Spawn a background sleep in the same process group
+sleep 120 &
+# Record the PID before exiting
+echo $! > "${pidFile}"
+exit 0
+`;
+      writeFileSync(bin, script);
+      chmodSync(bin, 0o755);
+
+      const result = await runAgent(
+        {
+          name: "claude",
+          binary: bin,
+          cwd: realpathSync(cwd),
+          buildArgv: () => [],
+          stdio: ["ignore", "pipe", "pipe"],
+          streamErrorPrefix: "test:",
+        },
+        "test",
+        { cwd },
+      );
+
+      expect(result.kind).toBe("ok");
+
+      // Poll for descendant death with bounded retries.
+      const pidStr = readFileSync(pidFile, "utf8").trim();
+      const pid = parseInt(pidStr, 10);
+      expect(pid).toBeGreaterThan(0);
+
+      let descendantDead = false;
+      for (let i = 0; i < 20; i++) {
+        try {
+          // Sending signal 0 checks if process exists without killing it.
+          process.kill(pid, 0);
+          // Process still exists; wait and retry.
+          await new Promise((r) => setTimeout(r, 100));
+        } catch (err: unknown) {
+          // Process does not exist; reap succeeded.
+          if (err instanceof Error && err.message.includes("ESRCH")) {
+            descendantDead = true;
+            break;
+          }
+          throw err;
+        }
+      }
+      expect(descendantDead).toBe(true);
+    },
+    { timeout: 10000 },
+  );
+
+  test("kill failure during reap leaves result unchanged", async () => {
+    const bin = join(dir, "agent");
+    const script = `#!/usr/bin/env bash
+exit 0
+`;
+    writeFileSync(bin, script);
+    chmodSync(bin, 0o755);
+
+    // Stub process.kill to throw on group-kill attempts; track invocations.
+    const originalKill = process.kill.bind(process);
+    let killAttempted = false;
+    const killStub = (pid: number, signal?: string | number): true => {
+      if (pid < 0 && signal === "SIGKILL") {
+        killAttempted = true;
+        throw new Error("kill stub failure");
+      }
+      return originalKill(pid, signal);
+    };
+    (process.kill as (pid: number, signal?: string | number) => true) = killStub;
+
+    try {
+      const result = await runAgent(
+        {
+          name: "claude",
+          binary: bin,
+          cwd: realpathSync(cwd),
+          buildArgv: () => [],
+          stdio: ["ignore", "pipe", "pipe"],
+          streamErrorPrefix: "test:",
+        },
+        "test",
+        { cwd },
+      );
+
+      // Verify the reap was attempted (kill stub was invoked on group SIGKILL).
+      expect(killAttempted).toBe(true);
+      // Verify result kind and exit code are unchanged despite kill failure.
+      expect(result.kind).toBe("ok");
+    } finally {
+      process.kill = originalKill;
+    }
+  });
+});

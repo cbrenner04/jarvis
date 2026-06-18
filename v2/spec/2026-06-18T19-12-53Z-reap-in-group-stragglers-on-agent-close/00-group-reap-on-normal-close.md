@@ -61,17 +61,17 @@ not attempt to.
 
 ## Acceptance criteria
 
-- [ ] A success-branch agent completion (close `code === 0` or
+- [x] A success-branch agent completion (close `code === 0` or
   `code === undefined`, no abort) that left an in-group descendant running reaps
   that descendant.
-- [ ] A kill failure during the close-path sweep leaves the settled result kind
+- [x] A kill failure during the close-path sweep leaves the settled result kind
   (`ok`) and exit code unchanged.
-- [ ] A descendant that left the agent's process group is not targeted (out of
+- [x] A descendant that left the agent's process group is not targeted (out of
   scope).
-- [ ] Existing spawn, abort, and timeout behavior is unchanged.
-- [ ] `v1/docs/run-loop.md` states the harness reaps in-group stragglers on
+- [x] Existing spawn, abort, and timeout behavior is unchanged.
+- [x] `v1/docs/run-loop.md` states the harness reaps in-group stragglers on
   normal agent completion.
-- [ ] `v2/docs/v1-behaviors.md` records the close-path group reap as current v1
+- [x] `v2/docs/v1-behaviors.md` records the close-path group reap as current v1
   behavior.
 
 ## Documentation updates

@@ -176,7 +176,7 @@ where it can be edited by reviewers. If generation fails, jarvis falls back to
 ## Review phase
 
 After the spec is complete and `git: true` is in effect, `jarvis1 run` enters
-a post-completion review phase configured by `modes.review.passes` (default `2`).
+a post-completion review phase configured by `modes.review.passes` (default `1`).
 The review phase is skipped when `passes` is `0`, when `git` is `false`, or when
 the run completed no implementation iterations. Patch review routes through the
 shared review runner in `v1/src/modes/review/` with a patch adapter; review

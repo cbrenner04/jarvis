@@ -38,11 +38,13 @@ import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import {
   createWorktreeSymlinks,
   ensureWorktree,
+  getSpecName,
   hasUpstream,
   pushCurrent,
   worktreeCompletionBlocker,
 } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
+import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
@@ -79,12 +81,14 @@ export type RunCommandOptions = {
   disambiguate?: DisambiguateFn;
   /** Value of the `--review-passes` CLI flag, if given. */
   reviewPasses?: number;
+  /** True if `--resume-review` was passed; runs review on an already-complete spec. */
+  resumeReview?: boolean;
   /**
-   * Test-only override for the watchdog/abort SIGKILL grace period in
-   * milliseconds. Lets timing tests bound their wall-clock cost without
-   * waiting the full 5s grace for SIGTERM-ignoring grandchildren. Defaults
-   * to 5000ms; production callers must not set this.
-   */
+    * Test-only override for the watchdog/abort SIGKILL grace period in
+    * milliseconds. Lets timing tests bound their wall-clock cost without
+    * waiting the full 5s grace for SIGTERM-ignoring grandchildren. Defaults
+    * to 5000ms; production callers must not set this.
+    */
   __testKillGraceMs?: number;
 };
 
@@ -334,6 +338,35 @@ async function resolveModeSpecificPreflight(
       await assertGhReady();
     } catch (err) {
       opts.io.stderr(`${(err as Error).message}\n`);
+      return { kind: "error", exitCode: 1 };
+    }
+  }
+
+  // Handle --resume-review guards (run before ensureWorktree)
+  if (opts.resumeReview) {
+    // Guard 1: review disabled
+    const reviewPasses = resolveReviewPasses(cfg, opts.reviewPasses);
+    if (reviewPasses === 0) {
+      opts.io.stderr("error: --resume-review requires review passes > 0; enable review in config or pass --review-passes <n>\n");
+      return { kind: "error", exitCode: 1 };
+    }
+
+    // Guard 2: git off
+    if (!gitEnabled) {
+      opts.io.stderr("error: --resume-review requires git mode to be enabled; set \"git\": true in config\n");
+      return { kind: "error", exitCode: 1 };
+    }
+
+    // Guard 3: no implementation PR / remote branch
+    const specName = getSpecName(initialSpecPath);
+    if (!branchExistsOnOrigin(project.root, specName)) {
+      opts.io.stderr(`error: no implementation PR exists for spec ${specName}; no remote branch found\n`);
+      return { kind: "error", exitCode: 1 };
+    }
+
+    // Guard 4: incomplete spec
+    if (countUnchecked(initialSpecPath) !== 0) {
+      opts.io.stderr("error: spec has unchecked tasks; --resume-review only works on complete specs\n");
       return { kind: "error", exitCode: 1 };
     }
   }
@@ -1351,7 +1384,9 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
   const implementationIterations = logging.patchIterationsCompletedForSummary();
   const shouldRunShrink = preflight.gitEnabled && implementationIterations > 0;
-  const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && implementationIterations > 0;
+  // Review runs when: (1) normal completion with at least one iteration, OR (2) review resume is active
+  const shouldRunReview =
+    preflight.gitEnabled && reviewPasses > 0 && (implementationIterations > 0 || ctx.opts.resumeReview === true);
 
   if (shouldRunShrink) {
     const { fanout, writeTelemetry } = ctx.logging;

@@ -223,7 +223,7 @@ describe("run", () => {
     expect(code).toBe(0);
     const out = cap.out();
     expect(out).toContain(
-      "run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>",
+      "run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>",
     );
     expect(out).toContain("init");
     expect(out).toContain("config");

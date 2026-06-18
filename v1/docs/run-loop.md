@@ -153,7 +153,45 @@ shared review runner in `v1/src/modes/review/` with a patch adapter; review
 agents resolve from `modes.review.agentOrder`, falling back to
 `modes.plan.agentOrder`, not the implementation agents.
 
-The review phase flow is:
+### Resuming review on a completed spec
+
+`jarvis1 run --resume-review <spec-path>` re-enters the post-completion review
+phase on an already-complete spec without running implementation agents. This
+allows an operator to retry or rerun review when the initial completion didn't
+trigger review, the initial review failed, or the branch moved and review
+needs to retry.
+
+**Preflight guards** enforce:
+
+- **Review disabled**: `modes.review.passes` is `0` or `--review-passes 0` was
+  passed; exits `1`.
+- **Git off**: Effective `git` is `false`; exits `1`.
+- **No implementation PR**: No remote branch (and therefore no PR) exists for the
+  resolved spec's branch; exits `1`. A missing-but-recreatable local worktree is
+  **not** an error, because the resolver can recreate the worktree from the
+  remote branch.
+- **Incomplete spec**: The spec has unchecked tasks; exits `1`.
+
+Guard errors each print a distinct message naming the reason and exit with code
+`1` before any agent runs.
+
+**Execution**: When the guards pass, `jarvis1 run --resume-review` proceeds to
+the same review-phase entry as a normal completion, bypassing the
+`implementationIterations > 0` gate for review only. The shrink phase is still
+skipped (no `patch_phase: "shrink"` telemetry row is emitted). All existing
+review outcomes are preserved:
+
+- Baseline or final gate failure: non-zero exit code, PR stays draft.
+- Review blocker: exit `7`, blocker content printed to stderr.
+- Review quota exhaustion: exit `2`.
+- Already-ready PR: idempotent no-op (final `gh pr ready` leaves it untouched).
+
+`--max-iterations` is accepted but has no behavioral effect (review resume runs
+no implementation iterations).
+
+The review phase flow
+
+is:
 
 1. **Baseline gate**: runs `bun run ready` (install → check:fix → typecheck → 
    test → check). If check:fix makes changes, they are committed. The draft PR 
@@ -478,7 +516,7 @@ jarvis1 log-server
 | Exit | Meaning |
 | --- | --- |
 | `0` | Spec complete. |
-| `1` | Bad input (unknown command, missing args, invalid `--max-iterations`, unregistered project, etc.). |
+| `1` | Bad input (unknown command, missing args, invalid `--max-iterations`, unregistered project, `--resume-review` guard failure, etc.). `--resume-review` guard failures include: review passes resolve to `0`, effective `git` is `false`, no implementation PR/remote branch exists for the spec's branch, or the spec has unchecked tasks. Each guard prints a distinct message before exiting. |
 | `2` | Every configured agent was quota-exhausted. |
 | `3` | The active agent failed for a non-quota reason. |
 | `4` | A successful agent iteration made no progress (unchecked count unchanged and spec still incomplete). |

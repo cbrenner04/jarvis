@@ -423,6 +423,12 @@ rm -rf ~/.jarvis/specs/<project-key>/<spec-dir>/
 
 The `jarvis1 cleanup` command does not delete Jarvis-owned external specs; it only handles git worktrees and target-repo `spec/` directories from `commit: true` runs.
 
+## External spec directory write access
+
+With `commit: false`, the draft, review, and verdict-actuator phases run with write access to the external spec directory (under `~/.jarvis/specs/…`), allowing the agent to write `index.md` and subspecs and to append `## Blocker` sections to the external `intent.md`. Only Claude and Codex receive this access as `--add-dir` flags; Cursor and Opencode never receive the directory, and Aider receives it as a positional argument. Write effectiveness varies by agent: Claude and Codex honor the grant; Cursor, Opencode, and Aider cannot write external files (inherited limitation of their underlying permission models).
+
+With `commit: true`, the spec directory lives inside the worktree (under `<targetDir>/`), so no external write grant is needed.
+
 ## Validation rules
 
 Each generated or rewritten spec must satisfy these rules (enforced by plan mode and inherited from patch mode):

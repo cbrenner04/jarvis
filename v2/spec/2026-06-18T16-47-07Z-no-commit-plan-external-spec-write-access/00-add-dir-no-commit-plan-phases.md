@@ -64,26 +64,26 @@ no widening.
 
 ## Acceptance criteria
 
-- [ ] Under `commit: false`, a plan draft against an external spec path captures
+- [x] Under `commit: false`, a plan draft against an external spec path captures
       `agent.run` options whose `additionalReadDirs` contains the external spec
       dir (`finalSpecPath`), proven by a regression test that drives the
       production call path (it does not pass the spec dir as the agent's working
       directory).
-- [ ] The same no-commit draft regression test asserts `additionalReadDirs`
+- [x] The same no-commit draft regression test asserts `additionalReadDirs`
       contains the external spec dir on the `## Blocker` append path (the only
       honest signal with a fake agent: the dir reached `agent.run`, not that a
       write grant enabled the append).
-- [ ] Under `commit: false`, the review phase passes the external spec dir to
+- [x] Under `commit: false`, the review phase passes the external spec dir to
       the shared review runner's `agent.run` via `additionalReadDirs`.
-- [ ] Under `commit: false`, the verdict-actuator phase invokes `agent.run`
+- [x] Under `commit: false`, the verdict-actuator phase invokes `agent.run`
       with the external spec dir in `additionalReadDirs`.
-- [ ] Under `commit: true`, plan draft, review, and verdict-actuator each invoke
+- [x] Under `commit: true`, plan draft, review, and verdict-actuator each invoke
       `agent.run` with no plan-spec directory in `additionalReadDirs` (committed
       behavior unchanged); existing `commit: true` plan tests pass.
-- [ ] Patch review leaves the shared review runner's `additionalReadDirs`
+- [x] Patch review leaves the shared review runner's `additionalReadDirs`
       option unset (the shared runner is not widened for patch callers).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

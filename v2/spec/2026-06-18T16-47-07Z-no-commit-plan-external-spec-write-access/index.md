@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Thread additionalReadDirs to no-commit plan phases](./00-add-dir-no-commit-plan-phases.md)
+- [x] [00 - Thread additionalReadDirs to no-commit plan phases](./00-add-dir-no-commit-plan-phases.md)

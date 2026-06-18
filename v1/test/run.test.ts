@@ -3948,6 +3948,486 @@ describe("review phase", () => {
   });
 });
 
+describe("--resume-review: review resume on completed specs", () => {
+  test("Guard 1: review disabled exits 1 with distinct message", async () => {
+    const env = setupReviewEnv({ reviewPasses: 0 });
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("no agent should run under guard rejection");
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("requires review passes > 0");
+    expect(claude.calls).toHaveLength(0);
+  });
+
+  test("Guard 2: git off exits 1 with distinct message", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    const cap = captureIo();
+    // Modify the loaded config to disable git.
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    writeConfig(cfg, { dir: cfgDir });
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("no agent should run under guard rejection");
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("requires git mode to be enabled");
+    expect(claude.calls).toHaveLength(0);
+  });
+
+  test("Guard 3: no implementation PR (fresh clone case) exits 1 after fetch", async () => {
+    // Set up: completed spec on main branch, but no feature branch pushed to origin.
+    // This simulates a fresh clone where the origin/<feature> remote ref does not exist locally.
+    const origin = join(dir, "origin.git");
+    execSync(`git init --bare ${origin}`);
+    execSync("git init -b main", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    execSync(`git remote add origin ${origin}`, { cwd: projectRoot });
+
+    // Create a completed spec on main.
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+    writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n");
+    execSync("git add -A && git commit -m init && git push -u origin main", { cwd: projectRoot });
+
+    // Simulate fresh clone: no feature branch was ever pushed.
+    // branchExistsOnOrigin would return false locally, but the harness should fetch first.
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("no agent should run under guard rejection");
+    });
+
+    const code = await runCommand({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("no implementation PR exists");
+    expect(cap.err()).toContain("no remote branch found");
+    expect(claude.calls).toHaveLength(0);
+  });
+
+  test("Guard 4: incomplete spec exits 1 with distinct message", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    // First, complete the spec by checking all tasks.
+    writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+    execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
+    // Create and push a feature branch (simulates an implementation that completed).
+    execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
+    // Now revert the spec to have unchecked tasks.
+    execSync("git checkout main", { cwd: projectRoot });
+    writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [ ] [00 - One](./00-one.md)\n`);
+    execSync("git add -A && git commit -m revert && git push origin main", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("no agent should run under guard rejection");
+    });
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("spec has unchecked tasks");
+    expect(claude.calls).toHaveLength(0);
+  });
+
+  test("Guard 3 passes on fresh clone when feature branch does exist on origin", async () => {
+    // Set up: completed spec AND feature branch pushed to origin.
+    // Simulates: fresh clone where origin/<feature> exists but wasn't fetched yet locally.
+    // After bestEffortFetch, branchExistsOnOrigin should return true.
+    const origin = join(dir, "origin.git");
+    execSync(`git init --bare ${origin}`);
+    execSync("git init -b main", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    execSync(`git remote add origin ${origin}`, { cwd: projectRoot });
+
+    // Create and push a feature branch.
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+    writeFileSync(join(specDir, "00-one.md"), "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    execSync("git branch feature && git push -u origin feature", { cwd: projectRoot });
+    execSync("git push -u origin main", { cwd: projectRoot });
+
+    // Now simulate a fresh clone: remove the local feature branch to test that fetch finds it.
+    execSync("git branch -D feature", { cwd: projectRoot });
+
+    const binDir = join(dir, "bin");
+    mkdirSync(binDir);
+    const realGit = execSync("command -v git", { encoding: "utf8" }).trim();
+    const bun = join(binDir, "bun");
+    const git = join(binDir, "git");
+    const gh = join(binDir, "gh");
+    const readyLog = join(dir, "ready-log");
+    const prReadyLog = join(dir, "pr-ready-log");
+    const prState = join(dir, "pr-state");
+    const readyState = join(dir, "ready-state");
+
+    writeFileSync(
+      git,
+      `#!/usr/bin/env bash
+set -euo pipefail
+exec "${realGit}" "$@"
+`,
+    );
+    chmodSync(git, 0o755);
+
+    writeFileSync(
+      bun,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "run ready" ]]; then
+  printf 'ready\\n' >> "${readyLog}"
+  exit 0
+fi
+exit 1
+`,
+    );
+    chmodSync(bun, 0o755);
+
+    writeFileSync(
+      gh,
+      `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "auth status" ]]; then exit 0; fi
+if [[ "$1 $2" == "repo view" ]]; then printf 'main\\n'; exit 0; fi
+if [[ "$1 $2" == "pr view" ]]; then
+  if [[ ! -f "${prState}" ]]; then exit 1; fi
+  if [[ "$*" == *"isDraft"* ]]; then
+    if [[ -f "${readyState}" ]]; then printf 'false\\n'; else printf 'true\\n'; fi
+  elif [[ "$*" == *"--json body"* ]]; then
+    printf 'stub\\n'
+  elif [[ "$*" == *"--json number,state"* ]]; then printf '1\\n';
+  elif [[ "$*" == *"--json url"* ]]; then printf 'https://example/pull/1\\n';
+  else printf '1\\n'; fi
+  exit 0
+fi
+if [[ "$1 $2" == "pr edit" ]]; then exit 0; fi
+if [[ "$1 $2" == "pr create" ]]; then touch "${prState}"; exit 0; fi
+if [[ "$1 $2" == "pr ready" ]]; then printf 'ready\\n' >> "${prReadyLog}"; touch "${readyState}"; exit 0; fi
+exit 1
+`,
+    );
+    chmodSync(gh, 0o755);
+
+    const oldPath = process.env.PATH;
+    process.env.PATH = `${binDir}:${oldPath}`;
+
+    try {
+      const cap = captureIo();
+      const claude = reviewFakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "No changes needed.",
+        stderr: "",
+      }));
+
+      const code = await runCommand({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        resumeReview: true,
+        logClient: { assertReachable: async () => {}, send: async () => {} },
+        handleSignals: false,
+      });
+
+      // Should succeed past Guard 3 and enter review phase.
+      expect(code).toBe(0);
+      expect(claude.calls.length).toBeGreaterThan(0);
+    } finally {
+      process.env.PATH = oldPath;
+    }
+  });
+
+  test("successful resume-review runs review phase and transitions PR to ready", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    // Complete the spec and create feature branch for implementation PR.
+    writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+    execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
+    execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
+    execSync("git checkout main", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, _cwd, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "Looks good." : "",
+        stderr: "",
+      }),
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "improved\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    // PR should be marked ready by final gate.
+    expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
+    // Review commit should be created.
+    expect(env.reviewCommitSubjects()).toEqual(["review: actuator"]);
+  });
+
+  test("review runs with zero implementation iterations under --resume-review", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    // Complete the spec and create feature branch for implementation PR.
+    writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+    execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
+    execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
+    execSync("git checkout main", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, _cwd, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "Looks good." : "",
+        stderr: "",
+      }),
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "x\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    // Output should show iterations: 0
+    expect(cap.out()).toContain("iterations: 0");
+    // No implementation agent should have been invoked.
+    // 3 review roles + 1 actuator = 4 calls total, no implementation.
+    expect(claude.calls).toHaveLength(4);
+  });
+
+  test("no implementation agent is invoked under --resume-review", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    // Complete the spec and create feature branch for implementation PR.
+    writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+    execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
+    execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
+    execSync("git checkout main", { cwd: projectRoot });
+
+    const cap = captureIo();
+    let implementationAgentCalled = false;
+    const claude = new FakeAgent("claude", () => {
+      implementationAgentCalled = true;
+      throw new Error("implementation agent must not run under resume-review");
+    });
+
+    // Override the claude agent to be the review fake when review runs.
+    const reviewClaude = reviewFakeAgent(
+      "claude",
+      (_n, _cwd, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "Good." : "",
+        stderr: "",
+      }),
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "x\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude: reviewClaude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(implementationAgentCalled).toBe(false);
+  });
+
+  test("shrink phase is skipped under --resume-review (no shrink telemetry row)", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    // Complete the spec and create feature branch for implementation PR.
+    writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+    execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
+    execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
+    execSync("git checkout main", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, _cwd, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "Good." : "",
+        stderr: "",
+      }),
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "x\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    const telemetryPath = join(cfgDir, "runs.jsonl");
+    const lines = readFileSync(telemetryPath, "utf8").trim().split("\n");
+    // Should have terminal line only (no shrink phase row).
+    const shrinkRows = lines.filter((line) => {
+      const parsed = JSON.parse(line) as Record<string, unknown>;
+      return parsed.patch_phase === "shrink";
+    });
+    expect(shrinkRows).toHaveLength(0);
+  });
+
+  test("already-ready PR is left untouched (idempotent)", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    // Complete the spec and create feature branch for implementation PR.
+    writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+    execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
+    execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
+    execSync("git checkout main", { cwd: projectRoot });
+
+    // Mark the PR as already ready.
+    writeFileSync(env.prReadyLog, "ready\n");
+    writeFileSync(join(dirname(env.prReadyLog), "ready-state"), "");
+    const cap = captureIo();
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, _cwd, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "Good." : "",
+        stderr: "",
+      }),
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "x\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    // Final `gh pr ready` should still run but be a no-op on an already-ready PR.
+    // The prReadyLog should reflect the prior call only (no new entry).
+    const readyLines = readFileSync(env.prReadyLog, "utf8").trim().split("\n");
+    // One line from setup, one from final gate = 2 lines.
+    expect(readyLines.filter((line) => line === "ready")).toHaveLength(2);
+  });
+
+  test("--max-iterations under --resume-review has no effect (zero implementation iterations)", async () => {
+    const env = setupReviewEnv({ reviewPasses: 1 });
+    // Complete the spec and create feature branch for implementation PR.
+    writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+    execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
+    execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
+    execSync("git checkout main", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = reviewFakeAgent(
+      "claude",
+      (_n, _cwd, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "Good." : "",
+        stderr: "",
+      }),
+      (_n, cwd) => {
+        writeFileSync(join(cwd, "code.txt"), "x\n");
+        return { kind: "ok", stdout: "", stderr: "" };
+      },
+    );
+
+    const code = await runCommand({
+      specPath: env.spec,
+      io: cap.io,
+      config: { dir: cfgDir, maxIterations: 5 },
+      agents: { claude },
+      resumeReview: true,
+      logClient: { assertReachable: async () => {}, send: async () => {} },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    // Even with maxIterations: 5, should still show iterations: 0.
+    expect(cap.out()).toContain("iterations: 0");
+  });
+});
+
+
 function writeSpec(contents: string): string {
   const spec = join(projectRoot, "index.md");
   writeFileSync(spec, withRepo(contents));

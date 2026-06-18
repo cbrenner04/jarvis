@@ -189,9 +189,7 @@ review outcomes are preserved:
 `--max-iterations` is accepted but has no behavioral effect (review resume runs
 no implementation iterations).
 
-The review phase flow
-
-is:
+The review phase flow is:
 
 1. **Baseline gate**: runs `bun run ready` (install → check:fix → typecheck → 
    test → check). If check:fix makes changes, they are committed. The draft PR 

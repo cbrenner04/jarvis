@@ -37,6 +37,7 @@ import {
 } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import {
+  bestEffortFetch,
   createWorktreeSymlinks,
   ensureWorktree,
   getSpecName,
@@ -361,6 +362,7 @@ async function resolveModeSpecificPreflight(
 
     // Guard 3: no implementation PR / remote branch
     const specName = getSpecName(initialSpecPath);
+    bestEffortFetch(project.root);
     if (!branchExistsOnOrigin(project.root, specName)) {
       opts.io.stderr(`error: no implementation PR exists for spec ${specName}; no remote branch found\n`);
       return { kind: "error", exitCode: 1 };

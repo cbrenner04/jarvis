@@ -155,10 +155,12 @@ exit 0
     writeFileSync(bin, script);
     chmodSync(bin, 0o755);
 
-    // Stub process.kill to throw so the close-path reap fails.
+    // Stub process.kill to throw on group-kill attempts; track invocations.
     const originalKill = process.kill.bind(process);
+    let killAttempted = false;
     const killStub = (pid: number, signal?: string | number): true => {
       if (pid < 0 && signal === "SIGKILL") {
+        killAttempted = true;
         throw new Error("kill stub failure");
       }
       return originalKill(pid, signal);
@@ -179,6 +181,8 @@ exit 0
         { cwd },
       );
 
+      // Verify the reap was attempted (kill stub was invoked on group SIGKILL).
+      expect(killAttempted).toBe(true);
       // Verify result kind and exit code are unchanged despite kill failure.
       expect(result.kind).toBe("ok");
     } finally {

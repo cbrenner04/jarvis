@@ -332,6 +332,8 @@ export type PlanReviewPhaseOptions = {
   updatePrBody?: () => Promise<void>;
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
   onPassStart?: (displayPassNumber: number, displayTotalPasses: number) => void;
+  /** Additional read directories passed to agent (for external spec storage). */
+  additionalReadDirs?: string[];
 };
 
 function firstNonEmptyLine(text: string): string {
@@ -731,20 +733,21 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
         throw new ReviewTerminalError(message, 1);
       }
 
-      // Run the verdict actuator against the generated spec files.
-      try {
-        await runVerdictActuator({
-          worktreePath: opts.worktreePath,
-          name: opts.name,
-          config: opts.config,
-          verdict,
-          stderr: opts.stderr,
-          planTelemetry: opts.planTelemetry,
-          externalSpecRoot: opts.externalSpecRoot,
-          specDirPath: opts.specDirPath,
-          targetDir,
-          onOutboundPrompt: opts.onOutboundPrompt,
-          createAgent: resolveAgent,
+       // Run the verdict actuator against the generated spec files.
+       try {
+         await runVerdictActuator({
+           worktreePath: opts.worktreePath,
+           name: opts.name,
+           config: opts.config,
+           verdict,
+           stderr: opts.stderr,
+           planTelemetry: opts.planTelemetry,
+           externalSpecRoot: opts.externalSpecRoot,
+           specDirPath: opts.specDirPath,
+           targetDir,
+           onOutboundPrompt: opts.onOutboundPrompt,
+           createAgent: resolveAgent,
+           ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -801,14 +804,15 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
   };
 
   try {
-    const exitCode = await runReview({
-      config: opts.config,
-      cwd: opts.agentCwd ?? opts.worktreePath,
-      ...(opts.reviewPassesOverride !== undefined ? { reviewPassesOverride: opts.reviewPassesOverride } : {}),
-      ...(opts.startPassNumber !== undefined ? { startPassNumber: opts.startPassNumber } : {}),
-      ...(opts.isInterrupted !== undefined ? { isInterrupted: opts.isInterrupted } : {}),
-      ...(opts.onPassStart !== undefined ? { onPassStart: opts.onPassStart } : {}),
-      adapterForPass: ({ passNumber, totalPasses }) => {
+     const exitCode = await runReview({
+       config: opts.config,
+       cwd: opts.agentCwd ?? opts.worktreePath,
+       ...(opts.reviewPassesOverride !== undefined ? { reviewPassesOverride: opts.reviewPassesOverride } : {}),
+       ...(opts.startPassNumber !== undefined ? { startPassNumber: opts.startPassNumber } : {}),
+       ...(opts.isInterrupted !== undefined ? { isInterrupted: opts.isInterrupted } : {}),
+       ...(opts.onPassStart !== undefined ? { onPassStart: opts.onPassStart } : {}),
+       ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
+       adapterForPass: ({ passNumber, totalPasses }) => {
         const intentBefore = readFileSync(join(finalSpecPath, "intent.md"), "utf8");
         const specSnapshotBefore = opts.commit ? null : snapshotSpecDirFiles(finalSpecPath);
         return createPlanReviewAdapter({

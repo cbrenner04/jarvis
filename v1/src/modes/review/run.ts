@@ -47,6 +47,8 @@ export type RunReviewOptions = {
   now?: () => number;
   /** Optional actuator invoked once per cycle after the adjudicator with the verdict. */
   actuator?: (verdict: string, ctx: ReviewPassContext) => Promise<void>;
+  /** Additional read directories passed to agent (for external spec storage). */
+  additionalReadDirs?: string[];
 };
 
 async function recordAdapterFailure(
@@ -94,7 +96,10 @@ async function runRoleAttempt(
     const porcelainBefore = readPorcelainSnapshot(opts.cwd);
     const now = opts.now ?? Date.now;
     const startedAt = now();
-    const spawnResult = await agent.run(prompt, { cwd: opts.cwd });
+    const spawnResult = await agent.run(prompt, {
+      cwd: opts.cwd,
+      ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
+    });
     const porcelainAfter = readPorcelainSnapshot(opts.cwd);
     const noDiskChangeDuringInvocation =
       porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;

@@ -109,6 +109,8 @@ export type VerdictActuatorOptions = {
   targetDir?: string | undefined;
   onOutboundPrompt?: ((prompt: string) => void) | undefined;
   createAgent?: ((agentName: AgentName, model: string | undefined) => Agent) | undefined;
+  /** Additional read directories passed to agent (for external spec storage). */
+  additionalReadDirs?: string[];
 };
 
 /**
@@ -159,11 +161,12 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
     const agent = (opts.createAgent ?? createAgent)(entry.agent, entry.model);
     _agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const invocationStartedAt = Date.now();
-    const spawnResult = await agent.run(prompt, {
-      cwd: opts.worktreePath,
-    });
+     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
+     const invocationStartedAt = Date.now();
+     const spawnResult = await agent.run(prompt, {
+       cwd: opts.worktreePath,
+       ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
+     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
       porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;

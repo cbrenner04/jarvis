@@ -151,16 +151,16 @@ new red stop reason or exit-code change.
 
 ## Acceptance criteria
 
-- [ ] On the default common path (`git: true`, green completion gate, `modes.review.passes` ≥ 1 so review runs, shrink agent ran with an empty diff, review makes no commits), the in-scope reusable gates run `bun run ready` exactly once total: the completion gate runs it and the shrink pre-gate and review baseline both reuse that result without re-running. (The unconditional review final gate is excluded from this count.)
-- [ ] A gate treats the tree as unchanged only when current HEAD sha equals the recorded sha **and** the worktree is clean; if HEAD matches but the worktree is dirty, the gate takes the tree-changed branch and runs `bun run ready`.
-- [ ] When the tree is unchanged since the recorded green result, the shrink pre-gate skips its own `bun run ready` and reuses the recorded result.
-- [ ] When the tree is unchanged since the recorded green result, the review baseline gate skips its own `bun run ready` and reuses the recorded result.
-- [ ] When the tree is unchanged since the recorded green result, `maybeMarkReady` skips its own `bun run ready` and proceeds to `gh pr ready`, having verified the worktree is clean at that point (the predicate's clean-worktree check stands in for the skipped `runReadyAndCommit` re-check).
-- [ ] When a `shrink:` commit lands (HEAD moves after the completion gate), the review baseline gate re-runs `bun run ready` and, on green, refreshes the recorded green result.
-- [ ] When a `check:fix` commit moves HEAD at any gate (including the completion gate), the next in-scope gate sees a changed tree, re-runs `bun run ready`, and refreshes the recorded green result.
-- [ ] When shrink bails on an empty allowlist before its pre-gate, the shrink pre-gate contributes no `bun run ready` run, and reuse still chains to the next reached gate.
-- [ ] When no green result was recorded at the completion transition (red completion gate), every in-scope gate runs `bun run ready` itself, matching pre-change behavior.
-- [ ] The review final gate still runs `bun run ready` unconditionally before `gh pr ready`, regardless of any recorded green result.
+- [x] On the default common path (`git: true`, green completion gate, `modes.review.passes` ≥ 1 so review runs, shrink agent ran with an empty diff, review makes no commits), the in-scope reusable gates run `bun run ready` exactly once total: the completion gate runs it and the shrink pre-gate and review baseline both reuse that result without re-running. (The unconditional review final gate is excluded from this count.)
+- [x] A gate treats the tree as unchanged only when current HEAD sha equals the recorded sha **and** the worktree is clean; if HEAD matches but the worktree is dirty, the gate takes the tree-changed branch and runs `bun run ready`.
+- [x] When the tree is unchanged since the recorded green result, the shrink pre-gate skips its own `bun run ready` and reuses the recorded result.
+- [x] When the tree is unchanged since the recorded green result, the review baseline gate skips its own `bun run ready` and reuses the recorded result.
+- [x] When the tree is unchanged since the recorded green result, `maybeMarkReady` skips its own `bun run ready` and proceeds to `gh pr ready`, having verified the worktree is clean at that point (the predicate's clean-worktree check stands in for the skipped `runReadyAndCommit` re-check).
+- [x] When a `shrink:` commit lands (HEAD moves after the completion gate), the review baseline gate re-runs `bun run ready` and, on green, refreshes the recorded green result.
+- [x] When a `check:fix` commit moves HEAD at any gate (including the completion gate), the next in-scope gate sees a changed tree, re-runs `bun run ready`, and refreshes the recorded green result.
+- [x] When shrink bails on an empty allowlist before its pre-gate, the shrink pre-gate contributes no `bun run ready` run, and reuse still chains to the next reached gate.
+- [x] When no green result was recorded at the completion transition (red completion gate), every in-scope gate runs `bun run ready` itself, matching pre-change behavior.
+- [x] The review final gate still runs `bun run ready` unconditionally before `gh pr ready`, regardless of any recorded green result.
 
 ## Documentation updates
 

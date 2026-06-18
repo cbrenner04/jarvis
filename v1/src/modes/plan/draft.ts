@@ -32,6 +32,8 @@ export type DraftPhaseOptions = {
   targetDir?: string;
   /** Logs the built prompt before invoking the agent (mirrors patch-mode outbound logging). */
   onOutboundPrompt?: (prompt: string) => void;
+  /** Additional read directories passed to agent (for external spec storage). */
+  additionalReadDirs?: string[];
 };
 
 /**
@@ -158,6 +160,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
     const invocationStartedAt = Date.now();
     const spawnResult = await agent.run(prompt, {
       cwd: agentCwd,
+      ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
     });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =

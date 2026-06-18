@@ -990,6 +990,362 @@ Date: 2026-06-18`,
     expect(stuckRedRecord).toBeDefined();
   });
 
+  describe("completion-transition ready gate", () => {
+    test("runs bun run ready at the completion transition for git: true runs", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("records completion-transition ready green result keyed to HEAD sha + clean worktree", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      // Verify the completion happened
+      expect(cap.out()).toContain("spec complete");
+      // Verify worktree is clean after completion
+      const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" });
+      expect(status.trim()).toBe("");
+    });
+
+    test("records post-check:fix HEAD sha when completion-transition ready lands a commit", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+      // Verify the final HEAD sha is recorded (no newer commits after ready gate)
+      const finalHeadSha = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
+      expect(finalHeadSha).toMatch(/^[0-9a-f]{40}$/);
+    });
+
+    test("completion-transition ready red does not record green result and proceeds to shrink/review", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+  });
+
+  describe("post-completion gate reuse", () => {
+    test("on the default common path, in-scope reusable gates run ready exactly once total", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      // Track ready gate invocations
+      const readyCallCount = 0;
+      const originalRunReady = require("../src/ready-gate.ts").runReadyAndCommit;
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+      // Verify worktree is clean after all gates
+      const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" });
+      expect(status.trim()).toBe("");
+    });
+
+    test("tree is unchanged only when HEAD sha matches and worktree is clean", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+      // Verify worktree is clean (unchanged condition)
+      const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" });
+      expect(status.trim()).toBe("");
+    });
+
+    test("when tree is unchanged, shrink pre-gate skips ready and reuses recorded result", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("when tree is unchanged, review baseline gate skips ready and reuses recorded result", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("when tree is unchanged, maybeMarkReady skips ready, verifies clean worktree, and proceeds to gh pr ready", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+      // Verify worktree is clean (clean-worktree predicate satisfied)
+      const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" });
+      expect(status.trim()).toBe("");
+    });
+
+    test("when shrink lands a commit, review baseline re-runs ready and refreshes recorded result", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("when check:fix commit moves HEAD, next gate sees changed tree and re-runs ready", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("when shrink bails on empty allowlist, shrink pre-gate contributes no ready run", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("when no green result recorded at completion transition, every gate runs ready itself", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    test("review final gate still runs ready unconditionally before gh pr ready", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      const cap = captureIo();
+
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
+  });
+
   test("completes after an agent flips an unchecked box", async () => {
     const spec = writeNamedSpec("feature", "- [ ] todo\n");
     const cap = captureIo();
@@ -1848,9 +2204,9 @@ exit 1
     expect(readFileSync(prLog, "utf8").trim().split("\n")).toEqual(["create"]);
     expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(6);
     expect(readFileSync(prEditLog, "utf8").trim().split("\n")).toEqual(["edit"]);
-    // Three `bun run ready` invocations on the completion path: the completion
-    // gate, the shrink pre-gate backstop, and maybeMarkReady.
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate", "ready-gate"]);
+    // Single completion ready gate runs `bun run ready` once and records the
+    // green result; the shrink pre-gate and maybeMarkReady reuse it.
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate"]);
     expect(readFileSync(readyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     expect(readFileSync(createCommitCount, "utf8").trim()).toBe("1");
     expect(readFileSync(readyCommitCount, "utf8").trim()).toBe("2");
@@ -2006,9 +2362,9 @@ exit 1
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(3);
-    // Three `bun run ready` invocations on the completion path: the completion
-    // gate, the shrink pre-gate backstop, and maybeMarkReady.
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate", "ready-gate", "ready-gate"]);
+    // Single completion ready gate runs `bun run ready` once and records the
+    // green result; the shrink pre-gate and maybeMarkReady reuse it.
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate"]);
     const expectedDegenerateBody = [
       "<!-- jarvis:narrative:start -->",
       "Auto-generated by jarvis",
@@ -4380,6 +4736,14 @@ describe("review phase", () => {
     expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
   });
 });
+
+function setupGit(): void {
+  execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+  execSync('git config user.email "jarvis-test@example.com"', {
+    cwd: projectRoot,
+  });
+  execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+}
 
 function writeSpec(contents: string): string {
   const spec = join(projectRoot, "index.md");

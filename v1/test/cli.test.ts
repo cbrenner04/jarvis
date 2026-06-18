@@ -127,6 +127,32 @@ describe("parseArgs", () => {
     });
   });
 
+  test("run with --resume-review flag", () => {
+    expect(parseArgs(["run", "--resume-review", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      resumeReview: true,
+    });
+  });
+
+  test("run with --resume-review and --max-iterations", () => {
+    expect(parseArgs(["run", "--resume-review", "--max-iterations", "5", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      maxIterations: "5",
+      resumeReview: true,
+    });
+  });
+
+  test("run with --resume-review and --review-passes", () => {
+    expect(parseArgs(["run", "--resume-review", "--review-passes", "2", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      reviewPasses: "2",
+      resumeReview: true,
+    });
+  });
+
   test("run without spec → error", () => {
     const parsed = parseArgs(["run"]);
     expect(parsed.kind).toBe("error");

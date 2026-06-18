@@ -25,6 +25,7 @@ import {
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
+import { runReadyAndCommit } from "../../ready-gate.ts";
 import { runSummary } from "../../run-summary.ts";
 import {
   appendTelemetryLine,
@@ -47,7 +48,6 @@ import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } fro
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
-import { type RunReadyAndCommitOpts, runReadyAndCommit } from "../../ready-gate.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import { parsePatchSpec } from "./spec.ts";
@@ -1391,7 +1391,6 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
       logging.fanout("harness", `warning: completion-transition ready gate failed: ${message}\n`, "stderr");
     }
   }
-
 
   if (shouldRunShrink) {
     const { fanout, writeTelemetry } = ctx.logging;

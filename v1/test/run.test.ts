@@ -608,7 +608,6 @@ describe("runCommand", () => {
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
-      let readyCallCount = 0;
       const claude = new FakeAgent("claude", () => {
         writeFileSync(spec, "- [x] todo\n");
         execSync("git add index.md && git commit -m done", { cwd: projectRoot });

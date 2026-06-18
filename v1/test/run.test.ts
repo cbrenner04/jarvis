@@ -711,26 +711,28 @@ describe("runCommand", () => {
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    // Red on the first gate check (drives the loop-back), red again on the second gate.
-    let _gateCalls = 0;
+    // Each fix-up gate check reports a *changed* failure, so every loop counts
+    // as progress and keeps looping (rather than tripping the stuck-red stop)
+    // until the iteration budget is exhausted.
+    let gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
       io: cap.io,
-      config: { dir: cfgDir },
+      config: { dir: cfgDir, maxIterations: 2 },
       agents: { claude },
       handleSignals: false,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
-        _gateCalls += 1;
-        return { kind: "red", failureText: "bun run ready failed:\nboom" };
+        gateCalls += 1;
+        return { kind: "red", failureText: `bun run ready failed:\nboom ${gateCalls}` };
       },
     });
 
-    // Budget is exhausted after normal iteration (1) + fix-up (2), so exit 5.
-    // This checks that the fix-up iteration counts against maxIterations (which defaults to 1).
-    // With maxIterations: 1, we have:
-    // - iteration 1 (normal): completes spec, gate red -> drives fix-up
-    // - iteration 2 (fix-up): would loop again, but we're at iteration 2 > maxIterations 1
+    // Budget is exhausted while the failure keeps changing, so exit 5.
+    // With maxIterations: 2:
+    // - iteration 1 (normal): completes spec, gate red (boom 1) -> drives fix-up
+    // - iteration 2 (fix-up): gate red (boom 2, changed) -> progress, loops again
+    // - iteration 3: 3 > maxIterations 2 -> max-iterations stop
     expect(code).toBe(5);
     expect(cap.err()).toContain("max iterations");
   });
@@ -956,7 +958,6 @@ Date: 2026-06-18`,
     execSync("git add index.md && git commit -m init", { cwd: projectRoot });
 
     const cap = captureIo();
-    const telemetryRecords: Array<{ exitReason?: string }> = [];
     const claude = new FakeAgent("claude", (callCount) => {
       if (callCount === 1) {
         writeFileSync(spec, "- [x] todo\n");
@@ -966,7 +967,6 @@ Date: 2026-06-18`,
     });
 
     const failureText = "bun run ready failed:\nERROR: test failed";
-    let gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
       io: cap.io,
@@ -975,20 +975,18 @@ Date: 2026-06-18`,
       handleSignals: false,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
-        gateCalls += 1;
         return { kind: "red", failureText };
-      },
-      logClient: {
-        assertReachable: async () => {},
-        send: async (telemetry) => {
-          telemetryRecords.push(telemetry as { exitReason?: string });
-        },
       },
     });
 
     expect(code).toBe(10);
-    // Check that telemetry includes a record with exit reason 'ready-stuck-red'
-    const stuckRedRecord = telemetryRecords.find((r) => r.exitReason === "ready-stuck-red");
+    // Telemetry is written to runs.jsonl; assert a record carries the
+    // ready-stuck-red exit reason.
+    const telemetryPath = join(cfgDir, "runs.jsonl");
+    const lines = readFileSync(telemetryPath, "utf8").trim().split("\n");
+    const stuckRedRecord = lines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((r) => r.exit_reason === "ready-stuck-red");
     expect(stuckRedRecord).toBeDefined();
   });
 

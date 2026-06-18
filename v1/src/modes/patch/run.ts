@@ -1598,6 +1598,9 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
           exitReason: "ready-stuck-red",
           record_role: "run_terminal",
         });
+        // Clear the loop-back signal so the caller returns exit 10 instead of
+        // treating the still-set signal as another fix-up loop.
+        ctx.state.completionLoopbackSignal = null;
         return 10;
       }
 

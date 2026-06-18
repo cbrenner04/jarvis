@@ -12,4 +12,4 @@ Subspecs are ordered; each builds on the prior:
 
 - [x] [00 - Completion `ready` gate before shrink/review](./00-completion-ready-gate.md)
 - [x] [01 - Loop the red completion gate back into one fix-up iteration](./01-red-loopback-iteration.md)
-- [ ] [02 - Stuck-red completion stop (exit `10`)](./02-stuck-red-stop.md)
+- [x] [02 - Stuck-red completion stop (exit `10`)](./02-stuck-red-stop.md)

@@ -100,29 +100,29 @@ changed-vs-unchanged failure comparison) is specified in `02-stuck-red-stop.md`.
 
 ## Acceptance criteria
 
-- [ ] A red completion gate performs one more agent iteration whose task is the
+- [x] A red completion gate performs one more agent iteration whose task is the
       captured `ready` failure text rather than accepting completion.
-- [ ] The fix-up iteration counts against `maxIterations`; an unbounded
+- [x] The fix-up iteration counts against `maxIterations`; an unbounded
       red-`ready` loop cannot occur, and an already-exhausted budget stops with
       the existing max-iterations behavior (exit `5`).
-- [ ] After a fix-up iteration the run re-runs `ready`: green proceeds into the
+- [x] After a fix-up iteration the run re-runs `ready`: green proceeds into the
       post-completion phases (shrink → review → ready transition) and the run can
       complete `0`.
-- [ ] The fix-up iteration does not stop via the checkbox-delta no-progress path
+- [x] The fix-up iteration does not stop via the checkbox-delta no-progress path
       (exit `4`) even though no new checkbox is ticked.
-- [ ] A `## Blocker` added during a fix-up iteration stops with exit `7`, and a
+- [x] A `## Blocker` added during a fix-up iteration stops with exit `7`, and a
       dirty-worktree blocker stops with exit `6`, both taking precedence over the
       stuck-red stop defined in `02-stuck-red-stop.md`.
-- [ ] The fix-up iteration is counted as an implementation iteration in the run
+- [x] The fix-up iteration is counted as an implementation iteration in the run
       summary (it is not tagged as a shrink/review phase or run-terminal record).
 
 ## Documentation updates
 
-- [ ] `v1/docs/run-loop.md`: document the red→green loop-back, that the fix-up
+- [x] `v1/docs/run-loop.md`: document the red→green loop-back, that the fix-up
       iteration's task is the captured `ready` failure, its `maxIterations`
       accounting, the red→green progress test replacing the checkbox-delta test
       for fix-up iterations, and the blocker(`7`)/dirty(`6`) precedence during a
       fix-up iteration.
-- [ ] `v2/docs/v1-behaviors.md`: record the red-`ready` loop-back and fix-up
+- [x] `v2/docs/v1-behaviors.md`: record the red-`ready` loop-back and fix-up
       progress test under the patch-mode catalog, with `Sources:` pointers
       (`run.ts:734`/`739`/`761`/`774`/`1190`, `completion.ts:52`).

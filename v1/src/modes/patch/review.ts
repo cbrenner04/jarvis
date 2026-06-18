@@ -610,6 +610,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       opts.fanout("harness", `review baseline gate failed: ${message}\n`, "stderr");
+      // NOTE: On the completion path, the completion `ready` gate (run.ts:1574)
+      // runs before shrink/review and ensures `ready` is green. This exit path
+      // (return 1) is unreachable on the completion path — it is a backstop for
+      // non-completion paths. The completion path's sole response to red `ready`
+      // is the stuck-red stop (exit 10 in run.ts:1601) after fix-up iterations.
       return 1;
     }
   }

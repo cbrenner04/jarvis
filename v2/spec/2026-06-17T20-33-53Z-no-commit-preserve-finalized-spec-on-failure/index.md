@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Preserve named no-commit spec on later-phase failure](./00-preserve-named-no-commit-spec-on-failure.md)
+- [x] [00 - Preserve named no-commit spec on later-phase failure](./00-preserve-named-no-commit-spec-on-failure.md)

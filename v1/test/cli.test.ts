@@ -127,6 +127,32 @@ describe("parseArgs", () => {
     });
   });
 
+  test("run with --resume-review flag", () => {
+    expect(parseArgs(["run", "--resume-review", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      resumeReview: true,
+    });
+  });
+
+  test("run with --resume-review and --max-iterations", () => {
+    expect(parseArgs(["run", "--resume-review", "--max-iterations", "5", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      maxIterations: "5",
+      resumeReview: true,
+    });
+  });
+
+  test("run with --resume-review and --review-passes", () => {
+    expect(parseArgs(["run", "--resume-review", "--review-passes", "2", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      reviewPasses: "2",
+      resumeReview: true,
+    });
+  });
+
   test("run without spec → error", () => {
     const parsed = parseArgs(["run"]);
     expect(parsed.kind).toBe("error");
@@ -223,7 +249,7 @@ describe("run", () => {
     expect(code).toBe(0);
     const out = cap.out();
     expect(out).toContain(
-      "run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>",
+      "run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>",
     );
     expect(out).toContain("init");
     expect(out).toContain("config");

@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
@@ -37,8 +38,10 @@ import {
 } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import {
+  bestEffortFetch,
   createWorktreeSymlinks,
   ensureWorktree,
+  getSpecName,
   hasUpstream,
   pushCurrent,
   worktreeCompletionBlocker,
@@ -85,6 +88,8 @@ export type RunCommandOptions = {
   disambiguate?: DisambiguateFn;
   /** Value of the `--review-passes` CLI flag, if given. */
   reviewPasses?: number;
+  /** True if `--resume-review` was passed; runs review on an already-complete spec. */
+  resumeReview?: boolean;
   /**
    * Test seam for the completion `ready` gate. Replaces the real `bun run
    * ready` + `check:fix` commit run in `runCompletionReadyGate`. Return
@@ -362,6 +367,38 @@ async function resolveModeSpecificPreflight(
       await assertGhReady();
     } catch (err) {
       opts.io.stderr(`${(err as Error).message}\n`);
+      return { kind: "error", exitCode: 1 };
+    }
+  }
+
+  // Handle --resume-review guards (run before ensureWorktree)
+  if (opts.resumeReview) {
+    // Guard 1: review disabled
+    const reviewPasses = resolveReviewPasses(cfg, opts.reviewPasses);
+    if (reviewPasses === 0) {
+      opts.io.stderr(
+        "error: --resume-review requires review passes > 0; enable review in config or pass --review-passes <n>\n",
+      );
+      return { kind: "error", exitCode: 1 };
+    }
+
+    // Guard 2: git off
+    if (!gitEnabled) {
+      opts.io.stderr('error: --resume-review requires git mode to be enabled; set "git": true in config\n');
+      return { kind: "error", exitCode: 1 };
+    }
+
+    // Guard 3: no implementation PR / remote branch
+    const specName = getSpecName(initialSpecPath);
+    bestEffortFetch(project.root);
+    if (!branchExistsOnOrigin(project.root, specName)) {
+      opts.io.stderr(`error: no implementation PR exists for spec ${specName}; no remote branch found\n`);
+      return { kind: "error", exitCode: 1 };
+    }
+
+    // Guard 4: incomplete spec
+    if (countUnchecked(initialSpecPath) !== 0) {
+      opts.io.stderr("error: spec has unchecked tasks; --resume-review only works on complete specs\n");
       return { kind: "error", exitCode: 1 };
     }
   }
@@ -1576,7 +1613,9 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
   const implementationIterations = logging.patchIterationsCompletedForSummary();
   const shouldRunShrink = preflight.gitEnabled && implementationIterations > 0;
-  const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && implementationIterations > 0;
+  // Review runs when: (1) normal completion with at least one iteration, OR (2) review resume is active
+  const shouldRunReview =
+    preflight.gitEnabled && reviewPasses > 0 && (implementationIterations > 0 || ctx.opts.resumeReview === true);
   const shouldRunCompletionReadyGate = preflight.gitEnabled && implementationIterations > 0;
 
   // Run completion ready gate before shrink and review

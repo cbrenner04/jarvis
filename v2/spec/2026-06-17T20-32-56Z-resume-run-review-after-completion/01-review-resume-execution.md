@@ -59,14 +59,14 @@ behavior unchanged.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 run --resume-review` on a complete spec (zero unchecked tasks) with `git: true` and review passes > 0 runs the post-completion review phase and invokes no implementation agent.
-- [ ] A successful review resume retries the review-to-ready path and transitions the existing draft PR to ready, without opening a new PR or worktree.
-- [ ] Review resume reuses the existing review-phase stop semantics: a review blocker still stops with the review blocker exit (`7`), and review quota exhaustion still exits with the quota exit (`2`).
-- [ ] A review-resume run whose baseline or final ready gate fails exits non-zero (the review phase's gate-failure exit) and does not transition the PR to ready.
-- [ ] `jarvis1 run --resume-review` against an already-ready PR exits cleanly and leaves the ready PR untouched (idempotent).
-- [ ] A normal (non-`--resume-review`) `jarvis1 run` on an already-complete spec still exits `0` with `spec complete` and does not enter the review phase.
-- [ ] The post-completion shrink phase does not run under `--resume-review` (no `patch_phase: "shrink"` telemetry row is emitted for a review-resume run).
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `jarvis1 run --resume-review` on a complete spec (zero unchecked tasks) with `git: true` and review passes > 0 runs the post-completion review phase and invokes no implementation agent.
+- [x] A successful review resume retries the review-to-ready path and transitions the existing draft PR to ready, without opening a new PR or worktree.
+- [x] Review resume reuses the existing review-phase stop semantics: a review blocker still stops with the review blocker exit (`7`), and review quota exhaustion still exits with the quota exit (`2`).
+- [x] A review-resume run whose baseline or final ready gate fails exits non-zero (the review phase's gate-failure exit) and does not transition the PR to ready.
+- [x] `jarvis1 run --resume-review` against an already-ready PR exits cleanly and leaves the ready PR untouched (idempotent).
+- [x] A normal (non-`--resume-review`) `jarvis1 run` on an already-complete spec still exits `0` with `spec complete` and does not enter the review phase.
+- [x] The post-completion shrink phase does not run under `--resume-review` (no `patch_phase: "shrink"` telemetry row is emitted for a review-resume run).
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

@@ -25,6 +25,7 @@ import {
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
+import { runReadyAndCommit } from "../../ready-gate.ts";
 import { runSummary } from "../../run-summary.ts";
 import {
   appendTelemetryLine,
@@ -163,6 +164,10 @@ type IterationContext = {
     opencodeUnavailableNoted: boolean;
     cursorUnavailableNoted: boolean;
     currentController: AbortController | null;
+    completionTransitionReadyResult?: {
+      /** HEAD sha after runReadyAndCommit returned */
+      headSha: string;
+    };
   };
 };
 
@@ -1090,6 +1095,12 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                     indexPath: afterSpecPath,
                     cwd: agentWorkingDir,
                     agentLabel: agent.attributionLabel(),
+                    ...(ctx.state.completionTransitionReadyResult !== undefined
+                      ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
+                      : {}),
+                    refreshRecordedGreenResult: (headSha: string) => {
+                      ctx.state.completionTransitionReadyResult = { headSha };
+                    },
                   });
                 }
               } catch (err) {
@@ -1366,6 +1377,27 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   const shouldRunShrink = preflight.gitEnabled && implementationIterations > 0;
   const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && implementationIterations > 0;
 
+  // Completion-transition ready gate: run once at the completion transition for git: true runs
+  if (preflight.gitEnabled) {
+    try {
+      runReadyAndCommit({
+        cwd: preflight.agentWorkingDir,
+        agentLabel: "completion-transition",
+      });
+      // On green, record the result keyed to HEAD sha + clean worktree
+      const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: preflight.agentWorkingDir,
+        encoding: "utf8",
+        stdio: "pipe",
+      }).trim();
+      ctx.state.completionTransitionReadyResult = { headSha };
+    } catch (err) {
+      // On red, preserve current post-completion behavior unchanged
+      const message = err instanceof Error ? err.message : String(err);
+      logging.fanout("harness", `warning: completion-transition ready gate failed: ${message}\n`, "stderr");
+    }
+  }
+
   if (shouldRunShrink) {
     const { fanout, writeTelemetry } = ctx.logging;
     try {
@@ -1379,6 +1411,12 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         ...(ctx.opts.agents !== undefined ? { agents: ctx.opts.agents } : {}),
         iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
         ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
+        ...(ctx.state.completionTransitionReadyResult !== undefined
+          ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
+          : {}),
+        refreshRecordedGreenResult: (headSha: string) => {
+          ctx.state.completionTransitionReadyResult = { headSha };
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1401,6 +1439,12 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
         ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
         actuatorAgents: ctx.activeAgents,
+        ...(ctx.state.completionTransitionReadyResult !== undefined
+          ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
+          : {}),
+        refreshRecordedGreenResult: (headSha: string) => {
+          ctx.state.completionTransitionReadyResult = { headSha };
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1416,6 +1460,12 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         indexPath: preflight.specPath,
         cwd: preflight.agentWorkingDir,
         agentLabel: "patch-complete",
+        ...(ctx.state.completionTransitionReadyResult !== undefined
+          ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
+          : {}),
+        refreshRecordedGreenResult: (headSha: string) => {
+          ctx.state.completionTransitionReadyResult = { headSha };
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

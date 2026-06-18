@@ -2,4 +2,3 @@
 timeout = 30000
 preload = ["./test/setup-fake-agents.ts"]
 onlyFailures = true
-coverage = true

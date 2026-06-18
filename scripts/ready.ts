@@ -28,7 +28,7 @@ export function parseTimeout(): number {
 
 export function runCommand(name: string, args: string[], deadlineMs: number, elapsedMs: number): Promise<number> {
   return new Promise((resolve) => {
-    // Heartbeat so a silent long step (e.g. `bun test` runs ~3min with no output
+    // Heartbeat so a silent long step (e.g. `bun test` runs ~80s with no output
     // under bunfig `onlyFailures`) doesn't look like a hang.
     const stepStart = Date.now();
     process.stderr.write(`ready: running ${name} ${args.join(" ")}\n`);

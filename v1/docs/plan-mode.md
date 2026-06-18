@@ -425,13 +425,7 @@ The `jarvis1 cleanup` command does not delete Jarvis-owned external specs; it on
 
 ## External spec directory write access
 
-With `commit: false`, the draft, review, and verdict-actuator phases run with `--add-dir` write access to the external spec directory (under `~/.jarvis/specs/…`), allowing the agent to write `index.md` and subspecs and to append `## Blocker` sections to the external `intent.md`.
-
-**Per-agent grant effectivness:**
-
-- **Claude** (`--permission-mode acceptEdits`): Fully honors the `--add-dir` grant.
-- **Codex** (`--sandbox workspace-write`): Fully honors the `--add-dir` grant.
-- **Cursor**, **Opencode**, **Aider**: Accept the `--add-dir` flag but do not honor write grants to external directories (inherited limitation of their underlying permission models; they require files to live inside the working directory to modify them). These agents cannot write the external spec tree; if configured for no-commit plan work, they cannot successfully complete the draft, review, or actuator phases.
+With `commit: false`, the draft, review, and verdict-actuator phases run with write access to the external spec directory (under `~/.jarvis/specs/…`), allowing the agent to write `index.md` and subspecs and to append `## Blocker` sections to the external `intent.md`. Only Claude and Codex receive this access as `--add-dir` flags; Cursor and Opencode never receive the directory, and Aider receives it as a positional argument. Write effectiveness varies by agent: Claude and Codex honor the grant; Cursor, Opencode, and Aider cannot write external files (inherited limitation of their underlying permission models).
 
 With `commit: true`, the spec directory lives inside the worktree (under `<targetDir>/`), so no external write grant is needed.
 

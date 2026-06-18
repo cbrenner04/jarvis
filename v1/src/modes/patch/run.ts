@@ -45,7 +45,7 @@ import {
 } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
-import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
+import { countUnchecked, findBlockerInLinkedSubspecs, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
 import { runPatchReviewPhase } from "./review.ts";
@@ -1182,16 +1182,67 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               return { kind: "return", exitCode: 6 };
             }
           }
-        }
-      }
-      if (preIterationHead !== null) {
-        accumulateImplementationTouchedFiles(
-          agentWorkingDir,
-          dirname(afterSpecPath),
-          preIterationHead,
-          logging.implementationTouchedFiles,
-        );
-      }
+         }
+       }
+
+       // For fix-up iterations, check for a blocker added during the iteration
+       // without depending on an unchecked linked subspec (which doesn't exist at full completion).
+       // The blocker check takes precedence over other completion processing.
+       if (isFixupIteration && isIndexSpec) {
+         const blockerInfo = findBlockerInLinkedSubspecs(afterSpecPath);
+         if (blockerInfo !== undefined) {
+           if (gitEnabled) {
+             try {
+               // For fix-up iterations, we don't have granular before/after criteria,
+               // so we commit with empty checkedTotal
+               commitWipProgressWithBlocker(blockerInfo.path, {
+                 cwd: agentWorkingDir,
+                 newlyChecked: [],
+                 checkedTotal: 0,
+                 total: 0,
+                 blockerBody: blockerInfo.body,
+                 agentLabel: agent.attributionLabel(),
+               });
+             } catch (err) {
+               const message = err instanceof Error ? err.message : String(err);
+               fanout("harness", `failed to commit blocker for ${blockerInfo.path}: ${message}\n`, "stderr");
+               return { kind: "return", exitCode: 1 };
+             }
+
+             if (!opts.skipGhCheck) {
+               try {
+                 const firstPush = !hasUpstream(agentWorkingDir);
+                 pushCurrent({ cwd: agentWorkingDir, firstPush });
+               } catch (err) {
+                 const message = err instanceof Error ? err.message : String(err);
+                 fanout("harness", `failed to push blocker commit for ${blockerInfo.path}: ${message}\n`, "stderr");
+                 return { kind: "return", exitCode: 1 };
+               }
+             }
+           }
+
+           const blockerText = `${blockerInfo.path}\n\n${blockerInfo.body}`;
+           fanout("harness", `${blockerText}\n`, "stderr");
+           writeTelemetry({
+             agent: agent.name,
+             iteration,
+             durationMs: iterationDurationMs(),
+             kind: "blocked",
+             exitReason: "blocker-detected",
+             ...telemetryMeta,
+           });
+           return { kind: "return", exitCode: 7 };
+         }
+       }
+
+       if (preIterationHead !== null) {
+         accumulateImplementationTouchedFiles(
+           agentWorkingDir,
+           dirname(afterSpecPath),
+           preIterationHead,
+           logging.implementationTouchedFiles,
+         );
+       }
       const after = countUnchecked(afterSpecPath);
       if (after === 0) {
         writeTelemetry({

@@ -43,6 +43,14 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - On completion gate red: the gate captures failure text and handles it per the loop-back completion behavior (specs `01-red-loopback-iteration.md` and `02-stuck-red-stop.md`). Shrink and review phases do not run on red; the run is handed off to loop-back logic. Sources: `v1/src/modes/patch/run.ts`
 - The pre-shrink `ready` gate, review baseline `ready` gate, and `maybeMarkReady` `ready` invocations remain in place as green-path backstops and are unaffected by the completion gate. Sources: `v1/src/modes/patch/shrink.ts`, `v1/src/modes/patch/review.ts`, `v1/src/modes/patch/run.ts`
 
+### Patch-mode fix-up iterations (red→green loop-back)
+
+- When the completion `ready` gate fails (red), the harness launches a **fix-up iteration**: one agent invocation that receives the captured failure text prepended to the normal patch prompt. The agent sees both the `ready` failure and the completed spec, and can attempt root-cause fixes. Sources: `v1/src/modes/patch/run.ts`, `v1/src/modes/patch/completion.ts`, `v1/docs/run-loop.md`
+- Fix-up trigger: completion gate returns red; `CompletionLoopbackSignal` is set with the captured failure text. The fix-up iteration is invoked using `buildFixupPrompt()` which merges the failure text with normal patch rules.
+- Fix-up post-iteration checks (in priority order): **blocker detection** (if any linked subspec gained a `## Blocker` section during fix-up, the run commits work, logs the blocker text to stderr, and exits 7); **spec completion** (if the spec still has unchecked boxes, fix-up counts as a regular implementation iteration and the main loop resumes); **completion retry** (if the spec remains complete, the completion gate is retried; if green, normal completion continues; if red, the loop repeats up to `maxIterations` limit). Sources: `v1/src/modes/patch/run.ts`, `v1/src/modes/patch/completion.ts`
+- Fix-up iterations do not include granular acceptance-criteria tracking because the spec is already complete. Any work is committed with `newlyChecked: []` and `checkedTotal: 0` in telemetry. Sources: `v1/src/modes/patch/run.ts`
+- Fix-up iterations appear in run summary `implementation-iteration` counts. Exit code `7` (blocker detected during fix-up) takes precedence over exit code `5` (max iterations exhausted). Sources: `v1/src/modes/patch/run.ts`, `v1/src/run-summary.ts`
+
 ### Patch-mode post-completion shrink
 
 - After implementation is complete (zero unchecked boxes), a clean worktree, and `git: true`, one shrink agent invocation runs when the run completed at least one implementation iteration. Shrink is skipped when `git: false` or when no implementation iterations ran. When shrink or review will run, per-subspec completion defers `maybeMarkReady` to the post-completion phases. Order: shrink → review (when configured) → `maybeMarkReady`. Sources: `v1/src/modes/patch/run.ts`, `v1/docs/run-loop.md`

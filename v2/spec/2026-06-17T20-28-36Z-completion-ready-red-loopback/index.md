@@ -11,5 +11,5 @@ Implementation is v1 harness work (`v1/src/modes/patch/run.ts`,
 Subspecs are ordered; each builds on the prior:
 
 - [x] [00 - Completion `ready` gate before shrink/review](./00-completion-ready-gate.md)
-- [ ] [01 - Loop the red completion gate back into one fix-up iteration](./01-red-loopback-iteration.md)
+- [x] [01 - Loop the red completion gate back into one fix-up iteration](./01-red-loopback-iteration.md)
 - [ ] [02 - Stuck-red completion stop (exit `10`)](./02-stuck-red-stop.md)

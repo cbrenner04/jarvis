@@ -692,6 +692,109 @@ describe("runCommand", () => {
     expect(cap.err()).not.toContain("made no progress");
   });
 
+  test("completion: fix-up iteration counts against maxIterations; exhausted budget stops with exit 5", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const spec = writeSpec("- [ ] todo\n");
+    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", (callCount) => {
+      if (callCount === 1) {
+        writeFileSync(spec, "- [x] todo\n");
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+      }
+      // The fix-up iteration makes no more progress; gate stays red.
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    // Red on the first gate check (drives the loop-back), red again on the second gate.
+    let gateCalls = 0;
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      reviewPasses: 0,
+      runCompletionReadyGate: () => {
+        gateCalls += 1;
+        return { kind: "red", failureText: "bun run ready failed:\nboom" };
+      },
+    });
+
+    // Budget is exhausted after normal iteration (1) + fix-up (2), so exit 5.
+    // This checks that the fix-up iteration counts against maxIterations (which defaults to 1).
+    // With maxIterations: 1, we have:
+    // - iteration 1 (normal): completes spec, gate red -> drives fix-up
+    // - iteration 2 (fix-up): would loop again, but we're at iteration 2 > maxIterations 1
+    expect(code).toBe(5);
+    expect(cap.err()).toContain("max iterations");
+  });
+
+  test("completion: blocker added during fix-up iteration stops with exit 7", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', {
+      cwd: projectRoot,
+    });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    // Create a named spec with an index
+    const specDir = join(projectRoot, "my-feature");
+    mkdirSync(specDir);
+    const indexPath = join(specDir, "index.md");
+    const subSpec = join(specDir, "01-subtask.md");
+
+    const indexContent = `repo: ${projectRoot}\n\n# Feature\n\n- [ ] [01 - Subtask](./01-subtask.md)`;
+    const subSpecContent = `# Subtask\n\n## Acceptance criteria\n\n- [ ] do something\n`;
+
+    writeFileSync(indexPath, indexContent);
+    writeFileSync(subSpec, subSpecContent);
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", (callCount) => {
+      if (callCount === 1) {
+        // Tick the checkbox in the first iteration
+        writeFileSync(
+          subSpec,
+          `# Subtask\n\n## Acceptance criteria\n\n- [x] do something\n`
+        );
+        execSync("git add -A && git commit -m done", { cwd: projectRoot });
+      }
+      // In the fix-up iteration, add a blocker
+      if (callCount === 2) {
+        writeFileSync(
+          subSpec,
+          `# Subtask\n\n## Acceptance criteria\n\n- [x] do something\n\n## Blocker\n\nSomething blocked`
+        );
+        execSync("git add -A && git commit -m blocker", { cwd: projectRoot });
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    // Red on the first gate check (drives the loop-back), green on the second gate.
+    let gateCalls = 0;
+    const code = await runWithDefaults({
+      specPath: indexPath,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+      reviewPasses: 0,
+      runCompletionReadyGate: () => {
+        gateCalls += 1;
+        return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\nboom" } : { kind: "green" };
+      },
+    });
+
+    // The blocker added during the fix-up iteration should stop with exit 7.
+    expect(code).toBe(7);
+    expect(cap.err()).toContain("Something blocked");
+  });
+
   test("completes after an agent flips an unchecked box", async () => {
     const spec = writeNamedSpec("feature", "- [ ] todo\n");
     const cap = captureIo();

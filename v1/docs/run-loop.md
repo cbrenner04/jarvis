@@ -201,6 +201,36 @@ The pre-shrink gate, review baseline gate, and `maybeMarkReady` `ready`
 invocations remain in place as green-path backstops and are unaffected by the 
 completion gate.
 
+### Fix-up iterations (red→green loop-back)
+
+When the completion `ready` gate fails (turns red), the harness launches a **fix-up iteration**: 
+one agent invocation that receives the captured `ready` failure text prepended to the normal 
+patch prompt. The agent can inspect both the failed `ready` output and the completed spec, 
+then attempt fixes.
+
+Fix-up iteration flow:
+
+1. **Trigger**: completion gate returns red; `CompletionLoopbackSignal` is set with the 
+   captured failure text.
+2. **Agent invocation**: runs with the combined prompt `buildFixupPrompt()` + normal patch 
+   rules. The agent sees the `ready` failure and can attempt to fix root-cause issues 
+   (type errors, test failures, linting, formatting, etc.).
+3. **Post-iteration checks** (in priority order):
+   - **Blocker detection**: if any linked subspec gained a `## Blocker` section, the run 
+     commits any work from the fix-up iteration, logs the blocker text to stderr, and 
+     exits with code 7.
+   - **Spec completion**: if the spec still has unchecked boxes, the fix-up iteration 
+     counts as a regular implementation iteration (affects iteration count and telemetry) 
+     and the main loop resumes from the next unchecked subspec.
+   - **Completion retry**: if the spec remains complete (zero unchecked) after the fix-up 
+     iteration, the completion gate is retried (runs `bun run ready` again). If it turns 
+     green, normal completion processing continues (shrink → review → readiness). If it 
+     turns red again, the loop repeats (up to the configured `maxIterations` limit).
+
+Fix-up iterations do not include granular acceptance-criteria tracking because the spec 
+is already complete. Any work is committed with `newlyChecked: []` and `checkedTotal: 0` 
+in telemetry.
+
 ### Post-completion shrink
 
 After implementation is complete (zero unchecked boxes), a clean worktree, and

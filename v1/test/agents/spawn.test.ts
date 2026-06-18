@@ -95,11 +95,9 @@ describe("runAgent process group reaping", () => {
     const bin = join(dir, "agent");
     const pidFile = join(dir, "descendant.pid");
     const script = `#!/usr/bin/env bash
-set -e
-# Spawn a detached background descendant in the same process group.
-# It will sleep for up to 60 seconds, allowing us to verify it dies after runAgent settles.
-(sleep 60 &)
-# Record the PID and exit 0 so runAgent reaches the close-path reap.
+# Spawn a background sleep in the same process group
+sleep 120 &
+# Record the PID before exiting
 echo $! > "${pidFile}"
 exit 0
 `;
@@ -127,12 +125,12 @@ exit 0
     expect(pid).toBeGreaterThan(0);
 
     let descendantDead = false;
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 20; i++) {
       try {
         // Sending signal 0 checks if process exists without killing it.
         process.kill(pid, 0);
         // Process still exists; wait and retry.
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 100));
       } catch (err: unknown) {
         // Process does not exist; reap succeeded.
         if (err instanceof Error && err.message.includes("ESRCH")) {

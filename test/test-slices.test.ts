@@ -62,7 +62,11 @@ describe("Test slice boundaries", () => {
     expect(pkgJson.scripts["test:v1"]).toBe("bun test ./v1/");
     expect(pkgJson.scripts["test:v2"]).toBe("bun test ./v2/");
     expect(pkgJson.scripts["test:shared"]).toBe("bun test ./shared/ ./test/");
-    expect(pkgJson.scripts.test).toBe("bun test");
+    // Aggregate run is parallel for wall-clock; coverage stays sequential
+    // because --parallel implies --isolate and coverage does not merge across
+    // worker processes.
+    expect(pkgJson.scripts.test).toBe("bun test --parallel");
+    expect(pkgJson.scripts.coverage).toBe("bun test --coverage");
   });
 
   it("bunfig.toml preload points to relocated setup file", async () => {
@@ -73,6 +77,10 @@ describe("Test slice boundaries", () => {
   });
 
   it("scoped slice runs load the agent-spawn preload", () => {
+    // Strip any inherited fake-agent bin dir so the scoped run must wire the
+    // preload itself. Run only the per-slice preload assertion files (not the
+    // whole suites) so this stays a fast, deterministic check that the root
+    // bunfig preload applies to a scoped `bun test` invocation.
     const env = {
       ...process.env,
       PATH: (process.env.PATH ?? "")
@@ -81,13 +89,9 @@ describe("Test slice boundaries", () => {
         .join(":"),
     };
 
-    // Each nested run spawns a full scoped `bun test` suite, so wall time scales
-    // with machine load. Give each its own generous execSync timeout (clean
-    // ETIMEDOUT on overrun) and set the bun per-test budget above their combined
-    // worst case as a backstop, rather than the previous 20s that flaked under load.
-    execSync("bun run test:v2", { env, stdio: "pipe", timeout: 60_000 });
-    execSync("bun test ./shared/", { env, stdio: "pipe", timeout: 60_000 });
-  }, 150_000);
+    execSync("bun test ./v2/src/preload.test.ts", { env, stdio: "pipe" });
+    execSync("bun test ./shared/preload.test.ts", { env, stdio: "pipe" });
+  }, 20_000);
 
   it("ready script uses aggregate test command", async () => {
     const readyScript = await Bun.file("scripts/ready.ts").text();

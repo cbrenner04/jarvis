@@ -173,6 +173,7 @@ type IterationContext = {
     cursorUnavailableNoted: boolean;
     currentController: AbortController | null;
     completionLoopbackSignal: CompletionLoopbackSignal | null;
+    previousCompletionFailureText: string | null;
   };
 };
 
@@ -250,6 +251,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     cursorUnavailableNoted: false,
     currentController: null as AbortController | null,
     completionLoopbackSignal: null as CompletionLoopbackSignal | null,
+    previousCompletionFailureText: null as string | null,
   };
 
   const onSigint = () => {
@@ -718,11 +720,59 @@ function mapExitCodeToReason(exitCode: number): string {
       return "timeout";
     case 9:
       return "worktree-locked";
+    case 10:
+      return "ready-stuck-red";
     case 130:
       return "sigint";
     default:
       return `exit-${exitCode}`;
   }
+}
+
+/**
+ * Normalize a ready failure text by stripping known non-deterministic content.
+ * This allows comparison of two failures to detect whether the failure has changed
+ * substantively or only in noise (timings, paths, etc.).
+ */
+function normalizeReadyFailureText(text: string): string {
+  let normalized = text;
+
+  // Strip absolute worktree paths: replace with [WORKTREE_PATH]
+  normalized = normalized.replace(/\/[\w\-./]+\/\.worktree\/[\w\-./]+/g, "[WORKTREE_PATH]");
+
+  // Strip durations like "1234ms", "5.67s", etc.
+  normalized = normalized.replace(/\b\d+(?:\.\d+)?(?:ms|s|m|h)\b/g, "[DURATION]");
+
+  // Strip wall-clock timings like "12:34:56"
+  normalized = normalized.replace(/\b\d{1,2}:\d{2}:\d{2}\b/g, "[TIME]");
+
+  // Strip dates like "2026-06-17", "June 17", etc.
+  normalized = normalized.replace(
+    /\b(?:\d{4}-\d{2}-\d{2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2})\b/gi,
+    "[DATE]",
+  );
+
+  // Strip deadline/timeout messaging like "deadline in 12m34s"
+  normalized = normalized.replace(/deadline\s+in\s+\d+[mshd](?:\d+[mshd])?/gi, "[DEADLINE]");
+
+  // Strip numeric IDs and hashes
+  normalized = normalized.replace(/\b[0-9a-f]{7,}\b/g, "[HASH]");
+
+  return normalized;
+}
+
+/**
+ * Compare two ready failure texts after normalization.
+ * Returns true if the failures are effectively unchanged (only noise differs),
+ * false if the failures have substantively changed.
+ */
+function isReadyFailureUnchanged(previousText: string | null, currentText: string): boolean {
+  if (previousText === null) {
+    return false;
+  }
+  const normalizedPrevious = normalizeReadyFailureText(previousText);
+  const normalizedCurrent = normalizeReadyFailureText(currentText);
+  return normalizedPrevious === normalizedCurrent;
 }
 
 async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
@@ -1514,19 +1564,48 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && implementationIterations > 0;
   const shouldRunCompletionReadyGate = preflight.gitEnabled && implementationIterations > 0;
 
-  // Run completion ready gate before shrink and review
-  if (shouldRunCompletionReadyGate) {
-    const gateResult = await runCompletionReadyGate(ctx);
-    if (gateResult.kind === "red") {
-      // Red completion ready gate: store the loop-back signal and return null to continue
-      // the iteration loop for a fix-up iteration (consumed in 01-red-loopback-iteration.md)
-      ctx.state.completionLoopbackSignal = { failureText: gateResult.failureText };
-      return null;
-    }
-    // Green: the gate passed. Clear any loop-back signal carried from a prior
-    // red gate so the caller finalizes completion instead of looping again.
-    ctx.state.completionLoopbackSignal = null;
-  }
+   // Run completion ready gate before shrink and review
+   if (shouldRunCompletionReadyGate) {
+     const gateResult = await runCompletionReadyGate(ctx);
+     if (gateResult.kind === "red") {
+       // Red completion ready gate.
+       // Check if this is a stuck-red stop: failure unchanged and no new checkbox/blocker
+       const hasNewBlocker = findBlockerInLinkedSubspecs(preflight.specPath) !== undefined;
+       const isStuckRed =
+         state.previousCompletionFailureText !== null &&
+         isReadyFailureUnchanged(state.previousCompletionFailureText, gateResult.failureText) &&
+         countUnchecked(preflight.specPath) === 0 &&
+         !hasNewBlocker;
+
+       if (isStuckRed) {
+         // Stuck-red stop: the failure is unchanged, no new checkbox, no new blocker
+         const worktreeName = basename(preflight.agentWorkingDir);
+         logging.fanout(
+           "harness",
+           `bun run ready failed:\n${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+           "stderr",
+         );
+         logging.writeTelemetry({
+           agent: "harness",
+           iteration: state.iteration,
+           durationMs: 0,
+           kind: "ok",
+           exitReason: "ready-stuck-red",
+           record_role: "run_terminal",
+         });
+         return 10;
+       }
+
+       // Red but failure changed: loop back for another fix-up iteration
+       state.previousCompletionFailureText = gateResult.failureText;
+       state.completionLoopbackSignal = { failureText: gateResult.failureText };
+       return null;
+     }
+     // Green: the gate passed. Clear any loop-back signal and previous failure text
+     // so the caller finalizes completion instead of looping again.
+     state.completionLoopbackSignal = null;
+     state.previousCompletionFailureText = null;
+   }
 
   if (shouldRunShrink) {
     const { fanout, writeTelemetry } = ctx.logging;

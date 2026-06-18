@@ -9,6 +9,7 @@ import type { Config } from "../../config.ts";
 import { getBaseBranch, postPrComment } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
+import { getCurrentHeadSha, isTreeUnchangedSinceRecordedGreen } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
@@ -252,6 +253,13 @@ export type PatchReviewPhaseOptions = {
   baseBranch?: string;
   /** Actuator context: the active patch agents to use for verdict execution. */
   actuatorAgents?: Agent[];
+  /** Recorded green result from completion transition: reuse when tree unchanged, refresh on re-run. */
+  recordedGreenResult?: {
+    /** HEAD sha from completion transition ready gate (post-`runReadyAndCommit`). */
+    headSha: string;
+  };
+  /** Refresh callback: called when baseline gate re-runs `ready` and succeeds, to update the recorded result. */
+  refreshRecordedGreenResult?: (headSha: string) => void;
 };
 
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
@@ -569,13 +577,35 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
   if (!opts.skipGates) {
     opts.fanout("harness", "review: running baseline gate\n", "stdout");
     try {
-      if (opts.runBaselineGate) {
-        opts.runBaselineGate();
-      } else {
-        runReadyAndCommit({
+      // Check if tree is unchanged and we can reuse the recorded green result
+      const treeUnchanged =
+        opts.recordedGreenResult !== undefined &&
+        isTreeUnchangedSinceRecordedGreen({
           cwd: opts.cwd,
-          agentLabel: "review-baseline",
+          recordedGreenHeadSha: opts.recordedGreenResult.headSha,
         });
+
+      if (treeUnchanged) {
+        opts.fanout(
+          "harness",
+          "review: tree unchanged since completion transition, reusing recorded green result\n",
+          "stdout",
+        );
+      } else {
+        // Tree changed or no recorded result: run ready and refresh the result on success
+        if (opts.runBaselineGate) {
+          opts.runBaselineGate();
+        } else {
+          runReadyAndCommit({
+            cwd: opts.cwd,
+            agentLabel: "review-baseline",
+          });
+        }
+        // On success, refresh the recorded result
+        if (opts.refreshRecordedGreenResult) {
+          const newHeadSha = getCurrentHeadSha(opts.cwd);
+          opts.refreshRecordedGreenResult(newHeadSha);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

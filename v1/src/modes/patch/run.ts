@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
@@ -44,7 +45,6 @@ import {
   worktreeCompletionBlocker,
 } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
-import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
@@ -84,11 +84,11 @@ export type RunCommandOptions = {
   /** True if `--resume-review` was passed; runs review on an already-complete spec. */
   resumeReview?: boolean;
   /**
-    * Test-only override for the watchdog/abort SIGKILL grace period in
-    * milliseconds. Lets timing tests bound their wall-clock cost without
-    * waiting the full 5s grace for SIGTERM-ignoring grandchildren. Defaults
-    * to 5000ms; production callers must not set this.
-    */
+   * Test-only override for the watchdog/abort SIGKILL grace period in
+   * milliseconds. Lets timing tests bound their wall-clock cost without
+   * waiting the full 5s grace for SIGTERM-ignoring grandchildren. Defaults
+   * to 5000ms; production callers must not set this.
+   */
   __testKillGraceMs?: number;
 };
 
@@ -347,13 +347,15 @@ async function resolveModeSpecificPreflight(
     // Guard 1: review disabled
     const reviewPasses = resolveReviewPasses(cfg, opts.reviewPasses);
     if (reviewPasses === 0) {
-      opts.io.stderr("error: --resume-review requires review passes > 0; enable review in config or pass --review-passes <n>\n");
+      opts.io.stderr(
+        "error: --resume-review requires review passes > 0; enable review in config or pass --review-passes <n>\n",
+      );
       return { kind: "error", exitCode: 1 };
     }
 
     // Guard 2: git off
     if (!gitEnabled) {
-      opts.io.stderr("error: --resume-review requires git mode to be enabled; set \"git\": true in config\n");
+      opts.io.stderr('error: --resume-review requires git mode to be enabled; set "git": true in config\n');
       return { kind: "error", exitCode: 1 };
     }
 

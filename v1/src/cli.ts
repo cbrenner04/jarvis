@@ -163,7 +163,6 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           resumeReview = true;
           args.splice(i, 1);
           i -= 1;
-          continue;
         }
       }
       const specPath = args[0];

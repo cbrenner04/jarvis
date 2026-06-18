@@ -11,7 +11,12 @@ import {
   NARRATIVE_START_MARKER,
   renderAttributionSummary,
 } from "../../pr.ts";
-import { type RunReadyAndCommitOpts, runReadyAndCommit, isTreeUnchangedSinceRecordedGreen, getCurrentHeadSha } from "../../ready-gate.ts";
+import {
+  getCurrentHeadSha,
+  isTreeUnchangedSinceRecordedGreen,
+  type RunReadyAndCommitOpts,
+  runReadyAndCommit,
+} from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 import { parsePatchSpec } from "./spec.ts";
 
@@ -263,10 +268,11 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   };
 
   // Check if tree is unchanged and we can reuse the recorded green result
-  const treeUnchanged = opts.recordedGreenResult !== undefined &&
-    isTreeUnchangedSinceRecordedGreen({ 
-      cwd: opts.cwd, 
-      recordedGreenHeadSha: opts.recordedGreenResult.headSha 
+  const treeUnchanged =
+    opts.recordedGreenResult !== undefined &&
+    isTreeUnchangedSinceRecordedGreen({
+      cwd: opts.cwd,
+      recordedGreenHeadSha: opts.recordedGreenResult.headSha,
     });
 
   if (treeUnchanged) {

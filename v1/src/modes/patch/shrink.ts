@@ -9,6 +9,7 @@ import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
+import { getCurrentHeadSha, isTreeUnchangedSinceRecordedGreen } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
@@ -17,7 +18,6 @@ import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { parsePatchSpec } from "./spec.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
-import { isTreeUnchangedSinceRecordedGreen, getCurrentHeadSha } from "../../ready-gate.ts";
 
 type ShrinkLogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type ShrinkLogStream = "stdout" | "stderr" | null;
@@ -301,14 +301,19 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     opts.fanout("harness", "shrink: running pre-shrink ready gate\n", "stdout");
     try {
       // Check if tree is unchanged and we can reuse the recorded green result
-      const treeUnchanged = opts.recordedGreenResult !== undefined && 
-        isTreeUnchangedSinceRecordedGreen({ 
-          cwd: opts.cwd, 
-          recordedGreenHeadSha: opts.recordedGreenResult.headSha 
+      const treeUnchanged =
+        opts.recordedGreenResult !== undefined &&
+        isTreeUnchangedSinceRecordedGreen({
+          cwd: opts.cwd,
+          recordedGreenHeadSha: opts.recordedGreenResult.headSha,
         });
 
       if (treeUnchanged) {
-        opts.fanout("harness", "shrink: tree unchanged since completion transition, reusing recorded green result\n", "stdout");
+        opts.fanout(
+          "harness",
+          "shrink: tree unchanged since completion transition, reusing recorded green result\n",
+          "stdout",
+        );
       } else {
         // Tree changed or no recorded result: run ready and refresh the result on success
         if (opts.runPreShrinkGate) {

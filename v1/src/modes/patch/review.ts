@@ -9,6 +9,7 @@ import type { Config } from "../../config.ts";
 import { getBaseBranch, postPrComment } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
+import { getCurrentHeadSha, isTreeUnchangedSinceRecordedGreen } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
@@ -21,7 +22,6 @@ import {
 } from "../review/types.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } from "./prompt.ts";
-import { isTreeUnchangedSinceRecordedGreen, getCurrentHeadSha } from "../../ready-gate.ts";
 
 /** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
@@ -578,14 +578,19 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     opts.fanout("harness", "review: running baseline gate\n", "stdout");
     try {
       // Check if tree is unchanged and we can reuse the recorded green result
-      const treeUnchanged = opts.recordedGreenResult !== undefined &&
-        isTreeUnchangedSinceRecordedGreen({ 
-          cwd: opts.cwd, 
-          recordedGreenHeadSha: opts.recordedGreenResult.headSha 
+      const treeUnchanged =
+        opts.recordedGreenResult !== undefined &&
+        isTreeUnchangedSinceRecordedGreen({
+          cwd: opts.cwd,
+          recordedGreenHeadSha: opts.recordedGreenResult.headSha,
         });
 
       if (treeUnchanged) {
-        opts.fanout("harness", "review: tree unchanged since completion transition, reusing recorded green result\n", "stdout");
+        opts.fanout(
+          "harness",
+          "review: tree unchanged since completion transition, reusing recorded green result\n",
+          "stdout",
+        );
       } else {
         // Tree changed or no recorded result: run ready and refresh the result on success
         if (opts.runBaselineGate) {

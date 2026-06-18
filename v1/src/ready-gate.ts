@@ -6,10 +6,7 @@ import { pushCurrent } from "./worktree.ts";
  * Check if the tree is unchanged since the recorded green result.
  * Tree is unchanged only when current HEAD sha equals the recorded sha AND the worktree is clean.
  */
-export function isTreeUnchangedSinceRecordedGreen(opts: {
-  cwd: string;
-  recordedGreenHeadSha?: string;
-}): boolean {
+export function isTreeUnchangedSinceRecordedGreen(opts: { cwd: string; recordedGreenHeadSha?: string }): boolean {
   if (opts.recordedGreenHeadSha === undefined) {
     return false;
   }
@@ -125,4 +122,3 @@ function getCurrentBranch(cwd: string): string {
   });
   return output.trim();
 }
-

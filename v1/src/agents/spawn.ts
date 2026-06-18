@@ -77,6 +77,15 @@ export function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOpti
       }
       if (stdoutEnded && stderrEnded && (childClosed || code !== undefined)) {
         if (code === 0 || code === undefined) {
+          // Best-effort reap in-group stragglers on normal completion.
+          const pgid = child.pid;
+          if (pgid !== undefined) {
+            try {
+              process.kill(-pgid, "SIGKILL");
+            } catch {
+              // Swallow reap errors: ESRCH is expected on clean close, others are non-fatal.
+            }
+          }
           settle({ kind: "ok", stdout: outBuf, stderr: errBuf });
         } else {
           const exitCode = code ?? -1;

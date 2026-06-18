@@ -91,57 +91,61 @@ fi
 });
 
 describe("runAgent process group reaping", () => {
-  test("normal close with in-group descendant reaped", async () => {
-    const bin = join(dir, "agent");
-    const pidFile = join(dir, "descendant.pid");
-    const script = `#!/usr/bin/env bash
+  test(
+    "normal close with in-group descendant reaped",
+    async () => {
+      const bin = join(dir, "agent");
+      const pidFile = join(dir, "descendant.pid");
+      const script = `#!/usr/bin/env bash
 # Spawn a background sleep in the same process group
 sleep 120 &
 # Record the PID before exiting
 echo $! > "${pidFile}"
 exit 0
 `;
-    writeFileSync(bin, script);
-    chmodSync(bin, 0o755);
+      writeFileSync(bin, script);
+      chmodSync(bin, 0o755);
 
-    const result = await runAgent(
-      {
-        name: "claude",
-        binary: bin,
-        cwd: realpathSync(cwd),
-        buildArgv: () => [],
-        stdio: ["ignore", "pipe", "pipe"],
-        streamErrorPrefix: "test:",
-      },
-      "test",
-      { cwd },
-    );
+      const result = await runAgent(
+        {
+          name: "claude",
+          binary: bin,
+          cwd: realpathSync(cwd),
+          buildArgv: () => [],
+          stdio: ["ignore", "pipe", "pipe"],
+          streamErrorPrefix: "test:",
+        },
+        "test",
+        { cwd },
+      );
 
-    expect(result.kind).toBe("ok");
+      expect(result.kind).toBe("ok");
 
-    // Poll for descendant death with bounded retries.
-    const pidStr = readFileSync(pidFile, "utf8").trim();
-    const pid = parseInt(pidStr, 10);
-    expect(pid).toBeGreaterThan(0);
+      // Poll for descendant death with bounded retries.
+      const pidStr = readFileSync(pidFile, "utf8").trim();
+      const pid = parseInt(pidStr, 10);
+      expect(pid).toBeGreaterThan(0);
 
-    let descendantDead = false;
-    for (let i = 0; i < 20; i++) {
-      try {
-        // Sending signal 0 checks if process exists without killing it.
-        process.kill(pid, 0);
-        // Process still exists; wait and retry.
-        await new Promise((r) => setTimeout(r, 100));
-      } catch (err: unknown) {
-        // Process does not exist; reap succeeded.
-        if (err instanceof Error && err.message.includes("ESRCH")) {
-          descendantDead = true;
-          break;
+      let descendantDead = false;
+      for (let i = 0; i < 20; i++) {
+        try {
+          // Sending signal 0 checks if process exists without killing it.
+          process.kill(pid, 0);
+          // Process still exists; wait and retry.
+          await new Promise((r) => setTimeout(r, 100));
+        } catch (err: unknown) {
+          // Process does not exist; reap succeeded.
+          if (err instanceof Error && err.message.includes("ESRCH")) {
+            descendantDead = true;
+            break;
+          }
+          throw err;
         }
-        throw err;
       }
-    }
-    expect(descendantDead).toBe(true);
-  }, { timeout: 10000 });
+      expect(descendantDead).toBe(true);
+    },
+    { timeout: 10000 },
+  );
 
   test("kill failure during reap leaves result unchanged", async () => {
     const bin = join(dir, "agent");

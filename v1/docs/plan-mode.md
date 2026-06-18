@@ -9,7 +9,7 @@ Plan mode consumes a **ready-intent** — a hand-authored seed produced by `jarv
 **With `commit: true` (default):** Specs are written inside the target repository under `<targetDir>/<spec-dir>/` where `<targetDir>` defaults to `spec` but may be configured per-project:
 - `<targetDir>/<spec-dir>/intent.md` — a byte-for-byte copy of the ready-intent (frontmatter, sentinels, and `## Prerequisites` preserved). New runs use **`<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`** (`<plan-name>` is the ready-intent's `name:` after collision suffixing). Older trees may still omit the timestamp (**`<spec-dir>`** = `<plan-name>` only); both layouts stay valid for resume and `jarvis1 run`.
 - A `plan: draft` commit with `<targetDir>/<spec-dir>/index.md` plus atomic subspec files (the copied `intent.md` rides in the same commit).
-- Zero or more `plan: review <N>` commits (default 2) where agents refine the spec tree in place.
+- Zero or more `plan: review <N>` commits (default 1) where agents refine the spec tree in place.
 - A draft PR titled `plan: <plan-name>` (derived from branch identity, **not** the UTC prefix) that aggregates progress across all phases. The PR opens after the first `plan: draft` commit.
 
 **With `commit: false`:** Specs are written in Jarvis-owned storage outside the target repository:
@@ -149,7 +149,7 @@ Rendered prompt snapshots for this phase are reviewed from revision-keyed fixtur
 
 ### Phase 2: Self-review
 
-After `plan: draft` is pushed, jarvis runs zero or more review cycles (default: `modes.review.passes`, currently `2`; overridable via `--review-passes`). Review agents come from `modes.review.agentOrder`, falling back to `modes.plan.agentOrder`. Each cycle runs read-only adversary, advocate, and adjudicator prompts (`prompts/plan/review-*.md`). The adjudicator writes a self-contained verdict; when non-empty, jarvis persists it as `verdict-plan.md` and invokes the actuator prompt (`prompts/plan/review-actuator.md`) to apply the verdict to generated spec files.
+After `plan: draft` is pushed, jarvis runs zero or more review cycles (default: `modes.review.passes`, currently `1`; overridable via `--review-passes`). Review agents come from `modes.review.agentOrder`, falling back to `modes.plan.agentOrder`. Each cycle runs read-only adversary, advocate, and adjudicator prompts (`prompts/plan/review-*.md`). The adjudicator writes a self-contained verdict; when non-empty, jarvis persists it as `verdict-plan.md` and invokes the actuator prompt (`prompts/plan/review-actuator.md`) to apply the verdict to generated spec files.
 
 Reviewer role prompts:
 
@@ -235,7 +235,7 @@ Plan mode writes a `repo:` line into the generated `index.md`. When the target p
 
 ### `--review-passes <n>`
 
-Number of self-review passes to run. Default: `2`. Use `--review-passes 0` to skip review entirely and stop after draft.
+Number of self-review passes to run. Default: `1`. Use `--review-passes 0` to skip review entirely and stop after draft.
 
 ### `--repo <name|path|url>`
 
@@ -275,7 +275,7 @@ Resume does not accept positional intent text and does not require `--repo`; it 
 
 Resume runs additional **review passes** against an existing plan branch:
 
-- Runs `--review-passes <n>` additional review passes (default `2`), same as the initial invocation.
+- Runs `--review-passes <n>` additional review passes (default `1`), same as the initial invocation.
 - Runs no intent or refine phases (those no longer exist in plan).
 
 Resume commit subjects carry an `r<n>` suffix where `<n>` is the resume invocation number for that plan branch:
@@ -426,6 +426,12 @@ rm -rf ~/.jarvis/specs/<project-key>/<spec-dir>/
 ```
 
 The `jarvis1 cleanup` command does not delete Jarvis-owned external specs; it only handles git worktrees and target-repo `spec/` directories from `commit: true` runs.
+
+## External spec directory write access
+
+With `commit: false`, the draft, review, and verdict-actuator phases run with write access to the external spec directory (under `~/.jarvis/specs/…`), allowing the agent to write `index.md` and subspecs and to append `## Blocker` sections to the external `intent.md`. Only Claude and Codex receive this access as `--add-dir` flags; Cursor and Opencode never receive the directory, and Aider receives it as a positional argument. Write effectiveness varies by agent: Claude and Codex honor the grant; Cursor, Opencode, and Aider cannot write external files (inherited limitation of their underlying permission models).
+
+With `commit: true`, the spec directory lives inside the worktree (under `<targetDir>/`), so no external write grant is needed.
 
 ## Validation rules
 

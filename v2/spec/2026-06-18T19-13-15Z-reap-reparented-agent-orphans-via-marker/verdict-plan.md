@@ -1,0 +1,38 @@
+I'll ground my verdict by verifying the load-bearing claims against the codebase and the target platform before adjudicating.Now let me verify the key claims in parallel: the platform discovery mechanism, the run loop control flow, and the docs.Confirmed: `/proc` absent, `setsid` absent (perl `POSIX::setsid()` works), `ps eww <pid>` strips env, and `ps auxeww` exposes env (the secrets-leak surface). Now let me verify the run loop control flow claims.Confirmed: SIGINT path can `process.exit(130)` directly (line 249), and the `{ kind: "exit" }` branch calls `process.exit` (line 282), both bypassing normal returns. The `finally` at 286 is the finalize. Now let me verify the per-iteration `finally` chokepoint and the PR-body in-iteration spawn claims.All structural claims confirmed: ~18 `return`/`exit` sites in `runIteration`, a single per-iteration `finally` at line 1348, the finalize `finally` at 286, in-iteration PR-body spawns at 1045/1075 under the same `iterationController` and `killGraceMs`, and an existing `__testKillGraceMs` injection-seam precedent at line 89. I have sufficient grounding to adjudicate.
+
+---
+
+# Verdict — `00-marker-reap.md` (first pass)
+
+The intent and the reap-by-marker strategy are sound; reaping by inherited marker rather than `-pgid` is correct because re-parented orphans definitionally escape the group. The decision list and documentation homes (`run-loop.md`, `agents.md`, `v2/docs/v1-behaviors.md` under "Abort and process lifecycle") are appropriate and need no change. However, the draft under-pins the foundations that make this feature implementable and safe. The following refinements are required.
+
+## Required refinements
+
+1. **Pin a concrete, target-platform-verified process-discovery mechanism — do not defer it.** The draft's "`ps -e`/`/proc`" example is non-functional on the target OS: `/proc` does not exist on darwin, and a plain process listing does not expose child environment. The exact invocation is load-bearing, not incidental: per-PID env forms (`ps eww <pid>`, `ps -Eww`) return no environment, while only a full BSD listing (`ps auxeww`) exposes the marker. The spec must name a mechanism that actually reads inherited env on darwin and exactly identifies marked processes. This is the behavior's foundation and the patch loop is its first and only consumer; "deferred to first consumer" is not available here. Replace the deferral on discovery with a committed decision.
+
+2. **Add a secrets-non-leak decision for the env scan.** Reading every process's full environment to find the marker exposes other processes' secrets (tokens, keys) to the harness. The current "optionally logged" is under-specified for a security-relevant path. The spec must commit to what is safe to log (e.g., count of killed PIDs and the harness's own chosen marker value) and forbid logging the scanned environment blob or matched env lines. Resolve the "optionally logged" wording into a firm decision consistent with this.
+
+3. **Make self-/sibling-non-kill an explicit decision and acceptance criterion.** A `SIGKILL`-by-env-match design is dangerous precisely because the harness and any concurrent runs could carry a matching marker. The draft's per-invocation injection implicitly avoids this, but for a kill-by-match feature the guarantee "the harness never targets its own process or processes outside this run's marker" must be stated explicitly, not inferred. Add it as both a decision and a criterion.
+
+4. **Resolve the in-iteration spawn timing.** `runAgent` is reused mid-iteration for PR-body generation under the same iteration abort controller and would inherit the same iteration marker. A reap fired "at iteration end" could therefore match a still-legitimate in-flight child carrying the current iteration's marker. The spec must define how survivors are distinguished from in-flight legitimate children (e.g., reap only after all of the iteration's own foreground and in-iteration spawns have settled, or scope the marker value per-spawn rather than per-iteration). Currently ambiguous and load-bearing.
+
+5. **Name a control-flow-aware reap chokepoint that covers all iteration exits, including the `process.exit` paths.** `runIteration` returns from ~18 distinct sites; the SIGINT handler and one outcome branch call `process.exit` directly, bypassing any reap bolted onto normal returns. A naive implementation could wire reaping onto only the timeout branch and silently miss quota/no-progress/blocker/exit paths — exactly the wrong-alternative the ledger exists to rule out. The spec must commit to where reaping hooks (the per-iteration `finally` plus the finalize `finally`, with the direct-exit paths accounted for) so every iteration end and finalize is covered.
+
+6. **Pin exact marker match semantics.** For a kill-by-match, the spec must require an unambiguous `key=value` match: a value shaped to avoid collisions (so iteration `1` cannot match `10`, and the value cannot match as a substring inside an unrelated variable). State this as a decision; it is cheap and prevents wrong kills.
+
+7. **Specify a darwin-buildable escapee test fixture and a real failure-injection seam.** The task says the test descendant "calls `setsid`", but `setsid` is absent on the target host; the fixture must use a darwin-viable escape (e.g., a `POSIX::setsid()` equivalent) and the escapee must also survive the existing `-pgid` kill to be a valid regression (the existing watchdog test keeps its grandchild in-group and does not cover escapees). Separately, the induced-reap-failure criterion needs a named injection seam to force the reap to fail deterministically at run level (an overridable reap entry point, paralleling the existing `__testKillGraceMs` override), so the criterion does not collapse into a trivial try/catch unit test. Acknowledge both fixtures as net-new, non-trivial work rather than single bullets.
+
+8. **State the marker plumbing carrier.** The decision rules out `config.env` but does not name how the run-id/iteration value reaches `runAgent`. The spec should state the carrier it will use (threading through the agent run options, mirroring existing per-invocation options) in one line so the implementer does not invent the interface.
+
+## Minor (address, not blocking)
+
+9. **Disambiguate "marker" in the `agents.md` update.** A prompt-appended HTML-comment marker already exists for usage correlation; the new `JARVIS_RUN_ID` is an inherited env marker for process discovery. The doc update should make clear these are distinct so readers do not conflate them. No design conflict exists.
+
+## Correctly scoped — no change required
+
+- Deferring plan/review/prompt/shrink reaping is correct per the intent's stated scope (`spawn.ts` + `modes/patch/run.ts`) and the "one independently reviewable change" rule. Do not widen scope.
+- The reap-by-marker rationale, the decision list framing, and the documentation homes are sound.
+
+## Rationale
+
+The intent's acceptance signals require that a real PPID=1 escapee carrying the marker is killed and that reaping failures leave exit codes unchanged. Items 1, 5, and 7 are prerequisites for demonstrating those signals on the target platform and cannot be deferred, because the patch iteration loop is the first consumer. Items 2 and 3 guard against the feature causing harm (leaking secrets, killing the harness or sibling runs) that the intent does not contemplate but a kill-by-match design creates. Items 4 and 6 close ambiguities where a competent implementer could plausibly choose a wrong, observably-broken behavior — the test the decision ledger must satisfy per the working rules. Items 8 and 9 are cheap precision that prevents invented interfaces and reader confusion.

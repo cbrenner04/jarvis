@@ -87,15 +87,15 @@ Two existing-code facts shape the guards:
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 run --resume-review <spec-path>` is accepted by argument parsing and threads a review-resume signal into the run command.
-- [ ] `jarvis1 run --resume-review` with review passes resolving to `0` (config or `--review-passes 0`) exits `1` with a message naming that review is disabled, and runs no agent.
-- [ ] `jarvis1 run --resume-review` with effective `git` false exits `1` with a message naming that git mode is off, and runs no agent.
-- [ ] `jarvis1 run --resume-review` when no implementation PR (no remote branch backing one) exists for the resolved spec exits `1` with a message naming the missing PR, and runs no agent.
-- [ ] `jarvis1 run --resume-review` against a complete spec whose PR exists but whose local worktree is absent does not reject on worktree grounds; resolution proceeds (worktree may be recreated from the remote branch).
-- [ ] `jarvis1 run --resume-review` on a spec with unchecked tasks exits `1` with a message naming that the spec is incomplete, and runs no agent.
-- [ ] `jarvis1 run --resume-review --max-iterations <n>` is accepted and the value has no behavioral effect (review resume runs no implementation iterations).
-- [ ] `jarvis1 run` usage/help text lists the `--resume-review` flag.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `jarvis1 run --resume-review <spec-path>` is accepted by argument parsing and threads a review-resume signal into the run command.
+- [x] `jarvis1 run --resume-review` with review passes resolving to `0` (config or `--review-passes 0`) exits `1` with a message naming that review is disabled, and runs no agent.
+- [x] `jarvis1 run --resume-review` with effective `git` false exits `1` with a message naming that git mode is off, and runs no agent.
+- [x] `jarvis1 run --resume-review` when no implementation PR (no remote branch backing one) exists for the resolved spec exits `1` with a message naming the missing PR, and runs no agent.
+- [x] `jarvis1 run --resume-review` against a complete spec whose PR exists but whose local worktree is absent does not reject on worktree grounds; resolution proceeds (worktree may be recreated from the remote branch).
+- [x] `jarvis1 run --resume-review` on a spec with unchecked tasks exits `1` with a message naming that the spec is incomplete, and runs no agent.
+- [x] `jarvis1 run --resume-review --max-iterations <n>` is accepted and the value has no behavioral effect (review resume runs no implementation iterations).
+- [x] `jarvis1 run` usage/help text lists the `--resume-review` flag.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

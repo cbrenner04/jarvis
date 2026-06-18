@@ -115,6 +115,36 @@ regardless of dirty or untracked files in the agent's working directory.
 A spec with no task list checkboxes is malformed. Jarvis fails fast instead of
 treating it as complete.
 
+### Completion-transition ready gate
+
+When a `git: true` patch run reaches the completion transition (zero unchecked
+boxes and a clean worktree), Jarvis runs `bun run ready` once, harness-side,
+before proceeding to post-completion phases (shrink, review, `maybeMarkReady`).
+This completion-transition gate runs through the existing `runReadyAndCommit`
+path and consumes zero agent tokens.
+
+On success, the harness records a green result keyed to:
+- **HEAD sha**: Read via a separate `git rev-parse HEAD` *after*
+  `runReadyAndCommit` returns, capturing the post-commit state if
+  `check:fix` landed a commit.
+- **Clean worktree**: Verified after `runReadyAndCommit` completes.
+
+This recorded result is available to post-completion phases (shrink and review
+gates, plus `maybeMarkReady` at both the completion-transition and per-iteration 
+early-ready sites in `01`). On the common path (green completion gate, default 
+config with review enabled, no-op shrink, review makes no commits), the shrink 
+pre-gate and review baseline both see an unchanged tree and reuse the recorded 
+result without re-running `bun run ready`. The review final gate still runs `ready` 
+unconditionally before the draft→ready flip. If the completion-transition ready 
+fails, no green result is recorded and the run proceeds unchanged into the existing 
+post-completion phases with the same exit code and stop reasons.
+
+The completion-transition gate is reached at most once per run (in
+`tryFinishSpecIfDone`, which early-returns whenever unchecked boxes remain).
+When the run does not reach the completion transition with `git: true`
+(loop-only `git: false`, zero implementation iterations, or an earlier stop),
+no completion-transition ready runs.
+
 ### Completion output
 
 On successful completion, the run terminal prints `spec complete` followed (on
@@ -146,18 +176,57 @@ where it can be edited by reviewers. If generation fails, jarvis falls back to
 ## Review phase
 
 After the spec is complete and `git: true` is in effect, `jarvis1 run` enters
-a post-completion review phase configured by `modes.review.passes` (default `2`).
+a post-completion review phase configured by `modes.review.passes` (default `1`).
 The review phase is skipped when `passes` is `0`, when `git` is `false`, or when
 the run completed no implementation iterations. Patch review routes through the
 shared review runner in `v1/src/modes/review/` with a patch adapter; review
 agents resolve from `modes.review.agentOrder`, falling back to
 `modes.plan.agentOrder`, not the implementation agents.
 
+### Resuming review on a completed spec
+
+`jarvis1 run --resume-review <spec-path>` re-enters the post-completion review
+phase on an already-complete spec without running implementation agents. This
+allows an operator to retry or rerun review when the initial completion didn't
+trigger review, the initial review failed, or the branch moved and review
+needs to retry.
+
+**Preflight guards** enforce:
+
+- **Review disabled**: `modes.review.passes` is `0` or `--review-passes 0` was
+  passed; exits `1`.
+- **Git off**: Effective `git` is `false`; exits `1`.
+- **No implementation PR**: No remote branch (and therefore no PR) exists for the
+  resolved spec's branch; exits `1`. A missing-but-recreatable local worktree is
+  **not** an error, because the resolver can recreate the worktree from the
+  remote branch.
+- **Incomplete spec**: The spec has unchecked tasks; exits `1`.
+
+Guard errors each print a distinct message naming the reason and exit with code
+`1` before any agent runs.
+
+**Execution**: When the guards pass, `jarvis1 run --resume-review` proceeds to
+the same review-phase entry as a normal completion, bypassing the
+`implementationIterations > 0` gate for review only. The shrink phase is still
+skipped (no `patch_phase: "shrink"` telemetry row is emitted). All existing
+review outcomes are preserved:
+
+- Baseline or final gate failure: non-zero exit code, PR stays draft.
+- Review blocker: exit `7`, blocker content printed to stderr.
+- Review quota exhaustion: exit `2`.
+- Already-ready PR: idempotent no-op (final `gh pr ready` leaves it untouched).
+
+`--max-iterations` is accepted but has no behavioral effect (review resume runs
+no implementation iterations).
+
 The review phase flow is:
 
-1. **Baseline gate**: runs `bun run ready` (install → check:fix → typecheck → 
-   test → check). If check:fix makes changes, they are committed. The draft PR 
-   stays draft at this point.
+1. **Baseline gate**: checks if the tree is unchanged since the completion gate's 
+   recorded green result (current HEAD sha equals the recorded sha **and** worktree 
+   clean). If unchanged, reuses that green result and skips `bun run ready`; if 
+   changed, runs `bun run ready` (install → check:fix → typecheck → test → check) 
+   and refreshes the recorded result on green. If check:fix makes changes, they 
+   are committed. The draft PR stays draft at this point.
 2. **Review passes**: For each pass, the agent is invoked with the spec tree and 
    current branch diff as context, asked to critique and refactor the 
    implementation. Non-empty changes are committed per pass. Spec-tree edits are 
@@ -172,11 +241,87 @@ The review phase flow is:
    during the invocation upgrade to **`quota`** and rotate like strict quota. Other 
    hard **`error`** results stop the pass (no rotation). Per-pass iteration timeout 
    is enforced by the patch adapter's agent wrapper.
-3. **Final ready**: runs `bun run ready` again, then `gh pr ready` to transition 
-   the PR from draft to ready.
+3. **Final ready**: runs `bun run ready` unconditionally (install → check:fix → 
+   typecheck → test → check), then `gh pr ready` to transition the PR from draft 
+   to ready. The final ready gate does not participate in reuse and always verifies 
+   the implementation immediately before the draft→ready transition.
 
 Telemetry records review pass invocations with `patch_phase: "review"` so they
 are distinguishable from implementation iterations in `~/.jarvis/runs.jsonl`.
+
+### Completion `ready` gate
+
+After the spec is complete (zero unchecked boxes) and `git: true` is in effect,
+the harness runs a completion-stage `ready` gate before any shrink or review
+phases. This gate runs `bun run ready` with the same commit/push semantics as
+the review baseline gate and pre-shrink gate: check:fix output is committed if
+present.
+
+The completion gate:
+
+1. Runs only when `gitEnabled`, the tree is clean, and at least one 
+   implementation iteration occurred (checkpoint: not on `git: false` modes or 
+   checkbox-only completion).
+2. On green: commits any `check:fix` output and proceeds to shrink → review 
+   → `maybeMarkReady` (if configured).
+3. On red: captures the failure text and handles it per the loop-back 
+   completion behavior (specs `01-red-loopback-iteration.md` and 
+   `02-stuck-red-stop.md`). The shrink and review phases do not run on red.
+
+The pre-shrink gate, review baseline gate, and `maybeMarkReady` `ready` 
+invocations remain in place as green-path backstops and are unaffected by the 
+completion gate.
+
+### Fix-up iterations (red→green loop-back)
+
+When the completion `ready` gate fails (turns red), the harness launches a **fix-up iteration**: 
+one agent invocation that receives the captured `ready` failure text prepended to the normal 
+patch prompt. The agent can inspect both the failed `ready` output and the completed spec, 
+then attempt fixes.
+
+Fix-up iteration flow:
+
+1. **Trigger**: completion gate returns red; `CompletionLoopbackSignal` is set with the 
+   captured failure text.
+2. **Agent invocation**: runs with the combined prompt `buildFixupPrompt()` + normal patch 
+   rules. The agent sees the `ready` failure and can attempt to fix root-cause issues 
+   (type errors, test failures, linting, formatting, etc.).
+3. **Post-iteration checks** (in priority order):
+   - **Blocker detection**: if any linked subspec gained a `## Blocker` section, the run 
+     commits any work from the fix-up iteration, logs the blocker text to stderr, and 
+     exits with code 7.
+   - **Spec completion**: if the spec still has unchecked boxes, the fix-up iteration 
+     counts as a regular implementation iteration (affects iteration count and telemetry) 
+     and the main loop resumes from the next unchecked subspec.
+   - **Completion retry**: if the spec remains complete (zero unchecked) after the fix-up 
+     iteration, the completion gate is retried (runs `bun run ready` again). If it turns 
+     green, normal completion processing continues (shrink → review → readiness). If it 
+     turns red again, the loop repeats (up to the configured `maxIterations` limit).
+
+Fix-up iterations do not include granular acceptance-criteria tracking because the spec 
+is already complete. Any work is committed with `newlyChecked: []` and `checkedTotal: 0` 
+in telemetry.
+
+### Stuck-red completion stop (exit 10)
+
+After each fix-up iteration, the completion gate is retried. The loop continues until:
+- The gate turns green (proceed to post-completion phases).
+- The budget is exhausted (exit code 5).
+- A new blocker is added (exit code 7).
+- The failure is unchanged and progress cannot be made (exit code 10).
+
+Exit code `10` (`ready-stuck-red`) fires when:
+1. The completion gate returns red (still failing).
+2. The captured failure text is unchanged after normalization (stripping known non-deterministic content like absolute paths, durations, timings, dates, and deadline messaging).
+3. No new work was ticked (unchecked count is still 0).
+4. No new blocker was added.
+
+This indicates the issue persists and manual intervention is likely needed. The harness outputs:
+- The captured `bun run ready failed:` text that failed before and fails after the fix-up iteration.
+- A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves.
+- A telemetry record with exit reason `ready-stuck-red` for observability.
+
+If the failure text changed substantively (e.g. a different line number, different test output), the loop continues. Noise-only differences (timings, paths) are normalized away and do not extend the loop.
 
 ### Post-completion shrink
 
@@ -191,9 +336,12 @@ Order: **shrink → review (when configured) → `maybeMarkReady`**.
 
 Shrink phase flow:
 
-1. **Pre-shrink gate**: runs `bun run ready` with the same commit/push semantics
-   as the review baseline helper. Failure logs a warning and skips shrink (review
-   and/or `maybeMarkReady` still proceed).
+1. **Pre-shrink gate**: checks if the tree is unchanged since the completion 
+   gate's recorded green result (current HEAD sha equals the recorded sha **and** 
+   worktree clean). If unchanged, reuses that green result and skips `bun run ready`; 
+   if changed, runs `bun run ready` with the same commit/push semantics as the 
+   review baseline helper and refreshes the recorded result on green. Failure logs 
+   a warning and skips shrink (review and/or `maybeMarkReady` still proceed).
 2. **Shrink invocation**: one agent call with `patch.prompt.shrink` + `global.terse`
    (not `patch.rules`). Prompt includes the completed spec tree (read-only), an
    explicit allowlist of files touched during implementation iterations, and a
@@ -478,18 +626,19 @@ jarvis1 log-server
 | Exit | Meaning |
 | --- | --- |
 | `0` | Spec complete. |
-| `1` | Bad input (unknown command, missing args, invalid `--max-iterations`, unregistered project, etc.). |
+| `1` | Bad input (unknown command, missing args, invalid `--max-iterations`, unregistered project, `--resume-review` guard failure, etc.). `--resume-review` guard failures include: review passes resolve to `0`, effective `git` is `false`, no implementation PR/remote branch exists for the spec's branch, or the spec has unchecked tasks. Each guard prints a distinct message before exiting. |
 | `2` | Every configured agent was quota-exhausted. |
 | `3` | The active agent failed for a non-quota reason. |
 | `4` | A successful agent iteration made no progress (unchecked count unchanged and spec still incomplete). When the active subspec is resolvable, the stop message lists unticked acceptance criteria from that subspec to help guide recovery—this diagnostic fires only on clean runs with no-progress, not on other stop paths. The guidance message explains that if the work is done, ticking the satisfied criteria and rerunning will complete the subspec. |
 | `5` | The configured `maxIterations` was reached. Default is 10; override with `--max-iterations <n>`. |
-| `6` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes (excluding the `chore: apply pre-ready check:fix` commit, which the harness handles automatically), or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. After a successful readiness transition, the worktree is guaranteed clean because the harness commits any `check:fix` mutations before calling `gh pr ready`. Exit 6 on the "worktree not clean" path is therefore reserved for genuinely unexpected dirty state (forgotten staged files, untracked artifacts) that is unrelated to the `check:fix` step. The bail message ends with a pointer to `jarvis1 triage <worktree-name>` to inspect the state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
+| `6` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes (excluding the `chore: apply pre-ready check:fix` commit, which the harness handles automatically), or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. After a successful readiness transition, the worktree is guaranteed clean because the harness commits any `check:fix` mutations before calling `gh pr ready`. On the post-completion gate reuse branch (when the tree is unchanged since the recorded green result and reuse skips `runReadyAndCommit`), the reuse predicate's clean-worktree check ensures the same guarantee: `maybeMarkReady` reuses and proceeds to `gh pr ready` only when the worktree is verified clean at that moment. Exit 6 on the "worktree not clean" path is therefore reserved for genuinely unexpected dirty state (forgotten staged files, untracked artifacts) that is unrelated to the `check:fix` step. The bail message ends with a pointer to `jarvis1 triage <worktree-name>` to inspect the state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
 | `7` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |
+| `10` | The run is stuck on a red `bun run ready` failure after a fix-up iteration. The captured failure text is unchanged (after normalization for noise like timings and paths), and no new work was ticked and no new blocker was added. This is a recoverable stop: the issue persists and manual intervention may be needed. The error message includes the captured failure text and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import) and rerun to retry the fix-up iteration. |
 | `130` | Interrupted with Ctrl-C. |
 
-On exit `4` and `5`, the bounded tail of recent agent output is printed to the
+On exit `4`, `5`, and `10`, the bounded tail of recent agent output is printed to the
 terminal to help diagnose why progress stalled.
 
 When an iteration timeout fires, Jarvis logs a single watchdog line to both the

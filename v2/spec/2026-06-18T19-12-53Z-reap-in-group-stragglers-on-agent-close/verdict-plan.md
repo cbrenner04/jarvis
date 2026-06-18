@@ -1,0 +1,30 @@
+I'll ground my verdict in the actual implementation before adjudicating. Let me read the key files.The implementation confirms the critical details. Let me verify the existing test patterns and the run-loop doc to ground the remaining findings.I now have enough grounding. The implementation confirms the load-bearing facts: the reap must sit in the `code === 0 || code === undefined` branch at spawn.ts:79-80; `settle()` at spawn.ts:57 is shared by all terminal paths; the abort path does SIGTERM→grace→SIGKILL (spawn.ts:129-145); no test seam exists to force `process.kill(-pgid)` to throw; and v1-behaviors.md:217,219 already document the grace-escalation paths. I'll issue the verdict.
+
+---
+
+# Verdict — `reap-in-group-stragglers-on-agent-close`
+
+The spec ships the right behavior and is correctly sized as one PR. The approach needs no redesign. The following refinements are required because the spec asserts as settled fact things the implementation must instead prove or pin, and because its trigger site, test mechanism, and one load-bearing decision are under-specified. All are prose/scope fixes.
+
+## Required refinements
+
+1. **Pin the reap insertion site to an exact code branch.** The spec's "before/around final settlement" wording contradicts its own Decision 1 ("close path only"): settlement is shared by the quota/error/abort terminal paths, so "around settlement" would reap on every outcome. The spec must name the success branch as the sole insertion point — the branch reached only when there is no abort reason and the child closed with `code === 0 || code === undefined` — and state explicitly that the reap does **not** run on the error-settle path or the `child.on("error")` path. This single fix resolves the insertion-site, the "exit code unchanged" testability, and the error-path ambiguity together.
+
+2. **State that the success branch covers both `code === 0` and `code === undefined`.** The prose says "exits 0" throughout, but the same branch also fires when the close code is `undefined`. AC#1's "normal completion" must be unambiguous that both cases reap.
+
+3. **Reframe the "reaps that descendant" claim as the test's burden, not asserted fact, and add the out-of-group non-goal.** Whether `process.kill(-pgid)` reaches surviving members of a group whose leader has already exited is the single load-bearing assumption of the whole spec; it currently rests on zero evidence. The spec must present this as the property the close-path test demonstrates (cite it as the relied-on POSIX process-group guarantee or flag it as the assumption the test proves), not as a premise stated without support. Separately, the title says "in-group stragglers" but the spec never bounds out-of-group descendants (a child that started its own session). Add an explicit non-goal: descendants that left the agent's process group are out of scope.
+
+4. **Pin the kill-failure test mechanism, or mark it deferred.** AC#3 / Task 2 require "a forced kill failure on the close path" but no seam exists to make `process.kill(-pgid)` throw, and candidate mechanisms (monkeypatch `process.kill`, inject a kill function, or target an already-dead pgid) carry materially different contract surfaces — including whether the implementer is authorized to widen the options type. The spec must either name the mechanism (a mechanism requiring no new public/option surface is available and preferable) or record it as `Deferred to first consumer:`. Leaving it implicit invites the implementer to invent caller contract.
+
+5. **Specify poll-with-deadline for the descendant-death assertion.** `runAgent` resolves `ok` when the foreground child closes, while the background straggler is SIGKILLed asynchronously as settlement happens. AC#1's test must assert the descendant is gone via a bounded poll, not a single synchronous liveness check immediately after the promise resolves, or it will flake.
+
+6. **Correct the errno vocabulary.** The spec lists `(ENOENT/EPERM/ESRCH)` as swallowed kill failures. `ENOENT` is a spawn errno, not a `process.kill` errno, and `ESRCH` is the expected dominant outcome of killing an empty group on a clean close — i.e., the no-op success case, not a failure to tolerate. Drop the parenthetical or correct it and note that an empty-group `ESRCH` is the normal close-path result. The "swallow everything, best-effort" contract is otherwise correct and unchanged.
+
+7. **Add the signal-choice decision to the ledger.** The decision to go straight to SIGKILL on close, rather than mirror the abort path's SIGTERM→grace→SIGKILL escalation, is a real choice a competent implementer could make differently and rules out a named alternative — it belongs in the ledger. Record it with its rationale (the child already exited normally, so there is nothing to terminate gracefully and a grace timer would only delay the iteration).
+
+8. **Surface the SIGKILL-only / no-SIGTERM-grace asymmetry in the v2-behaviors entry, and note POSIX scope there.** The v1-behaviors catalog already documents the abort and timeout paths as SIGTERM→grace→SIGKILL. The new entry sits beside them and must state that normal close is SIGKILL-only with no SIGTERM grace — that contrast is the fact a v2 reader needs to reconcile the three paths; the current "normal completion group-kills" wording hides it. Add a one-clause POSIX-only caveat to the same entry (the code is POSIX-only by virtue of `-pgid`).
+
+## Rejected (no refinement required)
+
+- **A "must not delay settlement" timing clause.** `process.kill` is non-blocking; there is no realistic path where a best-effort group kill delays resolution. The intent's "non-fatal: does not change result kind or exit code" is the correct and sufficient contract. Adding a timing clause is speculative precision about a non-risk.
+- **A POSIX guard in the implementation code.** The code already assumes POSIX wherever it uses `-pgid`; the scope note belongs in the doc entry (refinement 8), not as new runtime branching.

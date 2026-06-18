@@ -46,7 +46,7 @@ type ModeConfig = {
 
 type ReviewModeConfig = {
   agentOrder?: AgentEntry[]; // optional; falls back to modes.plan.agentOrder if unset
-  passes: number; // non-negative integer: 0 disables review, 1+ enables N review passes; default 2
+  passes: number; // non-negative integer: 0 disables review, 1+ enables N review passes; default 1
 };
 
 type Config = {
@@ -92,7 +92,7 @@ The optional `modes.plan.commit` boolean (default `true`) controls where plan-mo
 
 ## Plan CLI flags (not in config)
 
-`--refine-turns` and `--review-passes` are per-invocation CLI flags only; they are not stored in `config.json`. `--refine-turns` defaults to `1` (`0` still commits `plan: intent` then skips refinement). `--review-passes` defaults to `modes.review.passes` (currently `2`). Full semantics: [plan-mode.md](./plan-mode.md#flags).
+`--review-passes` is a per-invocation CLI flag only; it is not stored in `config.json`. `--review-passes` defaults to `modes.review.passes` (currently `1`). Full semantics: [plan-mode.md](./plan-mode.md#flags).
 
 ## `targetDir` (plan mode, commit=true only)
 
@@ -199,7 +199,7 @@ permission installer and the `provider/model` format.
 
 The `modes.review` block controls review passes in both `jarvis run` (patch review) and `jarvis1 plan` (self-review):
 
-**`passes` (non-negative integer, default `2`):** Controls the number of review passes after patch iteration completes. A value of `0` disables review entirely. Each pass runs the configured review agent(s) against the completed work.
+**`passes` (non-negative integer, default `1`):** Controls the number of review passes after patch iteration completes. A value of `0` disables review entirely. Each pass runs the configured review agent(s) against the completed work.
 
 **`agentOrder` (optional):** Agent order for review passes. If unset, review uses `modes.plan.agentOrder`. Like `modes.patch.agentOrder` and `modes.plan.agentOrder`, each entry is `{ "agent": "...", "model": "..." }` and the same `validateAgentOrder` contract applies: no duplicate agents, agents must be known, and models must be valid for the agent.
 

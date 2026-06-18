@@ -17,6 +17,7 @@ import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { parsePatchSpec } from "./spec.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
+import { isTreeUnchangedSinceRecordedGreen, getCurrentHeadSha } from "../../ready-gate.ts";
 
 type ShrinkLogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type ShrinkLogStream = "stdout" | "stderr" | null;
@@ -299,10 +300,27 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
   if (!opts.skipPreShrinkGate) {
     opts.fanout("harness", "shrink: running pre-shrink ready gate\n", "stdout");
     try {
-      if (opts.runPreShrinkGate) {
-        opts.runPreShrinkGate();
+      // Check if tree is unchanged and we can reuse the recorded green result
+      const treeUnchanged = opts.recordedGreenResult !== undefined && 
+        isTreeUnchangedSinceRecordedGreen({ 
+          cwd: opts.cwd, 
+          recordedGreenHeadSha: opts.recordedGreenResult.headSha 
+        });
+
+      if (treeUnchanged) {
+        opts.fanout("harness", "shrink: tree unchanged since completion transition, reusing recorded green result\n", "stdout");
       } else {
-        runReadyAndCommit({ cwd: opts.cwd, agentLabel: "shrink-baseline" });
+        // Tree changed or no recorded result: run ready and refresh the result on success
+        if (opts.runPreShrinkGate) {
+          opts.runPreShrinkGate();
+        } else {
+          runReadyAndCommit({ cwd: opts.cwd, agentLabel: "shrink-baseline" });
+        }
+        // On success, refresh the recorded result
+        if (opts.refreshRecordedGreenResult) {
+          const newHeadSha = getCurrentHeadSha(opts.cwd);
+          opts.refreshRecordedGreenResult(newHeadSha);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

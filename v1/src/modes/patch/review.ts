@@ -21,6 +21,7 @@ import {
 } from "../review/types.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } from "./prompt.ts";
+import { isTreeUnchangedSinceRecordedGreen, getCurrentHeadSha } from "../../ready-gate.ts";
 
 /** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
@@ -252,6 +253,13 @@ export type PatchReviewPhaseOptions = {
   baseBranch?: string;
   /** Actuator context: the active patch agents to use for verdict execution. */
   actuatorAgents?: Agent[];
+  /** Recorded green result from completion transition: reuse when tree unchanged, refresh on re-run. */
+  recordedGreenResult?: {
+    /** HEAD sha from completion transition ready gate (post-`runReadyAndCommit`). */
+    headSha: string;
+  };
+  /** Refresh callback: called when baseline gate re-runs `ready` and succeeds, to update the recorded result. */
+  refreshRecordedGreenResult?: (headSha: string) => void;
 };
 
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
@@ -569,13 +577,30 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
   if (!opts.skipGates) {
     opts.fanout("harness", "review: running baseline gate\n", "stdout");
     try {
-      if (opts.runBaselineGate) {
-        opts.runBaselineGate();
-      } else {
-        runReadyAndCommit({
-          cwd: opts.cwd,
-          agentLabel: "review-baseline",
+      // Check if tree is unchanged and we can reuse the recorded green result
+      const treeUnchanged = opts.recordedGreenResult !== undefined &&
+        isTreeUnchangedSinceRecordedGreen({ 
+          cwd: opts.cwd, 
+          recordedGreenHeadSha: opts.recordedGreenResult.headSha 
         });
+
+      if (treeUnchanged) {
+        opts.fanout("harness", "review: tree unchanged since completion transition, reusing recorded green result\n", "stdout");
+      } else {
+        // Tree changed or no recorded result: run ready and refresh the result on success
+        if (opts.runBaselineGate) {
+          opts.runBaselineGate();
+        } else {
+          runReadyAndCommit({
+            cwd: opts.cwd,
+            agentLabel: "review-baseline",
+          });
+        }
+        // On success, refresh the recorded result
+        if (opts.refreshRecordedGreenResult) {
+          const newHeadSha = getCurrentHeadSha(opts.cwd);
+          opts.refreshRecordedGreenResult(newHeadSha);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

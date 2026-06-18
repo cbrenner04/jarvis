@@ -2,6 +2,39 @@ import { execFileSync } from "node:child_process";
 import { appendAgentTrailer } from "./commit-trailer.ts";
 import { pushCurrent } from "./worktree.ts";
 
+/**
+ * Check if the tree is unchanged since the recorded green result.
+ * Tree is unchanged only when current HEAD sha equals the recorded sha AND the worktree is clean.
+ */
+export function isTreeUnchangedSinceRecordedGreen(opts: {
+  cwd: string;
+  recordedGreenHeadSha?: string;
+}): boolean {
+  if (opts.recordedGreenHeadSha === undefined) {
+    return false;
+  }
+
+  // Check if current HEAD matches recorded sha
+  const currentHeadSha = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: opts.cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+
+  if (currentHeadSha !== opts.recordedGreenHeadSha) {
+    return false;
+  }
+
+  // Check if worktree is clean
+  const porcelain = execFileSync("git", ["status", "--porcelain"], {
+    cwd: opts.cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+
+  return porcelain === "";
+}
+
 export type RunReadyAndCommitOpts = {
   cwd: string;
   /** Test seam: agent label for the commit trailer. Threaded to the `commitCheckFix` seam. */
@@ -72,6 +105,17 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   }
 }
 
+/**
+ * Get the current HEAD sha.
+ */
+export function getCurrentHeadSha(cwd: string): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+}
+
 function getCurrentBranch(cwd: string): string {
   const output = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
     cwd,
@@ -81,3 +125,4 @@ function getCurrentBranch(cwd: string): string {
   });
   return output.trim();
 }
+

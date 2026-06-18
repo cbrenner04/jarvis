@@ -1095,6 +1095,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                     indexPath: afterSpecPath,
                     cwd: agentWorkingDir,
                     agentLabel: agent.attributionLabel(),
+                    ...(ctx.state.completionTransitionReadyResult !== undefined ? { recordedGreenResult: ctx.state.completionTransitionReadyResult } : {}),
+                    refreshRecordedGreenResult: (headSha: string) => {
+                      ctx.state.completionTransitionReadyResult = { headSha };
+                    },
                   });
                 }
               } catch (err) {
@@ -1405,6 +1409,10 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         ...(ctx.opts.agents !== undefined ? { agents: ctx.opts.agents } : {}),
         iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
         ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
+        ...(ctx.state.completionTransitionReadyResult !== undefined ? { recordedGreenResult: ctx.state.completionTransitionReadyResult } : {}),
+        refreshRecordedGreenResult: (headSha: string) => {
+          ctx.state.completionTransitionReadyResult = { headSha };
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1427,6 +1435,10 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
         ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
         actuatorAgents: ctx.activeAgents,
+        ...(ctx.state.completionTransitionReadyResult !== undefined ? { recordedGreenResult: ctx.state.completionTransitionReadyResult } : {}),
+        refreshRecordedGreenResult: (headSha: string) => {
+          ctx.state.completionTransitionReadyResult = { headSha };
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1442,6 +1454,10 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         indexPath: preflight.specPath,
         cwd: preflight.agentWorkingDir,
         agentLabel: "patch-complete",
+        ...(ctx.state.completionTransitionReadyResult !== undefined ? { recordedGreenResult: ctx.state.completionTransitionReadyResult } : {}),
+        refreshRecordedGreenResult: (headSha: string) => {
+          ctx.state.completionTransitionReadyResult = { headSha };
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

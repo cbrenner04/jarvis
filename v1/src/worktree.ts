@@ -212,7 +212,7 @@ export function ensureExistingBranchWorktree(opts: {
   };
 }
 
-function bestEffortFetch(projectRoot: string): void {
+export function bestEffortFetch(projectRoot: string): void {
   try {
     execFileSync("git", ["fetch", "origin"], {
       cwd: projectRoot,

@@ -45,7 +45,12 @@ import {
 } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
-import { countUnchecked, findBlockerInLinkedSubspecs, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "./completion.ts";
+import {
+  countUnchecked,
+  findBlockerInLinkedSubspecs,
+  getActiveLinkedSubspecPath,
+  getFirstUncheckedTask,
+} from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
 import { runPatchReviewPhase } from "./review.ts";
@@ -1232,67 +1237,67 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               return { kind: "return", exitCode: 6 };
             }
           }
-         }
-       }
+        }
+      }
 
-       // For fix-up iterations, check for a blocker added during the iteration
-       // without depending on an unchecked linked subspec (which doesn't exist at full completion).
-       // The blocker check takes precedence over other completion processing.
-       if (isFixupIteration && isIndexSpec) {
-         const blockerInfo = findBlockerInLinkedSubspecs(afterSpecPath);
-         if (blockerInfo !== undefined) {
-           if (gitEnabled) {
-             try {
-               // For fix-up iterations, we don't have granular before/after criteria,
-               // so we commit with empty checkedTotal
-               commitWipProgressWithBlocker(blockerInfo.path, {
-                 cwd: agentWorkingDir,
-                 newlyChecked: [],
-                 checkedTotal: 0,
-                 total: 0,
-                 blockerBody: blockerInfo.body,
-                 agentLabel: agent.attributionLabel(),
-               });
-             } catch (err) {
-               const message = err instanceof Error ? err.message : String(err);
-               fanout("harness", `failed to commit blocker for ${blockerInfo.path}: ${message}\n`, "stderr");
-               return { kind: "return", exitCode: 1 };
-             }
+      // For fix-up iterations, check for a blocker added during the iteration
+      // without depending on an unchecked linked subspec (which doesn't exist at full completion).
+      // The blocker check takes precedence over other completion processing.
+      if (isFixupIteration && isIndexSpec) {
+        const blockerInfo = findBlockerInLinkedSubspecs(afterSpecPath);
+        if (blockerInfo !== undefined) {
+          if (gitEnabled) {
+            try {
+              // For fix-up iterations, we don't have granular before/after criteria,
+              // so we commit with empty checkedTotal
+              commitWipProgressWithBlocker(blockerInfo.path, {
+                cwd: agentWorkingDir,
+                newlyChecked: [],
+                checkedTotal: 0,
+                total: 0,
+                blockerBody: blockerInfo.body,
+                agentLabel: agent.attributionLabel(),
+              });
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              fanout("harness", `failed to commit blocker for ${blockerInfo.path}: ${message}\n`, "stderr");
+              return { kind: "return", exitCode: 1 };
+            }
 
-             if (!opts.skipGhCheck) {
-               try {
-                 const firstPush = !hasUpstream(agentWorkingDir);
-                 pushCurrent({ cwd: agentWorkingDir, firstPush });
-               } catch (err) {
-                 const message = err instanceof Error ? err.message : String(err);
-                 fanout("harness", `failed to push blocker commit for ${blockerInfo.path}: ${message}\n`, "stderr");
-                 return { kind: "return", exitCode: 1 };
-               }
-             }
-           }
+            if (!opts.skipGhCheck) {
+              try {
+                const firstPush = !hasUpstream(agentWorkingDir);
+                pushCurrent({ cwd: agentWorkingDir, firstPush });
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                fanout("harness", `failed to push blocker commit for ${blockerInfo.path}: ${message}\n`, "stderr");
+                return { kind: "return", exitCode: 1 };
+              }
+            }
+          }
 
-           const blockerText = `${blockerInfo.path}\n\n${blockerInfo.body}`;
-           fanout("harness", `${blockerText}\n`, "stderr");
-           writeTelemetry({
-             agent: agent.name,
-             iteration,
-             durationMs: iterationDurationMs(),
-             kind: "blocked",
-             exitReason: "blocker-detected",
-             ...telemetryMeta,
-           });
-           return { kind: "return", exitCode: 7 };
-         }
-       }
+          const blockerText = `${blockerInfo.path}\n\n${blockerInfo.body}`;
+          fanout("harness", `${blockerText}\n`, "stderr");
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "blocked",
+            exitReason: "blocker-detected",
+            ...telemetryMeta,
+          });
+          return { kind: "return", exitCode: 7 };
+        }
+      }
 
-       if (preIterationHead !== null) {
-         accumulateImplementationTouchedFiles(
-           agentWorkingDir,
-           dirname(afterSpecPath),
-           preIterationHead,
-           logging.implementationTouchedFiles,
-         );
-       }
+      if (preIterationHead !== null) {
+        accumulateImplementationTouchedFiles(
+          agentWorkingDir,
+          dirname(afterSpecPath),
+          preIterationHead,
+          logging.implementationTouchedFiles,
+        );
+      }
       const after = countUnchecked(afterSpecPath);
       if (after === 0) {
         writeTelemetry({
@@ -1564,48 +1569,48 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   const shouldRunReview = preflight.gitEnabled && reviewPasses > 0 && implementationIterations > 0;
   const shouldRunCompletionReadyGate = preflight.gitEnabled && implementationIterations > 0;
 
-   // Run completion ready gate before shrink and review
-   if (shouldRunCompletionReadyGate) {
-     const gateResult = await runCompletionReadyGate(ctx);
-     if (gateResult.kind === "red") {
-       // Red completion ready gate.
-       // Check if this is a stuck-red stop: failure unchanged and no new checkbox/blocker
-       const hasNewBlocker = findBlockerInLinkedSubspecs(preflight.specPath) !== undefined;
-       const isStuckRed =
-         state.previousCompletionFailureText !== null &&
-         isReadyFailureUnchanged(state.previousCompletionFailureText, gateResult.failureText) &&
-         countUnchecked(preflight.specPath) === 0 &&
-         !hasNewBlocker;
+  // Run completion ready gate before shrink and review
+  if (shouldRunCompletionReadyGate) {
+    const gateResult = await runCompletionReadyGate(ctx);
+    if (gateResult.kind === "red") {
+      // Red completion ready gate.
+      // Check if this is a stuck-red stop: failure unchanged and no new checkbox/blocker
+      const hasNewBlocker = findBlockerInLinkedSubspecs(preflight.specPath) !== undefined;
+      const isStuckRed =
+        ctx.state.previousCompletionFailureText !== null &&
+        isReadyFailureUnchanged(ctx.state.previousCompletionFailureText, gateResult.failureText) &&
+        countUnchecked(preflight.specPath) === 0 &&
+        !hasNewBlocker;
 
-       if (isStuckRed) {
-         // Stuck-red stop: the failure is unchanged, no new checkbox, no new blocker
-         const worktreeName = basename(preflight.agentWorkingDir);
-         logging.fanout(
-           "harness",
-           `bun run ready failed:\n${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
-           "stderr",
-         );
-         logging.writeTelemetry({
-           agent: "harness",
-           iteration: state.iteration,
-           durationMs: 0,
-           kind: "ok",
-           exitReason: "ready-stuck-red",
-           record_role: "run_terminal",
-         });
-         return 10;
-       }
+      if (isStuckRed) {
+        // Stuck-red stop: the failure is unchanged, no new checkbox, no new blocker
+        const worktreeName = basename(preflight.agentWorkingDir);
+        logging.fanout(
+          "harness",
+          `bun run ready failed:\n${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          "stderr",
+        );
+        logging.writeTelemetry({
+          agent: "harness",
+          iteration: ctx.state.iteration,
+          durationMs: 0,
+          kind: "ok",
+          exitReason: "ready-stuck-red",
+          record_role: "run_terminal",
+        });
+        return 10;
+      }
 
-       // Red but failure changed: loop back for another fix-up iteration
-       state.previousCompletionFailureText = gateResult.failureText;
-       state.completionLoopbackSignal = { failureText: gateResult.failureText };
-       return null;
-     }
-     // Green: the gate passed. Clear any loop-back signal and previous failure text
-     // so the caller finalizes completion instead of looping again.
-     state.completionLoopbackSignal = null;
-     state.previousCompletionFailureText = null;
-   }
+      // Red but failure changed: loop back for another fix-up iteration
+      ctx.state.previousCompletionFailureText = gateResult.failureText;
+      ctx.state.completionLoopbackSignal = { failureText: gateResult.failureText };
+      return null;
+    }
+    // Green: the gate passed. Clear any loop-back signal and previous failure text
+    // so the caller finalizes completion instead of looping again.
+    ctx.state.completionLoopbackSignal = null;
+    ctx.state.previousCompletionFailureText = null;
+  }
 
   if (shouldRunShrink) {
     const { fanout, writeTelemetry } = ctx.logging;

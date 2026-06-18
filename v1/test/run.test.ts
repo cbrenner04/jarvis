@@ -712,7 +712,7 @@ describe("runCommand", () => {
     });
 
     // Red on the first gate check (drives the loop-back), red again on the second gate.
-    let gateCalls = 0;
+    let _gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
       io: cap.io,
@@ -721,7 +721,7 @@ describe("runCommand", () => {
       handleSignals: false,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
-        gateCalls += 1;
+        _gateCalls += 1;
         return { kind: "red", failureText: "bun run ready failed:\nboom" };
       },
     });
@@ -758,17 +758,14 @@ describe("runCommand", () => {
     const claude = new FakeAgent("claude", (callCount) => {
       if (callCount === 1) {
         // Tick the checkbox in the first iteration
-        writeFileSync(
-          subSpec,
-          `# Subtask\n\n## Acceptance criteria\n\n- [x] do something\n`
-        );
+        writeFileSync(subSpec, `# Subtask\n\n## Acceptance criteria\n\n- [x] do something\n`);
         execSync("git add -A && git commit -m done", { cwd: projectRoot });
       }
       // In the fix-up iteration, add a blocker
       if (callCount === 2) {
         writeFileSync(
           subSpec,
-          `# Subtask\n\n## Acceptance criteria\n\n- [x] do something\n\n## Blocker\n\nSomething blocked`
+          `# Subtask\n\n## Acceptance criteria\n\n- [x] do something\n\n## Blocker\n\nSomething blocked`,
         );
         execSync("git add -A && git commit -m blocker", { cwd: projectRoot });
       }

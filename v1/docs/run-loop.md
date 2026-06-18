@@ -231,6 +231,27 @@ Fix-up iterations do not include granular acceptance-criteria tracking because t
 is already complete. Any work is committed with `newlyChecked: []` and `checkedTotal: 0` 
 in telemetry.
 
+### Stuck-red completion stop (exit 10)
+
+After each fix-up iteration, the completion gate is retried. The loop continues until:
+- The gate turns green (proceed to post-completion phases).
+- The budget is exhausted (exit code 5).
+- A new blocker is added (exit code 7).
+- The failure is unchanged and progress cannot be made (exit code 10).
+
+Exit code `10` (`ready-stuck-red`) fires when:
+1. The completion gate returns red (still failing).
+2. The captured failure text is unchanged after normalization (stripping known non-deterministic content like absolute paths, durations, timings, dates, and deadline messaging).
+3. No new work was ticked (unchecked count is still 0).
+4. No new blocker was added.
+
+This indicates the issue persists and manual intervention is likely needed. The harness outputs:
+- The captured `bun run ready failed:` text that failed before and fails after the fix-up iteration.
+- A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves.
+- A telemetry record with exit reason `ready-stuck-red` for observability.
+
+If the failure text changed substantively (e.g. a different line number, different test output), the loop continues. Noise-only differences (timings, paths) are normalized away and do not extend the loop.
+
 ### Post-completion shrink
 
 After implementation is complete (zero unchecked boxes), a clean worktree, and
@@ -540,9 +561,10 @@ jarvis1 log-server
 | `7` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |
+| `10` | The run is stuck on a red `bun run ready` failure after a fix-up iteration. The captured failure text is unchanged (after normalization for noise like timings and paths), and no new work was ticked and no new blocker was added. This is a recoverable stop: the issue persists and manual intervention may be needed. The error message includes the captured failure text and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import) and rerun to retry the fix-up iteration. |
 | `130` | Interrupted with Ctrl-C. |
 
-On exit `4` and `5`, the bounded tail of recent agent output is printed to the
+On exit `4`, `5`, and `10`, the bounded tail of recent agent output is printed to the
 terminal to help diagnose why progress stalled.
 
 When an iteration timeout fires, Jarvis logs a single watchdog line to both the

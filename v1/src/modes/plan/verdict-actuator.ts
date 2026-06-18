@@ -161,12 +161,12 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
     const agent = (opts.createAgent ?? createAgent)(entry.agent, entry.model);
     _agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
 
-     const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-     const invocationStartedAt = Date.now();
-     const spawnResult = await agent.run(prompt, {
-       cwd: opts.worktreePath,
-       ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
-     });
+    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
+    const invocationStartedAt = Date.now();
+    const spawnResult = await agent.run(prompt, {
+      cwd: opts.worktreePath,
+      ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
+    });
     const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
     const noDiskChangeDuringInvocation =
       porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;

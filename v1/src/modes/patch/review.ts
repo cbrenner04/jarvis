@@ -9,7 +9,13 @@ import type { Config } from "../../config.ts";
 import { getBaseBranch, postPrComment } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
-import { getCurrentHeadSha, isTreeUnchangedSinceRecordedGreen } from "../../ready-gate.ts";
+import {
+  getCurrentHeadSha,
+  isTreeUnchangedSinceRecordedGreen,
+  type ReadyTier,
+  runReadyAndCommit,
+  selectReadyTier,
+} from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
@@ -20,7 +26,7 @@ import {
   type ReviewTelemetryEvent,
   ReviewTerminalError,
 } from "../review/types.ts";
-import { runReadyAndCommit, updatePrBody } from "./pr.ts";
+import { updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } from "./prompt.ts";
 import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "./reap.ts";
 
@@ -247,9 +253,9 @@ export type PatchReviewPhaseOptions = {
   /** Test seam: skip baseline and final ready gates. */
   skipGates?: boolean;
   /** Test seam for baseline `bun run ready`. */
-  runBaselineGate?: () => void;
+  runBaselineGate?: (tier: ReadyTier) => void;
   /** Test seam for final `bun run ready` + `gh pr ready`. */
-  runFinalGate?: (branch: string) => void;
+  runFinalGate?: (branch: string, tier: ReadyTier | "skip") => void;
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
   baseBranch?: string;
   /** Actuator context: the active patch agents to use for verdict execution. */
@@ -261,6 +267,8 @@ export type PatchReviewPhaseOptions = {
   };
   /** Refresh callback: called when baseline gate re-runs `ready` and succeeds, to update the recorded result. */
   refreshRecordedGreenResult?: (headSha: string) => void;
+  /** True for `--resume-review`: baseline and final gates always use `full`. */
+  resumeReview?: boolean;
   /** Test-only override for descendant reaping (reap.ts DescendantTracker.reap). */
   __testReapOverride?: (tracker: DescendantTracker) => number;
   /** Test-only: invoked after each descendant poll (spawn + interval). */
@@ -646,34 +654,23 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
   if (!opts.skipGates) {
     opts.fanout("harness", "review: running baseline gate\n", "stdout");
     try {
-      // Check if tree is unchanged and we can reuse the recorded green result
-      const treeUnchanged =
-        opts.recordedGreenResult !== undefined &&
-        isTreeUnchangedSinceRecordedGreen({
-          cwd: opts.cwd,
-          recordedGreenHeadSha: opts.recordedGreenResult.headSha,
-        });
-
-      if (treeUnchanged) {
-        opts.fanout(
-          "harness",
-          "review: tree unchanged since completion transition, reusing recorded green result\n",
-          "stdout",
-        );
-      } else {
-        // Tree changed or no recorded result: run ready and refresh the result on success
-        if (opts.runBaselineGate) {
-          opts.runBaselineGate();
-        } else {
-          runReadyAndCommit({
+      const tier: ReadyTier = opts.resumeReview
+        ? "full"
+        : selectReadyTier({
             cwd: opts.cwd,
-            agentLabel: "review-baseline",
+            ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
           });
-        }
-        // On success, refresh the recorded result
-        if (opts.refreshRecordedGreenResult) {
-          const newHeadSha = getCurrentHeadSha(opts.cwd);
-          opts.refreshRecordedGreenResult(newHeadSha);
+
+      if (opts.runBaselineGate) {
+        opts.runBaselineGate(tier);
+      } else {
+        runReadyAndCommit({
+          cwd: opts.cwd,
+          agentLabel: "review-baseline",
+          tier,
+        });
+        if (tier === "full" && opts.refreshRecordedGreenResult) {
+          opts.refreshRecordedGreenResult(getCurrentHeadSha(opts.cwd));
         }
       }
     } catch (err) {
@@ -944,12 +941,27 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
   if (!opts.skipGates) {
     opts.fanout("harness", "review: running final ready\n", "stdout");
     try {
+      const skipReady =
+        opts.resumeReview !== true &&
+        opts.recordedGreenResult !== undefined &&
+        isTreeUnchangedSinceRecordedGreen({
+          cwd: opts.cwd,
+          recordedGreenHeadSha: opts.recordedGreenResult.headSha,
+        });
+
       if (opts.runFinalGate) {
-        opts.runFinalGate(branch);
+        opts.runFinalGate(branch, skipReady ? "skip" : "full");
+      } else if (skipReady) {
+        execFileSync("gh", ["pr", "ready", branch], {
+          cwd: opts.cwd,
+          env: process.env,
+          stdio: "pipe",
+        });
       } else {
         runReadyAndCommit({
           cwd: opts.cwd,
           agentLabel: "review-final",
+          tier: "full",
         });
         execFileSync("gh", ["pr", "ready", branch], {
           cwd: opts.cwd,

@@ -1,13 +1,34 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export const GRACE_PERIOD_MS = 5000; // 5 seconds for SIGTERM before SIGKILL
 export const TIMEOUT_EXIT_CODE = 124; // Matches GNU timeout(1)
 export const HEARTBEAT_MS = 15000; // Liveness ping for silent long-running steps
+export const INSTALL_DIGEST_FILENAME = "jarvis-ready-install-digest";
+
+export type ReadyTier = "fast" | "full";
+export type ReadyCommand = { name: string; args: string[] };
+
 const SIGNAL_EXIT_CODES: Partial<Record<NodeJS.Signals, number>> = {
   SIGINT: 130,
   SIGTERM: 143,
 };
+
+/** Parse `JARVIS_READY_TIER`; default `full` when unset or invalid. */
+export function parseReadyTier(envValue = process.env.JARVIS_READY_TIER): ReadyTier {
+  if (envValue === "fast" || envValue === "full") {
+    return envValue;
+  }
+
+  if (envValue !== undefined && envValue !== "") {
+    process.stderr.write(`warning: invalid JARVIS_READY_TIER="${envValue}"; using default (full)\n`);
+  }
+
+  return "full";
+}
 
 export function parseTimeout(): number {
   const envValue = process.env.JARVIS_READY_TIMEOUT_MS;
@@ -24,6 +45,171 @@ export function parseTimeout(): number {
   }
 
   return parsed;
+}
+
+/** SHA-256 hex digest of the given bytes or UTF-8 string. */
+export function sha256Hex(data: Buffer | string): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+function readPackageIdentity(pkgJsonPath: string): string | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as {
+      name?: unknown;
+      version?: unknown;
+    };
+    if (typeof parsed.name !== "string" || typeof parsed.version !== "string") {
+      return undefined;
+    }
+    return `${parsed.name}@${parsed.version}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function collectTopLevelPackageJsonPaths(nodeModulesDir: string): string[] {
+  const paths: string[] = [];
+  if (!existsSync(nodeModulesDir)) {
+    return paths;
+  }
+
+  for (const entry of readdirSync(nodeModulesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) {
+      continue;
+    }
+
+    if (entry.name.startsWith("@")) {
+      const scopeDir = join(nodeModulesDir, entry.name);
+      for (const scoped of readdirSync(scopeDir, { withFileTypes: true })) {
+        if (!scoped.isDirectory()) {
+          continue;
+        }
+        const pkgJson = join(scopeDir, scoped.name, "package.json");
+        if (existsSync(pkgJson)) {
+          paths.push(pkgJson);
+        }
+      }
+      continue;
+    }
+
+    const pkgJson = join(nodeModulesDir, entry.name, "package.json");
+    if (existsSync(pkgJson)) {
+      paths.push(pkgJson);
+    }
+  }
+
+  return paths;
+}
+
+/** SHA-256 of sorted `name@version` strings from top-level installed packages. */
+export function computeNodeModulesIdentityDigest(repoRoot: string): string | undefined {
+  const nodeModulesDir = join(repoRoot, "node_modules");
+  if (!existsSync(nodeModulesDir)) {
+    return undefined;
+  }
+
+  const identities = collectTopLevelPackageJsonPaths(nodeModulesDir)
+    .map(readPackageIdentity)
+    .filter((identity): identity is string => identity !== undefined)
+    .sort();
+
+  return sha256Hex(identities.join("\n"));
+}
+
+/** Combined install digest: lockfile bytes hash plus node_modules identity hash. */
+export function computeInstallDigest(repoRoot: string): string | undefined {
+  const lockfilePath = join(repoRoot, "bun.lock");
+  if (!existsSync(lockfilePath)) {
+    return undefined;
+  }
+
+  const lockfileHash = sha256Hex(readFileSync(lockfilePath));
+  const nodeModulesHash = computeNodeModulesIdentityDigest(repoRoot);
+  if (nodeModulesHash === undefined) {
+    return undefined;
+  }
+
+  return `${lockfileHash}:${nodeModulesHash}`;
+}
+
+/**
+ * Resolve the git dir for `repoRoot`. In a worktree `.git` is a *file* pointing
+ * at `…/.git/worktrees/<name>`, so we ask git for the real per-worktree dir
+ * instead of assuming `<repoRoot>/.git` is a directory. Falls back to the
+ * literal `.git` path for non-git checkouts (e.g. test temp dirs).
+ */
+function gitDir(repoRoot: string): string {
+  try {
+    return execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return join(repoRoot, ".git");
+  }
+}
+
+function installDigestPath(repoRoot: string): string {
+  return join(gitDir(repoRoot), INSTALL_DIGEST_FILENAME);
+}
+
+/** Last recorded successful install digest for this checkout, if any. */
+export function readRecordedInstallDigest(repoRoot: string): string | undefined {
+  const digestPath = installDigestPath(repoRoot);
+  if (!existsSync(digestPath)) {
+    return undefined;
+  }
+
+  const recorded = readFileSync(digestPath, "utf8").trim();
+  return recorded === "" ? undefined : recorded;
+}
+
+/** Persist the digest after a successful `bun install --frozen-lockfile`. */
+export function writeRecordedInstallDigest(repoRoot: string, digest: string): void {
+  const digestPath = installDigestPath(repoRoot);
+  mkdirSync(dirname(digestPath), { recursive: true });
+  writeFileSync(digestPath, `${digest}\n`, "utf8");
+}
+
+/** Whether the `full` tier should run install before the remaining steps. */
+export function shouldRunInstall(repoRoot: string): boolean {
+  const nodeModulesDir = join(repoRoot, "node_modules");
+  if (!existsSync(nodeModulesDir)) {
+    return true;
+  }
+
+  const currentDigest = computeInstallDigest(repoRoot);
+  const recordedDigest = readRecordedInstallDigest(repoRoot);
+  if (currentDigest === undefined || recordedDigest === undefined) {
+    return true;
+  }
+
+  return currentDigest !== recordedDigest;
+}
+
+/** Ordered subprocess steps for the requested ready tier. */
+export function getReadyCommands(tier: ReadyTier, opts: { runInstall: boolean }): ReadyCommand[] {
+  if (tier === "fast") {
+    return [
+      { name: "bun", args: ["run", "typecheck"] },
+      { name: "bun", args: ["run", "test"] },
+    ];
+  }
+
+  const commands: ReadyCommand[] = [];
+  if (opts.runInstall) {
+    commands.push({ name: "bun", args: ["install", "--frozen-lockfile"] });
+  }
+
+  commands.push(
+    { name: "bun", args: ["run", "check:fix"] },
+    { name: "bun", args: ["run", "typecheck"] },
+    { name: "bun", args: ["run", "test"] },
+    { name: "bun", args: ["run", "check"] },
+  );
+
+  return commands;
 }
 
 export function runCommand(name: string, args: string[], deadlineMs: number, elapsedMs: number): Promise<number> {
@@ -117,24 +303,28 @@ export function runCommand(name: string, args: string[], deadlineMs: number, ela
   });
 }
 
-export async function runReady(): Promise<void> {
+export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof runCommand }): Promise<void> {
+  const repoRoot = opts?.repoRoot ?? process.cwd();
+  const runCommandFn = opts?.runCommandFn ?? runCommand;
+  const tier = parseReadyTier();
+  const runInstall = tier === "full" && shouldRunInstall(repoRoot);
+  const commands = getReadyCommands(tier, { runInstall });
   const timeoutMs = parseTimeout();
   const startTime = Date.now();
 
-  const commands = [
-    { name: "bun", args: ["install", "--frozen-lockfile"] },
-    { name: "bun", args: ["run", "check:fix"] },
-    { name: "bun", args: ["run", "typecheck"] },
-    { name: "bun", args: ["run", "test"] },
-    { name: "bun", args: ["run", "check"] },
-  ];
-
   for (const { name, args } of commands) {
     const elapsed = Date.now() - startTime;
-    const code = await runCommand(name, args, timeoutMs, elapsed);
+    const code = await runCommandFn(name, args, timeoutMs, elapsed);
 
     if (code !== 0) {
       process.exit(code);
+    }
+
+    if (tier === "full" && args[0] === "install") {
+      const digest = computeInstallDigest(repoRoot);
+      if (digest !== undefined) {
+        writeRecordedInstallDigest(repoRoot, digest);
+      }
     }
   }
 }

@@ -109,7 +109,7 @@ function setupPatchReviewRepoWithBranchChange(): {
   return { dir, specPath, cleanup };
 }
 
-function stripDelimitedBlocks(prompt: string, beginMarker: string, endMarker: string): string {
+export function stripDelimitedBlocks(prompt: string, beginMarker: string, endMarker: string): string {
   let text = prompt;
   for (;;) {
     const begin = text.indexOf(beginMarker);

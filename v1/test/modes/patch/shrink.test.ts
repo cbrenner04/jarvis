@@ -15,6 +15,7 @@ import {
   snapshotAllAcceptanceCriteria,
 } from "../../../src/modes/patch/shrink.ts";
 import type { AcceptanceCriterion } from "../../../src/modes/patch/subspec.ts";
+import { stripDelimitedBlocks } from "./review.test.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 
@@ -202,21 +203,6 @@ describe("buildShrinkPrompt", () => {
     }
   });
 });
-
-function stripDelimitedBlocks(prompt: string, beginMarker: string, endMarker: string): string {
-  let text = prompt;
-  for (;;) {
-    const begin = text.indexOf(beginMarker);
-    if (begin === -1) {
-      return text;
-    }
-    const end = text.indexOf(endMarker, begin);
-    if (end === -1) {
-      return text;
-    }
-    text = `${text.slice(0, begin)}${text.slice(end + endMarker.length)}`;
-  }
-}
 
 describe("runPatchShrinkPhase", () => {
   test("skips shrink when pre-shrink gate fails", async () => {

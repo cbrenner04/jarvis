@@ -492,35 +492,23 @@ async function ensureUniquePlanName(
  * Delete the source ready-intent from the worktree if it exists and resolves within it.
  * Returns true if a file was deleted, false if deletion was skipped.
  */
-function deleteReadyIntentFromWorktree(args: {
+export function deleteReadyIntentFromWorktree(args: {
   readyIntentPath: string;
   projectRoot: string;
   worktreePath: string;
 }): boolean {
-  const resolvedReadyIntent = resolve(args.readyIntentPath);
-  const resolvedProjectRoot = resolve(args.projectRoot);
-  const resolvedWorktreePath = resolve(args.worktreePath);
-
-  // Derive target path: relative to project root, then joined onto worktree path
-  const relativeToProject = relative(resolvedProjectRoot, resolvedReadyIntent);
-  const targetInWorktree = resolve(join(resolvedWorktreePath, relativeToProject));
-
-  // Safety check: ensure the target resolves within the worktree
-  if (!targetInWorktree.startsWith(resolvedWorktreePath + "/") && targetInWorktree !== resolvedWorktreePath) {
-    // Target escapes the worktree; skip deletion
+  const worktreePath = resolve(args.worktreePath);
+  const targetPath = resolve(worktreePath, relative(resolve(args.projectRoot), resolve(args.readyIntentPath)));
+  if (targetPath !== worktreePath && !targetPath.startsWith(`${worktreePath}/`)) {
     return false;
   }
-
-  // Delete only if the file exists
-  if (!existsSync(targetInWorktree)) {
+  if (!existsSync(targetPath)) {
     return false;
   }
-
   try {
-    unlinkSync(targetInWorktree);
+    unlinkSync(targetPath);
     return true;
   } catch {
-    // If deletion fails, silently skip (non-fatal)
     return false;
   }
 }

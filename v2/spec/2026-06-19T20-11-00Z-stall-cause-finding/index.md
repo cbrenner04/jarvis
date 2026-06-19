@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Stall cause finding](./00-stall-cause-finding.md)
+- [x] [00 - Stall cause finding](./00-stall-cause-finding.md)

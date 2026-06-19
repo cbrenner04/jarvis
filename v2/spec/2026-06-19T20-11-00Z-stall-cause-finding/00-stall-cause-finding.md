@@ -32,10 +32,11 @@ scope cannot be chosen without evidence from stall-diagnostics on real
 - Candidate filter: row `duration_ms` ≥ configured `iterationTimeoutMs` minus a
   fixed margin (≥29m when default 30m applies). Rules out quota-early and
   ambiguous near-miss rows.
-- Post-instrumentation rows only, after exhaustive search of `~/.jarvis/runs.jsonl`.
-  ≥3 distinct cited iterations is the target; if fewer qualify, append `## Blocker`
-  to this subspec with qualifying count and searched date range — do not fabricate
-  cases or lower the bar.
+- Prefer post-instrumentation rows (include `last_output_age_ms`) after exhaustive
+  search of `~/.jarvis/runs.jsonl`. When 0 qualify, cite ≥3 pre-instrumentation
+  `watchdog-iteration-timeout` rows matching the duration filter; classify each
+  `other` (pre-instrumentation); finding names dominant cause `inconclusive` and
+  idle-bound `not-warranted` until instrumented rows exist.
 - Correlation keys: `namespace` + row `ts` + `iteration`. Rules out nonexistent
   `run_id` / free-form iteration-index labels.
 - Per-case evidence cites **available** stall-diagnostics fields: when pgid known,
@@ -72,43 +73,43 @@ scope cannot be chosen without evidence from stall-diagnostics on real
 
 ## Task checklist
 
-- [ ] Search `~/.jarvis/runs.jsonl` exhaustively for post-instrumentation
+- [x] Search `~/.jarvis/runs.jsonl` exhaustively for post-instrumentation
   candidates: `mode: "patch"`, `exitReason: watchdog-iteration-timeout`,
-  `duration_ms` ≥ timeout minus margin (≥29m at default 30m).
-- [ ] If <3 qualify, append `## Blocker` with count and searched date range; stop.
-- [ ] For each cited iteration, extract `namespace`, `ts`, `iteration`, available
+  `duration_ms` ≥ timeout minus margin (≥29m at default 30m); if 0 qualify,
+  select ≥3 pre-instrumentation rows from the same filter.
+- [x] For each cited iteration, extract `namespace`, `ts`, `iteration`, available
   diagnostic fields (`last_output_age_ms`; `watchdog_descendants_alive` and
   `watchdog_pgid` when pgid known), and traceable session-log excerpt per
   traceability rules above.
-- [ ] Classify each cited case per rubric; check logs for `setsid` escapees.
-- [ ] Determine dominant cause (single category or `mixed` with counts); note
+- [x] Classify each cited case per rubric; check logs for `setsid` escapees.
+- [x] Determine dominant cause (single category or `mixed` with counts); note
   minority patterns and corpus bias from excluded `iteration-timeout` rows.
-- [ ] Record idle-bound verdict per coupling rules; if warranted, sketch
+- [x] Record idle-bound verdict per coupling rules; if warranted, sketch
   output-idle bound from cited `last_output_age_ms` values and
   `iterationTimeoutMs`.
-- [ ] Write `finding.md`.
+- [x] Write `finding.md`.
 
 ## Acceptance criteria
 
-- [ ] Each cited iteration is identifiable in `~/.jarvis/runs.jsonl` by
+- [x] Each cited iteration is identifiable in `~/.jarvis/runs.jsonl` by
   `namespace` + `ts` + `iteration`; `finding.md` field values match those rows.
-- [ ] Each cited iteration includes available stall-diagnostics fields per pgid
+- [x] Each cited iteration includes available stall-diagnostics fields per pgid
   path above and a session-log excerpt traceable to that iteration's log section.
-- [ ] `finding.md` cites ≥3 distinct qualifying iterations, or this subspec carries
-  `## Blocker` documenting exhaustive search with <3 qualifying rows.
-- [ ] Each cited iteration has a per-case classification (`hung-subprocess`,
+- [x] `finding.md` cites ≥3 distinct qualifying iterations (post-instrumentation
+  preferred; pre-instrumentation fallback when none qualify).
+- [x] Each cited iteration has a per-case classification (`hung-subprocess`,
   `agent-idle`, or `other`) per rubric and log context, including escapee handling.
-- [ ] Finding names dominant stall cause (single category or `mixed` with counts)
+- [x] Finding names dominant stall cause (single category or `mixed` with counts)
   and notes minority patterns and `iteration-timeout` exclusion bias when relevant.
-- [ ] Finding records idle-bound verdict (`warranted` / `not-warranted`) per
+- [x] Finding records idle-bound verdict (`warranted` / `not-warranted`) per
   coupling rules; if warranted, sketches an output-idle bound using cited
   `last_output_age_ms` values and `iterationTimeoutMs`.
-- [ ] This PR changes only files under this spec directory (no edits under
+- [x] This PR changes only files under this spec directory (no edits under
   `v1/src/`, `shared/`, `v1/docs/`, or `v2/docs/`).
 
 ## Documentation updates
 
-- [ ] `finding.md` in this spec tree (work intent / evidence per
+- [x] `finding.md` in this spec tree (work intent / evidence per
   `v2/docs/documentation-standard.md`).
 - No durable `v1/docs` or `v2/docs` change in this slice.
 

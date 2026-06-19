@@ -1256,18 +1256,25 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               }
 
               try {
-                let createdThisIteration = false;
+                let _createdThisIteration = false;
                 const base = await getBaseBranch(agentWorkingDir);
                 const branch = getCurrentBranch(agentWorkingDir);
                 if (!state.draftPrEnsured) {
                   const prBody = async (): Promise<string> =>
-                    generatePrBody(afterSpecPath, agent, agentWorkingDir, cfg.modes.patch.prNarrative ?? "template", base, {
-                      signal: iterationController.signal,
-                      abortKillGraceMs: killGraceMs,
-                      onSpawned: ({ pid }) => {
-                        watchdogPgid = pid;
+                    generatePrBody(
+                      afterSpecPath,
+                      agent,
+                      agentWorkingDir,
+                      cfg.modes.patch.prNarrative ?? "template",
+                      base,
+                      {
+                        signal: iterationController.signal,
+                        abortKillGraceMs: killGraceMs,
+                        onSpawned: ({ pid }) => {
+                          watchdogPgid = pid;
+                        },
                       },
-                    });
+                    );
                   const footer = renderAttributionSummary({
                     cwd: agentWorkingDir,
                     base,
@@ -1280,7 +1287,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                     footer,
                     cwd: agentWorkingDir,
                   });
-                  createdThisIteration = ensured.created;
+                  _createdThisIteration = ensured.created;
                   state.draftPrEnsured = true;
                 }
                 // When post-completion shrink or review will run, defer PR

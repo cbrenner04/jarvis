@@ -386,7 +386,12 @@ function createPatchReviewAdapter(args: {
   base: string;
 }): ReviewAdapter {
   const { opts, specDir, branch, base } = args;
-  const commitOpts = { specPath: opts.specPath, branch, base, prNarrative: opts.config.modes.patch.prNarrative ?? "template" };
+  const commitOpts = {
+    specPath: opts.specPath,
+    branch,
+    base,
+    prNarrative: opts.config.modes.patch.prNarrative ?? "template",
+  };
 
   const recordPatchTelemetry = (event: ReviewTelemetryEvent, exitCode?: number): void => {
     const configuredModel = event.agentEntry.model;

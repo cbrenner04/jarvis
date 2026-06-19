@@ -2,22 +2,9 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
-import {
-  checkPrExists,
-  extractNarrative,
-  NARRATIVE_END_MARKER,
-  NARRATIVE_START_MARKER,
-  readBranchCommits,
-  renderAttributionSummary,
-} from "../../pr.ts";
-import {
-  extractPrDescription,
-  generateNarrativeViaAgent,
-  PR_DESCRIPTION_BEGIN,
-  PR_DESCRIPTION_CONTEXT_MAX_CHARS,
-  PR_DESCRIPTION_END,
-} from "../../pr-shared.ts";
+import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
+import { generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS } from "../../pr-shared.ts";
 import {
   type ReadyTier,
   type RunReadyAndCommitOpts,
@@ -29,10 +16,7 @@ import { parsePatchSpec } from "./spec.ts";
 
 export { NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 
-export function buildPrBody(opts: {
-  indexPath: string;
-  narrative: string | null;
-}): string {
+export function buildPrBody(opts: { indexPath: string; narrative: string | null }): string {
   const indexContent = readFileSync(opts.indexPath, "utf8");
   const parsedIndex = parsePatchSpec(indexContent);
 
@@ -175,7 +159,6 @@ export function extractSubspecTitle(subspecPath: string): string {
   const filename = parts[parts.length - 1] ?? subspecPath;
   return filename.replace(/\.md$/, "");
 }
-
 
 export type { RunReadyAndCommitOpts };
 export { runReadyAndCommit };

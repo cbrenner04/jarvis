@@ -46,24 +46,20 @@ describe("config show", () => {
       { agent: "codex", model: "gpt-5.3-codex" },
       { agent: "cursor", model: "Composer 2" },
     ];
-    expect(parsed).toEqual({
-      version: 2,
-      modes: {
-        patch: { agentOrder: defaultOrder },
-        plan: { agentOrder: defaultOrder, targetDir: "spec" },
-        prompt: { agentOrder: defaultOrder },
-        review: { passes: 1 },
-      },
-      quotaFallback: "lenient",
-      weakQuotaExitCodes: [],
-      maxIterations: 10,
-      iterationTimeoutMs: 1800000,
-      logServerUrl: "http://127.0.0.1:4310/logs",
-      logServerBind: "127.0.0.1:4310",
-      telemetryPath: join(cfgDir, "runs.jsonl"),
-      git: true,
-      projects: {},
-    });
+    expect(parsed.version).toBe(2);
+    expect(parsed.modes.patch).toEqual({ agentOrder: defaultOrder, prNarrative: "template" });
+    expect(parsed.modes.plan).toEqual({ agentOrder: defaultOrder, targetDir: "spec", prNarrative: "template" });
+    expect(parsed.modes.prompt).toEqual({ agentOrder: defaultOrder });
+    expect(parsed.modes.review).toEqual({ passes: 1 });
+    expect(parsed.quotaFallback).toBe("lenient");
+    expect(parsed.weakQuotaExitCodes).toEqual([]);
+    expect(parsed.maxIterations).toBe(10);
+    expect(parsed.iterationTimeoutMs).toBe(1800000);
+    expect(parsed.logServerUrl).toBe("http://127.0.0.1:4310/logs");
+    expect(parsed.logServerBind).toBe("127.0.0.1:4310");
+    expect(parsed.telemetryPath).toBe(join(cfgDir, "runs.jsonl"));
+    expect(parsed.git).toBe(true);
+    expect(parsed.projects).toEqual({});
   });
 });
 

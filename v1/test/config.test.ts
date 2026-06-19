@@ -61,24 +61,21 @@ describe("loadConfig", () => {
 
     const cfg = loadConfig({ dir });
 
-    expect(cfg).toEqual({
-      version: 2,
-      modes: {
-        patch: { agentOrder: DEFAULT_AGENT_ORDER },
-        plan: { agentOrder: DEFAULT_AGENT_ORDER, targetDir: "spec" },
-        prompt: { agentOrder: DEFAULT_AGENT_ORDER },
-        review: { passes: 1 },
-      },
-      quotaFallback: "lenient",
-      weakQuotaExitCodes: [],
-      maxIterations: 10,
-      iterationTimeoutMs: 30 * 60_000,
-      logServerUrl: "http://127.0.0.1:4310/logs",
-      logServerBind: "127.0.0.1:4310",
-      telemetryPath: join(dir, "runs.jsonl"),
-      git: true,
-      projects: {},
-    });
+    expect(cfg.modes.patch).toEqual({ agentOrder: DEFAULT_AGENT_ORDER, prNarrative: "template" });
+    expect(cfg.modes.plan).toEqual({ agentOrder: DEFAULT_AGENT_ORDER, targetDir: "spec", prNarrative: "template" });
+    expect(cfg.modes.prompt).toEqual({ agentOrder: DEFAULT_AGENT_ORDER });
+    expect(cfg.modes.review).toEqual({ passes: 1 });
+    expect(cfg.version).toBe(2);
+    expect(cfg.quotaFallback).toBe("lenient");
+    expect(cfg.weakQuotaExitCodes).toEqual([]);
+    expect(cfg.maxIterations).toBe(10);
+    expect(cfg.iterationTimeoutMs).toBe(30 * 60_000);
+    expect(cfg.logServerUrl).toBe("http://127.0.0.1:4310/logs");
+    expect(cfg.logServerBind).toBe("127.0.0.1:4310");
+    expect(cfg.telemetryPath).toBe(join(dir, "runs.jsonl"));
+    expect(cfg.git).toBe(true);
+    expect(cfg.projects).toEqual({});
+
     expect(existsSync(file)).toBe(true);
     const onDisk = JSON.parse(readFileSync(file, "utf8")) as Config;
     expect(onDisk).toEqual(cfg);

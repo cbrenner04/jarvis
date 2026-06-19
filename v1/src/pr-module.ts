@@ -1,16 +1,7 @@
 import type { Agent, AgentRunOptions } from "./agents/types.ts";
 import type { CommitInfo } from "./pr.ts";
-import {
-  extractNarrative,
-  NARRATIVE_END_MARKER,
-  NARRATIVE_START_MARKER,
-  renderAttributionSummary,
-} from "./pr.ts";
-import {
-  generateNarrativeViaAgent,
-  generateTemplateNarrative,
-  shouldRegenerateNarrative,
-} from "./pr-shared.ts";
+import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, renderAttributionSummary } from "./pr.ts";
+import { generateNarrativeViaAgent, generateTemplateNarrative, shouldRegenerateNarrative } from "./pr-shared.ts";
 
 export type UpdatePrBodyOpts = {
   /** Shared PR body update options. */
@@ -112,7 +103,6 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
     headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
   }
   const footer = renderFooter({ cwd: opts.cwd, base: opts.base });
-  const newBody =
-    footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
+  const newBody = footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
   writePrBody(opts.branch, newBody, opts.cwd);
 }

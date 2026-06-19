@@ -3,14 +3,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import type { CommitInfo } from "../../pr.ts";
-import {
-  extractNarrative,
-  NARRATIVE_END_MARKER,
-  NARRATIVE_START_MARKER,
-  readBranchCommits,
-} from "../../pr.ts";
-import { generateNarrativeViaAgent } from "../../pr-shared.ts";
+import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, readBranchCommits } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
+import { generateNarrativeViaAgent } from "../../pr-shared.ts";
 import { type ReadyTier, runReadyAndCommit } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
@@ -453,9 +448,7 @@ export async function updatePlanPrBody(opts: UpdatePlanPrBodyOpts): Promise<void
     headerOpts.targetDir = opts.targetDir;
   }
 
-  // Determine whether to pass buildPrompt based on intentContent presence and prNarrative mode
   const prNarrative = opts.prNarrative ?? "template";
-  const shouldBuildPrompt = prNarrative === "agent" && opts.intentContent !== undefined;
 
   const sharedOpts: Parameters<typeof updatePrBodyShared>[0] = {
     branch: opts.branch,
@@ -485,17 +478,17 @@ export async function updatePlanPrBody(opts: UpdatePlanPrBodyOpts): Promise<void
   if (opts.renderFooter !== undefined) {
     sharedOpts.renderFooter = opts.renderFooter;
   }
-  if (shouldBuildPrompt) {
+  if (prNarrative === "agent" && opts.intentContent) {
+    const intentContent = opts.intentContent;
     sharedOpts.buildPrompt = () =>
       buildPrDescriptionPrompt({
-        intent: opts.intentContent!,
+        intent: intentContent,
         specContext: buildSpecContext(opts.indexPath),
       });
   }
 
   return updatePrBodyShared(sharedOpts);
 }
-
 
 function extractSubspecTitle(subspecPath: string): string {
   // Extract just the filename without extension as a fallback title

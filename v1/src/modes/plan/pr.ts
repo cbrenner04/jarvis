@@ -11,7 +11,7 @@ import {
   NARRATIVE_START_MARKER,
   readBranchCommits,
 } from "../../pr.ts";
-import { runReadyAndCommit } from "../../ready-gate.ts";
+import { type ReadyTier, runReadyAndCommit } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
 /**
@@ -285,7 +285,7 @@ export type MaybeMarkPlanPrReadyOpts = {
   /** Short-circuit seam: stubs the entire ready + commit + gh-pr-ready sequence. */
   markReady?: (branch: string, cwd: string) => void;
   /** Seam for just `bun run ready`. Used by tests when markReady is absent. */
-  runReady?: (cwd: string) => void;
+  runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for post-ready check:fix commit/push. Used by tests when markReady is absent. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
   /** Seam for the `gh pr ready <branch>` shell-out. Used by tests when markReady is absent. */

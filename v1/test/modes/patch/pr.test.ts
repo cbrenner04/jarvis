@@ -380,6 +380,32 @@ describe("maybeMarkReady", () => {
     expect(ghPrReadyBranch).toBe("feature");
   });
 
+  test("recorded green on unchanged tree runs fast tier before gh pr ready", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n");
+    execSync("git add -A", { cwd: dir, stdio: "pipe" });
+    execSync("git commit -q -m 'add spec'", { cwd: dir, stdio: "pipe" });
+    const headSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+
+    const tiers: string[] = [];
+    let ghPrReadyCalled = false;
+
+    maybeMarkReady({
+      indexPath,
+      cwd: dir,
+      checkPrExists: () => true,
+      recordedGreenResult: { headSha },
+      runReady: (_cwd, tier) => {
+        tiers.push(tier);
+      },
+      ghPrReady: () => {
+        ghPrReadyCalled = true;
+      },
+    });
+
+    expect(tiers).toEqual(["fast"]);
+    expect(ghPrReadyCalled).toBe(true);
+  });
+
   test("(b) runReady dirties tree -> commitCheckFix called with correct args, then ghPrReady", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
     // Commit the spec file to have a clean baseline

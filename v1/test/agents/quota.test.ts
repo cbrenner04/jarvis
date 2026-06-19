@@ -12,6 +12,7 @@ describe("isQuotaSignal", () => {
     expect(isQuotaSignal("claude", 1, "You've hit your session limit · resets 3:45pm")).toBe(true);
     expect(isQuotaSignal("claude", 1, "You've hit your weekly limit · resets Mon 12:00am")).toBe(true);
     expect(isQuotaSignal("claude", 1, "You've hit your org's monthly usage limit")).toBe(true);
+    expect(isQuotaSignal("claude", 1, "You've hit your monthly spend limit")).toBe(true);
   });
 
   test("matches Claude insufficient_quota / exhausted wording", () => {

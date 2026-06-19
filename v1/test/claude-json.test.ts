@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseClaudeJsonOutput } from "../src/agents/claude-json.ts";
+import { parseClaudeJsonOutput, isClaudeZeroExitQuotaEnvelope } from "../src/agents/claude-json.ts";
 
 const fixturesDir = join(import.meta.dir, "fixtures", "claude");
 
@@ -87,5 +87,50 @@ describe("parseClaudeJsonOutput", () => {
 
     expect(result.displayText).toBe("");
     expect(result.usage).toBeTruthy();
+  });
+});
+
+describe("isClaudeZeroExitQuotaEnvelope", () => {
+  test("matches verified monthly-spend-limit fixture", () => {
+    const fixture = readFileSync(join(fixturesDir, "2.1.142-monthly-spend-limit.json"), "utf8");
+    expect(isClaudeZeroExitQuotaEnvelope(fixture)).toBe(true);
+  });
+
+  test("rejects successful prose envelope", () => {
+    const fixture = readFileSync(join(fixturesDir, "2.1.142-simple-prose.json"), "utf8");
+    expect(isClaudeZeroExitQuotaEnvelope(fixture)).toBe(false);
+  });
+
+  test("rejects zero-exit error envelopes missing quota predicates", () => {
+    expect(
+      isClaudeZeroExitQuotaEnvelope(
+        JSON.stringify({
+          type: "result",
+          is_error: false,
+          api_error_status: 429,
+          result: "You've hit your monthly spend limit",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isClaudeZeroExitQuotaEnvelope(
+        JSON.stringify({
+          type: "result",
+          is_error: true,
+          api_error_status: 500,
+          result: "You've hit your monthly spend limit",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isClaudeZeroExitQuotaEnvelope(
+        JSON.stringify({
+          type: "result",
+          is_error: true,
+          api_error_status: 429,
+          result: "Not logged in · Please run /login",
+        }),
+      ),
+    ).toBe(false);
   });
 });

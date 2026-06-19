@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runAgent } from "../src/agents/spawn.ts";
+import { ClaudeAgent } from "../src/agents/claude.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { type AgentEntry, loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
@@ -80,6 +81,29 @@ let originalPath: string | undefined;
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
+const CLAUDE_MONTHLY_SPEND_FIXTURE = readFileSync(
+  join(import.meta.dir, "fixtures/claude/2.1.142-monthly-spend-limit.json"),
+  "utf8",
+);
+
+function fakeClaudeBinary(
+  dir: string,
+  opts: { exit: number; stdout?: string; stderr?: string },
+): string {
+  const path = join(dir, "claude");
+  const out = opts.stdout ?? "";
+  const err = opts.stderr ?? "";
+  const outB64 = Buffer.from(out).toString("base64");
+  const errB64 = Buffer.from(err).toString("base64");
+  const script = `#!/usr/bin/env bash
+printf '%s' "$(printf '%s' '${outB64}' | base64 -d)"
+printf '%s' "$(printf '%s' '${errB64}' | base64 -d)" 1>&2
+exit ${opts.exit}
+`;
+  writeFileSync(path, script);
+  chmodSync(path, 0o755);
+  return path;
+}
 
 function disableReviewByDefault(opts: RunCommandOptions): RunCommandOptions {
   return {
@@ -2629,6 +2653,32 @@ exit 0
     expect(cap.out()).toContain("iteration: 2");
     expect(cap.err()).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
     expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+  });
+
+  test("falls through claude to codex on zero-exit monthly-spend-limit JSON envelope", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claudeBin = fakeClaudeBinary(dir, {
+      exit: 0,
+      stdout: CLAUDE_MONTHLY_SPEND_FIXTURE,
+    });
+    const claude = new ClaudeAgent({ binary: claudeBin });
+    const codex = new FakeAgent("codex", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.err()).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
     expect(codex.calls).toHaveLength(1);
   });
 

@@ -2,6 +2,7 @@ import type { AgentName, AgentResult } from "./types.ts";
 
 const claudeQuotaPatterns = [
   /\byou['’]ve hit your (?:session|weekly|opus) limit\b/i,
+  /\byou['’]ve hit your monthly spend limit\b/i,
   /\byou['’]ve hit your org['’]s monthly usage limit\b/i,
   /\bcredit balance is too low\b/i,
   /\brequest rejected \(429\)\b/i,
@@ -81,6 +82,11 @@ export function isModelConfigurationSignal(nameOrStderr: AgentName | string, may
         : modelConfigurationPatterns;
 
   return patterns.some((pattern) => pattern.test(stderr));
+}
+
+/** True when stderr/result text matches Claude quota phrasing. */
+export function isClaudeQuotaMessageText(text: string): boolean {
+  return claudeQuotaPatterns.some((pattern) => pattern.test(text));
 }
 
 export function isQuotaSignal(name: AgentName, exitCode: number, stderr: string): boolean {

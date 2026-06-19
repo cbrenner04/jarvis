@@ -1,6 +1,22 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { DEFAULT_TIMEOUT_MS, parseTimeout, runCommand, TIMEOUT_EXIT_CODE } from "../../scripts/ready.ts";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  DEFAULT_TIMEOUT_MS,
+  computeInstallDigest,
+  computeNodeModulesIdentityDigest,
+  getReadyCommands,
+  parseReadyTier,
+  parseTimeout,
+  readRecordedInstallDigest,
+  runCommand,
+  runReady,
+  sha256Hex,
+  shouldRunInstall,
+  TIMEOUT_EXIT_CODE,
+  writeRecordedInstallDigest,
+} from "../../scripts/ready.ts";
 
 function withEnv(key: string, value: string | undefined, fn: () => void): void {
   const prev = process.env[key];
@@ -18,6 +34,35 @@ function withEnv(key: string, value: string | undefined, fn: () => void): void {
       process.env[key] = prev;
     }
   }
+}
+
+async function withEnvAsync(
+  key: string,
+  value: string | undefined,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const prev = process.env[key];
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+  try {
+    await fn();
+  } finally {
+    if (prev === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = prev;
+    }
+  }
+}
+
+function writePackage(repoRoot: string, pkgPath: string, name: string, version: string): void {
+  const segments = pkgPath.startsWith("@") ? pkgPath.split("/") : [pkgPath];
+  const fullPath = join(repoRoot, "node_modules", ...segments, "package.json");
+  mkdirSync(join(fullPath, ".."), { recursive: true });
+  writeFileSync(fullPath, JSON.stringify({ name, version }), "utf8");
 }
 
 describe("ready script deadline enforcement", () => {
@@ -62,7 +107,76 @@ describe("ready script deadline enforcement", () => {
     expect(await runCommand("true", [], 5000, 0)).toBe(0);
   });
 
-  test("bun install runs before check:fix in command sequence", () => {
+  test("when a command exits non-zero, runCommand returns its exit code", async () => {
+    expect(await runCommand("false", [], 5000, 0)).toBe(1);
+  });
+});
+
+describe("ready tier parsing and step lists", () => {
+  test("parseReadyTier defaults to full when unset", () => {
+    withEnv("JARVIS_READY_TIER", undefined, () => {
+      expect(parseReadyTier()).toBe("full");
+    });
+  });
+
+  test("parseReadyTier accepts fast and full", () => {
+    expect(parseReadyTier("fast")).toBe("fast");
+    expect(parseReadyTier("full")).toBe("full");
+  });
+
+  test("parseReadyTier warns and defaults to full for invalid values", () => {
+    const writes: string[] = [];
+    const origWrite = process.stderr.write;
+    process.stderr.write = function (this: typeof process.stderr, chunk, ...args) {
+      writes.push(String(chunk));
+      return origWrite.apply(this, [chunk, ...args] as Parameters<typeof origWrite>);
+    };
+
+    try {
+      expect(parseReadyTier("turbo")).toBe("full");
+      expect(writes.join("")).toContain('invalid JARVIS_READY_TIER="turbo"');
+    } finally {
+      process.stderr.write = origWrite;
+    }
+  });
+
+  test("fast tier runs only typecheck then test", () => {
+    expect(getReadyCommands("fast", { runInstall: false })).toEqual([
+      { name: "bun", args: ["run", "typecheck"] },
+      { name: "bun", args: ["run", "test"] },
+    ]);
+  });
+
+  test("full tier runs check:fix, typecheck, test, and check after install", () => {
+    expect(getReadyCommands("full", { runInstall: true })).toEqual([
+      { name: "bun", args: ["install", "--frozen-lockfile"] },
+      { name: "bun", args: ["run", "check:fix"] },
+      { name: "bun", args: ["run", "typecheck"] },
+      { name: "bun", args: ["run", "test"] },
+      { name: "bun", args: ["run", "check"] },
+    ]);
+  });
+
+  test("full tier skips install in the command list when runInstall is false", () => {
+    const commands = getReadyCommands("full", { runInstall: false });
+    const checkFixIndex = commands.findIndex(
+      (command) => command.args[0] === "run" && command.args[1] === "check:fix",
+    );
+    const installIndex = commands.findIndex(
+      (command) => command.args[0] === "install",
+    );
+
+    expect(checkFixIndex).toBe(0);
+    expect(installIndex).toBe(-1);
+    expect(commands.map((command) => command.args[1])).toEqual([
+      "check:fix",
+      "typecheck",
+      "test",
+      "check",
+    ]);
+  });
+
+  test("full tier keeps install before check:fix when install runs", () => {
     const readySource = readFileSync("./scripts/ready.ts", "utf8");
     const checkFixIndex = readySource.indexOf('{ name: "bun", args: ["run", "check:fix"]');
     const installIndex = readySource.indexOf('{ name: "bun", args: ["install",');
@@ -72,7 +186,190 @@ describe("ready script deadline enforcement", () => {
     expect(installIndex).toBeLessThan(checkFixIndex);
   });
 
-  test("when a command exits non-zero, runCommand returns its exit code", async () => {
-    expect(await runCommand("false", [], 5000, 0)).toBe(1);
+  test("JARVIS_READY_TIER is parsed only in scripts/ready.ts", () => {
+    const readySource = readFileSync("./scripts/ready.ts", "utf8");
+    const readyGateSource = readFileSync("./v1/src/ready-gate.ts", "utf8");
+
+    expect(readySource).toContain("JARVIS_READY_TIER");
+    expect(readyGateSource).not.toContain("JARVIS_READY_TIER");
+  });
+
+  test("runReady honors JARVIS_READY_TIER=fast without invoking install or check steps", async () => {
+    const executed: string[] = [];
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-fast-"));
+
+    try {
+      await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
+        await runReady({
+          repoRoot,
+          runCommandFn: async (_name, args) => {
+            executed.push(args.join(" "));
+            return 0;
+          },
+        });
+      });
+
+      expect(executed).toEqual(["run typecheck", "run test"]);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("runReady defaults to full tier when JARVIS_READY_TIER is unset", async () => {
+    const executed: string[] = [];
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-full-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-v1", "utf8");
+    writePackage(repoRoot, "left-pad", "left-pad", "1.0.0");
+
+    try {
+      await withEnvAsync("JARVIS_READY_TIER", undefined, async () => {
+        await runReady({
+          repoRoot,
+          runCommandFn: async (_name, args) => {
+            executed.push(args.join(" "));
+            return 0;
+          },
+        });
+      });
+
+      expect(executed[0]).toBe("install --frozen-lockfile");
+      expect(executed.slice(1).map((step) => step.replace(/^run /, ""))).toEqual([
+        "check:fix",
+        "typecheck",
+        "test",
+        "check",
+      ]);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("ready install digest", () => {
+  let repoRoot = "";
+
+  afterEach(() => {
+    if (repoRoot !== "") {
+      rmSync(repoRoot, { recursive: true, force: true });
+      repoRoot = "";
+    }
+  });
+
+  test("computeNodeModulesIdentityDigest hashes sorted top-level package identities", () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-digest-"));
+    writePackage(repoRoot, "zebra", "zebra", "1.0.0");
+    writePackage(repoRoot, "alpha", "alpha", "2.0.0");
+    writePackage(repoRoot, "@scope/pkg", "@scope/pkg", "3.0.0");
+
+    expect(computeNodeModulesIdentityDigest(repoRoot)).toBe(
+      sha256Hex("@scope/pkg@3.0.0\nalpha@2.0.0\nzebra@1.0.0"),
+    );
+  });
+
+  test("computeInstallDigest combines lockfile bytes with node_modules identity", () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-digest-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-bytes", "utf8");
+    writePackage(repoRoot, "alpha", "alpha", "1.0.0");
+
+    const lockfileHash = sha256Hex("lock-bytes");
+    const nodeModulesHash = sha256Hex("alpha@1.0.0");
+    expect(computeInstallDigest(repoRoot)).toBe(`${lockfileHash}:${nodeModulesHash}`);
+  });
+
+  test("shouldRunInstall is true when node_modules is absent", () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-digest-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-bytes", "utf8");
+
+    expect(shouldRunInstall(repoRoot)).toBe(true);
+  });
+
+  test("shouldRunInstall is false when recomputed digest matches recorded digest", () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-digest-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-bytes", "utf8");
+    writePackage(repoRoot, "alpha", "alpha", "1.0.0");
+
+    const digest = computeInstallDigest(repoRoot);
+    expect(digest).toBeDefined();
+    writeRecordedInstallDigest(repoRoot, digest as string);
+
+    expect(shouldRunInstall(repoRoot)).toBe(false);
+    expect(getReadyCommands("full", { runInstall: false }).some((command) => command.args[0] === "install")).toBe(
+      false,
+    );
+  });
+
+  test("shouldRunInstall is true when bun.lock changed since the recorded digest", () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-digest-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-v1", "utf8");
+    writePackage(repoRoot, "alpha", "alpha", "1.0.0");
+
+    const digest = computeInstallDigest(repoRoot);
+    expect(digest).toBeDefined();
+    writeRecordedInstallDigest(repoRoot, digest as string);
+
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-v2", "utf8");
+    expect(shouldRunInstall(repoRoot)).toBe(true);
+  });
+
+  test("shouldRunInstall is true when lockfile is unchanged but node_modules identity mismatches", () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-digest-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-bytes", "utf8");
+    writePackage(repoRoot, "alpha", "alpha", "1.0.0");
+
+    const digest = computeInstallDigest(repoRoot);
+    expect(digest).toBeDefined();
+    writeRecordedInstallDigest(repoRoot, digest as string);
+
+    writePackage(repoRoot, "beta", "beta", "9.9.9");
+    expect(shouldRunInstall(repoRoot)).toBe(true);
+  });
+
+  test("runReady skips install when digest matches and records digest after install", async () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-digest-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-bytes", "utf8");
+    writePackage(repoRoot, "alpha", "alpha", "1.0.0");
+
+    const digest = computeInstallDigest(repoRoot);
+    expect(digest).toBeDefined();
+    writeRecordedInstallDigest(repoRoot, digest as string);
+
+    const executed: string[] = [];
+    await withEnvAsync("JARVIS_READY_TIER", "full", async () => {
+      await runReady({
+        repoRoot,
+        runCommandFn: async (_name, args) => {
+          executed.push(args.join(" "));
+          return 0;
+        },
+      });
+    });
+
+    expect(executed.map((step) => step.replace(/^run /, ""))).toEqual([
+      "check:fix",
+      "typecheck",
+      "test",
+      "check",
+    ]);
+    expect(readRecordedInstallDigest(repoRoot)).toBe(digest);
+  });
+
+  test("runReady records digest after a successful install command", async () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-digest-"));
+    writeFileSync(join(repoRoot, "bun.lock"), "lock-bytes", "utf8");
+    writePackage(repoRoot, "alpha", "alpha", "1.0.0");
+
+    await withEnvAsync("JARVIS_READY_TIER", "full", async () => {
+      await runReady({
+        repoRoot,
+        runCommandFn: async (_name, args) => {
+          if (args[0] === "install") {
+            writePackage(repoRoot, "alpha", "alpha", "1.0.0");
+          }
+          return 0;
+        },
+      });
+    });
+
+    expect(readRecordedInstallDigest(repoRoot)).toBe(computeInstallDigest(repoRoot));
   });
 });

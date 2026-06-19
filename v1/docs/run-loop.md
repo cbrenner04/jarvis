@@ -99,6 +99,37 @@ injects jarvis-owned rules from `prompts/patch/rules.md` inline. The
 (interpolation, sibling-directory block insertion, and line joining), while the
 prompt text itself is owned in `prompts/`.
 
+## Ready script tiers
+
+Operator entrypoint `bun run ready` runs the **`full`** tier. Harness gates
+spawn the same script and select a tier by setting `JARVIS_READY_TIER=fast|full`
+on the subprocess environment; only `scripts/ready.ts` parses that variable.
+When unset or invalid, the script defaults to **`full`**.
+
+| Tier | Steps |
+| --- | --- |
+| **`fast`** | `typecheck` → `test` |
+| **`full`** | `install` when required → `check:fix` → `typecheck` → `test` → `check` |
+
+In the **`full`** tier, `bun install --frozen-lockfile` is skipped when a
+recomputed install digest matches the digest recorded after the last successful
+install in this checkout (stored under `.git/jarvis-ready-install-digest`). The
+digest combines:
+
+- SHA-256 of root `bun.lock` bytes
+- SHA-256 of sorted `name@version` strings from each top-level
+  `node_modules/<pkg>/package.json` (including scoped packages)
+
+Install still runs when:
+
+- `node_modules` is absent
+- `bun.lock` bytes changed since the last recorded digest
+- the lockfile is unchanged but the recomputed `node_modules` identity digest
+  mismatches the recorded value
+
+Which harness gate invokes **`fast`** vs **`full`** is in the gate tier matrix
+([01 - Harness gate tier wiring](../../v2/spec/2026-06-19T19-52-17Z-tiered-ready-pipeline-gate-reuse/01-harness-gate-tier-wiring.md)).
+
 ## Completion
 
 Jarvis treats a spec as complete when the spec file has zero unchecked

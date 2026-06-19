@@ -96,6 +96,9 @@ export function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOpti
 
     stdout.on("data", (chunk: Buffer) => {
       outBuf += chunk.toString("utf8");
+      if (opts.lastOutputAtMs) {
+        opts.lastOutputAtMs.current = Date.now();
+      }
     });
     stdout.on("end", () => {
       stdoutEnded = true;
@@ -103,6 +106,9 @@ export function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOpti
     });
     stderr.on("data", (chunk: Buffer) => {
       errBuf += chunk.toString("utf8");
+      if (opts.lastOutputAtMs) {
+        opts.lastOutputAtMs.current = Date.now();
+      }
     });
     stderr.on("end", () => {
       stderrEnded = true;

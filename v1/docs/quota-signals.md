@@ -69,7 +69,7 @@ Timeout records use **`kind`: `"timeout"`** with:
 
 | exitReason | When |
 | --- | --- |
-| `watchdog-iteration-timeout` | Iteration watchdog fired, logged `[watchdog] …`, and killed the agent process group via SIGTERM→(5s)→SIGKILL. |
+| `watchdog-iteration-timeout` | Iteration watchdog timer fired (`iterationTimeoutMs` elapsed). When the agent root pid was known at fire time, Jarvis also logged `[watchdog] …`, SIGTERM→(5s)→SIGKILL'd that process group, and may include `watchdog_pgid` and `watchdog_descendants_alive`. When pid was still unavailable (watchdog fired before `onSpawned`), telemetry still records `last_output_age_ms` but omits `watchdog_pgid` and `watchdog_descendants_alive`, and no `[watchdog]` line is emitted. |
 | `iteration-timeout` | Iteration timeout result was returned without watchdog-fire context. |
 | `run-timeout` | Global run timeout fired. |
 

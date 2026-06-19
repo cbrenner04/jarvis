@@ -4075,6 +4075,72 @@ while true; do :; done
       expect(timeoutRow?.watchdog_descendants_alive).toBe(false);
     });
 
+    test("watchdog timeout with pgid unavailable records last_output_age_ms only", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+
+      class NeverSpawnedAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(_prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          await new Promise<void>((resolve) => {
+            if (opts.signal?.aborted) {
+              resolve();
+              return;
+            }
+            opts.signal?.addEventListener("abort", () => resolve(), { once: true });
+          });
+          return { kind: "error", exitCode: -1, stderr: "aborted: iteration-timeout" };
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 1500,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude: new NeverSpawnedAgent() },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).not.toContain("[watchdog]");
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const timeoutRow = rows.find(
+        (row) => row.record_role !== "run_terminal" && row.exit_reason === "watchdog-iteration-timeout",
+      );
+      expect(timeoutRow).toBeDefined();
+      expect(timeoutRow).toHaveProperty("last_output_age_ms");
+      expect(timeoutRow?.last_output_age_ms).toBeNull();
+      expect(timeoutRow).not.toHaveProperty("watchdog_pgid");
+      expect(timeoutRow).not.toHaveProperty("watchdog_descendants_alive");
+    });
+
     test("watchdog timeout records watchdog_descendants_alive false for agent-only stall", async () => {
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();

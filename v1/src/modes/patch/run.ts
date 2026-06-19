@@ -56,12 +56,7 @@ import {
 } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
-import {
-  collectSubtree,
-  DESCENDANT_POLL_INTERVAL_MS,
-  DescendantTracker,
-  listProcesses,
-} from "./reap.ts";
+import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import { parsePatchSpec } from "./spec.ts";
@@ -1034,8 +1029,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const iterationTimeoutHandle = setTimeout(() => {
     watchdogFired = true;
     const snapshotAt = Date.now();
-    watchdogLastOutputAgeMs =
-      lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
+    watchdogLastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
     const pgid = watchdogPgid;
     if (pgid !== null) {
       watchdogDescendantsAlive = snapshotWatchdogDescendantsAlive(pgid);

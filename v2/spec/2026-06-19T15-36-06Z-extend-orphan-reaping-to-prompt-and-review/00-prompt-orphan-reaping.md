@@ -24,25 +24,47 @@ is wired only into the patch loop; prompt invocations leave such orphans behind.
   loop's `__testReapFn`) so the non-fatal guarantee is testable without real
   orphans.
 - Source the poll interval from a single shared location rather than copying the
-  `500` literal, to keep one cadence across modes.
+  `500` literal. The literal currently lives as a private constant in
+  `patch/run.ts`; relocate it to an export from `reap.ts` (already in the reused
+  dependency surface) and re-point the patch loop's import. This edits
+  `patch/run.ts` — outside the intent's declared scope — a deliberate one-line
+  re-point, not a silent leak. Rules out copying the literal into a third file.
+- Wrap each agent attempt in a new per-attempt `try/finally` inside the fallback
+  loop, distinct from the existing outer `finally` (lock release + telemetry).
+  The interval-clear and reap sit in this per-attempt `finally` so every exit
+  branch is covered: quota continue, success break, watchdog-timeout break,
+  model-config continue, error break. Rules out conflating the reap with the
+  outer finally or missing a branch. The watchdog-timeout branch is the
+  highest-value target — it follows a process-group kill that scatters escapees.
 
 ## Task checklist
 
 - [ ] Instantiate a `DescendantTracker` per agent attempt in
   `v1/src/modes/prompt/run.ts`; poll in `onSpawned`, then on an interval (unref
   the handle).
-- [ ] Clear the poll interval and reap in the attempt's `finally`, wrapped so
-  throws are swallowed.
+- [ ] Add a per-attempt `try/finally` inside the fallback loop; clear the poll
+  interval and reap in that `finally`, wrapped so throws are swallowed. Confirm
+  it covers every exit branch (quota continue, success break, watchdog-timeout
+  break, model-config continue, error break), not just the happy path.
 - [ ] Add a test-only reap override to prompt run options.
-- [ ] Share the poll-interval constant (export from `reap.ts` or a shared module
-  consumed by both patch and prompt).
+- [ ] Relocate the poll-interval constant to an export from `reap.ts` and
+  re-point the patch loop's import in `patch/run.ts`.
 - [ ] Update docs.
+
+## Verification
+
+Real-kill behavior (a recorded PPID=1 orphan actually receiving SIGKILL) is
+already covered by the existing `DescendantTracker` unit tests and is not
+re-tested here: injecting the reap override replaces the real reap, so the seam
+cannot exercise a real kill. New prompt-mode tests use the override to assert
+the wiring instead — polling on spawn + interval, reap invoked in the
+per-attempt `finally`, and non-fatality.
 
 ## Acceptance criteria
 
-- [ ] A prompt-mode invocation whose agent left a re-parented orphan (PPID=1,
-  recorded while its lineage was intact) SIGKILLs that orphan when the
-  invocation ends.
+- [ ] Prompt mode polls the tracker on spawn and on the interval, and invokes
+  reap in the per-attempt `finally` on every exit branch — including the
+  watchdog-timeout break — observed via the injected reap override.
 - [ ] A reap failure during a prompt-mode invocation does not change the prompt
   exit code or reason.
 - [ ] `bun run typecheck` and `bun test` pass; existing prompt tests still pass.

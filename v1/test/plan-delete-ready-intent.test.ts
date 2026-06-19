@@ -64,7 +64,8 @@ describe("ready-intent deletion", () => {
 
       // Check that it escapes
       const resolvedWorktreePath = resolve(worktreePath);
-      const escapes = !targetInWorktree.startsWith(resolvedWorktreePath + "/") && targetInWorktree !== resolvedWorktreePath;
+      const escapes =
+        !targetInWorktree.startsWith(resolvedWorktreePath + "/") && targetInWorktree !== resolvedWorktreePath;
 
       expect(escapes).toBe(true);
       // External file should not be deleted

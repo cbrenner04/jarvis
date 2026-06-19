@@ -1145,7 +1145,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         ...telemetryMeta,
         ...(watchdogPgid !== null ? { watchdog_pgid: watchdogPgid } : {}),
         last_output_age_ms: idleWatchdogLastOutputAgeMs,
-        ...(idleWatchdogDescendantsAlive !== undefined ? { watchdog_descendants_alive: idleWatchdogDescendantsAlive } : {}),
+        ...(idleWatchdogDescendantsAlive !== undefined
+          ? { watchdog_descendants_alive: idleWatchdogDescendantsAlive }
+          : {}),
       });
       return { kind: "return", exitCode: 8 };
     }

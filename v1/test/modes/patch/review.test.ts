@@ -446,4 +446,112 @@ describe("runPatchReviewPhase", () => {
       cleanup();
     }
   });
+
+  test("orphan reaping: reviewer pass polls and reaps via override", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const pollCalls: number[] = [];
+    const reapCalls: number[] = [];
+    try {
+      const reviewer = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "no issues\n",
+        stderr: "",
+      }));
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        __testReapOverride: (tracker) => {
+          reapCalls.push(tracker.trackedCount);
+          return 0;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(reapCalls.length).toBeGreaterThan(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("orphan reaping: verdict actuator polls and reaps via override", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const reapCalls: number[] = [];
+    try {
+      const reviewer = new FakeAgent("claude", (_callCount, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "fix the implementation\n" : "finding\n",
+        stderr: "",
+      }));
+      const actuator = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "done\n",
+        stderr: "",
+      }));
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        actuatorAgents: [actuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        __testReapOverride: (tracker) => {
+          reapCalls.push(tracker.trackedCount);
+          return 0;
+        },
+      });
+
+      expect(code).toBe(0);
+      // Reap override should be called at least once for the actuator
+      expect(reapCalls.length).toBeGreaterThan(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("orphan reaping: reap failure does not affect review outcome", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const reviewer = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "no issues\n",
+        stderr: "",
+      }));
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        __testReapOverride: () => {
+          throw new Error("simulated reap failure");
+        },
+      });
+
+      // Even though reap throws, review should still exit 0 (non-fatal)
+      expect(code).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
 });

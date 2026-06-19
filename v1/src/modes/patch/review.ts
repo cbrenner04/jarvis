@@ -22,6 +22,7 @@ import {
 } from "../review/types.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } from "./prompt.ts";
+import { DescendantTracker, DESCENDANT_POLL_INTERVAL_MS } from "./reap.ts";
 
 /** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
@@ -260,16 +261,28 @@ export type PatchReviewPhaseOptions = {
   };
   /** Refresh callback: called when baseline gate re-runs `ready` and succeeds, to update the recorded result. */
   refreshRecordedGreenResult?: (headSha: string) => void;
+  /** Test-only override for descendant reaping (reap.ts DescendantTracker.reap). */
+  __testReapOverride?: (tracker: DescendantTracker) => number;
 };
 
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
-function withReviewPassTimeout(agent: Agent, opts: { timeoutMs: number; killGraceMs: number }): Agent {
+function withReviewPassTimeout(
+  agent: Agent,
+  opts: {
+    timeoutMs: number;
+    killGraceMs: number;
+    reapOverride?: (tracker: DescendantTracker) => number;
+  },
+): Agent {
   return {
     name: agent.name,
     attributionLabel: () => agent.attributionLabel(),
     run: async (prompt: string, runOpts: AgentRunOptions) => {
       const passController = new AbortController();
       let watchdogPgid: number | null = null;
+      const tracker = new DescendantTracker();
+      let pollIntervalHandle: NodeJS.Timeout | null = null;
+
       const passTimeoutHandle = setTimeout(() => {
         if (watchdogPgid !== null) {
           try {
@@ -288,10 +301,31 @@ function withReviewPassTimeout(agent: Agent, opts: { timeoutMs: number; killGrac
           abortKillGraceMs: opts.killGraceMs,
           onSpawned: ({ pid }) => {
             watchdogPgid = pid;
+            // Poll descendant process tree on spawn and then on interval
+            tracker.poll(pid);
+            pollIntervalHandle = setInterval(() => {
+              try {
+                tracker.poll(pid);
+              } catch {
+                // best-effort
+              }
+            }, DESCENDANT_POLL_INTERVAL_MS);
+            // Unref so polling doesn't keep the process alive
+            if (pollIntervalHandle.unref) {
+              pollIntervalHandle.unref();
+            }
           },
         });
       } finally {
         clearTimeout(passTimeoutHandle);
+        if (pollIntervalHandle !== null) {
+          clearInterval(pollIntervalHandle);
+        }
+        try {
+          opts.reapOverride ? opts.reapOverride(tracker) : tracker.reap();
+        } catch {
+          // best-effort: reap failures are non-fatal
+        }
       }
     },
   };
@@ -663,7 +697,9 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       }, opts.iterationTimeoutMs);
 
       const actuatorStartedMs = Date.now();
-      let _actuatorPgid: number | null = null;
+      let actuatorPgid: number | null = null;
+      const actuatorTracker = new DescendantTracker();
+      let actuatorPollHandle: NodeJS.Timeout | null = null;
 
       try {
         opts.fanout("outbound", prompt, null, {
@@ -676,7 +712,20 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           signal: actuatorController.signal,
           abortKillGraceMs: killGraceMs,
           onSpawned: ({ pid }) => {
-            _actuatorPgid = pid;
+            actuatorPgid = pid;
+            // Poll descendant process tree on spawn and then on interval
+            actuatorTracker.poll(pid);
+            actuatorPollHandle = setInterval(() => {
+              try {
+                actuatorTracker.poll(pid);
+              } catch {
+                // best-effort
+              }
+            }, DESCENDANT_POLL_INTERVAL_MS);
+            // Unref so polling doesn't keep the process alive
+            if (actuatorPollHandle.unref) {
+              actuatorPollHandle.unref();
+            }
           },
         });
 
@@ -804,6 +853,14 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         }
       } finally {
         clearTimeout(actuatorTimeoutHandle);
+        if (actuatorPollHandle !== null) {
+          clearInterval(actuatorPollHandle);
+        }
+        try {
+          opts.__testReapOverride ? opts.__testReapOverride(actuatorTracker) : actuatorTracker.reap();
+        } catch {
+          // best-effort: reap failures are non-fatal
+        }
       }
     };
   };
@@ -817,10 +874,14 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       loadAgent: ({ name, model }) => {
         const override = opts.agents?.[name as AgentName];
         const agent = override ?? createAgent(name as AgentName, model);
-        return withReviewPassTimeout(agent, {
+        const wrapperOpts: { timeoutMs: number; killGraceMs: number; reapOverride?: (tracker: DescendantTracker) => number } = {
           timeoutMs: opts.iterationTimeoutMs,
           killGraceMs,
-        });
+        };
+        if (opts.__testReapOverride !== undefined) {
+          wrapperOpts.reapOverride = opts.__testReapOverride;
+        }
+        return withReviewPassTimeout(agent, wrapperOpts);
       },
       onAllAgentsQuotaExhausted: (message) => {
         opts.fanout("harness", `${message}\n`, "stderr");

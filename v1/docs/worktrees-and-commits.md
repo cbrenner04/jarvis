@@ -138,14 +138,16 @@ The PR body has three sections, in order:
 
    ```
    <!-- jarvis:narrative:start -->
-   <Description — short summary of the work>
-
-   Decisions:
-   <unordered list of notable decisions>
+   <narrative content>
    <!-- jarvis:narrative:end -->
    ```
 
-     The narrative is model-authored. The model wraps the Description + `Decisions:` block in literal `<<<PR_DESCRIPTION_BEGIN>>>` and `<<<PR_DESCRIPTION_END>>>` sentinels; the harness extracts only the content between them. Absent or malformed sentinels (opening or closing missing, or closing before opening), extracted content lacking `Decisions:`, or an injected sentinel in the spec context yield no narrative on first generation and fall back to the deterministic header (no markers, no leaked preamble). When properly delimited and containing `Decisions:`, the narrative contains a short description followed by the `Decisions:` section with an unordered list of notable decisions. Reviewers may edit text *inside* the markers; jarvis preserves human edits verbatim on subsequent rewrites and regenerates the narrative only when it is empty or still machine-owned. On rewrite, when regeneration returns null (due to absent/malformed sentinels, injected sentinel, or missing `Decisions:`), the prior machine-owned narrative is preserved as-is rather than being cleared.
+     The narrative is generated either **deterministically** (template mode) or **model-authored** (agent mode), controlled by the per-mode `prNarrative` config key (`modes.patch.prNarrative` or `modes.plan.prNarrative`):
+     
+     - **Template mode** (default): the narrative is built deterministically from the spec index subspec titles and branch commit subjects (`base..HEAD`), rendered in order. The narrative is marked with a generated-hash marker and is regenerated on every rewrite to reflect new commits.
+     - **Agent mode**: the model wraps the Description + `Decisions:` block in literal `<<<PR_DESCRIPTION_BEGIN>>>` and `<<<PR_DESCRIPTION_END>>>` sentinels; the harness extracts only the content between them. Absent or malformed sentinels (opening or closing missing, or closing before opening), extracted content lacking `Decisions:`, or an injected sentinel in the spec context yield no narrative on first generation. When properly delimited and containing `Decisions:`, the narrative contains a short description followed by the `Decisions:` section with an unordered list of notable decisions.
+     
+     In both modes, reviewers may edit text *inside* the markers; jarvis preserves human edits verbatim on subsequent rewrites. Template mode regenerates the narrative on every rewrite to reflect new commits. Agent mode regenerates the narrative only when it is empty or still machine-owned. On rewrite in agent mode, when regeneration returns null, the prior machine-owned narrative is preserved as-is rather than being cleared.
 3. **Attribution footer** rendered from the `Jarvis-Agent` git trailers on
    the PR-branch subspec commits, separated from the body by a `---` rule.
    The footer is one compact deduped summary line:
@@ -171,12 +173,10 @@ the create-time body already has the right shape — so each iteration calls
 Each rewrite fetches the current PR body, extracts the narrative section
 between the markers (so reviewer edits inside the markers survive unchanged),
 rebuilds the deterministic header from `index.md`, renders the attribution
-footer from git trailers, and reassembles the body. Whenever the narrative is
-empty — the markers are present but blank, or missing entirely (legacy PRs or
-manual edits removed them) — and an agent is available, jarvis regenerates the
-narrative by calling the model with the current spec and re-wraps it in fresh
-markers. With no agent available, an empty/missing narrative is simply omitted
-on that update.
+footer from git trailers, and reassembles the body. Narrative regeneration depends on `prNarrative`:
+
+- **Template mode**: the narrative is regenerated on every rewrite from the spec index and commits, ensuring it reflects the latest state.
+- **Agent mode**: the narrative is regenerated only when it is empty or marked as machine-owned. When the narrative is empty and an agent is available, jarvis regenerates it by calling the model with the current spec and re-wraps it in fresh markers. With no agent available, an empty/missing narrative is simply omitted on that update.
 
 If `gh pr edit` fails (network, rate-limit, permissions), jarvis emits a
 `harness` warning to stderr naming the active subspec and continues the

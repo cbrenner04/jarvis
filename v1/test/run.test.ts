@@ -3956,6 +3956,8 @@ wait
       expect(code).toBe(8);
       expect(elapsedMs).toBeLessThanOrEqual(7200);
       expect(cap.err()).toContain("[watchdog] iteration timeout fired after 1500ms;");
+      expect(cap.err()).toContain("last_output_age_ms=null");
+      expect(cap.err()).toContain("watchdog_descendants_alive=true");
 
       const childPid = Number.parseInt(readFileSync(join(projectRoot, "hanging-child.pid"), "utf8").trim(), 10);
       expect(Number.isFinite(childPid)).toBe(true);
@@ -3977,6 +3979,8 @@ wait
       );
       expect(timeoutRow).toBeDefined();
       expect(typeof timeoutRow?.watchdog_pgid).toBe("number");
+      expect(timeoutRow?.last_output_age_ms).toBeNull();
+      expect(timeoutRow?.watchdog_descendants_alive).toBe(true);
 
       const sessionsDir = join(cfgDir, "sessions");
       const sessionFile = readdirSync(sessionsDir)[0];
@@ -3985,6 +3989,166 @@ wait
       }
       const sessionLog = readFileSync(join(sessionsDir, sessionFile), "utf8");
       expect(sessionLog).toContain("[watchdog] iteration timeout fired after 1500ms;");
+      expect(sessionLog).toContain("last_output_age_ms=null");
+      expect(sessionLog).toContain("watchdog_descendants_alive=true");
+    });
+
+    test("watchdog timeout records last_output_age_ms from early output then stall", async () => {
+      const iterationTimeoutMs = 2000;
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const stallScript = join(projectRoot, "early-output-stall.sh");
+      writeFileSync(
+        stallScript,
+        `#!/usr/bin/env bash
+set -euo pipefail
+sleep 1.4
+echo early-output >&2
+while true; do :; done
+`,
+      );
+      chmodSync(stallScript, 0o755);
+
+      class StallingAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: stallScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude: new StallingAgent() },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("last_output_age_ms=");
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const timeoutRow = rows.find(
+        (row) => row.record_role !== "run_terminal" && row.exit_reason === "watchdog-iteration-timeout",
+      );
+      expect(timeoutRow).toBeDefined();
+      expect(typeof timeoutRow?.last_output_age_ms).toBe("number");
+      expect(timeoutRow?.last_output_age_ms as number).toBeLessThan(iterationTimeoutMs - 500);
+      expect(timeoutRow?.watchdog_descendants_alive).toBe(false);
+    });
+
+    test("watchdog timeout records watchdog_descendants_alive false for agent-only stall", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const hangScript = join(projectRoot, "agent-only-hang.sh");
+      writeFileSync(
+        hangScript,
+        `#!/usr/bin/env bash
+while true; do :; done
+`,
+      );
+      chmodSync(hangScript, 0o755);
+
+      class HangingAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: hangScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 1500,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude: new HangingAgent() },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("watchdog_descendants_alive=false");
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const timeoutRow = rows.find(
+        (row) => row.record_role !== "run_terminal" && row.exit_reason === "watchdog-iteration-timeout",
+      );
+      expect(timeoutRow).toBeDefined();
+      expect(timeoutRow?.watchdog_descendants_alive).toBe(false);
     });
 
     test("global run timeout causes exit code 8", async () => {

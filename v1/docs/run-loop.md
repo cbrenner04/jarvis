@@ -475,8 +475,11 @@ purposes:
   **`record_role: "run_terminal"`** so end-of-run summaries do not sum usage twice.
   Rows may include optional **`configured_model`** (patch `modes.patch.agentOrder`
   entry at invocation time). Watchdog-triggered iteration timeouts include optional
-  **`watchdog_pgid`** (the killed agent process-group id). Set `telemetryPath` to
-  `null` to disable.
+  **`watchdog_pgid`** (the killed agent process-group id), **`last_output_age_ms`**
+  (ms since the last stdout/stderr chunk at watchdog fire; `null` when no output
+  arrived), and **`watchdog_descendants_alive`** (`true` when ≥1 descendant of the
+  agent root pid was live at snapshot; omitted when pgid was unavailable). Set
+  `telemetryPath` to `null` to disable.
 
 ### Token usage and cost tracking
 
@@ -668,9 +671,12 @@ group (e.g. started its own session) is out of scope and is not killed.
 
 When an iteration timeout fires, Jarvis logs a single watchdog line to both the
 run terminal and session log:
-`[watchdog] iteration timeout fired after Nms; killing agent pgid <pgid>`.
+`[watchdog] iteration timeout fired after Nms; killing agent pgid <pgid> last_output_age_ms=<n|null> watchdog_descendants_alive=<true|false>`.
+The `watchdog_descendants_alive` token is omitted when pgid was unavailable.
 The watchdog is armed before agent spawn, does not reset on streaming output,
 SIGTERMs the full process group, waits up to 5 seconds, then SIGKILLs survivors.
+Diagnostic fields are snapshotted at watchdog fire (before the first group
+`SIGTERM`), not after `agent.run` settles.
 
 ### Orphan process reaping
 

@@ -74,7 +74,10 @@ Timeout records use **`kind`: `"timeout"`** with:
 | `run-timeout` | Global run timeout fired. |
 
 Watchdog-triggered timeout rows may include `watchdog_pgid` so investigations
-can tie the timeout to the exact killed process group.
+can tie the timeout to the exact killed process group. They may also include
+`last_output_age_ms` (ms since last stdout/stderr chunk at watchdog fire; `null`
+when no output arrived) and `watchdog_descendants_alive` (whether ≥1 descendant
+of the agent root pid was live at snapshot; omitted when pgid was unavailable).
 
 Plan phases do not emit matching JSONL rows for per-phase agent outcomes.
 

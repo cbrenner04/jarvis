@@ -1050,7 +1050,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   let watchdogLastOutputAgeMs: number | null = null;
   let watchdogDescendantsAlive: boolean | undefined;
   let idleTimeoutHandle: NodeJS.Timeout | null = null;
-  let idleWatchdogFired = false;
   let idleWatchdogLastOutputAgeMs: number | null = null;
   let idleWatchdogDescendantsAlive: boolean | undefined;
   const lastOutputAtMs = { current: null as number | null };
@@ -1087,7 +1086,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         const lastOutputAt = lastOutputAtMs.current ?? armedAt;
         const idleAgeMs = snapshotAt - lastOutputAt;
         if (idleAgeMs >= idleOutputTimeoutMs) {
-          idleWatchdogFired = true;
           idleWatchdogLastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
           const pgid = watchdogPgid;
           if (pgid !== null) {
@@ -1146,10 +1144,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         exitReason: "watchdog-idle-timeout",
         ...telemetryMeta,
         ...(watchdogPgid !== null ? { watchdog_pgid: watchdogPgid } : {}),
-        ...(idleWatchdogFired ? { last_output_age_ms: idleWatchdogLastOutputAgeMs } : {}),
-        ...(idleWatchdogFired && idleWatchdogDescendantsAlive !== undefined
-          ? { watchdog_descendants_alive: idleWatchdogDescendantsAlive }
-          : {}),
+        last_output_age_ms: idleWatchdogLastOutputAgeMs,
+        ...(idleWatchdogDescendantsAlive !== undefined ? { watchdog_descendants_alive: idleWatchdogDescendantsAlive } : {}),
       });
       return { kind: "return", exitCode: 8 };
     }

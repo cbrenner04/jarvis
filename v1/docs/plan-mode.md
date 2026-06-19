@@ -130,7 +130,7 @@ Jarvis invokes an agent with a focused prompt (`prompts/plan/draft.md`) that:
 
 The agent produces files under `<targetDir>/<spec-dir>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. 
 
-**Ready-intent deletion (commit: true only):** After the draft phase succeeds and the write-boundary check passes (before the `plan: draft` commit is created), jarvis deletes the source ready-intent from the worktree so the deletion is staged into the `plan: draft` commit. When the spec PR merges to `main`, the consumed ready-intent is removed from `<targetDir>/ready-intents/`. With `commit: false`, the source ready-intent is left untouched since the worktree is the live checkout and there is no spec PR to carry the deletion.
+**Ready-intent deletion (commit: true only):** After the draft phase succeeds and the write-boundary check passes (before the `plan: draft` commit is created), jarvis deletes the source ready-intent from the worktree so the deletion is staged into the `plan: draft` commit. Deletion is skipped when the derived target is absent from the worktree base (for example, an authored-but-unmerged ready-intent) or resolves outside the worktree after path and symlink resolution; those cases still copy `intent.md` and continue. When the spec PR merges to `main`, the consumed ready-intent is removed from `<targetDir>/ready-intents/`. With `commit: false`, the source ready-intent is left untouched since the worktree is the live checkout and there is no spec PR to carry the deletion.
 
 The produced files plus the copied `intent.md` are staged and committed as `plan: draft`, and the draft PR opens (or refreshes) on the first `plan: draft` commit.
 

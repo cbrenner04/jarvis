@@ -1,12 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { deleteReadyIntentFromWorktree } from "../src/commands/plan.ts";
+import { join, win32 } from "node:path";
+import { deleteReadyIntentFromWorktree, isPathInside } from "../src/commands/plan.ts";
 
 const READY_INTENT = "---\nname: my-feature\n---\n\n## Prerequisites\n\nTest\n";
 
 describe("ready-intent deletion", () => {
+  test("isPathInside accepts descendants and rejects lexical escapes on win32", () => {
+    expect(isPathInside(win32.resolve("C:\\repo"), win32.resolve("C:\\repo\\ready-intents\\x.md"), win32)).toBe(
+      true,
+    );
+    expect(isPathInside(win32.resolve("C:\\repo"), win32.resolve("C:\\repo\\..\\outside\\x.md"), win32)).toBe(
+      false,
+    );
+    expect(isPathInside(win32.resolve("C:\\repo"), "D:\\outside\\x.md", win32)).toBe(false);
+  });
+
   test("deletes the matching worktree file only", () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-delete-test-"));
     const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-delete-worktree-"));
@@ -115,6 +125,36 @@ describe("ready-intent deletion", () => {
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
       rmSync(worktreePath, { recursive: true, force: true });
+    }
+  });
+
+  test("skips symlink escapes through the worktree path", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "jarvis-symlink-project-"));
+    const worktreePath = mkdtempSync(join(tmpdir(), "jarvis-symlink-worktree-"));
+    const externalDir = mkdtempSync(join(tmpdir(), "jarvis-symlink-external-"));
+    try {
+      const readyIntentPath = join(projectRoot, "ready-intents", "my-feature.md");
+      mkdirSync(join(projectRoot, "ready-intents"), { recursive: true });
+      writeFileSync(readyIntentPath, READY_INTENT);
+
+      const externalReadyIntentsDir = join(externalDir, "ready-intents");
+      mkdirSync(externalReadyIntentsDir, { recursive: true });
+      const externalReadyIntentPath = join(externalReadyIntentsDir, "my-feature.md");
+      writeFileSync(externalReadyIntentPath, READY_INTENT);
+      symlinkSync(externalReadyIntentsDir, join(worktreePath, "ready-intents"));
+
+      expect(
+        deleteReadyIntentFromWorktree({
+          readyIntentPath,
+          projectRoot,
+          worktreePath,
+        }),
+      ).toBe(false);
+      expect(existsSync(externalReadyIntentPath)).toBe(true);
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+      rmSync(worktreePath, { recursive: true, force: true });
+      rmSync(externalDir, { recursive: true, force: true });
     }
   });
 });

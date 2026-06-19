@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { createAgent as defaultCreateAgent } from "../agents/factory.ts";
 import type { Agent, AgentName } from "../agents/types.ts";
@@ -489,6 +489,22 @@ async function ensureUniquePlanName(
 }
 
 /**
+ * Return true when `child` stays within `parent`.
+ */
+export function isPathInside(
+  parent: string,
+  child: string,
+  pathApi: {
+    relative: typeof relative;
+    isAbsolute: typeof isAbsolute;
+    sep: string;
+  } = { relative, isAbsolute, sep },
+): boolean {
+  const rel = pathApi.relative(parent, child);
+  return rel === "" || (!pathApi.isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${pathApi.sep}`));
+}
+
+/**
  * Delete the source ready-intent from the worktree if it exists and resolves within it.
  * Returns true if a file was deleted, false if deletion was skipped.
  */
@@ -498,11 +514,27 @@ export function deleteReadyIntentFromWorktree(args: {
   worktreePath: string;
 }): boolean {
   const worktreePath = resolve(args.worktreePath);
+  const canonicalWorktreePath = (() => {
+    try {
+      return realpathSync(worktreePath);
+    } catch {
+      return worktreePath;
+    }
+  })();
   const targetPath = resolve(worktreePath, relative(resolve(args.projectRoot), resolve(args.readyIntentPath)));
-  if (targetPath !== worktreePath && !targetPath.startsWith(`${worktreePath}/`)) {
+  if (!isPathInside(worktreePath, targetPath)) {
     return false;
   }
   if (!existsSync(targetPath)) {
+    return false;
+  }
+  let resolvedTargetPath: string;
+  try {
+    resolvedTargetPath = realpathSync(targetPath);
+  } catch {
+    return false;
+  }
+  if (!isPathInside(canonicalWorktreePath, resolvedTargetPath)) {
     return false;
   }
   try {

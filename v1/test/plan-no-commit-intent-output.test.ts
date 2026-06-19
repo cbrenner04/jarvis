@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { planCommand } from "../src/commands/plan.ts";
@@ -158,7 +158,7 @@ describe("plan mode: no-commit spec preservation on failure", () => {
       const output = cap.out();
       const match = output.match(/^Intent: (.+)\/intent\.md\n/);
       expect(match).toBeTruthy();
-      if (match && match[1]) {
+      if (match?.[1]) {
         const specDir = match[1];
         // The spec directory should still exist
         expect(existsSync(specDir)).toBe(true);
@@ -201,7 +201,7 @@ describe("plan mode: no-commit spec preservation on failure", () => {
       const output = cap.out();
       const match = output.match(/^Intent: (.+)\/intent\.md\n/);
       expect(match).toBeTruthy();
-      if (match && match[1]) {
+      if (match?.[1]) {
         const specDir = match[1];
         // The spec directory should still exist after review-phase failure
         expect(existsSync(specDir)).toBe(true);
@@ -244,7 +244,7 @@ describe("plan mode: no-commit spec preservation on failure", () => {
       const output = cap.out();
       const match = output.match(/^Intent: (.+)\/intent\.md\n/);
       expect(match).toBeTruthy();
-      if (match && match[1]) {
+      if (match?.[1]) {
         const specDir = match[1];
         const intentPath = join(specDir, "intent.md");
         // The spec directory should still exist

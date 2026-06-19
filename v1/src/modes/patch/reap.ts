@@ -18,6 +18,9 @@
 
 import { execSync } from "node:child_process";
 
+/** How often to sample an agent's process subtree for descendant reaping. */
+export const DESCENDANT_POLL_INTERVAL_MS = 500;
+
 export type ProcInfo = {
   pid: number;
   ppid: number;

@@ -702,4 +702,9 @@ arguments — so no scanned process state is logged or stored.
 
 This mechanism covers all iteration-exit paths (settle, abort, timeout) and
 finalize (SIGINT and direct `process.exit`), ensuring no orphans escape even
-when the harness is interrupted.
+when the harness is interrupted. Prompt-mode invocations (`jarvis1 prompt`)
+instantiate a fresh tracker per fallback attempt: poll on spawn and on a fixed
+interval inside that attempt's `try/finally`, take one final snapshot before
+reap, then reap in the per-attempt `finally` (lock release and telemetry stay in
+the outer `finally`). Review passes and verdict-actuator invocations use the
+same per-invocation strategy, including a final snapshot before reap.

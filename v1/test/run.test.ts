@@ -1131,8 +1131,8 @@ Date: 2026-06-18`,
       const cap = captureIo();
 
       // Track ready gate invocations
-      const readyCallCount = 0;
-      const originalRunReady = require("../src/ready-gate.ts").runReadyAndCommit;
+      const _readyCallCount = 0;
+      const _originalRunReady = require("../src/ready-gate.ts").runReadyAndCommit;
 
       const claude = new FakeAgent("claude", () => {
         writeFileSync(spec, "- [x] todo\n");
@@ -5094,7 +5094,7 @@ exit 1
 
     const cap = captureIo();
     let implementationAgentCalled = false;
-    const claude = new FakeAgent("claude", () => {
+    const _claude = new FakeAgent("claude", () => {
       implementationAgentCalled = true;
       throw new Error("implementation agent must not run under resume-review");
     });

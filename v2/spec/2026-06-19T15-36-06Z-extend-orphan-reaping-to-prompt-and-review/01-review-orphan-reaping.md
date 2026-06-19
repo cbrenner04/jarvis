@@ -65,13 +65,13 @@ non-fatality.
 
 ## Acceptance criteria
 
-- [ ] The reviewer pass polls the tracker on spawn and on the interval and
+- [x] The reviewer pass polls the tracker on spawn and on the interval and
   invokes reap in its `finally`, observed via the injected reap override.
-- [ ] The verdict actuator polls the tracker on spawn and on the interval and
+- [x] The verdict actuator polls the tracker on spawn and on the interval and
   invokes reap in its `finally`, observed via the injected reap override.
-- [ ] A reap failure during a review invocation does not change the review
+- [x] A reap failure during a review invocation does not change the review
   outcome or exit code.
-- [ ] `bun run typecheck` and `bun test` pass; existing review tests still pass.
+- [x] `bun run typecheck` and `bun test` pass; existing review tests still pass.
 
 ## Documentation updates
 

@@ -6,27 +6,35 @@ import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Io } from "../../../src/cli.ts";
 import { registerProject, writeConfig } from "../../../src/config.ts";
+import type { DescendantTracker } from "../../../src/modes/patch/reap.ts";
 import { promptCommand } from "../../../src/modes/prompt/run.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
 } from "../../../src/quota-harness-messages.ts";
+import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
   readonly calls: { prompt: string; cwd: string }[] = [];
   readonly #run: (callCount: number, prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>;
+  readonly #invokeOnSpawned: boolean;
 
   constructor(
     name: AgentName,
     run: (callCount: number, prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>,
+    invokeOnSpawned = false,
   ) {
     this.name = name;
     this.#run = run;
+    this.#invokeOnSpawned = invokeOnSpawned;
   }
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     this.calls.push({ prompt, cwd: opts.cwd });
+    if (this.#invokeOnSpawned) {
+      opts.onSpawned?.({ pid: FAKE_AGENT_SPAWN_PID });
+    }
     return this.#run(this.calls.length, prompt, opts);
   }
 
@@ -161,10 +169,17 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+type PromptTestHooks = {
+  testReapFn?: (tracker: DescendantTracker) => void;
+  testAfterPollFn?: () => void;
+  testDescendantPollIntervalMs?: number;
+};
+
 async function runPrompt(
   agents: Partial<Record<AgentName, Agent>>,
   cap: ReturnType<typeof captureIo>,
   promptText = "do the thing",
+  testHooks?: PromptTestHooks,
 ): Promise<number> {
   return promptCommand({
     promptText,
@@ -173,6 +188,11 @@ async function runPrompt(
     config: { dir: cfgDir },
     skipGhCheck: true,
     agents,
+    ...(testHooks?.testReapFn !== undefined ? { __testReapFn: testHooks.testReapFn } : {}),
+    ...(testHooks?.testAfterPollFn !== undefined ? { __testAfterPollFn: testHooks.testAfterPollFn } : {}),
+    ...(testHooks?.testDescendantPollIntervalMs !== undefined
+      ? { __testDescendantPollIntervalMs: testHooks.testDescendantPollIntervalMs }
+      : {}),
   });
 }
 
@@ -285,5 +305,172 @@ describe("promptCommand", () => {
     expect(readFileSync(env.prLog, "utf8")).toContain("create");
     expect(readFileSync(env.pushLog, "utf8")).toContain("push");
     expect(readFileSync(env.prTitle, "utf8")).toBe("add a file");
+  });
+
+  test("polls on spawn and interval then reaps once per successful attempt", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    let pollCount = 0;
+    let reapCount = 0;
+    const pollIntervalMs = 1;
+    const claude = new FakeAgent(
+      "claude",
+      async () => {
+        await waitForPollCount(() => pollCount, 2);
+        return { kind: "ok", stdout: "answer\n", stderr: "" };
+      },
+      true,
+    );
+
+    const code = await runPrompt({ claude }, cap, "do the thing", {
+      testAfterPollFn: () => {
+        pollCount += 1;
+      },
+      testDescendantPollIntervalMs: pollIntervalMs,
+      testReapFn: () => {
+        reapCount += 1;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(pollCount).toBeGreaterThanOrEqual(2);
+    expect(reapCount).toBe(1);
+  });
+
+  test("reap is invoked on successful agent attempt", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    let reapCallCount = 0;
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }), true);
+
+    const code = await runPrompt({ claude }, cap, "do the thing", {
+      testReapFn: () => {
+        reapCallCount += 1;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(reapCallCount).toBe(1);
+  });
+
+  test("reap is invoked on quota fallback attempt", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    let reapCallCount = 0;
+    const claude = new FakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }), true);
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }), true);
+
+    const code = await runPrompt({ claude, codex }, cap, "do the thing", {
+      testReapFn: () => {
+        reapCallCount += 1;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(reapCallCount).toBe(2);
+  });
+
+  test("reap is invoked on model_config fallback attempt", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    let reapCallCount = 0;
+    const claude = new FakeAgent("claude", () => ({ kind: "model_config", stderr: "bad model" }), true);
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }), true);
+
+    const code = await runPrompt({ claude, codex }, cap, "do the thing", {
+      testReapFn: () => {
+        reapCallCount += 1;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(reapCallCount).toBe(2);
+  });
+
+  test("reap is invoked on generic error attempt", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    let reapCallCount = 0;
+    const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: 1, stderr: "hard failure" }), true);
+
+    const code = await runPrompt({ claude }, cap, "do the thing", {
+      testReapFn: () => {
+        reapCallCount += 1;
+      },
+    });
+
+    expect(code).toBe(3);
+    expect(reapCallCount).toBe(1);
+  });
+
+  test("watchdog timeout reaps in per-attempt finally and exits 8", async () => {
+    setupPromptEnv();
+    writeConfig(
+      {
+        version: 2,
+        modes: {
+          patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          plan: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+          prompt: { agentOrder: [CLAUDE_ENTRY] },
+          review: { passes: 2 },
+        },
+        quotaFallback: "strict",
+        weakQuotaExitCodes: [],
+        maxIterations: 10,
+        iterationTimeoutMs: 1,
+        git: true,
+        projects: { project: { root: projectRoot } },
+      },
+      { dir: cfgDir },
+    );
+    const cap = captureIo();
+    let reapCallCount = 0;
+    const claude = new FakeAgent(
+      "claude",
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { kind: "ok", stdout: "answer\n", stderr: "" };
+      },
+      true,
+    );
+
+    const code = await runPrompt({ claude }, cap, "do the thing", {
+      testReapFn: () => {
+        reapCallCount += 1;
+      },
+    });
+
+    expect(code).toBe(8);
+    expect(reapCallCount).toBe(1);
+    expect(cap.err()).toContain("[watchdog] iteration timeout fired after 1ms");
+  });
+
+  test("reap failure does not change exit code", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }), true);
+
+    const code = await runPrompt({ claude }, cap, "do the thing", {
+      testReapFn: () => {
+        throw new Error("reap failure");
+      },
+    });
+
+    expect(code).toBe(0);
+  });
+
+  test("reap failure on quota does not change exit code", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }), true);
+    const codex = new FakeAgent("codex", () => ({ kind: "quota", stderr: "limit" }), true);
+
+    const code = await runPrompt({ claude, codex }, cap, "do the thing", {
+      testReapFn: () => {
+        throw new Error("reap failure");
+      },
+    });
+
+    expect(code).toBe(2);
   });
 });

@@ -86,37 +86,37 @@ implementation iterations.)
 
 ## Acceptance criteria
 
-- [ ] Normal index-routed implementation prompts name the harness-selected
+- [x] Normal index-routed implementation prompts name the harness-selected
       active subspec path and inline that subspec's full body inside
       `<<<ACTIVE_SUBSPEC_*>>>` delimiters; they do not instruct the agent to
       pick the first unchecked index link.
-- [ ] Normal index-routed implementation prompts do not inline sibling subspec
+- [x] Normal index-routed implementation prompts do not inline sibling subspec
       bodies, `index.md` checklist prose, or a full spec-tree dump.
-- [ ] When the operator passes a subspec path (not `index.md`), the prompt
+- [x] When the operator passes a subspec path (not `index.md`), the prompt
       names that path, inlines that file's body in the active-subspec block,
       and omits index-routing instructions.
-- [ ] When `getActiveLinkedSubspecPath` returns `undefined`, the harness still
+- [x] When `getActiveLinkedSubspecPath` returns `undefined`, the harness still
       spawns the agent; the prompt omits the active-subspec block and carries
       no inlined linked-subspec body.
-- [ ] When repo-root `AGENTS.md` and/or `CLAUDE.md` exist under `project.root`,
+- [x] When repo-root `AGENTS.md` and/or `CLAUDE.md` exist under `project.root`,
       the implementation prompt inlines their contents in
       `<<<REPO_GUIDANCE_*>>>` delimiters; when absent, that section is omitted
       without error.
-- [ ] The implementation prompt does not instruct the agent to discover repo
+- [x] The implementation prompt does not instruct the agent to discover repo
       guidance on its own.
-- [ ] `prompts/patch/rules.md` no longer states that the active task is the
+- [x] `prompts/patch/rules.md` no longer states that the active task is the
       first unchecked subspec link in `index.md`; tick/blocker/index-checkbox
       rules are otherwise preserved.
-- [ ] `buildVerdictActuatorPrompt` output uses migrated `patch.prompt.body`
+- [x] `buildVerdictActuatorPrompt` output uses migrated `patch.prompt.body`
       without pick-task or discover-yourself prose; `REPO_GUIDANCE` and
       active-subspec blocks are absent; `## Review Verdict` carries the task.
-- [ ] `buildFixupPrompt` output prepends ready-failure preamble, uses migrated
+- [x] `buildFixupPrompt` output prepends ready-failure preamble, uses migrated
       `patch.prompt.body` without pick-task or discover-yourself prose, and
       omits `REPO_GUIDANCE` and active-subspec blocks.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` passes with regenerated
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` passes with regenerated
       `patch.prompt.body` fixtures reflecting the new template and slimmer
       rules body.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

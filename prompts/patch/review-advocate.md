@@ -2,7 +2,7 @@
 id: patch.prompt.review.advocate
 behavior: patch
 kind: step
-revision: 1
+revision: 2
 placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, BRANCH_DIFF:string!, ADVERSARY_FINDINGS:string!, REVIEW_PASS_NUMBER:string!, REVIEW_PASS_CONTEXT:string!]
 ---
 # Patch Mode — Review: Advocate
@@ -19,9 +19,9 @@ The text between `<<<SPEC_BEGIN>>>` and `<<<SPEC_END>>>` is the completed spec. 
 <SPEC_TREE>
 <<<SPEC_END>>>
 
-## Branch Changes
+## Branch change summary
 
-The text between `<<<DIFF_BEGIN>>>` and `<<<DIFF_END>>>` is the unified diff of the changes made on this branch against the base branch.
+The text between `<<<DIFF_BEGIN>>>` and `<<<DIFF_END>>>` is a branch change summary (`git diff --stat` plus changed paths) for this branch against the base branch — not a unified diff.
 
 <<<DIFF_BEGIN>>>
 <BRANCH_DIFF>

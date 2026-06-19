@@ -234,16 +234,16 @@ Subspec heading contract (enforced by patch mode parser):
 
 ## Agent Workflow
 
-When an agent is asked to work from a Jarvis spec:
+When an agent is asked to work from a Jarvis spec during a patch run:
 
-1. Read the target repo guidance first.
-2. Read the spec directory's `index.md` (`spec/<timestamp>-<slug>/index.md` or a
-   legacy untimestamped directory).
-3. Pick the single most important unchecked subspec from the index.
-4. Read that subspec before editing.
-5. Complete only that subspec.
-6. Run the verification required by the subspec and repo guidance.
-7. Check only that subspec's checkbox in `index.md`.
+1. Read the harness-injected repo guidance and active subspec in the prompt.
+2. Execute only that active subspec.
+3. Run the verification required by the subspec and repo guidance.
+4. Tick only that subspec's acceptance criteria under `## Acceptance criteria`.
+
+The harness selects the active linked subspec for index-routed runs; patch
+agents do not pick the first unchecked subspec from `index.md`. Jarvis flips
+the index checkbox when all acceptance criteria in a subspec are checked.
 
 Do not check unrelated index items. Do not keep working through the rest of the
 index after one subspec is complete.

@@ -6,7 +6,6 @@ import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
 import { buildVerdictActuatorPrompt } from "../../../src/modes/patch/prompt.ts";
-import { DESCENDANT_POLL_INTERVAL_MS } from "../../../src/modes/patch/reap.ts";
 import {
   consumeReviewBlocker,
   detectSpecTreeEdits,
@@ -18,6 +17,13 @@ import {
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
+
+/** Harmless PID for onSpawned wiring tests — never use process.pid (timeouts kill -pgid). */
+const FAKE_AGENT_SPAWN_PID = 2_147_483_647;
+
+async function waitForTestDescendantPolls(intervalMs: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, intervalMs * 2 + 5));
+}
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -38,7 +44,7 @@ class FakeAgent implements Agent {
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     this.calls.push({ prompt, cwd: opts.cwd });
     if (this.#invokeOnSpawned) {
-      opts.onSpawned?.({ pid: process.pid });
+      opts.onSpawned?.({ pid: FAKE_AGENT_SPAWN_PID });
     }
     return this.#run(this.calls.length, prompt, opts);
   }
@@ -458,12 +464,12 @@ describe("runPatchReviewPhase", () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const reapCalls: number[] = [];
     let pollCount = 0;
+    const pollIntervalMs = 5;
     try {
       const reviewer = new FakeAgent(
         "claude",
-        async (_c, _p, opts) => {
-          opts.onSpawned?.({ pid: process.pid });
-          await new Promise((resolve) => setTimeout(resolve, DESCENDANT_POLL_INTERVAL_MS + 20));
+        async () => {
+          await waitForTestDescendantPolls(pollIntervalMs);
           return {
             kind: "ok",
             stdout: "no issues\n",
@@ -487,7 +493,7 @@ describe("runPatchReviewPhase", () => {
         __testAfterPollFn: () => {
           pollCount += 1;
         },
-        __testDescendantPollIntervalMs: 5,
+        __testDescendantPollIntervalMs: pollIntervalMs,
         __testReapOverride: (tracker) => {
           reapCalls.push(tracker.trackedCount);
           return 0;
@@ -506,12 +512,12 @@ describe("runPatchReviewPhase", () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const reapCalls: number[] = [];
     let pollCount = 0;
+    const pollIntervalMs = 5;
     try {
       const reviewer = new FakeAgent(
         "claude",
-        async (_callCount, prompt, opts) => {
-          opts.onSpawned?.({ pid: process.pid });
-          await new Promise((resolve) => setTimeout(resolve, DESCENDANT_POLL_INTERVAL_MS + 20));
+        async (_callCount, prompt) => {
+          await waitForTestDescendantPolls(pollIntervalMs);
           return {
             kind: "ok",
             stdout: prompt.includes("Review: Adjudicator") ? "fix the implementation\n" : "finding\n",
@@ -522,9 +528,8 @@ describe("runPatchReviewPhase", () => {
       );
       const actuator = new FakeAgent(
         "claude",
-        async (_c, _p, opts) => {
-          opts.onSpawned?.({ pid: process.pid });
-          await new Promise((resolve) => setTimeout(resolve, DESCENDANT_POLL_INTERVAL_MS + 20));
+        async () => {
+          await waitForTestDescendantPolls(pollIntervalMs);
           return {
             kind: "ok",
             stdout: "done\n",
@@ -549,7 +554,7 @@ describe("runPatchReviewPhase", () => {
         __testAfterPollFn: () => {
           pollCount += 1;
         },
-        __testDescendantPollIntervalMs: 5,
+        __testDescendantPollIntervalMs: pollIntervalMs,
         __testReapOverride: (tracker) => {
           reapCalls.push(tracker.trackedCount);
           return 0;

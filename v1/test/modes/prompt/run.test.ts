@@ -6,12 +6,19 @@ import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Io } from "../../../src/cli.ts";
 import { registerProject, writeConfig } from "../../../src/config.ts";
+import { type DescendantTracker } from "../../../src/modes/patch/reap.ts";
 import { promptCommand } from "../../../src/modes/prompt/run.ts";
-import { DESCENDANT_POLL_INTERVAL_MS, type DescendantTracker } from "../../../src/modes/patch/reap.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
 } from "../../../src/quota-harness-messages.ts";
+
+/** Harmless PID for onSpawned wiring tests — never use process.pid (watchdog kills -pgid). */
+const FAKE_AGENT_SPAWN_PID = 2_147_483_647;
+
+async function waitForTestDescendantPolls(intervalMs: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, intervalMs * 2 + 5));
+}
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -32,7 +39,7 @@ class FakeAgent implements Agent {
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     this.calls.push({ prompt, cwd: opts.cwd });
     if (this.#invokeOnSpawned) {
-      opts.onSpawned?.({ pid: process.pid });
+      opts.onSpawned?.({ pid: FAKE_AGENT_SPAWN_PID });
     }
     return this.#run(this.calls.length, prompt, opts);
   }
@@ -311,11 +318,11 @@ describe("promptCommand", () => {
     const cap = captureIo();
     let pollCount = 0;
     let reapCount = 0;
+    const pollIntervalMs = 5;
     const claude = new FakeAgent(
       "claude",
-      async (_c, _p, opts) => {
-        opts.onSpawned?.({ pid: process.pid });
-        await new Promise((resolve) => setTimeout(resolve, DESCENDANT_POLL_INTERVAL_MS + 20));
+      async () => {
+        await waitForTestDescendantPolls(pollIntervalMs);
         return { kind: "ok", stdout: "answer\n", stderr: "" };
       },
       true,
@@ -325,7 +332,7 @@ describe("promptCommand", () => {
       testAfterPollFn: () => {
         pollCount += 1;
       },
-      testDescendantPollIntervalMs: 5,
+      testDescendantPollIntervalMs: pollIntervalMs,
       testReapFn: () => {
         reapCount += 1;
       },
@@ -426,9 +433,8 @@ describe("promptCommand", () => {
     let reapCallCount = 0;
     const claude = new FakeAgent(
       "claude",
-      async (_c, _p, opts) => {
-        opts.onSpawned?.({ pid: process.pid });
-        await new Promise((resolve) => setTimeout(resolve, 120));
+      async () => {
+        await waitForTestDescendantPolls(50);
         return { kind: "ok", stdout: "answer\n", stderr: "" };
       },
       true,

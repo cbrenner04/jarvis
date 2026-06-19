@@ -67,7 +67,7 @@ export type PatchShrinkPhaseOptions = {
   skipPreShrinkGate?: boolean;
   /** Test seam for pre-shrink `bun run ready`. */
   runPreShrinkGate?: () => void;
-  /** Test seam for contract `bun test` validation. */
+  /** Test seam for contract `bun run test` validation. */
   runContractTests?: (cwd: string) => boolean;
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
   baseBranch?: string;
@@ -250,7 +250,7 @@ function revertAllSince(cwd: string, ref: string): void {
 
 function runTests(cwd: string): boolean {
   try {
-    execFileSync("bun", ["test"], { cwd, env: process.env, stdio: "pipe" });
+    execFileSync("bun", ["run", "test"], { cwd, env: process.env, stdio: "pipe" });
     return true;
   } catch {
     return false;

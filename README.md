@@ -411,7 +411,7 @@ formatting and linting.
 Read-only checks:
 
 - `bun run typecheck`
-- `bun test`
+- `bun run test`
 - `bun run lint`
 - `bun run format:check`
 - `bun run check`

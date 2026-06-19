@@ -56,7 +56,7 @@ import {
 } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
-import { DescendantTracker } from "./reap.ts";
+import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "./reap.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import { parsePatchSpec } from "./spec.ts";
@@ -117,9 +117,6 @@ export type RunCommandOptions = {
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;
 type LogAnnotations = Record<string, string | number | boolean | null>;
-
-/** How often to sample an agent's process subtree for descendant reaping. */
-const DESCENDANT_POLL_INTERVAL_MS = 500;
 
 type Fanout = (tag: LogTag, text: string, stream: LogStream, annotations?: LogAnnotations) => void;
 

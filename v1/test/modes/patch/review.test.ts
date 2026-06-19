@@ -14,6 +14,7 @@ import {
   revertSpecTreeEdits,
   runPatchReviewPhase,
 } from "../../../src/modes/patch/review.ts";
+import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
@@ -22,17 +23,23 @@ class FakeAgent implements Agent {
   readonly name: AgentName;
   readonly calls: { prompt: string; cwd: string }[] = [];
   readonly #run: (callCount: number, prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>;
+  readonly #invokeOnSpawned: boolean;
 
   constructor(
     name: AgentName,
     run: (callCount: number, prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>,
+    invokeOnSpawned = false,
   ) {
     this.name = name;
     this.#run = run;
+    this.#invokeOnSpawned = invokeOnSpawned;
   }
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     this.calls.push({ prompt, cwd: opts.cwd });
+    if (this.#invokeOnSpawned) {
+      opts.onSpawned?.({ pid: FAKE_AGENT_SPAWN_PID });
+    }
     return this.#run(this.calls.length, prompt, opts);
   }
 
@@ -442,6 +449,151 @@ describe("runPatchReviewPhase", () => {
       expect(readFileSync(join(specDir, PATCH_VERDICT_FILE), "utf8")).toBe("fix the implementation\n");
       expect(harness.join("\n")).toContain("review: actuator edited spec files (reverting): spec/feature/00-one.md");
       expect(harness.join("\n")).not.toContain(PATCH_VERDICT_FILE);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("orphan reaping: reviewer pass polls and reaps via override", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const reapCalls: number[] = [];
+    let pollCount = 0;
+    const pollIntervalMs = 1;
+    try {
+      let roleCalls = 0;
+      const reviewer = new FakeAgent(
+        "claude",
+        async () => {
+          roleCalls += 1;
+          await waitForPollCount(() => pollCount, roleCalls * 2);
+          return {
+            kind: "ok",
+            stdout: "no issues\n",
+            stderr: "",
+          };
+        },
+        true,
+      );
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        __testAfterPollFn: () => {
+          pollCount += 1;
+        },
+        __testDescendantPollIntervalMs: pollIntervalMs,
+        __testReapOverride: (tracker) => {
+          reapCalls.push(tracker.trackedCount);
+          return 0;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(pollCount).toBeGreaterThanOrEqual(6);
+      expect(reapCalls).toHaveLength(3);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("orphan reaping: verdict actuator polls and reaps via override", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const reapCalls: number[] = [];
+    let pollCount = 0;
+    const pollIntervalMs = 1;
+    try {
+      let roleCalls = 0;
+      const reviewer = new FakeAgent(
+        "claude",
+        async (_callCount, prompt) => {
+          roleCalls += 1;
+          await waitForPollCount(() => pollCount, roleCalls * 2);
+          return {
+            kind: "ok",
+            stdout: prompt.includes("Review: Adjudicator") ? "fix the implementation\n" : "finding\n",
+            stderr: "",
+          };
+        },
+        true,
+      );
+      const actuator = new FakeAgent(
+        "claude",
+        async () => {
+          await waitForPollCount(() => pollCount, 8);
+          return {
+            kind: "ok",
+            stdout: "done\n",
+            stderr: "",
+          };
+        },
+        true,
+      );
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        actuatorAgents: [actuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        __testAfterPollFn: () => {
+          pollCount += 1;
+        },
+        __testDescendantPollIntervalMs: pollIntervalMs,
+        __testReapOverride: (tracker) => {
+          reapCalls.push(tracker.trackedCount);
+          return 0;
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(pollCount).toBeGreaterThanOrEqual(8);
+      expect(reapCalls).toHaveLength(4);
+      expect(actuator.calls).toHaveLength(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("orphan reaping: reap failure does not affect review outcome", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const reviewer = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "no issues\n",
+        stderr: "",
+      }));
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        __testReapOverride: () => {
+          throw new Error("simulated reap failure");
+        },
+      });
+
+      expect(code).toBe(0);
     } finally {
       cleanup();
     }

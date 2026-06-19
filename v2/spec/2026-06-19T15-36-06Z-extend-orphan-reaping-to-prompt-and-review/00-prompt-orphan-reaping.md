@@ -62,12 +62,12 @@ per-attempt `finally`, and non-fatality.
 
 ## Acceptance criteria
 
-- [ ] Prompt mode polls the tracker on spawn and on the interval, and invokes
+- [x] Prompt mode polls the tracker on spawn and on the interval, and invokes
   reap in the per-attempt `finally` on every exit branch — including the
   watchdog-timeout break — observed via the injected reap override.
-- [ ] A reap failure during a prompt-mode invocation does not change the prompt
+- [x] A reap failure during a prompt-mode invocation does not change the prompt
   exit code or reason.
-- [ ] `bun run typecheck` and `bun test` pass; existing prompt tests still pass.
+- [x] `bun run typecheck` and `bun test` pass; existing prompt tests still pass.
 
 ## Documentation updates
 

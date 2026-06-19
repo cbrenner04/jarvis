@@ -128,7 +128,11 @@ Jarvis invokes an agent with a focused prompt (`prompts/plan/draft.md`) that:
 - Instructs the agent to produce `<targetDir>/<spec-dir>/index.md` plus one or more atomic subspecs (`00-*.md`, `01-*.md`, etc.).
 - Forbids modifications to `intent.md` except for appending a `## Blocker` section.
 
-The agent produces files under `<targetDir>/<spec-dir>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. The produced files plus the copied `intent.md` are staged and committed as `plan: draft`, and the draft PR opens (or refreshes) on the first `plan: draft` commit.
+The agent produces files under `<targetDir>/<spec-dir>/` in the worktree. Jarvis does **not** invoke the agent a second time; the call ends when the agent ends. 
+
+**Ready-intent deletion (commit: true only):** After the draft phase succeeds and the write-boundary check passes (before the `plan: draft` commit is created), jarvis deletes the source ready-intent from the worktree so the deletion is staged into the `plan: draft` commit. Deletion is skipped when the derived target is absent from the worktree base (for example, an authored-but-unmerged ready-intent) or resolves outside the worktree after path and symlink resolution; those cases still copy `intent.md` and continue. When the spec PR merges to `main`, the consumed ready-intent is removed from `<targetDir>/ready-intents/`. With `commit: false`, the source ready-intent is left untouched since the worktree is the live checkout and there is no spec PR to carry the deletion.
+
+The produced files plus the copied `intent.md` are staged and committed as `plan: draft`, and the draft PR opens (or refreshes) on the first `plan: draft` commit.
 
 **Prompt rendering:** Plan prompt builders use non-recursive template rendering, so placeholder-looking text in injected values (intent, spec name, etc.) is treated as literal data. For example, if the intent documents exact placeholder tokens like `<SPEC_GUIDANCE>`, those strings appear verbatim in the final prompt without escaping or recursive substitution. This allows spec-governance and prompt-documentation content to reference exact placeholder names.
 Rendered prompt snapshots for this phase are reviewed from revision-keyed fixtures (`v1/test/fixtures/prompts/rendered/<id>@r<revision>...shared.txt`).

@@ -70,25 +70,25 @@ reaches `main` through the merge.
 
 ## Acceptance criteria
 
-- [ ] A `commit: true` `jarvis1 plan` run on a ready-intent stages deletion of
+- [x] A `commit: true` `jarvis1 plan` run on a ready-intent stages deletion of
   `<targetDir>/ready-intents/<name>.md` into the `plan: draft` commit that
   carries the spec tree, so the committed plan-branch tree no longer contains
   that ready-intent file.
-- [ ] The deletion survives the write-boundary check and lands in the same
+- [x] The deletion survives the write-boundary check and lands in the same
   `plan: draft` commit that carries the spec tree — not reverted by boundary
   enforcement, not split into a separate commit, and with no spurious blocker
   appended.
-- [ ] The same run's `<targetDir>/<spec-dir>/intent.md` remains a byte-for-byte
+- [x] The same run's `<targetDir>/<spec-dir>/intent.md` remains a byte-for-byte
   copy of the original ready-intent (frontmatter, sentinels, prerequisites
   intact) despite the source deletion.
-- [ ] The deletion of one ready-intent removes exactly that file; no other
+- [x] The deletion of one ready-intent removes exactly that file; no other
   `ready-intents/` entry is staged for deletion.
-- [ ] A `commit: false` `jarvis1 plan` run leaves the source
+- [x] A `commit: false` `jarvis1 plan` run leaves the source
   `<targetDir>/ready-intents/<name>.md` in place and unmodified.
-- [ ] A `commit: true` run on an authored-but-unmerged ready-intent (not
+- [x] A `commit: true` run on an authored-but-unmerged ready-intent (not
   committed into the branch's base tree) still completes the copy-and-draft flow
   without error and stages no deletion.
-- [ ] A `commit: true` run whose resolved ready-intent path escapes the worktree
+- [x] A `commit: true` run whose resolved ready-intent path escapes the worktree
   stages no deletion, leaves the operator's checkout untouched, and completes the
   copy-and-draft flow without error.
 

@@ -2,7 +2,9 @@
 
 Jarvis classifies quota exhaustion after an agent CLI exits non-zero. Exit codes
 are not documented as stable by the vendors, so the implementation treats the
-exit code as a guard (`0` is never quota) and matches stderr text patterns.
+exit code as a guard (`0` is never quota at the shared spawn layer) and matches
+stderr text patterns. **Exception:** the Claude adapter reclassifies a verified
+exit-`0` JSON error envelope before accepting `kind: "ok"` (see [Claude](#claude)).
 
 **Patch and plan modes:** With `quotaFallback: "lenient"`, **`applyQuotaFallbackWhenAllowed`**
 (`src/agents/quota.ts`) may upgrade `kind: "error"` using **`applyQuotaFallbackToAgentResult`**
@@ -28,7 +30,8 @@ codes after fallback exhaustion, and telemetry semantics.
 | Non-zero exit + model configuration signal | `model_config` | Stop immediately; do not rotate | Stop immediately; do not rotate | `3` (model configuration error) | `model_config` / `model-config` |
 | Timeout / interrupt signal from harness or process control | `timeout` / interrupted run state | Stop run (no quota rotation) | Stop run (no quota rotation) | `124` (timeout) or `130` (SIGINT) | `timeout` / `timeout` or interrupted terminal reason |
 | Non-zero exit + generic error (no quota/model-config classification) | `error` | Stop run for that iteration path (no quota rotation) | In current behavior, plan inner loop may continue to next agent after hard `error` | `1` (error) | `error` / `agent-error` |
-| Zero exit | `ok` | Continue normal post-iteration completion/progress logic | Continue normal phase progression | `0` (when run/phase completes) | `ok` / completion or progress reason |
+| Zero exit (spawn layer; no adapter reclassification) | `ok` | Continue normal post-iteration completion/progress logic | Continue normal phase progression | `0` (when run/phase completes) | `ok` / completion or progress reason |
+| Zero exit + Claude verified stdout JSON quota envelope (`is_error: true`, `api_error_status: 429`, quota message in `result`) | `quota` (adapter reclassification from spawn `ok`) | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) when all agents exhausted or no fallback remains | `quota` / `quota-exhausted` or `quota-fallback` |
 
 Mode-specific note: patch mode runs one selected agent per iteration, while
 plan mode executes an inner agent-order loop per phase invocation. **Documented
@@ -80,23 +83,26 @@ Plan phases do not emit matching JSONL rows for per-phase agent outcomes.
 
 ## Capture convention (real quota events)
 
-Record real quota stderr whenever you hit one during normal usage.
+Record real quota signals whenever you hit one during normal usage.
 
-1. Copy the raw stderr text from the failed run. Keep wording and punctuation
-   exactly as printed.
+1. Copy the raw signal text from the failed run. Most agents deliver quota
+   diagnostics on stderr; Claude may deliver a verified exit-`0` quota envelope
+   on stdout JSON (see [Claude](#claude)). Keep wording and punctuation exactly
+   as printed.
 2. Redact secrets or personal identifiers only if needed.
-3. Add an entry under the matching agent's `Observed quota stderr (real samples)`
-   section using this format:
+3. Add an entry under the matching agent's observed-quota-samples section
+   (`Observed quota samples` for Claude; `Observed quota stderr` for other
+   agents) using this format:
 
 ```text
-- YYYY-MM-DD — source context (command/repo/provider)
+- YYYY-MM-DD — source context (command/repo/provider; stdout or stderr)
 
   ```text
-  <verbatim stderr block>
+  <verbatim signal block>
   ```
 ```
 
-4. If the stderr reflects model configuration (not quota), place it in
+4. If the signal reflects model configuration (not quota), place it in
    `Observed model-configuration stderr (real samples)` instead.
 5. Update the `Pattern audit` section by changing the related pattern status
    from `Unverified` to `Matched` and linking the sample date.
@@ -105,9 +111,29 @@ Doc-only workflow is intentional: low friction beats extra tooling here.
 
 ## Claude
 
-### Observed quota stderr (real samples)
+Claude runs with `--output-format json`. On exit `0`, the shared spawn layer
+returns `kind: "ok"` with raw stdout. The Claude adapter then checks for a
+verified quota error envelope before parsing success fields: `is_error: true`,
+`api_error_status: 429`, and a quota message in `result` (matched by
+`isClaudeQuotaMessageText` / `claudeQuotaPatterns`). When all three hold, the
+adapter returns `kind: "quota"` and preserves the full stdout JSON in `stderr`
+diagnostics. Other zero-exit envelopes (successful JSON or structured errors
+missing any predicate) stay non-quota. Classification is adapter-boundary only;
+patch/plan/prompt modes rotate through the existing quota fallback path with no
+mode-specific exception. Sources: `src/agents/claude.ts`, `src/agents/claude-json.ts`.
 
-- No real samples recorded yet.
+### Observed quota samples (real samples)
+
+Quota signals may appear on stdout or stderr. The verified monthly-spend-limit
+sample below is exit-`0` JSON on stdout.
+
+- 2026-06-19 — Claude Code monthly spend limit (exit `0`, stdout JSON envelope)
+
+  ```text
+  {"type":"result","subtype":"error","is_error":true,"api_error_status":429,"duration_ms":842,"duration_api_ms":0,"ttft_ms":0,"num_turns":0,"result":"You've hit your monthly spend limit","stop_reason":null,"session_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"","iterations":[],"speed":"standard"},"modelUsage":{},"permission_denials":[],"terminal_reason":"error","fast_mode_state":"off","uuid":"c8d9e0f1-2345-6789-abcd-ef0123456789"}
+  ```
+
+  Fixture: `test/fixtures/claude/2.1.142-monthly-spend-limit.json`.
 
 ## Codex
 
@@ -175,6 +201,8 @@ Status key:
 
 - `/\\byou['’]ve hit your (?:session|weekly|opus) limit\\b/i` — Unverified.
   Sample link: none yet.
+- `/\\byou['’]ve hit your monthly spend limit\\b/i` — Matched.
+  Sample link: 2026-06-19 (exit-`0` JSON envelope; see Claude section).
 - `/\\byou['’]ve hit your org['’]s monthly usage limit\\b/i` — Unverified.
   Sample link: none yet.
 - `/\\bcredit balance is too low\\b/i` — Unverified.

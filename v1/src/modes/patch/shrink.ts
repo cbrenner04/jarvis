@@ -260,7 +260,7 @@ function runTests(cwd: string): boolean {
 function commitShrinkPass(
   agentLabel: string,
   cwd: string,
-  opts: { branch: string; base: string; specPath: string },
+  opts: { branch: string; base: string; specPath: string; prNarrative: "template" | "agent" },
 ): void {
   const porcelain = execFileSync("git", ["status", "--porcelain"], {
     cwd,
@@ -285,6 +285,7 @@ function commitShrinkPass(
     branch: opts.branch,
     base: opts.base,
     cwd,
+    prNarrative: opts.prNarrative,
   }).catch(() => {});
 }
 
@@ -544,7 +545,12 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
   }
 
   try {
-    commitShrinkPass(agent.attributionLabel(), opts.cwd, { branch, base, specPath: opts.specPath });
+    commitShrinkPass(agent.attributionLabel(), opts.cwd, {
+      branch,
+      base,
+      specPath: opts.specPath,
+      prNarrative: opts.config.modes.patch.prNarrative ?? "template",
+    });
     opts.fanout("harness", "shrink: committed simplifications\n", "stdout");
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

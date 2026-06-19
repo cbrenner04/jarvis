@@ -84,6 +84,7 @@ export type ModeConfig = {
   specTimestamp?: boolean;
   commit?: boolean;
   targetDir?: string;
+  prNarrative?: "template" | "agent";
 };
 
 export type ReviewModeConfig = {
@@ -134,9 +135,13 @@ const DEFAULT_AGENT_ORDER: AgentEntry[] = [
 const DEFAULT_CONFIG: Config = {
   version: 2,
   modes: {
-    patch: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
+    patch: {
+      agentOrder: structuredClone(DEFAULT_AGENT_ORDER),
+      prNarrative: "template",
+    },
     plan: {
       agentOrder: structuredClone(DEFAULT_AGENT_ORDER),
+      prNarrative: "template",
       targetDir: "spec",
     },
     prompt: { agentOrder: structuredClone(DEFAULT_AGENT_ORDER) },
@@ -206,6 +211,13 @@ function validateConfig(input: unknown, file: string): Config {
   const patchAgentOrder = validateAgentOrder(patchModeObj.agentOrder, "modes.patch.agentOrder", file);
   validateNoModeAgents(patchModeObj.agents, "modes.patch", file);
 
+  let patchPrNarrative: "template" | "agent" = "template";
+  if (patchModeObj.prNarrative !== undefined) {
+    patchPrNarrative = validatePrNarrative(patchModeObj.prNarrative, "modes.patch.prNarrative", (message) =>
+      fail(file, message),
+    );
+  }
+
   const planMode = modesObj.plan;
   if (planMode === null || typeof planMode !== "object" || Array.isArray(planMode)) {
     fail(file, 'modes.plan must be an object with "agentOrder" array');
@@ -233,6 +245,13 @@ function validateConfig(input: unknown, file: string): Config {
   let planTargetDir: string | undefined;
   if (planModeObj.targetDir !== undefined) {
     planTargetDir = validateTargetDir(planModeObj.targetDir, "modes.plan.targetDir", (message) => fail(file, message));
+  }
+
+  let planPrNarrative: "template" | "agent" = "template";
+  if (planModeObj.prNarrative !== undefined) {
+    planPrNarrative = validatePrNarrative(planModeObj.prNarrative, "modes.plan.prNarrative", (message) =>
+      fail(file, message),
+    );
   }
 
   let promptAgentOrder: AgentEntry[];
@@ -450,9 +469,13 @@ function validateConfig(input: unknown, file: string): Config {
   return {
     version: 2,
     modes: {
-      patch: { agentOrder: patchAgentOrder },
+      patch: {
+        agentOrder: patchAgentOrder,
+        prNarrative: patchPrNarrative,
+      },
       plan: {
         agentOrder: planAgentOrder,
+        prNarrative: planPrNarrative,
         ...(planSpecTimestamp !== undefined ? { specTimestamp: planSpecTimestamp } : {}),
         ...(planCommit !== undefined ? { commit: planCommit } : {}),
         ...(planTargetDir !== undefined ? { targetDir: planTargetDir } : {}),
@@ -594,6 +617,13 @@ function validateQuotaFallback(value: unknown, failWith: (message: string) => ne
     return value;
   }
   failWith('quotaFallback must be "strict" or "lenient"');
+}
+
+function validatePrNarrative(value: unknown, name: string, failWith: (message: string) => never): "template" | "agent" {
+  if (value === "template" || value === "agent") {
+    return value;
+  }
+  failWith(`${name} must be "template" or "agent"`);
 }
 
 export function validateTargetDir(value: unknown, name: string, failWith: (message: string) => never): string {

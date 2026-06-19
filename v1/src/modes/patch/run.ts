@@ -20,7 +20,8 @@ import {
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
-import { checkPrExists, ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
+import { checkPrExists, ensureDraftPr, readBranchCommits, renderAttributionSummary } from "../../pr.ts";
+import { generateTemplateNarrative } from "../../pr-shared.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -1255,18 +1256,25 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               }
 
               try {
-                let createdThisIteration = false;
+                let _createdThisIteration = false;
                 const base = await getBaseBranch(agentWorkingDir);
                 const branch = getCurrentBranch(agentWorkingDir);
                 if (!state.draftPrEnsured) {
                   const prBody = async (): Promise<string> =>
-                    generatePrBody(afterSpecPath, agent, agentWorkingDir, {
-                      signal: iterationController.signal,
-                      abortKillGraceMs: killGraceMs,
-                      onSpawned: ({ pid }) => {
-                        watchdogPgid = pid;
+                    generatePrBody(
+                      afterSpecPath,
+                      agent,
+                      agentWorkingDir,
+                      cfg.modes.patch.prNarrative ?? "template",
+                      base,
+                      {
+                        signal: iterationController.signal,
+                        abortKillGraceMs: killGraceMs,
+                        onSpawned: ({ pid }) => {
+                          watchdogPgid = pid;
+                        },
                       },
-                    });
+                    );
                   const footer = renderAttributionSummary({
                     cwd: agentWorkingDir,
                     base,
@@ -1279,29 +1287,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                     footer,
                     cwd: agentWorkingDir,
                   });
-                  createdThisIteration = ensured.created;
+                  _createdThisIteration = ensured.created;
                   state.draftPrEnsured = true;
-                }
-                if (!createdThisIteration) {
-                  try {
-                    await updatePrBody({
-                      indexPath: afterSpecPath,
-                      branch,
-                      base,
-                      cwd: agentWorkingDir,
-                      agent,
-                      runOptions: {
-                        signal: iterationController.signal,
-                        abortKillGraceMs: killGraceMs,
-                        onSpawned: ({ pid }) => {
-                          watchdogPgid = pid;
-                        },
-                      },
-                    });
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : String(err);
-                    fanout("harness", `failed to update PR body for ${afterSubspecPath}: ${message}\n`, "stderr");
-                  }
                 }
                 // When post-completion shrink or review will run, defer PR
                 // readiness to those phases.
@@ -1762,6 +1749,27 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     }
   }
 
+  // Rewrite PR body once in the completion pipeline, before shrink/review
+  if (preflight.gitEnabled && ctx.state.draftPrEnsured && implementationIterations > 0) {
+    try {
+      const branch = getCurrentBranch(preflight.agentWorkingDir);
+      const base = await getBaseBranch(preflight.agentWorkingDir);
+      const prNarrative = preflight.cfg.modes.patch.prNarrative ?? "template";
+      const agent = ctx.activeAgents[0];
+      await updatePrBody({
+        indexPath: preflight.specPath,
+        branch,
+        base,
+        cwd: preflight.agentWorkingDir,
+        prNarrative,
+        ...(agent !== undefined ? { agent } : {}),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logging.fanout("harness", `warning: completion phase PR body rewrite failed: ${message}\n`, "stderr");
+    }
+  }
+
   if (shouldRunShrink) {
     const { fanout, writeTelemetry } = ctx.logging;
     try {
@@ -1908,18 +1916,37 @@ async function generatePrBody(
   specPath: string,
   agent: Agent,
   cwd: string,
+  prNarrative: "template" | "agent",
+  base: string,
   runOptions?: Parameters<typeof generatePrDescription>[0]["runOptions"],
 ): Promise<string> {
-  const narrative = await generatePrDescription({
-    specPath,
-    agent,
-    cwd,
-    ...(runOptions === undefined ? {} : { runOptions }),
-  });
+  let narrative: string;
+
+  if (prNarrative === "template") {
+    narrative = generateTemplateNarrative({
+      getSubspecTitles: () => {
+        const indexContent = readFileSync(specPath, "utf8");
+        const parsed = parsePatchSpec(indexContent);
+        return parsed.linkedSubspecs.map((s) => s.text);
+      },
+      getCommitSubjects: () => {
+        const commits = readBranchCommits({ cwd, base });
+        return commits.map((c) => c.subject);
+      },
+    });
+  } else {
+    const generated = await generatePrDescription({
+      specPath,
+      agent,
+      cwd,
+      ...(runOptions === undefined ? {} : { runOptions }),
+    });
+    narrative = generated ?? "(no narrative generated)";
+  }
+
   return buildPrBody({
     indexPath: specPath,
-    narrative: narrative ?? "Auto-generated by jarvis",
-    generatedNarrative: true,
+    narrative,
   });
 }
 

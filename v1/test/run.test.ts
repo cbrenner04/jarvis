@@ -1429,9 +1429,9 @@ Date: 2026-06-18`,
         cwd: projectRoot,
       },
     ]);
-    expect(claude.calls[0]?.prompt).toContain("Inspect the target repo for guidance");
+    expect(claude.calls[0]?.prompt).toContain("Work the harness-injected active subspec only.");
     expect(claude.calls[0]?.prompt).toContain("Follow these Jarvis rules:");
-    expect(claude.calls[0]?.prompt).not.toContain("Read README.md.");
+    expect(claude.calls[0]?.prompt).not.toContain("Inspect the target repo for guidance");
   });
 
   test("routes an external spec to its declared repo", async () => {

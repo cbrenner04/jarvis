@@ -92,12 +92,25 @@ Each iteration prints a banner before agent invocation with:
 - selected agent
 
 Jarvis then builds the standard prompt and invokes the agent with `cwd` set to
-the active worktree. The prompt asks the agent to discover target-repo
-guidance using stable instruction text from `prompts/patch/instructions.md` and
-injects jarvis-owned rules from `prompts/patch/rules.md` inline. The
-`v1/src/modes/patch/prompt.ts` file remains runtime assembly code
-(interpolation, sibling-directory block insertion, and line joining), while the
-prompt text itself is owned in `prompts/`.
+the active worktree. For normal implementation iterations the harness resolves
+the active linked subspec (`getActiveLinkedSubspecPath`), inlines that subspec's
+full body and bounded repo guidance (`AGENTS.md` and root `CLAUDE.md` from the
+registered target repo root) into `prompts/patch/instructions.md`, and injects
+jarvis-owned rules from `prompts/patch/rules.md` inline. `SPEC_PATH` remains
+the operator-passed path (`index.md` or a direct subspec path) for display
+only; task content comes from the harness-injected active subspec block.
+Fix-up, review-actuator, and other shared-template consumers omit repo guidance
+and the active-subspec block when their own preamble carries the task.
+`v1/src/modes/patch/prompt.ts` remains runtime assembly code (placeholder
+substitution, optional-section omission, sibling-directory block insertion, and
+line joining), while the prompt text itself is owned in `prompts/`.
+
+The iteration banner still uses `getFirstUncheckedTask` for the
+`current-task` excerpt (first unchecked checkbox in document order). When an
+index mixes bare checklist tasks with linked subspecs, the banner excerpt and
+the harness-injected linked subspec can differ: the banner reflects top-level
+index progress; the prompt carries the active linked subspec body when one
+exists.
 
 ## Completion
 

@@ -1,64 +1,142 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
-import { buildPrompt } from "../src/modes/patch/prompt.ts";
+import { buildFixupPrompt, buildPrompt, buildVerdictActuatorPrompt, readRepoGuidance } from "../src/modes/patch/prompt.ts";
+
+function withTempRepo(run: (root: string) => void): void {
+  const root = join(import.meta.dir, ".tmp-prompt-test", String(Date.now()));
+  mkdirSync(root, { recursive: true });
+  try {
+    run(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
 
 describe("buildPrompt", () => {
-  test("asks the agent to discover repo guidance and includes Jarvis rules", () => {
-    const prompt = buildPrompt("spec/2026-05-11-v1/index.md");
-    const documentation = loadPromptRegistry().getById("global.documentation").body.trim();
-    const naming = loadPromptRegistry().getById("global.naming").body.trim();
-    const terse = loadPromptRegistry().getById("global.terse").body.trim();
+  test("inlines harness-selected active subspec and omits routing prose", () => {
+    const prompt = buildPrompt("spec/example/index.md", undefined, {
+      activeSubspecPath: "spec/example/00-task.md",
+      activeSubspecBody: "# Task\n\n## Acceptance criteria\n\n- [ ] done",
+    });
     const rules = loadPromptRegistry().getById("patch.rules").body.trim();
 
-    expect(prompt).toContain("Inspect the target repo for guidance, conventions, and relevant docs.");
-    expect(prompt).toContain("Read the spec at spec/2026-05-11-v1/index.md.");
-    expect(prompt).toBe(
-      [
-        documentation,
-        "",
-        naming,
-        "",
-        terse,
-        "",
-        "Inspect the target repo for guidance, conventions, and relevant docs.",
-        "Read the spec at spec/2026-05-11-v1/index.md.",
-        "Follow these Jarvis rules:",
-        rules,
-        "Pick the single most important unchecked task and complete it.",
-      ].join("\n"),
-    );
-    expect(prompt).not.toContain("Read README.md.");
+    expect(prompt).toContain("<<<ACTIVE_SUBSPEC_BEGIN>>>");
+    expect(prompt).toContain("spec/example/00-task.md");
+    expect(prompt).toContain("# Task");
+    expect(prompt).toContain("<<<ACTIVE_SUBSPEC_END>>>");
+    expect(prompt).not.toContain("first unchecked");
+    expect(prompt).not.toContain("Inspect the target repo for guidance");
+    expect(prompt).not.toContain("Pick the single most important unchecked task");
+    expect(prompt).toContain("Work the harness-injected active subspec only.");
+    expect(prompt).toContain(rules);
   });
 
-  test("passes the path through verbatim with no resolution or quoting", () => {
+  test("omits sibling subspec bodies and index checklist prose", () => {
+    const prompt = buildPrompt("spec/example/index.md", undefined, {
+      activeSubspecPath: "spec/example/00-task.md",
+      activeSubspecBody: "# Active only",
+    });
+
+    expect(prompt).not.toContain("01-other.md");
+    expect(prompt).not.toContain("- [ ] [01");
+    expect(prompt).not.toContain("<<<FILE name=");
+    expect(prompt).toContain("# Active only");
+  });
+
+  test("direct non-index spec path inlines that file and omits index routing", () => {
+    const subspecPath = "spec/example/01-task.md";
+    const prompt = buildPrompt(subspecPath, undefined, {
+      activeSubspecPath: subspecPath,
+      activeSubspecBody: "# Direct subspec",
+    });
+
+    expect(prompt).toContain(`Read the spec at ${subspecPath}.`);
+    expect(prompt).toContain(subspecPath);
+    expect(prompt).toContain("# Direct subspec");
+    expect(prompt).not.toContain("first unchecked");
+    expect(prompt).not.toContain("Pick the single most important unchecked task");
+  });
+
+  test("undefined linked subspec omits active-subspec block", () => {
+    const prompt = buildPrompt("spec/example/index.md");
+
+    expect(prompt).not.toContain("<<<ACTIVE_SUBSPEC_BEGIN>>>");
+    expect(prompt).not.toContain("<<<ACTIVE_SUBSPEC_END>>>");
+    expect(prompt).not.toContain("## Active Subspec");
+  });
+
+  test("inlines repo guidance from project root when present", () => {
+    withTempRepo((root) => {
+      writeFileSync(join(root, "AGENTS.md"), "# Agents\nRun tests.");
+      writeFileSync(join(root, "CLAUDE.md"), "# Claude\nBe terse.");
+
+      const guidance = readRepoGuidance(root);
+      const prompt = buildPrompt("spec/example/index.md", undefined, {
+        repoGuidance: guidance,
+        activeSubspecPath: "spec/example/00-task.md",
+        activeSubspecBody: "# Task",
+      });
+
+      expect(guidance).toContain("# Agents");
+      expect(guidance).toContain("# Claude");
+      expect(prompt).toContain("<<<REPO_GUIDANCE_BEGIN>>>");
+      expect(prompt).toContain("# Agents");
+      expect(prompt).toContain("# Claude");
+      expect(prompt).toContain("<<<REPO_GUIDANCE_END>>>");
+    });
+  });
+
+  test("omits repo-guidance block when files are absent", () => {
+    withTempRepo((root) => {
+      expect(readRepoGuidance(root)).toBe("");
+      const prompt = buildPrompt("spec/example/index.md", undefined, {
+        repoGuidance: "",
+        activeSubspecPath: "spec/example/00-task.md",
+        activeSubspecBody: "# Task",
+      });
+      expect(prompt).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
+      expect(prompt).not.toContain("## Repo Guidance");
+    });
+  });
+
+  test("passes the spec path through verbatim with no resolution or quoting", () => {
     const weird = "/tmp/some dir/spec.md";
     expect(buildPrompt(weird)).toContain(`Read the spec at ${weird}.`);
   });
 
   test("keeps sibling-directory block placement and newline joining unchanged", () => {
     const prompt = buildPrompt("spec/path.md", ["../repo-a", "../repo-b"]);
-    const documentation = loadPromptRegistry().getById("global.documentation").body.trim();
-    const naming = loadPromptRegistry().getById("global.naming").body.trim();
-    const terse = loadPromptRegistry().getById("global.terse").body.trim();
-    const rules = loadPromptRegistry().getById("patch.rules").body.trim();
-    expect(prompt).toBe(
-      [
-        documentation,
-        "",
-        naming,
-        "",
-        terse,
-        "",
-        "Inspect the target repo for guidance, conventions, and relevant docs.",
-        "Read the spec at spec/path.md.",
-        "Additional project sibling directories are available for this run:",
-        "- ../repo-a",
-        "- ../repo-b",
-        "Treat these directories as part of the target project when the active spec requires cross-repo edits.",
-        "Follow these Jarvis rules:",
-        rules,
-        "Pick the single most important unchecked task and complete it.",
-      ].join("\n"),
-    );
+    expect(prompt).toContain("Additional project sibling directories are available for this run:");
+    expect(prompt).toContain("- ../repo-a");
+    expect(prompt).toContain("- ../repo-b");
+    expect(prompt).toContain("Treat these directories as part of the target project");
+  });
+});
+
+describe("buildVerdictActuatorPrompt", () => {
+  test("uses migrated patch prompt without repo guidance or active subspec", () => {
+    const prompt = buildVerdictActuatorPrompt("fix tests", "spec/feature/index.md");
+
+    expect(prompt).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
+    expect(prompt).not.toContain("<<<ACTIVE_SUBSPEC_BEGIN>>>");
+    expect(prompt).not.toContain("first unchecked");
+    expect(prompt).not.toContain("Inspect the target repo for guidance");
+    expect(prompt).toContain("## Review Verdict");
+    expect(prompt).toContain("fix tests");
+  });
+});
+
+describe("buildFixupPrompt", () => {
+  test("prepends ready failure and omits repo guidance and active subspec", () => {
+    const prompt = buildFixupPrompt("spec/feature/index.md", "typecheck failed", ["../sibling"]);
+
+    expect(prompt.startsWith("The spec checklist is complete, but the completion `ready` gate failed:")).toBe(true);
+    expect(prompt).toContain("typecheck failed");
+    expect(prompt).not.toContain("<<<REPO_GUIDANCE_BEGIN>>>");
+    expect(prompt).not.toContain("<<<ACTIVE_SUBSPEC_BEGIN>>>");
+    expect(prompt).not.toContain("first unchecked");
+    expect(prompt).toContain("- ../sibling");
   });
 });

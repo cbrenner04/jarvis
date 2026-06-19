@@ -1,11 +1,51 @@
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { renderTemplateWithDeclarations } from "../../../../shared/prompts/render.ts";
 
-export function buildPrompt(specPath: string, siblings?: string[]): string {
+export type BuildPromptExtras = {
+  repoGuidance?: string;
+  activeSubspecPath?: string;
+  activeSubspecBody?: string;
+};
+
+/** Read bounded repo guidance from the registered target repo root. */
+export function readRepoGuidance(projectRoot: string): string {
+  const parts: string[] = [];
+  for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+    const path = join(projectRoot, name);
+    if (existsSync(path)) {
+      parts.push(readFileSync(path, "utf8"));
+    }
+  }
+  return parts.join(parts.length > 1 ? "\n\n" : "");
+}
+
+function stripOptionalPromptSection(
+  text: string,
+  sectionHeader: string,
+  beginMarker: string,
+  endMarker: string,
+): string {
+  const headerIndex = text.indexOf(sectionHeader);
+  if (headerIndex === -1) {
+    return text;
+  }
+  const beginIndex = text.indexOf(beginMarker, headerIndex);
+  const endIndex = text.indexOf(endMarker, beginIndex);
+  if (beginIndex === -1 || endIndex === -1) {
+    return text;
+  }
+  let removeEnd = endIndex + endMarker.length;
+  while (text[removeEnd] === "\n") {
+    removeEnd += 1;
+  }
+  return `${text.slice(0, headerIndex)}${text.slice(removeEnd)}`;
+}
+
+export function buildPrompt(specPath: string, siblings?: string[], extras?: BuildPromptExtras): string {
   const registry = loadPromptRegistry();
   const template = assemblePromptForStep({
     registry,
@@ -23,21 +63,66 @@ export function buildPrompt(specPath: string, siblings?: string[]): string {
     siblingsBlock = `${lines.join("\n")}\n`;
   }
 
-  const rendered = renderTemplateWithDeclarations(
+  const repoGuidance = extras?.repoGuidance ?? "";
+  const activeSubspecPath = extras?.activeSubspecPath ?? "";
+  const activeSubspecBody = extras?.activeSubspecBody ?? "";
+  const activeSubspecPathLine = activeSubspecPath.length > 0 ? `${activeSubspecPath}\n` : "";
+
+  let rendered = renderTemplateWithDeclarations(
     template,
     [
       { name: "SPEC_PATH", type: "string", required: true },
       { name: "SIBLINGS_BLOCK", type: "string", required: true },
+      { name: "REPO_GUIDANCE", type: "string", required: true },
+      { name: "ACTIVE_SUBSPEC_PATH", type: "string", required: true },
+      { name: "ACTIVE_SUBSPEC_BODY", type: "string", required: true },
       { name: "PATCH_RULES", type: "string", required: true },
     ],
     {
       SPEC_PATH: specPath,
       SIBLINGS_BLOCK: siblingsBlock,
+      REPO_GUIDANCE: repoGuidance,
+      ACTIVE_SUBSPEC_PATH: activeSubspecPathLine,
+      ACTIVE_SUBSPEC_BODY: activeSubspecBody,
       PATCH_RULES: registry.getById("patch.rules").body.trim(),
     },
   );
 
+  if (repoGuidance.length === 0) {
+    rendered = stripOptionalPromptSection(
+      rendered,
+      "## Repo Guidance",
+      "<<<REPO_GUIDANCE_BEGIN>>>",
+      "<<<REPO_GUIDANCE_END>>>",
+    );
+  }
+  if (activeSubspecPath.length === 0) {
+    rendered = stripOptionalPromptSection(
+      rendered,
+      "## Active Subspec",
+      "<<<ACTIVE_SUBSPEC_BEGIN>>>",
+      "<<<ACTIVE_SUBSPEC_END>>>",
+    );
+  }
+
   return rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
+}
+
+export function buildFixupPrompt(specPath: string, failureText: string, siblings?: string[]): string {
+  const base = buildPrompt(specPath, siblings, {
+    repoGuidance: "",
+    activeSubspecPath: "",
+    activeSubspecBody: "",
+  });
+  const preamble = [
+    "The spec checklist is complete, but the completion `ready` gate failed:",
+    "",
+    failureText.trim(),
+    "",
+    "Fix the cause of this `bun run ready` failure. Do not edit the spec checklist; all boxes are already ticked.",
+    "",
+  ].join("\n");
+  return `${preamble}\n${base}`;
 }
 
 export type ReviewPromptOpts = {
@@ -235,27 +320,10 @@ export function buildShrinkPrompt(opts: ShrinkPromptOpts): string {
 }
 
 export function buildVerdictActuatorPrompt(verdict: string, specPath: string): string {
-  const registry = loadPromptRegistry();
-  const template = assemblePromptForStep({
-    registry,
-    stepPromptId: "patch.prompt.body",
+  const basePrompt = buildPrompt(specPath, undefined, {
+    repoGuidance: "",
+    activeSubspecPath: "",
+    activeSubspecBody: "",
   });
-
-  const rendered = renderTemplateWithDeclarations(
-    template,
-    [
-      { name: "SPEC_PATH", type: "string", required: true },
-      { name: "SIBLINGS_BLOCK", type: "string", required: true },
-      { name: "PATCH_RULES", type: "string", required: true },
-    ],
-    {
-      SPEC_PATH: specPath,
-      SIBLINGS_BLOCK: "",
-      PATCH_RULES: registry.getById("patch.rules").body.trim(),
-    },
-  );
-
-  // Replace the final instruction with the verdict
-  const basePrompt = rendered.replace("\n\nFollow these Jarvis rules:", "\nFollow these Jarvis rules:").trim();
   return `${basePrompt}\n\n## Review Actuator Rules\n\n- Apply the review verdict to implementation files only.\n- The completed spec tree is read-only: do not edit spec files, tick criteria, append blockers, or edit verdict-patch.md.\n- Do not expand scope beyond the verdict.\n\n## Review Verdict\n\nBased on a review of your implementation, the following changes are required:\n\n${verdict}`;
 }

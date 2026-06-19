@@ -2,7 +2,7 @@
 id: patch.rules
 behavior: patch-rules
 kind: fragment
-revision: 2
+revision: 3
 ---
 # Patch Mode
 
@@ -17,7 +17,7 @@ Execute active spec only.
 - Match style. No unrelated formatting.
 
 ## Iteration
-- Active task = first unchecked subspec link in `index.md`. Work that subspec only.
+- Work the harness-injected active subspec only.
 - Subspec acceptance criteria must be under an exact `## Acceptance criteria` heading (case-sensitive, level-2).
 - Blockers must be under an exact `## Blocker` heading (case-sensitive, level-2).
 - Inside the active subspec, tick `- [ ]` acceptance-criteria items as you actually satisfy them. Do not tick speculatively. Do not tick anything else. Tick every confirmed-satisfied criterion as a mandatory final step; if criteria are already `- [ ]` on entry but their work is already complete, re-verify and then tick—never report "already done" and stop without ticking.

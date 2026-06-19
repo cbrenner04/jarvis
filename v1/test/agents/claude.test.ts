@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClaudeAgent } from "../../src/agents/claude.ts";
 
+const fixturesDir = join(import.meta.dir, "..", "fixtures", "claude");
+
 let dir: string;
 let cwd: string;
 
@@ -21,14 +23,16 @@ function fakeBinary(opts: { exit: number; stdout?: string; stderr?: string }): s
   const path = join(dir, "claude");
   const out = opts.stdout ?? "";
   const err = opts.stderr ?? "";
+  const outB64 = Buffer.from(out).toString("base64");
+  const errB64 = Buffer.from(err).toString("base64");
   const script = `#!/usr/bin/env bash
 # Record argv (NUL-separated), stdin, and cwd so the test can inspect them.
 : > "${dir}/argv"
 for a in "$@"; do printf '%s\\0' "$a" >> "${dir}/argv"; done
 cat > "${dir}/stdin"
 pwd > "${dir}/cwd"
-printf '%s' ${JSON.stringify(out)}
-printf '%s' ${JSON.stringify(err)} 1>&2
+printf '%s' "$(printf '%s' '${outB64}' | base64 -d)"
+printf '%s' "$(printf '%s' '${errB64}' | base64 -d)" 1>&2
 exit ${opts.exit}
 `;
   writeFileSync(path, script);
@@ -128,6 +132,34 @@ describe("ClaudeAgent", () => {
     const result = await agent.run("p", { cwd });
 
     expect(result).toEqual({ kind: "quota", stderr: stdout });
+  });
+
+  test("zero-exit monthly-spend-limit JSON envelope maps to quota with full stdout diagnostics", async () => {
+    const stdout = readFileSync(join(fixturesDir, "2.1.142-monthly-spend-limit.json"), "utf8");
+    const bin = fakeBinary({ exit: 0, stdout });
+    const agent = new ClaudeAgent({ binary: bin });
+
+    const result = await agent.run("p", { cwd });
+
+    expect(result).toEqual({ kind: "quota", stderr: stdout });
+  });
+
+  test("zero-exit structured errors without quota predicates remain ok", async () => {
+    const stdout = JSON.stringify({
+      type: "result",
+      is_error: true,
+      api_error_status: 500,
+      result: "Internal server error",
+    });
+    const bin = fakeBinary({ exit: 0, stdout });
+    const agent = new ClaudeAgent({ binary: bin });
+
+    const result = await agent.run("p", { cwd });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.stdout).toBe("Internal server error");
+    }
   });
 
   test("missing binary surfaces as error result, not a thrown exception", async () => {

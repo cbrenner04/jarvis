@@ -55,7 +55,7 @@ import {
   getFirstUncheckedTask,
 } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
-import { buildPrompt } from "./prompt.ts";
+import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
@@ -935,7 +935,11 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   // For fix-up iterations, we don't get a task from the spec; instead we use the captured failure text
   const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);
   const taskExcerpt = isFixupIteration ? "ready: fix bun run ready failure" : task?.line.slice(0, 140);
-  const activeSubspecPath = isIndexSpec ? getActiveLinkedSubspecPath(specPath) : undefined;
+  const activeSubspecPath = isFixupIteration
+    ? undefined
+    : isIndexSpec
+      ? getActiveLinkedSubspecPath(specPath)
+      : specPath;
   const preIterationHead =
     gitEnabled && existsSync(join(agentWorkingDir, ".git"))
       ? execFileSync("git", ["rev-parse", "HEAD"], {
@@ -1006,7 +1010,14 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const projectSiblings = preflight.cfg.projects[preflight.project.key]?.siblings;
   const prompt = isFixupIteration
     ? buildFixupPrompt(specPath, state.completionLoopbackSignal?.failureText ?? "", projectSiblings)
-    : buildPrompt(specPath, projectSiblings);
+    : buildPrompt(specPath, projectSiblings, {
+        repoGuidance: readRepoGuidance(preflight.project.root),
+        activeSubspecPath: activeSubspecPath ?? "",
+        activeSubspecBody:
+          activeSubspecPath !== undefined && existsSync(activeSubspecPath)
+            ? readFileSync(activeSubspecPath, "utf8")
+            : "",
+      });
   fanout("outbound", prompt, null, {
     iteration,
     agent: agent.name,
@@ -1633,22 +1644,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       // best-effort
     }
   }
-}
-
-function buildFixupPrompt(specPath: string, failureText: string, siblings?: string[]): string {
-  // The fix-up iteration's task is the captured `bun run ready` failure, not an
-  // unchecked spec task. Reuse the normal patch prompt (spec context + rules)
-  // and prepend the completion-gate failure as the work to do.
-  const base = buildPrompt(specPath, siblings);
-  const preamble = [
-    "The spec checklist is complete, but the completion `ready` gate failed:",
-    "",
-    failureText.trim(),
-    "",
-    "Fix the cause of this `bun run ready` failure. Do not edit the spec checklist; all boxes are already ticked.",
-    "",
-  ].join("\n");
-  return `${preamble}\n${base}`;
 }
 
 async function runCompletionReadyGate(ctx: IterationContext): Promise<CompletionReadyGateResult> {

@@ -56,21 +56,21 @@ unified diff only for allowlisted implementation files, not the whole branch.
 
 ## Acceptance criteria
 
-- [ ] `buildReviewPrompt` for adversary, advocate, and adjudicator roles
+- [x] `buildReviewPrompt` for adversary, advocate, and adjudicator roles
       includes branch diff stat and changed-path listing in `BRANCH_DIFF`; it
       does not include full unified diff hunks (`diff --git` / `@@` markers) for
       the whole branch.
-- [ ] Review prompt tests assert presence of stat/path summary and absence of
+- [x] Review prompt tests assert presence of stat/path summary and absence of
       unified-diff hunk markers outside allowed blocks so reintroducing
       `getBranchDiff` output on the review path fails.
-- [ ] `buildShrinkPrompt` includes full unified diff only for allowlisted paths
+- [x] `buildShrinkPrompt` includes full unified diff only for allowlisted paths
       in `RUN_SCOPED_DIFF`; it does not include full unified diff for the whole
       branch.
-- [ ] Shrink prompt tests fail if full branch unified diff appears outside the
+- [x] Shrink prompt tests fail if full branch unified diff appears outside the
       allowlisted diff block.
-- [ ] Review templates label the `BRANCH_DIFF` section as branch change summary,
+- [x] Review templates label the `BRANCH_DIFF` section as branch change summary,
       not unified diff.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -1144,193 +1144,168 @@ Date: 2026-06-18`,
     });
   });
 
-  describe("post-completion gate reuse", () => {
-    test("on the default common path, in-scope reusable gates run ready exactly once total", async () => {
-      setupGit();
-      const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+  describe("post-completion gate tier matrix", () => {
+    test("common path with review: one full ready, review final skips on unchanged tree", async () => {
+      const env = setupReviewEnv({ reviewPasses: 1 });
       const cap = captureIo();
+      const claude = reviewFakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "",
+        stderr: "",
+      }));
 
-      // Track ready gate invocations
-      const _readyCallCount = 0;
-      const _originalRunReady = require("../src/ready-gate.ts").runReadyAndCommit;
-
-      const claude = new FakeAgent("claude", () => {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
-      const code = await runWithDefaults({
-        specPath: spec,
+      const code = await runCommand({
+        specPath: env.spec,
         io: cap.io,
         config: { dir: cfgDir },
         agents: { claude },
+        logClient: { assertReachable: async () => {}, send: async () => {} },
         handleSignals: false,
       });
 
       expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
-      // Verify worktree is clean after all gates
-      const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" });
-      expect(status.trim()).toBe("");
+      expect(readFileSync(env.readyLog, "utf8").trim().split("\n")).toEqual(["full", "fast", "fast"]);
+      expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     });
 
-    test("tree is unchanged only when HEAD sha matches and worktree is clean", async () => {
-      setupGit();
-      const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    test("no-review path: completion full then maybeMarkReady fast", async () => {
+      const env = setupReviewEnv({ reviewPasses: 0 });
       const cap = captureIo();
-
-      const claude = new FakeAgent("claude", () => {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
+      const claude = reviewFakeAgent("claude", () => {
+        throw new Error("review must not run");
       });
 
-      const code = await runWithDefaults({
-        specPath: spec,
+      const code = await runCommand({
+        specPath: env.spec,
         io: cap.io,
         config: { dir: cfgDir },
+        reviewPasses: 0,
         agents: { claude },
+        logClient: { assertReachable: async () => {}, send: async () => {} },
         handleSignals: false,
       });
 
       expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
-      // Verify worktree is clean (unchanged condition)
-      const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" });
-      expect(status.trim()).toBe("");
+      expect(readFileSync(env.readyLog, "utf8").trim().split("\n")).toEqual(["full", "fast", "fast"]);
+      expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     });
 
-    test("when tree is unchanged, shrink pre-gate skips ready and reuses recorded result", async () => {
-      setupGit();
-      const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    test("resume-review: baseline and final each run full (no in-run carrier)", async () => {
+      const env = setupReviewEnv({ reviewPasses: 1 });
+      writeFileSync(env.spec, `repo: ${projectRoot}\n\n# Feature\n\n- [x] [00 - One](./00-one.md)\n`);
+      execSync("git add -A && git commit -m complete && git push origin main", { cwd: projectRoot });
+      execSync("git checkout -b feature && git push -u origin feature", { cwd: projectRoot });
+      execSync("git checkout main", { cwd: projectRoot });
+
       const cap = captureIo();
+      const claude = reviewFakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
 
-      const claude = new FakeAgent("claude", () => {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
-      const code = await runWithDefaults({
-        specPath: spec,
+      const code = await runCommand({
+        specPath: env.spec,
         io: cap.io,
         config: { dir: cfgDir },
         agents: { claude },
+        resumeReview: true,
+        logClient: { assertReachable: async () => {}, send: async () => {} },
         handleSignals: false,
       });
 
       expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
+      expect(readFileSync(env.readyLog, "utf8").trim().split("\n")).toEqual(["full", "full"]);
     });
 
-    test("when tree is unchanged, review baseline gate skips ready and reuses recorded result", async () => {
-      setupGit();
-      const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    test("when tree is unchanged, shrink pre-gate runs fast tier", async () => {
+      const env = setupReviewEnv({ reviewPasses: 0 });
       const cap = captureIo();
+      const claude = reviewFakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
 
-      const claude = new FakeAgent("claude", () => {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
-      const code = await runWithDefaults({
-        specPath: spec,
+      const code = await runCommand({
+        specPath: env.spec,
         io: cap.io,
         config: { dir: cfgDir },
+        reviewPasses: 0,
         agents: { claude },
+        logClient: { assertReachable: async () => {}, send: async () => {} },
         handleSignals: false,
       });
 
       expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
+      const tiers = readFileSync(env.readyLog, "utf8").trim().split("\n");
+      expect(tiers[0]).toBe("full");
+      expect(tiers[1]).toBe("fast");
     });
 
-    test("when tree is unchanged, maybeMarkReady skips ready, verifies clean worktree, and proceeds to gh pr ready", async () => {
-      setupGit();
-      const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    test("when tree is unchanged, review baseline runs fast tier", async () => {
+      const env = setupReviewEnv({ reviewPasses: 1 });
       const cap = captureIo();
+      const claude = reviewFakeAgent("claude", (_n, _cwd, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "" : "",
+        stderr: "",
+      }));
 
-      const claude = new FakeAgent("claude", () => {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
-      const code = await runWithDefaults({
-        specPath: spec,
+      const code = await runCommand({
+        specPath: env.spec,
         io: cap.io,
         config: { dir: cfgDir },
         agents: { claude },
+        logClient: { assertReachable: async () => {}, send: async () => {} },
         handleSignals: false,
       });
 
       expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
-      // Verify worktree is clean (clean-worktree predicate satisfied)
-      const status = execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" });
-      expect(status.trim()).toBe("");
+      const tiers = readFileSync(env.readyLog, "utf8").trim().split("\n");
+      expect(tiers).toEqual(["full", "fast", "fast"]);
     });
 
-    test("when shrink lands a commit, review baseline re-runs ready and refreshes recorded result", async () => {
-      setupGit();
-      const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    test("when tree is unchanged, maybeMarkReady runs fast tier", async () => {
+      const env = setupReviewEnv({ reviewPasses: 0 });
       const cap = captureIo();
+      const claude = reviewFakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
 
-      const claude = new FakeAgent("claude", () => {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
-      const code = await runWithDefaults({
-        specPath: spec,
+      await runCommand({
+        specPath: env.spec,
         io: cap.io,
         config: { dir: cfgDir },
+        reviewPasses: 0,
         agents: { claude },
+        logClient: { assertReachable: async () => {}, send: async () => {} },
         handleSignals: false,
       });
 
-      expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
+      const tiers = readFileSync(env.readyLog, "utf8").trim().split("\n");
+      expect(tiers.at(-1)).toBe("fast");
     });
 
-    test("when check:fix commit moves HEAD, next gate sees changed tree and re-runs ready", async () => {
-      setupGit();
-      const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    test("when tree is unchanged, review final skips ready and calls gh pr ready", async () => {
+      const env = setupReviewEnv({ reviewPasses: 1 });
       const cap = captureIo();
+      const claude = reviewFakeAgent("claude", (_n, _cwd, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "" : "",
+        stderr: "",
+      }));
 
-      const claude = new FakeAgent("claude", () => {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
-      const code = await runWithDefaults({
-        specPath: spec,
+      const code = await runCommand({
+        specPath: env.spec,
         io: cap.io,
         config: { dir: cfgDir },
         agents: { claude },
+        logClient: { assertReachable: async () => {}, send: async () => {} },
         handleSignals: false,
       });
 
       expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
+      expect(readFileSync(env.readyLog, "utf8").trim().split("\n")).toHaveLength(3);
+      expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     });
 
-    test("when shrink bails on empty allowlist, shrink pre-gate contributes no ready run", async () => {
+    test("completion-transition gate always invokes full tier", async () => {
       setupGit();
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
       const cap = captureIo();
+      const tiers: string[] = [];
 
       const claude = new FakeAgent("claude", () => {
         writeFileSync(spec, "- [x] todo\n");
@@ -1344,58 +1319,23 @@ Date: 2026-06-18`,
         config: { dir: cfgDir },
         agents: { claude },
         handleSignals: false,
+        reviewPasses: 0,
+        runCompletionReadyGate: (cwd) => {
+          const { runReadyAndCommit } = require("../src/ready-gate.ts") as typeof import("../src/ready-gate.ts");
+          runReadyAndCommit({
+            cwd,
+            tier: "full",
+            agentLabel: "completion-ready",
+            runReady: (_c, tier) => {
+              tiers.push(tier);
+            },
+          });
+          return { kind: "green" };
+        },
       });
 
       expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
-    });
-
-    test("when no green result recorded at completion transition, every gate runs ready itself", async () => {
-      setupGit();
-      const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
-      const cap = captureIo();
-
-      const claude = new FakeAgent("claude", () => {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
-      const code = await runWithDefaults({
-        specPath: spec,
-        io: cap.io,
-        config: { dir: cfgDir },
-        agents: { claude },
-        handleSignals: false,
-      });
-
-      expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
-    });
-
-    test("review final gate still runs ready unconditionally before gh pr ready", async () => {
-      setupGit();
-      const spec = writeSpec("- [ ] todo\n");
-      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
-      const cap = captureIo();
-
-      const claude = new FakeAgent("claude", () => {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-        return { kind: "ok", stdout: "", stderr: "" };
-      });
-
-      const code = await runWithDefaults({
-        specPath: spec,
-        io: cap.io,
-        config: { dir: cfgDir },
-        agents: { claude },
-        handleSignals: false,
-      });
-
-      expect(code).toBe(0);
-      expect(cap.out()).toContain("spec complete");
+      expect(tiers[0]).toBe("full");
     });
   });
 
@@ -2123,7 +2063,7 @@ exec "${realGit}" "$@"
       `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1 $2" == "run ready" ]]; then
-  printf 'ready-gate\\n' >> "${readyGateLog}"
+  printf '%s\n' "\${JARVIS_READY_TIER:-full}" >> "${readyGateLog}"
   exit 0
 fi
 exit 1
@@ -2257,9 +2197,8 @@ exit 1
     expect(readFileSync(prLog, "utf8").trim().split("\n")).toEqual(["create"]);
     expect(readFileSync(prViewLog, "utf8").trim().split("\n")).toHaveLength(6);
     expect(readFileSync(prEditLog, "utf8").trim().split("\n")).toEqual(["edit"]);
-    // Single completion ready gate runs `bun run ready` once and records the
-    // green result; the shrink pre-gate and maybeMarkReady reuse it.
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate"]);
+    // Completion runs `full`; shrink pre-gate and maybeMarkReady run `fast` on unchanged tree.
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["full", "fast", "fast"]);
     expect(readFileSync(readyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
     expect(readFileSync(createCommitCount, "utf8").trim()).toBe("1");
     expect(readFileSync(readyCommitCount, "utf8").trim()).toBe("2");
@@ -2338,7 +2277,7 @@ exec "${realGit}" "$@"
       `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1 $2" == "run ready" ]]; then
-  printf 'ready-gate\\n' >> "${readyGateLog}"
+  printf '%s\n' "\${JARVIS_READY_TIER:-full}" >> "${readyGateLog}"
   exit 0
 fi
 exit 1
@@ -2415,9 +2354,8 @@ exit 1
 
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(3);
-    // Single completion ready gate runs `bun run ready` once and records the
-    // green result; the shrink pre-gate and maybeMarkReady reuse it.
-    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["ready-gate"]);
+    // Completion runs `full`; shrink pre-gate and maybeMarkReady run `fast` on unchanged tree.
+    expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["full", "fast", "fast"]);
     const expectedDegenerateBody = [
       "<!-- jarvis:narrative:start -->",
       "Auto-generated by jarvis",
@@ -4557,7 +4495,7 @@ exec "${realGit}" "$@"
     `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1 $2" == "run ready" ]]; then
-  printf 'ready\\n' >> "${readyLog}"
+  printf '%s\n' "\${JARVIS_READY_TIER:-full}" >> "${readyLog}"
   exit 0
 fi
 exit 1
@@ -5220,7 +5158,7 @@ exec "${realGit}" "$@"
       `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "$1 $2" == "run ready" ]]; then
-  printf 'ready\\n' >> "${readyLog}"
+  printf '%s\n' "\${JARVIS_READY_TIER:-full}" >> "${readyLog}"
   exit 0
 fi
 exit 1

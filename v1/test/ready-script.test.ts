@@ -186,12 +186,13 @@ describe("ready tier parsing and step lists", () => {
     expect(installIndex).toBeLessThan(checkFixIndex);
   });
 
-  test("JARVIS_READY_TIER is parsed only in scripts/ready.ts", () => {
+  test("JARVIS_READY_TIER is set by the harness and parsed only in scripts/ready.ts", () => {
     const readySource = readFileSync("./scripts/ready.ts", "utf8");
     const readyGateSource = readFileSync("./v1/src/ready-gate.ts", "utf8");
 
     expect(readySource).toContain("JARVIS_READY_TIER");
-    expect(readyGateSource).not.toContain("JARVIS_READY_TIER");
+    expect(readyGateSource).toContain("JARVIS_READY_TIER");
+    expect(readyGateSource).not.toContain("parseReadyTier");
   });
 
   test("runReady honors JARVIS_READY_TIER=fast without invoking install or check steps", async () => {

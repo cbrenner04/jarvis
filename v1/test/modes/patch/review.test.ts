@@ -298,6 +298,40 @@ describe("runPatchReviewPhase", () => {
     }
   });
 
+  test("resume-review forces full tier even with injected recorded green", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "ok", stderr: "" }));
+      const headSha = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
+      const tiers: string[] = [];
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewPasses: 1, reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        resumeReview: true,
+        recordedGreenResult: { headSha },
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        runBaselineGate: (tier) => {
+          tiers.push(`baseline:${tier}`);
+        },
+        runFinalGate: (_branch, tier) => {
+          tiers.push(`final:${tier}`);
+        },
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(tiers).toEqual(["baseline:full", "final:full"]);
+    } finally {
+      cleanup();
+    }
+  });
+
   test("final gate runs only after all passes complete", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const events: string[] = [];
@@ -314,18 +348,18 @@ describe("runPatchReviewPhase", () => {
         writeTelemetry: () => {},
         agents: { claude },
         iterationTimeoutMs: 30_000,
-        runBaselineGate: () => {
-          events.push("baseline");
+        runBaselineGate: (tier) => {
+          events.push(`baseline:${tier}`);
         },
-        runFinalGate: () => {
-          events.push("final");
+        runFinalGate: (_branch, tier) => {
+          events.push(`final:${tier}`);
         },
         baseBranch: "main",
       });
       expect(code).toBe(0);
       // Each pass now runs 3 roles per cycle, each showing "pass N/M" message and "completed" message
-      expect(events).toContain("baseline");
-      expect(events).toContain("final");
+      expect(events).toContain("baseline:full");
+      expect(events).toContain("final:full");
       expect(events.filter((e) => e === "review: running baseline gate")).toHaveLength(1);
       expect(events.filter((e) => e === "review: running final ready")).toHaveLength(1);
     } finally {

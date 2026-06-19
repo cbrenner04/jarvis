@@ -32,34 +32,34 @@ Depends on `00` (tiered `scripts/ready.ts`).
 
 ## Tasks
 
-- [ ] Add `tier` to `RunReadyAndCommitOpts`; extend `runReady` seam to `(cwd, tier) => void`; default impl sets `JARVIS_READY_TIER`.
-- [ ] Extract shared `selectReadyTier(recordedGreen)` used by shrink pre-gate, review baseline, and both `maybeMarkReady` sites.
-- [ ] Completion transition (`run.ts`): pass `full`.
-- [ ] Shrink pre-gate (`shrink.ts`), review baseline (`review.ts`), per-iteration and completion-transition `maybeMarkReady` (`pr.ts`, `run.ts`): `selectReadyTier`; refresh recorded green after successful `full`.
-- [ ] Review final gate (`review.ts`): skip ready on unchanged tree; `full` otherwise; preserve failure exit semantics.
-- [ ] Rewrite skip-based gate-reuse tests (shrink, baseline, `maybeMarkReady`) to assert `fast` tier on unchanged tree.
-- [ ] Retire or rewrite the test asserting review final always runs ready unconditionally.
-- [ ] Add tier-matrix coverage for completion transition, no-review (`maybeMarkReady` only), and `--resume-review` (with and without in-run carrier).
+- [x] Add `tier` to `RunReadyAndCommitOpts`; extend `runReady` seam to `(cwd, tier) => void`; default impl sets `JARVIS_READY_TIER`.
+- [x] Extract shared `selectReadyTier(recordedGreen)` used by shrink pre-gate, review baseline, and both `maybeMarkReady` sites.
+- [x] Completion transition (`run.ts`): pass `full`.
+- [x] Shrink pre-gate (`shrink.ts`), review baseline (`review.ts`), per-iteration and completion-transition `maybeMarkReady` (`pr.ts`, `run.ts`): `selectReadyTier`; refresh recorded green after successful `full`.
+- [x] Review final gate (`review.ts`): skip ready on unchanged tree; `full` otherwise; preserve failure exit semantics.
+- [x] Rewrite skip-based gate-reuse tests (shrink, baseline, `maybeMarkReady`) to assert `fast` tier on unchanged tree.
+- [x] Retire or rewrite the test asserting review final always runs ready unconditionally.
+- [x] Add tier-matrix coverage for completion transition, no-review (`maybeMarkReady` only), and `--resume-review` (with and without in-run carrier).
 
 ## Acceptance criteria
 
-- [ ] Completion-transition gate invokes `runReadyAndCommit` with `full` tier.
-- [ ] When HEAD and porcelain match the recorded completion green result, shrink pre-gate, review baseline gate, per-iteration `maybeMarkReady`, and completion-transition `maybeMarkReady` each invoke `runReadyAndCommit` with `fast` tier (not `full`, not skip).
-- [ ] When the tree changed or no green was recorded, those gates invoke `runReadyAndCommit` with `full` tier and refresh the recorded green carrier on success.
-- [ ] When no green was recorded (red completion gate or `--resume-review` with no in-run carrier), every gate that runs ready uses `full`.
-- [ ] When HEAD and porcelain match the recorded completion green result, review final gate skips `runReadyAndCommit` and calls `gh pr ready` with worktree still clean.
-- [ ] When the tree changed before review final, review final gate runs `full` tier then `gh pr ready`.
-- [ ] On the default common path (green completion gate, review enabled, no-op shrink, review makes no commits), exactly one `full` ready runs total; review final reuses without a second full run.
-- [ ] With review passes `0` (no-review path), completion-transition `maybeMarkReady` follows the same `fast`/`full` matrix; no review baseline or final gate runs.
-- [ ] Under `--resume-review`, shrink is skipped; review baseline and review final each run `full` (no in-run carrier; test-injected `recordedGreenResult` must not downgrade to `fast` or skip).
-- [ ] Regression tests prove the tier matrix via the `(cwd, tier)` `runReady` seam or equivalent invocation logs.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] Completion-transition gate invokes `runReadyAndCommit` with `full` tier.
+- [x] When HEAD and porcelain match the recorded completion green result, shrink pre-gate, review baseline gate, per-iteration `maybeMarkReady`, and completion-transition `maybeMarkReady` each invoke `runReadyAndCommit` with `fast` tier (not `full`, not skip).
+- [x] When the tree changed or no green was recorded, those gates invoke `runReadyAndCommit` with `full` tier and refresh the recorded green carrier on success.
+- [x] When no green was recorded (red completion gate or `--resume-review` with no in-run carrier), every gate that runs ready uses `full`.
+- [x] When HEAD and porcelain match the recorded completion green result, review final gate skips `runReadyAndCommit` and calls `gh pr ready` with worktree still clean.
+- [x] When the tree changed before review final, review final gate runs `full` tier then `gh pr ready`.
+- [x] On the default common path (green completion gate, review enabled, no-op shrink, review makes no commits), exactly one `full` ready runs total; review final reuses without a second full run.
+- [x] With review passes `0` (no-review path), completion-transition `maybeMarkReady` follows the same `fast`/`full` matrix; no review baseline or final gate runs.
+- [x] Under `--resume-review`, shrink is skipped; review baseline and review final each run `full` (no in-run carrier; test-injected `recordedGreenResult` must not downgrade to `fast` or skip).
+- [x] Regression tests prove the tier matrix via the `(cwd, tier)` `runReady` seam or equivalent invocation logs.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 
-- [ ] `v1/docs/run-loop.md`: gate tier matrix (which gate uses `fast`, `full`, or skip); review-final recorded-green reuse; supersession note for prior skip/unconditional-final semantics; cross-link tier step definitions and install digest skip to subspec `00`. Update exit-6 row: intermediate `fast` does not run `check:fix` or commit; review-final skip relies on predicate cleanliness; dirty tree forces `full` and the `check:fix` commit path.
-- [ ] `v2/docs/v1-behaviors.md`: replace (not append) patch-mode ready-gate bullets for tiered behavior, intermediate `fast` reuse, and revised review-final reuse.
+- [x] `v1/docs/run-loop.md`: gate tier matrix (which gate uses `fast`, `full`, or skip); review-final recorded-green reuse; supersession note for prior skip/unconditional-final semantics; cross-link tier step definitions and install digest skip to subspec `00`. Update exit-6 row: intermediate `fast` does not run `check:fix` or commit; review-final skip relies on predicate cleanliness; dirty tree forces `full` and the `check:fix` commit path.
+- [x] `v2/docs/v1-behaviors.md`: replace (not append) patch-mode ready-gate bullets for tiered behavior, intermediate `fast` reuse, and revised review-final reuse.
 
 ## Out of scope
 

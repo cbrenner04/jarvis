@@ -11,12 +11,7 @@ import {
   NARRATIVE_START_MARKER,
   renderAttributionSummary,
 } from "../../pr.ts";
-import {
-  getCurrentHeadSha,
-  isTreeUnchangedSinceRecordedGreen,
-  type RunReadyAndCommitOpts,
-  runReadyAndCommit,
-} from "../../ready-gate.ts";
+import { runReadyAndCommit, runReadyGateWithTier, type ReadyTier, type RunReadyAndCommitOpts } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 import { parsePatchSpec } from "./spec.ts";
 
@@ -225,7 +220,7 @@ export type MaybeMarkReadyOpts = {
   /** Short-circuit seam: stubs the entire ready + commit + gh-pr-ready sequence. When present, skips all other seams. */
   markReady?: (branch: string, cwd: string) => void;
   /** Seam for just `bun run ready`. Used by tests when markReady is absent. Defaults to execFileSync call. */
-  runReady?: (cwd: string) => void;
+  runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only when markReady is absent and tree is dirty after runReady. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
   /** Seam for the `gh pr ready <branch>` shell-out. Used by tests to verify it is/isn't called. Defaults to execFileSync call. */
@@ -267,38 +262,20 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
     });
   };
 
-  // Check if tree is unchanged and we can reuse the recorded green result
-  const treeUnchanged =
-    opts.recordedGreenResult !== undefined &&
-    isTreeUnchangedSinceRecordedGreen({
-      cwd: opts.cwd,
-      recordedGreenHeadSha: opts.recordedGreenResult.headSha,
-    });
+  // Run ready at the tier selected from the recorded green carrier, then flip draft→ready.
+  runReadyGateWithTier({
+    cwd: opts.cwd,
+    agentLabel: opts.agentLabel ?? "",
+    ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
+    ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+    ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
+    ...(opts.refreshRecordedGreenResult !== undefined
+      ? { refreshRecordedGreenResult: opts.refreshRecordedGreenResult }
+      : {}),
+  });
 
-  if (treeUnchanged) {
-    // Tree unchanged: reuse the result. Worktree is verified clean by isTreeUnchangedSinceRecordedGreen,
-    // so we can proceed to gh pr ready
-    const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
-    ghPrReadyFn(branch, opts.cwd);
-  } else {
-    // Tree changed or no recorded result: run ready and commit logic, then refresh the result on success
-    runReadyAndCommit({
-      cwd: opts.cwd,
-      ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
-      ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
-      ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
-    });
-
-    // On success, refresh the recorded result
-    if (opts.refreshRecordedGreenResult) {
-      const newHeadSha = getCurrentHeadSha(opts.cwd);
-      opts.refreshRecordedGreenResult(newHeadSha);
-    }
-
-    // Then mark ready
-    const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
-    ghPrReadyFn(branch, opts.cwd);
-  }
+  const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
+  ghPrReadyFn(branch, opts.cwd);
 }
 
 function linkedSubspecsAreComplete(indexContent: string): boolean {

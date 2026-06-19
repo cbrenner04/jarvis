@@ -127,8 +127,40 @@ Install still runs when:
 - the lockfile is unchanged but the recomputed `node_modules` identity digest
   mismatches the recorded value
 
-Which harness gate invokes **`fast`** vs **`full`** is in the gate tier matrix
-([01 - Harness gate tier wiring](../../v2/spec/2026-06-19T19-52-17Z-tiered-ready-pipeline-gate-reuse/01-harness-gate-tier-wiring.md)).
+Which harness gate invokes **`fast`** vs **`full`** is in the gate tier matrix below.
+
+### Gate tier matrix
+
+Supersedes prior skip-based reuse (`01-gate-reuse`): intermediate gates run
+**`fast`** on an unchanged tree instead of skipping `bun run ready`; review
+final **skips** `ready` on an unchanged tree instead of always running **`full`**.
+
+| Gate | Tier when tree unchanged since recorded green | Tier when tree changed or no green recorded |
+| --- | --- | --- |
+| Completion transition | **`full`** (always) | **`full`** |
+| Shrink pre-gate | **`fast`** | **`full`** (refreshes carrier on green) |
+| Review baseline | **`fast`** | **`full`** (refreshes carrier on green) |
+| Per-iteration / completion-transition `maybeMarkReady` | **`fast`** | **`full`** (refreshes carrier on green) |
+| Review final | **skip** (`gh pr ready` only) | **`full`** then `gh pr ready` |
+
+**Recorded green** is set only after a successful **`full`** gate (completion
+transition, or any gate that ran **`full`** and refreshed the carrier). Red
+completion records no green; every gate that runs ready uses **`full`** until a
+new green is recorded.
+
+**`--resume-review`** runs zero implementation iterations, so there is no
+completion gate and no in-run carrier: review baseline and review final each use
+**`full`**, even when the worktree is clean and HEAD is unchanged. Injected test
+carriers must not downgrade resume gates to **`fast`** or skip.
+
+**Common path** (green completion, review enabled, no-op shrink, review makes no
+commits): exactly one **`full`** `bun run ready` total (completion transition);
+shrink pre-gate and review baseline each run **`fast`**; review final skips.
+
+**`check:fix` commit path** in `runReadyAndCommit` runs only after a **`full`**
+tier invocation; **`fast`** never commits `check:fix` output.
+
+Step definitions and install digest skip: [Ready script tiers](#ready-script-tiers) and subspec `00`.
 
 ## Completion
 
@@ -151,8 +183,8 @@ treating it as complete.
 When a `git: true` patch run reaches the completion transition (zero unchecked
 boxes and a clean worktree), Jarvis runs `bun run ready` once, harness-side,
 before proceeding to post-completion phases (shrink, review, `maybeMarkReady`).
-This completion-transition gate runs through the existing `runReadyAndCommit`
-path and consumes zero agent tokens.
+This completion-transition gate always runs the **`full`** tier through
+`runReadyAndCommit` and consumes zero agent tokens.
 
 On success, the harness records a green result keyed to:
 - **HEAD sha**: Read via a separate `git rev-parse HEAD` *after*
@@ -161,14 +193,14 @@ On success, the harness records a green result keyed to:
 - **Clean worktree**: Verified after `runReadyAndCommit` completes.
 
 This recorded result is available to post-completion phases (shrink and review
-gates, plus `maybeMarkReady` at both the completion-transition and per-iteration 
-early-ready sites in `01`). On the common path (green completion gate, default 
-config with review enabled, no-op shrink, review makes no commits), the shrink 
-pre-gate and review baseline both see an unchanged tree and reuse the recorded 
-result without re-running `bun run ready`. The review final gate still runs `ready` 
-unconditionally before the draft→ready flip. If the completion-transition ready 
-fails, no green result is recorded and the run proceeds unchanged into the existing 
-post-completion phases with the same exit code and stop reasons.
+gates, plus `maybeMarkReady` at both the completion-transition and per-iteration
+early-ready sites). On the common path (green completion gate, default config
+with review enabled, no-op shrink, review makes no commits), shrink pre-gate and
+review baseline each run **`fast`** on the unchanged tree; review final skips
+`ready` and calls `gh pr ready` with the predicate's clean worktree. If the
+completion-transition ready fails, no green result is recorded and the run
+proceeds unchanged into the existing post-completion phases with the same exit
+code and stop reasons.
 
 The completion-transition gate is reached at most once per run (in
 `tryFinishSpecIfDone`, which early-returns whenever unchecked boxes remain).
@@ -252,12 +284,11 @@ no implementation iterations).
 
 The review phase flow is:
 
-1. **Baseline gate**: checks if the tree is unchanged since the completion gate's 
-   recorded green result (current HEAD sha equals the recorded sha **and** worktree 
-   clean). If unchanged, reuses that green result and skips `bun run ready`; if 
-   changed, runs `bun run ready` (install → check:fix → typecheck → test → check) 
-   and refreshes the recorded result on green. If check:fix makes changes, they 
-   are committed. The draft PR stays draft at this point.
+1. **Baseline gate**: when the tree is unchanged since the recorded green result
+   (HEAD sha match and clean porcelain), runs **`fast`**; when the tree changed or
+   no green was recorded, runs **`full`** and refreshes the carrier on green.
+   Under **`--resume-review`**, always **`full`**. `check:fix` commits only follow
+   **`full`**. The draft PR stays draft at this point.
 2. **Review passes**: For each pass, the agent is invoked with the spec tree and 
    current branch diff as context, asked to critique and refactor the 
    implementation. Non-empty changes are committed per pass. Spec-tree edits are 
@@ -272,10 +303,11 @@ The review phase flow is:
    during the invocation upgrade to **`quota`** and rotate like strict quota. Other 
    hard **`error`** results stop the pass (no rotation). Per-pass iteration timeout 
    is enforced by the patch adapter's agent wrapper.
-3. **Final ready**: runs `bun run ready` unconditionally (install → check:fix → 
-   typecheck → test → check), then `gh pr ready` to transition the PR from draft 
-   to ready. The final ready gate does not participate in reuse and always verifies 
-   the implementation immediately before the draft→ready transition.
+3. **Final ready**: when the tree is unchanged since the recorded green result,
+   skips `bun run ready` and calls `gh pr ready` (worktree cleanliness comes from
+   the reuse predicate). When the tree changed or no green was recorded, runs
+   **`full`** then `gh pr ready`. Under **`--resume-review`**, always **`full`**
+   then `gh pr ready`.
 
 Telemetry records review pass invocations with `patch_phase: "review"` so they
 are distinguishable from implementation iterations in `~/.jarvis/runs.jsonl`.
@@ -367,12 +399,10 @@ Order: **shrink → review (when configured) → `maybeMarkReady`**.
 
 Shrink phase flow:
 
-1. **Pre-shrink gate**: checks if the tree is unchanged since the completion 
-   gate's recorded green result (current HEAD sha equals the recorded sha **and** 
-   worktree clean). If unchanged, reuses that green result and skips `bun run ready`; 
-   if changed, runs `bun run ready` with the same commit/push semantics as the 
-   review baseline helper and refreshes the recorded result on green. Failure logs 
-   a warning and skips shrink (review and/or `maybeMarkReady` still proceed).
+1. **Pre-shrink gate**: when the tree is unchanged since the recorded green
+   result, runs **`fast`**; when changed or no green was recorded, runs **`full`**
+   and refreshes the carrier on green. Failure logs a warning and skips shrink
+   (review and/or `maybeMarkReady` still proceed).
 2. **Shrink invocation**: one agent call with `patch.prompt.shrink` + `global.terse`
    (not `patch.rules`). Prompt includes the completed spec tree (read-only), an
    explicit allowlist of files touched during implementation iterations, and a
@@ -665,7 +695,7 @@ jarvis1 log-server
 | `3` | The active agent failed for a non-quota reason. |
 | `4` | A successful agent iteration made no progress (unchecked count unchanged and spec still incomplete). When the active subspec is resolvable, the stop message lists unticked acceptance criteria from that subspec to help guide recovery—this diagnostic fires only on clean runs with no-progress, not on other stop paths. The guidance message explains that if the work is done, ticking the satisfied criteria and rerunning will complete the subspec. |
 | `5` | The configured `maxIterations` was reached. Default is 10; override with `--max-iterations <n>`. |
-| `6` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes (excluding the `chore: apply pre-ready check:fix` commit, which the harness handles automatically), or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. After a successful readiness transition, the worktree is guaranteed clean because the harness commits any `check:fix` mutations before calling `gh pr ready`. On the post-completion gate reuse branch (when the tree is unchanged since the recorded green result and reuse skips `runReadyAndCommit`), the reuse predicate's clean-worktree check ensures the same guarantee: `maybeMarkReady` reuses and proceeds to `gh pr ready` only when the worktree is verified clean at that moment. Exit 6 on the "worktree not clean" path is therefore reserved for genuinely unexpected dirty state (forgotten staged files, untracked artifacts) that is unrelated to the `check:fix` step. The bail message ends with a pointer to `jarvis1 triage <worktree-name>` to inspect the state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
+| `6` | The run cannot continue because the worktree is dirty. This includes a completed checklist with uncommitted changes (excluding the `chore: apply pre-ready check:fix` commit, which the harness handles automatically after **`full`** gates only), or an agent iteration that edited files without ticking any new acceptance-criteria checkbox in the active subspec. After a successful readiness transition, the worktree is guaranteed clean because **`full`** gates commit any `check:fix` mutations before calling `gh pr ready`. Intermediate **`fast`** gates do not run `check:fix` or commit. Review-final skip relies on the recorded-green predicate's clean-worktree check; a dirty tree forces **`full`** and the `check:fix` commit path. `maybeMarkReady` on an unchanged tree runs **`fast`** then `gh pr ready` with the same predicate guaranteeing cleanliness. Exit 6 on the "worktree not clean" path is therefore reserved for genuinely unexpected dirty state (forgotten staged files, untracked artifacts) that is unrelated to the `check:fix` step. The bail message ends with a pointer to `jarvis1 triage <worktree-name>` to inspect the state and see suggested next moves. Tick satisfied acceptance criteria, fix, or revert the dirty changes before rerunning. |
 | `7` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |

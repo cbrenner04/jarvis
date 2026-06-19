@@ -56,6 +56,7 @@ import {
 } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
+import { DescendantTracker } from "./reap.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import { parsePatchSpec } from "./spec.ts";
@@ -105,11 +106,20 @@ export type RunCommandOptions = {
    * to 5000ms; production callers must not set this.
    */
   __testKillGraceMs?: number;
+  /**
+   * Test-only override for the orphan-reap entry point. Lets an induced reap
+   * failure be injected deterministically to prove the run's exit code is
+   * unaffected. Production callers must not set this.
+   */
+  __testReapFn?: () => void;
 };
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;
 type LogAnnotations = Record<string, string | number | boolean | null>;
+
+/** How often to sample an agent's process subtree for descendant reaping. */
+const DESCENDANT_POLL_INTERVAL_MS = 500;
 
 type Fanout = (tag: LogTag, text: string, stream: LogStream, annotations?: LogAnnotations) => void;
 
@@ -174,6 +184,7 @@ type IterationContext = {
   logging: LoggingContext;
   opts: RunCommandOptions;
   activeAgents: Agent[];
+  descendantTracker: DescendantTracker;
   state: {
     iteration: number;
     latestIterationStdout: string[];
@@ -256,6 +267,10 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   const logging = loggingSetup;
   let runExitReason = "error";
 
+  // Tracks agent descendant PIDs across iterations so orphans that escape the
+  // process group can be reaped at iteration end and at finalize.
+  const descendantTracker = new DescendantTracker();
+
   const state = {
     iteration: 1,
     latestIterationStdout: [] as string[],
@@ -295,6 +310,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     logging,
     opts,
     activeAgents,
+    descendantTracker,
     state,
   };
 
@@ -742,6 +758,15 @@ function finalize(
   if (ctx.opts.handleSignals !== false) {
     process.removeListener("SIGINT", onSigint);
   }
+
+  // Reap any agent descendants that escaped the process group and outlived
+  // their iteration (covers the SIGINT and direct-`process.exit` paths).
+  // Best-effort: never throws, never affects the exit code.
+  try {
+    (ctx.opts.__testReapFn ?? (() => ctx.descendantTracker.reap()))();
+  } catch {
+    // best-effort
+  }
 }
 
 function mapExitCodeToReason(exitCode: number): string {
@@ -972,6 +997,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
   let watchdogKillHandle: NodeJS.Timeout | null = null;
+  // Poll the agent's process subtree while it is alive so descendants that
+  // later escape the process group (via setsid) and re-parent to init can be
+  // reaped after the agent exits, when no live lineage to them remains.
+  let descendantPollHandle: NodeJS.Timeout | null = null;
   const iterationTimeoutHandle = setTimeout(() => {
     watchdogFired = true;
     const pgid = watchdogPgid;
@@ -1003,6 +1032,13 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       abortKillGraceMs: killGraceMs,
       onSpawned: ({ pid }) => {
         watchdogPgid = pid;
+        // Record descendants immediately, then keep sampling while the agent
+        // runs so escapees are captured before their lineage is severed.
+        ctx.descendantTracker.poll(pid);
+        descendantPollHandle = setInterval(() => {
+          ctx.descendantTracker.poll(pid);
+        }, DESCENDANT_POLL_INTERVAL_MS);
+        descendantPollHandle.unref();
       },
     });
 
@@ -1546,6 +1582,20 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     clearTimeout(iterationTimeoutHandle);
     if (watchdogKillHandle !== null) {
       clearTimeout(watchdogKillHandle);
+    }
+    // Stop sampling, take one final snapshot, and reap descendants that escaped
+    // the process group kill. Best-effort: never throws, never affects the exit
+    // code or stop reason.
+    if (descendantPollHandle !== null) {
+      clearInterval(descendantPollHandle);
+    }
+    if (watchdogPgid !== null) {
+      ctx.descendantTracker.poll(watchdogPgid);
+    }
+    try {
+      (opts.__testReapFn ?? (() => ctx.descendantTracker.reap()))();
+    } catch {
+      // best-effort
     }
   }
 }

@@ -27,6 +27,21 @@ Jarvis normalizes the `PWD` environment variable for every spawned agent so
 that agents that read `PWD` (e.g., opencode) operate on the working directory
 (worktree or project root) rather than inheriting the harness's `PWD`.
 
+### Orphan reaping
+
+Jarvis does not tag agent spawns with any extra environment variable. To clean
+up descendants that escape the process-group kill (e.g. a tool that calls
+`POSIX::setsid()` and re-parents to init), the harness instead tracks an agent's
+descendant PIDs while it runs and SIGKILLs survivors at iteration end and
+finalize. Discovery uses only the `pid`/`ppid`/`pgid`/start-time columns of a
+process listing — never process environments or command arguments — so nothing
+about scanned processes is logged or stored. See
+[run-loop.md#orphan-process-reaping](./run-loop.md#orphan-process-reaping)
+for mechanics and rationale.
+
+This is unrelated to the prompt-appended HTML-comment marker that `codex` uses
+for session/usage correlation, which is a prompt artifact, not a process tag.
+
 ## Agent attribution labels
 
 Each agent exposes an `attributionLabel()` method that returns a human-readable

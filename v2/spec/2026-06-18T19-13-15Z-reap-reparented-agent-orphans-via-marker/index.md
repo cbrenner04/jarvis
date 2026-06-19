@@ -1,5 +1,5 @@
-# Reap re-parented agent orphans via inherited env marker
+# Reap re-parented agent orphans by tracking descendant PIDs
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Tag agent spawns with a run+iteration marker and reap survivors](./00-marker-reap.md)
+- [x] [00 - Reap re-parented agent orphans by tracking descendant PIDs](./00-marker-reap.md)

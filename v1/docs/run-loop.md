@@ -671,3 +671,35 @@ run terminal and session log:
 `[watchdog] iteration timeout fired after Nms; killing agent pgid <pgid>`.
 The watchdog is armed before agent spawn, does not reset on streaming output,
 SIGTERMs the full process group, waits up to 5 seconds, then SIGKILLs survivors.
+
+### Orphan process reaping
+
+Agent tools can place a descendant in a new session/process group (e.g. a
+`bun run test` → `bun test` subtree that calls `setsid()`). When the watchdog
+kills `-pgid`, that descendant escapes the group kill and, once its agent
+exits, re-parents to init (PPID=1). These orphans can peg CPU for minutes after
+their agent is gone, and by then no process group or parent link leads back to
+them.
+
+macOS does not expose process environments to an unprivileged `ps`, so an
+inherited env marker cannot be discovered after the fact; the `pid`/`ppid`/
+`pgid` columns, however, are always visible. So Jarvis tracks descendants
+proactively: while an agent runs, it samples the process table on a fixed
+interval and records every PID descended from the agent (by transitive `ppid`,
+plus any process still sharing the agent's `pgid`). A descendant's `ppid` still
+points into the agent subtree until the agent dies, so escapees are captured
+while their lineage is intact. At the end of each iteration and at finalize,
+Jarvis takes a final sample and SIGKILLs any recorded descendant that is still
+alive. Each recorded PID carries the process's start time (`lstart`) as an
+identity, and the reaper skips a PID whose start time has changed, so a recycled
+PID belonging to an unrelated process is never targeted; the harness's own
+process is never targeted.
+
+Reaping is best-effort and never affects run exit codes or stop reasons.
+Process-listing and kill failures are swallowed. Reaping reads only `pid`,
+`ppid`, `pgid`, and start time — never process environments or command
+arguments — so no scanned process state is logged or stored.
+
+This mechanism covers all iteration-exit paths (settle, abort, timeout) and
+finalize (SIGINT and direct `process.exit`), ensuring no orphans escape even
+when the harness is interrupted.

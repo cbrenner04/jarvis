@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseClaudeJsonOutput, isClaudeZeroExitQuotaEnvelope } from "../src/agents/claude-json.ts";
+import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "../src/agents/claude-json.ts";
 
 const fixturesDir = join(import.meta.dir, "fixtures", "claude");
 

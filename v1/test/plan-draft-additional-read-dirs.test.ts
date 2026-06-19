@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
@@ -93,7 +93,7 @@ describe("planCommand (additionalReadDirs production gate)", () => {
           // Extract external spec dir from the Intent: line
           const intentOutput = cap.out();
           const match = intentOutput.match(/^Intent: (.+?)\/intent\.md\n/m);
-          if (!match || !match[1]) throw new Error("Intent: path not found in output");
+          if (!match?.[1]) throw new Error("Intent: path not found in output");
           const externalSpecDir = match[1];
 
           writeFileSync(join(externalSpecDir, "index.md"), "# Draft spec\n\n- [ ] [00](./00-one.md)\n");
@@ -190,7 +190,7 @@ describe("planCommand (additionalReadDirs production gate)", () => {
 
       // Call planCommand with createAgent injection
       // Note: skipGhCheck: true with commit: true skips the main flow, so we don't set it
-      const result = await planCommand({
+      const _result = await planCommand({
         io: cap.io,
         args: [intentPath],
         cwd: projectRoot,

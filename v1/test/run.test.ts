@@ -13,8 +13,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { runAgent } from "../src/agents/spawn.ts";
 import { ClaudeAgent } from "../src/agents/claude.ts";
+import { runAgent } from "../src/agents/spawn.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { type AgentEntry, loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
@@ -86,10 +86,7 @@ const CLAUDE_MONTHLY_SPEND_FIXTURE = readFileSync(
   "utf8",
 );
 
-function fakeClaudeBinary(
-  dir: string,
-  opts: { exit: number; stdout?: string; stderr?: string },
-): string {
+function fakeClaudeBinary(dir: string, opts: { exit: number; stdout?: string; stderr?: string }): string {
   const path = join(dir, "claude");
   const out = opts.stdout ?? "";
   const err = opts.stderr ?? "";
@@ -1155,8 +1152,8 @@ Date: 2026-06-18`,
       const cap = captureIo();
 
       // Track ready gate invocations
-      const readyCallCount = 0;
-      const originalRunReady = require("../src/ready-gate.ts").runReadyAndCommit;
+      const _readyCallCount = 0;
+      const _originalRunReady = require("../src/ready-gate.ts").runReadyAndCommit;
 
       const claude = new FakeAgent("claude", () => {
         writeFileSync(spec, "- [x] todo\n");
@@ -5144,7 +5141,7 @@ exit 1
 
     const cap = captureIo();
     let implementationAgentCalled = false;
-    const claude = new FakeAgent("claude", () => {
+    const _claude = new FakeAgent("claude", () => {
       implementationAgentCalled = true;
       throw new Error("implementation agent must not run under resume-review");
     });

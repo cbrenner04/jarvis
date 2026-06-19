@@ -57,3 +57,38 @@ and descendant kill path — it does not duplicate or fight them, and exit code
 ## Prerequisites
 - Stalled iterations record last-output age and child-activity diagnostics.
 - A written finding identifies the dominant stall cause and warrants a tighter idle bound.
+
+## Blocker
+
+Prerequisite 1 (stall diagnostics) is confirmed: `v1/src/modes/patch/run.ts`
+records `last_output_age_ms` and `watchdog_descendants_alive` on
+`watchdog-iteration-timeout` rows (run.ts:1029-1091; telemetry shape at :146-148).
+
+Prerequisite 2 is **not** confirmed. A finding exists
+(`v2/spec/2026-06-19T20-11-00Z-stall-cause-finding/finding.md`) but it does not
+warrant a tighter idle bound — it reaches the opposite conclusion:
+
+- Dominant stall cause: **`inconclusive`** (all 5 cited rows are
+  pre-instrumentation, classified `other`; 0 post-instrumentation
+  `watchdog-iteration-timeout` rows with `last_output_age_ms` exist in
+  `~/.jarvis/runs.jsonl` yet).
+- Idle-bound verdict: **`not-warranted`** — "No harness changes are recommended
+  until instrumented evidence emerges."
+
+This intent's own design depends on a warranting finding: Decision 1 sets the
+idle default to "a value the finding supports," and the finding supports no
+value. Drafting the watchdog now would invent the default and the
+warrant the finding explicitly withholds — exactly the guessing this gate exists
+to stop.
+
+Unblock by either:
+1. Letting instrumented `watchdog-iteration-timeout` rows accumulate in
+   production, re-running stall-cause-finding, and revising this intent once the
+   finding's verdict flips to `warranted` with `agent-idle` dominant and cited
+   `last_output_age_ms` values to anchor the default; or
+2. Revising this intent to drop the warrant prerequisite and explicitly own the
+   idle bound as a finding-independent decision (e.g. ship defaulting **off**
+   with a documented rationale that does not claim finding support), which
+   contradicts Decision 1 as currently written.
+
+No `index.md` or subspecs written.

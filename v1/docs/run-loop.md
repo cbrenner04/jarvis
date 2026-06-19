@@ -703,7 +703,5 @@ arguments — so no scanned process state is logged or stored.
 This mechanism covers all iteration-exit paths (settle, abort, timeout) and
 finalize (SIGINT and direct `process.exit`), ensuring no orphans escape even
 when the harness is interrupted. Prompt-mode invocations (`jarvis1 prompt`)
-employ the same reaping strategy per agent attempt in the fallback loop,
-ensuring re-parented orphans are cleaned up after each attempt exits. Review
-passes and verdict-actuator invocations use the same strategy per invocation,
-reaping orphans in each pass's or actuator's `finally` block.
+use the same per-attempt strategy in the fallback loop. Review passes and
+verdict-actuator invocations use the same per-invocation strategy.

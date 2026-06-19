@@ -449,7 +449,6 @@ describe("runPatchReviewPhase", () => {
 
   test("orphan reaping: reviewer pass polls and reaps via override", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
-    const pollCalls: number[] = [];
     const reapCalls: number[] = [];
     try {
       const reviewer = new FakeAgent("claude", () => ({
@@ -516,7 +515,6 @@ describe("runPatchReviewPhase", () => {
       });
 
       expect(code).toBe(0);
-      // Reap override should be called at least once for the actuator
       expect(reapCalls.length).toBeGreaterThan(0);
     } finally {
       cleanup();
@@ -548,7 +546,6 @@ describe("runPatchReviewPhase", () => {
         },
       });
 
-      // Even though reap throws, review should still exit 0 (non-fatal)
       expect(code).toBe(0);
     } finally {
       cleanup();

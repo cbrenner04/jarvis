@@ -265,13 +265,36 @@ export type PatchReviewPhaseOptions = {
   __testReapOverride?: (tracker: DescendantTracker) => number;
 };
 
+type ReapOverride = PatchReviewPhaseOptions["__testReapOverride"];
+
+function startDescendantPolling(tracker: DescendantTracker, pid: number): NodeJS.Timeout {
+  tracker.poll(pid);
+  const handle = setInterval(() => {
+    try {
+      tracker.poll(pid);
+    } catch {
+      // best-effort
+    }
+  }, DESCENDANT_POLL_INTERVAL_MS);
+  handle.unref?.();
+  return handle;
+}
+
+function reapTrackedDescendants(tracker: DescendantTracker, reapOverride?: ReapOverride): void {
+  try {
+    reapOverride ? reapOverride(tracker) : tracker.reap();
+  } catch {
+    // best-effort: reap failures are non-fatal
+  }
+}
+
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
 function withReviewPassTimeout(
   agent: Agent,
   opts: {
     timeoutMs: number;
     killGraceMs: number;
-    reapOverride?: (tracker: DescendantTracker) => number;
+    reapOverride?: ReapOverride;
   },
 ): Agent {
   return {
@@ -301,19 +324,7 @@ function withReviewPassTimeout(
           abortKillGraceMs: opts.killGraceMs,
           onSpawned: ({ pid }) => {
             watchdogPgid = pid;
-            // Poll descendant process tree on spawn and then on interval
-            tracker.poll(pid);
-            pollIntervalHandle = setInterval(() => {
-              try {
-                tracker.poll(pid);
-              } catch {
-                // best-effort
-              }
-            }, DESCENDANT_POLL_INTERVAL_MS);
-            // Unref so polling doesn't keep the process alive
-            if (pollIntervalHandle.unref) {
-              pollIntervalHandle.unref();
-            }
+            pollIntervalHandle = startDescendantPolling(tracker, pid);
           },
         });
       } finally {
@@ -321,11 +332,7 @@ function withReviewPassTimeout(
         if (pollIntervalHandle !== null) {
           clearInterval(pollIntervalHandle);
         }
-        try {
-          opts.reapOverride ? opts.reapOverride(tracker) : tracker.reap();
-        } catch {
-          // best-effort: reap failures are non-fatal
-        }
+        reapTrackedDescendants(tracker, opts.reapOverride);
       }
     },
   };
@@ -697,7 +704,6 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       }, opts.iterationTimeoutMs);
 
       const actuatorStartedMs = Date.now();
-      let actuatorPgid: number | null = null;
       const actuatorTracker = new DescendantTracker();
       let actuatorPollHandle: NodeJS.Timeout | null = null;
 
@@ -712,20 +718,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           signal: actuatorController.signal,
           abortKillGraceMs: killGraceMs,
           onSpawned: ({ pid }) => {
-            actuatorPgid = pid;
-            // Poll descendant process tree on spawn and then on interval
-            actuatorTracker.poll(pid);
-            actuatorPollHandle = setInterval(() => {
-              try {
-                actuatorTracker.poll(pid);
-              } catch {
-                // best-effort
-              }
-            }, DESCENDANT_POLL_INTERVAL_MS);
-            // Unref so polling doesn't keep the process alive
-            if (actuatorPollHandle.unref) {
-              actuatorPollHandle.unref();
-            }
+            actuatorPollHandle = startDescendantPolling(actuatorTracker, pid);
           },
         });
 
@@ -856,11 +849,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         if (actuatorPollHandle !== null) {
           clearInterval(actuatorPollHandle);
         }
-        try {
-          opts.__testReapOverride ? opts.__testReapOverride(actuatorTracker) : actuatorTracker.reap();
-        } catch {
-          // best-effort: reap failures are non-fatal
-        }
+        reapTrackedDescendants(actuatorTracker, opts.__testReapOverride);
       }
     };
   };
@@ -874,18 +863,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       loadAgent: ({ name, model }) => {
         const override = opts.agents?.[name as AgentName];
         const agent = override ?? createAgent(name as AgentName, model);
-        const wrapperOpts: {
-          timeoutMs: number;
-          killGraceMs: number;
-          reapOverride?: (tracker: DescendantTracker) => number;
-        } = {
+        return withReviewPassTimeout(agent, {
           timeoutMs: opts.iterationTimeoutMs,
           killGraceMs,
-        };
-        if (opts.__testReapOverride !== undefined) {
-          wrapperOpts.reapOverride = opts.__testReapOverride;
-        }
-        return withReviewPassTimeout(agent, wrapperOpts);
+          ...(opts.__testReapOverride !== undefined ? { reapOverride: opts.__testReapOverride } : {}),
+        });
       },
       onAllAgentsQuotaExhausted: (message) => {
         opts.fanout("harness", `${message}\n`, "stderr");

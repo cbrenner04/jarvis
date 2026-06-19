@@ -22,7 +22,7 @@ import {
 } from "../review/types.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } from "./prompt.ts";
-import { DescendantTracker, DESCENDANT_POLL_INTERVAL_MS } from "./reap.ts";
+import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "./reap.ts";
 
 /** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
@@ -874,7 +874,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       loadAgent: ({ name, model }) => {
         const override = opts.agents?.[name as AgentName];
         const agent = override ?? createAgent(name as AgentName, model);
-        const wrapperOpts: { timeoutMs: number; killGraceMs: number; reapOverride?: (tracker: DescendantTracker) => number } = {
+        const wrapperOpts: {
+          timeoutMs: number;
+          killGraceMs: number;
+          reapOverride?: (tracker: DescendantTracker) => number;
+        } = {
           timeoutMs: opts.iterationTimeoutMs,
           killGraceMs,
         };

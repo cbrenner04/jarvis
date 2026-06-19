@@ -21,8 +21,8 @@ import {
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
-import { buildPrompt } from "./prompt.ts";
 import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "../patch/reap.ts";
+import { buildPrompt } from "./prompt.ts";
 
 export type PromptRunOptions = {
   promptText: string;

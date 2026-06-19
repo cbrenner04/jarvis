@@ -89,8 +89,18 @@ export function buildPrompt(specPath: string, siblings?: string[], extras?: Buil
   );
 
   const optionalSections = [
-    { content: repoGuidance, header: "## Repo Guidance", begin: "<<<REPO_GUIDANCE_BEGIN>>>", end: "<<<REPO_GUIDANCE_END>>>" },
-    { content: activeSubspecPath, header: "## Active Subspec", begin: "<<<ACTIVE_SUBSPEC_BEGIN>>>", end: "<<<ACTIVE_SUBSPEC_END>>>" },
+    {
+      content: repoGuidance,
+      header: "## Repo Guidance",
+      begin: "<<<REPO_GUIDANCE_BEGIN>>>",
+      end: "<<<REPO_GUIDANCE_END>>>",
+    },
+    {
+      content: activeSubspecPath,
+      header: "## Active Subspec",
+      begin: "<<<ACTIVE_SUBSPEC_BEGIN>>>",
+      end: "<<<ACTIVE_SUBSPEC_END>>>",
+    },
   ];
   for (const section of optionalSections) {
     if (section.content.length === 0) {

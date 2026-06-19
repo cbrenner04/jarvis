@@ -12,13 +12,7 @@ import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
 } from "../../../src/quota-harness-messages.ts";
-
-/** Harmless PID for onSpawned wiring tests — never use process.pid (watchdog kills -pgid). */
-const FAKE_AGENT_SPAWN_PID = 2_147_483_647;
-
-async function waitForTestDescendantPolls(intervalMs: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, intervalMs * 2 + 5));
-}
+import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -318,11 +312,11 @@ describe("promptCommand", () => {
     const cap = captureIo();
     let pollCount = 0;
     let reapCount = 0;
-    const pollIntervalMs = 5;
+    const pollIntervalMs = 1;
     const claude = new FakeAgent(
       "claude",
       async () => {
-        await waitForTestDescendantPolls(pollIntervalMs);
+        await waitForPollCount(() => pollCount, 2);
         return { kind: "ok", stdout: "answer\n", stderr: "" };
       },
       true,
@@ -423,7 +417,7 @@ describe("promptCommand", () => {
         quotaFallback: "strict",
         weakQuotaExitCodes: [],
         maxIterations: 10,
-        iterationTimeoutMs: 50,
+        iterationTimeoutMs: 1,
         git: true,
         projects: { project: { root: projectRoot } },
       },
@@ -434,7 +428,7 @@ describe("promptCommand", () => {
     const claude = new FakeAgent(
       "claude",
       async () => {
-        await waitForTestDescendantPolls(50);
+        await new Promise((resolve) => setTimeout(resolve, 5));
         return { kind: "ok", stdout: "answer\n", stderr: "" };
       },
       true,
@@ -448,7 +442,7 @@ describe("promptCommand", () => {
 
     expect(code).toBe(8);
     expect(reapCallCount).toBe(1);
-    expect(cap.err()).toContain("[watchdog] iteration timeout fired after 50ms");
+    expect(cap.err()).toContain("[watchdog] iteration timeout fired after 1ms");
   });
 
   test("reap failure does not change exit code", async () => {

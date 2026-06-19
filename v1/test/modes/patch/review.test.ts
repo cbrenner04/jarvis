@@ -14,16 +14,10 @@ import {
   revertSpecTreeEdits,
   runPatchReviewPhase,
 } from "../../../src/modes/patch/review.ts";
+import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
-
-/** Harmless PID for onSpawned wiring tests — never use process.pid (timeouts kill -pgid). */
-const FAKE_AGENT_SPAWN_PID = 2_147_483_647;
-
-async function waitForTestDescendantPolls(intervalMs: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, intervalMs * 2 + 5));
-}
 
 class FakeAgent implements Agent {
   readonly name: AgentName;
@@ -464,12 +458,14 @@ describe("runPatchReviewPhase", () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const reapCalls: number[] = [];
     let pollCount = 0;
-    const pollIntervalMs = 5;
+    const pollIntervalMs = 1;
     try {
+      let roleCalls = 0;
       const reviewer = new FakeAgent(
         "claude",
         async () => {
-          await waitForTestDescendantPolls(pollIntervalMs);
+          roleCalls += 1;
+          await waitForPollCount(() => pollCount, roleCalls * 2);
           return {
             kind: "ok",
             stdout: "no issues\n",
@@ -512,12 +508,14 @@ describe("runPatchReviewPhase", () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const reapCalls: number[] = [];
     let pollCount = 0;
-    const pollIntervalMs = 5;
+    const pollIntervalMs = 1;
     try {
+      let roleCalls = 0;
       const reviewer = new FakeAgent(
         "claude",
         async (_callCount, prompt) => {
-          await waitForTestDescendantPolls(pollIntervalMs);
+          roleCalls += 1;
+          await waitForPollCount(() => pollCount, roleCalls * 2);
           return {
             kind: "ok",
             stdout: prompt.includes("Review: Adjudicator") ? "fix the implementation\n" : "finding\n",
@@ -529,7 +527,7 @@ describe("runPatchReviewPhase", () => {
       const actuator = new FakeAgent(
         "claude",
         async () => {
-          await waitForTestDescendantPolls(pollIntervalMs);
+          await waitForPollCount(() => pollCount, 8);
           return {
             kind: "ok",
             stdout: "done\n",

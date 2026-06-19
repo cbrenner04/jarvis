@@ -267,7 +267,7 @@ export function getBranchDiffSummary(cwd: string, baseBranch: string): string {
       .trim()
       .split("\n")
       .filter((line) => line.length > 0)
-      .sort((a, b) => a.localeCompare(b));
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
     if (paths.length === 0) {
       return stat || "(no changes)";

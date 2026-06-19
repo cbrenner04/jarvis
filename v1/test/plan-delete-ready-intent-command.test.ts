@@ -5,8 +5,8 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -77,7 +77,7 @@ if [[ "$#" -ge 3 && "$1" == "pr" && "$2" == "view" ]]; then
     exit 0
   fi
   case "$*" in
-    "--json number,state -q select(.state==\\\"OPEN\\\") | .number")
+    "--json number,state -q select(.state==\\"OPEN\\") | .number")
       printf '1\\n'
       ;;
     "--json number,state -q .number")
@@ -89,7 +89,7 @@ if [[ "$#" -ge 3 && "$1" == "pr" && "$2" == "view" ]]; then
     "--json body -q .body")
       cat "$body_file"
       ;;
-    "--json number,state,isDraft -q select(.state==\\\"OPEN\\\") | {number: .number, isDraft: .isDraft}")
+    "--json number,state,isDraft -q select(.state==\\"OPEN\\") | {number: .number, isDraft: .isDraft}")
       printf '{"number":1,"isDraft":false}\\n'
       ;;
     *)
@@ -264,14 +264,21 @@ describe("plan ready-intent deletion command flow", () => {
       expect(cap.err()).not.toContain("plan: blocker commit pushed");
 
       const specDirBasename = readSpecDirBasename(setup.projectRoot, "my-feature");
-      const specIntentPath = join(setup.projectRoot, ".worktree", "plan-my-feature", "spec", specDirBasename, "intent.md");
+      const specIntentPath = join(
+        setup.projectRoot,
+        ".worktree",
+        "plan-my-feature",
+        "spec",
+        specDirBasename,
+        "intent.md",
+      );
       expect(readFileSync(specIntentPath, "utf8")).toBe(READY_INTENT);
-      expect(existsSync(join(setup.projectRoot, ".worktree", "plan-my-feature", "ready-intents", "my-feature.md"))).toBe(
-        false,
-      );
-      expect(existsSync(join(setup.projectRoot, ".worktree", "plan-my-feature", "ready-intents", "other-feature.md"))).toBe(
-        true,
-      );
+      expect(
+        existsSync(join(setup.projectRoot, ".worktree", "plan-my-feature", "ready-intents", "my-feature.md")),
+      ).toBe(false);
+      expect(
+        existsSync(join(setup.projectRoot, ".worktree", "plan-my-feature", "ready-intents", "other-feature.md")),
+      ).toBe(true);
       expect(readFileSync(readyIntentPath, "utf8")).toBe(READY_INTENT);
     } finally {
       process.env.PATH = originalPath;

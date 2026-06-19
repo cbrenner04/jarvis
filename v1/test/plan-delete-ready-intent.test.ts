@@ -8,12 +8,8 @@ const READY_INTENT = "---\nname: my-feature\n---\n\n## Prerequisites\n\nTest\n";
 
 describe("ready-intent deletion", () => {
   test("isPathInside accepts descendants and rejects lexical escapes on win32", () => {
-    expect(isPathInside(win32.resolve("C:\\repo"), win32.resolve("C:\\repo\\ready-intents\\x.md"), win32)).toBe(
-      true,
-    );
-    expect(isPathInside(win32.resolve("C:\\repo"), win32.resolve("C:\\repo\\..\\outside\\x.md"), win32)).toBe(
-      false,
-    );
+    expect(isPathInside(win32.resolve("C:\\repo"), win32.resolve("C:\\repo\\ready-intents\\x.md"), win32)).toBe(true);
+    expect(isPathInside(win32.resolve("C:\\repo"), win32.resolve("C:\\repo\\..\\outside\\x.md"), win32)).toBe(false);
     expect(isPathInside(win32.resolve("C:\\repo"), "D:\\outside\\x.md", win32)).toBe(false);
   });
 

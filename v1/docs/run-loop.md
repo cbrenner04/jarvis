@@ -747,6 +747,26 @@ no `[watchdog]` line is emitted and no group kill runs; the timeout telemetry
 row still includes `last_output_age_ms` and omits `watchdog_pgid` and
 `watchdog_descendants_alive`.
 
+### Idle-output watchdog
+
+An optional idle-output watchdog bounds iterations by agent output activity.
+Configure `idleOutputTimeoutMs` (in milliseconds) to abort an iteration if the
+agent produces no stdout/stderr for that span. Disabled by default (when unset).
+The idle watchdog composes with the wall-clock `iterationTimeoutMs`: whichever
+fires first aborts the iteration; both are armed concurrently.
+
+The idle bound resets on every stdout/stderr chunk from the agent. If no output
+has arrived when the watchdog fires, `last_output_age_ms` in telemetry is `null`.
+Idle abort returns exit code `8` with `exitReason: "watchdog-idle-timeout"`
+(distinct from `watchdog-iteration-timeout`). Idle timeouts are **not** classified
+as quota and do not trigger agent fallback.
+
+When the agent root pid is known at idle-fire time, Jarvis logs:
+`[watchdog] idle timeout fired after Nms; killing agent pgid <pgid> last_output_age_ms=<n|null> watchdog_descendants_alive=<true|false>`,
+then kills the process group (same SIGTERM → grace → SIGKILL sequence as the
+wall-clock timeout). When pgid is unavailable, no `[watchdog]` line is emitted
+and no group kill runs, but telemetry still records `last_output_age_ms`.
+
 ### Orphan process reaping
 
 Agent tools can place a descendant in a new session/process group (e.g. a

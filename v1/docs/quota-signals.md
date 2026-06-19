@@ -73,6 +73,7 @@ Timeout records use **`kind`: `"timeout"`** with:
 | exitReason | When |
 | --- | --- |
 | `watchdog-iteration-timeout` | Iteration watchdog timer fired (`iterationTimeoutMs` elapsed). When the agent root pid was known at fire time, Jarvis also logged `[watchdog] …`, SIGTERM→(5s)→SIGKILL'd that process group, and may include `watchdog_pgid` and `watchdog_descendants_alive`. When pid was still unavailable (watchdog fired before `onSpawned`), telemetry still records `last_output_age_ms` but omits `watchdog_pgid` and `watchdog_descendants_alive`, and no `[watchdog]` line is emitted. |
+| `watchdog-idle-timeout` | Idle-output watchdog fired (`idleOutputTimeoutMs` elapsed without agent stdout/stderr). Behavior mirrors wall-clock timeout: when pgid is known, Jarvis logs `[watchdog] idle timeout fired after Nms; …`, kills the process group, and records `watchdog_pgid` and `watchdog_descendants_alive`; when pgid is unavailable, telemetry includes `last_output_age_ms` only. **Not classified as quota**; no agent fallback is triggered. |
 | `iteration-timeout` | Iteration timeout result was returned without watchdog-fire context. |
 | `run-timeout` | Global run timeout fired. |
 

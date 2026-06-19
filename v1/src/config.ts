@@ -103,6 +103,7 @@ export type Config = {
   weakQuotaExitCodes: number[];
   maxIterations: number;
   iterationTimeoutMs: number;
+  idleOutputTimeoutMs?: number;
   runTimeoutMs?: number;
   logServerUrl?: string;
   logServerBind?: string;
@@ -286,6 +287,13 @@ function validateConfig(input: unknown, file: string): Config {
     (message) => fail(file, message),
   );
 
+  let idleOutputTimeoutMs: number | undefined;
+  if (obj.idleOutputTimeoutMs !== undefined) {
+    idleOutputTimeoutMs = validatePositiveInteger(obj.idleOutputTimeoutMs, "idleOutputTimeoutMs", (message) =>
+      fail(file, message),
+    );
+  }
+
   let runTimeoutMs: number | undefined;
   if (obj.runTimeoutMs !== undefined) {
     runTimeoutMs = validatePositiveInteger(obj.runTimeoutMs, "runTimeoutMs", (message) => fail(file, message));
@@ -467,6 +475,7 @@ function validateConfig(input: unknown, file: string): Config {
     weakQuotaExitCodes,
     maxIterations,
     iterationTimeoutMs,
+    ...(idleOutputTimeoutMs !== undefined ? { idleOutputTimeoutMs } : {}),
     ...(runTimeoutMs !== undefined ? { runTimeoutMs } : {}),
     logServerUrl,
     logServerBind,

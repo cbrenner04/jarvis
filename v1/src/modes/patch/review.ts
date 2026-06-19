@@ -354,9 +354,7 @@ function withReviewPassTimeout(
             watchdogPgid = pid;
             pollIntervalHandle = startDescendantPolling(tracker, pid, {
               ...(opts.afterPoll !== undefined ? { afterPoll: opts.afterPoll } : {}),
-              ...(opts.descendantPollIntervalMs !== undefined
-                ? { intervalMs: opts.descendantPollIntervalMs }
-                : {}),
+              ...(opts.descendantPollIntervalMs !== undefined ? { intervalMs: opts.descendantPollIntervalMs } : {}),
             });
           },
         });
@@ -892,12 +890,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         }
       } finally {
         clearTimeout(actuatorTimeoutHandle);
-        stopDescendantPollingAndReap(
-          actuatorTracker,
-          actuatorPgid,
-          actuatorPollHandle,
-          opts.__testReapOverride,
-        );
+        stopDescendantPollingAndReap(actuatorTracker, actuatorPgid, actuatorPollHandle, opts.__testReapOverride);
       }
     };
   };

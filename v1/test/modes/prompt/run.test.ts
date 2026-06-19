@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Io } from "../../../src/cli.ts";
 import { registerProject, writeConfig } from "../../../src/config.ts";
-import { type DescendantTracker } from "../../../src/modes/patch/reap.ts";
+import type { DescendantTracker } from "../../../src/modes/patch/reap.ts";
 import { promptCommand } from "../../../src/modes/prompt/run.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,

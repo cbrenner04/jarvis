@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 import { createAgent as defaultCreateAgent } from "../agents/factory.ts";
 import type { Agent, AgentName } from "../agents/types.ts";
@@ -485,6 +485,43 @@ async function ensureUniquePlanName(
       return finalName;
     }
     suffix += 1;
+  }
+}
+
+/**
+ * Delete the source ready-intent from the worktree if it exists and resolves within it.
+ * Returns true if a file was deleted, false if deletion was skipped.
+ */
+function deleteReadyIntentFromWorktree(args: {
+  readyIntentPath: string;
+  projectRoot: string;
+  worktreePath: string;
+}): boolean {
+  const resolvedReadyIntent = resolve(args.readyIntentPath);
+  const resolvedProjectRoot = resolve(args.projectRoot);
+  const resolvedWorktreePath = resolve(args.worktreePath);
+
+  // Derive target path: relative to project root, then joined onto worktree path
+  const relativeToProject = relative(resolvedProjectRoot, resolvedReadyIntent);
+  const targetInWorktree = resolve(join(resolvedWorktreePath, relativeToProject));
+
+  // Safety check: ensure the target resolves within the worktree
+  if (!targetInWorktree.startsWith(resolvedWorktreePath + "/") && targetInWorktree !== resolvedWorktreePath) {
+    // Target escapes the worktree; skip deletion
+    return false;
+  }
+
+  // Delete only if the file exists
+  if (!existsSync(targetInWorktree)) {
+    return false;
+  }
+
+  try {
+    unlinkSync(targetInWorktree);
+    return true;
+  } catch {
+    // If deletion fails, silently skip (non-fatal)
+    return false;
   }
 }
 
@@ -1006,6 +1043,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       if (commit) {
         try {
           const agentLabel = draftResult.agentLabel ?? "unknown";
+
+          // Delete the source ready-intent from the worktree before the draft commit,
+          // so the deletion is staged and lands in the plan: draft commit.
+          deleteReadyIntentFromWorktree({
+            readyIntentPath: candidatePath,
+            projectRoot: project.root,
+            worktreePath: worktreePath as string,
+          });
 
           commitPlanDraft({
             worktreePath: worktreePath as string,

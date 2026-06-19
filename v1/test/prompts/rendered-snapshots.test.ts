@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../../src/modes/patch/pr-description-prompt.ts";
-import { buildPrompt, buildReviewPrompt as buildPatchReviewPrompt } from "../../src/modes/patch/prompt.ts";
+import { buildReviewPrompt as buildPatchReviewPrompt, buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
 import { buildPrDescriptionPrompt as buildPlanPrDescriptionPrompt } from "../../src/modes/plan/pr-description-prompt.ts";
 import { buildReviewPrompt } from "../../src/modes/plan/review.ts";

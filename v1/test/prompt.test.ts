@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../shared/prompts/registry.ts";
-import { buildFixupPrompt, buildPrompt, buildVerdictActuatorPrompt, readRepoGuidance } from "../src/modes/patch/prompt.ts";
+import {
+  buildFixupPrompt,
+  buildPrompt,
+  buildVerdictActuatorPrompt,
+  readRepoGuidance,
+} from "../src/modes/patch/prompt.ts";
 
 function withTempRepo(run: (root: string) => void): void {
   const root = join(import.meta.dir, ".tmp-prompt-test", String(Date.now()));

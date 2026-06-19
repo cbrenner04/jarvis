@@ -36,7 +36,11 @@ export type PromptRunOptions = {
    * failure be injected deterministically to prove the run's exit code is
    * unaffected. Production callers must not set this.
    */
-  __testReapFn?: () => void;
+  __testReapFn?: (tracker: DescendantTracker) => void;
+  /** Test-only: invoked after each descendant poll (spawn + interval). */
+  __testAfterPollFn?: () => void;
+  /** Test-only poll interval when `__testAfterPollFn` is set. */
+  __testDescendantPollIntervalMs?: number;
 };
 
 function buildActivePromptAgents(opts: PromptRunOptions, cfg: Config): Agent[] {
@@ -169,10 +173,6 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
 
-  // Tracks agent descendant PIDs across attempts so orphans that escape the
-  // process group can be reaped after each attempt exits.
-  const descendantTracker = new DescendantTracker();
-
   try {
     const basePrompt = buildPrompt(opts.promptText);
 
@@ -206,6 +206,11 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
       const agentConfigEntry = cfg.modes.prompt.agentOrder.find((entry) => entry.agent === agent.name);
       configuredModel = agentConfigEntry?.model;
 
+      const descendantTracker = new DescendantTracker();
+      const descendantPollIntervalMs =
+        opts.__testAfterPollFn !== undefined && opts.__testDescendantPollIntervalMs !== undefined
+          ? opts.__testDescendantPollIntervalMs
+          : DESCENDANT_POLL_INTERVAL_MS;
       let descendantPollHandle: NodeJS.Timeout | null = null;
       try {
         // Setup watchdog timeout
@@ -248,9 +253,11 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
             // Record descendants immediately, then keep sampling while the agent
             // runs so escapees are captured before their lineage is severed.
             descendantTracker.poll(child.pid);
+            opts.__testAfterPollFn?.();
             descendantPollHandle = setInterval(() => {
               descendantTracker.poll(child.pid);
-            }, DESCENDANT_POLL_INTERVAL_MS);
+              opts.__testAfterPollFn?.();
+            }, descendantPollIntervalMs);
             descendantPollHandle.unref();
           },
         });
@@ -342,7 +349,7 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
           descendantTracker.poll(watchdogPgid);
         }
         try {
-          (opts.__testReapFn ?? (() => descendantTracker.reap()))();
+          (opts.__testReapFn ?? ((tracker) => tracker.reap()))(descendantTracker);
         } catch {
           // best-effort
         }
@@ -439,15 +446,6 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
       releaseWorktreeLock(worktreePath);
     } catch (err) {
       opts.io.stderr(`warning: failed to release lock: ${(err as Error).message}\n`);
-    }
-
-    // Reap any agent descendants that escaped the process group and outlived
-    // their attempt (covers the direct-`process.exit` paths). Best-effort: never
-    // throws, never affects the exit code.
-    try {
-      (opts.__testReapFn ?? (() => descendantTracker.reap()))();
-    } catch {
-      // best-effort
     }
 
     // Write telemetry

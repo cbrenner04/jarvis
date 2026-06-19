@@ -414,6 +414,10 @@ git branch -D plan/<plan-name>
 
 No-commit specs in Jarvis-owned storage (`~/.jarvis/specs/…`) are **not** automatically cleaned up. They persist as local artifacts for future reference and can be re-run with `jarvis1 run` at any time.
 
+**On success:** The spec tree and its `index.md` are left untouched for future re-runs.
+
+**On failure:** When `commit: false` plan phases fail (draft, review, validation, quota, model configuration, boundary violation, or interrupt), the named external spec directory and its `intent.md` are preserved; failure output prints the preserved directory path (e.g., `Spec preserved at ~/.jarvis/specs/…`) adjacent to the error. The only exception is if the `intent.md` write itself fails before the `Intent:` line is printed — in that case, the abandoned pre-`intent.md` spec directory is removed and no breadcrumb is emitted (the operator did not yet receive an `Intent:` path, so there is no external artifact to preserve).
+
 To remove an external no-commit spec:
 
 ```sh

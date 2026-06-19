@@ -44,6 +44,7 @@ export type ParsedArgs =
       reviewPasses?: string;
       repo?: string;
       cwd?: string;
+      resumeReview?: boolean;
     }
   | { kind: "init" }
   | { kind: "config"; rest: string[] }
@@ -70,8 +71,9 @@ export type Io = {
 const USAGE = `Usage: jarvis1 <command> [args]
 
 Commands:
-  run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
+  run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
                     Run the loop against a spec file in a registered project.
+                    Use --resume-review to run the post-completion review phase on an already-complete spec.
   init              Register the current target repo.
   config            View or edit the jarvis config.
   log-server        Run the local log aggregation server.
@@ -102,6 +104,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       let reviewPasses: string | undefined;
       let repo: string | undefined;
       let cwd: string | undefined;
+      let resumeReview = false;
       const args = [...rest];
       for (let i = 0; i < args.length; i += 1) {
         if (args[i] === "--max-iterations") {
@@ -154,6 +157,12 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
           cwd = value;
           args.splice(i, 2);
           i -= 1;
+          continue;
+        }
+        if (args[i] === "--resume-review") {
+          resumeReview = true;
+          args.splice(i, 1);
+          i -= 1;
         }
       }
       const specPath = args[0];
@@ -172,6 +181,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       if (cwd !== undefined) {
         parsed.cwd = cwd;
+      }
+      if (resumeReview) {
+        parsed.resumeReview = true;
       }
       return parsed;
     }
@@ -306,6 +318,9 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
       }
       if (parsed.cwd !== undefined) {
         runOpts.cwdFlag = parsed.cwd;
+      }
+      if (parsed.resumeReview) {
+        runOpts.resumeReview = true;
       }
       if (opts.run?.agents !== undefined) {
         runOpts.agents = opts.run.agents;

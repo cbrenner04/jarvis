@@ -131,8 +131,11 @@ scaffold.
 ## Commands
 
 ```text
-jarvis1 run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] <spec-path>
+jarvis1 run [--max-iterations <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
     Implement an existing spec. `--cwd` is only valid when effective git is false.
+    `--resume-review` re-enters post-completion review on an already-complete spec;
+    requires review enabled, git mode on, implementation PR/remote branch to exist,
+    and zero unchecked tasks.
 
 jarvis1 plan [--refine-turns <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [<intent-file|"inline text">]
     Draft a spec through intent refinement, initial drafting, and self-review.

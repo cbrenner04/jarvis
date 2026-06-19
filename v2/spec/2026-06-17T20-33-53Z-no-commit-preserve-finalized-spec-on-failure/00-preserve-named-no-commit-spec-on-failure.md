@@ -113,23 +113,23 @@ line and instead removes the abandoned dir.
 Labels: `(guard)` pins existing-but-incidental behavior with a new test;
 `(delta)` requires a code change. Both kinds are required.
 
-- [ ] (guard) After a `commit: false` plan run fails in the draft phase (after
+- [x] (guard) After a `commit: false` plan run fails in the draft phase (after
       `intent.md` is written), the external spec directory and its `intent.md`
       remain on disk.
-- [ ] (guard) After a `commit: false` plan run fails in the review phase, the
+- [x] (guard) After a `commit: false` plan run fails in the review phase, the
       named external spec directory and its `intent.md` remain on disk.
-- [ ] (guard) After a `commit: false` boundary violation, the named external
+- [x] (guard) After a `commit: false` boundary violation, the named external
       spec directory remains on disk and its `intent.md` carries the appended
       `## Blocker`.
-- [ ] (delta) When the `intent.md` write fails before any phase runs, the
+- [x] (delta) When the `intent.md` write fails before any phase runs, the
       abandoned external spec directory is removed (no orphaned no-commit dir
       left behind).
-- [ ] (delta) At every `commit: false` failure in the failure-return set above
+- [x] (delta) At every `commit: false` failure in the failure-return set above
       (draft and review generic/quota/model-config, validation, boundary,
       blocker, and interrupt), failure output includes the preserved external
       spec directory path.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 Scope note (not a tickable criterion): committed (`commit: true`) plan
 failure/cleanup behavior is untouched — the change is gated on `commit === false`

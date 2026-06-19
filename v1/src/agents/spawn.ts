@@ -115,6 +115,25 @@ export function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOpti
         stderr: `${errBuf}${String(err)}`,
       });
     });
+    // Reap in-group stragglers on normal completion. Done on "exit" — not "close"
+    // — because "close" only fires after the stdio streams tear down, and a
+    // straggler that inherited the agent's stdout/stderr pipes holds them open,
+    // so "close" (and thus settlement) would deadlock. "exit" fires when the
+    // process itself ends; killing the group then closes those inherited pipes,
+    // letting the streams end and "close"/settlement proceed. Best-effort: kill
+    // errors are swallowed (ESRCH is expected on a clean close).
+    child.on("exit", (code) => {
+      if (abortReason === null && code === 0) {
+        const pgid = child.pid;
+        if (pgid !== undefined) {
+          try {
+            process.kill(-pgid, "SIGKILL");
+          } catch {
+            // Swallow reap errors: ESRCH is expected on clean close, others are non-fatal.
+          }
+        }
+      }
+    });
     child.on("close", (code) => {
       childClosed = true;
       checkSettlement(code);

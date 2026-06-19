@@ -36,3 +36,7 @@ envelopes and unrelated structured errors remain non-quota.
 
 - Claude terminal JSON output is parsed at the agent spawn boundary.
 - Patch mode rotates the configured agent order for `kind: "quota"` results.
+
+## Blocker
+
+- Need the complete reported zero-exit Claude JSON envelope; only its three required predicates are available, so an exact verified fixture cannot be specified without inventing fields.

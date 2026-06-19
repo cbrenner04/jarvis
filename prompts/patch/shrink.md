@@ -2,9 +2,9 @@
 id: patch.prompt.shrink
 behavior: patch
 kind: step
-revision: 2
+revision: 3
 remove: [global.documentation, global.naming]
-placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, ALLOWLIST:string!, RUN_SCOPED_DIFF:string!]
+placeholders: [SPEC_PATH:string!, SPEC_TREE:string!, ALLOWLIST:string!, BRANCH_DIFF:string!, RUN_SCOPED_DIFF:string!]
 ---
 # Patch Mode — Post-completion Shrink
 
@@ -26,7 +26,17 @@ Edit only these paths. The harness reverts anything else.
 <ALLOWLIST>
 <<<ALLOWLIST_END>>>
 
+## Branch change summary
+
+Orientation only — full unified diff for allowlisted files is below.
+
+<<<BRANCH_SUMMARY_BEGIN>>>
+<BRANCH_DIFF>
+<<<BRANCH_SUMMARY_END>>>
+
 ## Run-scoped diff
+
+Unified diff for allowlisted paths only.
 
 <<<DIFF_BEGIN>>>
 <RUN_SCOPED_DIFF>

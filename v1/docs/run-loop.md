@@ -240,20 +240,21 @@ The review phase flow is:
    changed, runs `bun run ready` (install → check:fix → typecheck → test → check) 
    and refreshes the recorded result on green. If check:fix makes changes, they 
    are committed. The draft PR stays draft at this point.
-2. **Review passes**: For each pass, the agent is invoked with the spec tree and 
-   current branch diff as context, asked to critique and refactor the 
-   implementation. Non-empty changes are committed per pass. Spec-tree edits are 
-   detected and reverted (the spec tree is read-only during review). A blocker is 
-   signalled by the agent writing a `.jarvis-review-blocker` file at the repo 
-   root; it stops the phase and exits `7`, with the blocker content posted as a 
-   PR comment and the sentinel consumed (never committed, no `## Blocker` written 
-   to the spec). Each pass starts a fresh review agent chain (`modes.review.agentOrder` 
-   → `modes.plan.agentOrder`). Quota exhaustion within a pass rotates to the next 
-   configured review agent; if all are exhausted in that pass, exit `2`. Under 
-   `quotaFallback: "lenient"`, spawn **`error`** results with no porcelain change 
-   during the invocation upgrade to **`quota`** and rotate like strict quota. Other 
-   hard **`error`** results stop the pass (no rotation). Per-pass iteration timeout 
-   is enforced by the patch adapter's agent wrapper.
+2. **Review passes**: For each pass, the agent is invoked with the spec tree and
+   a branch change summary (stat plus changed paths, not a full unified diff) as
+   context, asked to critique and refactor the implementation. Non-empty changes
+   are committed per pass. Spec-tree edits are detected and reverted (the spec
+   tree is read-only during review). A blocker is signalled by the agent writing
+   a `.jarvis-review-blocker` file at the repo root; it stops the phase and
+   exits `7`, with the blocker content posted as a PR comment and the sentinel
+   consumed (never committed, no `## Blocker` written to the spec). Each pass
+   starts a fresh review agent chain (`modes.review.agentOrder` →
+   `modes.plan.agentOrder`). Quota exhaustion within a pass rotates to the next
+   configured review agent; if all are exhausted in that pass, exit `2`. Under
+   `quotaFallback: "lenient"`, spawn **`error`** results with no porcelain change
+   during the invocation upgrade to **`quota`** and rotate like strict quota.
+   Other hard **`error`** results stop the pass (no rotation). Per-pass iteration
+   timeout is enforced by the patch adapter's agent wrapper.
 3. **Final ready**: runs `bun run ready` unconditionally (install → check:fix → 
    typecheck → test → check), then `gh pr ready` to transition the PR from draft 
    to ready. The final ready gate does not participate in reuse and always verifies 
@@ -356,10 +357,10 @@ Shrink phase flow:
    review baseline helper and refreshes the recorded result on green. Failure logs 
    a warning and skips shrink (review and/or `maybeMarkReady` still proceed).
 2. **Shrink invocation**: one agent call with `patch.prompt.shrink` + `global.terse`
-   (not `patch.rules`). Prompt includes the completed spec tree (read-only), an
-   explicit allowlist of files touched during implementation iterations, and a
-   run-scoped diff (allowlisted files only, not the full branch). The agent may
-   edit only allowlisted paths.
+   (not `patch.rules`). Prompt includes the completed spec tree (read-only), a
+   branch change summary for orientation, an explicit allowlist of files touched
+   during implementation iterations, and a run-scoped unified diff (allowlisted
+   files only, not the full branch). The agent may edit only allowlisted paths.
 3. **Post-invocation enforcement**: spec-tree edits are reverted; edits outside
    the allowlist are reverted. Contract validation requires passing `bun test`, no
    deleted `*.test.ts` under shrink scope, and no acceptance-criteria regression

@@ -4716,7 +4716,8 @@ describe("review phase", () => {
     const reviewPrompts = claude.calls.filter((c) => isPatchReviewPrompt(c.prompt));
     expect(reviewPrompts).toHaveLength(3); // 3 roles per cycle
     const reviewPrompt = reviewPrompts[0]?.prompt;
-    expect(reviewPrompt).toContain("diff --git");
+    expect(reviewPrompt).toContain("Changed paths:");
+    expect(reviewPrompt).not.toContain("diff --git");
     expect(reviewPrompt).not.toContain("failed to generate diff");
     expect(cap.out()).toContain("iterations: 1");
     expect(cap.out()).toContain("review attempts: 4"); // 3 roles + actuator

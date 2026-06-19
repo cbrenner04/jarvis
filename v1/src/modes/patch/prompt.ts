@@ -139,7 +139,7 @@ export type ReviewPromptOpts = {
 };
 
 // Build review prompt for a critique pass on completed patch work.
-// Provides the agent with: spec tree (read-only data), branch diff vs base, pass context.
+// Provides the agent with: spec tree (read-only data), branch change summary vs base, pass context.
 // Bias is subtractive: cut redundancy, simplify, reduce complexity.
 export function buildReviewPrompt(opts: ReviewPromptOpts): string {
   const registry = loadPromptRegistry();
@@ -160,8 +160,7 @@ export function buildReviewPrompt(opts: ReviewPromptOpts): string {
 
   // Gather the full spec tree as read-only reference material
   const specTree = buildSpecTree(dirname(opts.specPath), opts.cwd);
-  // Get the branch diff showing what changed vs base
-  const branchDiff = getBranchDiff(opts.cwd, opts.baseBranch ?? "main");
+  const branchDiff = getBranchDiffSummary(opts.cwd, opts.baseBranch ?? "main");
 
   const context =
     opts.totalPasses === 1
@@ -242,7 +241,8 @@ function visitSpecFiles(dir: string, cwd: string, indent: string, lines: string[
   }
 }
 
-function getBranchDiff(cwd: string, baseBranch: string): string {
+/** Stat and changed-path listing for branch vs base; not a unified diff. */
+export function getBranchDiffSummary(cwd: string, baseBranch: string): string {
   try {
     const mergeBase = execFileSync("git", ["merge-base", baseBranch, "HEAD"], {
       cwd,
@@ -250,13 +250,27 @@ function getBranchDiff(cwd: string, baseBranch: string): string {
       stdio: "pipe",
     }).trim();
 
-    const diff = execFileSync("git", ["diff", mergeBase], {
+    const stat = execFileSync("git", ["diff", "--stat", mergeBase, "HEAD"], {
       cwd,
       encoding: "utf8",
       stdio: "pipe",
-    });
+    }).trim();
 
-    return diff || "(no changes)";
+    const paths = execFileSync("git", ["diff", "--name-only", mergeBase, "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    })
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+
+    if (paths.length === 0) {
+      return stat || "(no changes)";
+    }
+
+    return `${stat || "(no changes)"}\n\nChanged paths:\n${paths.join("\n")}`;
   } catch (err) {
     return `(failed to generate diff: ${err instanceof Error ? err.message : String(err)})`;
   }
@@ -299,8 +313,10 @@ export function buildShrinkPrompt(opts: ShrinkPromptOpts): string {
   });
 
   const specTree = buildSpecTree(dirname(opts.specPath), opts.cwd);
+  const baseBranch = opts.baseBranch ?? "main";
   const allowlistBlock = opts.allowlist.map((path) => `- ${path}`).join("\n");
-  const runScopedDiff = getRunScopedDiff(opts.cwd, opts.allowlist, opts.baseBranch ?? "main");
+  const branchSummary = getBranchDiffSummary(opts.cwd, baseBranch);
+  const runScopedDiff = getRunScopedDiff(opts.cwd, opts.allowlist, baseBranch);
 
   return renderTemplateWithDeclarations(
     template,
@@ -308,12 +324,14 @@ export function buildShrinkPrompt(opts: ShrinkPromptOpts): string {
       { name: "SPEC_PATH", type: "string", required: true },
       { name: "SPEC_TREE", type: "string", required: true },
       { name: "ALLOWLIST", type: "string", required: true },
+      { name: "BRANCH_DIFF", type: "string", required: true },
       { name: "RUN_SCOPED_DIFF", type: "string", required: true },
     ],
     {
       SPEC_PATH: opts.specPath,
       SPEC_TREE: specTree,
       ALLOWLIST: allowlistBlock || "(empty)",
+      BRANCH_DIFF: branchSummary,
       RUN_SCOPED_DIFF: runScopedDiff,
     },
   ).trim();

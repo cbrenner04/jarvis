@@ -163,7 +163,60 @@ describe("buildShrinkPrompt", () => {
       cleanup();
     }
   });
+
+  test("includes branch summary and allowlisted unified diff only inside run-scoped block", () => {
+    const { dir, specPath, cleanup } = setupShrinkRepo();
+    try {
+      writeFileSync(join(dir, "impl.txt"), "changed\n");
+      writeFileSync(join(dir, "other.txt"), "extra\n");
+      execSync("git checkout -b feature", { cwd: dir });
+      execSync("git add impl.txt other.txt", { cwd: dir });
+      execSync("git commit -m 'branch changes'", { cwd: dir });
+
+      const prompt = buildShrinkPrompt({
+        specPath,
+        cwd: dir,
+        allowlist: ["impl.txt"],
+        baseBranch: "main",
+      });
+
+      expect(prompt).toContain("Changed paths:");
+      expect(prompt).toContain("other.txt");
+
+      const outsideRunScoped = stripDelimitedBlocks(
+        stripDelimitedBlocks(prompt, "<<<SPEC_BEGIN>>>", "<<<SPEC_END>>>"),
+        "<<<BRANCH_SUMMARY_BEGIN>>>",
+        "<<<BRANCH_SUMMARY_END>>>",
+      );
+      const outsideAllowedDiff = stripDelimitedBlocks(outsideRunScoped, "<<<DIFF_BEGIN>>>", "<<<DIFF_END>>>");
+      expect(outsideAllowedDiff).not.toMatch(/^diff --git/m);
+      expect(outsideAllowedDiff).not.toMatch(/^@@/m);
+      expect(outsideAllowedDiff).not.toContain("other.txt");
+
+      const runScopedMatch = prompt.match(/<<<DIFF_BEGIN>>>\n([\s\S]*?)\n<<<DIFF_END>>>/);
+      expect(runScopedMatch?.[1]).toMatch(/^diff --git/m);
+      expect(runScopedMatch?.[1]).toContain("impl.txt");
+      expect(runScopedMatch?.[1]).not.toContain("other.txt");
+    } finally {
+      cleanup();
+    }
+  });
 });
+
+function stripDelimitedBlocks(prompt: string, beginMarker: string, endMarker: string): string {
+  let text = prompt;
+  for (;;) {
+    const begin = text.indexOf(beginMarker);
+    if (begin === -1) {
+      return text;
+    }
+    const end = text.indexOf(endMarker, begin);
+    if (end === -1) {
+      return text;
+    }
+    text = `${text.slice(0, begin)}${text.slice(end + endMarker.length)}`;
+  }
+}
 
 describe("runPatchShrinkPhase", () => {
   test("skips shrink when pre-shrink gate fails", async () => {

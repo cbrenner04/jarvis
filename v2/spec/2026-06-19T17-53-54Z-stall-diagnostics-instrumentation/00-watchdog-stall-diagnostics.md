@@ -50,49 +50,49 @@ after the fact.
 
 ## Task checklist
 
-- [ ] Add `lastOutputAtMs` ref to `AgentRunOptions` (inline doc-comment per
+- [x] Add `lastOutputAtMs` ref to `AgentRunOptions` (inline doc-comment per
   `v2/docs/documentation-standard.md`); update from `spawn.ts` on stdout/stderr
   `data`.
-- [ ] In `patch/run.ts`, init the ref per iteration; in the watchdog callback
+- [x] In `patch/run.ts`, init the ref per iteration; in the watchdog callback
   snapshot `last_output_age_ms` and `watchdog_descendants_alive` before first
   group `SIGTERM`; extend the watchdog log line; pass frozen values to timeout
   telemetry after `agent.run` settles.
-- [ ] Extend `TelemetryRecord` / `writeTelemetry` wiring for the new optional
+- [x] Extend `TelemetryRecord` / `writeTelemetry` wiring for the new optional
   fields.
-- [ ] Add or extend patch-mode integration tests: (a) hang-agent fixture — no
+- [x] Add or extend patch-mode integration tests: (a) hang-agent fixture — no
   pipe output, live descendant; (b) early stdout/stderr then stall — age well
   below `iterationTimeoutMs`; (c) agent-only stall — no live descendants.
-- [ ] Update docs.
+- [x] Update docs.
 
 ## Acceptance criteria
 
-- [ ] A watchdog-fired patch iteration records `last_output_age_ms` and
+- [x] A watchdog-fired patch iteration records `last_output_age_ms` and
   `watchdog_descendants_alive` on the `watchdog-iteration-timeout` telemetry
   row in `runs.jsonl` (omit `watchdog_descendants_alive` when pgid unavailable;
   still record `last_output_age_ms`).
-- [ ] The session log and harness stderr watchdog line include the same
+- [x] The session log and harness stderr watchdog line include the same
   diagnostics via the fixed suffix
   (`last_output_age_ms=<n|null> watchdog_descendants_alive=<true|false>`).
-- [ ] Hang-agent fixture (no stdout/stderr, live grandchild at watchdog fire):
+- [x] Hang-agent fixture (no stdout/stderr, live grandchild at watchdog fire):
   `last_output_age_ms` is `null` and `watchdog_descendants_alive` is `true`.
-- [ ] Early-output-then-stall fixture: `last_output_age_ms` is strictly less than
+- [x] Early-output-then-stall fixture: `last_output_age_ms` is strictly less than
   `iterationTimeoutMs` minus a 500ms margin (fixture emits output, then idles
   for the remainder of the timeout).
-- [ ] Agent-only stall fixture (no live descendants at snapshot):
+- [x] Agent-only stall fixture (no live descendants at snapshot):
   `watchdog_descendants_alive` is `false`.
-- [ ] Exit code `8`, watchdog kill behavior, and quota-fallback semantics are
+- [x] Exit code `8`, watchdog kill behavior, and quota-fallback semantics are
   unchanged from current behavior.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 
-- [ ] `AgentRunOptions.lastOutputAtMs` inline doc-comment in `types.ts`.
-- [ ] `v1/docs/run-loop.md`: document `last_output_age_ms` and
+- [x] `AgentRunOptions.lastOutputAtMs` inline doc-comment in `types.ts`.
+- [x] `v1/docs/run-loop.md`: document `last_output_age_ms` and
   `watchdog_descendants_alive` on watchdog-timeout telemetry and the watchdog
   log-line suffix.
-- [ ] `v1/docs/quota-signals.md`: mention the new watchdog-timeout fields
+- [x] `v1/docs/quota-signals.md`: mention the new watchdog-timeout fields
   (parallel to `watchdog_pgid`).
-- [ ] `v2/docs/v1-behaviors.md`: record the extended watchdog-timeout telemetry
+- [x] `v2/docs/v1-behaviors.md`: record the extended watchdog-timeout telemetry
   shape with source citations.
 
 ## Out of scope

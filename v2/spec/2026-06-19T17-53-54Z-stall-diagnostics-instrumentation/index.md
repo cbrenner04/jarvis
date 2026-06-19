@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Watchdog stall diagnostics](./00-watchdog-stall-diagnostics.md)
+- [x] [00 - Watchdog stall diagnostics](./00-watchdog-stall-diagnostics.md)

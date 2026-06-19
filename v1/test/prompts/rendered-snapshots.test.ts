@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadPromptRegistry } from "../../../shared/prompts/registry.ts";
 import { buildPrDescriptionPrompt as buildPatchPrDescriptionPrompt } from "../../src/modes/patch/pr-description-prompt.ts";
-import { buildPrompt } from "../../src/modes/patch/prompt.ts";
+import { buildReviewPrompt as buildPatchReviewPrompt, buildPrompt } from "../../src/modes/patch/prompt.ts";
 import { buildDraftPrompt } from "../../src/modes/plan/draft.ts";
 import { buildPrDescriptionPrompt as buildPlanPrDescriptionPrompt } from "../../src/modes/plan/pr-description-prompt.ts";
 import { buildReviewPrompt } from "../../src/modes/plan/review.ts";
@@ -30,11 +32,37 @@ function readFixture(name: string): string {
   return readFileSync(fixturePath(name), "utf8");
 }
 
+function setupPatchReviewSnapshotRepo(): { dir: string; specPath: string; cleanup: () => void } {
+  const parent = mkdtempSync(join(tmpdir(), "jarvis-patch-review-snapshot-"));
+  const dir = join(parent, "repo");
+  const origin = join(parent, "origin.git");
+  mkdirSync(dir);
+  execSync(`git init --bare -b main ${origin}`);
+  execSync("git init -b main", { cwd: dir });
+  execSync("git config user.email 'test@example.com'", { cwd: dir });
+  execSync("git config user.name 'Test User'", { cwd: dir });
+  execSync(`git remote add origin ${origin}`, { cwd: dir });
+  const specDir = join(dir, "spec", "feature");
+  mkdirSync(specDir, { recursive: true });
+  const specPath = "spec/feature/index.md";
+  writeFileSync(join(dir, specPath), "# Feature\n\n- [x] [00](./00-one.md)\n");
+  writeFileSync(join(specDir, "00-one.md"), "# 00\n\n## Acceptance criteria\n\n- [x] done\n");
+  writeFileSync(join(dir, "impl.txt"), "seed\n");
+  execSync("git add -A", { cwd: dir });
+  execSync("git commit -m 'seed'", { cwd: dir });
+  execSync("git push -u origin main", { cwd: dir });
+  execSync("git checkout -b feature", { cwd: dir });
+  writeFileSync(join(dir, "impl.txt"), "changed\n");
+  execSync("git add impl.txt", { cwd: dir });
+  execSync("git commit -m 'impl'", { cwd: dir });
+  return { dir, specPath, cleanup: () => rmSync(parent, { recursive: true, force: true }) };
+}
+
 describe("rendered prompt snapshots", () => {
   const registry = loadPromptRegistry();
 
   test("shared snapshots are keyed by id and revision", () => {
-    expect(registry.getById("patch.prompt.body").metadata.revision).toBe("3");
+    expect(registry.getById("patch.prompt.body").metadata.revision).toBe("4");
     expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("8");
     expect(registry.getById("plan.prompt.review").metadata.revision).toBe("6");
     expect(registry.getById("plan.prompt.review.adversary").metadata.revision).toBe("2");
@@ -81,6 +109,38 @@ describe("rendered prompt snapshots", () => {
     expect(reviewPass1).toBe(readFixture(reviewStepOneKey));
     expect(reviewPass2).toBe(readFixture(reviewStepTwoKey));
     expect(reviewActuator).toBe(readFixture(reviewActuatorKey));
+  });
+
+  test("patch review snapshots are keyed by id and revision", () => {
+    expect(registry.getById("patch.prompt.review.adversary").metadata.revision).toBe("2");
+
+    const adversaryKey = `${registry.getById("patch.prompt.review.adversary").metadata.id}@r${registry.getById("patch.prompt.review.adversary").metadata.revision}.pass-1.shared.txt`;
+    const adversaryPassTwoKey = `${registry.getById("patch.prompt.review.adversary").metadata.id}@r${registry.getById("patch.prompt.review.adversary").metadata.revision}.pass-2.shared.txt`;
+
+    const { dir, specPath, cleanup } = setupPatchReviewSnapshotRepo();
+    try {
+      const reviewPass1 = buildPatchReviewPrompt({
+        specPath,
+        cwd: dir,
+        passNumber: 1,
+        totalPasses: 2,
+        baseBranch: "main",
+        role: "adversary",
+      });
+      const reviewPass2 = buildPatchReviewPrompt({
+        specPath,
+        cwd: dir,
+        passNumber: 2,
+        totalPasses: 2,
+        baseBranch: "main",
+        role: "adversary",
+      });
+
+      expect(reviewPass1).toBe(readFixture(adversaryKey));
+      expect(reviewPass2).toBe(readFixture(adversaryPassTwoKey));
+    } finally {
+      cleanup();
+    }
   });
 
   test("wrapper snapshots are separate from shared snapshots and include wrapper variant", () => {

@@ -1369,9 +1369,9 @@ Date: 2026-06-18`,
         cwd: projectRoot,
       },
     ]);
-    expect(claude.calls[0]?.prompt).toContain("Inspect the target repo for guidance");
+    expect(claude.calls[0]?.prompt).toContain("Work the harness-injected active subspec only.");
     expect(claude.calls[0]?.prompt).toContain("Follow these Jarvis rules:");
-    expect(claude.calls[0]?.prompt).not.toContain("Read README.md.");
+    expect(claude.calls[0]?.prompt).not.toContain("Inspect the target repo for guidance");
   });
 
   test("routes an external spec to its declared repo", async () => {
@@ -4654,7 +4654,8 @@ describe("review phase", () => {
     const reviewPrompts = claude.calls.filter((c) => isPatchReviewPrompt(c.prompt));
     expect(reviewPrompts).toHaveLength(3); // 3 roles per cycle
     const reviewPrompt = reviewPrompts[0]?.prompt;
-    expect(reviewPrompt).toContain("diff --git");
+    expect(reviewPrompt).toContain("Changed paths:");
+    expect(reviewPrompt).not.toContain("diff --git");
     expect(reviewPrompt).not.toContain("failed to generate diff");
     expect(cap.out()).toContain("iterations: 1");
     expect(cap.out()).toContain("review attempts: 4"); // 3 roles + actuator

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
-import { buildVerdictActuatorPrompt } from "../../../src/modes/patch/prompt.ts";
+import { buildReviewPrompt, buildVerdictActuatorPrompt } from "../../../src/modes/patch/prompt.ts";
 import {
   consumeReviewBlocker,
   detectSpecTreeEdits,
@@ -95,6 +95,72 @@ function setupPatchReviewRepo(): { dir: string; specPath: string; specDir: strin
   execSync("git push -u origin main", { cwd: dir });
   return { dir, specPath, specDir, cleanup: () => rmSync(parent, { recursive: true, force: true }) };
 }
+
+function setupPatchReviewRepoWithBranchChange(): {
+  dir: string;
+  specPath: string;
+  cleanup: () => void;
+} {
+  const { dir, specPath, cleanup } = setupPatchReviewRepo();
+  execSync("git checkout -b feature", { cwd: dir });
+  writeFileSync(join(dir, "impl.txt"), "changed\n");
+  execSync("git add impl.txt", { cwd: dir });
+  execSync("git commit -m 'impl change'", { cwd: dir });
+  return { dir, specPath, cleanup };
+}
+
+export function stripDelimitedBlocks(prompt: string, beginMarker: string, endMarker: string): string {
+  let text = prompt;
+  for (;;) {
+    const begin = text.indexOf(beginMarker);
+    if (begin === -1) {
+      return text;
+    }
+    const end = text.indexOf(endMarker, begin);
+    if (end === -1) {
+      return text;
+    }
+    text = `${text.slice(0, begin)}${text.slice(end + endMarker.length)}`;
+  }
+}
+
+function assertNoUnifiedDiffHunksOutsideAllowedBlocks(prompt: string): void {
+  const outsideSpecTree = stripDelimitedBlocks(prompt, "<<<SPEC_BEGIN>>>", "<<<SPEC_END>>>");
+  const outsideDiff = stripDelimitedBlocks(outsideSpecTree, "<<<DIFF_BEGIN>>>", "<<<DIFF_END>>>");
+  const outsideArtifacts = stripDelimitedBlocks(
+    stripDelimitedBlocks(outsideDiff, "<<<ADVERSARY_BEGIN>>>", "<<<ADVERSARY_END>>>"),
+    "<<<ADVOCATE_BEGIN>>>",
+    "<<<ADVOCATE_END>>>",
+  );
+  expect(outsideArtifacts).not.toMatch(/^diff --git/m);
+  expect(outsideArtifacts).not.toMatch(/^@@/m);
+}
+
+describe("buildReviewPrompt", () => {
+  test("adversary, advocate, and adjudicator include branch summary without unified diff hunks", () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepoWithBranchChange();
+    try {
+      for (const role of ["adversary", "advocate", "adjudicator"] as const) {
+        const prompt = buildReviewPrompt({
+          specPath,
+          cwd: dir,
+          passNumber: 1,
+          totalPasses: 1,
+          baseBranch: "main",
+          role,
+          ...(role === "adversary" ? {} : { priorArtifact: "prior findings" }),
+        });
+        expect(prompt).toContain("Changed paths:");
+        expect(prompt).toContain("impl.txt");
+        expect(prompt).toMatch(/file changed|files changed/);
+        expect(prompt).toContain("Branch change summary");
+        assertNoUnifiedDiffHunksOutsideAllowedBlocks(prompt);
+      }
+    } finally {
+      cleanup();
+    }
+  });
+});
 
 describe("patch review helpers", () => {
   test("detectSpecTreeEdits catches tracked and untracked spec changes", () => {

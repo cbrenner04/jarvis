@@ -30,12 +30,12 @@ On warn-and-continue failure of the completion-time rewrite, the run proceeds (m
 
 ## Acceptance criteria
 
-- [ ] A multi-subspec patch run rewrites the PR body (`gh pr edit`) exactly once per terminal-green completion, at the completion transition before shrink/review, not on each intermediate subspec completion.
-- [ ] A run that stops terminal-red / stuck-red issues no completion-time rewrite; the body remains whatever draft creation set.
-- [ ] Under `prNarrative: agent`, the completion-time rewrite invokes the completion-pipeline agent (the same source shrink/review use), not a per-subspec handle.
-- [ ] The first subspec completion still creates the draft PR before the completion transition.
-- [ ] A failure of the completion-time PR-body rewrite is warned and does not abort the run; the PR still transitions toward ready via the existing completion path.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A multi-subspec patch run rewrites the PR body (`gh pr edit`) exactly once per terminal-green completion, at the completion transition before shrink/review, not on each intermediate subspec completion.
+- [x] A run that stops terminal-red / stuck-red issues no completion-time rewrite; the body remains whatever draft creation set.
+- [x] Under `prNarrative: agent`, the completion-time rewrite invokes the completion-pipeline agent (the same source shrink/review use), not a per-subspec handle.
+- [x] The first subspec completion still creates the draft PR before the completion transition.
+- [x] A failure of the completion-time PR-body rewrite is warned and does not abort the run; the PR still transitions toward ready via the existing completion path.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

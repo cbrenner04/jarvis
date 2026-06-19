@@ -2353,8 +2353,8 @@ exit 1
     );
 
     expect(code).toBe(0);
-    // With template narrative, agent is not called for PR body, so 1 call instead of 3
-    expect(claude.calls).toHaveLength(1);
+    // 1 call for implementation, 1 call for shrink phase
+    expect(claude.calls).toHaveLength(2);
     // Completion runs `full`; shrink pre-gate and maybeMarkReady run `fast` on unchanged tree.
     expect(readFileSync(readyGateLog, "utf8").trim().split("\n")).toEqual(["full", "fast", "fast"]);
     const body = readFileSync(prBody, "utf8");

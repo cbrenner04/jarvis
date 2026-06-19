@@ -162,26 +162,21 @@ survive a rewrite — those sections are regenerated from scratch.
 
 #### Update cadence
 
-The PR body is rewritten after every successful subspec commit, not only at
-draft creation. The first subspec commit creates the draft PR; every
-subsequent subspec commit pipes a freshly assembled body to
-`gh pr edit <branch> --body-file -`. WIP commits do **not** trigger an
-update. The draft-creation iteration itself does not run an extra update —
-the create-time body already has the right shape — so each iteration calls
-`gh pr edit` at most once.
+The draft PR is created on the first successful subspec commit. The PR body
+is rewritten once at the completion transition (after the green ready gate,
+before shrink/review run), not after each intermediate subspec commit.
+WIP commits do **not** trigger an update.
 
-Each rewrite fetches the current PR body, extracts the narrative section
+The completion-time rewrite fetches the current PR body, extracts the narrative section
 between the markers (so reviewer edits inside the markers survive unchanged),
 rebuilds the deterministic header from `index.md`, renders the attribution
 footer from git trailers, and reassembles the body. Narrative regeneration depends on `prNarrative`:
 
-- **Template mode**: the narrative is regenerated on every rewrite from the spec index and commits, ensuring it reflects the latest state.
+- **Template mode**: the narrative is regenerated from the spec index and commits.
 - **Agent mode**: the narrative is regenerated only when it is empty or marked as machine-owned. When the narrative is empty and an agent is available, jarvis regenerates it by calling the model with the current spec and re-wraps it in fresh markers. With no agent available, an empty/missing narrative is simply omitted on that update.
 
-If `gh pr edit` fails (network, rate-limit, permissions), jarvis emits a
-`harness` warning to stderr naming the active subspec and continues the
-iteration. The next successful subspec commit's rewrite naturally heals the
-description, since both header and footer are rebuilt deterministically.
+If `gh pr edit` fails (network, rate-limit, permissions) at completion time, jarvis emits a
+`harness` warning to stderr and continues the run. The PR remains at the draft-creation body content.
 
 ## Blocker handling
 

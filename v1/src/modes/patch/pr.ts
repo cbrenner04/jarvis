@@ -140,7 +140,7 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
     getSubspecTitles: () => {
       const indexContent = readFileSync(opts.indexPath, "utf8");
       const parsed = parsePatchSpec(indexContent);
-      return parsed.linkedSubspecs.map((s) => extractSubspecTitle(s.path));
+      return parsed.linkedSubspecs.map((s) => s.text);
     },
     buildPrompt: () =>
       buildPrDescriptionPrompt({

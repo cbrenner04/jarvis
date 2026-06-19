@@ -202,9 +202,10 @@ describe("updatePrBody", () => {
     expect(writtenBody).toContain("## Subspecs");
     expect(writtenBody).toContain("- 00 - one");
     expect(writtenBody).toContain("## Commits");
+    expect(writtenBody).toContain("- one");
+    expect(writtenBody).toContain("- retry same subspec");
     // Attribution footer should appear exactly once
     expect(writtenBody.split("\n").filter((line) => line === "Written by Agent A through Jarvis.")).toHaveLength(1);
-    expect(writtenBody).not.toContain("retry same subspec");
   });
 
   test("regenerates template narrative when markers missing in current body", async () => {

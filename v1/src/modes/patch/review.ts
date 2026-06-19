@@ -12,9 +12,9 @@ import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "
 import {
   getCurrentHeadSha,
   isTreeUnchangedSinceRecordedGreen,
+  type ReadyTier,
   runReadyAndCommit,
   selectReadyTier,
-  type ReadyTier,
 } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";

@@ -1,13 +1,13 @@
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 export const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export const GRACE_PERIOD_MS = 5000; // 5 seconds for SIGTERM before SIGKILL
 export const TIMEOUT_EXIT_CODE = 124; // Matches GNU timeout(1)
 export const HEARTBEAT_MS = 15000; // Liveness ping for silent long-running steps
-export const INSTALL_DIGEST_REL_PATH = ".git/jarvis-ready-install-digest";
+export const INSTALL_DIGEST_FILENAME = "jarvis-ready-install-digest";
 
 export type ReadyTier = "fast" | "full";
 export type ReadyCommand = { name: string; args: string[] };
@@ -24,9 +24,7 @@ export function parseReadyTier(envValue = process.env.JARVIS_READY_TIER): ReadyT
   }
 
   if (envValue !== undefined && envValue !== "") {
-    process.stderr.write(
-      `warning: invalid JARVIS_READY_TIER="${envValue}"; using default (full)\n`,
-    );
+    process.stderr.write(`warning: invalid JARVIS_READY_TIER="${envValue}"; using default (full)\n`);
   }
 
   return "full";
@@ -134,8 +132,26 @@ export function computeInstallDigest(repoRoot: string): string | undefined {
   return `${lockfileHash}:${nodeModulesHash}`;
 }
 
+/**
+ * Resolve the git dir for `repoRoot`. In a worktree `.git` is a *file* pointing
+ * at `…/.git/worktrees/<name>`, so we ask git for the real per-worktree dir
+ * instead of assuming `<repoRoot>/.git` is a directory. Falls back to the
+ * literal `.git` path for non-git checkouts (e.g. test temp dirs).
+ */
+function gitDir(repoRoot: string): string {
+  try {
+    return execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return join(repoRoot, ".git");
+  }
+}
+
 function installDigestPath(repoRoot: string): string {
-  return join(repoRoot, INSTALL_DIGEST_REL_PATH);
+  return join(gitDir(repoRoot), INSTALL_DIGEST_FILENAME);
 }
 
 /** Last recorded successful install digest for this checkout, if any. */
@@ -152,7 +168,7 @@ export function readRecordedInstallDigest(repoRoot: string): string | undefined 
 /** Persist the digest after a successful `bun install --frozen-lockfile`. */
 export function writeRecordedInstallDigest(repoRoot: string, digest: string): void {
   const digestPath = installDigestPath(repoRoot);
-  mkdirSync(join(repoRoot, ".git"), { recursive: true });
+  mkdirSync(dirname(digestPath), { recursive: true });
   writeFileSync(digestPath, `${digest}\n`, "utf8");
 }
 
@@ -287,10 +303,7 @@ export function runCommand(name: string, args: string[], deadlineMs: number, ela
   });
 }
 
-export async function runReady(opts?: {
-  repoRoot?: string;
-  runCommandFn?: typeof runCommand;
-}): Promise<void> {
+export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof runCommand }): Promise<void> {
   const repoRoot = opts?.repoRoot ?? process.cwd();
   const runCommandFn = opts?.runCommandFn ?? runCommand;
   const tier = parseReadyTier();

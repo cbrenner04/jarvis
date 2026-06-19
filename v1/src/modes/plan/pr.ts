@@ -11,7 +11,7 @@ import {
   NARRATIVE_START_MARKER,
   readBranchCommits,
 } from "../../pr.ts";
-import { runReadyAndCommit, type ReadyTier } from "../../ready-gate.ts";
+import { type ReadyTier, runReadyAndCommit } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
 /**

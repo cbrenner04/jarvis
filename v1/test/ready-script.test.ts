@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  DEFAULT_TIMEOUT_MS,
   computeInstallDigest,
   computeNodeModulesIdentityDigest,
+  DEFAULT_TIMEOUT_MS,
   getReadyCommands,
   parseReadyTier,
   parseTimeout,
@@ -36,11 +37,7 @@ function withEnv(key: string, value: string | undefined, fn: () => void): void {
   }
 }
 
-async function withEnvAsync(
-  key: string,
-  value: string | undefined,
-  fn: () => Promise<void>,
-): Promise<void> {
+async function withEnvAsync(key: string, value: string | undefined, fn: () => Promise<void>): Promise<void> {
   const prev = process.env[key];
   if (value === undefined) {
     delete process.env[key];
@@ -159,21 +156,12 @@ describe("ready tier parsing and step lists", () => {
 
   test("full tier skips install in the command list when runInstall is false", () => {
     const commands = getReadyCommands("full", { runInstall: false });
-    const checkFixIndex = commands.findIndex(
-      (command) => command.args[0] === "run" && command.args[1] === "check:fix",
-    );
-    const installIndex = commands.findIndex(
-      (command) => command.args[0] === "install",
-    );
+    const checkFixIndex = commands.findIndex((command) => command.args[0] === "run" && command.args[1] === "check:fix");
+    const installIndex = commands.findIndex((command) => command.args[0] === "install");
 
     expect(checkFixIndex).toBe(0);
     expect(installIndex).toBe(-1);
-    expect(commands.map((command) => command.args[1])).toEqual([
-      "check:fix",
-      "typecheck",
-      "test",
-      "check",
-    ]);
+    expect(commands.map((command) => command.args[1])).toEqual(["check:fix", "typecheck", "test", "check"]);
   });
 
   test("full tier keeps install before check:fix when install runs", () => {
@@ -262,9 +250,7 @@ describe("ready install digest", () => {
     writePackage(repoRoot, "alpha", "alpha", "2.0.0");
     writePackage(repoRoot, "@scope/pkg", "@scope/pkg", "3.0.0");
 
-    expect(computeNodeModulesIdentityDigest(repoRoot)).toBe(
-      sha256Hex("@scope/pkg@3.0.0\nalpha@2.0.0\nzebra@1.0.0"),
-    );
+    expect(computeNodeModulesIdentityDigest(repoRoot)).toBe(sha256Hex("@scope/pkg@3.0.0\nalpha@2.0.0\nzebra@1.0.0"));
   });
 
   test("computeInstallDigest combines lockfile bytes with node_modules identity", () => {
@@ -345,12 +331,7 @@ describe("ready install digest", () => {
       });
     });
 
-    expect(executed.map((step) => step.replace(/^run /, ""))).toEqual([
-      "check:fix",
-      "typecheck",
-      "test",
-      "check",
-    ]);
+    expect(executed.map((step) => step.replace(/^run /, ""))).toEqual(["check:fix", "typecheck", "test", "check"]);
     expect(readRecordedInstallDigest(repoRoot)).toBe(digest);
   });
 
@@ -372,5 +353,25 @@ describe("ready install digest", () => {
     });
 
     expect(readRecordedInstallDigest(repoRoot)).toBe(computeInstallDigest(repoRoot));
+  });
+
+  // Regression: the harness runs `bun run ready` inside a git worktree, where
+  // `.git` is a *file*, not a directory. The digest must round-trip there
+  // instead of crashing on `mkdir '.git'`.
+  test("digest round-trips in a worktree where .git is a file", () => {
+    repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-wt-"));
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: repoRoot, stdio: "pipe" });
+    git("init", "-q");
+    git("config", "user.email", "t@t.t");
+    git("config", "user.name", "t");
+    git("commit", "-q", "--allow-empty", "-m", "init");
+    const worktree = join(repoRoot, "wt");
+    git("worktree", "add", "-q", worktree, "HEAD");
+
+    // Sanity: the worktree's `.git` is a file, the case that used to crash.
+    expect(readFileSync(join(worktree, ".git"), "utf8")).toContain("gitdir:");
+
+    expect(() => writeRecordedInstallDigest(worktree, "wt-digest")).not.toThrow();
+    expect(readRecordedInstallDigest(worktree)).toBe("wt-digest");
   });
 });

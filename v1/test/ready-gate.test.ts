@@ -3,11 +3,7 @@ import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  runReadyAndCommit,
-  runReadyGateWithTier,
-  selectReadyTier,
-} from "../src/ready-gate.ts";
+import { runReadyAndCommit, runReadyGateWithTier, selectReadyTier } from "../src/ready-gate.ts";
 
 let dir = "";
 

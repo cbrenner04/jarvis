@@ -11,7 +11,12 @@ import {
   NARRATIVE_START_MARKER,
   renderAttributionSummary,
 } from "../../pr.ts";
-import { runReadyAndCommit, runReadyGateWithTier, type ReadyTier, type RunReadyAndCommitOpts } from "../../ready-gate.ts";
+import {
+  type ReadyTier,
+  type RunReadyAndCommitOpts,
+  runReadyAndCommit,
+  runReadyGateWithTier,
+} from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 import { parsePatchSpec } from "./spec.ts";
 

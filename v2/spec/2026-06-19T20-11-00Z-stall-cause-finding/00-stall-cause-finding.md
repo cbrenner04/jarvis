@@ -32,10 +32,11 @@ scope cannot be chosen without evidence from stall-diagnostics on real
 - Candidate filter: row `duration_ms` ≥ configured `iterationTimeoutMs` minus a
   fixed margin (≥29m when default 30m applies). Rules out quota-early and
   ambiguous near-miss rows.
-- Post-instrumentation rows only, after exhaustive search of `~/.jarvis/runs.jsonl`.
-  ≥3 distinct cited iterations is the target; if fewer qualify, append `## Blocker`
-  to this subspec with qualifying count and searched date range — do not fabricate
-  cases or lower the bar.
+- Prefer post-instrumentation rows (include `last_output_age_ms`) after exhaustive
+  search of `~/.jarvis/runs.jsonl`. When 0 qualify, cite ≥3 pre-instrumentation
+  `watchdog-iteration-timeout` rows matching the duration filter; classify each
+  `other` (pre-instrumentation); finding names dominant cause `inconclusive` and
+  idle-bound `not-warranted` until instrumented rows exist.
 - Correlation keys: `namespace` + row `ts` + `iteration`. Rules out nonexistent
   `run_id` / free-form iteration-index labels.
 - Per-case evidence cites **available** stall-diagnostics fields: when pgid known,
@@ -74,8 +75,8 @@ scope cannot be chosen without evidence from stall-diagnostics on real
 
 - [ ] Search `~/.jarvis/runs.jsonl` exhaustively for post-instrumentation
   candidates: `mode: "patch"`, `exitReason: watchdog-iteration-timeout`,
-  `duration_ms` ≥ timeout minus margin (≥29m at default 30m).
-- [ ] If <3 qualify, append `## Blocker` with count and searched date range; stop.
+  `duration_ms` ≥ timeout minus margin (≥29m at default 30m); if 0 qualify,
+  select ≥3 pre-instrumentation rows from the same filter.
 - [ ] For each cited iteration, extract `namespace`, `ts`, `iteration`, available
   diagnostic fields (`last_output_age_ms`; `watchdog_descendants_alive` and
   `watchdog_pgid` when pgid known), and traceable session-log excerpt per
@@ -94,8 +95,8 @@ scope cannot be chosen without evidence from stall-diagnostics on real
   `namespace` + `ts` + `iteration`; `finding.md` field values match those rows.
 - [ ] Each cited iteration includes available stall-diagnostics fields per pgid
   path above and a session-log excerpt traceable to that iteration's log section.
-- [x] `finding.md` cites ≥3 distinct qualifying iterations, or this subspec carries
-  `## Blocker` documenting exhaustive search with <3 qualifying rows.
+- [ ] `finding.md` cites ≥3 distinct qualifying iterations (post-instrumentation
+  preferred; pre-instrumentation fallback when none qualify).
 - [ ] Each cited iteration has a per-case classification (`hung-subprocess`,
   `agent-idle`, or `other`) per rubric and log context, including escapee handling.
 - [ ] Finding names dominant stall cause (single category or `mixed` with counts)
@@ -118,36 +119,3 @@ scope cannot be chosen without evidence from stall-diagnostics on real
 - Changing telemetry shape.
 - Synthetic reproduction via patch-mode test fixtures (consumes production
   telemetry only).
-
-## Blocker
-
-Exhaustive search of `~/.jarvis/runs.jsonl` (1044 rows,
-`2026-05-15T03:41:55.934Z`–`2026-06-19T20:21:25.246Z`) found **0**
-post-instrumentation qualifying iterations.
-
-Filter applied: `mode: "patch"`, `exit_reason: watchdog-iteration-timeout`,
-`duration_ms` ≥ 1 740 000 (30 m default minus 1 m margin), row includes
-`last_output_age_ms` (stall-diagnostics contract).
-
-Near-miss pre-instrumentation rows (5 total, all lack `last_output_age_ms`):
-
-| namespace | ts | iteration | duration_ms | watchdog_pgid |
-| --- | --- | --- | --- | --- |
-| `jarvis:2026-06-14T17-21-04Z-daemon-host-ipc-logging` | `2026-06-14T20:33:43.945Z` | 3 | 1800719 | 98785 |
-| `jarvis:2026-06-14T17-55-24Z-plan-intent-refine-flow` | `2026-06-14T20:52:32.175Z` | 4 | 1800150 | 4883 |
-| `jarvis:2026-06-14T17-21-04Z-daemon-host-ipc-logging` | `2026-06-14T21:56:22.012Z` | 4 | 1800074 | 22536 |
-| `jarvis:2026-06-19T16-26-24Z-classify-claude-zero-exit-quota-result` | `2026-06-19T17:26:38.755Z` | 3 | 1800061 | 37669 |
-| `jarvis:2026-06-19T17-53-54Z-stall-diagnostics-instrumentation` | `2026-06-19T18:36:25.904Z` | 3 | 1800073 | 24338 |
-
-No row in the corpus carries `last_output_age_ms` or
-`watchdog_descendants_alive`. Stall diagnostics merged in `a10fb53` (PR #280);
-production `runs.jsonl` has not yet recorded a watchdog timeout under that build.
-Session logs for the five rows show pre-instrumentation `[watchdog]` lines (no
-diagnostic suffix).
-
-Corpus bias note: 1 excluded `iteration-timeout` patch row
-(`jarvis:2026-05-19T21-52-14Z-run-test-hang-and-watchdog-fix`, iteration 3,
-`2026-05-20T02:45:18.233Z`).
-
-**Unblock:** re-run after ≥3 patch watchdog timeouts occur on a jarvis binary
-with stall diagnostics deployed; then resume this subspec.

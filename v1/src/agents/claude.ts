@@ -4,7 +4,7 @@
 // prompt piped on stdin. Stdin is used (instead of an argv positional) so the
 // prompt size is not bounded by the OS argv limit. JSON output is always used so
 // Claude-reported token usage and cost can be extracted.
-import { parseClaudeJsonOutput } from "./claude-json.ts";
+import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { runAgent } from "./spawn.ts";
 import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 
@@ -74,6 +74,10 @@ export class ClaudeAgent implements Agent {
     );
 
     if (result.kind === "ok") {
+      if (isClaudeZeroExitQuotaEnvelope(result.stdout)) {
+        return { kind: "quota", stderr: result.stdout };
+      }
+
       const parseResult = parseClaudeJsonOutput(result.stdout);
       const output: typeof result = {
         ...result,

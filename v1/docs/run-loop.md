@@ -176,12 +176,48 @@ where it can be edited by reviewers. If generation fails, jarvis falls back to
 ## Review phase
 
 After the spec is complete and `git: true` is in effect, `jarvis1 run` enters
-a post-completion review phase configured by `modes.review.passes` (default `2`).
+a post-completion review phase configured by `modes.review.passes` (default `1`).
 The review phase is skipped when `passes` is `0`, when `git` is `false`, or when
 the run completed no implementation iterations. Patch review routes through the
 shared review runner in `v1/src/modes/review/` with a patch adapter; review
 agents resolve from `modes.review.agentOrder`, falling back to
 `modes.plan.agentOrder`, not the implementation agents.
+
+### Resuming review on a completed spec
+
+`jarvis1 run --resume-review <spec-path>` re-enters the post-completion review
+phase on an already-complete spec without running implementation agents. This
+allows an operator to retry or rerun review when the initial completion didn't
+trigger review, the initial review failed, or the branch moved and review
+needs to retry.
+
+**Preflight guards** enforce:
+
+- **Review disabled**: `modes.review.passes` is `0` or `--review-passes 0` was
+  passed; exits `1`.
+- **Git off**: Effective `git` is `false`; exits `1`.
+- **No implementation PR**: No remote branch (and therefore no PR) exists for the
+  resolved spec's branch; exits `1`. A missing-but-recreatable local worktree is
+  **not** an error, because the resolver can recreate the worktree from the
+  remote branch.
+- **Incomplete spec**: The spec has unchecked tasks; exits `1`.
+
+Guard errors each print a distinct message naming the reason and exit with code
+`1` before any agent runs.
+
+**Execution**: When the guards pass, `jarvis1 run --resume-review` proceeds to
+the same review-phase entry as a normal completion, bypassing the
+`implementationIterations > 0` gate for review only. The shrink phase is still
+skipped (no `patch_phase: "shrink"` telemetry row is emitted). All existing
+review outcomes are preserved:
+
+- Baseline or final gate failure: non-zero exit code, PR stays draft.
+- Review blocker: exit `7`, blocker content printed to stderr.
+- Review quota exhaustion: exit `2`.
+- Already-ready PR: idempotent no-op (final `gh pr ready` leaves it untouched).
+
+`--max-iterations` is accepted but has no behavioral effect (review resume runs
+no implementation iterations).
 
 The review phase flow is:
 
@@ -212,6 +248,80 @@ The review phase flow is:
 
 Telemetry records review pass invocations with `patch_phase: "review"` so they
 are distinguishable from implementation iterations in `~/.jarvis/runs.jsonl`.
+
+### Completion `ready` gate
+
+After the spec is complete (zero unchecked boxes) and `git: true` is in effect,
+the harness runs a completion-stage `ready` gate before any shrink or review
+phases. This gate runs `bun run ready` with the same commit/push semantics as
+the review baseline gate and pre-shrink gate: check:fix output is committed if
+present.
+
+The completion gate:
+
+1. Runs only when `gitEnabled`, the tree is clean, and at least one 
+   implementation iteration occurred (checkpoint: not on `git: false` modes or 
+   checkbox-only completion).
+2. On green: commits any `check:fix` output and proceeds to shrink → review 
+   → `maybeMarkReady` (if configured).
+3. On red: captures the failure text and handles it per the loop-back 
+   completion behavior (specs `01-red-loopback-iteration.md` and 
+   `02-stuck-red-stop.md`). The shrink and review phases do not run on red.
+
+The pre-shrink gate, review baseline gate, and `maybeMarkReady` `ready` 
+invocations remain in place as green-path backstops and are unaffected by the 
+completion gate.
+
+### Fix-up iterations (red→green loop-back)
+
+When the completion `ready` gate fails (turns red), the harness launches a **fix-up iteration**: 
+one agent invocation that receives the captured `ready` failure text prepended to the normal 
+patch prompt. The agent can inspect both the failed `ready` output and the completed spec, 
+then attempt fixes.
+
+Fix-up iteration flow:
+
+1. **Trigger**: completion gate returns red; `CompletionLoopbackSignal` is set with the 
+   captured failure text.
+2. **Agent invocation**: runs with the combined prompt `buildFixupPrompt()` + normal patch 
+   rules. The agent sees the `ready` failure and can attempt to fix root-cause issues 
+   (type errors, test failures, linting, formatting, etc.).
+3. **Post-iteration checks** (in priority order):
+   - **Blocker detection**: if any linked subspec gained a `## Blocker` section, the run 
+     commits any work from the fix-up iteration, logs the blocker text to stderr, and 
+     exits with code 7.
+   - **Spec completion**: if the spec still has unchecked boxes, the fix-up iteration 
+     counts as a regular implementation iteration (affects iteration count and telemetry) 
+     and the main loop resumes from the next unchecked subspec.
+   - **Completion retry**: if the spec remains complete (zero unchecked) after the fix-up 
+     iteration, the completion gate is retried (runs `bun run ready` again). If it turns 
+     green, normal completion processing continues (shrink → review → readiness). If it 
+     turns red again, the loop repeats (up to the configured `maxIterations` limit).
+
+Fix-up iterations do not include granular acceptance-criteria tracking because the spec 
+is already complete. Any work is committed with `newlyChecked: []` and `checkedTotal: 0` 
+in telemetry.
+
+### Stuck-red completion stop (exit 10)
+
+After each fix-up iteration, the completion gate is retried. The loop continues until:
+- The gate turns green (proceed to post-completion phases).
+- The budget is exhausted (exit code 5).
+- A new blocker is added (exit code 7).
+- The failure is unchanged and progress cannot be made (exit code 10).
+
+Exit code `10` (`ready-stuck-red`) fires when:
+1. The completion gate returns red (still failing).
+2. The captured failure text is unchanged after normalization (stripping known non-deterministic content like absolute paths, durations, timings, dates, and deadline messaging).
+3. No new work was ticked (unchecked count is still 0).
+4. No new blocker was added.
+
+This indicates the issue persists and manual intervention is likely needed. The harness outputs:
+- The captured `bun run ready failed:` text that failed before and fails after the fix-up iteration.
+- A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves.
+- A telemetry record with exit reason `ready-stuck-red` for observability.
+
+If the failure text changed substantively (e.g. a different line number, different test output), the loop continues. Noise-only differences (timings, paths) are normalized away and do not extend the loop.
 
 ### Post-completion shrink
 
@@ -516,7 +626,7 @@ jarvis1 log-server
 | Exit | Meaning |
 | --- | --- |
 | `0` | Spec complete. |
-| `1` | Bad input (unknown command, missing args, invalid `--max-iterations`, unregistered project, etc.). |
+| `1` | Bad input (unknown command, missing args, invalid `--max-iterations`, unregistered project, `--resume-review` guard failure, etc.). `--resume-review` guard failures include: review passes resolve to `0`, effective `git` is `false`, no implementation PR/remote branch exists for the spec's branch, or the spec has unchecked tasks. Each guard prints a distinct message before exiting. |
 | `2` | Every configured agent was quota-exhausted. |
 | `3` | The active agent failed for a non-quota reason. |
 | `4` | A successful agent iteration made no progress (unchecked count unchanged and spec still incomplete). When the active subspec is resolvable, the stop message lists unticked acceptance criteria from that subspec to help guide recovery—this diagnostic fires only on clean runs with no-progress, not on other stop paths. The guidance message explains that if the work is done, ticking the satisfied criteria and rerunning will complete the subspec. |
@@ -525,13 +635,76 @@ jarvis1 log-server
 | `7` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |
+| `10` | The run is stuck on a red `bun run ready` failure after a fix-up iteration. The captured failure text is unchanged (after normalization for noise like timings and paths), and no new work was ticked and no new blocker was added. This is a recoverable stop: the issue persists and manual intervention may be needed. The error message includes the captured failure text and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import) and rerun to retry the fix-up iteration. |
 | `130` | Interrupted with Ctrl-C. |
 
-On exit `4` and `5`, the bounded tail of recent agent output is printed to the
+On exit `4`, `5`, and `10`, the bounded tail of recent agent output is printed to the
 terminal to help diagnose why progress stalled.
+
+## Agent process lifecycle
+
+Agents are spawned with `detached: true` in their own process group
+(`v1/src/agents/spawn.ts`). On normal completion with exit code `0` and no
+abort reason, Jarvis best-effort reaps in-group stragglers via
+`process.kill(-pgid, "SIGKILL")` from a `child.on("exit")` handler. The reap is
+non-fatal: a kill error (including `ESRCH` on a clean close where the agent left
+no descendant) is swallowed and does not affect the settled result kind or exit
+code.
+
+**Deadlock rationale**: The reap runs on `exit` rather than on the close branch
+because `close` fires only after the agent's stdout/stderr streams tear down. If
+a straggler inherited the agent's stdout/stderr pipes, it holds them open
+indefinitely, preventing stream teardown and causing settlement (which waits for
+stream end) to deadlock. The `exit` event fires when the process itself
+terminates, independent of pipe state; killing the group then closes those
+inherited pipes, allowing the streams to end and settlement to proceed.
+
+Reaping does **not** run when `code !== 0`, on the error-settle path,
+quota/model-config branches, the `child.on("error")` path, or during abort/timeout
+(which have their own group-kill logic).
+
+Only in-group descendants are targeted: a process that left the agent's process
+group (e.g. started its own session) is out of scope and is not killed.
 
 When an iteration timeout fires, Jarvis logs a single watchdog line to both the
 run terminal and session log:
 `[watchdog] iteration timeout fired after Nms; killing agent pgid <pgid>`.
 The watchdog is armed before agent spawn, does not reset on streaming output,
 SIGTERMs the full process group, waits up to 5 seconds, then SIGKILLs survivors.
+
+### Orphan process reaping
+
+Agent tools can place a descendant in a new session/process group (e.g. a
+`bun run test` → `bun test` subtree that calls `setsid()`). When the watchdog
+kills `-pgid`, that descendant escapes the group kill and, once its agent
+exits, re-parents to init (PPID=1). These orphans can peg CPU for minutes after
+their agent is gone, and by then no process group or parent link leads back to
+them.
+
+macOS does not expose process environments to an unprivileged `ps`, so an
+inherited env marker cannot be discovered after the fact; the `pid`/`ppid`/
+`pgid` columns, however, are always visible. So Jarvis tracks descendants
+proactively: while an agent runs, it samples the process table on a fixed
+interval and records every PID descended from the agent (by transitive `ppid`,
+plus any process still sharing the agent's `pgid`). A descendant's `ppid` still
+points into the agent subtree until the agent dies, so escapees are captured
+while their lineage is intact. At the end of each iteration and at finalize,
+Jarvis takes a final sample and SIGKILLs any recorded descendant that is still
+alive. Each recorded PID carries the process's start time (`lstart`) as an
+identity, and the reaper skips a PID whose start time has changed, so a recycled
+PID belonging to an unrelated process is never targeted; the harness's own
+process is never targeted.
+
+Reaping is best-effort and never affects run exit codes or stop reasons.
+Process-listing and kill failures are swallowed. Reaping reads only `pid`,
+`ppid`, `pgid`, and start time — never process environments or command
+arguments — so no scanned process state is logged or stored.
+
+This mechanism covers all iteration-exit paths (settle, abort, timeout) and
+finalize (SIGINT and direct `process.exit`), ensuring no orphans escape even
+when the harness is interrupted. Prompt-mode invocations (`jarvis1 prompt`)
+instantiate a fresh tracker per fallback attempt: poll on spawn and on a fixed
+interval inside that attempt's `try/finally`, take one final snapshot before
+reap, then reap in the per-attempt `finally` (lock release and telemetry stay in
+the outer `finally`). Review passes and verdict-actuator invocations use the
+same per-invocation strategy, including a final snapshot before reap.

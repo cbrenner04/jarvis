@@ -1,6 +1,15 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { createAgent as defaultCreateAgent } from "../agents/factory.ts";
 import type { Agent, AgentName } from "../agents/types.ts";
@@ -77,8 +86,6 @@ function planHarnessLog(logClient: LogClient, text: string, tag: "harness" | "ou
     })
     .catch(() => {});
 }
-
-const _TEMP_PLAN_PREFIX = "tmp-";
 
 export function parseIntentFrontmatter(text: string): {
   name?: string | undefined;
@@ -490,6 +497,63 @@ async function ensureUniquePlanName(
   }
 }
 
+/**
+ * Return true when `child` stays within `parent`.
+ */
+export function isPathInside(
+  parent: string,
+  child: string,
+  pathApi: {
+    relative: typeof relative;
+    isAbsolute: typeof isAbsolute;
+    sep: string;
+  } = { relative, isAbsolute, sep },
+): boolean {
+  const rel = pathApi.relative(parent, child);
+  return rel === "" || (!pathApi.isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${pathApi.sep}`));
+}
+
+/**
+ * Delete the source ready-intent from the worktree if it exists and resolves within it.
+ * Returns true if a file was deleted, false if deletion was skipped.
+ */
+export function deleteReadyIntentFromWorktree(args: {
+  readyIntentPath: string;
+  projectRoot: string;
+  worktreePath: string;
+}): boolean {
+  const worktreePath = resolve(args.worktreePath);
+  const canonicalWorktreePath = (() => {
+    try {
+      return realpathSync(worktreePath);
+    } catch {
+      return worktreePath;
+    }
+  })();
+  const targetPath = resolve(worktreePath, relative(resolve(args.projectRoot), resolve(args.readyIntentPath)));
+  if (!isPathInside(worktreePath, targetPath)) {
+    return false;
+  }
+  if (!existsSync(targetPath)) {
+    return false;
+  }
+  let resolvedTargetPath: string;
+  try {
+    resolvedTargetPath = realpathSync(targetPath);
+  } catch {
+    return false;
+  }
+  if (!isPathInside(canonicalWorktreePath, resolvedTargetPath)) {
+    return false;
+  }
+  try {
+    unlinkSync(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function planCommand(opts: PlanCommandOptions): Promise<number> {
   const args = opts.args ?? [];
   if (args.includes("--help") || args.includes("-h")) {
@@ -791,7 +855,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         baseBranch = getCurrentBranch(project.root);
       }
 
-      const cleanupNoCommitTempSpec = (): void => {
+      const removeAbandonedPreIntentSpecDir = (): void => {
         if (commit === false && externalSpecRoot) {
           const finalSpecPath = join(externalSpecRoot, specDirBasename);
           if (existsSync(finalSpecPath)) {
@@ -811,7 +875,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         writeFileSync(intentPath, readyIntentContent, "utf8");
       } catch (err) {
         opts.io.stderr(`failed to write intent file: ${(err as Error).message}\n`);
-        cleanupNoCommitTempSpec();
+        removeAbandonedPreIntentSpecDir();
         if (commit) {
           cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
         }
@@ -850,6 +914,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
       if (interrupted) {
         opts.io.stderr(`plan: interrupted\n`);
+        emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
         summarizePlan("sigint", specDirBasename);
         return 130;
       }
@@ -867,7 +932,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           onOutboundPrompt: logOutboundPrompt,
           worktreePath,
           name: specDirBasename,
-          ...(commit ? {} : { specDirPath: finalSpecPath }),
+          ...(commit ? {} : { specDirPath: finalSpecPath, additionalReadDirs: [finalSpecPath] }),
           config: cfg,
           intentBefore,
           stderr: opts.io.stderr,
@@ -880,16 +945,19 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         if (draftResult.result.kind !== "ok") {
           if (draftResult.result.kind === "quota") {
             opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+            emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
             summarizePlan("quota-exhausted", specDirBasename);
             return 2;
           }
           if (draftResult.result.kind === "model_config") {
             opts.io.stderr(`plan: model configuration error\n${draftResult.result.stderr}`);
+            emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
             summarizePlan("model-config", specDirBasename);
             return 3;
           }
           // Generic error
           opts.io.stderr(`plan: draft phase failed\n${draftResult.result.stderr}`);
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("agent-error", specDirBasename);
           return 1;
         }
@@ -897,6 +965,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         // Check for interrupt before any commit
         if (interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("sigint", specDirBasename);
           return 130;
         }
@@ -905,6 +974,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         const validation = validateDraftOutput(worktreePath, specDirBasename, intentBefore, finalSpecPath);
         if (!validation.valid) {
           opts.io.stderr(`plan: draft validation failed: ${validation.error}\n`);
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("error", specDirBasename);
           return 1;
         }
@@ -917,6 +987,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         draftSpecFilesCount = draftResult.subspecCount ?? 0;
         if (draftBlocker === undefined && draftResult.subspecCount === null) {
           opts.io.stderr(`plan: could not count subspecs\n`);
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("error", specDirBasename);
           return 1;
         }
@@ -927,6 +998,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
       } catch (err) {
         opts.io.stderr(`plan: draft phase error: ${(err as Error).message}\n`);
+        emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
         summarizePlan("error", specDirBasename);
         return 1;
       }
@@ -988,6 +1060,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
 
         opts.io.stderr(`plan: blocked\n`);
+        emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
         summarizePlan("blocker", specDirBasename);
         return 1;
       }
@@ -999,6 +1072,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       if (commit) {
         try {
           const agentLabel = draftResult.agentLabel ?? "unknown";
+
+          // Delete the source ready-intent from the worktree before the draft commit,
+          // so the deletion is staged and lands in the plan: draft commit.
+          deleteReadyIntentFromWorktree({
+            readyIntentPath: candidatePath,
+            projectRoot: project.root,
+            worktreePath: worktreePath as string,
+          });
 
           commitPlanDraft({
             worktreePath: worktreePath as string,
@@ -1084,6 +1165,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         if (draftBlocker) {
           opts.io.stderr(`\n## Blocker\n\n${draftBlocker}\n`);
         }
+        emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
         summarizePlan("blocker", specDirBasename);
         return 1;
       }
@@ -1111,7 +1193,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath,
           name: specDirBasename,
           specDirBasename,
-          ...(commit ? {} : { specDirPath: finalSpecPath }),
+          ...(commit ? {} : { specDirPath: finalSpecPath, additionalReadDirs: [finalSpecPath] }),
           config: cfg,
           ...(inv.reviewPasses !== undefined ? { reviewPassesOverride: inv.reviewPasses } : {}),
           stderr: opts.io.stderr,
@@ -1147,22 +1229,27 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         });
         if (reviewResult.interrupted) {
           opts.io.stderr(`plan: interrupted\n`);
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("sigint", specDirBasename);
           return 130;
         }
         if (reviewResult.exitCode === 2) {
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("quota-exhausted", specDirBasename);
           return 2;
         }
         if (reviewResult.exitCode === 3) {
+          emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("model-config", specDirBasename);
           return 3;
         }
         if (reviewResult.exitCode !== 0) {
           if (reviewResult.blocker !== undefined) {
             opts.io.stderr(`\n## Blocker\n\n${reviewResult.blocker}\n`);
+            emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
             summarizePlan("blocker", specDirBasename);
           } else {
+            emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
             summarizePlan(reviewResult.exitCode === 1 ? "agent-error" : "error", specDirBasename);
           }
           return reviewResult.exitCode;
@@ -1370,6 +1457,18 @@ function firstNonEmptyLine(text: string): string {
     }
   }
   return "";
+}
+
+/** Emit breadcrumb for preserved no-commit spec directory on failure. */
+function emitPreservedSpecDirBreadcrumb(
+  io: PlanIo,
+  externalSpecRoot: string | undefined,
+  specDirBasename: string,
+): void {
+  if (externalSpecRoot) {
+    const finalSpecPath = join(externalSpecRoot, specDirBasename);
+    io.stderr(`Spec preserved at ${finalSpecPath}\n`);
+  }
 }
 
 /** Count subspec files under a spec directory matching the `NN-*.md` shape. */

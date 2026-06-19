@@ -22,6 +22,7 @@ import {
 } from "../review/types.ts";
 import { runReadyAndCommit, updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } from "./prompt.ts";
+import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "./reap.ts";
 
 /** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
@@ -260,16 +261,79 @@ export type PatchReviewPhaseOptions = {
   };
   /** Refresh callback: called when baseline gate re-runs `ready` and succeeds, to update the recorded result. */
   refreshRecordedGreenResult?: (headSha: string) => void;
+  /** Test-only override for descendant reaping (reap.ts DescendantTracker.reap). */
+  __testReapOverride?: (tracker: DescendantTracker) => number;
+  /** Test-only: invoked after each descendant poll (spawn + interval). */
+  __testAfterPollFn?: () => void;
+  /** Test-only poll interval when `__testAfterPollFn` is set. */
+  __testDescendantPollIntervalMs?: number;
 };
 
+type ReapOverride = PatchReviewPhaseOptions["__testReapOverride"];
+
+function startDescendantPolling(
+  tracker: DescendantTracker,
+  pid: number,
+  opts?: { afterPoll?: () => void; intervalMs?: number },
+): NodeJS.Timeout {
+  const intervalMs = opts?.intervalMs ?? DESCENDANT_POLL_INTERVAL_MS;
+  tracker.poll(pid);
+  opts?.afterPoll?.();
+  const handle = setInterval(() => {
+    try {
+      tracker.poll(pid);
+      opts?.afterPoll?.();
+    } catch {
+      // best-effort
+    }
+  }, intervalMs);
+  handle.unref?.();
+  return handle;
+}
+
+function stopDescendantPollingAndReap(
+  tracker: DescendantTracker,
+  pollRootPid: number | null,
+  pollIntervalHandle: NodeJS.Timeout | null,
+  reapOverride?: ReapOverride,
+): void {
+  if (pollIntervalHandle !== null) {
+    clearInterval(pollIntervalHandle);
+  }
+  if (pollRootPid !== null) {
+    tracker.poll(pollRootPid);
+  }
+  reapTrackedDescendants(tracker, reapOverride);
+}
+
+function reapTrackedDescendants(tracker: DescendantTracker, reapOverride?: ReapOverride): void {
+  try {
+    reapOverride ? reapOverride(tracker) : tracker.reap();
+  } catch {
+    // best-effort: reap failures are non-fatal
+  }
+}
+
 /** Wrap an agent with per-pass iteration timeout and process-group abort. */
-function withReviewPassTimeout(agent: Agent, opts: { timeoutMs: number; killGraceMs: number }): Agent {
+function withReviewPassTimeout(
+  agent: Agent,
+  opts: {
+    timeoutMs: number;
+    killGraceMs: number;
+    reapOverride?: ReapOverride;
+    afterPoll?: () => void;
+    descendantPollIntervalMs?: number;
+  },
+): Agent {
   return {
     name: agent.name,
     attributionLabel: () => agent.attributionLabel(),
     run: async (prompt: string, runOpts: AgentRunOptions) => {
       const passController = new AbortController();
       let watchdogPgid: number | null = null;
+      const tracker = new DescendantTracker();
+      let pollIntervalHandle: NodeJS.Timeout | null = null;
+
       const passTimeoutHandle = setTimeout(() => {
         if (watchdogPgid !== null) {
           try {
@@ -288,10 +352,15 @@ function withReviewPassTimeout(agent: Agent, opts: { timeoutMs: number; killGrac
           abortKillGraceMs: opts.killGraceMs,
           onSpawned: ({ pid }) => {
             watchdogPgid = pid;
+            pollIntervalHandle = startDescendantPolling(tracker, pid, {
+              ...(opts.afterPoll !== undefined ? { afterPoll: opts.afterPoll } : {}),
+              ...(opts.descendantPollIntervalMs !== undefined ? { intervalMs: opts.descendantPollIntervalMs } : {}),
+            });
           },
         });
       } finally {
         clearTimeout(passTimeoutHandle);
+        stopDescendantPollingAndReap(tracker, watchdogPgid, pollIntervalHandle, opts.reapOverride);
       }
     },
   };
@@ -610,6 +679,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       opts.fanout("harness", `review baseline gate failed: ${message}\n`, "stderr");
+      // NOTE: On the completion path, the completion `ready` gate (run.ts:1574)
+      // runs before shrink/review and ensures `ready` is green. This exit path
+      // (return 1) is unreachable on the completion path — it is a backstop for
+      // non-completion paths. The completion path's sole response to red `ready`
+      // is the stuck-red stop (exit 10 in run.ts:1601) after fix-up iterations.
       return 1;
     }
   }
@@ -618,6 +692,17 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
   const base = opts.baseBranch ?? (await getBaseBranch(opts.cwd));
   const specDir = dirname(opts.specPath);
   const killGraceMs = opts.__testKillGraceMs ?? 5000;
+  const descendantPollIntervalMs =
+    opts.__testAfterPollFn !== undefined && opts.__testDescendantPollIntervalMs !== undefined
+      ? opts.__testDescendantPollIntervalMs
+      : undefined;
+  const reviewPassTimeoutOpts = {
+    timeoutMs: opts.iterationTimeoutMs,
+    killGraceMs,
+    ...(opts.__testReapOverride !== undefined ? { reapOverride: opts.__testReapOverride } : {}),
+    ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
+    ...(descendantPollIntervalMs !== undefined ? { descendantPollIntervalMs } : {}),
+  };
 
   // Create actuator that runs the patch agent with the verdict
   const createActuator = (patchAgents: Agent[]) => {
@@ -658,7 +743,9 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       }, opts.iterationTimeoutMs);
 
       const actuatorStartedMs = Date.now();
-      let _actuatorPgid: number | null = null;
+      const actuatorTracker = new DescendantTracker();
+      let actuatorPollHandle: NodeJS.Timeout | null = null;
+      let actuatorPgid: number | null = null;
 
       try {
         opts.fanout("outbound", prompt, null, {
@@ -671,7 +758,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           signal: actuatorController.signal,
           abortKillGraceMs: killGraceMs,
           onSpawned: ({ pid }) => {
-            _actuatorPgid = pid;
+            actuatorPgid = pid;
+            actuatorPollHandle = startDescendantPolling(actuatorTracker, pid, {
+              ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
+              ...(descendantPollIntervalMs !== undefined ? { intervalMs: descendantPollIntervalMs } : {}),
+            });
           },
         });
 
@@ -799,6 +890,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         }
       } finally {
         clearTimeout(actuatorTimeoutHandle);
+        stopDescendantPollingAndReap(actuatorTracker, actuatorPgid, actuatorPollHandle, opts.__testReapOverride);
       }
     };
   };
@@ -812,10 +904,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       loadAgent: ({ name, model }) => {
         const override = opts.agents?.[name as AgentName];
         const agent = override ?? createAgent(name as AgentName, model);
-        return withReviewPassTimeout(agent, {
-          timeoutMs: opts.iterationTimeoutMs,
-          killGraceMs,
-        });
+        return withReviewPassTimeout(agent, reviewPassTimeoutOpts);
       },
       onAllAgentsQuotaExhausted: (message) => {
         opts.fanout("harness", `${message}\n`, "stderr");

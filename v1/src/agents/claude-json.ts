@@ -1,4 +1,5 @@
 import type { TelemetryUsage } from "../telemetry.ts";
+import { isClaudeQuotaMessageText } from "./quota.ts";
 
 export type ClaudeParseResult = {
   displayText: string;
@@ -6,6 +7,29 @@ export type ClaudeParseResult = {
   cost_usd: number | null;
   warnings: string[];
 };
+
+/**
+ * True when stdout is a Claude exit-0 JSON envelope reporting semantic 429 quota
+ * exhaustion (`is_error`, `api_error_status: 429`, and a quota message in `result`).
+ */
+export function isClaudeZeroExitQuotaEnvelope(stdout: string): boolean {
+  try {
+    const envelope: unknown = JSON.parse(stdout);
+    if (envelope === null || typeof envelope !== "object" || Array.isArray(envelope)) {
+      return false;
+    }
+
+    const obj = envelope as Record<string, unknown>;
+    if (obj.is_error !== true || obj.api_error_status !== 429) {
+      return false;
+    }
+
+    const result = obj.result;
+    return typeof result === "string" && isClaudeQuotaMessageText(result);
+  } catch {
+    return false;
+  }
+}
 
 // Parses Claude's JSON output envelope and extracts usage, cost, and display text.
 export function parseClaudeJsonOutput(stdout: string): ClaudeParseResult {

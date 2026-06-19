@@ -9,11 +9,8 @@ import {
   NARRATIVE_START_MARKER,
   readBranchCommits,
 } from "../../pr.ts";
-import {
-  generateNarrativeViaAgent,
-  generateTemplateNarrative,
-  shouldRegenerateNarrative,
-} from "../../pr-shared.ts";
+import { generateNarrativeViaAgent } from "../../pr-shared.ts";
+import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
 import { type ReadyTier, runReadyAndCommit } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
@@ -441,42 +438,6 @@ export type UpdatePlanPrBodyOpts = {
  * Throws on `gh` failure; callers wrap with try/catch and warn-and-continue.
  */
 export async function updatePlanPrBody(opts: UpdatePlanPrBodyOpts): Promise<void> {
-  const fetchPrBody = opts.fetchPrBody ?? defaultFetchPrBody;
-  const writePrBody = opts.writePrBody ?? defaultWritePrBody;
-  const renderFooter = opts.renderFooter ?? renderPlanAttribution;
-  const prNarrative = opts.prNarrative ?? "template";
-
-  const currentBody = fetchPrBody(opts.branch, opts.cwd);
-  let narrative = extractNarrative(currentBody);
-
-  if (prNarrative === "template") {
-    // Always regenerate template narrative from index and commits
-    narrative = generateTemplateNarrative({
-      getSubspecTitles: () => {
-        const parsed = parseIndex(opts.indexPath);
-        return parsed.subspecs.map((s) => extractSubspecTitle(s.path));
-      },
-      getCommitSubjects: () => {
-        const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
-        return commits.map((c) => c.subject);
-      },
-    });
-  } else {
-    // Agent mode: regenerate if empty/missing/marked-generated, but only if intentContent is present
-    if (shouldRegenerateNarrative(narrative) && opts.agent && opts.intentContent) {
-      const generated = await generatePrDescription({
-        indexPath: opts.indexPath,
-        intent: opts.intentContent,
-        agent: opts.agent,
-        cwd: opts.cwd,
-        ...(opts.runOptions !== undefined ? { runOptions: opts.runOptions } : {}),
-      });
-      if (generated !== null) {
-        narrative = generated;
-      }
-    }
-  }
-
   const specDirBasename = basename(opts.specDirPath);
   const headerOpts: {
     name: string;
@@ -491,33 +452,50 @@ export async function updatePlanPrBody(opts: UpdatePlanPrBodyOpts): Promise<void
   if (opts.targetDir !== undefined) {
     headerOpts.targetDir = opts.targetDir;
   }
-  const header = buildPlanPrHeader(headerOpts);
-  let headerAndNarrative = header;
-  if (narrative) {
-    headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
+
+  // Determine whether to pass buildPrompt based on intentContent presence and prNarrative mode
+  const prNarrative = opts.prNarrative ?? "template";
+  const shouldBuildPrompt = prNarrative === "agent" && opts.intentContent !== undefined;
+
+  const sharedOpts: Parameters<typeof updatePrBodyShared>[0] = {
+    branch: opts.branch,
+    base: opts.base,
+    cwd: opts.cwd,
+    buildHeader: () => buildPlanPrHeader(headerOpts),
+    getSubspecTitles: () => {
+      const parsed = parseIndex(opts.indexPath);
+      return parsed.subspecs.map((s) => extractSubspecTitle(s.path));
+    },
+  };
+  if (prNarrative !== undefined) {
+    sharedOpts.prNarrative = prNarrative;
   }
-  const footer = renderFooter({ cwd: opts.cwd, base: opts.base });
-  const newBody = footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
-  writePrBody(opts.branch, newBody, opts.cwd);
+  if (opts.agent !== undefined) {
+    sharedOpts.agent = opts.agent;
+  }
+  if (opts.runOptions !== undefined) {
+    sharedOpts.runOptions = opts.runOptions;
+  }
+  if (opts.fetchPrBody !== undefined) {
+    sharedOpts.fetchPrBody = opts.fetchPrBody;
+  }
+  if (opts.writePrBody !== undefined) {
+    sharedOpts.writePrBody = opts.writePrBody;
+  }
+  if (opts.renderFooter !== undefined) {
+    sharedOpts.renderFooter = opts.renderFooter;
+  }
+  if (shouldBuildPrompt) {
+    sharedOpts.buildPrompt = () =>
+      buildPrDescriptionPrompt({
+        intent: opts.intentContent!,
+        specContext: buildSpecContext(opts.indexPath),
+      });
+  }
+
+  return updatePrBodyShared(sharedOpts);
 }
 
-function defaultFetchPrBody(branch: string, cwd: string): string {
-  return execFileSync("gh", ["pr", "view", branch, "--json", "body", "-q", ".body"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
-  });
-}
-
-function defaultWritePrBody(branch: string, body: string, cwd: string): void {
-  execFileSync("gh", ["pr", "edit", branch, "--body-file", "-"], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: body,
-  });
-}
 
 function extractSubspecTitle(subspecPath: string): string {
   // Extract just the filename without extension as a fallback title

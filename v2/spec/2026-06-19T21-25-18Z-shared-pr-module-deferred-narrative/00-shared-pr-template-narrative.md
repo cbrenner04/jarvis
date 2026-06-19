@@ -43,13 +43,13 @@ Plan mode's body regeneration today gates on the presence of intent content; `te
 
 ## Acceptance criteria
 
-- [ ] Across a patch run with `modes.patch.prNarrative` defaulted/`template`, the narrative agent is never invoked for PR body content anywhere — draft creation and every rewrite produce the narrative deterministically from the index and `base..HEAD` commits.
-- [ ] Across a plan run with `modes.plan.prNarrative` defaulted/`template`, the narrative agent is never invoked for PR body content; plan regenerates the narrative deterministically even though no intent content is present.
-- [ ] With `prNarrative: "agent"`, the narrative agent is invoked and its sentinel-delimited output drives the narrative, preserving the existing extraction/validation/null-fallback behavior.
-- [ ] The template narrative is regenerated on a subsequent rewrite reflecting new `base..HEAD` commits (driven through the injectable commit seam) while a human edit inside the narrative markers is preserved verbatim.
-- [ ] A config with `prNarrative` set to a value other than `template` or `agent` is rejected with a config error.
-- [ ] Patch and plan no longer carry duplicate copies of the PR-description generation and narrative-assembly logic; both route through the shared module.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Across a patch run with `modes.patch.prNarrative` defaulted/`template`, the narrative agent is never invoked for PR body content anywhere — draft creation and every rewrite produce the narrative deterministically from the index and `base..HEAD` commits.
+- [x] Across a plan run with `modes.plan.prNarrative` defaulted/`template`, the narrative agent is never invoked for PR body content; plan regenerates the narrative deterministically even though no intent content is present.
+- [x] With `prNarrative: "agent"`, the narrative agent is invoked and its sentinel-delimited output drives the narrative, preserving the existing extraction/validation/null-fallback behavior.
+- [x] The template narrative is regenerated on a subsequent rewrite reflecting new `base..HEAD` commits (driven through the injectable commit seam) while a human edit inside the narrative markers is preserved verbatim.
+- [x] A config with `prNarrative` set to a value other than `template` or `agent` is rejected with a config error.
+- [x] Patch and plan no longer carry duplicate copies of the PR-description generation and narrative-assembly logic; both route through the shared module.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

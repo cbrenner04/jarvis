@@ -13,12 +13,11 @@ import {
 import {
   extractPrDescription,
   generateNarrativeViaAgent,
-  generateTemplateNarrative,
   PR_DESCRIPTION_BEGIN,
   PR_DESCRIPTION_CONTEXT_MAX_CHARS,
   PR_DESCRIPTION_END,
-  shouldRegenerateNarrative,
 } from "../../pr-shared.ts";
+import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
 import {
   type ReadyTier,
   type RunReadyAndCommitOpts,
@@ -133,50 +132,41 @@ export type UpdatePrBodyOpts = {
  * Throws on `gh` failure; callers wrap with try/catch and warn-and-continue.
  */
 export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
-  const fetchPrBody = opts.fetchPrBody ?? defaultFetchPrBody;
-  const writePrBody = opts.writePrBody ?? defaultWritePrBody;
-  const renderFooter = opts.renderFooter ?? renderAttributionSummary;
-  const prNarrative = opts.prNarrative ?? "template";
-
-  const currentBody = fetchPrBody(opts.branch, opts.cwd);
-  let narrative = extractNarrative(currentBody);
-
-  if (prNarrative === "template") {
-    // Always regenerate template narrative from index and commits
-    narrative = generateTemplateNarrative({
-      getSubspecTitles: () => {
-        const indexContent = readFileSync(opts.indexPath, "utf8");
-        const parsed = parsePatchSpec(indexContent);
-        return parsed.linkedSubspecs.map((s) => extractSubspecTitle(s.path));
-      },
-      getCommitSubjects: () => {
-        const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
-        return commits.map((c) => c.subject);
-      },
-    });
-  } else {
-    // Agent mode: regenerate if empty/missing or marked as generated
-    if (shouldRegenerateNarrative(narrative) && opts.agent) {
-      const generated = await generatePrDescription({
+  const sharedOpts: Parameters<typeof updatePrBodyShared>[0] = {
+    branch: opts.branch,
+    base: opts.base,
+    cwd: opts.cwd,
+    buildHeader: () => buildPrBody({ indexPath: opts.indexPath, narrative: null }),
+    getSubspecTitles: () => {
+      const indexContent = readFileSync(opts.indexPath, "utf8");
+      const parsed = parsePatchSpec(indexContent);
+      return parsed.linkedSubspecs.map((s) => extractSubspecTitle(s.path));
+    },
+    buildPrompt: () =>
+      buildPrDescriptionPrompt({
         specPath: opts.indexPath,
-        agent: opts.agent,
-        cwd: opts.cwd,
-        ...(opts.runOptions !== undefined ? { runOptions: opts.runOptions } : {}),
-      });
-      if (generated !== null) {
-        narrative = generated;
-      }
-    }
+        specContext: buildSpecContext(opts.indexPath),
+      }),
+  };
+  if (opts.prNarrative !== undefined) {
+    sharedOpts.prNarrative = opts.prNarrative;
   }
-
-  const header = buildPrBody({ indexPath: opts.indexPath, narrative: null });
-  let headerAndNarrative = header;
-  if (narrative) {
-    headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
+  if (opts.agent !== undefined) {
+    sharedOpts.agent = opts.agent;
   }
-  const footer = renderFooter({ cwd: opts.cwd, base: opts.base });
-  const newBody = footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
-  writePrBody(opts.branch, newBody, opts.cwd);
+  if (opts.runOptions !== undefined) {
+    sharedOpts.runOptions = opts.runOptions;
+  }
+  if (opts.fetchPrBody !== undefined) {
+    sharedOpts.fetchPrBody = opts.fetchPrBody;
+  }
+  if (opts.writePrBody !== undefined) {
+    sharedOpts.writePrBody = opts.writePrBody;
+  }
+  if (opts.renderFooter !== undefined) {
+    sharedOpts.renderFooter = opts.renderFooter;
+  }
+  return updatePrBodyShared(sharedOpts);
 }
 
 export function extractSubspecTitle(subspecPath: string): string {
@@ -186,23 +176,6 @@ export function extractSubspecTitle(subspecPath: string): string {
   return filename.replace(/\.md$/, "");
 }
 
-function defaultFetchPrBody(branch: string, cwd: string): string {
-  return execFileSync("gh", ["pr", "view", branch, "--json", "body", "-q", ".body"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
-  });
-}
-
-function defaultWritePrBody(branch: string, body: string, cwd: string): void {
-  execFileSync("gh", ["pr", "edit", branch, "--body-file", "-"], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: body,
-  });
-}
 
 export type { RunReadyAndCommitOpts };
 export { runReadyAndCommit };

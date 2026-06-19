@@ -23,14 +23,14 @@
 
 ## Acceptance criteria
 
-- [ ] `full` tier runs `check:fix`, `typecheck`, `test`, and `check` in order after any required install; `fast` tier runs only `typecheck` then `test`.
-- [ ] `full` tier skips `bun install --frozen-lockfile` when the recomputed digest matches the last successful install digest in the checkout.
-- [ ] `full` tier runs install when `node_modules` is absent, when `bun.lock` changed since the last recorded digest, or when lockfile is unchanged but the `node_modules` identity digest mismatches the recorded value.
-- [ ] `bun run ready` with no `JARVIS_READY_TIER` executes the `full` tier.
-- [ ] Harness subprocess sets `JARVIS_READY_TIER` to the requested tier; `scripts/ready.ts` is the sole parser.
-- [ ] Regression tests in `v1/test/ready-script.test.ts` (or colocated `scripts/ready.test.ts`) prove tier step sets and install skip/run/force without invoking the full harness.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `full` tier runs `check:fix`, `typecheck`, `test`, and `check` in order after any required install; `fast` tier runs only `typecheck` then `test`.
+- [x] `full` tier skips `bun install --frozen-lockfile` when the recomputed digest matches the last successful install digest in the checkout.
+- [x] `full` tier runs install when `node_modules` is absent, when `bun.lock` changed since the last recorded digest, or when lockfile is unchanged but the `node_modules` identity digest mismatches the recorded value.
+- [x] `bun run ready` with no `JARVIS_READY_TIER` executes the `full` tier.
+- [x] Harness subprocess sets `JARVIS_READY_TIER` to the requested tier; `scripts/ready.ts` is the sole parser.
+- [x] Regression tests in `v1/test/ready-script.test.ts` (or colocated `scripts/ready.test.ts`) prove tier step sets and install skip/run/force without invoking the full harness.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

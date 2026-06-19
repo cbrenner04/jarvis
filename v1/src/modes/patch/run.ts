@@ -1667,6 +1667,7 @@ async function runCompletionReadyGate(ctx: IterationContext): Promise<Completion
     runReadyAndCommit({
       cwd: preflight.agentWorkingDir,
       agentLabel: "completion-ready",
+      tier: "full",
     });
     return { kind: "green" };
   } catch (err) {
@@ -1807,6 +1808,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         iterationTimeoutMs: preflight.cfg.iterationTimeoutMs,
         ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
         actuatorAgents: ctx.activeAgents,
+        ...(ctx.opts.resumeReview === true ? { resumeReview: true } : {}),
         ...(ctx.state.completionTransitionReadyResult !== undefined
           ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
           : {}),

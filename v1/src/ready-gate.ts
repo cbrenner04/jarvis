@@ -3,6 +3,14 @@ import { getCurrentBranch } from "../../shared/git.ts";
 import { appendAgentTrailer } from "./commit-trailer.ts";
 import { pushCurrent } from "./worktree.ts";
 
+/** Harness-selected `scripts/ready.ts` tier. */
+export type ReadyTier = "fast" | "full";
+
+/** HEAD sha recorded after a successful `full` ready gate. */
+export type RecordedGreenResult = {
+  headSha: string;
+};
+
 /**
  * Check if the tree is unchanged since the recorded green result.
  * Tree is unchanged only when current HEAD sha equals the recorded sha AND the worktree is clean.
@@ -16,7 +24,6 @@ export function isTreeUnchangedSinceRecordedGreen(opts: { cwd: string; recordedG
     return false;
   }
 
-  // Check if worktree is clean
   const porcelain = execFileSync("git", ["status", "--porcelain"], {
     cwd: opts.cwd,
     encoding: "utf8",
@@ -26,23 +33,44 @@ export function isTreeUnchangedSinceRecordedGreen(opts: { cwd: string; recordedG
   return porcelain === "";
 }
 
+/**
+ * Pick `fast` when HEAD and porcelain match the recorded green carrier; otherwise `full`.
+ * Callers that must not reuse (e.g. `--resume-review`) pass no carrier or force `full` upstream.
+ */
+export function selectReadyTier(opts: { cwd: string; recordedGreenResult?: RecordedGreenResult }): ReadyTier {
+  if (
+    opts.recordedGreenResult !== undefined &&
+    isTreeUnchangedSinceRecordedGreen({
+      cwd: opts.cwd,
+      recordedGreenHeadSha: opts.recordedGreenResult.headSha,
+    })
+  ) {
+    return "fast";
+  }
+  return "full";
+}
+
 export type RunReadyAndCommitOpts = {
   cwd: string;
+  /** Ready pipeline tier; defaults to `full`. */
+  tier?: ReadyTier;
   /** Test seam: agent label for the commit trailer. Threaded to the `commitCheckFix` seam. */
   agentLabel?: string;
   /** Seam for just `bun run ready`. Defaults to execFileSync call. */
-  runReady?: (cwd: string) => void;
-  /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only when tree is dirty after runReady. */
+  runReady?: (cwd: string, tier: ReadyTier) => void;
+  /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only after a `full` tier when tree is dirty. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
 };
 
-/** Run `bun run ready` and commit/push any `check:fix` output before proceeding. */
+/** Run `bun run ready` at `tier` and, on `full` only, commit/push any `check:fix` output. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
-  const realBunRunReady = (cwd: string) => {
+  const tier = opts.tier ?? "full";
+
+  const realBunRunReady = (cwd: string, readyTier: ReadyTier) => {
     try {
       execFileSync("bun", ["run", "ready"], {
         cwd,
-        env: process.env,
+        env: { ...process.env, JARVIS_READY_TIER: readyTier },
         stdio: "pipe",
       });
     } catch (err) {
@@ -83,7 +111,11 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const runReadyFn = opts.runReady ?? realBunRunReady;
   const commitCheckFixFn = opts.commitCheckFix ?? realCommitCheckFix;
 
-  runReadyFn(opts.cwd);
+  runReadyFn(opts.cwd, tier);
+
+  if (tier !== "full") {
+    return;
+  }
 
   const porcelain = execFileSync("git", ["status", "--porcelain"], {
     cwd: opts.cwd,
@@ -94,6 +126,35 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   if (porcelain !== "") {
     commitCheckFixFn(opts.cwd, opts.agentLabel ?? "");
   }
+}
+
+/**
+ * Run ready at the tier selected from `recordedGreenResult`, refreshing the carrier on `full` success.
+ * Returns the tier invoked.
+ */
+export function runReadyGateWithTier(opts: {
+  cwd: string;
+  agentLabel: string;
+  recordedGreenResult?: RecordedGreenResult;
+  runReady?: (cwd: string, tier: ReadyTier) => void;
+  commitCheckFix?: (cwd: string, agentLabel: string) => void;
+  refreshRecordedGreenResult?: (headSha: string) => void;
+}): ReadyTier {
+  const tier = selectReadyTier({
+    cwd: opts.cwd,
+    ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
+  });
+  runReadyAndCommit({
+    cwd: opts.cwd,
+    tier,
+    agentLabel: opts.agentLabel,
+    ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
+    ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
+  });
+  if (tier === "full" && opts.refreshRecordedGreenResult !== undefined) {
+    opts.refreshRecordedGreenResult(getCurrentHeadSha(opts.cwd));
+  }
+  return tier;
 }
 
 /**

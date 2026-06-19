@@ -9,8 +9,14 @@ decision (e.g. idle-output watchdog) is grounded, not guessed.
 Iterations repeatedly burn the full `iterationTimeoutMs` before the watchdog
 aborts them. The dominant cause is unconfirmed: agent waiting on a hung
 subprocess it spawned vs. the agent genuinely idle with no output. Remediation
-scope cannot be chosen without evidence from `last_output_age_ms` and
-`watchdog_descendants_alive` on real `watchdog-iteration-timeout` rows.
+scope cannot be chosen without evidence from stall-diagnostics on real
+`watchdog-iteration-timeout` rows.
+
+## Prerequisites
+
+- Merged stall-diagnostics instrumentation: `last_output_age_ms` and
+  `watchdog_descendants_alive` on `watchdog-iteration-timeout` rows (pgid-unavailable
+  rows omit descendants fields per stall-diagnostics contract).
 
 ## Decisions
 
@@ -19,48 +25,83 @@ scope cannot be chosen without evidence from `last_output_age_ms` and
   the cause.
 - Evidence from operator `~/.jarvis/runs.jsonl` and matching session logs only.
   Rules out synthetic test fixtures or new telemetry fields.
-- ≥3 distinct `watchdog-iteration-timeout` iterations cited with full
-  diagnostic fields per case. Rules out aggregate impressions or unfalsifiable
-  "agents are slow" conclusions.
-- Per-case classification: `hung-subprocess`, `agent-idle`, or `other`, keyed to
-  `last_output_age_ms` and `watchdog_descendants_alive` plus log context.
-  Rules out listing causes without per-iteration reasoning.
-- Dominant cause = single primary category across cited cases; minority patterns
-  named explicitly. Rules out an unranked bullet list of hypotheses.
-- Mandatory idle-bound verdict: `warranted` or `not-warranted`; if warranted,
-  sketch a bound relative to `iterationTimeoutMs` and cited
-  `last_output_age_ms` values — not a committed config default. Rules out
-  deferring the remediation judgment to a follow-up.
+- Corpus: `mode: "patch"` and `exitReason: watchdog-iteration-timeout` only —
+  exclude `iteration-timeout` (no diagnostics by design). Finding notes possible
+  bias when non-watchdog timeouts may matter. Rules out mixing prompt/plan rows or
+  undiagnosable timeout reasons.
+- Candidate filter: row `duration_ms` ≥ configured `iterationTimeoutMs` minus a
+  fixed margin (≥29m when default 30m applies). Rules out quota-early and
+  ambiguous near-miss rows.
+- Post-instrumentation rows only, after exhaustive search of `~/.jarvis/runs.jsonl`.
+  ≥3 distinct cited iterations is the target; if fewer qualify, append `## Blocker`
+  to this subspec with qualifying count and searched date range — do not fabricate
+  cases or lower the bar.
+- Correlation keys: `namespace` + row `ts` + `iteration`. Rules out nonexistent
+  `run_id` / free-form iteration-index labels.
+- Per-case evidence cites **available** stall-diagnostics fields: when pgid known,
+  include `watchdog_descendants_alive`, optional `watchdog_pgid`, and `[watchdog]`
+  suffix when emitted; when pgid unavailable, cite `last_output_age_ms`, note
+  pgid-unavailable, and use iteration banner / harness stderr — no `[watchdog]`
+  line required. Rules out mandating omitted instrumentation.
+- Session-log traceability: log file for `namespace` whose time window contains
+  row `ts`; iteration section = lines between that iteration's start marker and
+  the next iteration or run end.
+- Per-case classification rubric:
+  - `hung-subprocess`: pgid known, `watchdog_descendants_alive: true` at snapshot.
+  - `agent-idle`: pgid known, `watchdog_descendants_alive: false`, and
+    `last_output_age_ms` null or skewed toward full timeout — operational "no
+    output + no in-group descendants," not model thinking.
+  - `other`: pgid unavailable; orphan-escape pattern (`setsid` escapees →
+    false-negative liveness per `run-loop.md`); or inconclusive logs.
+- Log-context check for escaped descendants; do not classify those as
+  `agent-idle` without noting minority/`other`. Rules out trusting
+  `watchdog_descendants_alive: false` alone when logs show escapees.
+- Dominant cause: single category when majority; otherwise `mixed` with per-category
+  counts and minority patterns named. Rules out an unranked hypothesis list.
+- Idle-bound verdict (`warranted` / `not-warranted`) coupled to dominant cause:
+  sketch an output-idle bound only when dominant (or majority idle component of
+  `mixed`) is `agent-idle`; dominant `hung-subprocess` → `not-warranted` for
+  idle-output bound unless finding gives explicit alternate remediation rationale;
+  `mixed` verdict must address idle component explicitly. Rules out idle-bound
+  sketches disconnected from dominant cause.
+- "Sketch a bound" = output-idle span under `iterationTimeoutMs`, reset on
+  stdout/stderr — aligned with `idle-output-watchdog` intent, not wall-clock
+  shrink; not a committed config default.
 - Deferred to first consumer: exact idle-bound default and config key — pin when
   idle-output-watchdog intent implements the knob.
 
 ## Task checklist
 
-- [ ] Locate stalled runs: `watchdog-iteration-timeout` rows at or near full
-  `iterationTimeoutMs` in `~/.jarvis/runs.jsonl`.
-- [ ] For each candidate iteration, extract `last_output_age_ms`,
-  `watchdog_descendants_alive`, `watchdog_pgid`, run id, iteration index, and
-  the session-log `[watchdog]` line for that iteration.
-- [ ] Classify each cited case (`hung-subprocess`, `agent-idle`, `other`) from
-  the diagnostics and log context.
-- [ ] Determine the dominant cause across cited cases; note minority patterns.
-- [ ] Record idle-bound verdict (`warranted` / `not-warranted`) with rationale;
-  if warranted, sketch a bound from cited ages and `iterationTimeoutMs`.
+- [ ] Search `~/.jarvis/runs.jsonl` exhaustively for post-instrumentation
+  candidates: `mode: "patch"`, `exitReason: watchdog-iteration-timeout`,
+  `duration_ms` ≥ timeout minus margin (≥29m at default 30m).
+- [ ] If <3 qualify, append `## Blocker` with count and searched date range; stop.
+- [ ] For each cited iteration, extract `namespace`, `ts`, `iteration`, available
+  diagnostic fields (`last_output_age_ms`; `watchdog_descendants_alive` and
+  `watchdog_pgid` when pgid known), and traceable session-log excerpt per
+  traceability rules above.
+- [ ] Classify each cited case per rubric; check logs for `setsid` escapees.
+- [ ] Determine dominant cause (single category or `mixed` with counts); note
+  minority patterns and corpus bias from excluded `iteration-timeout` rows.
+- [ ] Record idle-bound verdict per coupling rules; if warranted, sketch
+  output-idle bound from cited `last_output_age_ms` values and
+  `iterationTimeoutMs`.
 - [ ] Write `finding.md`.
 
 ## Acceptance criteria
 
-- [ ] `finding.md` cites ≥3 distinct `watchdog-iteration-timeout` iterations,
-  each with run id, iteration index, `last_output_age_ms`,
-  `watchdog_descendants_alive`, and a session-log excerpt traceable to that
-  iteration; cited field values match the corresponding `runs.jsonl` rows.
-- [ ] Each cited iteration includes a per-case stall classification
-  (`hung-subprocess`, `agent-idle`, or `other`) keyed to its diagnostic fields
-  and log context.
-- [ ] Finding names one dominant stall cause derived from the cited cases and
-  notes any minority pattern.
-- [ ] Finding records an explicit idle-bound verdict (`warranted` or
-  `not-warranted`); if warranted, sketches a bound using cited
+- [ ] Each cited iteration is identifiable in `~/.jarvis/runs.jsonl` by
+  `namespace` + `ts` + `iteration`; `finding.md` field values match those rows.
+- [ ] Each cited iteration includes available stall-diagnostics fields per pgid
+  path above and a session-log excerpt traceable to that iteration's log section.
+- [ ] `finding.md` cites ≥3 distinct qualifying iterations, or this subspec carries
+  `## Blocker` documenting exhaustive search with <3 qualifying rows.
+- [ ] Each cited iteration has a per-case classification (`hung-subprocess`,
+  `agent-idle`, or `other`) per rubric and log context, including escapee handling.
+- [ ] Finding names dominant stall cause (single category or `mixed` with counts)
+  and notes minority patterns and `iteration-timeout` exclusion bias when relevant.
+- [ ] Finding records idle-bound verdict (`warranted` / `not-warranted`) per
+  coupling rules; if warranted, sketches an output-idle bound using cited
   `last_output_age_ms` values and `iterationTimeoutMs`.
 - [ ] This PR changes only files under this spec directory (no edits under
   `v1/src/`, `shared/`, `v1/docs/`, or `v2/docs/`).

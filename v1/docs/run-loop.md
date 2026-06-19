@@ -475,8 +475,11 @@ purposes:
   **`record_role: "run_terminal"`** so end-of-run summaries do not sum usage twice.
   Rows may include optional **`configured_model`** (patch `modes.patch.agentOrder`
   entry at invocation time). Watchdog-triggered iteration timeouts include optional
-  **`watchdog_pgid`** (the killed agent process-group id). Set `telemetryPath` to
-  `null` to disable.
+  **`watchdog_pgid`** (the killed agent process-group id), **`last_output_age_ms`**
+  (ms since the last stdout/stderr chunk at watchdog fire; `null` when no output
+  arrived), and **`watchdog_descendants_alive`** (`true` when ≥1 descendant of the
+  agent root pid was live at snapshot; omitted when pgid was unavailable). Set
+  `telemetryPath` to `null` to disable.
 
 ### Token usage and cost tracking
 
@@ -666,11 +669,22 @@ quota/model-config branches, the `child.on("error")` path, or during abort/timeo
 Only in-group descendants are targeted: a process that left the agent's process
 group (e.g. started its own session) is out of scope and is not killed.
 
-When an iteration timeout fires, Jarvis logs a single watchdog line to both the
-run terminal and session log:
-`[watchdog] iteration timeout fired after Nms; killing agent pgid <pgid>`.
-The watchdog is armed before agent spawn, does not reset on streaming output,
-SIGTERMs the full process group, waits up to 5 seconds, then SIGKILLs survivors.
+When the iteration watchdog timer fires, telemetry uses `exitReason:
+watchdog-iteration-timeout` even if no `[watchdog]` line was logged or process
+group was killed. The watchdog is armed before agent spawn and does not reset on
+streaming output. Diagnostic fields are snapshotted at watchdog fire (before
+the first group `SIGTERM` when pgid is known), not after `agent.run` settles.
+
+When the agent root pid is known at fire time, Jarvis logs a single watchdog
+line to both the run terminal and session log:
+`[watchdog] iteration timeout fired after Nms; killing agent pgid <pgid> last_output_age_ms=<n|null> watchdog_descendants_alive=<true|false>`,
+then SIGTERMs the full process group, waits up to 5 seconds, then SIGKILLs
+survivors. The fixed diagnostic suffix applies only to that line.
+
+When pgid was unavailable (watchdog fired before `onSpawned` set the root pid),
+no `[watchdog]` line is emitted and no group kill runs; the timeout telemetry
+row still includes `last_output_age_ms` and omits `watchdog_pgid` and
+`watchdog_descendants_alive`.
 
 ### Orphan process reaping
 

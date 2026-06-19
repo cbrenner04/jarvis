@@ -72,12 +72,15 @@ Timeout records use **`kind`: `"timeout"`** with:
 
 | exitReason | When |
 | --- | --- |
-| `watchdog-iteration-timeout` | Iteration watchdog fired, logged `[watchdog] …`, and killed the agent process group via SIGTERM→(5s)→SIGKILL. |
+| `watchdog-iteration-timeout` | Iteration watchdog timer fired (`iterationTimeoutMs` elapsed). When the agent root pid was known at fire time, Jarvis also logged `[watchdog] …`, SIGTERM→(5s)→SIGKILL'd that process group, and may include `watchdog_pgid` and `watchdog_descendants_alive`. When pid was still unavailable (watchdog fired before `onSpawned`), telemetry still records `last_output_age_ms` but omits `watchdog_pgid` and `watchdog_descendants_alive`, and no `[watchdog]` line is emitted. |
 | `iteration-timeout` | Iteration timeout result was returned without watchdog-fire context. |
 | `run-timeout` | Global run timeout fired. |
 
 Watchdog-triggered timeout rows may include `watchdog_pgid` so investigations
-can tie the timeout to the exact killed process group.
+can tie the timeout to the exact killed process group. They may also include
+`last_output_age_ms` (ms since last stdout/stderr chunk at watchdog fire; `null`
+when no output arrived) and `watchdog_descendants_alive` (whether ≥1 descendant
+of the agent root pid was live at snapshot; omitted when pgid was unavailable).
 
 Plan phases do not emit matching JSONL rows for per-phase agent outcomes.
 

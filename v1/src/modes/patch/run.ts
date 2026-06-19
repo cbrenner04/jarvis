@@ -56,7 +56,7 @@ import {
 } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildPrompt } from "./prompt.ts";
-import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "./reap.ts";
+import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import { parsePatchSpec } from "./spec.ts";
@@ -144,7 +144,28 @@ type WriteTelemetry = (record: {
   cost_source?: CostSource;
   warnings?: string[];
   watchdog_pgid?: number;
+  last_output_age_ms?: number | null;
+  watchdog_descendants_alive?: boolean;
 }) => void;
+
+function formatWatchdogDiagnosticsSuffix(
+  lastOutputAgeMs: number | null,
+  descendantsAlive: boolean | undefined,
+): string {
+  let suffix = ` last_output_age_ms=${lastOutputAgeMs === null ? "null" : String(lastOutputAgeMs)}`;
+  if (descendantsAlive !== undefined) {
+    suffix += ` watchdog_descendants_alive=${descendantsAlive}`;
+  }
+  return suffix;
+}
+
+function snapshotWatchdogDescendantsAlive(agentRootPid: number): boolean {
+  const procs = listProcesses();
+  if (procs.length === 0) {
+    return false;
+  }
+  return collectSubtree(agentRootPid, procs).length > 0;
+}
 
 type PreflightOk = {
   kind: "ok";
@@ -638,6 +659,10 @@ function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, logClient
         ...(record.configured_model !== undefined ? { configured_model: record.configured_model } : {}),
         ...(record.patch_phase !== undefined ? { patch_phase: record.patch_phase } : {}),
         ...(record.watchdog_pgid !== undefined ? { watchdog_pgid: record.watchdog_pgid } : {}),
+        ...(record.last_output_age_ms !== undefined ? { last_output_age_ms: record.last_output_age_ms } : {}),
+        ...(record.watchdog_descendants_alive !== undefined
+          ? { watchdog_descendants_alive: record.watchdog_descendants_alive }
+          : {}),
       });
       telemetryWrites = true;
       if (
@@ -994,15 +1019,23 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
   let watchdogKillHandle: NodeJS.Timeout | null = null;
+  let watchdogLastOutputAgeMs: number | null = null;
+  let watchdogDescendantsAlive: boolean | undefined;
+  const lastOutputAtMs = { current: null as number | null };
   // Poll the agent's process subtree while it is alive so descendants that
   // later escape the process group (via setsid) and re-parent to init can be
   // reaped after the agent exits, when no live lineage to them remains.
   let descendantPollHandle: NodeJS.Timeout | null = null;
   const iterationTimeoutHandle = setTimeout(() => {
     watchdogFired = true;
+    const snapshotAt = Date.now();
+    watchdogLastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
     const pgid = watchdogPgid;
     if (pgid !== null) {
-      const watchdogLine = `[watchdog] iteration timeout fired after ${cfg.iterationTimeoutMs}ms; killing agent pgid ${pgid}`;
+      watchdogDescendantsAlive = snapshotWatchdogDescendantsAlive(pgid);
+      const watchdogLine =
+        `[watchdog] iteration timeout fired after ${cfg.iterationTimeoutMs}ms; killing agent pgid ${pgid}` +
+        formatWatchdogDiagnosticsSuffix(watchdogLastOutputAgeMs, watchdogDescendantsAlive);
       fanout("harness", `${watchdogLine}\n`, "stderr");
       try {
         process.kill(-pgid, "SIGTERM");
@@ -1027,6 +1060,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       ...(preflight.additionalReadDirs === undefined ? {} : { additionalReadDirs: preflight.additionalReadDirs }),
       signal: state.currentController.signal,
       abortKillGraceMs: killGraceMs,
+      lastOutputAtMs,
       onSpawned: ({ pid }) => {
         watchdogPgid = pid;
         // Record descendants immediately, then keep sampling while the agent
@@ -1050,6 +1084,10 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         exitReason: watchdogFired ? "watchdog-iteration-timeout" : "iteration-timeout",
         ...telemetryMeta,
         ...(watchdogPgid !== null ? { watchdog_pgid: watchdogPgid } : {}),
+        ...(watchdogFired ? { last_output_age_ms: watchdogLastOutputAgeMs } : {}),
+        ...(watchdogFired && watchdogDescendantsAlive !== undefined
+          ? { watchdog_descendants_alive: watchdogDescendantsAlive }
+          : {}),
       });
       return { kind: "return", exitCode: 8 };
     }

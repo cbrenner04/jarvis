@@ -48,6 +48,10 @@ export type TelemetryRecord = {
   outcome?: PlanStepOutcome | null;
   patch_phase?: PatchTelemetryPhase;
   watchdog_pgid?: number;
+  /** Ms since last stdout/stderr chunk at watchdog snapshot; null when no output arrived.*/
+  last_output_age_ms?: number | null;
+  /** Whether ≥1 descendant of the agent root pid was live at watchdog snapshot.*/
+  watchdog_descendants_alive?: boolean;
 };
 
 export function appendTelemetryLine(telemetryPath: string | null, record: TelemetryRecord): void {

@@ -30,7 +30,8 @@ codes after fallback exhaustion, and telemetry semantics.
 | Non-zero exit + model configuration signal | `model_config` | Stop immediately; do not rotate | Stop immediately; do not rotate | `3` (model configuration error) | `model_config` / `model-config` |
 | Timeout / interrupt signal from harness or process control | `timeout` / interrupted run state | Stop run (no quota rotation) | Stop run (no quota rotation) | `124` (timeout) or `130` (SIGINT) | `timeout` / `timeout` or interrupted terminal reason |
 | Non-zero exit + generic error (no quota/model-config classification) | `error` | Stop run for that iteration path (no quota rotation) | In current behavior, plan inner loop may continue to next agent after hard `error` | `1` (error) | `error` / `agent-error` |
-| Zero exit | `ok` (spawn); Claude may reclassify to `quota` at the adapter when stdout is a verified exit-`0` JSON error envelope with `is_error: true`, `api_error_status: 429`, and a quota message in `result` | Continue normal post-iteration completion/progress logic | Continue normal phase progression | `0` (when run/phase completes) | `ok` / completion or progress reason |
+| Zero exit (spawn layer; no adapter reclassification) | `ok` | Continue normal post-iteration completion/progress logic | Continue normal phase progression | `0` (when run/phase completes) | `ok` / completion or progress reason |
+| Zero exit + Claude verified stdout JSON quota envelope (`is_error: true`, `api_error_status: 429`, quota message in `result`) | `quota` (adapter reclassification from spawn `ok`) | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) when all agents exhausted or no fallback remains | `quota` / `quota-exhausted` or `quota-fallback` |
 
 Mode-specific note: patch mode runs one selected agent per iteration, while
 plan mode executes an inner agent-order loop per phase invocation. **Documented
@@ -82,23 +83,26 @@ Plan phases do not emit matching JSONL rows for per-phase agent outcomes.
 
 ## Capture convention (real quota events)
 
-Record real quota stderr whenever you hit one during normal usage.
+Record real quota signals whenever you hit one during normal usage.
 
-1. Copy the raw stderr text from the failed run. Keep wording and punctuation
-   exactly as printed.
+1. Copy the raw signal text from the failed run. Most agents deliver quota
+   diagnostics on stderr; Claude may deliver a verified exit-`0` quota envelope
+   on stdout JSON (see [Claude](#claude)). Keep wording and punctuation exactly
+   as printed.
 2. Redact secrets or personal identifiers only if needed.
-3. Add an entry under the matching agent's `Observed quota stderr (real samples)`
-   section using this format:
+3. Add an entry under the matching agent's observed-quota-samples section
+   (`Observed quota samples` for Claude; `Observed quota stderr` for other
+   agents) using this format:
 
 ```text
-- YYYY-MM-DD — source context (command/repo/provider)
+- YYYY-MM-DD — source context (command/repo/provider; stdout or stderr)
 
   ```text
-  <verbatim stderr block>
+  <verbatim signal block>
   ```
 ```
 
-4. If the stderr reflects model configuration (not quota), place it in
+4. If the signal reflects model configuration (not quota), place it in
    `Observed model-configuration stderr (real samples)` instead.
 5. Update the `Pattern audit` section by changing the related pattern status
    from `Unverified` to `Matched` and linking the sample date.
@@ -118,7 +122,10 @@ missing any predicate) stay non-quota. Classification is adapter-boundary only;
 patch/plan/prompt modes rotate through the existing quota fallback path with no
 mode-specific exception. Sources: `src/agents/claude.ts`, `src/agents/claude-json.ts`.
 
-### Observed quota stderr (real samples)
+### Observed quota samples (real samples)
+
+Quota signals may appear on stdout or stderr. The verified monthly-spend-limit
+sample below is exit-`0` JSON on stdout.
 
 - 2026-06-19 — Claude Code monthly spend limit (exit `0`, stdout JSON envelope)
 

@@ -22,6 +22,7 @@ import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { buildPrompt } from "./prompt.ts";
+import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "../patch/reap.ts";
 
 export type PromptRunOptions = {
   promptText: string;
@@ -30,6 +31,12 @@ export type PromptRunOptions = {
   config: ConfigOptions | undefined;
   skipGhCheck?: boolean | undefined;
   agents?: Partial<Record<AgentName, Agent>>;
+  /**
+   * Test-only override for the orphan-reap entry point. Lets an induced reap
+   * failure be injected deterministically to prove the run's exit code is
+   * unaffected. Production callers must not set this.
+   */
+  __testReapFn?: () => void;
 };
 
 function buildActivePromptAgents(opts: PromptRunOptions, cfg: Config): Agent[] {
@@ -162,6 +169,10 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
 
+  // Tracks agent descendant PIDs across attempts so orphans that escape the
+  // process group can be reaped after each attempt exits.
+  const descendantTracker = new DescendantTracker();
+
   try {
     const basePrompt = buildPrompt(opts.promptText);
 
@@ -195,122 +206,147 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
       const agentConfigEntry = cfg.modes.prompt.agentOrder.find((entry) => entry.agent === agent.name);
       configuredModel = agentConfigEntry?.model;
 
-      // Setup watchdog timeout
-      watchdogPgid = null;
-      watchdogFired = false;
-      watchdogKillHandle = setTimeout(() => {
-        watchdogFired = true;
-        const pgid = watchdogPgid;
-        if (pgid !== null) {
-          opts.io.stderr(
-            `[watchdog] iteration timeout fired after ${cfg.iterationTimeoutMs}ms; killing agent pgid ${pgid}\n`,
-          );
-          try {
-            process.kill(-pgid, "SIGTERM");
-          } catch {
-            // Process may have already exited
-          }
-        }
+      let descendantPollHandle: NodeJS.Timeout | null = null;
+      try {
+        // Setup watchdog timeout
+        watchdogPgid = null;
+        watchdogFired = false;
         watchdogKillHandle = setTimeout(() => {
+          watchdogFired = true;
+          const pgid = watchdogPgid;
           if (pgid !== null) {
+            opts.io.stderr(
+              `[watchdog] iteration timeout fired after ${cfg.iterationTimeoutMs}ms; killing agent pgid ${pgid}\n`,
+            );
             try {
-              process.kill(-pgid, "SIGKILL");
+              process.kill(-pgid, "SIGTERM");
             } catch {
               // Process may have already exited
             }
           }
-        }, 5000);
+          watchdogKillHandle = setTimeout(() => {
+            if (pgid !== null) {
+              try {
+                process.kill(-pgid, "SIGKILL");
+              } catch {
+                // Process may have already exited
+              }
+            }
+          }, 5000);
+          if (watchdogKillHandle) {
+            watchdogKillHandle.unref();
+          }
+        }, cfg.iterationTimeoutMs);
         if (watchdogKillHandle) {
           watchdogKillHandle.unref();
         }
-      }, cfg.iterationTimeoutMs);
-      if (watchdogKillHandle) {
-        watchdogKillHandle.unref();
-      }
 
-      const rawResult = await agent.run(basePrompt, {
-        cwd: worktreePath,
-        onSpawned: (child) => {
-          watchdogPgid = child.pid;
-        },
-      });
+        const rawResult = await agent.run(basePrompt, {
+          cwd: worktreePath,
+          onSpawned: (child) => {
+            watchdogPgid = child.pid;
+            // Record descendants immediately, then keep sampling while the agent
+            // runs so escapees are captured before their lineage is severed.
+            descendantTracker.poll(child.pid);
+            descendantPollHandle = setInterval(() => {
+              descendantTracker.poll(child.pid);
+            }, DESCENDANT_POLL_INTERVAL_MS);
+            descendantPollHandle.unref();
+          },
+        });
 
-      // Clear watchdog timeout
-      if (watchdogKillHandle) {
-        clearTimeout(watchdogKillHandle);
-        watchdogKillHandle = null;
-      }
-
-      if (watchdogFired) {
-        exitCode = 8;
-        exitReason = "watchdog-iteration-timeout";
-        telemetryKind = "timeout";
-        agentUsedLocal = agent;
-        break;
-      }
-
-      const result = applyQuotaFallbackWhenAllowed(
-        agent.name,
-        rawResult,
-        {
-          quotaFallback: cfg.quotaFallback,
-          weakQuotaExitCodes: cfg.weakQuotaExitCodes,
-        },
-        true,
-      );
-
-      if (result.kind === "quota") {
-        agentUsedLocal = agent;
-        quotaAttemptCount += 1;
-        if (rawResult.kind === "error") {
-          opts.io.stderr(`${agent.name}: ${harnessQuotaFallbackLenientLine(rawResult.exitCode)}\n`);
-        } else {
-          opts.io.stderr(`${agent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`);
+        // Clear watchdog timeout
+        if (watchdogKillHandle) {
+          clearTimeout(watchdogKillHandle);
+          watchdogKillHandle = null;
         }
-        if (result.stderr.length > 0) {
-          opts.io.stderr(result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`);
+
+        if (watchdogFired) {
+          exitCode = 8;
+          exitReason = "watchdog-iteration-timeout";
+          telemetryKind = "timeout";
+          agentUsedLocal = agent;
+          break;
         }
-        if (isLastAgent) {
-          if (quotaAttemptCount === attemptedAgentCount && !sawNonQuotaFallthrough) {
-            opts.io.stderr(`${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
-            exitCode = 2;
-            exitReason = "all-agents-quota";
-            telemetryKind = "quota";
+
+        const result = applyQuotaFallbackWhenAllowed(
+          agent.name,
+          rawResult,
+          {
+            quotaFallback: cfg.quotaFallback,
+            weakQuotaExitCodes: cfg.weakQuotaExitCodes,
+          },
+          true,
+        );
+
+        if (result.kind === "quota") {
+          agentUsedLocal = agent;
+          quotaAttemptCount += 1;
+          if (rawResult.kind === "error") {
+            opts.io.stderr(`${agent.name}: ${harnessQuotaFallbackLenientLine(rawResult.exitCode)}\n`);
           } else {
+            opts.io.stderr(`${agent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`);
+          }
+          if (result.stderr.length > 0) {
+            opts.io.stderr(result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`);
+          }
+          if (isLastAgent) {
+            if (quotaAttemptCount === attemptedAgentCount && !sawNonQuotaFallthrough) {
+              opts.io.stderr(`${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+              exitCode = 2;
+              exitReason = "all-agents-quota";
+              telemetryKind = "quota";
+            } else {
+              exitCode = 3;
+              exitReason = "agent-failure";
+              telemetryKind = "error";
+            }
+          }
+          continue;
+        }
+
+        if (result.kind === "ok") {
+          agentUsedLocal = agent;
+          agentOutput = result.stdout;
+          agentSuccess = true;
+          telemetryKind = "ok";
+          break;
+        }
+
+        if (result.kind === "model_config") {
+          sawNonQuotaFallthrough = true;
+          agentUsedLocal = agent;
+          opts.io.stderr(`${result.stderr}\n`);
+          if (isLastAgent) {
             exitCode = 3;
             exitReason = "agent-failure";
             telemetryKind = "error";
           }
+          continue;
         }
-        continue;
-      }
 
-      if (result.kind === "ok") {
+        opts.io.stderr(`agent failed: ${result.stderr}\n`);
+        exitCode = 3;
+        exitReason = "agent-failure";
+        telemetryKind = "error";
         agentUsedLocal = agent;
-        agentOutput = result.stdout;
-        agentSuccess = true;
-        telemetryKind = "ok";
         break;
-      }
-
-      if (result.kind === "model_config") {
-        sawNonQuotaFallthrough = true;
-        agentUsedLocal = agent;
-        opts.io.stderr(`${result.stderr}\n`);
-        if (isLastAgent) {
-          exitCode = 3;
-          exitReason = "agent-failure";
-          telemetryKind = "error";
+      } finally {
+        // Stop sampling, take one final snapshot, and reap descendants that escaped
+        // the process group kill. Best-effort: never throws, never affects the exit
+        // code.
+        if (descendantPollHandle !== null) {
+          clearInterval(descendantPollHandle);
         }
-        continue;
+        if (watchdogPgid !== null) {
+          descendantTracker.poll(watchdogPgid);
+        }
+        try {
+          (opts.__testReapFn ?? (() => descendantTracker.reap()))();
+        } catch {
+          // best-effort
+        }
       }
-
-      opts.io.stderr(`agent failed: ${result.stderr}\n`);
-      exitCode = 3;
-      exitReason = "agent-failure";
-      telemetryKind = "error";
-      agentUsedLocal = agent;
-      break;
     }
 
     agentUsed = agentUsedLocal;
@@ -403,6 +439,15 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
       releaseWorktreeLock(worktreePath);
     } catch (err) {
       opts.io.stderr(`warning: failed to release lock: ${(err as Error).message}\n`);
+    }
+
+    // Reap any agent descendants that escaped the process group and outlived
+    // their attempt (covers the direct-`process.exit` paths). Best-effort: never
+    // throws, never affects the exit code.
+    try {
+      (opts.__testReapFn ?? (() => descendantTracker.reap()))();
+    } catch {
+      // best-effort
     }
 
     // Write telemetry

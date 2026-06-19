@@ -165,6 +165,7 @@ async function runPrompt(
   agents: Partial<Record<AgentName, Agent>>,
   cap: ReturnType<typeof captureIo>,
   promptText = "do the thing",
+  testReapFn?: () => void,
 ): Promise<number> {
   return promptCommand({
     promptText,
@@ -173,6 +174,7 @@ async function runPrompt(
     config: { dir: cfgDir },
     skipGhCheck: true,
     agents,
+    ...(testReapFn !== undefined ? { __testReapFn: testReapFn } : {}),
   });
 }
 
@@ -285,5 +287,88 @@ describe("promptCommand", () => {
     expect(readFileSync(env.prLog, "utf8")).toContain("create");
     expect(readFileSync(env.pushLog, "utf8")).toContain("push");
     expect(readFileSync(env.prTitle, "utf8")).toBe("add a file");
+  });
+
+  test("reap is invoked on successful agent attempt", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    let reapCallCount = 0;
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }));
+
+    const code = await runPrompt({ claude }, cap, "do the thing", () => {
+      reapCallCount += 1;
+    });
+
+    expect(code).toBe(0);
+    expect(reapCallCount).toBeGreaterThanOrEqual(1); // At least once (per-attempt and/or final finally)
+  });
+
+  test("reap is invoked on quota fallback attempt", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    let reapCallCount = 0;
+    const claude = new FakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }));
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }));
+
+    const code = await runPrompt({ claude, codex }, cap, "do the thing", () => {
+      reapCallCount += 1;
+    });
+
+    expect(code).toBe(0);
+    expect(reapCallCount).toBe(3); // Once for claude quota attempt, once for codex success attempt, once in final finally
+  });
+
+  test("reap is invoked on model_config fallback attempt", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    let reapCallCount = 0;
+    const claude = new FakeAgent("claude", () => ({ kind: "model_config", stderr: "bad model" }));
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }));
+
+    const code = await runPrompt({ claude, codex }, cap, "do the thing", () => {
+      reapCallCount += 1;
+    });
+
+    expect(code).toBe(0);
+    expect(reapCallCount).toBe(3); // Once for claude model_config attempt, once for codex success attempt, once in final finally
+  });
+
+  test("reap is invoked on generic error attempt", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    let reapCalled = false;
+    const claude = new FakeAgent("claude", () => ({ kind: "error", exitCode: 1, stderr: "hard failure" }));
+
+    const code = await runPrompt({ claude }, cap, "do the thing", () => {
+      reapCalled = true;
+    });
+
+    expect(code).toBe(3);
+    expect(reapCalled).toBe(true);
+  });
+
+  test("reap failure does not change exit code", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "answer\n", stderr: "" }));
+
+    const code = await runPrompt({ claude }, cap, "do the thing", () => {
+      throw new Error("reap failure");
+    });
+
+    expect(code).toBe(0);
+  });
+
+  test("reap failure on quota does not change exit code", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }));
+    const codex = new FakeAgent("codex", () => ({ kind: "quota", stderr: "limit" }));
+
+    const code = await runPrompt({ claude, codex }, cap, "do the thing", () => {
+      throw new Error("reap failure");
+    });
+
+    expect(code).toBe(2);
   });
 });

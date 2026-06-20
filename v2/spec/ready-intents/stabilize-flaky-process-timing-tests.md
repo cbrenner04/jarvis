@@ -41,3 +41,8 @@ The identified tests pass deterministically whether run in isolation or inside t
 
 - The no-progress stop and completion check:fix loop that *also* surface flakes as red gates — separate completion-robustness intents.
 - Rewriting watchdog/reaping behavior.
+
+## Prerequisites
+
+- The flaky tests are reproducible under the full parallel suite on a loaded machine and green in isolation (established this session).
+- `bun run typecheck` and `bun run test` green on `main` before changes (modulo the very flakes being fixed).

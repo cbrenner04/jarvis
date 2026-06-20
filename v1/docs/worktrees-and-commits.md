@@ -143,10 +143,10 @@ The PR body has three sections, in order:
    ```
 
      The narrative is generated either **deterministically** (template mode) or **model-authored** (agent mode), controlled by the per-mode `prNarrative` config key (`modes.patch.prNarrative` or `modes.plan.prNarrative`):
-     
+
      - **Template mode** (default): the narrative is built deterministically from the spec index subspec titles and branch commit subjects (`base..HEAD`), rendered in order. The narrative is marked with a generated-hash marker and is regenerated on every rewrite to reflect new commits.
      - **Agent mode**: the model wraps the Description + `Decisions:` block in literal `<<<PR_DESCRIPTION_BEGIN>>>` and `<<<PR_DESCRIPTION_END>>>` sentinels; the harness extracts only the content between them. Absent or malformed sentinels (opening or closing missing, or closing before opening), extracted content lacking `Decisions:`, or an injected sentinel in the spec context yield no narrative on first generation. When properly delimited and containing `Decisions:`, the narrative contains a short description followed by the `Decisions:` section with an unordered list of notable decisions.
-     
+
      In both modes, reviewers may edit text *inside* the markers; jarvis preserves human edits verbatim on subsequent rewrites. Template mode regenerates the narrative on every rewrite to reflect new commits. Agent mode regenerates the narrative only when it is empty or still machine-owned. On rewrite in agent mode, when regeneration returns null, the prior machine-owned narrative is preserved as-is rather than being cleared.
 3. **Attribution footer** rendered from the `Jarvis-Agent` git trailers on
    the PR-branch subspec commits, separated from the body by a `---` rule.

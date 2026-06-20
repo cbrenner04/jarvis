@@ -206,7 +206,6 @@ type PreflightOk = {
   worktreeLocked: boolean;
   stalepidRecovered: number | undefined;
   specPath: string;
-  isIndexSpec: boolean;
   additionalReadDirs: string[] | undefined;
 };
 
@@ -554,7 +553,6 @@ async function resolveModeSpecificPreflight(
     worktreeLocked,
     stalepidRecovered,
     specPath,
-    isIndexSpec,
     additionalReadDirs,
   };
 }
@@ -899,7 +897,7 @@ function isReadyFailureUnchanged(previousText: string | null, currentText: strin
 
 async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const { preflight, logging, opts, activeAgents, state } = ctx;
-  const { specPath, isIndexSpec, gitEnabled, agentWorkingDir, cfg } = preflight;
+  const { specPath, gitEnabled, agentWorkingDir, cfg } = preflight;
   const { fanout, writeTelemetry, specDisplayName } = logging;
   const iteration = state.iteration;
   const iterationStartedAt = Date.now();
@@ -1450,7 +1448,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       // For fix-up iterations, check for a blocker added during the iteration
       // without depending on an unchecked linked subspec (which doesn't exist at full completion).
       // The blocker check takes precedence over other completion processing.
-      if (isFixupIteration && isIndexSpec) {
+      if (isFixupIteration) {
         const blockerInfo = findBlockerInLinkedSubspecs(afterSpecPath);
         if (blockerInfo !== undefined) {
           if (gitEnabled) {

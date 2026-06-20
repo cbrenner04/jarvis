@@ -5,7 +5,7 @@ import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { createAgent } from "../../agents/factory.ts";
-import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
+import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";

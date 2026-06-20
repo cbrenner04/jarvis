@@ -16,7 +16,7 @@ function readPorcelainSnapshot(cwd: string): string | null {
   }
 }
 
-export type ReviewInvocationBindingOptions<T extends InvocationResult = InvocationResult> = {
+export type ReviewInvocationBindingOptions<_T extends InvocationResult = InvocationResult> = {
   agentEntry: { agent: AgentName; model: string };
   config: Config;
   cwd: string;

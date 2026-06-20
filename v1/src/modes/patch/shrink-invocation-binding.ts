@@ -10,7 +10,7 @@ export type ShrinkAgentAttemptData = {
   result: AgentResult;
 };
 
-export type ShrinkInvocationBindingOptions<T extends InvocationResult = InvocationResult> = {
+export type ShrinkInvocationBindingOptions<_T extends InvocationResult = InvocationResult> = {
   agentName: AgentName;
   configuredModel: string | undefined;
   createAgent: (agentName: AgentName, model: string) => Agent;

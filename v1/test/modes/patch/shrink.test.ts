@@ -42,11 +42,11 @@ class FakeAgent implements Agent {
   }
 }
 
-function makeShrinkConfig(): Config {
+function makeShrinkConfig(shrink: "off" | "agent" = "agent"): Config {
   return {
     version: 2,
     modes: {
-      patch: { agentOrder: [CLAUDE_ENTRY] },
+      patch: { agentOrder: [CLAUDE_ENTRY], shrink },
       plan: { agentOrder: [CLAUDE_ENTRY] },
       prompt: { agentOrder: [CLAUDE_ENTRY] },
       review: { passes: 0 },
@@ -434,6 +434,32 @@ describe("runPatchShrinkPhase", () => {
       expect(harness.some((line) => line.includes("discarded"))).toBe(true);
       const headAfter = execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim();
       expect(headAfter).not.toBe(headBefore);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("shrink off emits no telemetry on shrink-eligible completion", async () => {
+    const { dir, specPath, cleanup } = setupShrinkRepo();
+    const telemetry: Array<{ patch_phase?: string }> = [];
+    try {
+      const agent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      await runPatchShrinkPhase({
+        config: makeShrinkConfig("off"),
+        cwd: dir,
+        specPath,
+        allowlist: new Set(["impl.txt"]),
+        skipPreShrinkGate: true,
+        fanout: () => {},
+        writeTelemetry: (row) => {
+          telemetry.push(row);
+        },
+        agents: { claude: agent },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+      expect(telemetry).toHaveLength(0);
+      expect(agent.calls).toHaveLength(0);
     } finally {
       cleanup();
     }

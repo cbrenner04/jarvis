@@ -51,7 +51,7 @@ One fix-up runs between gate1→gate2 and gate2→gate3, so N=3 allows two genui
 - [x] Green-gate reset: red, red, green, then red restarts the count from one rather than tripping the bound (test via the `runCompletionReadyGate` seam).
 - [x] AC-progress reset: a fix-up that re-ticks a regressed acceptance criterion on the regular implementation path sets `acProgressSinceLastGate`, and the next red gate resets `consecutiveRedFixups` to 0 (test driving the spec from one-unchecked back to complete mid-loop and asserting the count restarts).
 - [x] The existing identical-failure exit-`10` stop and the green-dirty single-pass `check:fix` commit are unchanged (their existing tests stay green).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
@@ -59,12 +59,3 @@ One fix-up runs between gate1→gate2 and gate2→gate3, so N=3 allows two genui
 - `v2/docs/v1-behaviors.md` (§ "Patch-mode stuck-red completion stop (exit 10)" ~`:56-61`): record the changing-failure completion bound, its distinct message, and reset-on-progress semantics alongside the identical-failure stop; **correct the stale source pointer** in that section that attributes the stuck-red logic to `run.ts` (it lives in `v1/src/modes/patch/completion-pipeline.ts`).
 - `v2/spec/wip-intents/completion-commit-checkfix-output.md`: remove once landed.
 
-## Blocker
-
-`bun run typecheck` passes. `bun test v1/test/run.test.ts` passes, including the new completion-bound cases.
-
-`bun run test` failed twice on unrelated parallel-only tests outside this subspec:
-- `v1/test/modes/patch/reap.test.ts` twice observed `tracker.trackedCount === 0` where the test expects `>= 1`
-- `v1/test/run.test.ts` watchdog assertion expected `watchdog_descendants_alive=true` but received `false`
-
-Both failing tests passed when rerun in isolation, so the remaining AC is blocked on an existing flaky/full-suite parallel test issue rather than the completion-bound change.

@@ -4,7 +4,7 @@ import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
-import { detectBlocker } from "../../../../shared/spec-parser.ts";
+import { detectBlocker, isStructuralAc, parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
@@ -279,6 +279,7 @@ function readFrontmatter(text: string): string | null {
 
 /**
  * Validate that the agent produced the required spec tree structure.
+ * Performs structural validation of each generated subspec.
  */
 export function validateDraftOutput(
   worktreePath: string,
@@ -286,8 +287,9 @@ export function validateDraftOutput(
   intentBefore?: string,
   specDirPath?: string,
   targetDir?: string,
-): { valid: boolean; error: string | null; blocker?: string | undefined } {
+): { valid: boolean; error: string | null; warnings: string[]; blocker?: string | undefined } {
   const specDir = resolvePlanSpecDirPath(worktreePath, name, specDirPath, targetDir);
+  const structuralWarnings: string[] = [];
 
   // Check if blocker was added to intent.md (do this before index.md check)
   const intentPath = join(specDir, "intent.md");
@@ -298,6 +300,7 @@ export function validateDraftOutput(
     return {
       valid: true,
       error: null,
+      warnings: [],
       blocker: blockerDetection.body,
     };
   }
@@ -305,17 +308,18 @@ export function validateDraftOutput(
   // Check index.md exists
   const indexPath = join(specDir, "index.md");
   if (!existsSync(indexPath)) {
-    return { valid: false, error: "index.md was not created" };
+    return { valid: false, error: "index.md was not created", warnings: [] };
   }
 
   // Check at least one NN-*.md exists
   const files = readdirSync(specDir);
-  const hasSubspecs = files.some((f: string) => /^\d{2}-.*\.md$/.test(f));
+  const subspecFiles = files.filter((f: string) => /^\d{2}-.*\.md$/.test(f)).sort();
 
-  if (!hasSubspecs) {
+  if (subspecFiles.length === 0) {
     return {
       valid: false,
       error: "no numbered subspecs (NN-*.md) were created",
+      warnings: [],
     };
   }
 
@@ -325,9 +329,54 @@ export function validateDraftOutput(
       return {
         valid: false,
         error: "intent.md was modified (only allowed modification is appending ## Blocker; frontmatter is immutable)",
+        warnings: [],
       };
     }
   }
 
-  return { valid: true, error: null };
+  // Validate each generated subspec structurally
+  for (const subspecFile of subspecFiles) {
+    const subspecPath = join(specDir, subspecFile);
+    const subspecContent = readFileSync(subspecPath, "utf8");
+    const parsed = parseSpec(subspecContent);
+
+    // Check for near-miss headings or duplicate sections
+    for (const warning of parsed.warnings) {
+      if (warning.kind === "near-miss-acceptance-heading" || warning.kind === "near-miss-blocker-heading") {
+        return {
+          valid: false,
+          error: `${subspecFile}: ${warning.message}`,
+          warnings: [],
+        };
+      }
+      if (warning.kind === "duplicate-section") {
+        return {
+          valid: false,
+          error: `${subspecFile}: ${warning.message}`,
+          warnings: [],
+        };
+      }
+      if (warning.kind === "missing-anchor-behavioral-ac") {
+        structuralWarnings.push(`${subspecFile}: ${warning.message}`);
+      }
+    }
+
+    // Check for missing/empty acceptance section
+    if (parsed.acceptanceCriteria.length === 0) {
+      return {
+        valid: false,
+        error: `${subspecFile}: no acceptance criteria found under \`## Acceptance criteria\``,
+        warnings: [],
+      };
+    }
+
+    // Collect structural AC warnings
+    for (const criterion of parsed.acceptanceCriteria) {
+      if (isStructuralAc(criterion)) {
+        structuralWarnings.push(`${subspecFile}: structural AC: "${criterion.text}"`);
+      }
+    }
+  }
+
+  return { valid: true, error: null, warnings: structuralWarnings };
 }

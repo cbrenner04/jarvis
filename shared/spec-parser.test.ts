@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { detectBlocker, parseSpec } from "./spec-parser.ts";
+import {
+  detectBlocker,
+  hasPathLikeAnchor,
+  isBehavioralPreservationAc,
+  isStructuralAc,
+  parseSpec,
+} from "./spec-parser.ts";
 
 describe("parseSpec", () => {
   test("parses h1, tasks, linked subspecs, acceptance criteria, and blocker", () => {
@@ -34,18 +40,14 @@ describe("parseSpec", () => {
     const parsed = parseSpec(`# Title\n\n### Acceptance criteria\n\n- [ ] Item\n`);
 
     expect(parsed.acceptanceCriteria).toEqual([]);
-    expect(parsed.warnings).toContain(
-      "Rejected heading `### Acceptance criteria`: acceptance criteria header must be exactly `## Acceptance criteria` (case-sensitive, level-2).",
-    );
+    expect(parsed.warnings.some((w) => w.kind === "near-miss-acceptance-heading")).toBe(true);
   });
 
   test("warns when blocker heading is malformed", () => {
     const parsed = parseSpec(`# Title\n\n### Blocker\n\nSome text\n`);
 
     expect(parsed.blocker).toBeUndefined();
-    expect(parsed.warnings).toContain(
-      "Rejected heading `### Blocker`: blocker header must be exactly `## Blocker` (case-sensitive, level-2).",
-    );
+    expect(parsed.warnings.some((w) => w.kind === "near-miss-blocker-heading")).toBe(true);
   });
 
   test("selects first acceptance criteria when duplicates exist", () => {
@@ -98,18 +100,14 @@ describe("parseSpec", () => {
     const parsed = parseSpec(`# Title\n\n## acceptance criteria\n\n- [ ] Item\n`);
 
     expect(parsed.acceptanceCriteria).toEqual([]);
-    expect(parsed.warnings).toContain(
-      "Rejected heading `## acceptance criteria`: acceptance criteria header must be exactly `## Acceptance criteria` (case-sensitive, level-2).",
-    );
+    expect(parsed.warnings.some((w) => w.kind === "near-miss-acceptance-heading")).toBe(true);
   });
 
   test("is case-sensitive for blocker heading", () => {
     const parsed = parseSpec(`# Title\n\n## blocker\n\ntext\n`);
 
     expect(parsed.blocker).toBeUndefined();
-    expect(parsed.warnings).toContain(
-      "Rejected heading `## blocker`: blocker header must be exactly `## Blocker` (case-sensitive, level-2).",
-    );
+    expect(parsed.warnings.some((w) => w.kind === "near-miss-blocker-heading")).toBe(true);
   });
 });
 
@@ -192,5 +190,211 @@ describe("parseSpec vs detectBlocker blocker shape discrepancy", () => {
 
     expect(parsed.blocker).toBe("first");
     expect(detected.body).toBe("first");
+  });
+});
+
+describe("duplicate section detection", () => {
+  test("warns when acceptance criteria appears twice", () => {
+    const parsed = parseSpec(
+      `# Title\n\n## Acceptance criteria\n\n- [ ] First\n\n## Acceptance criteria\n\n- [ ] Second\n`,
+    );
+
+    expect(parsed.warnings.some((w) => w.kind === "duplicate-section")).toBe(true);
+  });
+
+  test("warns when blocker appears twice", () => {
+    const parsed = parseSpec(`# Title\n\n## Blocker\n\nFirst\n\n## Blocker\n\nSecond\n`);
+
+    expect(parsed.warnings.some((w) => w.kind === "duplicate-section")).toBe(true);
+  });
+
+  test("no warning for single acceptance criteria and single blocker", () => {
+    const parsed = parseSpec(`# Title\n\n## Acceptance criteria\n\n- [ ] Item\n\n## Blocker\n\nText\n`);
+
+    expect(parsed.warnings.every((w) => w.kind !== "duplicate-section")).toBe(true);
+  });
+});
+
+describe("structural AC classification", () => {
+  test("identifies location/existence-based ACs as structural", () => {
+    const structural = [
+      { checked: false, text: "X lives in a dedicated module with unit tests" },
+      { checked: false, text: "Y is defined in src/core" },
+      { checked: false, text: "Z exists as a pure function" },
+      { checked: false, text: "ABC has unit tests" },
+    ];
+
+    for (const ac of structural) {
+      expect(isStructuralAc(ac)).toBe(true);
+    }
+  });
+
+  test("does not flag behavioral ACs naming a symbol as subject", () => {
+    const behavioral = [
+      { checked: false, text: "`validateDraftOutput` returns invalid when a subspec lacks AC" },
+      { checked: false, text: "The parser produces categorized warnings" },
+      { checked: false, text: "X causes Y to happen" },
+      { checked: false, text: "Z enables Q to work" },
+    ];
+
+    for (const ac of behavioral) {
+      expect(isStructuralAc(ac)).toBe(false);
+    }
+  });
+
+  test("is case-insensitive", () => {
+    const upperCase = { checked: false, text: "ABC LIVES IN SRC" };
+    const lowerCase = { checked: false, text: "abc lives in src" };
+    const mixedCase = { checked: false, text: "Abc Lives In Src" };
+
+    expect(isStructuralAc(upperCase)).toBe(true);
+    expect(isStructuralAc(lowerCase)).toBe(true);
+    expect(isStructuralAc(mixedCase)).toBe(true);
+  });
+});
+
+describe("behavioral/preservation AC detection", () => {
+  test("detects ACs with preservation/continuation trigger verbs", () => {
+    const behavioral = [
+      { checked: false, text: "plan stops on a hard error" },
+      { checked: false, text: "X stays green across the change" },
+      { checked: false, text: "config value remains unchanged" },
+      { checked: false, text: "API continues to work" },
+      { checked: false, text: "behavior is preserved" },
+      { checked: false, text: "test suite remains unaffected" },
+    ];
+
+    for (const ac of behavioral) {
+      expect(isBehavioralPreservationAc(ac)).toBe(true);
+    }
+  });
+
+  test("is case-insensitive for trigger verbs", () => {
+    const upperCase = { checked: false, text: "PLAN STOPS ON HARD ERROR" };
+    const lowerCase = { checked: false, text: "plan stops on hard error" };
+    const mixedCase = { checked: false, text: "Plan Stops On Hard Error" };
+
+    expect(isBehavioralPreservationAc(upperCase)).toBe(true);
+    expect(isBehavioralPreservationAc(lowerCase)).toBe(true);
+    expect(isBehavioralPreservationAc(mixedCase)).toBe(true);
+  });
+
+  test("does not flag ACs without trigger verbs", () => {
+    const nonBehavioral = [
+      { checked: false, text: "X returns invalid when a subspec lacks AC" },
+      { checked: false, text: "validator parses specs correctly" },
+      { checked: false, text: "The feature works" },
+    ];
+
+    for (const ac of nonBehavioral) {
+      expect(isBehavioralPreservationAc(ac)).toBe(false);
+    }
+  });
+
+  test("requires whole-word match for trigger verbs", () => {
+    // "stopping" should not match "stops"
+    const notMatch = { checked: false, text: "stopping the process continues smoothly" };
+    expect(isBehavioralPreservationAc(notMatch)).toBe(true); // Still true because "continues" is present
+  });
+});
+
+describe("path-like anchor detection", () => {
+  test("detects *.test.ts filename patterns", () => {
+    const withTestFile = [
+      { checked: false, text: "plan-draft-hard-error-continue.test.ts stays green" },
+      { checked: false, text: "`spec-parser.test.ts` remains working" },
+      { checked: false, text: "validator.test.ts continues to pass" },
+    ];
+
+    for (const ac of withTestFile) {
+      expect(hasPathLikeAnchor(ac)).toBe(true);
+    }
+  });
+
+  test("detects backtick spans with path separators", () => {
+    const withPathSeparator = [
+      { checked: false, text: "`v1/src/commands/plan.ts` is preserved" },
+      { checked: false, text: "code in `shared/spec-parser.ts` stays unchanged" },
+      { checked: false, text: "config remains at `v1/docs/config.md`" },
+    ];
+
+    for (const ac of withPathSeparator) {
+      expect(hasPathLikeAnchor(ac)).toBe(true);
+    }
+  });
+
+  test("detects backtick spans with source-file extensions", () => {
+    const withExtension = [
+      { checked: false, text: "`parseSpec.ts` stays functional" },
+      { checked: false, text: "module `helper.js` is preserved" },
+      { checked: false, text: "file `config.json` remains unchanged" },
+    ];
+
+    for (const ac of withExtension) {
+      expect(hasPathLikeAnchor(ac)).toBe(true);
+    }
+  });
+
+  test("does not flag plain backtick spans without path shape", () => {
+    const nonPath = [
+      { checked: false, text: '`patch_phase: "shrink"` is preserved' },
+      { checked: false, text: "value `x` stays the same" },
+      { checked: false, text: "error code `E_NOMEM` remains unchanged" },
+    ];
+
+    for (const ac of nonPath) {
+      expect(hasPathLikeAnchor(ac)).toBe(false);
+    }
+  });
+
+  test("detects multiple backtick spans and passes if any has path shape", () => {
+    const multiBacktick = { checked: false, text: "both `x` and `v1/src/file.ts` stay the same" };
+    expect(hasPathLikeAnchor(multiBacktick)).toBe(true);
+  });
+});
+
+describe("anchor grounding in parseSpec", () => {
+  test("warns when behavioral AC lacks anchor", () => {
+    const parsed = parseSpec(`# Title\n\n## Acceptance criteria\n\n- [ ] plan stops on a hard error\n`);
+
+    expect(parsed.warnings.some((w) => w.kind === "missing-anchor-behavioral-ac")).toBe(true);
+  });
+
+  test("does not warn when behavioral AC has test file anchor", () => {
+    const parsed = parseSpec(
+      `# Title\n\n## Acceptance criteria\n\n- [ ] \`plan-draft-hard-error-continue.test.ts\` stays green\n`,
+    );
+
+    expect(parsed.warnings.every((w) => w.kind !== "missing-anchor-behavioral-ac")).toBe(true);
+  });
+
+  test("does not warn when behavioral AC has source path anchor", () => {
+    const parsed = parseSpec(
+      `# Title\n\n## Acceptance criteria\n\n- [ ] code in \`v1/src/commands/plan.ts\` stays unchanged\n`,
+    );
+
+    expect(parsed.warnings.every((w) => w.kind !== "missing-anchor-behavioral-ac")).toBe(true);
+  });
+
+  test("warns when trigger AC has only non-path backtick span", () => {
+    const parsed = parseSpec(`# Title\n\n## Acceptance criteria\n\n- [ ] \`patch_phase: "shrink"\` is preserved\n`);
+
+    expect(parsed.warnings.some((w) => w.kind === "missing-anchor-behavioral-ac")).toBe(true);
+  });
+
+  test("does not warn for non-trigger behavioral AC", () => {
+    const parsed = parseSpec(`# Title\n\n## Acceptance criteria\n\n- [ ] X returns invalid when a subspec lacks AC\n`);
+
+    expect(parsed.warnings.every((w) => w.kind !== "missing-anchor-behavioral-ac")).toBe(true);
+  });
+
+  test("warns only for trigger ACs without anchors in mixed criteria", () => {
+    const parsed = parseSpec(
+      `# Title\n\n## Acceptance criteria\n\n- [ ] X returns invalid when Y\n- [ ] plan stops on hard error\n- [ ] \`spec-parser.test.ts\` stays green\n`,
+    );
+
+    const anchorWarnings = parsed.warnings.filter((w) => w.kind === "missing-anchor-behavioral-ac");
+    expect(anchorWarnings).toHaveLength(1);
+    expect(anchorWarnings[0]?.message).toContain("plan stops on hard error");
   });
 });

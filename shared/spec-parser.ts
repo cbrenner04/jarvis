@@ -13,13 +13,24 @@ export type AcceptanceCriterion = {
   text: string;
 };
 
+export type WarningKind =
+  | "near-miss-acceptance-heading"
+  | "near-miss-blocker-heading"
+  | "duplicate-section"
+  | "missing-anchor-behavioral-ac";
+
+export type ParsedSpecWarning = {
+  kind: WarningKind;
+  message: string;
+};
+
 export type ParsedSpec = {
   h1: string | undefined;
   tasks: TaskItem[];
   linkedSubspecs: LinkedSubspec[];
   acceptanceCriteria: AcceptanceCriterion[];
   blocker: string | undefined;
-  warnings: string[];
+  warnings: ParsedSpecWarning[];
 };
 
 const taskPattern = /^\s*-\s\[([ xX])\]\s+(.*)$/;
@@ -108,21 +119,46 @@ function extractAcceptanceCriteriaSection(content: string): { index: number; lin
   return { index: exactAcceptanceHeaderIndex, lines: sectionLines };
 }
 
-/** Collect warnings for near-miss headings. */
-function collectHeadingWarnings(lines: string[]): string[] {
-  const warnings: string[] = [];
+/** Collect warnings for near-miss headings and duplicate sections. */
+function collectHeadingWarnings(lines: string[]): ParsedSpecWarning[] {
+  const warnings: ParsedSpecWarning[] = [];
+  let acceptanceCriteriaCount = 0;
+  let blockerCount = 0;
+
   for (const line of lines) {
-    if (line !== "## Acceptance criteria" && /^#{1,6}\s+acceptance criteria\s*$/i.test(line)) {
-      warnings.push(
-        `Rejected heading \`${line}\`: acceptance criteria header must be exactly \`## Acceptance criteria\` (case-sensitive, level-2).`,
-      );
+    if (line === "## Acceptance criteria") {
+      acceptanceCriteriaCount += 1;
+    } else if (line !== "## Acceptance criteria" && /^#{1,6}\s+acceptance criteria\s*$/i.test(line)) {
+      warnings.push({
+        kind: "near-miss-acceptance-heading",
+        message: `Rejected heading \`${line}\`: acceptance criteria header must be exactly \`## Acceptance criteria\` (case-sensitive, level-2).`,
+      });
     }
-    if (line !== "## Blocker" && /^#{1,6}\s+blocker\s*$/i.test(line)) {
-      warnings.push(
-        `Rejected heading \`${line}\`: blocker header must be exactly \`## Blocker\` (case-sensitive, level-2).`,
-      );
+
+    if (line === "## Blocker") {
+      blockerCount += 1;
+    } else if (line !== "## Blocker" && /^#{1,6}\s+blocker\s*$/i.test(line)) {
+      warnings.push({
+        kind: "near-miss-blocker-heading",
+        message: `Rejected heading \`${line}\`: blocker header must be exactly \`## Blocker\` (case-sensitive, level-2).`,
+      });
     }
   }
+
+  if (acceptanceCriteriaCount > 1) {
+    warnings.push({
+      kind: "duplicate-section",
+      message: `Duplicate section: \`## Acceptance criteria\` appears ${acceptanceCriteriaCount} times.`,
+    });
+  }
+
+  if (blockerCount > 1) {
+    warnings.push({
+      kind: "duplicate-section",
+      message: `Duplicate section: \`## Blocker\` appears ${blockerCount} times.`,
+    });
+  }
+
   return warnings;
 }
 
@@ -174,6 +210,39 @@ function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] 
   return acceptanceCriteria;
 }
 
+/** Detect if an acceptance criterion is a behavioral/preservation AC.
+ * Trigger verbs (case-insensitive, whole-word): preserved, unchanged, stays, remains, stops, continues.
+ */
+export function isBehavioralPreservationAc(criterion: AcceptanceCriterion): boolean {
+  const text = criterion.text.toLowerCase();
+  const triggerVerbs = [/\bpreserved\b/, /\bunchanged\b/, /\bstays\b/, /\bremains\b/, /\bstops\b/, /\bcontinues\b/];
+  return triggerVerbs.some((verb) => verb.test(text));
+}
+
+/** Check if an acceptance criterion text contains a path-like anchor.
+ * An anchor is a *.test.ts filename/path, or a backtick span containing a path separator or source-file extension.
+ */
+export function hasPathLikeAnchor(criterion: AcceptanceCriterion): boolean {
+  const text = criterion.text;
+
+  // Check for *.test.ts filename/path patterns (e.g., "plan-draft-hard-error-continue.test.ts")
+  if (/\b\w+.*\.test\.ts\b/.test(text)) {
+    return true;
+  }
+
+  // Check for backtick spans containing path separators or source-file extensions
+  const backtickPattern = /`([^`]+)`/g;
+  for (const match of text.matchAll(backtickPattern)) {
+    const content = match[1] ?? "";
+    // Path-like if it contains a path separator or a source-file extension
+    if (content.includes("/") || /\.\w+$/.test(content)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function parseSpec(content: string): ParsedSpec {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
 
@@ -183,6 +252,16 @@ export function parseSpec(content: string): ParsedSpec {
 
   const acceptanceCriteriaSection = extractAcceptanceCriteriaSection(content);
   const acceptanceCriteria = acceptanceCriteriaSection ? parseAcceptanceCriteria(acceptanceCriteriaSection.lines) : [];
+
+  // Check for behavioral/preservation ACs without anchors
+  for (const criterion of acceptanceCriteria) {
+    if (isBehavioralPreservationAc(criterion) && !hasPathLikeAnchor(criterion)) {
+      warnings.push({
+        kind: "missing-anchor-behavioral-ac",
+        message: `Behavioral/preservation AC lacks test or source anchor: "${criterion.text}". Cite an existing test (e.g., \`plan-draft-hard-error-continue.test.ts\`) or source path (e.g., \`v1/src/commands/plan.ts\`).`,
+      });
+    }
+  }
 
   const blockerExtraction = extractBlockerBody(content);
   const blocker = blockerExtraction?.body;
@@ -216,4 +295,39 @@ export function detectBlocker(content: string): {
     hasBlocker: true,
     body: blockerExtraction.body,
   };
+}
+
+/**
+ * Classify if an acceptance criterion is "structural" — a location/containment/existence
+ * claim about code structure with no observable runtime/operator outcome clause.
+ * Location/existence verbs: "lives in", "is defined in", "exists as", "has unit tests".
+ */
+export function isStructuralAc(criterion: AcceptanceCriterion): boolean {
+  const text = criterion.text.toLowerCase();
+
+  // Location/existence verbs: key patterns
+  const locationVerbs = [
+    /\blives in\b/,
+    /\bis defined in\b/,
+    /\bexists as\b/,
+    /\bhas unit tests?\b/,
+    /\bincludes\b.*test/,
+    /\bincludedst\b.*test/,
+  ];
+
+  const hasLocationVerb = locationVerbs.some((verb) => verb.test(text));
+  if (!hasLocationVerb) {
+    return false;
+  }
+
+  // Check for behavioral assertion patterns (e.g. "returns", "produces", "causes", "enables")
+  // These indicate the AC names a symbol as the subject of a behavioral claim, not just location.
+  const behavioralVerbs = [/\breturns\b/, /\bproduces\b/, /\bcauses\b/, /\benables\b/, /\bfails\b/, /\braises\b/];
+
+  const hasBehavioralVerb = behavioralVerbs.some((verb) => verb.test(text));
+  if (hasBehavioralVerb) {
+    return false;
+  }
+
+  return true;
 }

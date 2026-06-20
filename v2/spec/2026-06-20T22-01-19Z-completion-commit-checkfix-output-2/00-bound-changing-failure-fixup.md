@@ -45,16 +45,17 @@ One fix-up runs between gate1→gate2 and gate2→gate3, so N=3 allows two genui
 
 ## Acceptance criteria
 
-- [ ] A completion whose ready gate returns red with a *different* failure text each iteration and no AC progress stops at the bound (`consecutiveRedFixups` reaches N) with reason `ready-stuck-red` (exit `10`), not at `maxIterations` (exit `5`); the test fixes N `< maxIterations` so the bound, not the loop ceiling, is what stops it (test, using the `runCompletionReadyGate` seam).
-- [ ] The terminal message emitted on the changing-failure bound is distinct from the identical-failure message: it does not assert the failure is "unchanged" and states the gate stayed red for N fix-up iterations with no AC progress (test asserting the emitted message text matches the trigger).
-- [ ] A completion whose ready gate is red once then green completes normally (exit `0`); the bound does not fire on a single red fix-up (test).
-- [ ] Green-gate reset: red, red, green, then red restarts the count from one rather than tripping the bound (test via the `runCompletionReadyGate` seam).
-- [ ] AC-progress reset: a fix-up that re-ticks a regressed acceptance criterion on the regular implementation path sets `acProgressSinceLastGate`, and the next red gate resets `consecutiveRedFixups` to 0 (test driving the spec from one-unchecked back to complete mid-loop and asserting the count restarts).
-- [ ] The existing identical-failure exit-`10` stop and the green-dirty single-pass `check:fix` commit are unchanged (their existing tests stay green).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A completion whose ready gate returns red with a *different* failure text each iteration and no AC progress stops at the bound (`consecutiveRedFixups` reaches N) with reason `ready-stuck-red` (exit `10`), not at `maxIterations` (exit `5`); the test fixes N `< maxIterations` so the bound, not the loop ceiling, is what stops it (test, using the `runCompletionReadyGate` seam).
+- [x] The terminal message emitted on the changing-failure bound is distinct from the identical-failure message: it does not assert the failure is "unchanged" and states the gate stayed red for N fix-up iterations with no AC progress (test asserting the emitted message text matches the trigger).
+- [x] A completion whose ready gate is red once then green completes normally (exit `0`); the bound does not fire on a single red fix-up (test).
+- [x] Green-gate reset: red, red, green, then red restarts the count from one rather than tripping the bound (test via the `runCompletionReadyGate` seam).
+- [x] AC-progress reset: a fix-up that re-ticks a regressed acceptance criterion on the regular implementation path sets `acProgressSinceLastGate`, and the next red gate resets `consecutiveRedFixups` to 0 (test driving the spec from one-unchecked back to complete mid-loop and asserting the count restarts).
+- [x] The existing identical-failure exit-`10` stop and the green-dirty single-pass `check:fix` commit are unchanged (their existing tests stay green).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
 - `v1/docs/run-loop.md` (§ "Stuck-red completion stop (exit 10)" ~`:382-401` and the exit-code table row for `10` ~`:722`): the loop also stops with `ready-stuck-red` when the gate stays red for N consecutive fix-up iterations with no AC progress even if the failure text differs each time; note the distinct changing-failure message and the reset-on-progress semantics.
 - `v2/docs/v1-behaviors.md` (§ "Patch-mode stuck-red completion stop (exit 10)" ~`:56-61`): record the changing-failure completion bound, its distinct message, and reset-on-progress semantics alongside the identical-failure stop; **correct the stale source pointer** in that section that attributes the stuck-red logic to `run.ts` (it lives in `v1/src/modes/patch/completion-pipeline.ts`).
 - `v2/spec/wip-intents/completion-commit-checkfix-output.md`: remove once landed.
+

@@ -850,6 +850,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               return { kind: "return", exitCode: 1 };
             }
           }
+          ctx.state.acProgressSinceLastGate = true;
         } else {
           if (gitEnabled) {
             const blocker = worktreeCompletionBlocker(agentWorkingDir);

@@ -100,6 +100,8 @@ export type IterationContext = {
     currentController: AbortController | null;
     completionLoopbackSignal: { failureText: string } | null;
     previousCompletionFailureText: string | null;
+    consecutiveRedFixups: number;
+    acProgressSinceLastGate: boolean;
     completionTransitionReadyResult?: {
       headSha: string;
     };
@@ -227,6 +229,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     currentController: null,
     completionLoopbackSignal: null,
     previousCompletionFailureText: null,
+    consecutiveRedFixups: 0,
+    acProgressSinceLastGate: false,
   };
 
   const onSigint = () => {

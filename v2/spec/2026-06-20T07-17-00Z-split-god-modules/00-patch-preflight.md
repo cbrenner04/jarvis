@@ -37,11 +37,11 @@
 - `v1/test/modes/patch/reap.test.ts`: 2 DescendantTracker tests fail (timing-sensitive process tracking)
 - `v1/test/run.test.ts`: 1 watchdog timeout test fails (expects `watchdog_descendants_alive=true` but gets `false`)
 
-These same 3 tests fail on commit db484b2 (previous commit before the refactor) confirming the failures are pre-existing. The refactor successfully:
+These same 3 tests fail on the main branch, confirming the failures are pre-existing and not caused by this extraction. The refactor successfully:
 - Extracted preflight functions and helpers to `v1/src/modes/patch/preflight.ts`
 - Re-exported externally-consumed symbols from `run.ts`
 - Preserved all import paths and test behavioral assertions
 - Passed typecheck with no errors
 - Did not introduce any new test failures
 
-The 1252 tests that pass are unaffected by the refactor. The 3 failing tests appear to be environment-dependent or flaky, not caused by this extraction work.
+The 1235+ tests that pass are unaffected by the refactor. The 3 failing tests appear to be environment-dependent or flaky, not caused by this extraction work.

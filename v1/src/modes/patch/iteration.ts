@@ -815,6 +815,15 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
             if (!opts.skipGhCheck) {
               try {
+                const firstPush = !hasUpstream(agentWorkingDir);
+                pushCurrent({ cwd: agentWorkingDir, firstPush });
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                fanout("harness", `failed to push completed subspec ${afterSubspecPath}: ${message}\n`, "stderr");
+                return { kind: "return", exitCode: 1 };
+              }
+
+              try {
                 let _createdThisIteration = false;
                 const base = await getBaseBranch(agentWorkingDir);
                 const branch = getCurrentBranch(agentWorkingDir);

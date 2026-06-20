@@ -4,12 +4,10 @@ import { dirname, join, relative } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
-import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
 import { runReadyGateWithTier } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
@@ -18,6 +16,8 @@ import { updatePrBody } from "./pr.ts";
 import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
+import { buildShrinkBindings } from "./shrink-binding-factory.ts";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 
 type ShrinkLogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type ShrinkLogStream = "stdout" | "stderr" | null;
@@ -333,12 +333,6 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
   const allowlist = [...opts.allowlist].sort();
   const killGraceMs = opts.__testKillGraceMs ?? 5000;
 
-  const activeAgents: Agent[] = [];
-  for (const entry of opts.config.modes.patch.agentOrder) {
-    const override = opts.agents?.[entry.agent];
-    activeAgents.push(override ?? createAgent(entry.agent, entry.model));
-  }
-
   const prompt = buildShrinkPrompt({
     specPath: opts.specPath,
     cwd: opts.cwd,
@@ -355,141 +349,128 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
 
   const startedMs = Date.now();
   let agent: Agent | undefined;
-  let result: Awaited<ReturnType<Agent["run"]>> | undefined;
+  let result: any = undefined;
+  let attributionLabel: string | undefined;
 
   try {
-    while (activeAgents.length > 0) {
-      agent = activeAgents[0];
-      if (agent === undefined) {
-        break;
-      }
-      const currentAgent = agent;
-      const configuredModel = opts.config.modes.patch.agentOrder.find((e) => e.agent === currentAgent.name)?.model;
-      const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
-      const runOptions: AgentRunOptions = {
+    const bindings = buildShrinkBindings(
+      {
         cwd: opts.cwd,
-        signal: shrinkController.signal,
-        abortKillGraceMs: killGraceMs,
-      };
-
-      result = await currentAgent.run(prompt, runOptions);
-      const durationMs = Math.max(0, Date.now() - startedMs);
-
-      if (result.kind === "ok") {
-        if (result.stdout.length > 0) {
-          opts.fanout("inbound_stdout", result.stdout, null, { patch_phase: "shrink" });
-        }
-        if (result.stderr.length > 0) {
-          opts.fanout("inbound_stderr", result.stderr, null, { patch_phase: "shrink" });
-        }
-        opts.writeTelemetry({
-          agent: currentAgent.name,
-          iteration: 1,
-          durationMs,
-          kind: "ok",
-          exitReason: "ok",
-          patch_phase: "shrink",
-          ...extractUsageAndCost(result, currentAgent.name, configuredModel),
-          ...telemetryMeta,
-        });
-        break;
-      }
-
-      if (result.kind === "quota") {
-        activeAgents.shift();
-        opts.fanout("harness", `${currentAgent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
-        if (activeAgents.length === 0) {
-          opts.writeTelemetry({
-            agent: currentAgent.name,
-            iteration: 1,
-            durationMs,
-            kind: "quota",
-            exitReason: "quota-exhausted",
-            patch_phase: "shrink",
-            ...telemetryMeta,
-          });
-          revertAllSince(opts.cwd, preShrinkHead);
-          opts.fanout("harness", "shrink: all agents quota-exhausted (discarded)\n", "stderr");
-          return;
-        }
-        opts.writeTelemetry({
-          agent: currentAgent.name,
-          iteration: 1,
-          durationMs,
-          kind: "quota",
-          exitReason: "quota-fallback",
-          patch_phase: "shrink",
-          ...telemetryMeta,
-        });
-        continue;
-      }
-
-      if (result.kind === "model_config") {
-        opts.writeTelemetry({
-          agent: currentAgent.name,
-          iteration: 1,
-          durationMs,
-          kind: "error",
-          exitReason: "model_config",
-          patch_phase: "shrink",
-          ...telemetryMeta,
-        });
-        revertAllSince(opts.cwd, preShrinkHead);
-        opts.fanout("harness", `shrink: agent error (${result.kind}); discarded\n`, "stderr");
-        return;
-      }
-
-      const classified = applyQuotaFallbackWhenAllowed(
-        currentAgent.name,
-        result,
-        {
-          quotaFallback: opts.config.quotaFallback,
-          weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
+        config: opts.config,
+        createAgent: (name, model) => opts.agents?.[name] ?? createAgent(name, model),
+        spawnOptions: {
+          abortKillGraceMs: killGraceMs,
         },
-        true,
-      );
-      if (classified.kind === "quota") {
-        activeAgents.shift();
-        opts.fanout("harness", `${currentAgent.name}: ${harnessQuotaFallbackLenientLine(result.exitCode)}\n`, "stderr");
-        if (activeAgents.length === 0) {
-          opts.writeTelemetry({
-            agent: currentAgent.name,
-            iteration: 1,
-            durationMs,
-            kind: "quota",
-            exitReason: "quota-exhausted",
-            patch_phase: "shrink",
-            ...telemetryMeta,
-          });
-          revertAllSince(opts.cwd, preShrinkHead);
-          opts.fanout("harness", "shrink: all agents quota-exhausted (discarded)\n", "stderr");
-          return;
+        onRotationStderr: (message: string) => {
+          opts.fanout("harness", message, "stderr");
+        },
+        onAttempt: () => {
+          // Telemetry recorded after executor completes (to handle exhaustion correctly)
+        },
+        classificationGuard: () => true,
+      },
+      opts.config.modes.patch.agentOrder,
+    );
+
+    const execution = await executeWithQuotaFallback({
+      prompt,
+      cwd: opts.cwd,
+      bindings,
+      signal: shrinkController.signal,
+    });
+
+    const finalAttempt = execution.final;
+    const durationMs = Math.max(0, Date.now() - startedMs);
+
+    // Record telemetry for all attempts
+    for (const attempt of execution.attempts) {
+      const bindingParts = attempt.binding.id.split(":");
+      const agentName = bindingParts[1] as AgentName;
+      const attemptEntry = opts.config.modes.patch.agentOrder.find((e) => e.agent === agentName);
+      const telemetryMeta = attemptEntry?.model ? { configured_model: attemptEntry.model } : {};
+      let kind: TelemetryKind;
+      let exitReason: string;
+      let usageCost = {};
+
+      if (attempt.result.kind === "ok") {
+        kind = "ok";
+        exitReason = "ok";
+        usageCost = extractUsageAndCost(attempt.result as any, agentName, attemptEntry?.model);
+      } else if (attempt.result.kind === "quota") {
+        kind = "quota";
+        // Check if this is the final attempt (exhaustion) or a fallback
+        if (attempt === finalAttempt) {
+          exitReason = "quota-exhausted";
+        } else {
+          // Differentiate between strict and lenient quota fallback
+          const spawnKind = (attempt.result as any).spawnResultKind;
+          if (spawnKind === "quota") {
+            exitReason = "quota-fallback";
+          } else {
+            exitReason = "probable-quota-fallback";
+          }
         }
-        opts.writeTelemetry({
-          agent: currentAgent.name,
-          iteration: 1,
-          durationMs,
-          kind: "quota",
-          exitReason: "probable-quota-fallback",
-          patch_phase: "shrink",
-          ...telemetryMeta,
-        });
-        continue;
+      } else if (attempt.result.kind === "model_config") {
+        kind = "error";
+        exitReason = "model_config";
+      } else {
+        kind = "error";
+        exitReason =
+          attempt.result.stderr && attempt.result.stderr.includes("aborted: shrink-timeout")
+            ? "timeout"
+            : "agent-error";
       }
 
       opts.writeTelemetry({
-        agent: currentAgent.name,
+        agent: agentName,
         iteration: 1,
         durationMs,
-        kind: "error",
-        exitReason:
-          result.kind === "error" && result.stderr.includes("aborted: shrink-timeout") ? "timeout" : "agent-error",
+        kind,
+        exitReason,
         patch_phase: "shrink",
         ...telemetryMeta,
+        ...usageCost,
       });
+    }
+
+    // Handle exhaustion or no result
+    if (finalAttempt === null) {
       revertAllSince(opts.cwd, preShrinkHead);
-      opts.fanout("harness", `shrink: invocation failed (${result.kind}); discarded\n`, "stderr");
+      opts.fanout("harness", "shrink: all agents quota-exhausted (discarded)\n", "stderr");
       return;
+    }
+
+    // Handle model_config error
+    if (finalAttempt.result.kind === "model_config") {
+      revertAllSince(opts.cwd, preShrinkHead);
+      opts.fanout("harness", `shrink: agent error (model_config); discarded\n`, "stderr");
+      return;
+    }
+
+    // Handle other errors
+    if (finalAttempt.result.kind === "error") {
+      revertAllSince(opts.cwd, preShrinkHead);
+      opts.fanout("harness", `shrink: invocation failed (error); discarded\n`, "stderr");
+      return;
+    }
+
+    // Handle quota exhaustion from last attempt
+    if (finalAttempt.result.kind === "quota") {
+      revertAllSince(opts.cwd, preShrinkHead);
+      opts.fanout("harness", "shrink: all agents quota-exhausted (discarded)\n", "stderr");
+      return;
+    }
+
+    // Handle ok result
+    result = finalAttempt.result;
+    agent = (finalAttempt.result as any).agent;
+    attributionLabel = (finalAttempt.result as any).attributionLabel;
+
+    if (result.stdout.length > 0) {
+      opts.fanout("inbound_stdout", result.stdout, null, { patch_phase: "shrink" });
+    }
+    if (result.stderr.length > 0) {
+      opts.fanout("inbound_stderr", result.stderr, null, { patch_phase: "shrink" });
     }
   } finally {
     clearTimeout(shrinkTimeoutHandle);

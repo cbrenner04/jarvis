@@ -29,3 +29,13 @@ After preflight (00) and the completion pipeline (01) are extracted, the remaini
 ## Documentation updates
 
 - `v1/docs/run-loop.md`: repoint the `opencodeUnavailableNoted` source reference (line ~651) to `iteration.ts` if that gate relocates. No other doc change; behavior unchanged, so `v2/docs/v1-behaviors.md` is unchanged.
+
+## Blocker
+
+Test suite shows one consistent failure in `runCommand > timeout behavior > watchdog timeout kills SIGTERM-ignoring grandchildren and records pgid telemetry`. Expected: `watchdog_descendants_alive=true`; Received: `watchdog_descendants_alive=false`.
+
+Investigation: The refactoring is complete (code moved, no logic changes). `iteration.ts` exists with `runIteration`, `run.ts` is thin entry + types + re-exports, imports in `cli.ts` and tests unchanged, `typecheck` passes. The failing test is a known flaky process-timing test (documented in f484431 intent seed). The watchdog/descendant tracking functions (`snapshotWatchdogDescendantsAlive`, `collectSubtree`, `listProcesses`) are unchanged from the original code, just relocated to a new module. The test failure could be:
+- Pre-existing flakiness (process polling timing under load)
+- Subtle issue with module boundary relocation (e.g., module initialization, closure scope)
+
+Cannot determine root cause without deeper process-level diagnostics outside scope of pure refactoring.

@@ -20,12 +20,13 @@ After preflight (00) and the completion pipeline (01) are extracted, the remaini
 
 ## Acceptance criteria
 
-- [ ] `v1/src/modes/patch/iteration.ts` exists and defines `runIteration`.
-- [ ] `v1/src/modes/patch/run.ts` no longer defines `runIteration` and is substantially thinner (entry + types + re-exports only).
-- [ ] `cli.ts` and `v1/test/run.test.ts` import `runCommand`/`RunCommandOptions`/`RunIo` from `v1/src/modes/patch/run.ts` unchanged; no test behavioral assertions change.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `v1/src/modes/patch/iteration.ts` exists and defines `runIteration`.
+- [x] `v1/src/modes/patch/run.ts` no longer defines `runIteration` and is substantially thinner (entry + types + re-exports only).
+- [x] `cli.ts` and `v1/test/run.test.ts` import `runCommand`/`RunCommandOptions`/`RunIo` from `v1/src/modes/patch/run.ts` unchanged; no test behavioral assertions change.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 
 - `v1/docs/run-loop.md`: repoint the `opencodeUnavailableNoted` source reference (line ~651) to `iteration.ts` if that gate relocates. No other doc change; behavior unchanged, so `v2/docs/v1-behaviors.md` is unchanged.
+

@@ -648,7 +648,7 @@ per-iteration warning: `"opencode: no step_finish events in --format json stream
 The deepest fallback when the estimator is also unavailable records
 `usage_source: "unavailable"` and `cost_source: "no-usage"`, with a one-time
 notice printed on first fallback success per run (gated by
-`opencodeUnavailableNoted` in `src/modes/patch/run.ts`):
+`opencodeUnavailableNoted` in `src/modes/patch/iteration.ts`):
 `opencode: token usage not available for this CLI version (recording usage as unavailable)`.
 
 Cursor usage is currently recorded as unavailable in telemetry

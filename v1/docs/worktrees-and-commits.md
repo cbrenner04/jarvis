@@ -193,22 +193,23 @@ Plan mode creates dedicated worktrees under `.worktree/plan-<plan-name>/` on a
 patch-mode worktrees (`.worktree/<name>/`) to prevent collision when both modes
 target the same spec name.
 
-During the intent-refinement phase, jarvis first uses a temporary slot:
-`.worktree/plan-tmp-<short-uuid>/` on branch `plan/tmp-<short-uuid>`. After
-the agent proposes a spec name and jarvis applies collision suffixing, jarvis
-renames the worktree and branch to the final `plan-<plan-name>` / `plan/<plan-name>`
-values before pushing. The temporary branch is never pushed to origin.
+The plan name is determined up front from the ready-intent's frontmatter `name:` 
+field. Jarvis verifies the name for collision with existing worktrees, branches, 
+and specs, applying collision suffixing if needed. The worktree is created directly 
+at `.worktree/plan-<plan-name>/` on `plan/<plan-name>`, and the `intent.md` is 
+seeded as a byte-for-byte copy of the ready-intent.
 
 **Phase commits** in plan mode have special subjects:
 
-- `plan: intent` — intent-draft result after rename: seeded `intent.md`, proposed `name:`, and raw-seed preservation.
-- `plan: refine` — intent-refinement result (`Turns: <n>`, optional `Outcome:`).
 - `plan: draft` — commits the initial agent-drafted spec tree.
 - `plan: review N` — commits review-pass refinements to the same spec tree.
 - `plan: blocker` — records a blocker raised during draft/review.
-- `plan: refine r<n>` — records resume intent-refinement turns for resume run `n`.
 - `plan: review N r<n>` — records resume review pass `N` for resume run `n`.
 - `plan: blocker r<n>` — records a blocker raised during resume run `n`.
+
+The `RESUME_SUBJECT_RE` regex retains the `refine` token for parsing legacy commits 
+when computing resume counters, but `plan: refine` commits are never emitted by 
+current code paths.
 
 Push cadence follows the same pattern as patch mode: push after each commit.
 The first push uses `git push -u origin plan/<plan-name>` to set up tracking;

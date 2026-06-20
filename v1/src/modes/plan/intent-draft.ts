@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
-import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
+import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 export type IntentDraftSuccessAttempt = {
@@ -81,60 +81,60 @@ export async function runIntentDraftTurn(opts: {
   opts.onOutboundPrompt?.(prompt);
 
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
-  let result: AgentResult | null = null;
-  let agentLabel: string | null = null;
+  let lastAttemptData: { agentCli: AgentName; configuredModel: string | undefined; durationMs: number } | null = null;
 
-  for (const entry of agentOrder) {
-    const agent = resolveAgent(entry.agent, entry.model);
-    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
-
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const invocationStartedAt = Date.now();
-    const spawnResult = await agent.run(prompt, { cwd: opts.agentCwd });
-    const durationMs = Date.now() - invocationStartedAt;
-    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    result = applyQuotaFallbackWhenAllowed(
-      entry.agent,
-      spawnResult,
-      {
-        quotaFallback: opts.config.quotaFallback,
-        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
-      },
-      noDiskChangeDuringInvocation,
-    );
-    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
-
-    if (result.kind === "ok") {
-      return {
-        result,
-        agentLabel,
-        successAttempt: {
-          agentCli: entry.agent,
-          configuredModel: entry.model,
-          durationMs,
-        },
-      };
-    }
-
-    opts.planTelemetry?.recordAgentAttempt({
-      phase: "intent",
-      agentCli: entry.agent,
+  const bindings = agentOrder.map((entry) =>
+    createPlanInvocationBinding({
+      agentName: entry.agent,
       configuredModel: entry.model,
-      durationMs,
-      result,
-    });
+      createAgent: resolveAgent,
+      config: opts.config,
+      worktreePath: opts.worktreePath,
+      onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
+        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified);
+      },
+      recordAgentAttempt: (data) => {
+        lastAttemptData = {
+          agentCli: data.agentCli,
+          configuredModel: data.configuredModel,
+          durationMs: data.durationMs,
+        };
+        // Only record non-ok results (per original behavior)
+        if (data.result.kind !== "ok") {
+          opts.planTelemetry?.recordAgentAttempt({
+            phase: "intent",
+            agentCli: data.agentCli,
+            configuredModel: data.configuredModel,
+            durationMs: data.durationMs,
+            result: data.result,
+          });
+        }
+      },
+    }),
+  );
 
-    if (result.kind === "quota") {
-      continue;
-    }
-    if (result.kind === "model_config") {
-      return { result, agentLabel };
-    }
+  const execution = await executeWithQuotaFallback({
+    prompt,
+    cwd: opts.agentCwd,
+    bindings,
+  });
+
+  let agentLabel: string | null = null;
+  if (execution.final?.binding) {
+    const binding = execution.final.binding;
+    agentLabel = binding.id;
   }
 
-  if (result === null) {
+  const finalResult = execution.final?.result;
+  if (finalResult?.kind === "ok" && lastAttemptData !== null) {
+    return {
+      result: finalResult,
+      agentLabel,
+      successAttempt: lastAttemptData,
+    };
+  }
+
+  if (finalResult === undefined) {
     return {
       result: {
         kind: "error",
@@ -144,5 +144,6 @@ export async function runIntentDraftTurn(opts: {
       agentLabel,
     };
   }
-  return { result, agentLabel };
+
+  return { result: finalResult, agentLabel };
 }

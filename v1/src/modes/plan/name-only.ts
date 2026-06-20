@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
-import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
+import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 export function buildNameOnlyPrompt(opts: { name: string; intent: string }): string {
@@ -55,46 +55,53 @@ export async function runNameOnlyPhase(opts: {
   opts.onOutboundPrompt?.(prompt);
 
   const agentOrder = opts.config.modes.plan.agentOrder;
-  let result: AgentResult | null = null;
-  let agentLabel: string | null = null;
-  for (const entry of agentOrder) {
-    const agent = createAgent(entry.agent, entry.model);
-    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const invocationStartedAt = Date.now();
-    const spawnResult = await agent.run(prompt, { cwd: opts.worktreePath });
-    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    result = applyQuotaFallbackWhenAllowed(
-      entry.agent,
-      spawnResult,
-      {
-        quotaFallback: opts.config.quotaFallback,
-        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
+  if (agentOrder.length === 0) {
+    return {
+      result: {
+        kind: "error",
+        exitCode: 2,
+        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
       },
-      noDiskChangeDuringInvocation,
-    );
-    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
-    opts.planTelemetry?.recordAgentAttempt({
-      phase: "name-only",
-      agentCli: entry.agent,
-      configuredModel: entry.model,
-      durationMs: Date.now() - invocationStartedAt,
-      result,
-    });
-    if (result.kind === "ok") {
-      return { result, agentLabel };
-    }
-    if (result.kind === "quota") {
-      continue;
-    }
-    if (result.kind === "model_config") {
-      return { result, agentLabel };
-    }
+      agentLabel: null,
+    };
   }
 
-  if (result === null) {
+  const bindings = agentOrder.map((entry) =>
+    createPlanInvocationBinding({
+      agentName: entry.agent,
+      configuredModel: entry.model,
+      createAgent,
+      config: opts.config,
+      worktreePath: opts.worktreePath,
+      onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
+        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified);
+      },
+      recordAgentAttempt: (data) => {
+        opts.planTelemetry?.recordAgentAttempt({
+          phase: "name-only",
+          agentCli: data.agentCli,
+          configuredModel: data.configuredModel,
+          durationMs: data.durationMs,
+          result: data.result,
+        });
+      },
+    }),
+  );
+
+  const execution = await executeWithQuotaFallback({
+    prompt,
+    cwd: opts.worktreePath,
+    bindings,
+  });
+
+  let agentLabel: string | null = null;
+  if (execution.final?.binding) {
+    const binding = execution.final.binding;
+    agentLabel = binding.id;
+  }
+
+  const finalResult = execution.final?.result;
+  if (finalResult === undefined) {
     return {
       result: {
         kind: "error",
@@ -104,5 +111,6 @@ export async function runNameOnlyPhase(opts: {
       agentLabel,
     };
   }
-  return { result, agentLabel };
+
+  return { result: finalResult, agentLabel };
 }

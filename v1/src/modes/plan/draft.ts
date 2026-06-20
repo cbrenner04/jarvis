@@ -5,13 +5,13 @@ import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { detectBlocker } from "../../../../shared/spec-parser.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
-import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
+import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 import { hasGenuineBlocker } from "./review-gate.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
@@ -147,63 +147,8 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
 
   opts.onOutboundPrompt?.(prompt);
 
-  // Try each agent in order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;
-  let result: AgentResult | null = null;
-  let agentLabel: string | null = null;
-  const resolveAgent = opts.createAgent ?? defaultCreateAgent;
-
-  for (const entry of agentOrder) {
-    const agent = resolveAgent(entry.agent, entry.model);
-    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
-
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const invocationStartedAt = Date.now();
-    const spawnResult = await agent.run(prompt, {
-      cwd: agentCwd,
-      ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
-    });
-    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    result = applyQuotaFallbackWhenAllowed(
-      entry.agent,
-      spawnResult,
-      {
-        quotaFallback: opts.config.quotaFallback,
-        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
-      },
-      noDiskChangeDuringInvocation,
-    );
-    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
-
-    opts.planTelemetry?.recordAgentAttempt({
-      phase: "draft",
-      agentCli: entry.agent,
-      configuredModel: entry.model,
-      durationMs: Date.now() - invocationStartedAt,
-      result,
-    });
-
-    if (result.kind === "ok") {
-      // Success! Count subspecs and return
-      const subspecCount = countSubspecs(specDirPath);
-      return { result, subspecCount, agentLabel };
-    }
-
-    if (result.kind === "quota") {
-      continue;
-    }
-
-    if (result.kind === "model_config") {
-      // Model config error is fatal
-      return { result, subspecCount: null, agentLabel };
-    }
-  }
-
-  // All agents exhausted
-  if (result === null) {
-    // This shouldn't happen given the loop logic, but be defensive
+  if (agentOrder.length === 0) {
     return {
       result: {
         kind: "error",
@@ -215,8 +160,62 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
     };
   }
 
-  // Last result (could be quota, error, or model_config)
-  return { result, subspecCount: null, agentLabel };
+  const resolveAgent = opts.createAgent ?? defaultCreateAgent;
+
+  const bindings = agentOrder.map((entry) =>
+    createPlanInvocationBinding({
+      agentName: entry.agent,
+      configuredModel: entry.model,
+      createAgent: resolveAgent,
+      config: opts.config,
+      worktreePath: opts.worktreePath,
+      spawnOptions: opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
+      onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
+        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified);
+      },
+      recordAgentAttempt: (data) => {
+        opts.planTelemetry?.recordAgentAttempt({
+          phase: "draft",
+          agentCli: data.agentCli,
+          configuredModel: data.configuredModel,
+          durationMs: data.durationMs,
+          result: data.result,
+        });
+      },
+      shouldAdvance: (result) => result.kind === "quota" || result.kind === "error",
+    }),
+  );
+
+  const execution = await executeWithQuotaFallback({
+    prompt,
+    cwd: agentCwd,
+    bindings,
+  });
+
+  let agentLabel: string | null = null;
+  if (execution.final?.binding) {
+    agentLabel = execution.final.binding.id;
+  }
+
+  const finalResult = execution.final?.result;
+  if (finalResult?.kind === "ok") {
+    const subspecCount = countSubspecs(specDirPath);
+    return { result: finalResult, subspecCount, agentLabel };
+  }
+
+  if (finalResult === undefined) {
+    return {
+      result: {
+        kind: "error",
+        exitCode: 2,
+        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
+      },
+      subspecCount: null,
+      agentLabel: null,
+    };
+  }
+
+  return { result: finalResult, subspecCount: null, agentLabel };
 }
 
 /**

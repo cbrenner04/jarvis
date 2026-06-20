@@ -1386,8 +1386,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 // When post-completion shrink or review will run, defer PR
                 // readiness to those phases.
                 const implementationIterations = logging.patchIterationsCompletedForSummary() + 1;
-                const willRunShrink =
-                  gitEnabled && implementationIterations > 0 && cfg.modes.patch.shrink !== "off";
+                const willRunShrink = gitEnabled && implementationIterations > 0 && cfg.modes.patch.shrink !== "off";
                 const willRunReview =
                   gitEnabled && resolveReviewPasses(cfg, opts.reviewPasses) > 0 && implementationIterations > 0;
                 if (!willRunReview && !willRunShrink) {

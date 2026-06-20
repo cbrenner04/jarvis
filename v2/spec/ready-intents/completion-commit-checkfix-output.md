@@ -1,50 +1,60 @@
 ---
 name: completion-commit-checkfix-output
 ---
-# Converge the completion check:fix output instead of looping on a dirty tree
+# Bound the completion fix-up loop on a non-converging *changing* failure
 
-**Scope.** The patch completion pipeline's ready gate + clean-tree assertion + fix-up loop. Make a green-but-formatted tree converge in one pass; bound the fix-up loop so it can never spin indefinitely.
+**Scope.** The patch completion fix-up loop's stop condition only. Add a bound for a completion that stays red across iterations while the failure *changes*, which the existing identical-failure stop misses.
 
-## Problem
+## Already shipped — do NOT rebuild
 
-At spec completion the harness runs the full `ready` gate (which runs `check:fix`, modifying files), then requires a clean worktree before flipping the PR. When `check:fix` emits formatting output that is not committed, the "spec complete but worktree not clean" fix-up path fires and re-runs the agent — which cannot resolve a tree that is already test-green, only dirty-from-formatting. The result is a non-converging `fix-up: ready failure` loop.
+The obvious completion-checkfix fixes already exist on `main` (verified by the plan that blocked the first draft of this intent, #254/#285/#313):
 
-## Evidence (this session)
+- **Green-but-reformatted converges in one pass.** `runReadyAndCommit` full tier runs `bun run ready` then commits a dirty tree via `realCommitCheckFix` (`v1/src/ready-gate.ts` ~`:86-128`); the completion gate calls it at full tier (`v1/src/modes/patch/completion-pipeline.ts` ~`:158-162`). Pure check:fix formatting is committed, not looped.
+- **Green-dirty vs red distinction** exists (`scripts/ready.ts` check:fix-then-check).
+- **Identical-failure stop:** when the *normalized* ready failure text repeats with no new AC and no new blocker, the loop exits `10` `ready-stuck-red` (`completion-pipeline.ts` ~`:205-232`, `isReadyFailureUnchanged` + `normalizeReadyFailureText`).
 
-- `shared-pr-module-deferred-narrative` (#291): looped ~47 min on `fix-up: ready failure`; all gates green, the only diff was uncommitted check:fix lint/format output. Killed and finalized by hand.
-- `shared-spec-blocker-parsing` (#294): same loop, caught at iteration 4. Tests were green throughout; the "failure" was the clean-tree assertion, not a test failure.
-- `review-shrink-model-tiering` (#310): completion timed out churning on the same uncommitted check:fix output.
+This intent does not touch any of the above. It does not change `ready`/`check:fix`.
+
+## Problem (the residual gap)
+
+The `ready-stuck-red` fast-stop requires `isReadyFailureUnchanged` — the normalized failure text must be **identical** to the prior iteration. A completion that stays red while the failure **changes** each iteration never trips it, so it rides `maxIterations` (exit `5`) — a long, costly spin. Two real triggers seen this session:
+
+- Churning unfixable lint: `check:fix` (safe) can't fix some lint (e.g. needs `--unsafe`), `check` stays red, the agent's edits produce a *different* red each pass (different file/line) → text changes → no stop → rides the loop.
+- A flaky completion failure (a different flaky test each run) → failure text changes → no stop → rides the loop.
+
+Evidence: `shared-pr-module` (#291) spun ~47 min, `shared-spec-blocker-parsing` (#294) caught at iteration 4, `review-shrink-model-tiering` (#310) timed out — all non-converging completions that the identical-failure stop did not catch.
 
 ## Desired behavior
 
-When the completion ready gate leaves the tree dirty solely because `check:fix` reformatted files (tests/typecheck/lint otherwise green), the harness commits that output as part of the completion transition and proceeds — one pass, no loop. A genuinely red ready result (failing test/typecheck/unfixable lint) still drives the existing fix-up iteration. The fix-up loop is bounded by a hard cap regardless of cause, so a non-converging completion exits with a clear terminal status instead of spinning.
+A completion that produces a red ready gate on N consecutive fix-up iterations with **no new acceptance criterion checked** stops with a clear terminal status — even when the failure text differs each time. Convergence (a passing gate, or genuine AC progress) resets the count. The existing identical-failure exit-10 stop and green-dirty commit are unchanged; this only adds a bound for the changing-failure case so it can't ride `maxIterations`.
 
 ## Decisions
 
-- The completion gate folds its own `check:fix` formatting output into the completion commit (commit-after-check:fix, before the clean-tree assertion), so a green-but-reformatted tree converges without a fix-up iteration. Rules out asserting a clean tree against output the gate itself just produced.
-- Distinguish a clean-tree-from-formatting dirty state (auto-commit and proceed) from a real red ready result (loop back for an agent fix-up). Rules out treating all completion dirtiness as an agent-resolvable failure.
-- The fix-up loop gets a hard iteration cap with a distinct terminal exit/telemetry reason (e.g. ready-stuck), so non-convergence terminates rather than spins. Rules out an unbounded completion fix-up loop.
-- Reuse the existing `runReadyAndCommit` / completion-pipeline seams; no new ready tier or gate. Rules out a parallel completion path.
+- Add a bounded count of consecutive red completion fix-up iterations with no new AC checked; on reaching it, stop with a terminal reason (reuse `ready-stuck-red` exit `10`, or a sibling reason — pin at implementation). Rules out relying solely on identical-text matching to bound non-convergence.
+- The count resets on a green gate or a newly-checked AC (real progress). Rules out stopping a completion that is still making progress.
+- Keep `isReadyFailureUnchanged`/exit-10 and `realCommitCheckFix` exactly as they are; this is additive. Rules out reworking the shipped green-dirty / identical-stuck paths.
+- Pick N small enough to cut the 47-min spins but above 1 (allow one genuine fix-up). Pin the exact N at implementation against the existing fix-up semantics. Rules out an N so large it reproduces the maxIterations spin.
 
 ## Acceptance signals
 
-- A completion where `check:fix` reformats files but tests/typecheck/lint pass commits the formatting and flips the PR in a single pass, with no `fix-up: ready failure` iteration (test).
-- A completion with a genuinely failing ready result still drives a fix-up iteration as today (test).
-- A persistently non-converging completion stops at the bounded cap with the terminal reason, not an infinite loop (test).
+- A completion whose ready gate stays red with a *different* failure text each iteration and no new AC checked stops at the bound with the terminal reason, not at `maxIterations` (test).
+- A completion that goes red once then green still completes (the bound allows genuine fix-up) (test).
+- The existing identical-failure exit-10 stop and the green-dirty single-pass commit are unchanged (existing tests stay green).
 - `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
-- `v1/docs/run-loop.md`: completion-transition check:fix commit + bounded fix-up behavior.
-- `v2/docs/v1-behaviors.md`: record the completion convergence + fix-up cap.
+- `v1/docs/run-loop.md`: completion fix-up loop now bounds a changing non-converging failure, not only identical ones.
+- `v2/docs/v1-behaviors.md`: record the changing-failure completion bound.
 - `v2/spec/wip-intents/completion-commit-checkfix-output.md`: remove once landed.
 
 ## Out of scope
 
-- The no-progress stop misfiring on complete-but-unticked first runs ([[no-progress-stop-spares-green-work]]) — distinct cause in the same completion neighborhood; separate intent.
-- Changing what `ready` / `check:fix` themselves do.
+- The green-dirty commit and identical-failure stop (already shipped, above).
+- The no-progress stop misfiring on complete-but-unticked first runs ([[no-progress-stop-spares-green-work]]) — separate intent; that one is about *first* runs that tick nothing, this is about *fix-up* iterations that stay red.
+- Stabilizing the flaky tests themselves ([[flaky-process-timing-tests-block-runs]]) — this bounds the loop they trigger, it does not de-flake them.
 
 ## Prerequisites
 
-- The completion fix-up loop is reproducible (established this session on #291/#294/#310): green tree, uncommitted check:fix output, `fix-up: ready failure`.
+- The non-converging completion spin is reproducible (this session: #291/#294/#310) and distinct from the already-shipped identical-failure stop.
 - `bun run typecheck` and `bun run test` green on `main`.

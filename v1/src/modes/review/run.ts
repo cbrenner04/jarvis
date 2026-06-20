@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { resolveReviewAgentOrder, resolveReviewPasses } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
+import { createReviewInvocationBinding } from "./review-invocation-binding.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
 import { ReviewTerminalError } from "./types.ts";
 
@@ -16,17 +16,6 @@ const RESERVED_REVIEW_EXIT_CODES = new Set([0, 2, 3, 7, 130]);
 
 function normalizeErrorExitCode(exitCode: number): number {
   return RESERVED_REVIEW_EXIT_CODES.has(exitCode) ? 1 : exitCode;
-}
-
-function readPorcelainSnapshot(cwd: string): string | null {
-  try {
-    return execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-    });
-  } catch {
-    return null;
-  }
 }
 
 /** Inputs for the shared review runner. */
@@ -75,115 +64,111 @@ async function runRoleAttempt(
   opts: RunReviewOptions,
 ): Promise<{ artifact: string | null; attempt: ReviewAttemptContext }> {
   const roleContext: ReviewPassContext = { ...passContext, role };
-  const remainingAgents = [...agentOrder];
 
-  while (true) {
-    const agentEntry = remainingAgents[0];
-    if (agentEntry === undefined) {
-      opts.onAllAgentsQuotaExhausted?.(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
-      throw new ReviewTerminalError(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED, 2, { telemetryRecorded: true });
-    }
+  // Track attempt contexts by binding id for later retrieval
+  const attemptContextByBindingId = new Map<string, ReviewAttemptContext>();
 
-    const agent = opts.loadAgent({
-      name: agentEntry.agent,
-      model: agentEntry.model,
-    });
-    const prompt = await adapter.buildPrompt({
-      ...roleContext,
-      agentEntry,
-    });
+  // Create bindings for all agents in the order
+  const bindings = await Promise.all(
+    agentOrder.map((agentEntry) =>
+      createReviewInvocationBinding({
+        agentEntry,
+        config: opts.config,
+        cwd: opts.cwd,
+        adapter,
+        roleContext,
+        loadAgent: opts.loadAgent,
+        onQuotaFallbackEmit: opts.onQuotaRotation,
+        additionalReadDirs: opts.additionalReadDirs,
+        now: opts.now,
+        recordAttemptTelemetry: async (attempt) => {
+          // Store context for later retrieval
+          const agentLabel = `${agentEntry.agent} (${agentEntry.model})`;
+          attemptContextByBindingId.set(agentLabel, attempt);
 
-    const porcelainBefore = readPorcelainSnapshot(opts.cwd);
-    const now = opts.now ?? Date.now;
-    const startedAt = now();
-    const spawnResult = await agent.run(prompt, {
-      cwd: opts.cwd,
-      ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
-    });
-    const porcelainAfter = readPorcelainSnapshot(opts.cwd);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    const result = applyQuotaFallbackWhenAllowed(
-      agentEntry.agent,
-      spawnResult,
-      {
-        quotaFallback: opts.config.quotaFallback,
-        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
-      },
-      noDiskChangeDuringInvocation,
-    );
-    opts.onQuotaRotation?.(agentEntry.agent, spawnResult, result);
-
-    const attempt: ReviewAttemptContext = {
-      ...roleContext,
-      agent,
-      agentEntry,
-      agentLabel: agent.attributionLabel(),
-      prompt,
-      durationMs: Math.max(0, now() - startedAt),
-      result,
-    };
-
-    if (result.kind === "ok") {
-      try {
-        await adapter.enforceWriteBoundary(attempt);
-        let blocker: string | null = null;
-        try {
-          blocker = await adapter.readBlocker(attempt);
-        } catch (err) {
-          if (err instanceof ReviewTerminalError) {
+          // Record telemetry for non-ok cases; ok cases handled below after blocker check
+          if (attempt.result.kind !== "ok") {
+            const exitCode = attempt.result.kind === "model_config" ? 3 : attempt.result.kind === "error" ? attempt.result.exitCode : undefined;
             await adapter.recordTelemetry({
               ...attempt,
-              outcome: "error",
-              exitCode: err.exitCode,
+              outcome: attempt.result.kind,
+              ...(exitCode !== undefined ? { exitCode } : {}),
             });
           }
-          throw err;
-        }
-        if (blocker !== null) {
-          const exitCode = await adapter.handleBlocker({ ...attempt, blocker });
-          await adapter.recordTelemetry({
-            ...attempt,
-            outcome: "blocked",
-            exitCode,
-          });
-          throw new ReviewTerminalError(blocker, exitCode, { telemetryRecorded: true });
-        }
+        },
+      }),
+    ),
+  );
 
-        await adapter.commitPass(attempt);
-        await adapter.recordTelemetry({
-          ...attempt,
-          outcome: "ok",
-        });
-        return { artifact: spawnResult.kind === "ok" ? spawnResult.stdout : null, attempt };
+  // Run all agents with quota fallback
+  const execution = await executeWithQuotaFallback({
+    prompt: "", // Review builds its own prompt via adapter
+    cwd: opts.cwd,
+    bindings,
+  });
+
+  // Check if all agents were exhausted
+  if (execution.final === null || execution.final.result.kind === "quota") {
+    opts.onAllAgentsQuotaExhausted?.(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+    throw new ReviewTerminalError(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED, 2, { telemetryRecorded: true });
+  }
+
+  // Retrieve the attempt context that was stored during invoke
+  const attempt = attemptContextByBindingId.get(execution.final.binding.id);
+  if (attempt === undefined) {
+    throw new Error("Internal error: attempt context not found");
+  }
+
+  const result = attempt.result;
+
+  if (result.kind === "ok") {
+    try {
+      await adapter.enforceWriteBoundary(attempt);
+      let blocker: string | null = null;
+      try {
+        blocker = await adapter.readBlocker(attempt);
       } catch (err) {
         if (err instanceof ReviewTerminalError) {
-          throw err;
+          await adapter.recordTelemetry({
+            ...attempt,
+            outcome: "error",
+            exitCode: err.exitCode,
+          });
         }
         throw err;
       }
+      if (blocker !== null) {
+        const exitCode = await adapter.handleBlocker({ ...attempt, blocker });
+        await adapter.recordTelemetry({
+          ...attempt,
+          outcome: "blocked",
+          exitCode,
+        });
+        throw new ReviewTerminalError(blocker, exitCode, { telemetryRecorded: true });
+      }
+
+      await adapter.commitPass(attempt);
+      await adapter.recordTelemetry({
+        ...attempt,
+        outcome: "ok",
+      });
+      return { artifact: attempt.result.kind === "ok" ? attempt.result.stdout : null, attempt };
+    } catch (err) {
+      if (err instanceof ReviewTerminalError) {
+        throw err;
+      }
+      throw err;
     }
-
-    const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : undefined;
-    await adapter.recordTelemetry({
-      ...attempt,
-      outcome: result.kind,
-      ...(exitCode !== undefined ? { exitCode } : {}),
-    });
-
-    if (result.kind === "quota") {
-      remainingAgents.shift();
-      continue;
-    }
-
-    if (result.kind === "model_config") {
-      throw new ReviewTerminalError("model configuration error", 3, { telemetryRecorded: true });
-    }
-
-    throw new ReviewTerminalError(`role ${role} failed: ${result.kind}`, normalizeErrorExitCode(result.exitCode), {
-      telemetryRecorded: true,
-    });
   }
+
+  if (result.kind === "model_config") {
+    throw new ReviewTerminalError("model configuration error", 3, { telemetryRecorded: true });
+  }
+
+  const exitCode = result.kind === "error" ? result.exitCode : 1;
+  throw new ReviewTerminalError(`role ${role} failed: ${result.kind}`, normalizeErrorExitCode(exitCode), {
+    telemetryRecorded: true,
+  });
 }
 
 /** Run the shared review pass loop. */

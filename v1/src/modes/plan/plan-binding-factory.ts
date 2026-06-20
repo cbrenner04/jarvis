@@ -5,12 +5,20 @@ import type { Agent } from "../../agents/types.ts";
 import type { InvocationBinding } from "../../../../shared/invocation/execute.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 
+export type QuotaFallbackEmitter = (
+  stderrFn: ((s: string) => void) | undefined,
+  agent: AgentName,
+  spawnResult: AgentResult,
+  classified: AgentResult,
+) => void;
+
 export type PlanBindingFactoryOptions<PhaseLabel extends string = string> = {
   phase: PhaseLabel;
   createAgent: (agentName: AgentName, model?: string) => Agent;
   quotaConfig: { quotaFallback: "strict" | "lenient"; weakQuotaExitCodes: readonly number[] };
   spawnOptions: Omit<AgentRunOptions, "cwd" | "signal">;
   onRotationStderr?: (s: string) => void;
+  quotaFallbackEmitter?: QuotaFallbackEmitter;
   onAttempt?: (attempt: {
     phase: PhaseLabel;
     agentCli: AgentName;
@@ -59,7 +67,8 @@ export function buildPlanBindings<PhaseLabel extends string = string>(
         classificationGuard,
       );
 
-      emitPlanAgentQuotaFallback(opts.onRotationStderr, entry.agent, spawnResult, classified);
+      const emitter = opts.quotaFallbackEmitter ?? emitPlanAgentQuotaFallback;
+      emitter(opts.onRotationStderr, entry.agent, spawnResult, classified);
 
       opts.onAttempt?.({
         phase: opts.phase,

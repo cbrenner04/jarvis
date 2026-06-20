@@ -71,6 +71,7 @@ import {
   commitWipProgress,
   commitWipProgressWithBlocker,
   snapshotAcceptanceCriteria,
+  snapshotCommittedAcceptanceCriteria,
 } from "./subspec.ts";
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
@@ -415,6 +416,73 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     }
   }
 
+  // Handle uncommitted ticks at iteration start: if acceptance criteria are ticked
+  // in the working tree but absent from committed HEAD, commit them as progress
+  // and loop back without spawning the agent
+  if (!isFixupIteration && activeSubspecPath !== undefined && gitEnabled) {
+    const workingTreeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+    const committedCriteria = snapshotCommittedAcceptanceCriteria(activeSubspecPath, {
+      cwd: agentWorkingDir,
+    });
+    const uncommittedTicks = diffAcceptanceCriteria(committedCriteria, workingTreeCriteria);
+    if (uncommittedTicks.length > 0) {
+      const allChecked = workingTreeCriteria.length > 0 && workingTreeCriteria.every((c) => c.checked);
+      const checkedTotal = workingTreeCriteria.filter((c) => c.checked).length;
+      try {
+        if (allChecked) {
+          commitSubspec(activeSubspecPath, {
+            cwd: agentWorkingDir,
+            agentLabel: agent.attributionLabel(),
+          });
+        } else {
+          commitWipProgress(activeSubspecPath, {
+            cwd: agentWorkingDir,
+            newlyChecked: uncommittedTicks,
+            checkedTotal,
+            total: workingTreeCriteria.length,
+            agentLabel: agent.attributionLabel(),
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        fanout("harness", `failed to commit uncommitted ticks for ${activeSubspecPath}: ${message}\n`, "stderr");
+        return { kind: "return", exitCode: 1 };
+      }
+
+      if (!opts.skipGhCheck && allChecked) {
+        try {
+          const firstPush = !hasUpstream(agentWorkingDir);
+          pushCurrent({ cwd: agentWorkingDir, firstPush });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          fanout("harness", `failed to push uncommitted-ticks commit for ${activeSubspecPath}: ${message}\n`, "stderr");
+          return { kind: "return", exitCode: 1 };
+        }
+      }
+
+      if (allChecked) {
+        state.iteration += 1;
+        const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+        if (state.completionLoopbackSignal !== null) {
+          return { kind: "continue" };
+        }
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "ok",
+          exitReason: "completed-spec",
+          record_role: "run_terminal",
+          ...telemetryMeta,
+        });
+        return { kind: "return", exitCode: done };
+      }
+
+      state.iteration += 1;
+      return { kind: "continue" };
+    }
+  }
+
   let beforeCriteria: AcceptanceCriterion[] = [];
   let hasBlockerBefore = false;
   if (!isFixupIteration && activeSubspecPath !== undefined) {
@@ -694,6 +762,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         const allChecked = afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
         const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
+        if (allChecked || newlyChecked.length > 0) {
+          state.consecutiveEditedUnticked = 0;
+          state.consecutiveEditedUntickedSubspecPath = null;
+        }
+
         // Check if a blocker was added during this iteration
         const afterParse = parseSpec(readFileSync(afterSubspecPath, "utf8"));
         const hasBlockerNow = afterParse.blocker !== undefined;
@@ -855,6 +928,18 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           if (gitEnabled) {
             const blocker = worktreeCompletionBlocker(agentWorkingDir);
             if (blocker !== undefined) {
+              const EDITED_UNTICKED_BOUND = 2;
+              if (!isFixupIteration && activeSubspecPath !== undefined) {
+                if (activeSubspecPath !== state.consecutiveEditedUntickedSubspecPath) {
+                  state.consecutiveEditedUnticked = 0;
+                  state.consecutiveEditedUntickedSubspecPath = activeSubspecPath;
+                }
+                state.consecutiveEditedUnticked += 1;
+                if (state.consecutiveEditedUnticked < EDITED_UNTICKED_BOUND) {
+                  state.iteration += 1;
+                  return { kind: "continue" };
+                }
+              }
               const unchecked = afterCriteria.filter((c) => !c.checked);
               const unmetList = unchecked.map((c) => `  - ${c.text}`).join("\n");
               const worktreeName = basename(agentWorkingDir);

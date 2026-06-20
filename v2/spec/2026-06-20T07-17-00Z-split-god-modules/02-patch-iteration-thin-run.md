@@ -7,7 +7,7 @@ After preflight (00) and the completion pipeline (01) are extracted, the remaini
 ## Decisions
 
 - Move the iteration seam to a new `v1/src/modes/patch/iteration.ts`; co-locate its private helpers. Rules out keeping the largest seam in the entry module.
-- Anchor functions to relocate: `runIteration`, plus supporting helpers (`finalize`, `setupLogging`, the watchdog helpers `formatWatchdogDiagnosticsSuffix`/`snapshotWatchdogDescendantsAlive`/`killWatchdogWithDescendants`, `printBoundedTail`, `splitLines`, `confirmFromStdin`). `iteration.ts` imports `preflight.ts` and `completion-pipeline.ts` as needed. Rules out splitting helpers from their callers.
+- Anchor functions to relocate: `runIteration`, plus supporting helpers (`finalize`, `setupLogging`, `getSpecDisplayName` (display helper for `setupLogging`/`finalize`), the watchdog helpers `formatWatchdogDiagnosticsSuffix`/`snapshotWatchdogDescendantsAlive`/`killWatchdogWithDescendants`, `printBoundedTail`, `splitLines`, `confirmFromStdin`). `iteration.ts` imports `preflight.ts` and `completion-pipeline.ts` as needed. Rules out splitting helpers from their callers.
 - `run.ts` retains `runCommand` (the public entry) plus its type surface (`RunCommandOptions`, `RunIo`, `ConfirmRun`) and re-exports any symbols relocated in 00–02 that `cli.ts` or `v1/test/run.test.ts` import, so external import paths stay on `patch/run.ts`. Rules out moving the public entry and forcing consumer churn.
 - Refactor-only: relocation + import wiring, no logic edits.
 

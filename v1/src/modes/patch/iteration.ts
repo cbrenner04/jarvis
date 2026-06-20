@@ -4,8 +4,10 @@ import { basename, dirname, join } from "node:path";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
+  type Config,
   effectiveGit,
   openSessionLog,
+  type ProjectMatch,
   resolveReviewPasses,
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
@@ -63,8 +65,7 @@ import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
-import { runPatchReviewPhase } from "./review.ts";
-import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
+import { accumulateImplementationTouchedFiles } from "./shrink.ts";
 import {
   type AcceptanceCriterion,
   commitSubspec,
@@ -110,9 +111,9 @@ type WriteTelemetry = (record: {
 
 export type PreflightOk = {
   kind: "ok";
-  project: { key: string; root: string };
+  project: ProjectMatch;
   projectMode: "registered" | "ad-hoc";
-  cfg: any;
+  cfg: Config;
   gitEnabled: boolean;
   agentWorkingDir: string;
   worktreeLocked: boolean;
@@ -370,37 +371,6 @@ export function finalize(
     (ctx.opts.__testReapFn ?? (() => ctx.descendantTracker.reap()))();
   } catch {
     // best-effort
-  }
-}
-
-function mapExitCodeToReason(exitCode: number): string {
-  switch (exitCode) {
-    case 0:
-      return "criteria-complete";
-    case 1:
-      return "error";
-    case 2:
-      return "quota-exhausted";
-    case 3:
-      return "agent-error";
-    case 4:
-      return "no-progress";
-    case 5:
-      return "max-iterations";
-    case 6:
-      return "dirty-worktree";
-    case 7:
-      return "blocked";
-    case 8:
-      return "timeout";
-    case 9:
-      return "worktree-locked";
-    case 10:
-      return "ready-stuck-red";
-    case 130:
-      return "sigint";
-    default:
-      return `exit-${exitCode}`;
   }
 }
 

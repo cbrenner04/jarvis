@@ -1129,6 +1129,12 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
       },
     });
 
+    // Disarm idle watchdog immediately after agent returns, before post-processing begins
+    if (idleTimeoutHandle !== null) {
+      clearTimeout(idleTimeoutHandle);
+      idleTimeoutHandle = null;
+    }
+
     // Check for idle timeout
     if (result.kind === "error" && result.stderr.includes("aborted: idle-timeout")) {
       fanout(

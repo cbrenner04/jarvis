@@ -1,33 +1,23 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Io } from "../../cli.ts";
-import {
-  type AgentName,
-  type ConfigOptions,
-} from "../../config.ts";
-import type { LogClient } from "../../logging.ts";
 import type { Agent } from "../../agents/types.ts";
+import type { Io } from "../../cli.ts";
+import type { AgentName, ConfigOptions } from "../../config.ts";
+import type { LogClient } from "../../logging.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
+import type { CompletionReadyGateResult } from "./completion-pipeline.ts";
+import { finalize, type IterationContext, runIteration, setupLogging } from "./iteration.ts";
 import {
   buildActiveAgents,
   maybeWarnAboutUnmergedPlanBranch,
   prepareActiveSpecPath,
   resolveModeSpecificPreflight,
 } from "./preflight.ts";
-import {
-  type CompletionReadyGateResult,
-} from "./completion-pipeline.ts";
-import {
-  finalize,
-  setupLogging,
-  runIteration,
-  type IterationContext,
-} from "./iteration.ts";
 import { DescendantTracker } from "./reap.ts";
 
+export type { IterationContext, PreflightOk } from "./iteration.ts";
 // Re-export externally-consumed symbols
 export { maybeWarnAboutUnmergedPlanBranch, prepareActiveSpecPath };
-export type { IterationContext, PreflightOk } from "./iteration.ts";
 
 export type RunIo = Io;
 

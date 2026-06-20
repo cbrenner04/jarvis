@@ -1,19 +1,19 @@
 import { execFileSync } from "node:child_process";
-import { basename, dirname, join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent } from "../../agents/types.ts";
+import { resolveReviewPasses } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import { checkPrExists, ensureDraftPr, readBranchCommits, renderAttributionSummary } from "../../pr.ts";
 import { generateTemplateNarrative } from "../../pr-shared.ts";
 import { runReadyAndCommit } from "../../ready-gate.ts";
-import { resolveReviewPasses } from "../../config.ts";
 import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
 import { countUnchecked, findBlockerInLinkedSubspecs } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
-import type { AcceptanceCriterion } from "./subspec.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
+import type { AcceptanceCriterion } from "./subspec.ts";
 
 export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string };
 
@@ -410,13 +410,13 @@ async function tryFinishSpecIfDone(ctx: IterationContextForCompletion): Promise<
   return 0;
 }
 
-export {
-  tryFinishSpecIfDone,
-  runCompletionReadyGate,
-  generatePrBody,
-  diffAcceptanceCriteria,
-  getIndexTitle,
-  getCurrentBranch,
-  lookupPrUrl,
-};
 export type { CompletionLoopbackSignal };
+export {
+  diffAcceptanceCriteria,
+  generatePrBody,
+  getCurrentBranch,
+  getIndexTitle,
+  lookupPrUrl,
+  runCompletionReadyGate,
+  tryFinishSpecIfDone,
+};

@@ -13,6 +13,9 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
+import type { PlanCommandOptions, PlanIo } from "../../commands/plan.ts";
+import { PLAN_USAGE } from "../../commands/plan.ts";
+import { describePlanInvocation, isExistingFile, parsePlanArgs } from "../../commands/plan-args.ts";
 import {
   CONFIG_DIR,
   findProjectForPath,
@@ -23,6 +26,11 @@ import {
 } from "../../config.ts";
 import type { LogClient } from "../../logging.ts";
 import { enterMode } from "../../mode-entry.ts";
+import { ensureDraftPr, renderAttribution } from "../../pr.ts";
+import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
+import type { resolveTargetRepo } from "../../repo.ts";
+import { planSummary } from "../../run-summary.ts";
+import { createPlanWorktree, createWorktreeSymlinks, ensureExistingBranchWorktree } from "../../worktree.ts";
 import {
   appendBoundaryBlocker,
   assertNoCommitExternalSpecBoundary,
@@ -42,14 +50,6 @@ import {
   formatPlanSpecTimestamp,
   stripPlanSpecTimestampPrefix,
 } from "./spec-paths.ts";
-import { ensureDraftPr, renderAttribution } from "../../pr.ts";
-import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import type { resolveTargetRepo } from "../../repo.ts";
-import { planSummary } from "../../run-summary.ts";
-import { createPlanWorktree, createWorktreeSymlinks, ensureExistingBranchWorktree } from "../../worktree.ts";
-import { describePlanInvocation, isExistingFile, parsePlanArgs } from "../../commands/plan-args.ts";
-import type { PlanIo, PlanCommandOptions } from "../../commands/plan.ts";
-import { PLAN_USAGE } from "../../commands/plan.ts";
 
 /** Best-effort harness log for plan setup diagnostics (mirrors patch-mode fanout style). */
 function planHarnessLog(logClient: LogClient, text: string, tag: "harness" | "outbound" = "harness"): void {

@@ -18,7 +18,10 @@ export type PlanCommandOptions = {
   /** Skip git/gh checks and worktree creation (for tests). */
   skipGhCheck?: boolean;
   /** Override agent construction (for tests). */
-  createAgent?: (agentName: import("../agents/types.ts").AgentName, model: string | undefined) => import("../agents/types.ts").Agent;
+  createAgent?: (
+    agentName: import("../agents/types.ts").AgentName,
+    model: string | undefined,
+  ) => import("../agents/types.ts").Agent;
 };
 
 export const PLAN_USAGE = `Usage: jarvis1 plan [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
@@ -27,12 +30,12 @@ export const PLAN_USAGE = `Usage: jarvis1 plan [--review-passes <n>] [--repo <na
 
 // Re-exports from orchestration module
 export {
-  planCommand,
-  parseIntentFrontmatter,
-  validateReadyIntent,
-  resolveResumeSpecPath,
-  renderPlanNextSteps,
   deleteReadyIntentFromWorktree,
-  isPathInside,
   injectRepoLineIntoIndex,
+  isPathInside,
+  parseIntentFrontmatter,
+  planCommand,
+  renderPlanNextSteps,
+  resolveResumeSpecPath,
+  validateReadyIntent,
 } from "../modes/plan/run.ts";

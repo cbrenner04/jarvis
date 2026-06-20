@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
@@ -15,7 +16,6 @@ import {
 } from "../../config.ts";
 import { assertGhReady } from "../../gh.ts";
 import { bestEffortFetch, getSpecName } from "../../worktree.ts";
-import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { acquireWorktreeLock } from "../../worktree-lock.ts";
 import { countUnchecked } from "./completion.ts";
 import type { PreflightOk, RunCommandOptions, RunIo } from "./run.ts";

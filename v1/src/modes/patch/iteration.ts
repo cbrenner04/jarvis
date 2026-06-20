@@ -2,15 +2,11 @@ import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
+import type { Agent } from "../../agents/types.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
-import {
-  type Config,
-  effectiveGit,
-  openSessionLog,
-  type ProjectMatch,
-  resolveReviewPasses,
-} from "../../config.ts";
+import { type Config, effectiveGit, openSessionLog, type ProjectMatch, resolveReviewPasses } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
+import type { LogClient } from "../../logging.ts";
 import { checkPrExists, ensureDraftPr, readBranchCommits, renderAttributionSummary } from "../../pr.ts";
 import { generateTemplateNarrative } from "../../pr-shared.ts";
 import {
@@ -39,32 +35,28 @@ import {
   worktreeCompletionBlocker,
 } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
-import type { LogClient } from "../../logging.ts";
-import type { Agent } from "../../agents/types.ts";
-import {
-  findRelocatedSpecFile,
-  refreshActiveSpecPath,
-} from "./preflight.ts";
-import {
-  tryFinishSpecIfDone,
-  getCurrentBranch,
-  lookupPrUrl,
-  diffAcceptanceCriteria,
-  getIndexTitle,
-  generatePrBody,
-  type CompletionReadyGateResult,
-  type CompletionLoopbackSignal,
-} from "./completion-pipeline.ts";
 import {
   countUnchecked,
   findBlockerInLinkedSubspecs,
   getActiveLinkedSubspecPath,
   getFirstUncheckedTask,
 } from "./completion.ts";
+import {
+  type CompletionLoopbackSignal,
+  type CompletionReadyGateResult,
+  diffAcceptanceCriteria,
+  generatePrBody,
+  getCurrentBranch,
+  getIndexTitle,
+  lookupPrUrl,
+  tryFinishSpecIfDone,
+} from "./completion-pipeline.ts";
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
+import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
-import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
+import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, type DescendantTracker, listProcesses } from "./reap.ts";
+import type { RunCommandOptions, RunIo } from "./run.ts";
 import { accumulateImplementationTouchedFiles } from "./shrink.ts";
 import {
   type AcceptanceCriterion,
@@ -73,7 +65,6 @@ import {
   commitWipProgressWithBlocker,
   snapshotAcceptanceCriteria,
 } from "./subspec.ts";
-import type { RunCommandOptions, RunIo } from "./run.ts";
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;
@@ -1218,4 +1209,3 @@ export function getSpecDisplayName(specPath: string): string {
   }
   return basename(specPath);
 }
-

@@ -28,7 +28,6 @@ import type { LogClient } from "../../logging.ts";
 import { enterMode } from "../../mode-entry.ts";
 import { ensureDraftPr, renderAttribution } from "../../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import type { resolveTargetRepo } from "../../repo.ts";
 import { planSummary } from "../../run-summary.ts";
 import { createPlanWorktree, createWorktreeSymlinks, ensureExistingBranchWorktree } from "../../worktree.ts";
 import {

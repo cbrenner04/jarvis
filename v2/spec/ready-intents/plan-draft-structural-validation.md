@@ -32,11 +32,18 @@ Plan structural rules (behavioral ACs, heading contracts, duplicate sections) li
 - `v1/docs/plan-mode.md`: harness draft validation rules.
 - `v2/docs/v1-behaviors.md`: plan draft structural gate behavior.
 
+## Related: semantic AC grounding (from the D spec defect)
+
+Structural validation here catches malformed ACs; it does not catch a *well-formed* AC that contradicts real behavior. The `shared-invocation-executor` spec shipped an AC asserting plan stops on a hard error while `plan-draft-hard-error-continue.test.ts` proved the opposite. Two grounding extensions belong with this work:
+
+- **#2 (plan-draft):** flag a behavioral/preservation AC ("preserved", "unchanged", "stops", "continues") that cites no existing test or source anchor — enforcing the [[refactor-acs-cite-tests]] convention at draft time. Deterministically checkable (anchor present/absent); the deeper "does the cited test contradict the claim" stays agent discipline.
+- **#3 (implementation-side, patch rules — pairs with this):** when satisfying an AC requires changing or deleting a *pre-existing* test, the implementation agent raises a `## Blocker` rather than editing the test. This is the backstop for defects that slip past draft validation.
+
 ## Out of scope
 
 - Prerequisite automation for plan seeds.
 - Changing plan prompt authoring instructions beyond alignment with validator.
-- Patch-mode spec validation changes.
+- Patch-mode spec validation changes (the #3 implementation guardrail is a separate patch-rules change, noted above for sequencing).
 
 ## Prerequisites
 

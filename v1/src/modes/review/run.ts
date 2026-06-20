@@ -1,11 +1,10 @@
-import { execFileSync } from "node:child_process";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { resolveReviewAgentOrder, resolveReviewPasses } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
 import { ReviewTerminalError } from "./types.ts";
+import { buildReviewBindings } from "./review-binding-factory.ts";
 
 // Exit codes the harness reserves for specific review outcomes. A raw agent
 // error code that collides with one would be misread by callers (e.g. plan
@@ -16,17 +15,6 @@ const RESERVED_REVIEW_EXIT_CODES = new Set([0, 2, 3, 7, 130]);
 
 function normalizeErrorExitCode(exitCode: number): number {
   return RESERVED_REVIEW_EXIT_CODES.has(exitCode) ? 1 : exitCode;
-}
-
-function readPorcelainSnapshot(cwd: string): string | null {
-  try {
-    return execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-    });
-  } catch {
-    return null;
-  }
 }
 
 /** Inputs for the shared review runner. */
@@ -75,55 +63,72 @@ async function runRoleAttempt(
   opts: RunReviewOptions,
 ): Promise<{ artifact: string | null; attempt: ReviewAttemptContext }> {
   const roleContext: ReviewPassContext = { ...passContext, role };
-  const remainingAgents = [...agentOrder];
 
-  while (true) {
-    const agentEntry = remainingAgents[0];
-    if (agentEntry === undefined) {
-      opts.onAllAgentsQuotaExhausted?.(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
-      throw new ReviewTerminalError(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED, 2, { telemetryRecorded: true });
+  const bindings = buildReviewBindings(
+    {
+      cwd: opts.cwd,
+      config: opts.config,
+      createAgent: (name, model) => opts.loadAgent({ name, model }),
+      spawnOptions: opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {},
+      buildPrompt: async (entry) => {
+        return adapter.buildPrompt({
+          ...roleContext,
+          agentEntry: entry,
+        });
+      },
+      ...(opts.onQuotaRotation !== undefined ? { onQuotaRotation: opts.onQuotaRotation } : {}),
+      ...(opts.now !== undefined ? { now: opts.now } : {}),
+    },
+    agentOrder,
+  );
+
+  // Review only advances on quota; error/model_config stop immediately
+  // Manually loop through bindings instead of using executor (which advances on error)
+  for (const binding of bindings) {
+    const result = await binding.invoke({
+      prompt: "", // unused; binding builds its own
+      cwd: opts.cwd,
+    });
+
+    // Extract agent from binding id: "review:{agent}:{model}"
+    const bindingIdParts = binding.id.split(":");
+    if (bindingIdParts.length < 3) {
+      throw new Error(`Invalid binding id: ${binding.id}`);
+    }
+    const agentName = bindingIdParts[1] as AgentName;
+    const model = bindingIdParts[2];
+
+    const agentEntry = agentOrder.find((a) => a.agent === agentName && a.model === model);
+    if (!agentEntry) {
+      throw new Error(`Agent not found in agentOrder: ${agentName} / ${model}`);
     }
 
-    const agent = opts.loadAgent({
-      name: agentEntry.agent,
-      model: agentEntry.model,
-    });
-    const prompt = await adapter.buildPrompt({
-      ...roleContext,
-      agentEntry,
-    });
-
-    const porcelainBefore = readPorcelainSnapshot(opts.cwd);
-    const now = opts.now ?? Date.now;
-    const startedAt = now();
-    const spawnResult = await agent.run(prompt, {
-      cwd: opts.cwd,
-      ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
-    });
-    const porcelainAfter = readPorcelainSnapshot(opts.cwd);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    const result = applyQuotaFallbackWhenAllowed(
-      agentEntry.agent,
-      spawnResult,
-      {
-        quotaFallback: opts.config.quotaFallback,
-        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
-      },
-      noDiskChangeDuringInvocation,
-    );
-    opts.onQuotaRotation?.(agentEntry.agent, spawnResult, result);
+    // Use agent from result (created by binding) to avoid double-loading
+    const agent = (result as any).agent;
+    if (!agent) {
+      throw new Error("Agent not returned in result");
+    }
 
     const attempt: ReviewAttemptContext = {
       ...roleContext,
       agent,
       agentEntry,
-      agentLabel: agent.attributionLabel(),
-      prompt,
-      durationMs: Math.max(0, now() - startedAt),
+      agentLabel: (result as any).attributionLabel || "",
+      prompt: (result as any).builtPrompt || "",
+      durationMs: (result as any).durationMs || 0,
       result,
     };
 
+    // Record telemetry for quota results and continue to next agent
+    if (result.kind === "quota") {
+      await adapter.recordTelemetry({
+        ...attempt,
+        outcome: "quota",
+      });
+      continue;
+    }
+
+    // For non-quota results (ok, model_config, error), handle the outcome
     if (result.kind === "ok") {
       try {
         await adapter.enforceWriteBoundary(attempt);
@@ -155,7 +160,9 @@ async function runRoleAttempt(
           ...attempt,
           outcome: "ok",
         });
-        return { artifact: spawnResult.kind === "ok" ? spawnResult.stdout : null, attempt };
+        const spawnResultKind = (result as any).spawnResultKind;
+        const artifact = spawnResultKind === "ok" ? result.stdout : null;
+        return { artifact, attempt };
       } catch (err) {
         if (err instanceof ReviewTerminalError) {
           throw err;
@@ -164,17 +171,13 @@ async function runRoleAttempt(
       }
     }
 
+    // model_config or error: record telemetry and throw
     const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : undefined;
     await adapter.recordTelemetry({
       ...attempt,
       outcome: result.kind,
       ...(exitCode !== undefined ? { exitCode } : {}),
     });
-
-    if (result.kind === "quota") {
-      remainingAgents.shift();
-      continue;
-    }
 
     if (result.kind === "model_config") {
       throw new ReviewTerminalError("model configuration error", 3, { telemetryRecorded: true });
@@ -184,6 +187,10 @@ async function runRoleAttempt(
       telemetryRecorded: true,
     });
   }
+
+  // All agents exhausted on quota
+  opts.onAllAgentsQuotaExhausted?.(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+  throw new ReviewTerminalError(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED, 2, { telemetryRecorded: true });
 }
 
 /** Run the shared review pass loop. */

@@ -9,8 +9,8 @@ import {
 } from "../../../../shared/prompts/render.ts";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
-import type { AgentResult } from "../../agents/types.ts";
-import type { Agent, AgentName, Config } from "../../config.ts";
+import type { Agent, AgentResult } from "../../agents/types.ts";
+import type { AgentName, Config } from "../../config.ts";
 import {
   HARNESS_QUOTA_FALLBACK_STRICT,
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,

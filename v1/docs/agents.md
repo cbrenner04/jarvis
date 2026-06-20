@@ -245,3 +245,24 @@ invocation bindings that wrap agents and handle spawn + classification together:
 - Each phase preserves its exact pre-shared-executor behavior: success/quota/
   error/model_config outcomes, stderr lines (byte-identical), per-attempt
   telemetry, and advance/stop-on-error semantics.
+
+## Patch invocation architecture
+
+Patch mode's per-iteration loop retains its own advancement semantics (head
+agent per iteration, with fallback on quota exhaustion). To align with the plan
+binding architecture, patch now uses the shared v1-owned invocation binding for
+spawn and classification — but keeps these as separate steps, not coupled inside
+the binding's `invoke()` method:
+
+- The binding factory (`createPatchInvocationBinding`) exposes `spawn` and
+  `classify` methods. `spawn` runs the agent with watchdog integration
+  (onSpawned, lastOutputAtMs, abortKillGraceMs). `classify` applies quota
+  fallback with a guard thunk (computed after the iteration body).
+- The patch iteration loop calls `binding.spawn()` to run the agent, then
+  executes the iteration body (checking acceptance criteria, detecting edits,
+  etc.), then calls `binding.classify(result, noIterationProgress)` with a guard
+  computed from the iteration results.
+- Patch keeps its own iteration-driven loop; it does not use the shared executor.
+  Its per-iteration telemetry, stderr messages, and exit codes remain unchanged.
+- The separable spawn/classify seam also serves other paths (review, shrink)
+  that need custom logic between spawn and classification.

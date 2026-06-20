@@ -12,11 +12,11 @@
 
 ## Acceptance criteria
 
-- [ ] Quota exhaustion across all configured patch agents during a run falls through agent-by-agent and exits `2` with the existing `all agents quota-exhausted` line.
-- [ ] Strict quota and lenient probable-quota fallback stderr lines and the no-progress (`exit 4`) / model_config (`exit 3`) paths are byte-identical to current patch output under `strict` and `lenient`.
-- [ ] Per-iteration patch telemetry (kind, exitReason for quota-fallback / quota-exhausted / probable-quota-fallback) is unchanged.
-- [ ] Patch retains head-agent-per-iteration advancement interleaved with watchdog/completion/prompt-rebuild (no behavior change beyond sharing the spawn+classify call).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Quota exhaustion across all configured patch agents during a run falls through agent-by-agent and exits `2` with the existing `all agents quota-exhausted` line.
+- [x] Strict quota and lenient probable-quota fallback stderr lines and the no-progress (`exit 4`) / model_config (`exit 3`) paths are byte-identical to current patch output under `strict` and `lenient`.
+- [x] Per-iteration patch telemetry (kind, exitReason for quota-fallback / quota-exhausted / probable-quota-fallback) is unchanged.
+- [x] Patch retains head-agent-per-iteration advancement interleaved with watchdog/completion/prompt-rebuild (no behavior change beyond sharing the spawn+classify call).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

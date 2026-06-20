@@ -231,7 +231,39 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         return 10;
       }
 
-      // Red but failure changed: loop back for another fix-up iteration
+      // Red but not stuck on identical failure: check for changing-failure bound
+      const CONSECUTIVE_RED_FIXUP_BOUND = 3;
+      if (ctx.state.acProgressSinceLastGate) {
+        // AC progress was made since the last gate; reset the counter
+        ctx.state.consecutiveRedFixups = 0;
+        ctx.state.acProgressSinceLastGate = false;
+      } else {
+        // No AC progress; increment the consecutive red counter
+        ctx.state.consecutiveRedFixups += 1;
+      }
+
+      if (ctx.state.consecutiveRedFixups >= CONSECUTIVE_RED_FIXUP_BOUND) {
+        // Changing-failure bound: failure text differs each iteration but no AC progress
+        const worktreeName = basename(preflight.agentWorkingDir);
+        logging.fanout(
+          "harness",
+          `bun run ready failed:\n${gateResult.failureText}\n\nThe ready gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations with no acceptance criteria progress and the failure differed each pass. The issue persists without convergence.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          "stderr",
+        );
+        logging.writeTelemetry({
+          agent: "harness",
+          iteration: ctx.state.iteration,
+          durationMs: 0,
+          kind: "ok",
+          exitReason: "ready-stuck-red",
+          record_role: "run_terminal",
+        });
+        // Clear the loop-back signal so the caller returns exit 10
+        ctx.state.completionLoopbackSignal = null;
+        return 10;
+      }
+
+      // Red but failure changed and haven't hit the bound: loop back for another fix-up iteration
       ctx.state.previousCompletionFailureText = gateResult.failureText;
       ctx.state.completionLoopbackSignal = { failureText: gateResult.failureText };
       return null;
@@ -240,6 +272,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     // so the caller finalizes completion instead of looping again.
     ctx.state.completionLoopbackSignal = null;
     ctx.state.previousCompletionFailureText = null;
+    ctx.state.consecutiveRedFixups = 0;
     // This single completion gate doubles as the completion-transition ready
     // gate: on green, record the result keyed to HEAD sha + clean worktree so
     // the downstream shrink, review, and maybeMarkReady phases reuse it instead

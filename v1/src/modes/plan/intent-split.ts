@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
@@ -9,14 +8,14 @@ import {
   renderTemplateWithDeclarations,
 } from "../../../../shared/prompts/render.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import {
-  HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
+import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 
 export function buildIntentSplitPrompt(opts: {
   workdir: string;
@@ -67,33 +66,6 @@ export function buildIntentSplitPrompt(opts: {
 `;
 }
 
-function emitIntentQuotaFallback(
-  stderrFn: ((s: string) => void) | undefined,
-  agent: AgentName,
-  spawnResult: AgentResult,
-  classified: AgentResult,
-): void {
-  if (stderrFn === undefined || classified.kind !== "quota") return;
-  if (spawnResult.kind === "quota") {
-    stderrFn(`intent: ${agent}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`);
-    return;
-  }
-  if (spawnResult.kind === "error") {
-    stderrFn(`intent: ${agent}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`);
-  }
-}
-
-function readGitPorcelainSnapshot(cwd: string): string | null {
-  try {
-    return execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      stdio: "pipe",
-      encoding: "utf8",
-    });
-  } catch {
-    return null;
-  }
-}
 
 function resetIntentStageDir(worktreePath: string, stagingDir: string): void {
   const stagePath = join(worktreePath, stagingDir);
@@ -146,52 +118,55 @@ export async function runIntentSplitTurn(opts: {
   opts.onOutboundPrompt?.(prompt);
 
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
-  let result: AgentResult | null = null;
-  let agentLabel: string | null = null;
 
-  for (const entry of agentOrder) {
-    resetIntentStageDir(opts.worktreePath, opts.stagingDir);
-    const agent = resolveAgent(entry.agent, entry.model);
-    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
-
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const spawnResult = await agent.run(prompt, { cwd: opts.worktreePath });
-    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    result = applyQuotaFallbackWhenAllowed(
-      entry.agent,
-      spawnResult,
-      {
-        quotaFallback: opts.config.quotaFallback,
-        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
+  const bindings = agentOrder.map((entry) =>
+    createPlanInvocationBinding({
+      agentName: entry.agent,
+      configuredModel: entry.model,
+      createAgent: resolveAgent,
+      config: opts.config,
+      worktreePath: opts.worktreePath,
+      preSpinHook: () => resetIntentStageDir(opts.worktreePath, opts.stagingDir),
+      onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
+        if (opts.stderr === undefined || classified.kind !== "quota") return;
+        if (spawnResult.kind === "quota") {
+          opts.stderr(`intent: ${agentName}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`);
+          return;
+        }
+        if (spawnResult.kind === "error") {
+          opts.stderr(`intent: ${agentName}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`);
+        }
       },
-      noDiskChangeDuringInvocation,
-    );
-    emitIntentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
+    }),
+  );
 
-    if (result.kind === "ok") {
-      return { result, agentLabel };
-    }
-    if (result.kind === "quota") {
-      continue;
-    }
-    if (result.kind === "model_config") {
-      return { result, agentLabel };
-    }
+  const execution = await executeWithQuotaFallback({
+    prompt,
+    cwd: opts.worktreePath,
+    bindings,
+  });
+
+  let agentLabel: string | null = null;
+  if (execution.final?.binding) {
+    agentLabel = execution.final.binding.id;
   }
 
-  if (result === null) {
+  const finalResult = execution.final?.result;
+  if (finalResult?.kind === "ok") {
+    return { result: finalResult, agentLabel };
+  }
+
+  if (finalResult === undefined) {
     return {
       result: {
-        kind: "error",
-        exitCode: 2,
-        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
+        kind: "model_config",
+        stderr: "intent: modes.plan.agentOrder is empty",
       },
-      agentLabel,
+      agentLabel: null,
     };
   }
-  return { result, agentLabel };
+
+  return { result: finalResult, agentLabel };
 }
 
 export function listStageMarkdownFiles(stagingDir: string): string[] {

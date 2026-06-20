@@ -18,12 +18,12 @@
 
 ## Acceptance criteria
 
-- [ ] Quota exhaustion across all plan agents during intent fan-out and during verdict-actuator falls through agent-by-agent and ends in the existing exhausted outcome (throw / return) unchanged.
-- [ ] Strict and lenient quota stderr lines for both paths are byte-identical to current output under `strict` and `lenient`.
-- [ ] On agent success, fan-out still writes the same ready-intent files (with the stage dir reset before every rotation, not once) and verdict-actuator still applies the verdict and emits its completion line.
-- [ ] Empty `modes.plan.agentOrder` during fan-out still yields the existing `intent: modes.plan.agentOrder is empty` model_config outcome.
-- [ ] `model_config` and terminal `error` stop the chain with the same thrown error as today.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Quota exhaustion across all plan agents during intent fan-out and during verdict-actuator falls through agent-by-agent and ends in the existing exhausted outcome (throw / return) unchanged.
+- [x] Strict and lenient quota stderr lines for both paths are byte-identical to current output under `strict` and `lenient`.
+- [x] On agent success, fan-out still writes the same ready-intent files (with the stage dir reset before every rotation, not once) and verdict-actuator still applies the verdict and emits its completion line.
+- [x] Empty `modes.plan.agentOrder` during fan-out still yields the existing `intent: modes.plan.agentOrder is empty` model_config outcome.
+- [x] `model_config` and terminal `error` stop the chain with the same thrown error as today.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

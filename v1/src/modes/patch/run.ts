@@ -168,6 +168,34 @@ function snapshotWatchdogDescendantsAlive(agentRootPid: number): boolean {
   return collectSubtree(agentRootPid, procs).length > 0;
 }
 
+function killWatchdogWithDescendants(
+  pgid: number,
+  reason: string,
+  fanout: Fanout,
+  killGraceMs: number,
+  lastOutputAgeMs: number | null,
+): { descendantsAlive: boolean; killHandle: NodeJS.Timeout } {
+  const descendantsAlive = snapshotWatchdogDescendantsAlive(pgid);
+  const watchdogLine =
+    `[watchdog] ${reason}; killing agent pgid ${pgid}` +
+    formatWatchdogDiagnosticsSuffix(lastOutputAgeMs, descendantsAlive);
+  fanout("harness", `${watchdogLine}\n`, "stderr");
+  try {
+    process.kill(-pgid, "SIGTERM");
+  } catch {
+    // best-effort, spawn-layer abort handler still runs.
+  }
+  const killHandle = setTimeout(() => {
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {
+      // best-effort
+    }
+  }, killGraceMs);
+  killHandle.unref();
+  return { descendantsAlive, killHandle };
+}
+
 type PreflightOk = {
   kind: "ok";
   project: ProjectMatch;
@@ -1033,6 +1061,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   let watchdogKillHandle: NodeJS.Timeout | null = null;
   let watchdogLastOutputAgeMs: number | null = null;
   let watchdogDescendantsAlive: boolean | undefined;
+  let idleTimeoutHandle: NodeJS.Timeout | null = null;
+  let idleWatchdogLastOutputAgeMs: number | null = null;
+  let idleWatchdogDescendantsAlive: boolean | undefined;
   const lastOutputAtMs = { current: null as number | null };
   // Poll the agent's process subtree while it is alive so descendants that
   // later escape the process group (via setsid) and re-parent to init can be
@@ -1044,27 +1075,52 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     watchdogLastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
     const pgid = watchdogPgid;
     if (pgid !== null) {
-      watchdogDescendantsAlive = snapshotWatchdogDescendantsAlive(pgid);
-      const watchdogLine =
-        `[watchdog] iteration timeout fired after ${cfg.iterationTimeoutMs}ms; killing agent pgid ${pgid}` +
-        formatWatchdogDiagnosticsSuffix(watchdogLastOutputAgeMs, watchdogDescendantsAlive);
-      fanout("harness", `${watchdogLine}\n`, "stderr");
-      try {
-        process.kill(-pgid, "SIGTERM");
-      } catch {
-        // best-effort, spawn-layer abort handler still runs.
-      }
-      watchdogKillHandle = setTimeout(() => {
-        try {
-          process.kill(-pgid, "SIGKILL");
-        } catch {
-          // best-effort
-        }
-      }, killGraceMs);
-      watchdogKillHandle.unref();
+      const result = killWatchdogWithDescendants(
+        pgid,
+        `iteration timeout fired after ${cfg.iterationTimeoutMs}ms`,
+        fanout,
+        killGraceMs,
+        watchdogLastOutputAgeMs,
+      );
+      watchdogDescendantsAlive = result.descendantsAlive;
+      watchdogKillHandle = result.killHandle;
     }
     state.currentController?.abort("iteration-timeout");
   }, cfg.iterationTimeoutMs);
+
+  // Arm idle watchdog if configured
+  const armedAt = Date.now();
+  const idleOutputTimeoutMs = cfg.idleOutputTimeoutMs;
+  if (idleOutputTimeoutMs !== undefined) {
+    const scheduleIdleCheck = () => {
+      idleTimeoutHandle = setTimeout(() => {
+        const snapshotAt = Date.now();
+        const lastOutputAt = lastOutputAtMs.current ?? armedAt;
+        const idleAgeMs = snapshotAt - lastOutputAt;
+        if (idleAgeMs >= idleOutputTimeoutMs) {
+          idleWatchdogLastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
+          const pgid = watchdogPgid;
+          if (pgid !== null) {
+            const result = killWatchdogWithDescendants(
+              pgid,
+              `idle timeout fired after ${idleOutputTimeoutMs}ms`,
+              fanout,
+              killGraceMs,
+              idleWatchdogLastOutputAgeMs,
+            );
+            idleWatchdogDescendantsAlive = result.descendantsAlive;
+            watchdogKillHandle = result.killHandle;
+          }
+          state.currentController?.abort("idle-timeout");
+        } else {
+          // Reschedule for next check
+          scheduleIdleCheck();
+        }
+      }, 100); // Poll every 100ms, configurable granularity
+      idleTimeoutHandle.unref();
+    };
+    scheduleIdleCheck();
+  }
 
   try {
     const result = await agent.run(prompt, {
@@ -1084,6 +1140,35 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         descendantPollHandle.unref();
       },
     });
+
+    // Disarm idle watchdog immediately after agent returns, before post-processing begins
+    if (idleTimeoutHandle !== null) {
+      clearTimeout(idleTimeoutHandle);
+      idleTimeoutHandle = null;
+    }
+
+    // Check for idle timeout
+    if (result.kind === "error" && result.stderr.includes("aborted: idle-timeout")) {
+      fanout(
+        "harness",
+        `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs ?? "?"}ms\n`,
+        "stderr",
+      );
+      writeTelemetry({
+        agent: agent.name,
+        iteration,
+        durationMs: iterationDurationMs(),
+        kind: "timeout",
+        exitReason: "watchdog-idle-timeout",
+        ...telemetryMeta,
+        ...(watchdogPgid !== null ? { watchdog_pgid: watchdogPgid } : {}),
+        last_output_age_ms: idleWatchdogLastOutputAgeMs,
+        ...(idleWatchdogDescendantsAlive !== undefined
+          ? { watchdog_descendants_alive: idleWatchdogDescendantsAlive }
+          : {}),
+      });
+      return { kind: "return", exitCode: 8 };
+    }
 
     // Check for iteration timeout
     if (result.kind === "error" && result.stderr.includes("aborted: iteration-timeout")) {
@@ -1613,6 +1698,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     return { kind: "return", exitCode: 3 };
   } finally {
     clearTimeout(iterationTimeoutHandle);
+    if (idleTimeoutHandle !== null) {
+      clearTimeout(idleTimeoutHandle);
+    }
     if (watchdogKillHandle !== null) {
       clearTimeout(watchdogKillHandle);
     }

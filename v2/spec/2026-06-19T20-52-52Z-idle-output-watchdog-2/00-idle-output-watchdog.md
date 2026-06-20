@@ -38,16 +38,16 @@ kill path and the exit-8 timeout path, and does not lower or replace
 
 ## Acceptance criteria
 
-- [ ] Config accepts an optional `idleOutputTimeoutMs`; when present it is validated as a positive integer and rejected otherwise, and when unset the idle watchdog is disabled.
-- [ ] With `idleOutputTimeoutMs` set well below `iterationTimeoutMs`, an iteration whose agent emits no further output for that span is aborted before `iterationTimeoutMs` elapses (test).
-- [ ] An agent that keeps emitting stdout/stderr within the span is not idle-aborted; the idle bound resets on agent output (test).
-- [ ] With `idleOutputTimeoutMs` unset, no idle abort fires and behavior matches the wall-clock-only baseline (test).
-- [ ] Idle abort is detected by its distinct `idle-timeout` reason in a branch ordered before the quota-fallback path; it returns exit code `8` with telemetry `kind: "timeout"`, `exitReason: "watchdog-idle-timeout"` (distinct from `watchdog-iteration-timeout`), and the wall-clock branch's diagnostic fields (`last_output_age_ms`, and `watchdog_pgid` / `watchdog_descendants_alive` when a pgid exists); it is not classified as quota and triggers no agent fallback (test).
-- [ ] Both watchdogs invoke one shared kill helper (the SIGTERM→grace→SIGKILL sequence and pre-abort descendant snapshot live in a single function, not copied per callback); when idle fires before spawn (`watchdogPgid === null`) the explicit group kill is skipped and `controller.abort` still aborts the iteration.
-- [ ] On idle abort the harness emits a `[watchdog]` idle line to stderr (test).
-- [ ] When `idleOutputTimeoutMs >= iterationTimeoutMs` the wall-clock watchdog wins; the idle timer is cleared by the existing `finally` so no idle fire occurs after iteration end. This edge relies on `finally` cleanup and is explicitly left untested.
-- [ ] `v1/docs/run-loop.md`, `v1/docs/quota-signals.md`, and `v1/docs/config.md` document the idle-output watchdog, its config knob, default-off behavior, and idle-vs-quota classification; `v2/docs/v1-behaviors.md` records the new idle-stall bounding behavior.
-- [ ] `bun run typecheck` and `bun test` pass.
+- [x] Config accepts an optional `idleOutputTimeoutMs`; when present it is validated as a positive integer and rejected otherwise, and when unset the idle watchdog is disabled.
+- [x] With `idleOutputTimeoutMs` set well below `iterationTimeoutMs`, an iteration whose agent emits no further output for that span is aborted before `iterationTimeoutMs` elapses (test).
+- [x] An agent that keeps emitting stdout/stderr within the span is not idle-aborted; the idle bound resets on agent output (test).
+- [x] With `idleOutputTimeoutMs` unset, no idle abort fires and behavior matches the wall-clock-only baseline (test).
+- [x] Idle abort is detected by its distinct `idle-timeout` reason in a branch ordered before the quota-fallback path; it returns exit code `8` with telemetry `kind: "timeout"`, `exitReason: "watchdog-idle-timeout"` (distinct from `watchdog-iteration-timeout`), and the wall-clock branch's diagnostic fields (`last_output_age_ms`, and `watchdog_pgid` / `watchdog_descendants_alive` when a pgid exists); it is not classified as quota and triggers no agent fallback (test).
+- [x] Both watchdogs invoke one shared kill helper (the SIGTERM→grace→SIGKILL sequence and pre-abort descendant snapshot live in a single function, not copied per callback); when idle fires before spawn (`watchdogPgid === null`) the explicit group kill is skipped and `controller.abort` still aborts the iteration.
+- [x] On idle abort the harness emits a `[watchdog]` idle line to stderr (test).
+- [x] When `idleOutputTimeoutMs >= iterationTimeoutMs` the wall-clock watchdog wins; the idle timer is cleared by the existing `finally` so no idle fire occurs after iteration end. This edge relies on `finally` cleanup and is explicitly left untested.
+- [x] `v1/docs/run-loop.md`, `v1/docs/quota-signals.md`, and `v1/docs/config.md` document the idle-output watchdog, its config knob, default-off behavior, and idle-vs-quota classification; `v2/docs/v1-behaviors.md` records the new idle-stall bounding behavior.
+- [x] `bun run typecheck` and `bun test` pass.
 
 ## Documentation updates
 

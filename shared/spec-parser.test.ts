@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { detectBlocker, parseSpec } from "./spec-parser.ts";
+import { detectBlocker, isStructuralAc, parseSpec } from "./spec-parser.ts";
 
 describe("parseSpec", () => {
   test("parses h1, tasks, linked subspecs, acceptance criteria, and blocker", () => {
@@ -34,18 +34,14 @@ describe("parseSpec", () => {
     const parsed = parseSpec(`# Title\n\n### Acceptance criteria\n\n- [ ] Item\n`);
 
     expect(parsed.acceptanceCriteria).toEqual([]);
-    expect(parsed.warnings).toContain(
-      "Rejected heading `### Acceptance criteria`: acceptance criteria header must be exactly `## Acceptance criteria` (case-sensitive, level-2).",
-    );
+    expect(parsed.warnings.some((w) => w.kind === "near-miss-acceptance-heading")).toBe(true);
   });
 
   test("warns when blocker heading is malformed", () => {
     const parsed = parseSpec(`# Title\n\n### Blocker\n\nSome text\n`);
 
     expect(parsed.blocker).toBeUndefined();
-    expect(parsed.warnings).toContain(
-      "Rejected heading `### Blocker`: blocker header must be exactly `## Blocker` (case-sensitive, level-2).",
-    );
+    expect(parsed.warnings.some((w) => w.kind === "near-miss-blocker-heading")).toBe(true);
   });
 
   test("selects first acceptance criteria when duplicates exist", () => {
@@ -98,18 +94,14 @@ describe("parseSpec", () => {
     const parsed = parseSpec(`# Title\n\n## acceptance criteria\n\n- [ ] Item\n`);
 
     expect(parsed.acceptanceCriteria).toEqual([]);
-    expect(parsed.warnings).toContain(
-      "Rejected heading `## acceptance criteria`: acceptance criteria header must be exactly `## Acceptance criteria` (case-sensitive, level-2).",
-    );
+    expect(parsed.warnings.some((w) => w.kind === "near-miss-acceptance-heading")).toBe(true);
   });
 
   test("is case-sensitive for blocker heading", () => {
     const parsed = parseSpec(`# Title\n\n## blocker\n\ntext\n`);
 
     expect(parsed.blocker).toBeUndefined();
-    expect(parsed.warnings).toContain(
-      "Rejected heading `## blocker`: blocker header must be exactly `## Blocker` (case-sensitive, level-2).",
-    );
+    expect(parsed.warnings.some((w) => w.kind === "near-miss-blocker-heading")).toBe(true);
   });
 });
 
@@ -192,5 +184,67 @@ describe("parseSpec vs detectBlocker blocker shape discrepancy", () => {
 
     expect(parsed.blocker).toBe("first");
     expect(detected.body).toBe("first");
+  });
+});
+
+describe("duplicate section detection", () => {
+  test("warns when acceptance criteria appears twice", () => {
+    const parsed = parseSpec(
+      `# Title\n\n## Acceptance criteria\n\n- [ ] First\n\n## Acceptance criteria\n\n- [ ] Second\n`,
+    );
+
+    expect(parsed.warnings.some((w) => w.kind === "duplicate-section")).toBe(true);
+  });
+
+  test("warns when blocker appears twice", () => {
+    const parsed = parseSpec(`# Title\n\n## Blocker\n\nFirst\n\n## Blocker\n\nSecond\n`);
+
+    expect(parsed.warnings.some((w) => w.kind === "duplicate-section")).toBe(true);
+  });
+
+  test("no warning for single acceptance criteria and single blocker", () => {
+    const parsed = parseSpec(
+      `# Title\n\n## Acceptance criteria\n\n- [ ] Item\n\n## Blocker\n\nText\n`,
+    );
+
+    expect(parsed.warnings.every((w) => w.kind !== "duplicate-section")).toBe(true);
+  });
+});
+
+describe("structural AC classification", () => {
+  test("identifies location/existence-based ACs as structural", () => {
+    const structural = [
+      { checked: false, text: "X lives in a dedicated module with unit tests" },
+      { checked: false, text: "Y is defined in src/core" },
+      { checked: false, text: "Z exists as a pure function" },
+      { checked: false, text: "ABC has unit tests" },
+    ];
+
+    for (const ac of structural) {
+      expect(isStructuralAc(ac)).toBe(true);
+    }
+  });
+
+  test("does not flag behavioral ACs naming a symbol as subject", () => {
+    const behavioral = [
+      { checked: false, text: "`validateDraftOutput` returns invalid when a subspec lacks AC" },
+      { checked: false, text: "The parser produces categorized warnings" },
+      { checked: false, text: "X causes Y to happen" },
+      { checked: false, text: "Z enables Q to work" },
+    ];
+
+    for (const ac of behavioral) {
+      expect(isStructuralAc(ac)).toBe(false);
+    }
+  });
+
+  test("is case-insensitive", () => {
+    const upperCase = { checked: false, text: "ABC LIVES IN SRC" };
+    const lowerCase = { checked: false, text: "abc lives in src" };
+    const mixedCase = { checked: false, text: "Abc Lives In Src" };
+
+    expect(isStructuralAc(upperCase)).toBe(true);
+    expect(isStructuralAc(lowerCase)).toBe(true);
+    expect(isStructuralAc(mixedCase)).toBe(true);
   });
 });

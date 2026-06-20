@@ -13,13 +13,23 @@ export type AcceptanceCriterion = {
   text: string;
 };
 
+export type WarningKind =
+  | "near-miss-acceptance-heading"
+  | "near-miss-blocker-heading"
+  | "duplicate-section";
+
+export type ParsedSpecWarning = {
+  kind: WarningKind;
+  message: string;
+};
+
 export type ParsedSpec = {
   h1: string | undefined;
   tasks: TaskItem[];
   linkedSubspecs: LinkedSubspec[];
   acceptanceCriteria: AcceptanceCriterion[];
   blocker: string | undefined;
-  warnings: string[];
+  warnings: ParsedSpecWarning[];
 };
 
 const taskPattern = /^\s*-\s\[([ xX])\]\s+(.*)$/;
@@ -108,21 +118,46 @@ function extractAcceptanceCriteriaSection(content: string): { index: number; lin
   return { index: exactAcceptanceHeaderIndex, lines: sectionLines };
 }
 
-/** Collect warnings for near-miss headings. */
-function collectHeadingWarnings(lines: string[]): string[] {
-  const warnings: string[] = [];
+/** Collect warnings for near-miss headings and duplicate sections. */
+function collectHeadingWarnings(lines: string[]): ParsedSpecWarning[] {
+  const warnings: ParsedSpecWarning[] = [];
+  let acceptanceCriteriaCount = 0;
+  let blockerCount = 0;
+
   for (const line of lines) {
-    if (line !== "## Acceptance criteria" && /^#{1,6}\s+acceptance criteria\s*$/i.test(line)) {
-      warnings.push(
-        `Rejected heading \`${line}\`: acceptance criteria header must be exactly \`## Acceptance criteria\` (case-sensitive, level-2).`,
-      );
+    if (line === "## Acceptance criteria") {
+      acceptanceCriteriaCount += 1;
+    } else if (line !== "## Acceptance criteria" && /^#{1,6}\s+acceptance criteria\s*$/i.test(line)) {
+      warnings.push({
+        kind: "near-miss-acceptance-heading",
+        message: `Rejected heading \`${line}\`: acceptance criteria header must be exactly \`## Acceptance criteria\` (case-sensitive, level-2).`,
+      });
     }
-    if (line !== "## Blocker" && /^#{1,6}\s+blocker\s*$/i.test(line)) {
-      warnings.push(
-        `Rejected heading \`${line}\`: blocker header must be exactly \`## Blocker\` (case-sensitive, level-2).`,
-      );
+
+    if (line === "## Blocker") {
+      blockerCount += 1;
+    } else if (line !== "## Blocker" && /^#{1,6}\s+blocker\s*$/i.test(line)) {
+      warnings.push({
+        kind: "near-miss-blocker-heading",
+        message: `Rejected heading \`${line}\`: blocker header must be exactly \`## Blocker\` (case-sensitive, level-2).`,
+      });
     }
   }
+
+  if (acceptanceCriteriaCount > 1) {
+    warnings.push({
+      kind: "duplicate-section",
+      message: `Duplicate section: \`## Acceptance criteria\` appears ${acceptanceCriteriaCount} times.`,
+    });
+  }
+
+  if (blockerCount > 1) {
+    warnings.push({
+      kind: "duplicate-section",
+      message: `Duplicate section: \`## Blocker\` appears ${blockerCount} times.`,
+    });
+  }
+
   return warnings;
 }
 
@@ -216,4 +251,39 @@ export function detectBlocker(content: string): {
     hasBlocker: true,
     body: blockerExtraction.body,
   };
+}
+
+/**
+ * Classify if an acceptance criterion is "structural" — a location/containment/existence
+ * claim about code structure with no observable runtime/operator outcome clause.
+ * Location/existence verbs: "lives in", "is defined in", "exists as", "has unit tests".
+ */
+export function isStructuralAc(criterion: AcceptanceCriterion): boolean {
+  const text = criterion.text.toLowerCase();
+
+  // Location/existence verbs: key patterns
+  const locationVerbs = [
+    /\blives in\b/,
+    /\bis defined in\b/,
+    /\bexists as\b/,
+    /\bhas unit tests?\b/,
+    /\bincludes\b.*test/,
+    /\bincludedst\b.*test/,
+  ];
+
+  const hasLocationVerb = locationVerbs.some((verb) => verb.test(text));
+  if (!hasLocationVerb) {
+    return false;
+  }
+
+  // Check for behavioral assertion patterns (e.g. "returns", "produces", "causes", "enables")
+  // These indicate the AC names a symbol as the subject of a behavioral claim, not just location.
+  const behavioralVerbs = [/\breturns\b/, /\bproduces\b/, /\bcauses\b/, /\benables\b/, /\bfails\b/, /\braises\b/];
+
+  const hasBehavioralVerb = behavioralVerbs.some((verb) => verb.test(text));
+  if (hasBehavioralVerb) {
+    return false;
+  }
+
+  return true;
 }

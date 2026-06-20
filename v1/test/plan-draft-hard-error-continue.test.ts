@@ -196,6 +196,7 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       expect(result.blocker).toBeDefined();
       expect(result.blocker).toContain("Cannot confirm: missing-behavior");
       expect(result.error).toBeNull();
+      expect(result.warnings).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -220,6 +221,7 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
       expect(result.valid).toBe(true);
       expect(result.blocker).toBeDefined();
       expect(result.error).toBeNull();
+      expect(result.warnings).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -291,6 +293,116 @@ describe("runDraftPhase (plan inner loop on hard error)", () => {
 
       expect(out.result.kind).toBe("ok");
       expect(out.subspecCount).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("validateDraftOutput rejects near-miss acceptance criteria heading", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-near-miss-ac-"));
+    try {
+      const name = "p-draft";
+      const specDir = join(dir, "spec", name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n");
+      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(join(specDir, "00-one.md"), "# One\n\n### Acceptance criteria\n\n- [ ] x\n");
+
+      const result = validateDraftOutput(dir, name, undefined, undefined, undefined);
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("00-one.md");
+      expect(result.error).toContain("Acceptance criteria");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("validateDraftOutput rejects duplicate acceptance criteria sections", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-dup-ac-"));
+    try {
+      const name = "p-draft";
+      const specDir = join(dir, "spec", name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n");
+      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(
+        join(specDir, "00-one.md"),
+        "# One\n\n## Acceptance criteria\n\n- [ ] x\n\n## Acceptance criteria\n\n- [ ] y\n",
+      );
+
+      const result = validateDraftOutput(dir, name, undefined, undefined, undefined);
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("00-one.md");
+      expect(result.error).toContain("Duplicate");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("validateDraftOutput rejects subspec with no acceptance criteria", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-no-ac-"));
+    try {
+      const name = "p-draft";
+      const specDir = join(dir, "spec", name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n");
+      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(join(specDir, "00-one.md"), "# One\n\nJust some body text, no acceptance criteria.\n");
+
+      const result = validateDraftOutput(dir, name, undefined, undefined, undefined);
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("00-one.md");
+      expect(result.error).toContain("no acceptance criteria");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("validateDraftOutput warns on structural ACs", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-structural-ac-"));
+    try {
+      const name = "p-draft";
+      const specDir = join(dir, "spec", name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n");
+      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(
+        join(specDir, "00-one.md"),
+        "# One\n\n## Acceptance criteria\n\n- [ ] X lives in src/core\n- [ ] Y returns invalid when Z\n",
+      );
+
+      const result = validateDraftOutput(dir, name, undefined, undefined, undefined);
+
+      expect(result.valid).toBe(true);
+      expect(result.warnings.length).toBe(1);
+      expect(result.warnings[0]).toContain("structural AC");
+      expect(result.warnings[0]).toContain("lives in src/core");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("validateDraftOutput passes valid draft with behavioral ACs", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-draft-valid-"));
+    try {
+      const name = "p-draft";
+      const specDir = join(dir, "spec", name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: p-draft\n---\n\n# Intent\n");
+      writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(
+        join(specDir, "00-one.md"),
+        "# One\n\n## Acceptance criteria\n\n- [ ] `validateDraftOutput` returns invalid when near-miss heading\n- [ ] Parser emits categorized warnings\n",
+      );
+
+      const result = validateDraftOutput(dir, name, undefined, undefined, undefined);
+
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeNull();
+      expect(result.warnings).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -1006,7 +1006,9 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
     if (beforeCriteria.length === 0) {
       const warningsSuffix =
-        beforeParse.warnings.length === 0 ? "" : ` Parser warnings:\n- ${beforeParse.warnings.join("\n- ")}`;
+        beforeParse.warnings.length === 0
+          ? ""
+          : ` Parser warnings:\n- ${beforeParse.warnings.map((w) => w.message).join("\n- ")}`;
       fanout(
         "harness",
         `active subspec ${activeSubspecPath} has no \`## Acceptance criteria\` checkboxes; jarvis cannot detect completion. Add an acceptance-criteria checklist to the subspec and rerun.${warningsSuffix}\n`,

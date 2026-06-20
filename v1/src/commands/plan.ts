@@ -980,6 +980,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           return 1;
         }
 
+        // Surface structural AC warnings
+        for (const warning of validation.warnings) {
+          opts.io.stderr(`plan: warning: ${warning}\n`);
+        }
+
         // Check if a blocker was raised
         if (validation.blocker !== undefined) {
           draftBlocker = validation.blocker;

@@ -32,14 +32,14 @@ Location/existence verb set and the structural-AC token list: exact forms pinned
 
 ## Acceptance criteria
 
-- [ ] `validateDraftOutput` returns invalid (blocking the `plan: draft` commit) when a generated subspec uses a near-miss acceptance or blocker heading (`### Acceptance criteria`, `## acceptance criteria`, `## Blocker ` variants).
-- [ ] `validateDraftOutput` returns invalid when a generated subspec contains a duplicate canonical section (two `## Acceptance criteria` or two `## Blocker` headings).
-- [ ] `validateDraftOutput` returns invalid when a generated subspec exposes no parseable criterion under the exact `## Acceptance criteria` heading (missing or empty section).
-- [ ] An AC whose predicate is a location/existence claim about code structure (e.g. "X lives in a dedicated module with unit tests") produces a non-blocking warning surfaced on stderr; the draft still commits. An AC naming a symbol as the subject of a behavioral assertion (e.g. "`validateDraftOutput` returns invalid when …") produces no structural-AC warning.
-- [ ] A valid draft — exact `## Acceptance criteria` heading, single canonical sections, behavioral ACs — passes validation and commits.
-- [ ] Heading and AC extraction route through `shared/spec-parser.ts`; the parser emits categorized (`kind`-tagged) warnings and the gate maps category → severity without string-matching parser prose. No plan-only parser is added.
-- [ ] A genuine `## Blocker` in `intent.md` still short-circuits to a valid stop without running structural subspec checks.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `validateDraftOutput` returns invalid (blocking the `plan: draft` commit) when a generated subspec uses a near-miss acceptance or blocker heading (`### Acceptance criteria`, `## acceptance criteria`, `## Blocker ` variants).
+- [x] `validateDraftOutput` returns invalid when a generated subspec contains a duplicate canonical section (two `## Acceptance criteria` or two `## Blocker` headings).
+- [x] `validateDraftOutput` returns invalid when a generated subspec exposes no parseable criterion under the exact `## Acceptance criteria` heading (missing or empty section).
+- [x] An AC whose predicate is a location/existence claim about code structure (e.g. "X lives in a dedicated module with unit tests") produces a non-blocking warning surfaced on stderr; the draft still commits. An AC naming a symbol as the subject of a behavioral assertion (e.g. "`validateDraftOutput` returns invalid when …") produces no structural-AC warning.
+- [x] A valid draft — exact `## Acceptance criteria` heading, single canonical sections, behavioral ACs — passes validation and commits.
+- [x] Heading and AC extraction route through `shared/spec-parser.ts`; the parser emits categorized (`kind`-tagged) warnings and the gate maps category → severity without string-matching parser prose. No plan-only parser is added.
+- [x] A genuine `## Blocker` in `intent.md` still short-circuits to a valid stop without running structural subspec checks.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

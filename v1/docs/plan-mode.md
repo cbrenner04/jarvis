@@ -447,6 +447,19 @@ Each generated or rewritten spec must satisfy these rules (enforced by plan mode
 
 Plan mode validates these rules after each phase. If a validation fails, jarvis emits an error and does not commit the broken spec tree.
 
+### Draft structural validation
+
+Before the `plan: draft` commit is created, jarvis performs structural validation on each generated subspec file (`NN-*.md`). These checks are **non-blocking in review passes** (they run only at draft time; resume `plan: review N rM` passes do not re-validate).
+
+**Structural checks per generated subspec:**
+
+- **Heading exactness (fail)**: A near-miss acceptance or blocker heading (e.g. `### Acceptance criteria`, `## acceptance criteria`, `## Blocker ` variants) blocks the draft commit. The parser already detects these and the draft gate promotes them to hard failures.
+- **Duplicate canonical sections (fail)**: A subspec with duplicate `## Acceptance criteria` or duplicate `## Blocker` headings blocks the draft commit. The parser takes the first occurrence, so a second block's criteria are invisible to patch-mode ticking — a correctness hazard.
+- **Missing/empty acceptance section (fail)**: A subspec with no parseable acceptance criteria under an exact `## Acceptance criteria` heading blocks the draft commit. An unparseable subspec never completes at run time.
+- **Structural ACs (warn, non-blocking)**: An acceptance criterion whose predicate is a location/existence claim about code structure (e.g. "X lives in a dedicated module with unit tests") produces a non-blocking warning on stderr. Behavioral ACs naming a symbol as the subject of a behavioral assertion (e.g. "`validateDraftOutput` returns invalid when …") produce no warning. The draft still commits when structural ACs are detected.
+
+The blocker short-circuit still runs first: if `intent.md` carries a genuine `## Blocker`, no subspecs are expected and structural checks do not run.
+
 ## Write boundary
 
 Plan mode enforces a strict write boundary: agents may only modify files within `<targetDir>/<spec-dir>/`. If an agent attempts to modify files outside this directory (e.g., `src/`, `.github/`, `README.md`), the following happens:

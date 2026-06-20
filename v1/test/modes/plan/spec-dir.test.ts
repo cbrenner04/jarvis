@@ -105,5 +105,6 @@ describe("runDraftPhase external spec dir", () => {
 
     const validation = validateDraftOutput(repoDir, "my-plan", "---\nname: my-plan\n---\n", specDir);
     expect(validation.valid).toBe(true);
+    expect(validation.warnings).toEqual([]);
   });
 });

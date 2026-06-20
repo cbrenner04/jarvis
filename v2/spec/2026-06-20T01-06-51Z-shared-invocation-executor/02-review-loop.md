@@ -6,7 +6,8 @@
 
 ## Decisions
 
-- Only the spawn+classification+fallback rotation moves to `executeWithQuotaFallback` + the 00 binding; role orchestration (adversary→advocate→adjudicator), write-boundary enforcement, blocker handling, commit, `onQuotaRotation`/`onAllAgentsQuotaExhausted` hooks, and reserved-exit-code normalization stay in `run.ts`. Rules out absorbing review's role/blocker control flow into the shared loop.
+- Only the spawn+classification+fallback rotation moves to `executeWithQuotaFallback` + the 00 binding; role orchestration (adversary→advocate→adjudicator), write-boundary enforcement, blocker handling, commit, and reserved-exit-code normalization stay in `run.ts`. Rules out absorbing review's role/blocker control flow into the shared loop.
+- Review's `onQuotaRotation` firing (and `onAllAgentsQuotaExhausted`) and any `spawnResult` access live inside the binding's `invoke`, where `spawnResult` is in scope — consistent with 00's rule against threading `spawnResult` through the executor's generic type. Review supplies no separate stderr emitter; the rotation hook is its emission. Rules out reconstructing review's rotation signal in the caller from the executor's result.
 - Terminal mapping unchanged: all-agents-exhausted → exit `2` (`HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED`), `model_config` → `3`, colliding error code → normalized via `RESERVED_REVIEW_EXIT_CODES`. Rules out altering review exit-code contract.
 
 ## Acceptance criteria

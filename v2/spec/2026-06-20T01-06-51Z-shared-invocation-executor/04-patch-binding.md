@@ -2,12 +2,12 @@
 
 ## Problem
 
-`v1/src/modes/patch/run.ts` spawns the head agent and classifies its result inline (`agent.run` → `applyQuotaFallbackWhenAllowed` with the "no iteration progress" guard, then `activeAgents.shift()` on quota). With plan/review/shrink now on the shared binding (00–03), patch is the last path with its own spawn+classification copy. Patch must share the same spawn+`applyQuotaFallbackWhenAllowed` binding while keeping its iteration-driven fallback (head agent per iteration, `shift()` on quota, interleaved with watchdogs/completion/prompt-rebuild).
+`v1/src/modes/patch/run.ts` spawns the head agent and classifies its result inline (`agent.run` → `applyQuotaFallbackWhenAllowed` with the "no iteration progress" guard, then `activeAgents.shift()` on quota). With plan/review/shrink now on the shared binding (00–03), patch is the last path still calling spawn+classify outside the 00 factory. Because patch's `noIterationProgress` guard is computable only after the iteration body, patch uses 00's **separable** spawn and classify steps (per the 00 contract): it calls spawn, runs its iteration body, then classifies with its guard thunk — no `executeWithQuotaFallback`, no second classification path. This is a near-no-op: patch already calls `agent.run` and `applyQuotaFallbackWhenAllowed`, so it gains shared spawn-option/classify plumbing only, not new fallback unification.
 
 ## Decisions
 
-- Patch reuses the 00 spawn+classification binding for a single invocation per iteration but keeps its cross-iteration advancement; it does **not** call `executeWithQuotaFallback`. Rules out forcing patch's iteration loop into the executor's single-call loop, which risks the messages-unchanged signal.
-- The 00 binding factory accepts patch's `allowLenientWeakQuotaFallback` = "no iteration progress" (no checked criteria and no worktree edits), distinct from plan/review/shrink guards. Rules out a patch-only second classification path.
+- Patch uses 00's separable spawn and classify steps for a single invocation per iteration but keeps its cross-iteration advancement; it does **not** call `executeWithQuotaFallback`. Rules out forcing patch's iteration loop into the executor's single-call loop, which risks the messages-unchanged signal.
+- Patch supplies its `allowLenientWeakQuotaFallback` = "no iteration progress" (no checked criteria and no worktree edits) guard thunk to the shared classify step, distinct from plan/review/shrink guards. Rules out a patch-only second classification path.
 - Patch keeps emitting its own `HARNESS_QUOTA_FALLBACK_STRICT` / `harnessQuotaFallbackLenientLine` and `HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED` lines and exit codes (`2`, `3`, `4`); only the spawn+classify call is shared. Rules out moving patch's iteration-aware stderr/exit handling into the binding.
 
 ## Acceptance criteria
@@ -21,4 +21,4 @@
 ## Documentation updates
 
 - `v1/docs/agents.md`: note patch shares the spawn+classification binding while retaining its iteration-driven loop.
-- `v2/docs/v1-behaviors.md`: record that quota fallback spawn+classification is unified across patch/plan/review/shrink — plan/review/shrink loop via the shared executor, patch shares the binding only; operator messages, telemetry, and exit codes unchanged.
+- `v2/docs/v1-behaviors.md`: record that plan/review/shrink now route their quota-fallback loop through the shared `executeWithQuotaFallback` over v1 bindings, while patch shares only the spawn+classify call (no executor loop) and keeps its iteration-driven advancement; operator messages, telemetry, and exit codes unchanged.

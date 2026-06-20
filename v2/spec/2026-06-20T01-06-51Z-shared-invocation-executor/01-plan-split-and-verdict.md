@@ -7,6 +7,8 @@
 ## Decisions
 
 - Reuse the 00 binding + `executeWithQuotaFallback`; only path-specific post-success and terminal-error handling stays inline. Rules out a separate fallback loop for the structured paths.
+- intent-split supplies its `intent:` emitter, its no-op telemetry sink, and its `resetIntentStageDir` per-rotation pre-spawn hook through the 00 factory (the hook runs inside `invoke` before each spawn). Rules out running the stage-dir reset once outside the loop and regressing fan-out.
+- intent-split reproduces its empty-`agentOrder` `model_config` message (`intent: modes.plan.agentOrder is empty`) from the executor's `final: null` per the 00 caller-mapping rule.
 - Pure internal refactor: operator stderr, telemetry, and thrown/returned outcomes are unchanged.
 
 ## Task checklist
@@ -18,7 +20,8 @@
 
 - [ ] Quota exhaustion across all plan agents during intent fan-out and during verdict-actuator falls through agent-by-agent and ends in the existing exhausted outcome (throw / return) unchanged.
 - [ ] Strict and lenient quota stderr lines for both paths are byte-identical to current output under `strict` and `lenient`.
-- [ ] On agent success, fan-out still writes the same ready-intent files and verdict-actuator still applies the verdict and emits its completion line.
+- [ ] On agent success, fan-out still writes the same ready-intent files (with the stage dir reset before every rotation, not once) and verdict-actuator still applies the verdict and emits its completion line.
+- [ ] Empty `modes.plan.agentOrder` during fan-out still yields the existing `intent: modes.plan.agentOrder is empty` model_config outcome.
 - [ ] `model_config` and terminal `error` stop the chain with the same thrown error as today.
 - [ ] `bun run typecheck` and `bun run test` pass.
 

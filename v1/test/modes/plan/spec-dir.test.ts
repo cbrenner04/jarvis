@@ -108,3 +108,117 @@ describe("runDraftPhase external spec dir", () => {
     expect(validation.warnings).toEqual([]);
   });
 });
+
+describe("anchor grounding in validateDraftOutput", () => {
+  let repoDir: string;
+  let specDir: string;
+
+  afterEach(() => {
+    if (repoDir) {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  test("warns when behavioral AC lacks anchor", () => {
+    repoDir = mkdtempSync(join(tmpdir(), "jarvis-anchor-test-"));
+    specDir = join(repoDir, "spec", "test-plan");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "intent.md"), "intent", "utf8");
+    writeFileSync(
+      join(specDir, "00-task.md"),
+      "# Task\n\n## Acceptance criteria\n\n- [ ] plan stops on a hard error\n",
+      "utf8",
+    );
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00-task](./00-task.md)\n", "utf8");
+
+    const validation = validateDraftOutput(repoDir, "test-plan");
+    expect(validation.valid).toBe(true);
+    expect(validation.warnings.some((w) => w.includes("plan stops on a hard error"))).toBe(true);
+  });
+
+  test("does not warn when behavioral AC has test file anchor", () => {
+    repoDir = mkdtempSync(join(tmpdir(), "jarvis-anchor-test-"));
+    specDir = join(repoDir, "spec", "test-plan");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "intent.md"), "intent", "utf8");
+    writeFileSync(
+      join(specDir, "00-task.md"),
+      "# Task\n\n## Acceptance criteria\n\n- [ ] `plan-draft-hard-error-continue.test.ts` stays green\n",
+      "utf8",
+    );
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00-task](./00-task.md)\n", "utf8");
+
+    const validation = validateDraftOutput(repoDir, "test-plan");
+    expect(validation.valid).toBe(true);
+    expect(validation.warnings.every((w) => !w.includes("stays green"))).toBe(true);
+  });
+
+  test("does not warn when behavioral AC has source path anchor", () => {
+    repoDir = mkdtempSync(join(tmpdir(), "jarvis-anchor-test-"));
+    specDir = join(repoDir, "spec", "test-plan");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "intent.md"), "intent", "utf8");
+    writeFileSync(
+      join(specDir, "00-task.md"),
+      "# Task\n\n## Acceptance criteria\n\n- [ ] code in `v1/src/commands/plan.ts` stays unchanged\n",
+      "utf8",
+    );
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00-task](./00-task.md)\n", "utf8");
+
+    const validation = validateDraftOutput(repoDir, "test-plan");
+    expect(validation.valid).toBe(true);
+    expect(validation.warnings.every((w) => !w.includes("stays unchanged"))).toBe(true);
+  });
+
+  test("warns when trigger AC has only non-path backtick span", () => {
+    repoDir = mkdtempSync(join(tmpdir(), "jarvis-anchor-test-"));
+    specDir = join(repoDir, "spec", "test-plan");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "intent.md"), "intent", "utf8");
+    writeFileSync(
+      join(specDir, "00-task.md"),
+      '# Task\n\n## Acceptance criteria\n\n- [ ] `patch_phase: "shrink"` is preserved\n',
+      "utf8",
+    );
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00-task](./00-task.md)\n", "utf8");
+
+    const validation = validateDraftOutput(repoDir, "test-plan");
+    expect(validation.valid).toBe(true);
+    expect(validation.warnings.some((w) => w.includes('patch_phase: "shrink"'))).toBe(true);
+  });
+
+  test("does not warn for non-trigger behavioral AC", () => {
+    repoDir = mkdtempSync(join(tmpdir(), "jarvis-anchor-test-"));
+    specDir = join(repoDir, "spec", "test-plan");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "intent.md"), "intent", "utf8");
+    writeFileSync(
+      join(specDir, "00-task.md"),
+      "# Task\n\n## Acceptance criteria\n\n- [ ] X returns invalid when a subspec lacks AC\n",
+      "utf8",
+    );
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00-task](./00-task.md)\n", "utf8");
+
+    const validation = validateDraftOutput(repoDir, "test-plan");
+    expect(validation.valid).toBe(true);
+    expect(validation.warnings.every((w) => !w.includes("returns invalid"))).toBe(true);
+  });
+
+  test("draft still commits with anchor warnings", () => {
+    repoDir = mkdtempSync(join(tmpdir(), "jarvis-anchor-test-"));
+    specDir = join(repoDir, "spec", "test-plan");
+    mkdirSync(specDir, { recursive: true });
+    writeFileSync(join(specDir, "intent.md"), "intent", "utf8");
+    writeFileSync(
+      join(specDir, "00-task.md"),
+      "# Task\n\n## Acceptance criteria\n\n- [ ] plan stops on a hard error\n",
+      "utf8",
+    );
+    writeFileSync(join(specDir, "index.md"), "# Index\n\n- [ ] [00-task](./00-task.md)\n", "utf8");
+
+    const validation = validateDraftOutput(repoDir, "test-plan");
+    expect(validation.valid).toBe(true);
+    expect(validation.error).toBeNull();
+    expect(validation.warnings.length).toBeGreaterThan(0);
+  });
+});

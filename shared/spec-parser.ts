@@ -16,7 +16,8 @@ export type AcceptanceCriterion = {
 export type WarningKind =
   | "near-miss-acceptance-heading"
   | "near-miss-blocker-heading"
-  | "duplicate-section";
+  | "duplicate-section"
+  | "missing-anchor-behavioral-ac";
 
 export type ParsedSpecWarning = {
   kind: WarningKind;
@@ -209,6 +210,39 @@ function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] 
   return acceptanceCriteria;
 }
 
+/** Detect if an acceptance criterion is a behavioral/preservation AC.
+ * Trigger verbs (case-insensitive, whole-word): preserved, unchanged, stays, remains, stops, continues.
+ */
+export function isBehavioralPreservationAc(criterion: AcceptanceCriterion): boolean {
+  const text = criterion.text.toLowerCase();
+  const triggerVerbs = [/\bpreserved\b/, /\bunchanged\b/, /\bstays\b/, /\bremains\b/, /\bstops\b/, /\bcontinues\b/];
+  return triggerVerbs.some((verb) => verb.test(text));
+}
+
+/** Check if an acceptance criterion text contains a path-like anchor.
+ * An anchor is a *.test.ts filename/path, or a backtick span containing a path separator or source-file extension.
+ */
+export function hasPathLikeAnchor(criterion: AcceptanceCriterion): boolean {
+  const text = criterion.text;
+
+  // Check for *.test.ts filename/path patterns (e.g., "plan-draft-hard-error-continue.test.ts")
+  if (/\b\w+.*\.test\.ts\b/.test(text)) {
+    return true;
+  }
+
+  // Check for backtick spans containing path separators or source-file extensions
+  const backtickPattern = /`([^`]+)`/g;
+  for (const match of text.matchAll(backtickPattern)) {
+    const content = match[1] ?? "";
+    // Path-like if it contains a path separator or a source-file extension
+    if (content.includes("/") || /\.\w+$/.test(content)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function parseSpec(content: string): ParsedSpec {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
 
@@ -218,6 +252,16 @@ export function parseSpec(content: string): ParsedSpec {
 
   const acceptanceCriteriaSection = extractAcceptanceCriteriaSection(content);
   const acceptanceCriteria = acceptanceCriteriaSection ? parseAcceptanceCriteria(acceptanceCriteriaSection.lines) : [];
+
+  // Check for behavioral/preservation ACs without anchors
+  for (const criterion of acceptanceCriteria) {
+    if (isBehavioralPreservationAc(criterion) && !hasPathLikeAnchor(criterion)) {
+      warnings.push({
+        kind: "missing-anchor-behavioral-ac",
+        message: `Behavioral/preservation AC lacks test or source anchor: "${criterion.text}". Cite an existing test (e.g., \`plan-draft-hard-error-continue.test.ts\`) or source path (e.g., \`v1/src/commands/plan.ts\`).`,
+      });
+    }
+  }
 
   const blockerExtraction = extractBlockerBody(content);
   const blocker = blockerExtraction?.body;

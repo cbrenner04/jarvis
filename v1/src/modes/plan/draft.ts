@@ -356,6 +356,9 @@ export function validateDraftOutput(
           warnings: [],
         };
       }
+      if (warning.kind === "missing-anchor-behavioral-ac") {
+        structuralWarnings.push(`${subspecFile}: ${warning.message}`);
+      }
     }
 
     // Check for missing/empty acceptance section

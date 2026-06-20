@@ -21,12 +21,12 @@ This subspec enforces the [[refactor-acs-cite-tests]] convention at draft time: 
 
 ## Acceptance criteria
 
-- [ ] A behavioral/preservation AC with no test or source anchor (e.g. "plan stops on a hard error") produces a non-blocking warning on stderr; the draft still commits.
-- [ ] The same AC carrying a path-like anchor (e.g. "`plan-draft-hard-error-continue.test.ts` stays green") produces no anchor warning.
-- [ ] A trigger AC whose only backtick span has no path shape (e.g. "`patch_phase: "shrink"` is preserved") still warns — a non-path backtick span does not count as an anchor.
-- [ ] An AC with no preservation/continuation trigger verb produces no anchor warning regardless of anchors.
-- [ ] The anchor check never sets `valid: false` — it only warns.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A behavioral/preservation AC with no test or source anchor (e.g. "plan stops on a hard error") produces a non-blocking warning on stderr; the draft still commits.
+- [x] The same AC carrying a path-like anchor (e.g. "`plan-draft-hard-error-continue.test.ts` stays green") produces no anchor warning.
+- [x] A trigger AC whose only backtick span has no path shape (e.g. "`patch_phase: "shrink"` is preserved") still warns — a non-path backtick span does not count as an anchor.
+- [x] An AC with no preservation/continuation trigger verb produces no anchor warning regardless of anchors.
+- [x] The anchor check never sets `valid: false` — it only warns.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

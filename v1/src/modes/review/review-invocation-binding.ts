@@ -38,7 +38,9 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
     name: opts.agentEntry.agent,
     model: opts.agentEntry.model,
   });
-  const agentLabel = agent.attributionLabel ? agent.attributionLabel() : `${opts.agentEntry.agent} (${opts.agentEntry.model})`;
+  const agentLabel = agent.attributionLabel
+    ? agent.attributionLabel()
+    : `${opts.agentEntry.agent} (${opts.agentEntry.model})`;
 
   const binding: InvocationBinding<T> = {
     id: agentLabel,

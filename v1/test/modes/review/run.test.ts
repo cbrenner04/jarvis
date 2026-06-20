@@ -314,7 +314,7 @@ describe("runReview", () => {
       },
     });
     expect(errorCode).toBe(9);
-    expect(loaded).toEqual(["claude"]);
+    expect(loaded).toEqual(["claude", "codex"]);
     expect(errorPrompts.telemetry).toHaveLength(1);
     expect(errorPrompts.telemetry[0]?.outcome).toBe("error");
     expect(errorPrompts.telemetry[0]?.exitCode).toBe(9);
@@ -458,6 +458,25 @@ describe("runReview", () => {
       "adjudicator:claude:quota",
       "adjudicator:codex:ok",
     ]);
+  });
+
+  test("uses real agent attribution label in committed attempts", async () => {
+    const { adapter, committed } = makeAdapter();
+
+    await runReview({
+      config: makeConfig({ reviewPasses: 1 }),
+      cwd: "/tmp/review",
+      adapter,
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "", stderr: "" })),
+    });
+
+    expect(committed).toHaveLength(3);
+    // Verify all committed attempts use the real attribution label from the agent
+    for (const attempt of committed) {
+      expect(attempt.agentLabel).toBe("claude:label");
+      expect(attempt.agentLabel).not.toContain("(");
+    }
   });
 
   test("records telemetry when adapter rejects a successful agent result", async () => {

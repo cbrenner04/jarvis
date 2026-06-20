@@ -25,6 +25,7 @@ export type InvocationResult = InvocationOk | InvocationQuota | InvocationError;
 export type InvocationBinding<T extends InvocationResult = InvocationResult> = {
   id: string;
   invoke: (args: { prompt: string; cwd: string; signal?: AbortSignal }) => Promise<T>;
+  shouldAdvance?: (result: T) => boolean;
 };
 
 export type InvocationAttempt<T extends InvocationResult = InvocationResult> = {
@@ -60,7 +61,8 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
     });
     const attempt = { binding, result };
     attempts.push(attempt);
-    if (result.kind === "quota") {
+    const shouldAdvance = binding.shouldAdvance ? binding.shouldAdvance(result) : result.kind === "quota";
+    if (shouldAdvance) {
       continue;
     }
     return { attempts, final: attempt };

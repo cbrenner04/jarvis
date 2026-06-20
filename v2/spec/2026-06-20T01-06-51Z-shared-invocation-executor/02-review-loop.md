@@ -12,11 +12,11 @@
 
 ## Acceptance criteria
 
-- [ ] Quota exhaustion across all review agents during any role attempt (adversary, advocate, adjudicator) exits `2` with the existing exhausted message.
-- [ ] A single agent's quota result still rotates to the next configured review agent within the same role attempt; non-quota error/model_config stop the chain with exits unchanged (`3` for model_config; reserved error codes normalized to `1`).
-- [ ] `onQuotaRotation` and `onAllAgentsQuotaExhausted` callbacks fire with the same arguments as today.
-- [ ] Review role/blocker/commit behavior and `patch_phase: "review"` telemetry are unchanged.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Quota exhaustion across all review agents during any role attempt (adversary, advocate, adjudicator) exits `2` with the existing exhausted message.
+- [x] A single agent's quota result still rotates to the next configured review agent within the same role attempt; non-quota error/model_config stop the chain with exits unchanged (`3` for model_config; reserved error codes normalized to `1`).
+- [x] `onQuotaRotation` and `onAllAgentsQuotaExhausted` callbacks fire with the same arguments as today.
+- [x] Review role/blocker/commit behavior and `patch_phase: "review"` telemetry are unchanged.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

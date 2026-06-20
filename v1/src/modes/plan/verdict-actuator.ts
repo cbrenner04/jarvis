@@ -1,15 +1,15 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { createAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
-import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
+import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
@@ -152,58 +152,53 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
 
   opts.onOutboundPrompt?.(prompt);
 
-  // Try each agent in the plan order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;
-  let result: AgentResult | null = null;
-  let _agentLabel: string | null = null;
-
-  for (const entry of agentOrder) {
-    const agent = (opts.createAgent ?? createAgent)(entry.agent, entry.model);
-    _agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
-
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const invocationStartedAt = Date.now();
-    const spawnResult = await agent.run(prompt, {
-      cwd: opts.worktreePath,
-      ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
-    });
-    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    result = applyQuotaFallbackWhenAllowed(
-      entry.agent,
-      spawnResult,
-      {
-        quotaFallback: opts.config.quotaFallback,
-        weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
-      },
-      noDiskChangeDuringInvocation,
-    );
-    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
-
-    opts.planTelemetry?.recordAgentAttempt({
-      phase: "review",
-      agentCli: entry.agent,
-      configuredModel: entry.model,
-      durationMs: Date.now() - invocationStartedAt,
-      result,
-    });
-
-    if (result.kind === "ok") {
-      // Success
-      opts.stderr?.(`plan: verdict actuator completed\n`);
-      return;
-    }
-
-    if (result.kind === "quota") {
-      // Try next agent
-      continue;
-    }
-
-    // Error or model config: fail
-    throw new Error(`verdict actuator error (${result.kind})`);
+  if (agentOrder.length === 0) {
+    throw new Error(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
   }
 
-  // All agents exhausted
-  throw new Error(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+  const bindings = agentOrder.map((entry) =>
+    createPlanInvocationBinding({
+      agentName: entry.agent,
+      configuredModel: entry.model,
+      createAgent: opts.createAgent ?? createAgent,
+      config: opts.config,
+      worktreePath: opts.worktreePath,
+      spawnOptions: opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
+      onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
+        emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified);
+      },
+      recordAgentAttempt: (data) => {
+        opts.planTelemetry?.recordAgentAttempt({
+          phase: "review",
+          agentCli: data.agentCli,
+          configuredModel: data.configuredModel,
+          durationMs: data.durationMs,
+          result: data.result,
+        });
+      },
+    }),
+  );
+
+  const execution = await executeWithQuotaFallback({
+    prompt,
+    cwd: opts.worktreePath,
+    bindings,
+  });
+
+  const finalResult = execution.final?.result;
+  if (finalResult?.kind === "ok") {
+    opts.stderr?.(`plan: verdict actuator completed\n`);
+    return;
+  }
+
+  if (finalResult?.kind === "quota") {
+    throw new Error(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+  }
+
+  if (finalResult === undefined) {
+    throw new Error(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+  }
+
+  throw new Error(`verdict actuator error (${finalResult.kind})`);
 }

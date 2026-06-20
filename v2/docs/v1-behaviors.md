@@ -232,6 +232,14 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 - `quotaFallback: "lenient"` can upgrade `kind: "error"` into `kind: "quota"` only when the caller-provided guard allows it; patch mode passes that guard only for no-progress iterations, preventing weak quota upgrades after observable repo progress. Sources: `v1/src/agents/quota.ts`, `v1/src/modes/patch/run.ts`, `v1/docs/quota-signals.md`
 - Quota rotation and exhaustion stderr strings are shared constants: strict fallback uses `quota exhausted; falling back`, lenient upgraded fallback uses `probable quota-like error (exit N); falling back`, and terminal exhaustion uses `all agents quota-exhausted` (plan prefixes with `plan:` and may append phase suffixes). Sources: `v1/src/quota-harness-messages.ts`, `v1/src/modes/patch/run.ts`, `v1/src/modes/plan/emit-plan-quota-stderr.ts`, `v1/src/commands/plan.ts`, `v1/docs/quota-signals.md`
 
+### Patch invocation architecture
+
+- Patch mode's per-iteration loop retains its own advancement semantics (head agent per iteration, with fallback on quota exhaustion). Starting with the shared-binding migration, patch now uses separable v1-owned binding methods for spawn and classification, distinct from the plan binding's coupled `invoke` method.
+- The patch binding factory (`createPatchInvocationBinding`) exposes `spawn` and `classify` methods. `spawn` runs the agent with watchdog integration (onSpawned, lastOutputAtMs, abortKillGraceMs). `classify` applies quota fallback with a caller-supplied guard thunk (computed after the iteration body completes).
+- The patch iteration loop calls `binding.spawn()` to run the agent, then executes the iteration body (checking acceptance criteria, detecting file edits, etc.), then calls `binding.classify(result, noIterationProgress)` with a guard computed from the iteration results.
+- Patch keeps its own iteration-driven loop and does not use the shared executor (`executeWithQuotaFallback`). Its per-iteration telemetry, stderr messages (quota fallback and exhaustion), and exit codes remain unchanged.
+- The separable spawn/classify seam exists to serve paths (review, shrink) that need custom logic between spawn and classification; patch is the primary consumer driving that separation. Sources: `v1/src/modes/patch/patch-invocation-binding.ts`, `v1/src/modes/patch/run.ts`, `v1/docs/agents.md`
+
 ### Abort and process lifecycle
 
 - All adapters execute via a shared spawn wrapper that launches the CLI in a detached process group, normalizes env with `PWD=<agent cwd>` and no `OLDPWD`, and buffers stdout/stderr until stream close + process close before final classification. Sources: `v1/src/agents/spawn.ts`, `v1/docs/agents.md`

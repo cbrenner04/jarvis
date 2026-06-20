@@ -4,7 +4,6 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
@@ -56,6 +55,7 @@ import {
   getActiveLinkedSubspecPath,
   getFirstUncheckedTask,
 } from "./completion.ts";
+import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
@@ -1122,12 +1122,20 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     scheduleIdleCheck();
   }
 
+  const binding = createPatchInvocationBinding({
+    agentName: agent.name,
+    configuredModel: configuredPatchModel,
+    createAgent: (_name, model) => agent,
+    config: cfg,
+    abortKillGraceMs: killGraceMs,
+  });
+
   try {
-    const result = await agent.run(prompt, {
+    const result = await binding.spawn({
+      prompt,
       cwd: agentWorkingDir,
-      ...(preflight.additionalReadDirs === undefined ? {} : { additionalReadDirs: preflight.additionalReadDirs }),
       signal: state.currentController.signal,
-      abortKillGraceMs: killGraceMs,
+      ...(preflight.additionalReadDirs !== undefined ? { additionalReadDirs: preflight.additionalReadDirs } : {}),
       lastOutputAtMs,
       onSpawned: ({ pid }) => {
         watchdogPgid = pid;
@@ -1643,15 +1651,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
     const isGitWorktree = existsSync(join(agentWorkingDir, ".git"));
     const editedFiles = isGitWorktree ? worktreeCompletionBlocker(agentWorkingDir) !== undefined : false;
     const noIterationProgress = !checkedAnyCriteria && !editedFiles;
-    const classified = applyQuotaFallbackWhenAllowed(
-      agent.name,
-      result,
-      {
-        quotaFallback: cfg.quotaFallback,
-        weakQuotaExitCodes: cfg.weakQuotaExitCodes,
-      },
-      noIterationProgress,
-    );
+    const classified = binding.classify(result, noIterationProgress);
     if (classified.kind === "quota") {
       activeAgents.shift();
       fanout("harness", `${agent.name}: ${harnessQuotaFallbackLenientLine(result.exitCode)}\n`, "stderr");

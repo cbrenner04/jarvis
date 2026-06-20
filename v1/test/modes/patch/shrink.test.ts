@@ -396,6 +396,7 @@ describe("runPatchShrinkPhase", () => {
       expect(subject).toBe("shrink: simplify implementation diff");
       const body = execSync("git log -1 --format=%B", { cwd: dir, encoding: "utf8" });
       expect(body).toContain("Jarvis-Agent:");
+      expect(body).toContain("Jarvis-Agent: fake-claude");
       expect(harness.some((line) => line.includes("committed simplifications"))).toBe(true);
     } finally {
       cleanup();

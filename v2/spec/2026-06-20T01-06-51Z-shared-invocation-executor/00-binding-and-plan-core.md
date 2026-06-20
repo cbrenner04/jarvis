@@ -29,13 +29,13 @@ The binding seam is pinned here against **all four** consumers (plan single-call
 
 ## Acceptance criteria
 
-- [ ] Quota exhaustion across all configured plan agents during draft, intent-draft, and name-only falls through agent-by-agent and ends in the existing all-agents-exhausted outcome.
-- [ ] Strict quota and lenient probable-quota stderr lines emitted during those three plan paths are byte-identical to current output for both `quotaFallback: "strict"` and `"lenient"`.
-- [ ] Per-attempt plan telemetry (phase, agent, configured model, result kind) for those paths is unchanged.
-- [ ] Each plan path preserves its **exact** pre-D advance/stop-on-`error` behavior: a path that advanced to the next agent on a classified hard `error` still does (`plan-draft-hard-error-continue` stays green); a path that stopped still stops. `model_config` remains terminal everywhere. The shared executor's own `stops immediately on non-quota failure` test stays green (default advance is quota-only; plan opts in via a per-binding advance predicate).
-- [ ] Empty `modes.plan.agentOrder` yields each path's existing message unchanged (intent-draft's `plan:` model_config message; the other single-call paths' defensive outcome).
-- [ ] `shared/**` contains no import from `v1/**` or `v2/**`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Quota exhaustion across all configured plan agents during draft, intent-draft, and name-only falls through agent-by-agent and ends in the existing all-agents-exhausted outcome.
+- [x] Strict quota and lenient probable-quota stderr lines emitted during those three plan paths are byte-identical to current output for both `quotaFallback: "strict"` and `"lenient"`.
+- [x] Per-attempt plan telemetry (phase, agent, configured model, result kind) for those paths is unchanged.
+- [x] Each plan path preserves its **exact** pre-D advance/stop-on-`error` behavior: a path that advanced to the next agent on a classified hard `error` still does (`plan-draft-hard-error-continue` stays green); a path that stopped still stops. `model_config` remains terminal everywhere. The shared executor's own `stops immediately on non-quota failure` test stays green (default advance is quota-only; plan opts in via a per-binding advance predicate).
+- [x] Empty `modes.plan.agentOrder` yields each path's existing message unchanged (intent-draft's `plan:` model_config message; the other single-call paths' defensive outcome).
+- [x] `shared/**` contains no import from `v1/**` or `v2/**`.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

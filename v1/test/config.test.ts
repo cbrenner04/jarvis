@@ -61,7 +61,7 @@ describe("loadConfig", () => {
 
     const cfg = loadConfig({ dir });
 
-    expect(cfg.modes.patch).toEqual({ agentOrder: DEFAULT_AGENT_ORDER, prNarrative: "template" });
+    expect(cfg.modes.patch).toEqual({ agentOrder: DEFAULT_AGENT_ORDER, prNarrative: "template", shrink: "agent" });
     expect(cfg.modes.plan).toEqual({ agentOrder: DEFAULT_AGENT_ORDER, targetDir: "spec", prNarrative: "template" });
     expect(cfg.modes.prompt).toEqual({ agentOrder: DEFAULT_AGENT_ORDER });
     expect(cfg.modes.review).toEqual({ passes: 1 });
@@ -2338,5 +2338,79 @@ describe("review mode config validation", () => {
     );
     const cfg = loadConfig({ dir });
     expect(cfg.modes.review).toEqual({ passes: 1 });
+  });
+
+  test("defaults modes.patch.shrink to agent", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.shrink).toBe("agent");
+  });
+
+  test("accepts modes.patch.shrink set to off", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY, shrink: "off" },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.shrink).toBe("off");
+  });
+
+  test("accepts modes.patch.shrink set to agent", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY, shrink: "agent" },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.shrink).toBe("agent");
+  });
+
+  test("rejects invalid modes.patch.shrink value", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY, shrink: "invalid" },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.shrink/);
+    expect(() => loadConfig({ dir })).toThrow(/off.*agent/);
   });
 });

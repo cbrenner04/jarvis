@@ -1768,7 +1768,8 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
 
   const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
   const implementationIterations = logging.patchIterationsCompletedForSummary();
-  const shouldRunShrink = preflight.gitEnabled && implementationIterations > 0;
+  const shouldRunShrink =
+    preflight.gitEnabled && implementationIterations > 0 && preflight.cfg.modes.patch.shrink !== "off";
   // Review runs when: (1) normal completion with at least one iteration, OR (2) review resume is active
   const shouldRunReview =
     preflight.gitEnabled && reviewPasses > 0 && (implementationIterations > 0 || ctx.opts.resumeReview === true);

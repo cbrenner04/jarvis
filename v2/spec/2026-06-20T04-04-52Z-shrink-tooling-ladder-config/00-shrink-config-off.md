@@ -20,19 +20,19 @@ Shrink runs whenever `git: true` and at least one implementation iteration ran
 
 ## Task checklist
 
-- [ ] Add `shrink?: "off" | "agent"` to `ModeConfig` and default `agent` in `DEFAULT_CONFIG.modes.patch`.
-- [ ] Validate `modes.patch.shrink` (reuse the `prNarrative`-style validator pattern); reject unknown strings with a named error.
-- [ ] Gate `shouldRunShrink` on the resolved value: `off` ⇒ phase does not run.
-- [ ] Docs per below.
+- [x] Add `shrink?: "off" | "agent"` to `ModeConfig` and default `agent` in `DEFAULT_CONFIG.modes.patch`.
+- [x] Validate `modes.patch.shrink` (reuse the `prNarrative`-style validator pattern); reject unknown strings with a named error.
+- [x] Gate `shouldRunShrink` on the resolved value: `off` ⇒ phase does not run.
+- [x] Docs per below.
 
 ## Acceptance criteria
 
-- [ ] A config with `modes.patch.shrink` set to `off` or `agent` loads successfully; an unknown value fails validation with a message naming `modes.patch.shrink`.
-- [ ] A config omitting `modes.patch.shrink` resolves to `agent`.
-- [ ] With `modes.patch.shrink: "off"` and an otherwise shrink-eligible completion (`git: true`, ≥1 implementation iteration), the shrink phase does not run: no pre-shrink ready gate fires and no `patch_phase: "shrink"` telemetry row is emitted.
-- [ ] With `modes.patch.shrink: "off"`, review placement and `maybeMarkReady` are unchanged from a run with shrink disabled by other means (review still runs when `modes.review.passes > 0`).
-- [ ] With the default (`agent`) and a shrink-eligible completion, the existing agent-shrink behavior runs as before this change.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A config with `modes.patch.shrink` set to `off` or `agent` loads successfully; an unknown value fails validation with a message naming `modes.patch.shrink`.
+- [x] A config omitting `modes.patch.shrink` resolves to `agent`.
+- [x] With `modes.patch.shrink: "off"` and an otherwise shrink-eligible completion (`git: true`, ≥1 implementation iteration), the shrink phase does not run: no pre-shrink ready gate fires and no `patch_phase: "shrink"` telemetry row is emitted.
+- [x] With `modes.patch.shrink: "off"`, review placement and `maybeMarkReady` are unchanged from a run with shrink disabled by other means (review still runs when `modes.review.passes > 0`).
+- [x] With the default (`agent`) and a shrink-eligible completion, the existing agent-shrink behavior runs as before this change.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

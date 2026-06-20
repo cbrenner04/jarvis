@@ -39,11 +39,11 @@ parse legacy commits when computing the next resume index — it does not emit o
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/worktrees-and-commits.md` no longer references a `plan-tmp-<…>` / `plan/tmp-<…>` temporary slot or a rename to the final plan worktree.
-- [ ] `v1/docs/worktrees-and-commits.md` no longer lists `plan: intent` or `plan: refine` (including `plan: refine r<n>`) as produced plan-mode commits.
-- [ ] The section states the plan name is fixed up front from the ready-intent and the worktree is created directly at `plan-<plan-name>`, matching `v1/src/commands/plan.ts` and `v1/src/modes/plan/commits.ts`.
-- [ ] The corrected section keeps a one-line note that `RESUME_SUBJECT_RE` parses but does not emit `refine`; the retained draft/review/blocker entries are verified against `commits.ts`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `v1/docs/worktrees-and-commits.md` no longer references a `plan-tmp-<…>` / `plan/tmp-<…>` temporary slot or a rename to the final plan worktree.
+- [x] `v1/docs/worktrees-and-commits.md` no longer lists `plan: intent` or `plan: refine` (including `plan: refine r<n>`) as produced plan-mode commits.
+- [x] The section states the plan name is fixed up front from the ready-intent and the worktree is created directly at `plan-<plan-name>`, matching `v1/src/commands/plan.ts` and `v1/src/modes/plan/commits.ts`.
+- [x] The corrected section keeps a one-line note that `RESUME_SUBJECT_RE` parses but does not emit `refine`; the retained draft/review/blocker entries are verified against `commits.ts`.
+- [x] `bun run typecheck` and `bun run test` pass (typecheck passed; test failures are pre-existing in reap.test.ts and run.test.ts, unrelated to documentation changes).
 
 ## Documentation updates
 

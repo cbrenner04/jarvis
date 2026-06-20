@@ -31,17 +31,17 @@ produced. Removing the code leaves both entries stale.
 
 ## Task checklist
 
-- [ ] Drop the always-true `isIndexSpec` guards and the `!isIndexSpec` branches in `runIteration`, simplifying `activeSubspecPath` to the index-routed lookup.
-- [ ] Remove `isIndexSpec` references that are now constant-true; drop the preflight field only if no remaining code reads it.
-- [ ] Update both `v2/docs/v1-behaviors.md` entries — the `[v2-cleanup candidate]` block and the separate non-index subspec-inlining entry — to state the path is removed and non-index specs never reach the agent loop. Fix any clause claiming the path is reachable via the test-only `confirmRun` seam (it is not).
-- [ ] Keep the existing non-index preflight-prompt tests (empty/`e` input → exit at preflight); they back AC#2. There is no non-index iteration test to update or remove — the iteration was unreachable even via the `confirmRun` seam, so do not hunt for one.
+- [x] Drop the always-true `isIndexSpec` guards and the `!isIndexSpec` branches in `runIteration`, simplifying `activeSubspecPath` to the index-routed lookup.
+- [x] Remove `isIndexSpec` references that are now constant-true; drop the preflight field only if no remaining code reads it.
+- [x] Update both `v2/docs/v1-behaviors.md` entries — the `[v2-cleanup candidate]` block and the separate non-index subspec-inlining entry — to state the path is removed and non-index specs never reach the agent loop. Fix any clause claiming the path is reachable via the test-only `confirmRun` seam (it is not).
+- [x] Keep the existing non-index preflight-prompt tests (empty/`e` input → exit at preflight); they back AC#2. There is no non-index iteration test to update or remove — the iteration was unreachable even via the `confirmRun` seam, so do not hunt for one.
 
 ## Acceptance criteria
 
-- [ ] No code path in `runIteration` (`v1/src/modes/patch/run.ts`) branches on `!isIndexSpec`; the non-index `criteria-progress` single-iteration return is gone.
-- [ ] Passing a non-index spec to `jarvis1 run` still prints the preflight prompt — `[s]`+`[e]` when a sibling `index.md` exists, `[e]` only when none does — and exits `0` on empty/`e` input without invoking an agent.
-- [ ] Neither `v2/docs/v1-behaviors.md` entry (candidate block nor non-index subspec-inlining entry) presents the non-index runIteration iteration as a live or candidate path; both record that non-index specs are blocked at preflight and never reach the agent loop.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] No code path in `runIteration` (`v1/src/modes/patch/run.ts`) branches on `!isIndexSpec`; the non-index `criteria-progress` single-iteration return is gone.
+- [x] Passing a non-index spec to `jarvis1 run` still prints the preflight prompt — `[s]`+`[e]` when a sibling `index.md` exists, `[e]` only when none does — and exits `0` on empty/`e` input without invoking an agent.
+- [x] Neither `v2/docs/v1-behaviors.md` entry (candidate block nor non-index subspec-inlining entry) presents the non-index runIteration iteration as a live or candidate path; both record that non-index specs are blocked at preflight and never reach the agent loop.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

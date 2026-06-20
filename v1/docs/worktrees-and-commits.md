@@ -143,10 +143,10 @@ The PR body has three sections, in order:
    ```
 
      The narrative is generated either **deterministically** (template mode) or **model-authored** (agent mode), controlled by the per-mode `prNarrative` config key (`modes.patch.prNarrative` or `modes.plan.prNarrative`):
-     
+
      - **Template mode** (default): the narrative is built deterministically from the spec index subspec titles and branch commit subjects (`base..HEAD`), rendered in order. The narrative is marked with a generated-hash marker and is regenerated on every rewrite to reflect new commits.
      - **Agent mode**: the model wraps the Description + `Decisions:` block in literal `<<<PR_DESCRIPTION_BEGIN>>>` and `<<<PR_DESCRIPTION_END>>>` sentinels; the harness extracts only the content between them. Absent or malformed sentinels (opening or closing missing, or closing before opening), extracted content lacking `Decisions:`, or an injected sentinel in the spec context yield no narrative on first generation. When properly delimited and containing `Decisions:`, the narrative contains a short description followed by the `Decisions:` section with an unordered list of notable decisions.
-     
+
      In both modes, reviewers may edit text *inside* the markers; jarvis preserves human edits verbatim on subsequent rewrites. Template mode regenerates the narrative on every rewrite to reflect new commits. Agent mode regenerates the narrative only when it is empty or still machine-owned. On rewrite in agent mode, when regeneration returns null, the prior machine-owned narrative is preserved as-is rather than being cleared.
 3. **Attribution footer** rendered from the `Jarvis-Agent` git trailers on
    the PR-branch subspec commits, separated from the body by a `---` rule.
@@ -193,22 +193,23 @@ Plan mode creates dedicated worktrees under `.worktree/plan-<plan-name>/` on a
 patch-mode worktrees (`.worktree/<name>/`) to prevent collision when both modes
 target the same spec name.
 
-During the intent-refinement phase, jarvis first uses a temporary slot:
-`.worktree/plan-tmp-<short-uuid>/` on branch `plan/tmp-<short-uuid>`. After
-the agent proposes a spec name and jarvis applies collision suffixing, jarvis
-renames the worktree and branch to the final `plan-<plan-name>` / `plan/<plan-name>`
-values before pushing. The temporary branch is never pushed to origin.
+The plan name is determined up front from the ready-intent's frontmatter `name:` 
+field. Jarvis verifies the name for collision with existing worktrees, branches, 
+and specs, applying collision suffixing if needed. The worktree is created directly 
+at `.worktree/plan-<plan-name>/` on `plan/<plan-name>`, and the `intent.md` is 
+seeded as a byte-for-byte copy of the ready-intent.
 
 **Phase commits** in plan mode have special subjects:
 
-- `plan: intent` — intent-draft result after rename: seeded `intent.md`, proposed `name:`, and raw-seed preservation.
-- `plan: refine` — intent-refinement result (`Turns: <n>`, optional `Outcome:`).
 - `plan: draft` — commits the initial agent-drafted spec tree.
 - `plan: review N` — commits review-pass refinements to the same spec tree.
 - `plan: blocker` — records a blocker raised during draft/review.
-- `plan: refine r<n>` — records resume intent-refinement turns for resume run `n`.
 - `plan: review N r<n>` — records resume review pass `N` for resume run `n`.
 - `plan: blocker r<n>` — records a blocker raised during resume run `n`.
+
+The `RESUME_SUBJECT_RE` regex retains the `refine` token for parsing legacy commits 
+when computing resume counters, but `plan: refine` commits are never emitted by 
+current code paths.
 
 Push cadence follows the same pattern as patch mode: push after each commit.
 The first push uses `git push -u origin plan/<plan-name>` to set up tracking;

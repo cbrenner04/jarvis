@@ -404,12 +404,14 @@ If the failure text changed substantively (e.g. a different line number, differe
 
 After implementation is complete (zero unchecked boxes), a clean worktree, and
 `git: true`, a single shrink agent invocation runs when the run completed at
-least one implementation iteration. Shrink is skipped when `git: false` or when
-no implementation iterations ran (for example checkbox-only first-iteration
-completion). When shrink or review will run, the per-subspec completion path
-defers PR readiness (`maybeMarkReady`) to the post-completion phases.
+least one implementation iteration, unless `modes.patch.shrink` is set to `"off"`.
+Shrink is skipped when `git: false`, when no implementation iterations ran (for
+example checkbox-only first-iteration completion), or when `modes.patch.shrink`
+is configured to `"off"`. When shrink or review will run, the per-subspec
+completion path defers PR readiness (`maybeMarkReady`) to the post-completion
+phases.
 
-Order: **shrink → review (when configured) → `maybeMarkReady`**.
+Order: **shrink (if enabled) → review (when configured) → `maybeMarkReady`**.
 
 Shrink phase flow:
 
@@ -423,13 +425,17 @@ Shrink phase flow:
    during implementation iterations, and a run-scoped unified diff (allowlisted
    files only, not the full branch). The agent may edit only allowlisted paths.
 3. **Post-invocation enforcement**: spec-tree edits are reverted; edits outside
-   the allowlist are reverted. Contract validation requires passing `bun test`, no
-   deleted `*.test.ts` under shrink scope, and no acceptance-criteria regression
-   (a criterion checked pre-shrink must not become unchecked). Any contract miss
-   or unsuccessful invocation (quota exhaustion, timeout, spawn error) discards
-   all shrink worktree changes and continues without elevating the run exit code.
+   the allowlist are reverted. When no surviving file changes remain after
+   reverts, the shrink phase skips contract validation and exits early without
+   running `bun test` or making a commit. When changes do survive, contract
+   validation requires passing `bun test`, no deleted `*.test.ts` under shrink
+   scope, and no acceptance-criteria regression (a criterion checked pre-shrink
+   must not become unchecked). Any contract miss or unsuccessful invocation
+   (quota exhaustion, timeout, spawn error) discards all shrink worktree changes
+   and continues without elevating the run exit code.
 4. **Commit**: non-empty surviving changes produce one `shrink:` commit with
-   `Jarvis-Agent:` attribution and PR footer refresh; no-op leaves no commit.
+   `Jarvis-Agent:` attribution and PR footer refresh; no-op (no surviving file
+   changes after spec/out-of-scope reverts) leaves no commit.
 
 Telemetry records the shrink invocation with `patch_phase: "shrink"`. Shrink
 does not count toward `maxIterations` or run-summary implementation attempt

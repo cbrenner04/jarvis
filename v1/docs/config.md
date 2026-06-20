@@ -38,6 +38,8 @@ type AgentEntry = {
 
 type ModeConfig = {
   agentOrder: AgentEntry[];
+  prNarrative?: "template" | "agent"; // PR narrative mode: default "template"
+  shrink?: "off" | "agent"; // patch mode only: whether to run shrink phase (default "agent")
   commit?: boolean; // plan mode only: whether to commit specs to the target repo (default true)
   targetDir?: string; // plan mode only: relative path where committed specs are routed (default "spec")
 };
@@ -157,7 +159,8 @@ Default contents on first bootstrap:
         { "agent": "claude", "model": "haiku" },
         { "agent": "codex", "model": "gpt-5.3-codex" },
         { "agent": "cursor", "model": "Composer 2" }
-      ]
+      ],
+      "shrink": "agent"
     },
     "plan": {
       "agentOrder": [
@@ -225,6 +228,31 @@ The `--review-passes` CLI flag overrides config for both patch and plan review:
 `jarvis run --review-passes 0 <spec>` disables patch review without changing config, while `jarvis1 plan --review-passes 3 …` runs 3 plan self-review passes instead of the configured number.
 
 When `git: false`, patch review is skipped entirely regardless of review-pass configuration.
+
+## `modes.patch.shrink`
+
+The optional `modes.patch.shrink` field (default `"agent"`) controls whether the post-completion shrink phase runs during `jarvis run`:
+
+**`"agent"` (default):** The shrink phase runs when at least one implementation iteration completes on a repo with `git: true`. The agent shrinks changes to the minimum set of touched files and commits the result.
+
+**`"off"`:** The shrink phase is skipped entirely. No agent shrink runs, no pre-shrink ready gate fires, and no shrink-phase telemetry is emitted. Review placement and `maybeMarkReady` behavior are unchanged.
+
+Use `shrink: "off"` during fast inner-loop development to skip time-consuming shrink iterations — `modes.review.passes: 0` stops review; `modes.patch.shrink: "off"` stops shrink separately.
+
+Example configuration to disable shrink for a project:
+
+```json
+{
+  "modes": {
+    "patch": {
+      "agentOrder": [
+        { "agent": "claude", "model": "haiku" }
+      ],
+      "shrink": "off"
+    }
+  }
+}
+```
 
 ## `worktreeSymlinks`
 

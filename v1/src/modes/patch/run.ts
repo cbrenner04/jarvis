@@ -1386,7 +1386,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                 // When post-completion shrink or review will run, defer PR
                 // readiness to those phases.
                 const implementationIterations = logging.patchIterationsCompletedForSummary() + 1;
-                const willRunShrink = gitEnabled && implementationIterations > 0;
+                const willRunShrink = gitEnabled && implementationIterations > 0 && cfg.modes.patch.shrink !== "off";
                 const willRunReview =
                   gitEnabled && resolveReviewPasses(cfg, opts.reviewPasses) > 0 && implementationIterations > 0;
                 if (!willRunReview && !willRunShrink) {
@@ -1768,7 +1768,8 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
 
   const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
   const implementationIterations = logging.patchIterationsCompletedForSummary();
-  const shouldRunShrink = preflight.gitEnabled && implementationIterations > 0;
+  const shouldRunShrink =
+    preflight.gitEnabled && implementationIterations > 0 && preflight.cfg.modes.patch.shrink !== "off";
   // Review runs when: (1) normal completion with at least one iteration, OR (2) review resume is active
   const shouldRunReview =
     preflight.gitEnabled && reviewPasses > 0 && (implementationIterations > 0 || ctx.opts.resumeReview === true);

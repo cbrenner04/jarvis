@@ -295,7 +295,7 @@ function commitShrinkPass(
  * worktree changes and returns without elevating the run exit code.
  */
 export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promise<void> {
-  if (opts.allowlist.size === 0) {
+  if (opts.allowlist.size === 0 || opts.config.modes.patch.shrink === "off") {
     return;
   }
 

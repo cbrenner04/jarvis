@@ -85,6 +85,7 @@ export type ModeConfig = {
   commit?: boolean;
   targetDir?: string;
   prNarrative?: "template" | "agent";
+  shrink?: "off" | "agent";
 };
 
 export type ReviewModeConfig = {
@@ -139,6 +140,7 @@ const DEFAULT_CONFIG: Config = {
     patch: {
       agentOrder: structuredClone(DEFAULT_AGENT_ORDER),
       prNarrative: "template",
+      shrink: "agent",
     },
     plan: {
       agentOrder: structuredClone(DEFAULT_AGENT_ORDER),
@@ -217,6 +219,11 @@ function validateConfig(input: unknown, file: string): Config {
     patchPrNarrative = validatePrNarrative(patchModeObj.prNarrative, "modes.patch.prNarrative", (message) =>
       fail(file, message),
     );
+  }
+
+  let patchShrink: "off" | "agent" = "agent";
+  if (patchModeObj.shrink !== undefined) {
+    patchShrink = validateShrink(patchModeObj.shrink, "modes.patch.shrink", (message) => fail(file, message));
   }
 
   const planMode = modesObj.plan;
@@ -480,6 +487,7 @@ function validateConfig(input: unknown, file: string): Config {
       patch: {
         agentOrder: patchAgentOrder,
         prNarrative: patchPrNarrative,
+        shrink: patchShrink,
       },
       plan: {
         agentOrder: planAgentOrder,
@@ -633,6 +641,13 @@ function validatePrNarrative(value: unknown, name: string, failWith: (message: s
     return value;
   }
   failWith(`${name} must be "template" or "agent"`);
+}
+
+function validateShrink(value: unknown, name: string, failWith: (message: string) => never): "off" | "agent" {
+  if (value === "off" || value === "agent") {
+    return value;
+  }
+  failWith(`${name} must be "off" or "agent"`);
 }
 
 export function validateTargetDir(value: unknown, name: string, failWith: (message: string) => never): string {

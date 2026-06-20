@@ -208,6 +208,8 @@ The `modes.review` block controls review passes in both `jarvis run` (patch revi
 
 **`agentOrder` (optional):** Agent order for review passes. If unset, review uses `modes.plan.agentOrder`. Like `modes.patch.agentOrder` and `modes.plan.agentOrder`, each entry is `{ "agent": "...", "model": "..." }` and the same `validateAgentOrder` contract applies: no duplicate agents, agents must be known, and models must be valid for the agent.
 
+**Model tiering for read-only review roles:** The `modes.review.agentOrder` configuration is commonly used to assign faster, cheaper models to read-only review roles (adversary, advocate, adjudicator) while keeping implementation-grade models on the code-writing actuators (review actuator and shrink agent). The review roles use `modes.review.agentOrder` falling back to `modes.plan.agentOrder`, while the actuators use `modes.patch.agentOrder` regardless of the review order setting. This lets you run all-Haiku review while using Opus for implementation, trading review latency and cost for slightly lower defect-catch rate. See [agents.md § Review/shrink model tiering](./agents.md) for the full tiering guidance, cost/quality tradeoffs, and cross-mode coupling notes.
+
 Example configuration enabling review with a custom agent order:
 
 ```json

@@ -67,31 +67,31 @@ separate shrink agent-order knob; shrink tiering is expressed through
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/agents.md` documents that read-only review roles (adversary,
+- [x] `v1/docs/agents.md` documents that read-only review roles (adversary,
   advocate, adjudicator) resolve their agent order from
   `modes.review.agentOrder` falling back to `modes.plan.agentOrder`, and that
   the review actuator and shrink actuator resolve from `modes.patch.agentOrder`.
-- [ ] `v1/docs/agents.md` recommends assigning faster models to the read-only
+- [x] `v1/docs/agents.md` recommends assigning faster models to the read-only
   review roles while keeping implementation-grade models on the review and
   shrink actuators, naming an illustrative tier split (fast/cheap reviewer tier
   vs implementation-grade actuator tier).
-- [ ] `v1/docs/agents.md` states that `modes.review.agentOrder` drives reviewers
+- [x] `v1/docs/agents.md` states that `modes.review.agentOrder` drives reviewers
   in both plan-mode self-review and patch-mode review, so setting it retunes
   both.
-- [ ] `v1/docs/agents.md` caveats that faster reviewer models trade defect-catch
+- [x] `v1/docs/agents.md` caveats that faster reviewer models trade defect-catch
   quality for speed, since reviewers produce the verdict the actuator acts on.
-- [ ] `v1/docs/agents.md` notes `modes.review.agentOrder` only needs setting when
+- [x] `v1/docs/agents.md` notes `modes.review.agentOrder` only needs setting when
   `modes.plan.agentOrder` is expensive; a cheap plan order already yields tiered
   reviewers for free.
-- [ ] `v1/docs/config.md`'s `modes.review.agentOrder` documentation describes
+- [x] `v1/docs/config.md`'s `modes.review.agentOrder` documentation describes
   the faster-model-for-read-only-review-roles use case and notes that review and
   shrink actuators use `modes.patch.agentOrder`, not `modes.review.agentOrder`.
-- [ ] `v2/docs/v1-behaviors.md` records the order-resolution mapping (read-only
+- [x] `v2/docs/v1-behaviors.md` records the order-resolution mapping (read-only
   review roles resolve `modes.review.agentOrder` falling back to
   `modes.plan.agentOrder`; review and shrink actuators resolve
   `modes.patch.agentOrder`) with model tiering as operator guidance layered over
   it and no new runtime selection logic.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -1121,7 +1121,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const binding = createPatchInvocationBinding({
     agentName: agent.name,
     configuredModel: configuredPatchModel,
-    createAgent: (_name, model) => agent,
+    createAgent: (_name, _model) => agent,
     config: cfg,
     abortKillGraceMs: killGraceMs,
   });

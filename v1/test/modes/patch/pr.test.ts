@@ -140,11 +140,13 @@ describe("updatePrBody", () => {
       indexPath,
       ["# Spec", "", "- [x] [00 - one](./00-one.md)", "- [ ] [01 - two](./01-two.md)", ""].join("\n"),
     );
+    // Create a body with a human-edited (non-generated) narrative that should be preserved in template mode
+    const humanEditedNarrative = "Human edited narrative\nMultiple lines here";
     const currentBody = [
       "# stale header",
       "",
       NARRATIVE_START_MARKER,
-      "preserved narrative",
+      humanEditedNarrative,
       NARRATIVE_END_MARKER,
       "",
       "stale footer",
@@ -164,7 +166,8 @@ describe("updatePrBody", () => {
     });
 
     expect(writtenBody).toContain("# Spec");
-    expect(writtenBody).toContain(`${NARRATIVE_START_MARKER}\npreserved narrative\n${NARRATIVE_END_MARKER}`);
+    // In template mode with human-edited narrative, it's preserved (hash is broken)
+    expect(writtenBody).toContain(`${NARRATIVE_START_MARKER}\n${humanEditedNarrative}\n${NARRATIVE_END_MARKER}`);
     expect(writtenBody).toContain("\n\n---\n\n- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.");
   });
 
@@ -194,12 +197,18 @@ describe("updatePrBody", () => {
       },
     });
 
+    // In template mode, the body includes the template narrative and the attribution footer
     expect(writtenBody).toContain("Written by Agent A through Jarvis.");
+    expect(writtenBody).toContain("## Subspecs");
+    expect(writtenBody).toContain("- 00 - one");
+    expect(writtenBody).toContain("## Commits");
+    expect(writtenBody).toContain("- one");
+    expect(writtenBody).toContain("- retry same subspec");
+    // Attribution footer should appear exactly once
     expect(writtenBody.split("\n").filter((line) => line === "Written by Agent A through Jarvis.")).toHaveLength(1);
-    expect(writtenBody).not.toContain("retry same subspec");
   });
 
-  test("omits narrative section when markers missing in current body", async () => {
+  test("regenerates template narrative when markers missing in current body", async () => {
     writeFileSync(indexPath, "# Spec\n\n- [ ] [00 - one](./00-one.md)\n");
 
     let writtenBody = "";
@@ -215,8 +224,11 @@ describe("updatePrBody", () => {
       renderFooter: () => "",
     });
 
-    expect(writtenBody).not.toContain(NARRATIVE_START_MARKER);
-    expect(writtenBody).not.toContain(NARRATIVE_END_MARKER);
+    // In template mode, narrative is generated from subspecs
+    expect(writtenBody).toContain(NARRATIVE_START_MARKER);
+    expect(writtenBody).toContain(NARRATIVE_END_MARKER);
+    expect(writtenBody).toContain("## Subspecs");
+    expect(writtenBody).toContain("- 00 - one");
   });
 
   test("omits footer separator when renderFooter returns empty string", async () => {
@@ -808,6 +820,7 @@ describe("updatePrBody with generation", () => {
       branch: "feature",
       base: "main",
       cwd: dir,
+      prNarrative: "agent",
       fetchPrBody: () => currentBody,
       writePrBody: (_branch, body) => {
         writtenBody = body;
@@ -831,6 +844,7 @@ describe("updatePrBody with generation", () => {
       branch: "feature",
       base: "main",
       cwd: dir,
+      prNarrative: "agent",
       fetchPrBody: () => "# stale header",
       writePrBody: (_branch, body) => {
         writtenBody = body;
@@ -863,6 +877,7 @@ describe("updatePrBody with generation", () => {
       branch: "feature",
       base: "main",
       cwd: dir,
+      prNarrative: "agent",
       fetchPrBody: () => currentBody,
       writePrBody: (_branch, body) => {
         writtenBody = body;
@@ -905,6 +920,7 @@ describe("updatePrBody with generation", () => {
       branch: "feature",
       base: "main",
       cwd: dir,
+      prNarrative: "agent",
       fetchPrBody: () => `${NARRATIVE_START_MARKER}\n${edited}\n${NARRATIVE_END_MARKER}`,
       writePrBody: (_branch, body) => {
         writtenBody = body;
@@ -928,6 +944,7 @@ describe("updatePrBody with generation", () => {
       branch: "feature",
       base: "main",
       cwd: dir,
+      prNarrative: "agent",
       fetchPrBody: () => "# stale header",
       writePrBody: (_branch, body) => {
         writtenBody = body;
@@ -965,6 +982,7 @@ describe("updatePrBody with generation", () => {
       branch: "feature",
       base: "main",
       cwd: dir,
+      prNarrative: "agent",
       fetchPrBody: () => "",
       writePrBody: (_branch, body) => {
         writtenBody = body;

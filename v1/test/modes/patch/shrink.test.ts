@@ -15,6 +15,7 @@ import {
   snapshotAllAcceptanceCriteria,
 } from "../../../src/modes/patch/shrink.ts";
 import type { AcceptanceCriterion } from "../../../src/modes/patch/subspec.ts";
+import { stripDelimitedBlocks } from "./review.test.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 
@@ -159,6 +160,44 @@ describe("buildShrinkPrompt", () => {
       expect(prompt).toContain("Simplification checklist");
       expect(prompt).toContain("read-only");
       expect(prompt).not.toContain("Follow these Jarvis rules:");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("includes branch summary and allowlisted unified diff only inside run-scoped block", () => {
+    const { dir, specPath, cleanup } = setupShrinkRepo();
+    try {
+      writeFileSync(join(dir, "impl.txt"), "changed\n");
+      writeFileSync(join(dir, "other.txt"), "extra\n");
+      execSync("git checkout -b feature", { cwd: dir });
+      execSync("git add impl.txt other.txt", { cwd: dir });
+      execSync("git commit -m 'branch changes'", { cwd: dir });
+
+      const prompt = buildShrinkPrompt({
+        specPath,
+        cwd: dir,
+        allowlist: ["impl.txt"],
+        baseBranch: "main",
+      });
+
+      expect(prompt).toContain("Changed paths:");
+      expect(prompt).toContain("other.txt");
+
+      const outsideRunScoped = stripDelimitedBlocks(
+        stripDelimitedBlocks(prompt, "<<<SPEC_BEGIN>>>", "<<<SPEC_END>>>"),
+        "<<<BRANCH_SUMMARY_BEGIN>>>",
+        "<<<BRANCH_SUMMARY_END>>>",
+      );
+      const outsideAllowedDiff = stripDelimitedBlocks(outsideRunScoped, "<<<DIFF_BEGIN>>>", "<<<DIFF_END>>>");
+      expect(outsideAllowedDiff).not.toMatch(/^diff --git/m);
+      expect(outsideAllowedDiff).not.toMatch(/^@@/m);
+      expect(outsideAllowedDiff).not.toContain("other.txt");
+
+      const runScopedMatch = prompt.match(/<<<DIFF_BEGIN>>>\n([\s\S]*?)\n<<<DIFF_END>>>/);
+      expect(runScopedMatch?.[1]).toMatch(/^diff --git/m);
+      expect(runScopedMatch?.[1]).toContain("impl.txt");
+      expect(runScopedMatch?.[1]).not.toContain("other.txt");
     } finally {
       cleanup();
     }

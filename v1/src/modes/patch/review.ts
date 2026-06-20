@@ -162,7 +162,7 @@ export function commitReviewPass(
   passNumber: number,
   agentLabel: string,
   cwd: string,
-  opts?: { branch?: string; base?: string; specPath?: string },
+  opts?: { branch?: string; base?: string; specPath?: string; prNarrative?: "template" | "agent" },
 ): void {
   // Check if there are any changes to commit
   const porcelain = execFileSync("git", ["status", "--porcelain"], {
@@ -194,12 +194,13 @@ export function commitReviewPass(
   pushCurrent({ cwd, firstPush: false });
 
   // Refresh PR footer if spec path is provided
-  if (opts?.specPath && opts?.branch && opts?.base) {
+  if (opts?.specPath && opts?.branch && opts?.base && opts?.prNarrative) {
     void updatePrBody({
       indexPath: opts.specPath,
       branch: opts.branch,
       base: opts.base,
       cwd,
+      prNarrative: opts.prNarrative,
     }).catch(() => {
       // Ignore footer refresh errors, they're not critical
     });
@@ -385,7 +386,12 @@ function createPatchReviewAdapter(args: {
   base: string;
 }): ReviewAdapter {
   const { opts, specDir, branch, base } = args;
-  const commitOpts = { specPath: opts.specPath, branch, base };
+  const commitOpts = {
+    specPath: opts.specPath,
+    branch,
+    base,
+    prNarrative: opts.config.modes.patch.prNarrative ?? "template",
+  };
 
   const recordPatchTelemetry = (event: ReviewTelemetryEvent, exitCode?: number): void => {
     const configuredModel = event.agentEntry.model;
@@ -620,6 +626,7 @@ function createPatchReviewAdapter(args: {
             branch,
             base,
             cwd: opts.cwd,
+            prNarrative: opts.config.modes.patch.prNarrative ?? "template",
           }).catch(() => {
             // Ignore footer refresh errors, they're not critical
           });
@@ -823,6 +830,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
                 branch,
                 base,
                 cwd: opts.cwd,
+                prNarrative: opts.config.modes.patch.prNarrative ?? "template",
               }).catch(() => {
                 // Ignore footer refresh errors
               });

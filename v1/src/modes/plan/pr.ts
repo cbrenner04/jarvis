@@ -3,14 +3,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import type { CommitInfo } from "../../pr.ts";
-import {
-  extractGeneratedNarrativeContent,
-  extractNarrative,
-  markGeneratedNarrative,
-  NARRATIVE_END_MARKER,
-  NARRATIVE_START_MARKER,
-  readBranchCommits,
-} from "../../pr.ts";
+import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, readBranchCommits } from "../../pr.ts";
+import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
+import { generateNarrativeViaAgent } from "../../pr-shared.ts";
 import { type ReadyTier, runReadyAndCommit } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
@@ -343,17 +338,12 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
 
 export { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 
-const PR_DESCRIPTION_BEGIN = "<<<PR_DESCRIPTION_BEGIN>>>";
-const PR_DESCRIPTION_END = "<<<PR_DESCRIPTION_END>>>";
 const PR_DESCRIPTION_CONTEXT_MAX_CHARS = 40_000;
 
 /**
  * Generate the PR description by calling the model with the PR description prompt.
- * Returns the model's response containing Description + Decisions section.
- *
- * Extracts the content between PR_DESCRIPTION_BEGIN and PR_DESCRIPTION_END sentinels.
- * Validates that the extracted content contains the expected shape. Returns null if
- * generation fails, sentinels are malformed/absent, or validation fails.
+ * Returns the model's response containing Description + Decisions section, marked as generated.
+ * Returns null if generation fails or validation fails.
  */
 export async function generatePrDescription(opts: {
   indexPath: string;
@@ -362,48 +352,19 @@ export async function generatePrDescription(opts: {
   cwd: string;
   runOptions?: Partial<Omit<AgentRunOptions, "cwd">>;
 }): Promise<string | null> {
-  try {
-    const prompt = buildPrDescriptionPrompt({
-      intent: opts.intent,
-      specContext: buildSpecContext(opts.indexPath),
-    });
-
-    const result = await opts.agent.run(prompt, {
-      cwd: opts.cwd,
-      ...opts.runOptions,
-    });
-
-    if (result.kind !== "ok") {
-      return null;
-    }
-
-    const stdout = result.stdout.trim();
-
-    // Extract content between sentinels
-    const beginIndex = stdout.indexOf(PR_DESCRIPTION_BEGIN);
-    if (beginIndex === -1) {
-      return null;
-    }
-
-    const endIndex = stdout.indexOf(PR_DESCRIPTION_END, beginIndex + PR_DESCRIPTION_BEGIN.length);
-    if (endIndex === -1) {
-      return null;
-    }
-
-    const description = stdout.slice(beginIndex + PR_DESCRIPTION_BEGIN.length, endIndex).trim();
-
-    if (description.length === 0) {
-      return null;
-    }
-
-    if (!description.includes("Decisions:")) {
-      return null;
-    }
-
-    return description;
-  } catch {
-    return null;
+  const genOpts: Parameters<typeof generateNarrativeViaAgent>[0] = {
+    buildPrompt: () =>
+      buildPrDescriptionPrompt({
+        intent: opts.intent,
+        specContext: buildSpecContext(opts.indexPath),
+      }),
+    agent: opts.agent,
+    cwd: opts.cwd,
+  };
+  if (opts.runOptions !== undefined) {
+    genOpts.runOptions = opts.runOptions;
   }
+  return generateNarrativeViaAgent(genOpts);
 }
 
 function buildSpecContext(indexPath: string): string {
@@ -445,6 +406,7 @@ export type UpdatePlanPrBodyOpts = {
   branch: string;
   base: string;
   cwd: string;
+  prNarrative?: "template" | "agent";
   /** Committed spec root (e.g. `v1/spec`). Defaults to `spec`. Threaded into the header so the title and file pointers resolve correctly. */
   targetDir?: string;
   intentContent?: string;
@@ -459,41 +421,18 @@ export type UpdatePlanPrBodyOpts = {
 };
 
 /**
- * Rewrite the plan-mode PR body: fetch the current body, preserve the narrative
- * section between markers (if present), rebuild the header from index.md, render
- * the attribution footer from git trailers, and pipe the assembled body to
+ * Rewrite the plan-mode PR body: fetch the current body, preserve/regenerate the
+ * narrative section between markers (if present), rebuild the header from index.md,
+ * render the attribution footer from git trailers, and pipe the assembled body to
  * `gh pr edit --body-file -`.
  *
- * When the narrative block is empty or missing and an agent is provided,
- * regenerate the narrative. Otherwise, preserve existing narrative verbatim.
+ * Behavior depends on `prNarrative`:
+ * - `template`: regenerate narrative from index subspecs + commits (ignores intentContent)
+ * - `agent`: if narrative is empty/missing/marked-generated and intentContent present, regenerate via agent
  *
  * Throws on `gh` failure; callers wrap with try/catch and warn-and-continue.
  */
 export async function updatePlanPrBody(opts: UpdatePlanPrBodyOpts): Promise<void> {
-  const fetchPrBody = opts.fetchPrBody ?? defaultFetchPrBody;
-  const writePrBody = opts.writePrBody ?? defaultWritePrBody;
-  const renderFooter = opts.renderFooter ?? renderPlanAttribution;
-
-  const currentBody = fetchPrBody(opts.branch, opts.cwd);
-  let narrative = extractNarrative(currentBody);
-  const generatedNarrative = narrative === null ? null : extractGeneratedNarrativeContent(narrative);
-
-  if ((!narrative || generatedNarrative !== null) && opts.agent && opts.intentContent) {
-    const generateOpts: Parameters<typeof generatePrDescription>[0] = {
-      indexPath: opts.indexPath,
-      intent: opts.intentContent,
-      agent: opts.agent,
-      cwd: opts.cwd,
-    };
-    if (opts.runOptions !== undefined) {
-      generateOpts.runOptions = opts.runOptions;
-    }
-    const generated = await generatePrDescription(generateOpts);
-    if (generated !== null) {
-      narrative = markGeneratedNarrative(generated);
-    }
-  }
-
   const specDirBasename = basename(opts.specDirPath);
   const headerOpts: {
     name: string;
@@ -508,30 +447,52 @@ export async function updatePlanPrBody(opts: UpdatePlanPrBodyOpts): Promise<void
   if (opts.targetDir !== undefined) {
     headerOpts.targetDir = opts.targetDir;
   }
-  const header = buildPlanPrHeader(headerOpts);
-  let headerAndNarrative = header;
-  if (narrative) {
-    headerAndNarrative += `\n\n${NARRATIVE_START_MARKER}\n${narrative}\n${NARRATIVE_END_MARKER}`;
+
+  const prNarrative = opts.prNarrative ?? "template";
+
+  const sharedOpts: Parameters<typeof updatePrBodyShared>[0] = {
+    branch: opts.branch,
+    base: opts.base,
+    cwd: opts.cwd,
+    buildHeader: () => buildPlanPrHeader(headerOpts),
+    getSubspecTitles: () => {
+      const parsed = parseIndex(opts.indexPath);
+      return parsed.subspecs.map((s) => extractSubspecTitle(s.path));
+    },
+  };
+  if (prNarrative !== undefined) {
+    sharedOpts.prNarrative = prNarrative;
   }
-  const footer = renderFooter({ cwd: opts.cwd, base: opts.base });
-  const newBody = footer === "" ? headerAndNarrative : `${headerAndNarrative}\n\n---\n\n${footer}`;
-  writePrBody(opts.branch, newBody, opts.cwd);
+  if (opts.agent !== undefined) {
+    sharedOpts.agent = opts.agent;
+  }
+  if (opts.runOptions !== undefined) {
+    sharedOpts.runOptions = opts.runOptions;
+  }
+  if (opts.fetchPrBody !== undefined) {
+    sharedOpts.fetchPrBody = opts.fetchPrBody;
+  }
+  if (opts.writePrBody !== undefined) {
+    sharedOpts.writePrBody = opts.writePrBody;
+  }
+  if (opts.renderFooter !== undefined) {
+    sharedOpts.renderFooter = opts.renderFooter;
+  }
+  if (prNarrative === "agent" && opts.intentContent) {
+    const intentContent = opts.intentContent;
+    sharedOpts.buildPrompt = () =>
+      buildPrDescriptionPrompt({
+        intent: intentContent,
+        specContext: buildSpecContext(opts.indexPath),
+      });
+  }
+
+  return updatePrBodyShared(sharedOpts);
 }
 
-function defaultFetchPrBody(branch: string, cwd: string): string {
-  return execFileSync("gh", ["pr", "view", branch, "--json", "body", "-q", ".body"], {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-    encoding: "utf8",
-  });
-}
-
-function defaultWritePrBody(branch: string, body: string, cwd: string): void {
-  execFileSync("gh", ["pr", "edit", branch, "--body-file", "-"], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    input: body,
-  });
+function extractSubspecTitle(subspecPath: string): string {
+  // Extract just the filename without extension as a fallback title
+  const parts = subspecPath.split("/");
+  const filename = parts[parts.length - 1] ?? subspecPath;
+  return filename.replace(/\.md$/, "");
 }

@@ -92,12 +92,25 @@ Each iteration prints a banner before agent invocation with:
 - selected agent
 
 Jarvis then builds the standard prompt and invokes the agent with `cwd` set to
-the active worktree. The prompt asks the agent to discover target-repo
-guidance using stable instruction text from `prompts/patch/instructions.md` and
-injects jarvis-owned rules from `prompts/patch/rules.md` inline. The
-`v1/src/modes/patch/prompt.ts` file remains runtime assembly code
-(interpolation, sibling-directory block insertion, and line joining), while the
-prompt text itself is owned in `prompts/`.
+the active worktree. For normal implementation iterations the harness resolves
+the active linked subspec (`getActiveLinkedSubspecPath`), inlines that subspec's
+full body and bounded repo guidance (`AGENTS.md` and root `CLAUDE.md` from the
+registered target repo root) into `prompts/patch/instructions.md`, and injects
+jarvis-owned rules from `prompts/patch/rules.md` inline. `SPEC_PATH` remains
+the operator-passed path (`index.md` or a direct subspec path) for display
+only; task content comes from the harness-injected active subspec block.
+Fix-up, review-actuator, and other shared-template consumers omit repo guidance
+and the active-subspec block when their own preamble carries the task.
+`v1/src/modes/patch/prompt.ts` remains runtime assembly code (placeholder
+substitution, optional-section omission, sibling-directory block insertion, and
+line joining), while the prompt text itself is owned in `prompts/`.
+
+The iteration banner still uses `getFirstUncheckedTask` for the
+`current-task` excerpt (first unchecked checkbox in document order). When an
+index mixes bare checklist tasks with linked subspecs, the banner excerpt and
+the harness-injected linked subspec can differ: the banner reflects top-level
+index progress; the prompt carries the active linked subspec body when one
+exists.
 
 ## Ready script tiers
 
@@ -289,20 +302,21 @@ The review phase flow is:
    no green was recorded, runs **`full`** and refreshes the carrier on green.
    Under **`--resume-review`**, always **`full`**. `check:fix` commits only follow
    **`full`**. The draft PR stays draft at this point.
-2. **Review passes**: For each pass, the agent is invoked with the spec tree and 
-   current branch diff as context, asked to critique and refactor the 
-   implementation. Non-empty changes are committed per pass. Spec-tree edits are 
-   detected and reverted (the spec tree is read-only during review). A blocker is 
-   signalled by the agent writing a `.jarvis-review-blocker` file at the repo 
-   root; it stops the phase and exits `7`, with the blocker content posted as a 
-   PR comment and the sentinel consumed (never committed, no `## Blocker` written 
-   to the spec). Each pass starts a fresh review agent chain (`modes.review.agentOrder` 
-   → `modes.plan.agentOrder`). Quota exhaustion within a pass rotates to the next 
-   configured review agent; if all are exhausted in that pass, exit `2`. Under 
-   `quotaFallback: "lenient"`, spawn **`error`** results with no porcelain change 
-   during the invocation upgrade to **`quota`** and rotate like strict quota. Other 
-   hard **`error`** results stop the pass (no rotation). Per-pass iteration timeout 
-   is enforced by the patch adapter's agent wrapper.
+2. **Review passes**: For each pass, the agent is invoked with the spec tree and
+   a branch change summary (stat plus changed paths, not a full unified diff) as
+   context, asked to critique and refactor the implementation. Non-empty changes
+   are committed per pass. Spec-tree edits are detected and reverted (the spec
+   tree is read-only during review). A blocker is signalled by the agent writing
+   a `.jarvis-review-blocker` file at the repo root; it stops the phase and
+   exits `7`, with the blocker content posted as a PR comment and the sentinel
+   consumed (never committed, no `## Blocker` written to the spec). Each pass
+   starts a fresh review agent chain (`modes.review.agentOrder` →
+   `modes.plan.agentOrder`). Quota exhaustion within a pass rotates to the next
+   configured review agent; if all are exhausted in that pass, exit `2`. Under
+   `quotaFallback: "lenient"`, spawn **`error`** results with no porcelain change
+   during the invocation upgrade to **`quota`** and rotate like strict quota.
+   Other hard **`error`** results stop the pass (no rotation). Per-pass iteration
+   timeout is enforced by the patch adapter's agent wrapper.
 3. **Final ready**: when the tree is unchanged since the recorded green result,
    skips `bun run ready` and calls `gh pr ready` (worktree cleanliness comes from
    the reuse predicate). When the tree changed or no green was recorded, runs
@@ -404,10 +418,10 @@ Shrink phase flow:
    and refreshes the carrier on green. Failure logs a warning and skips shrink
    (review and/or `maybeMarkReady` still proceed).
 2. **Shrink invocation**: one agent call with `patch.prompt.shrink` + `global.terse`
-   (not `patch.rules`). Prompt includes the completed spec tree (read-only), an
-   explicit allowlist of files touched during implementation iterations, and a
-   run-scoped diff (allowlisted files only, not the full branch). The agent may
-   edit only allowlisted paths.
+   (not `patch.rules`). Prompt includes the completed spec tree (read-only), a
+   branch change summary for orientation, an explicit allowlist of files touched
+   during implementation iterations, and a run-scoped unified diff (allowlisted
+   files only, not the full branch). The agent may edit only allowlisted paths.
 3. **Post-invocation enforcement**: spec-tree edits are reverted; edits outside
    the allowlist are reverted. Contract validation requires passing `bun test`, no
    deleted `*.test.ts` under shrink scope, and no acceptance-criteria regression

@@ -728,6 +728,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               worktreePath: resume.worktreePath,
               name: resume.planName,
               specDirBasename: resume.specDirBasename,
+              prNarrative: cfg.modes.plan.prNarrative ?? "template",
               targetDir: resumeTargetDir,
             });
           },
@@ -1050,6 +1051,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               worktreePath: worktreePath as string,
               name: planName,
               specDirBasename,
+              prNarrative: cfg.modes.plan.prNarrative ?? "template",
               targetDir,
             });
           } catch (err) {
@@ -1152,6 +1154,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
               worktreePath: worktreePath as string,
               name: planName,
               specDirBasename,
+              prNarrative: cfg.modes.plan.prNarrative ?? "template",
               targetDir,
             });
           } catch (err) {
@@ -1181,6 +1184,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           worktreePath: worktreePath as string,
           name: planName,
           specDirBasename,
+          prNarrative: cfg.modes.plan.prNarrative ?? "template",
           targetDir,
         });
       }
@@ -1217,6 +1221,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
                     worktreePath: worktreePath as string,
                     name: planName,
                     specDirBasename,
+                    prNarrative: cfg.modes.plan.prNarrative ?? "template",
                     targetDir,
                   });
                 },
@@ -1360,6 +1365,7 @@ async function safeUpdatePrBody(args: {
   worktreePath: string;
   name: string;
   specDirBasename: string;
+  prNarrative: "template" | "agent";
   specDirPath?: string;
   targetDir?: string;
   agent?: Agent | undefined;
@@ -1384,6 +1390,7 @@ async function safeUpdatePrBody(args: {
       branch: args.branch,
       base: args.base,
       cwd: args.worktreePath,
+      prNarrative: args.prNarrative,
       ...(args.targetDir !== undefined ? { targetDir: args.targetDir } : {}),
       ...(args.agent !== undefined ? { agent: args.agent } : {}),
       ...(intentContent !== undefined ? { intentContent } : {}),

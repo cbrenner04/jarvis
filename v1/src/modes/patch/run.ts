@@ -20,7 +20,8 @@ import {
 } from "../../config.ts";
 import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
-import { checkPrExists, ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
+import { checkPrExists, ensureDraftPr, readBranchCommits, renderAttributionSummary } from "../../pr.ts";
+import { generateTemplateNarrative } from "../../pr-shared.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -55,7 +56,7 @@ import {
   getFirstUncheckedTask,
 } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
-import { buildPrompt } from "./prompt.ts";
+import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
@@ -963,7 +964,11 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   // For fix-up iterations, we don't get a task from the spec; instead we use the captured failure text
   const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);
   const taskExcerpt = isFixupIteration ? "ready: fix bun run ready failure" : task?.line.slice(0, 140);
-  const activeSubspecPath = isIndexSpec ? getActiveLinkedSubspecPath(specPath) : undefined;
+  const activeSubspecPath = isFixupIteration
+    ? undefined
+    : isIndexSpec
+      ? getActiveLinkedSubspecPath(specPath)
+      : specPath;
   const preIterationHead =
     gitEnabled && existsSync(join(agentWorkingDir, ".git"))
       ? execFileSync("git", ["rev-parse", "HEAD"], {
@@ -1034,7 +1039,14 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const projectSiblings = preflight.cfg.projects[preflight.project.key]?.siblings;
   const prompt = isFixupIteration
     ? buildFixupPrompt(specPath, state.completionLoopbackSignal?.failureText ?? "", projectSiblings)
-    : buildPrompt(specPath, projectSiblings);
+    : buildPrompt(specPath, projectSiblings, {
+        repoGuidance: readRepoGuidance(preflight.project.root),
+        activeSubspecPath: activeSubspecPath ?? "",
+        activeSubspecBody:
+          activeSubspecPath !== undefined && existsSync(activeSubspecPath)
+            ? readFileSync(activeSubspecPath, "utf8")
+            : "",
+      });
   fanout("outbound", prompt, null, {
     iteration,
     agent: agent.name,
@@ -1329,18 +1341,25 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
               }
 
               try {
-                let createdThisIteration = false;
+                let _createdThisIteration = false;
                 const base = await getBaseBranch(agentWorkingDir);
                 const branch = getCurrentBranch(agentWorkingDir);
                 if (!state.draftPrEnsured) {
                   const prBody = async (): Promise<string> =>
-                    generatePrBody(afterSpecPath, agent, agentWorkingDir, {
-                      signal: iterationController.signal,
-                      abortKillGraceMs: killGraceMs,
-                      onSpawned: ({ pid }) => {
-                        watchdogPgid = pid;
+                    generatePrBody(
+                      afterSpecPath,
+                      agent,
+                      agentWorkingDir,
+                      cfg.modes.patch.prNarrative ?? "template",
+                      base,
+                      {
+                        signal: iterationController.signal,
+                        abortKillGraceMs: killGraceMs,
+                        onSpawned: ({ pid }) => {
+                          watchdogPgid = pid;
+                        },
                       },
-                    });
+                    );
                   const footer = renderAttributionSummary({
                     cwd: agentWorkingDir,
                     base,
@@ -1353,29 +1372,8 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
                     footer,
                     cwd: agentWorkingDir,
                   });
-                  createdThisIteration = ensured.created;
+                  _createdThisIteration = ensured.created;
                   state.draftPrEnsured = true;
-                }
-                if (!createdThisIteration) {
-                  try {
-                    await updatePrBody({
-                      indexPath: afterSpecPath,
-                      branch,
-                      base,
-                      cwd: agentWorkingDir,
-                      agent,
-                      runOptions: {
-                        signal: iterationController.signal,
-                        abortKillGraceMs: killGraceMs,
-                        onSpawned: ({ pid }) => {
-                          watchdogPgid = pid;
-                        },
-                      },
-                    });
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : String(err);
-                    fanout("harness", `failed to update PR body for ${afterSubspecPath}: ${message}\n`, "stderr");
-                  }
                 }
                 // When post-completion shrink or review will run, defer PR
                 // readiness to those phases.
@@ -1723,22 +1721,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   }
 }
 
-function buildFixupPrompt(specPath: string, failureText: string, siblings?: string[]): string {
-  // The fix-up iteration's task is the captured `bun run ready` failure, not an
-  // unchecked spec task. Reuse the normal patch prompt (spec context + rules)
-  // and prepend the completion-gate failure as the work to do.
-  const base = buildPrompt(specPath, siblings);
-  const preamble = [
-    "The spec checklist is complete, but the completion `ready` gate failed:",
-    "",
-    failureText.trim(),
-    "",
-    "Fix the cause of this `bun run ready` failure. Do not edit the spec checklist; all boxes are already ticked.",
-    "",
-  ].join("\n");
-  return `${preamble}\n${base}`;
-}
-
 async function runCompletionReadyGate(ctx: IterationContext): Promise<CompletionReadyGateResult> {
   const { preflight, logging, opts } = ctx;
   logging.fanout("harness", "completion: running ready gate\n", "stdout");
@@ -1852,6 +1834,27 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         // No HEAD sha available (e.g. not a git worktree in tests): skip
         // recording; downstream gates fall back to running ready themselves.
       }
+    }
+  }
+
+  // Rewrite PR body once in the completion pipeline, before shrink/review
+  if (preflight.gitEnabled && ctx.state.draftPrEnsured && implementationIterations > 0) {
+    try {
+      const branch = getCurrentBranch(preflight.agentWorkingDir);
+      const base = await getBaseBranch(preflight.agentWorkingDir);
+      const prNarrative = preflight.cfg.modes.patch.prNarrative ?? "template";
+      const agent = ctx.activeAgents[0];
+      await updatePrBody({
+        indexPath: preflight.specPath,
+        branch,
+        base,
+        cwd: preflight.agentWorkingDir,
+        prNarrative,
+        ...(agent !== undefined ? { agent } : {}),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logging.fanout("harness", `warning: completion phase PR body rewrite failed: ${message}\n`, "stderr");
     }
   }
 
@@ -2001,18 +2004,37 @@ async function generatePrBody(
   specPath: string,
   agent: Agent,
   cwd: string,
+  prNarrative: "template" | "agent",
+  base: string,
   runOptions?: Parameters<typeof generatePrDescription>[0]["runOptions"],
 ): Promise<string> {
-  const narrative = await generatePrDescription({
-    specPath,
-    agent,
-    cwd,
-    ...(runOptions === undefined ? {} : { runOptions }),
-  });
+  let narrative: string;
+
+  if (prNarrative === "template") {
+    narrative = generateTemplateNarrative({
+      getSubspecTitles: () => {
+        const indexContent = readFileSync(specPath, "utf8");
+        const parsed = parsePatchSpec(indexContent);
+        return parsed.linkedSubspecs.map((s) => s.text);
+      },
+      getCommitSubjects: () => {
+        const commits = readBranchCommits({ cwd, base });
+        return commits.map((c) => c.subject);
+      },
+    });
+  } else {
+    const generated = await generatePrDescription({
+      specPath,
+      agent,
+      cwd,
+      ...(runOptions === undefined ? {} : { runOptions }),
+    });
+    narrative = generated ?? "(no narrative generated)";
+  }
+
   return buildPrBody({
     indexPath: specPath,
-    narrative: narrative ?? "Auto-generated by jarvis",
-    generatedNarrative: true,
+    narrative,
   });
 }
 

@@ -3,7 +3,7 @@ name: shared-invocation-executor
 ---
 # Shared invocation executor for quota fallback
 
-**Scope.** Route patch/plan/review/shrink agent invocations through `shared/invocation/execute.ts` with v1 spawn bindings.
+**Scope.** Unify quota-fallback spawn + classification across patch/plan/review/shrink. Plan/review/shrink route through `shared/invocation/execute.ts`; patch shares the spawn + classification binding while keeping its iteration-driven loop.
 
 ## Problem
 
@@ -11,12 +11,13 @@ name: shared-invocation-executor
 
 ## Desired behavior
 
-All v1 agent invocations with quota fallback route through the shared executor plus v1-specific spawn bindings. Per-mode call sites delegate classification, fallback order, and retry semantics to one implementation.
+Plan, review, and shrink route their agent invocations through the shared executor (plus v1 spawn bindings), delegating classification, fallback order, and retry semantics to one implementation. Patch shares the same spawn + quota-classification binding but retains its iteration-driven fallback loop. Spawn and quota classification have one implementation across all four paths; patch behavior, telemetry, and operator messages stay identical.
 
 ## Decisions
 
 - Shared executor owns quota fallback loop semantics; v1 supplies spawn/bindings only. Rules out a fourth parallel fallback implementation in a new mode.
-- Patch, plan, review, and shrink all use the same executor entry point. Rules out leaving one mode on legacy inline fallback.
+- Plan, review, and shrink use the shared executor's multi-agent loop (one logical invocation, inner loop over `agentOrder`). Rules out leaving those modes on legacy inline fallback.
+- Patch keeps its iteration-driven agent advancement (head agent per iteration, `shift()` on quota, interleaved with watchdogs/completion/prompt-rebuild) but shares the same spawn + `applyQuotaFallbackWhenAllowed` quota-classification binding as the executor. Classification and spawn are unified across all four paths without forcing patch's cross-iteration fallback into the single-call loop. Rules out a parallel quota-classification/spawn implementation in patch, and rules out refactoring patch's iteration loop into an executor binding (risks the messages-unchanged signal).
 - v1 spawn bindings stay in v1; `shared/**` does not import from `v1/**`. Rules out moving agent CLI knowledge into shared.
 
 ## Acceptance signals

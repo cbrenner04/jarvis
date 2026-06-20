@@ -30,15 +30,15 @@ Consolidate into one `shared/` module owning index/checklist traversal, `## Acce
 
 ## Acceptance criteria
 
-- [ ] A single module under `shared/` is the only definition of `parseSpec` (formerly `parsePatchSpec`), index/checklist + linked-subspec parsing, `## Acceptance criteria` extraction, and `## Blocker` detection; patch and plan import it.
-- [ ] `v1/src/modes/patch/spec.ts`, `v1/src/modes/patch/blocker.ts`, and `v1/src/modes/plan/blocker.ts` no longer exist, and no re-export shim replaces them.
-- [ ] Patch behavior is unchanged: a missing/near-miss `## Acceptance criteria` heading still surfaces parser warnings, and an exact `## Blocker` body still drives blocked exit `7`.
-- [ ] Plan behavior is unchanged: a genuine `## Blocker` still gates draft/review, while the legacy review-gate body is still classified as non-genuine.
-- [ ] When a document has more than one exact `## Blocker` (or `## Acceptance criteria`), both consumers select the first occurrence; a shared-suite test pins this for `parseSpec` and `detectBlocker`.
-- [ ] `detectBlocker` emits no warnings; near-miss heading warnings appear only on `parseSpec`.
-- [ ] Shared module tests prove: index checklist + linked-subspec parsing, `## Acceptance criteria` extraction with near-miss heading warnings, and `## Blocker` detection (exact heading, case-sensitive) — including that empty-body blockers yield `detectBlocker.hasBlocker === true` but `parseSpec(...).blocker === undefined`.
-- [ ] `v2/docs/v1-behaviors.md` spec/blocker/acceptance Sources lines (308, 313, 314, 334) point at the shared module rather than the deleted per-mode files, and the line-334 `[uncertain]` entry is resolved to document first-occurrence duplicate-section selection.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A single module under `shared/` is the only definition of `parseSpec` (formerly `parsePatchSpec`), index/checklist + linked-subspec parsing, `## Acceptance criteria` extraction, and `## Blocker` detection; patch and plan import it.
+- [x] `v1/src/modes/patch/spec.ts`, `v1/src/modes/patch/blocker.ts`, and `v1/src/modes/plan/blocker.ts` no longer exist, and no re-export shim replaces them.
+- [x] Patch behavior is unchanged: a missing/near-miss `## Acceptance criteria` heading still surfaces parser warnings, and an exact `## Blocker` body still drives blocked exit `7`.
+- [x] Plan behavior is unchanged: a genuine `## Blocker` still gates draft/review, while the legacy review-gate body is still classified as non-genuine.
+- [x] When a document has more than one exact `## Blocker` (or `## Acceptance criteria`), both consumers select the first occurrence; a shared-suite test pins this for `parseSpec` and `detectBlocker`.
+- [x] `detectBlocker` emits no warnings; near-miss heading warnings appear only on `parseSpec`.
+- [x] Shared module tests prove: index checklist + linked-subspec parsing, `## Acceptance criteria` extraction with near-miss heading warnings, and `## Blocker` detection (exact heading, case-sensitive) — including that empty-body blockers yield `detectBlocker.hasBlocker === true` but `parseSpec(...).blocker === undefined`.
+- [x] `v2/docs/v1-behaviors.md` spec/blocker/acceptance Sources lines (308, 313, 314, 334) point at the shared module rather than the deleted per-mode files, and the line-334 `[uncertain]` entry is resolved to document first-occurrence duplicate-section selection.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

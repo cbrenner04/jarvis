@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
+import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
@@ -16,7 +17,6 @@ import { pushCurrent } from "../../worktree.ts";
 import { updatePrBody } from "./pr.ts";
 import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
-import { parsePatchSpec } from "./spec.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
 
 type ShrinkLogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
@@ -106,7 +106,7 @@ export function accumulateImplementationTouchedFiles(
 /** Snapshot acceptance criteria for every linked subspec under `indexPath`. */
 export function snapshotAllAcceptanceCriteria(indexPath: string): Map<string, AcceptanceCriterion[]> {
   const indexDir = dirname(indexPath);
-  const parsed = parsePatchSpec(readFileSync(indexPath, "utf8"));
+  const parsed = parseSpec(readFileSync(indexPath, "utf8"));
   const snapshots = new Map<string, AcceptanceCriterion[]>();
   for (const linked of parsed.linkedSubspecs) {
     if (/^[a-z][a-z0-9+.-]*:/i.test(linked.path)) {

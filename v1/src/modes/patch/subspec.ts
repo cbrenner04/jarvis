@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
+import { type AcceptanceCriterion, parseSpec } from "../../../../shared/spec-parser.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import { type AcceptanceCriterion, parsePatchSpec } from "./spec.ts";
 
 export type { AcceptanceCriterion };
 
@@ -11,7 +11,7 @@ export function commitSubspec(subspecPath: string, opts: { cwd?: string; agentLa
   const indexPath = getIndexPath(subspecPath);
   const indexContent = readFileSync(indexPath, "utf8");
 
-  const parsed = parsePatchSpec(subspecContent);
+  const parsed = parseSpec(subspecContent);
   if (!parsed.h1) {
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
@@ -62,7 +62,7 @@ export function commitSubspec(subspecPath: string, opts: { cwd?: string; agentLa
 }
 
 export function snapshotAcceptanceCriteria(subspecPath: string): AcceptanceCriterion[] {
-  const parsed = parsePatchSpec(readFileSync(subspecPath, "utf8"));
+  const parsed = parseSpec(readFileSync(subspecPath, "utf8"));
   return parsed.acceptanceCriteria;
 }
 
@@ -77,7 +77,7 @@ export function commitWipProgress(
   },
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
-  const parsed = parsePatchSpec(subspecContent);
+  const parsed = parseSpec(subspecContent);
   if (!parsed.h1) {
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }
@@ -132,7 +132,7 @@ export function commitWipProgressWithBlocker(
   },
 ): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
-  const parsed = parsePatchSpec(subspecContent);
+  const parsed = parseSpec(subspecContent);
   if (!parsed.h1) {
     throw new Error(`Subspec ${subspecPath} is missing H1 heading (# )`);
   }

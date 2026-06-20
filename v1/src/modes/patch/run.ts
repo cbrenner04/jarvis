@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
+import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
@@ -60,7 +61,6 @@ import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
-import { parsePatchSpec } from "./spec.ts";
 import {
   type AcceptanceCriterion,
   commitSubspec,
@@ -981,7 +981,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   // Check if the active subspec already has a blocker at the start
   // Skip for fix-up iterations since there's no active unchecked subspec
   if (!isFixupIteration && activeSubspecPath !== undefined) {
-    const parsedSubspec = parsePatchSpec(readFileSync(activeSubspecPath, "utf8"));
+    const parsedSubspec = parseSpec(readFileSync(activeSubspecPath, "utf8"));
     if (parsedSubspec.blocker !== undefined) {
       const blockerBody = parsedSubspec.blocker;
       const blockerText = blockerBody ? `${activeSubspecPath}\n\n${blockerBody}` : activeSubspecPath;
@@ -1001,7 +1001,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   let beforeCriteria: AcceptanceCriterion[] = [];
   let hasBlockerBefore = false;
   if (!isFixupIteration && activeSubspecPath !== undefined) {
-    const beforeParse = parsePatchSpec(readFileSync(activeSubspecPath, "utf8"));
+    const beforeParse = parseSpec(readFileSync(activeSubspecPath, "utf8"));
     hasBlockerBefore = beforeParse.blocker !== undefined;
     beforeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
     if (beforeCriteria.length === 0) {
@@ -1268,7 +1268,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
         const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
         // Check if a blocker was added during this iteration
-        const afterParse = parsePatchSpec(readFileSync(afterSubspecPath, "utf8"));
+        const afterParse = parseSpec(readFileSync(afterSubspecPath, "utf8"));
         const hasBlockerNow = afterParse.blocker !== undefined;
         if (hasBlockerNow && !hasBlockerBefore) {
           const blockerBody = afterParse.blocker;
@@ -2014,7 +2014,7 @@ async function generatePrBody(
     narrative = generateTemplateNarrative({
       getSubspecTitles: () => {
         const indexContent = readFileSync(specPath, "utf8");
-        const parsed = parsePatchSpec(indexContent);
+        const parsed = parseSpec(indexContent);
         return parsed.linkedSubspecs.map((s) => s.text);
       },
       getCommitSubjects: () => {

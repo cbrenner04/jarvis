@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
@@ -12,13 +13,12 @@ import {
   runReadyGateWithTier,
 } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
-import { parsePatchSpec } from "./spec.ts";
 
 export { NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 
 export function buildPrBody(opts: { indexPath: string; narrative: string | null }): string {
   const indexContent = readFileSync(opts.indexPath, "utf8");
-  const parsedIndex = parsePatchSpec(indexContent);
+  const parsedIndex = parseSpec(indexContent);
 
   const lines: string[] = [];
   if (parsedIndex.h1) {
@@ -66,7 +66,7 @@ export async function generatePrDescription(opts: {
 function buildSpecContext(indexPath: string): string {
   const indexContent = readFileSync(indexPath, "utf8");
   const sections = [`## index.md\n\n${indexContent.trim()}`];
-  const parsed = parsePatchSpec(indexContent);
+  const parsed = parseSpec(indexContent);
   for (const subspec of parsed.linkedSubspecs) {
     if (/^[a-z][a-z0-9+.-]*:/i.test(subspec.path)) {
       continue;
@@ -123,7 +123,7 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
     buildHeader: () => buildPrBody({ indexPath: opts.indexPath, narrative: null }),
     getSubspecTitles: () => {
       const indexContent = readFileSync(opts.indexPath, "utf8");
-      const parsed = parsePatchSpec(indexContent);
+      const parsed = parseSpec(indexContent);
       return parsed.linkedSubspecs.map((s) => s.text);
     },
     buildPrompt: () =>
@@ -232,7 +232,7 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
 }
 
 function linkedSubspecsAreComplete(indexContent: string): boolean {
-  const linked = parsePatchSpec(indexContent).linkedSubspecs;
+  const linked = parseSpec(indexContent).linkedSubspecs;
   if (linked.length === 0) {
     return false;
   }

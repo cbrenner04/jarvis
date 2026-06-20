@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
@@ -8,10 +9,9 @@ import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
-import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
+import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
-import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 
 function snapshotActuatorSpecFiles(specDir: string): string {
   if (!existsSync(specDir)) {
@@ -161,7 +161,7 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
     createPlanInvocationBinding({
       agentName: entry.agent,
       configuredModel: entry.model,
-      createAgent: (opts.createAgent ?? createAgent),
+      createAgent: opts.createAgent ?? createAgent,
       config: opts.config,
       worktreePath: opts.worktreePath,
       spawnOptions: opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : undefined,

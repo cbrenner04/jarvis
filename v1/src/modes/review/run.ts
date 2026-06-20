@@ -1,8 +1,8 @@
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { resolveReviewAgentOrder, resolveReviewPasses } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { createReviewInvocationBinding } from "./review-invocation-binding.ts";
 import type { ReviewAdapter, ReviewAttemptContext, ReviewPassContext } from "./types.ts";
 import { ReviewTerminalError } from "./types.ts";
@@ -88,7 +88,12 @@ async function runRoleAttempt(
 
           // Record telemetry for non-ok cases; ok cases handled below after blocker check
           if (attempt.result.kind !== "ok") {
-            const exitCode = attempt.result.kind === "model_config" ? 3 : attempt.result.kind === "error" ? attempt.result.exitCode : undefined;
+            const exitCode =
+              attempt.result.kind === "model_config"
+                ? 3
+                : attempt.result.kind === "error"
+                  ? attempt.result.exitCode
+                  : undefined;
             await adapter.recordTelemetry({
               ...attempt,
               outcome: attempt.result.kind,

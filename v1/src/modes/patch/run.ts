@@ -55,10 +55,10 @@ import {
   getActiveLinkedSubspecPath,
   getFirstUncheckedTask,
 } from "./completion.ts";
+import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
-import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import {

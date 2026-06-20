@@ -1,5 +1,6 @@
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import {
@@ -10,11 +11,7 @@ import {
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
-import {
-  HARNESS_QUOTA_FALLBACK_STRICT,
-  harnessQuotaFallbackLenientLine,
-} from "../../quota-harness-messages.ts";
-import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
+import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 
 export function buildIntentSplitPrompt(opts: {
@@ -65,7 +62,6 @@ export function buildIntentSplitPrompt(opts: {
 - Do not write spec \`index.md\` files or numbered subspec files.
 `;
 }
-
 
 function resetIntentStageDir(worktreePath: string, stagingDir: string): void {
   const stagePath = join(worktreePath, stagingDir);

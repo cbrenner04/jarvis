@@ -1,7 +1,7 @@
+import type { InvocationBinding, InvocationResult } from "../../../../shared/invocation/execute.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
-import { type InvocationBinding, type InvocationResult } from "../../../../shared/invocation/execute.ts";
 
 export type ShrinkAgentAttemptData = {
   agentName: AgentName;

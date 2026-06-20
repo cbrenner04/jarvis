@@ -19,15 +19,10 @@ export type PatchInvocationBinding = {
     lastOutputAtMs?: { current: number | null };
     onSpawned?: (child: { pid: number }) => void;
   }) => Promise<AgentResult>;
-  classify: (
-    result: AgentResult,
-    allowLenientWeakQuotaFallback: boolean,
-  ) => AgentResult;
+  classify: (result: AgentResult, allowLenientWeakQuotaFallback: boolean) => AgentResult;
 };
 
-export function createPatchInvocationBinding(
-  opts: PatchInvocationBindingOptions,
-): PatchInvocationBinding {
+export function createPatchInvocationBinding(opts: PatchInvocationBindingOptions): PatchInvocationBinding {
   const model = opts.configuredModel ?? "";
   const agent = opts.createAgent(opts.agentName, model);
 
@@ -36,12 +31,8 @@ export function createPatchInvocationBinding(
       const runOpts: AgentRunOptions = {
         cwd: args.cwd,
         ...(args.signal !== undefined ? { signal: args.signal } : {}),
-        ...(args.additionalReadDirs !== undefined
-          ? { additionalReadDirs: args.additionalReadDirs }
-          : {}),
-        ...(opts.abortKillGraceMs !== undefined
-          ? { abortKillGraceMs: opts.abortKillGraceMs }
-          : {}),
+        ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
+        ...(opts.abortKillGraceMs !== undefined ? { abortKillGraceMs: opts.abortKillGraceMs } : {}),
         ...(args.lastOutputAtMs !== undefined ? { lastOutputAtMs: args.lastOutputAtMs } : {}),
         ...(args.onSpawned !== undefined ? { onSpawned: args.onSpawned } : {}),
       };

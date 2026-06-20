@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
-import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
+import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
@@ -17,8 +17,8 @@ import { pushCurrent } from "../../worktree.ts";
 import { updatePrBody } from "./pr.ts";
 import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
-import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
 import { createShrinkInvocationBinding } from "./shrink-invocation-binding.ts";
+import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
 
 type ShrinkLogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type ShrinkLogStream = "stdout" | "stderr" | null;
@@ -370,7 +370,11 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
           if (spawnResult.kind === "quota") {
             opts.fanout("harness", `${agentName}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
           } else if (spawnResult.kind === "error" && classified.kind === "quota") {
-            opts.fanout("harness", `${agentName}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`, "stderr");
+            opts.fanout(
+              "harness",
+              `${agentName}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`,
+              "stderr",
+            );
           }
         },
         recordAttempt: (data) => {

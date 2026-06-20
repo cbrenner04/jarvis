@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
@@ -8,10 +9,9 @@ import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
-import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
+import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { hasGenuineBlocker } from "./review-gate.ts";
 import { resolvePlanSpecDirPath } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";

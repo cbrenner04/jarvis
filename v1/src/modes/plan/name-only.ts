@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
-import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
+import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 export function buildNameOnlyPrompt(opts: { name: string; intent: string }): string {

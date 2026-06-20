@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
-import type { AgentName, Config, ConfigOptions } from "../../config.ts";
+import type { AgentName, Config, ConfigOptions, ProjectMatch } from "../../config.ts";
 import type { LogClient } from "../../logging.ts";
 import type {
   CostSource,
@@ -20,7 +20,6 @@ import {
   resolveModeSpecificPreflight,
 } from "./preflight.ts";
 import { DescendantTracker } from "./reap.ts";
-import type { ProjectMatch } from "../../config.ts";
 
 export type PreflightOk = {
   kind: "ok";

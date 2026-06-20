@@ -12,9 +12,9 @@ import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../workt
 import { countUnchecked, findBlockerInLinkedSubspecs } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { runPatchReviewPhase } from "./review.ts";
+import type { CompletionReadyGateResult, IterationContext } from "./run.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import type { AcceptanceCriterion } from "./subspec.ts";
-import type { CompletionReadyGateResult, IterationContext } from "./run.ts";
 
 type CompletionLoopbackSignal = {
   failureText: string;

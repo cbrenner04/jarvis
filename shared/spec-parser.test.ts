@@ -57,9 +57,7 @@ describe("parseSpec", () => {
   });
 
   test("selects first blocker when duplicates exist", () => {
-    const parsed = parseSpec(
-      `# Title\n\n## Blocker\n\nFirst blocker\n\n## Blocker\n\nSecond blocker\n`,
-    );
+    const parsed = parseSpec(`# Title\n\n## Blocker\n\nFirst blocker\n\n## Blocker\n\nSecond blocker\n`);
 
     expect(parsed.blocker).toBe("First blocker");
   });
@@ -91,17 +89,13 @@ describe("parseSpec", () => {
   });
 
   test("stops blocker extraction at next level-2 heading", () => {
-    const parsed = parseSpec(
-      `# Title\n\n## Blocker\n\nfirst paragraph\n\n## Next\n\nignored\n`,
-    );
+    const parsed = parseSpec(`# Title\n\n## Blocker\n\nfirst paragraph\n\n## Next\n\nignored\n`);
 
     expect(parsed.blocker).toBe("first paragraph");
   });
 
   test("is case-sensitive for acceptance criteria heading", () => {
-    const parsed = parseSpec(
-      `# Title\n\n## acceptance criteria\n\n- [ ] Item\n`,
-    );
+    const parsed = parseSpec(`# Title\n\n## acceptance criteria\n\n- [ ] Item\n`);
 
     expect(parsed.acceptanceCriteria).toEqual([]);
     expect(parsed.warnings).toContain(
@@ -127,9 +121,7 @@ describe("detectBlocker", () => {
   });
 
   test("detects an exact ## Blocker heading and captures the body", () => {
-    const result = detectBlocker(
-      "# Intent\n\nDo a thing.\n\n## Blocker\n\nNeed clarification on X.\n",
-    );
+    const result = detectBlocker("# Intent\n\nDo a thing.\n\n## Blocker\n\nNeed clarification on X.\n");
     expect(result.hasBlocker).toBe(true);
     expect(result.body).toBe("Need clarification on X.");
   });
@@ -151,9 +143,7 @@ describe("detectBlocker", () => {
   });
 
   test("stops body capture at the next level-2 heading", () => {
-    const result = detectBlocker(
-      "## Blocker\n\nfirst paragraph\n\n## Next\n\nignored\n",
-    );
+    const result = detectBlocker("## Blocker\n\nfirst paragraph\n\n## Next\n\nignored\n");
     expect(result.hasBlocker).toBe(true);
     expect(result.body).toBe("first paragraph");
   });
@@ -165,9 +155,7 @@ describe("detectBlocker", () => {
   });
 
   test("selects first blocker when duplicates exist", () => {
-    const result = detectBlocker(
-      "# Intent\n\n## Blocker\n\nfirst\n\n## Blocker\n\nsecond\n",
-    );
+    const result = detectBlocker("# Intent\n\n## Blocker\n\nfirst\n\n## Blocker\n\nsecond\n");
     expect(result.hasBlocker).toBe(true);
     expect(result.body).toBe("first");
   });

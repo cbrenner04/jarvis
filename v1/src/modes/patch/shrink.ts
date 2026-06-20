@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { getCurrentBranch } from "../../../../shared/git.ts";
+import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
@@ -16,7 +17,6 @@ import { pushCurrent } from "../../worktree.ts";
 import { updatePrBody } from "./pr.ts";
 import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
-import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
 
 type ShrinkLogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";

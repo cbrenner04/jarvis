@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
@@ -12,7 +13,6 @@ import {
   runReadyGateWithTier,
 } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
-import { parseSpec } from "../../../../shared/spec-parser.ts";
 
 export { NARRATIVE_END_MARKER, NARRATIVE_START_MARKER };
 

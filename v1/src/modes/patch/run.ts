@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { closeSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
+import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent } from "../../agents/types.ts";
@@ -60,7 +61,6 @@ import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, DescendantTracker, listProcesses } from "./reap.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
-import { parseSpec } from "../../../../shared/spec-parser.ts";
 import {
   type AcceptanceCriterion,
   commitSubspec,

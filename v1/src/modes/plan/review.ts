@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
+import { detectBlocker } from "../../../../shared/spec-parser.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
@@ -14,7 +15,6 @@ import {
   type ReviewTelemetryEvent,
   ReviewTerminalError,
 } from "../review/types.ts";
-import { detectBlocker } from "../../../../shared/spec-parser.ts";
 import {
   appendBoundaryBlocker,
   assertNoCommitExternalSpecBoundary,

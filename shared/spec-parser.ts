@@ -27,9 +27,7 @@ const h1Pattern = /^#\s+(.+)$/;
 const headingPattern = /^(#{1,6})\s+(.+)$/;
 
 /** Extract blocker body from content, returning undefined if empty or absent. */
-function extractBlockerBody(
-  content: string,
-): { index: number; body: string | undefined } | undefined {
+function extractBlockerBody(content: string): { index: number; body: string | undefined } | undefined {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
 
   let exactBlockerHeaderIndex: number | undefined;
@@ -66,10 +64,20 @@ function extractBlockerBody(
   };
 }
 
+/** Extract h1 heading from content. */
+function extractH1(content: string): string | undefined {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  for (const line of lines) {
+    const h1Match = line.match(h1Pattern);
+    if (h1Match?.[1]) {
+      return h1Match[1].trim();
+    }
+  }
+  return undefined;
+}
+
 /** Extract acceptance criteria section from content, returning undefined if absent. */
-function extractAcceptanceCriteriaSection(
-  content: string,
-): { index: number; lines: string[] } | undefined {
+function extractAcceptanceCriteriaSection(content: string): { index: number; lines: string[] } | undefined {
   const lines = content.replace(/\r\n/g, "\n").split("\n");
 
   let exactAcceptanceHeaderIndex: number | undefined;
@@ -100,79 +108,84 @@ function extractAcceptanceCriteriaSection(
   return { index: exactAcceptanceHeaderIndex, lines: sectionLines };
 }
 
-export function parseSpec(content: string): ParsedSpec {
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
-
-  const tasks: TaskItem[] = [];
-  const linkedSubspecs: LinkedSubspec[] = [];
-  const acceptanceCriteria: AcceptanceCriterion[] = [];
+/** Collect warnings for near-miss headings. */
+function collectHeadingWarnings(lines: string[]): string[] {
   const warnings: string[] = [];
-
-  let h1: string | undefined;
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? "";
-
-    if (h1 === undefined) {
-      const h1Match = line.match(h1Pattern);
-      if (h1Match?.[1]) {
-        h1 = h1Match[1].trim();
-      }
-    }
-
-    const taskMatch = line.match(taskPattern);
-    if (taskMatch?.[2]) {
-      const checked = (taskMatch[1] ?? " ").toLowerCase() === "x";
-      const body = taskMatch[2].trim();
-      tasks.push({ checked, body });
-
-      const linkMatch = body.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
-      if (linkMatch?.[1] && linkMatch[2]) {
-        linkedSubspecs.push({
-          checked,
-          body,
-          text: linkMatch[1],
-          path: linkMatch[2],
-        });
-      }
-    }
-
-    // Warn on near-miss acceptance criteria headings
+  for (const line of lines) {
     if (line !== "## Acceptance criteria" && /^#{1,6}\s+acceptance criteria\s*$/i.test(line)) {
       warnings.push(
         `Rejected heading \`${line}\`: acceptance criteria header must be exactly \`## Acceptance criteria\` (case-sensitive, level-2).`,
       );
     }
-
-    // Warn on near-miss blocker headings
     if (line !== "## Blocker" && /^#{1,6}\s+blocker\s*$/i.test(line)) {
       warnings.push(
         `Rejected heading \`${line}\`: blocker header must be exactly \`## Blocker\` (case-sensitive, level-2).`,
       );
     }
   }
+  return warnings;
+}
 
-  // Extract acceptance criteria from the section
-  const acceptanceCriteriaSection = extractAcceptanceCriteriaSection(content);
-  if (acceptanceCriteriaSection) {
-    for (const line of acceptanceCriteriaSection.lines) {
-      const taskMatch = line.match(taskPattern);
-      if (!taskMatch?.[2]) {
-        continue;
-      }
-      acceptanceCriteria.push({
-        checked: (taskMatch[1] ?? " ").toLowerCase() === "x",
-        text: taskMatch[2].trim(),
+/** Parse tasks and linked subspecs from lines. */
+function parseTasksAndSubspecs(lines: string[]): {
+  tasks: TaskItem[];
+  linkedSubspecs: LinkedSubspec[];
+} {
+  const tasks: TaskItem[] = [];
+  const linkedSubspecs: LinkedSubspec[] = [];
+
+  for (const line of lines) {
+    const taskMatch = line.match(taskPattern);
+    if (!taskMatch?.[2]) {
+      continue;
+    }
+
+    const checked = (taskMatch[1] ?? " ").toLowerCase() === "x";
+    const body = taskMatch[2].trim();
+    tasks.push({ checked, body });
+
+    const linkMatch = body.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (linkMatch?.[1] && linkMatch[2]) {
+      linkedSubspecs.push({
+        checked,
+        body,
+        text: linkMatch[1],
+        path: linkMatch[2],
       });
     }
   }
 
-  // Extract blocker
-  let blocker: string | undefined;
-  const blockerExtraction = extractBlockerBody(content);
-  if (blockerExtraction?.body !== undefined) {
-    blocker = blockerExtraction.body;
+  return { tasks, linkedSubspecs };
+}
+
+/** Parse acceptance criteria from section lines. */
+function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] {
+  const acceptanceCriteria: AcceptanceCriterion[] = [];
+  for (const line of sectionLines) {
+    const taskMatch = line.match(taskPattern);
+    if (!taskMatch?.[2]) {
+      continue;
+    }
+    acceptanceCriteria.push({
+      checked: (taskMatch[1] ?? " ").toLowerCase() === "x",
+      text: taskMatch[2].trim(),
+    });
   }
+  return acceptanceCriteria;
+}
+
+export function parseSpec(content: string): ParsedSpec {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+
+  const h1 = extractH1(content);
+  const warnings = collectHeadingWarnings(lines);
+  const { tasks, linkedSubspecs } = parseTasksAndSubspecs(lines);
+
+  const acceptanceCriteriaSection = extractAcceptanceCriteriaSection(content);
+  const acceptanceCriteria = acceptanceCriteriaSection ? parseAcceptanceCriteria(acceptanceCriteriaSection.lines) : [];
+
+  const blockerExtraction = extractBlockerBody(content);
+  const blocker = blockerExtraction?.body;
 
   return {
     h1,

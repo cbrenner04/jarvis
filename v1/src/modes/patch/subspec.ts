@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative } from "node:path";
-import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { type AcceptanceCriterion, parseSpec } from "../../../../shared/spec-parser.ts";
+import { appendAgentTrailer } from "../../commit-trailer.ts";
 
 export type { AcceptanceCriterion };
 

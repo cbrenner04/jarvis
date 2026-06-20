@@ -21,10 +21,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/src/modes/patch/preflight.ts` exists and defines `resolveModeSpecificPreflight`, `maybeWarnAboutUnmergedPlanBranch`, and `prepareActiveSpecPath`.
-- [ ] `v1/src/modes/patch/run.ts` no longer defines those functions and is shorter than before the change.
-- [ ] `cli.ts` and `v1/test/run.test.ts` import the same symbols from `v1/src/modes/patch/run.ts` as before (re-exports preserved); no test behavioral assertions change.
-- [ ] `bun run typecheck` passes.
+- [x] `v1/src/modes/patch/preflight.ts` exists and defines `resolveModeSpecificPreflight`, `maybeWarnAboutUnmergedPlanBranch`, and `prepareActiveSpecPath`.
+- [x] `v1/src/modes/patch/run.ts` no longer defines those functions and is shorter than before the change.
+- [x] `cli.ts` and `v1/test/run.test.ts` import the same symbols from `v1/src/modes/patch/run.ts` as before (re-exports preserved); no test behavioral assertions change.
+- [x] `bun run typecheck` passes.
 - [ ] `bun run test` passes.
 
 ## Documentation updates

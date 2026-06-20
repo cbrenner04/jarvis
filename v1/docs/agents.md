@@ -266,3 +266,40 @@ the binding's `invoke()` method:
   Its per-iteration telemetry, stderr messages, and exit codes remain unchanged.
 - The separable spawn/classify seam also serves other paths (review, shrink)
   that need custom logic between spawn and classification.
+
+## Review/shrink model tiering
+
+The jarvis patch and plan modes include read-only review roles (adversary,
+advocate, adjudicator in patch review and plan self-review) plus code-writing
+actuators (the review actuator that executes verdicts, and the shrink agent).
+Agent order configuration lets operators assign faster, cheaper models to
+read-only review roles while keeping stronger models on actuators.
+
+**Agent order resolution by role:**
+
+- Read-only review roles (adversary, advocate, adjudicator): resolve from
+  `modes.review.agentOrder` falling back to `modes.plan.agentOrder`.
+- Review actuator and shrink actuator: resolve from `modes.patch.agentOrder`.
+
+This separation enables tiering: assign a fast/cheap reviewer tier to read-only
+roles (e.g., Haiku or a smaller Codex variant) while keeping an
+implementation-grade tier on the actuators (e.g., Opus or a larger model). The
+fast reviewer tier provides quick defect signals, while the actuators get the
+stronger models needed to fix code correctness issues.
+
+**Tiering caveat:** Faster reviewer models trade defect-catch quality for speed.
+Since reviewers produce the verdict that the actuator acts on, weaker reviewer
+models may miss issues or produce lower-quality verdicts, placing heavier
+burden on the actuator to recover. Evaluate reviewer model quality for your use
+case before deploying a fast-only tier to production.
+
+**Cross-mode coupling:** `modes.review.agentOrder` drives reviewers in both
+patch-mode review and plan-mode self-review, so setting it to speed up patch
+review simultaneously retunes plan-mode self-review. The two modes share the
+same review agent order.
+
+**Unset-default takeaway:** If `modes.plan.agentOrder` is already configured
+with a cheaper model, setting `modes.review.agentOrder` is unnecessary —
+reviewers already fall back to the plan order and inherit the tiering for
+free. Explicitly set `modes.review.agentOrder` only when `modes.plan.agentOrder`
+is expensive and you want cheaper reviewers in both patch and plan modes.

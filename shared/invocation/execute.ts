@@ -38,11 +38,12 @@ export type InvocationExecution<T extends InvocationResult = InvocationResult> =
 };
 
 /**
- * Run bindings in order, advancing to the next only on `quota`.
+ * Run bindings in order, advancing to the next on `quota` or `error`.
  *
- * Fallback is quota-only by design: `model_config` and `error` are terminal and
- * stop the chain, since a misconfigured or crashing agent is not something the
- * next agent can paper over. Mirrors v1 fallback semantics.
+ * Stops on `ok` and `model_config` (terminal outcomes). `model_config` indicates
+ * misconfiguration; fallback to another agent cannot fix that. `error` results
+ * allow fallback because the agent may have crashed or been unavailable, and another
+ * agent may succeed. Mirrors v1 fallback semantics.
  */
 export async function executeWithQuotaFallback<T extends InvocationResult = InvocationResult>(args: {
   prompt: string;
@@ -60,7 +61,7 @@ export async function executeWithQuotaFallback<T extends InvocationResult = Invo
     });
     const attempt = { binding, result };
     attempts.push(attempt);
-    if (result.kind === "quota") {
+    if (result.kind === "quota" || result.kind === "error") {
       continue;
     }
     return { attempts, final: attempt };

@@ -201,6 +201,18 @@ rollout includes shared `global.documentation`, `global.naming`, and
 `draft`/`review`/`refine` prompts; `name-only` and `inline-draft` remain
 outside that shared registry in this stage.
 
+## Plan invocation path
+
+Plan single-call paths (draft, intent-draft, name-only) route through the shared
+`executeWithQuotaFallback` executor via v1-supplied `InvocationBinding`s, built
+by a spawn+classification factory. Each binding wraps agent spawn and classification
+(via `applyQuotaFallbackWhenAllowed`), driven by a git-porcelain guard thunk that
+determines whether lenient quota fallback is allowed based on whether the agent
+changed the working tree. Per-rotation stderr emission and per-attempt telemetry
+are injected callbacks, allowing each path to own its stderr format and telemetry
+shape. The executor continues on `quota` and `error` (fallback semantics matching
+v1), and stops on `ok` and `model_config` (terminal outcomes).
+
 ## Prompt ownership (relocation stage one)
 
 Relocation stage one moved seven editable prompt text artifacts into the

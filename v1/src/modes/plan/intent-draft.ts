@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
-import type { AgentName, Config } from "../../config.ts";
+import type { Config } from "../../config.ts";
+import { type AgentName } from "../../agents/types.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
+import { buildPlanBindings } from "./plan-binding-factory.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
@@ -81,68 +82,75 @@ export async function runIntentDraftTurn(opts: {
   opts.onOutboundPrompt?.(prompt);
 
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
-  let result: AgentResult | null = null;
-  let agentLabel: string | null = null;
 
-  for (const entry of agentOrder) {
-    const agent = resolveAgent(entry.agent, entry.model);
-    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
+  // Capture porcelain state for classification guard
+  let porcelainState = readGitPorcelainSnapshot(opts.worktreePath);
+  let successAttempt: IntentDraftSuccessAttempt | undefined;
 
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const invocationStartedAt = Date.now();
-    const spawnResult = await agent.run(prompt, { cwd: opts.agentCwd });
-    const durationMs = Date.now() - invocationStartedAt;
-    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    result = applyQuotaFallbackWhenAllowed(
-      entry.agent,
-      spawnResult,
-      {
+  const bindings = buildPlanBindings(
+    {
+      phase: "intent",
+      createAgent: resolveAgent,
+      quotaConfig: {
         quotaFallback: opts.config.quotaFallback,
         weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
       },
-      noDiskChangeDuringInvocation,
-    );
-    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
+      spawnOptions: {},
+      ...(opts.stderr !== undefined ? { onRotationStderr: opts.stderr } : {}),
+      onAttempt: (attempt) => {
+        // Record telemetry only for non-ok results (matching original behavior)
+        if (attempt.result.kind !== "ok") {
+          opts.planTelemetry?.recordAgentAttempt(attempt);
+        } else {
+          // Capture success attempt info for return value
+          successAttempt = {
+            agentCli: attempt.agentCli,
+            configuredModel: attempt.configuredModel,
+            durationMs: attempt.durationMs,
+          };
+        }
+      },
+      classificationGuard: () => {
+        const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
+        const guard = porcelainState !== null && porcelainAfter !== null && porcelainState === porcelainAfter;
+        porcelainState = porcelainAfter;
+        return guard;
+      },
+    },
+    agentOrder,
+  );
 
-    if (result.kind === "ok") {
-      return {
-        result,
-        agentLabel,
-        successAttempt: {
-          agentCli: entry.agent,
-          configuredModel: entry.model,
-          durationMs,
-        },
-      };
-    }
+  const execution = await executeWithQuotaFallback({
+    prompt,
+    cwd: opts.agentCwd,
+    bindings,
+  });
 
-    opts.planTelemetry?.recordAgentAttempt({
-      phase: "intent",
-      agentCli: entry.agent,
-      configuredModel: entry.model,
-      durationMs,
-      result,
-    });
-
-    if (result.kind === "quota") {
-      continue;
-    }
-    if (result.kind === "model_config") {
-      return { result, agentLabel };
-    }
-  }
-
-  if (result === null) {
+  if (execution.final === null) {
     return {
       result: {
         kind: "error",
         exitCode: 2,
         stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
       },
-      agentLabel,
+      agentLabel: null,
     };
   }
-  return { result, agentLabel };
+
+  const result = execution.final.result;
+  const finalAgentCli = execution.final.binding.id.split(":")[1] as AgentName;
+  const finalEntry = agentOrder.find((e) => e.agent === finalAgentCli);
+  const agentLabel = (() => {
+    if (finalEntry) {
+      const agent = resolveAgent(finalEntry.agent, finalEntry.model);
+      return agent.attributionLabel?.() ?? `${finalEntry.agent} (${finalEntry.model})`;
+    }
+    return null;
+  })();
+
+  return {
+    result,
+    agentLabel,
+    ...(successAttempt !== undefined ? { successAttempt } : {}),
+  };
 }

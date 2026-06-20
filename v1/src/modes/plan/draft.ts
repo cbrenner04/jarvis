@@ -4,12 +4,13 @@ import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
 import { enforceDelimiterPolicy } from "../../../../shared/prompts/render.ts";
 import { detectBlocker } from "../../../../shared/spec-parser.ts";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
-import type { AgentName, Config } from "../../config.ts";
+import type { Config } from "../../config.ts";
+import { type AgentName } from "../../agents/types.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
+import { buildPlanBindings } from "./plan-binding-factory.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { hasGenuineBlocker } from "./review-gate.ts";
@@ -147,63 +148,44 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
 
   opts.onOutboundPrompt?.(prompt);
 
-  // Try each agent in order until one succeeds
   const agentOrder = opts.config.modes.plan.agentOrder;
-  let result: AgentResult | null = null;
-  let agentLabel: string | null = null;
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
 
-  for (const entry of agentOrder) {
-    const agent = resolveAgent(entry.agent, entry.model);
-    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
+  // Capture porcelain state for classification guard
+  let porcelainState = readGitPorcelainSnapshot(opts.worktreePath);
 
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const invocationStartedAt = Date.now();
-    const spawnResult = await agent.run(prompt, {
-      cwd: agentCwd,
-      ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
-    });
-    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    result = applyQuotaFallbackWhenAllowed(
-      entry.agent,
-      spawnResult,
-      {
+  const bindings = buildPlanBindings(
+    {
+      phase: "draft",
+      createAgent: resolveAgent,
+      quotaConfig: {
         quotaFallback: opts.config.quotaFallback,
         weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
       },
-      noDiskChangeDuringInvocation,
-    );
-    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
+      spawnOptions: {
+        ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
+      },
+      ...(opts.stderr !== undefined ? { onRotationStderr: opts.stderr } : {}),
+      onAttempt: (attempt) => {
+        opts.planTelemetry?.recordAgentAttempt(attempt);
+      },
+      classificationGuard: () => {
+        const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
+        const guard = porcelainState !== null && porcelainAfter !== null && porcelainState === porcelainAfter;
+        porcelainState = porcelainAfter;
+        return guard;
+      },
+    },
+    agentOrder,
+  );
 
-    opts.planTelemetry?.recordAgentAttempt({
-      phase: "draft",
-      agentCli: entry.agent,
-      configuredModel: entry.model,
-      durationMs: Date.now() - invocationStartedAt,
-      result,
-    });
+  const execution = await executeWithQuotaFallback({
+    prompt,
+    cwd: agentCwd,
+    bindings,
+  });
 
-    if (result.kind === "ok") {
-      // Success! Count subspecs and return
-      const subspecCount = countSubspecs(specDirPath);
-      return { result, subspecCount, agentLabel };
-    }
-
-    if (result.kind === "quota") {
-      continue;
-    }
-
-    if (result.kind === "model_config") {
-      // Model config error is fatal
-      return { result, subspecCount: null, agentLabel };
-    }
-  }
-
-  // All agents exhausted
-  if (result === null) {
-    // This shouldn't happen given the loop logic, but be defensive
+  if (execution.final === null) {
     return {
       result: {
         kind: "error",
@@ -215,7 +197,23 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
     };
   }
 
-  // Last result (could be quota, error, or model_config)
+  const result = execution.final.result;
+  const finalAgentCli = execution.final.binding.id.split(":")[1] as AgentName;
+  const finalEntry = agentOrder.find((e) => e.agent === finalAgentCli);
+  const agentLabel = (() => {
+    if (finalEntry) {
+      const agent = resolveAgent(finalEntry.agent, finalEntry.model);
+      return agent.attributionLabel?.() ?? `${finalEntry.agent} (${finalEntry.model})`;
+    }
+    return null;
+  })();
+
+  if (result.kind === "ok") {
+    const subspecCount = countSubspecs(specDirPath);
+    return { result, subspecCount, agentLabel };
+  }
+
+  // model_config or error
   return { result, subspecCount: null, agentLabel };
 }
 

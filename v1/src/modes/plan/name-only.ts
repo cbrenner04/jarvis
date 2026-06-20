@@ -1,11 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createAgent } from "../../agents/factory.ts";
-import { applyQuotaFallbackWhenAllowed } from "../../agents/quota.ts";
+import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
+import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { AgentResult } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
+import { type AgentName } from "../../agents/types.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
-import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
+import { buildPlanBindings } from "./plan-binding-factory.ts";
 import { readGitPorcelainSnapshot } from "./git-porcelain.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
@@ -55,54 +56,61 @@ export async function runNameOnlyPhase(opts: {
   opts.onOutboundPrompt?.(prompt);
 
   const agentOrder = opts.config.modes.plan.agentOrder;
-  let result: AgentResult | null = null;
-  let agentLabel: string | null = null;
-  for (const entry of agentOrder) {
-    const agent = createAgent(entry.agent, entry.model);
-    agentLabel = agent.attributionLabel?.() ?? `${entry.agent} (${entry.model})`;
-    const porcelainBefore = readGitPorcelainSnapshot(opts.worktreePath);
-    const invocationStartedAt = Date.now();
-    const spawnResult = await agent.run(prompt, { cwd: opts.worktreePath });
-    const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
-    const noDiskChangeDuringInvocation =
-      porcelainBefore !== null && porcelainAfter !== null && porcelainBefore === porcelainAfter;
-    result = applyQuotaFallbackWhenAllowed(
-      entry.agent,
-      spawnResult,
-      {
+  const resolveAgent = defaultCreateAgent;
+
+  // Capture porcelain state for classification guard
+  let porcelainState = readGitPorcelainSnapshot(opts.worktreePath);
+
+  const bindings = buildPlanBindings(
+    {
+      phase: "name-only",
+      createAgent: resolveAgent,
+      quotaConfig: {
         quotaFallback: opts.config.quotaFallback,
         weakQuotaExitCodes: opts.config.weakQuotaExitCodes,
       },
-      noDiskChangeDuringInvocation,
-    );
-    emitPlanAgentQuotaFallback(opts.stderr, entry.agent, spawnResult, result);
-    opts.planTelemetry?.recordAgentAttempt({
-      phase: "name-only",
-      agentCli: entry.agent,
-      configuredModel: entry.model,
-      durationMs: Date.now() - invocationStartedAt,
-      result,
-    });
-    if (result.kind === "ok") {
-      return { result, agentLabel };
-    }
-    if (result.kind === "quota") {
-      continue;
-    }
-    if (result.kind === "model_config") {
-      return { result, agentLabel };
-    }
-  }
+      spawnOptions: {},
+      ...(opts.stderr !== undefined ? { onRotationStderr: opts.stderr } : {}),
+      onAttempt: (attempt) => {
+        opts.planTelemetry?.recordAgentAttempt(attempt);
+      },
+      classificationGuard: () => {
+        const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);
+        const guard = porcelainState !== null && porcelainAfter !== null && porcelainState === porcelainAfter;
+        porcelainState = porcelainAfter;
+        return guard;
+      },
+    },
+    agentOrder,
+  );
 
-  if (result === null) {
+  const execution = await executeWithQuotaFallback({
+    prompt,
+    cwd: opts.worktreePath,
+    bindings,
+  });
+
+  if (execution.final === null) {
     return {
       result: {
         kind: "error",
         exitCode: 2,
         stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
       },
-      agentLabel,
+      agentLabel: null,
     };
   }
+
+  const result = execution.final.result;
+  const finalAgentCli = execution.final.binding.id.split(":")[1] as AgentName;
+  const finalEntry = agentOrder.find((e) => e.agent === finalAgentCli);
+  const agentLabel = (() => {
+    if (finalEntry) {
+      const agent = resolveAgent(finalEntry.agent, finalEntry.model);
+      return agent.attributionLabel?.() ?? `${finalEntry.agent} (${finalEntry.model})`;
+    }
+    return null;
+  })();
+
   return { result, agentLabel };
 }

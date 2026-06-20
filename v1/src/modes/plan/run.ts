@@ -14,7 +14,6 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { PlanCommandOptions, PlanIo } from "../../commands/plan.ts";
-import { PLAN_USAGE } from "../../commands/plan.ts";
 import { describePlanInvocation, isExistingFile, parsePlanArgs } from "../../commands/plan-args.ts";
 import {
   CONFIG_DIR,
@@ -49,6 +48,10 @@ import {
   formatPlanSpecTimestamp,
   stripPlanSpecTimestampPrefix,
 } from "./spec-paths.ts";
+
+export const PLAN_USAGE = `Usage: jarvis1 plan [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
+                            Run plan mode (draft specs under spec/…); see docs/plan-mode.md.
+`;
 
 /** Best-effort harness log for plan setup diagnostics (mirrors patch-mode fanout style). */
 function planHarnessLog(logClient: LogClient, text: string, tag: "harness" | "outbound" = "harness"): void {

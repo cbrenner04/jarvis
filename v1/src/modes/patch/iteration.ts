@@ -43,7 +43,6 @@ import {
 } from "./completion.ts";
 import {
   type CompletionLoopbackSignal,
-  type CompletionReadyGateResult,
   diffAcceptanceCriteria,
   generatePrBody,
   getCurrentBranch,
@@ -56,7 +55,15 @@ import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, type DescendantTracker, listProcesses } from "./reap.ts";
-import type { RunCommandOptions, RunIo } from "./run.ts";
+import type {
+  CompletionReadyGateResult,
+  IterationContext,
+  IterationOutcome,
+  LoggingContext,
+  PreflightOk,
+  RunCommandOptions,
+  RunIo,
+} from "./run.ts";
 import { accumulateImplementationTouchedFiles } from "./shrink.ts";
 import {
   type AcceptanceCriterion,
@@ -100,61 +107,7 @@ type WriteTelemetry = (record: {
   watchdog_descendants_alive?: boolean;
 }) => void;
 
-export type PreflightOk = {
-  kind: "ok";
-  project: ProjectMatch;
-  projectMode: "registered" | "ad-hoc";
-  cfg: Config;
-  gitEnabled: boolean;
-  agentWorkingDir: string;
-  worktreeLocked: boolean;
-  stalepidRecovered: number | undefined;
-  specPath: string;
-  additionalReadDirs: string[] | undefined;
-};
-
 type PreflightResult = PreflightOk | { kind: "error"; exitCode: number } | { kind: "exit"; exitCode: number };
-
-type LoggingContext = {
-  fanout: Fanout;
-  sendLog: SendLog;
-  writeSessionLine: WriteSessionLine;
-  writeTelemetry: WriteTelemetry;
-  sessionFd: number;
-  logClient: LogClient;
-  runNamespace: string;
-  specDisplayName: string;
-  hasTelemetryWrites: () => boolean;
-  patchIterationsCompletedForSummary: () => number;
-  implementationTouchedFiles: Set<string>;
-};
-
-export type IterationContext = {
-  preflight: PreflightOk;
-  logging: LoggingContext;
-  opts: RunCommandOptions;
-  activeAgents: Agent[];
-  descendantTracker: DescendantTracker;
-  state: {
-    iteration: number;
-    latestIterationStdout: string[];
-    latestIterationStderr: string[];
-    draftPrEnsured: boolean;
-    opencodeUnavailableNoted: boolean;
-    cursorUnavailableNoted: boolean;
-    currentController: AbortController | null;
-    completionLoopbackSignal: CompletionLoopbackSignal | null;
-    previousCompletionFailureText: string | null;
-    completionTransitionReadyResult?: {
-      headSha: string;
-    };
-  };
-};
-
-type IterationOutcome =
-  | { kind: "continue" }
-  | { kind: "return"; exitCode: number }
-  | { kind: "exit"; exitCode: number };
 
 function formatWatchdogDiagnosticsSuffix(
   lastOutputAgeMs: number | null,

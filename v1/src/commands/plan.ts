@@ -24,10 +24,6 @@ export type PlanCommandOptions = {
   ) => import("../agents/types.ts").Agent;
 };
 
-export const PLAN_USAGE = `Usage: jarvis1 plan [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
-                            Run plan mode (draft specs under spec/…); see docs/plan-mode.md.
-`;
-
 // Re-exports from orchestration module
 export {
   deleteReadyIntentFromWorktree,
@@ -35,6 +31,7 @@ export {
   isPathInside,
   parseIntentFrontmatter,
   planCommand,
+  PLAN_USAGE,
   renderPlanNextSteps,
   resolveResumeSpecPath,
   validateReadyIntent,

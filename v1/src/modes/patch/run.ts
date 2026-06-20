@@ -2,11 +2,17 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
-import type { AgentName, ConfigOptions } from "../../config.ts";
+import type { AgentName, Config, ConfigOptions } from "../../config.ts";
 import type { LogClient } from "../../logging.ts";
+import type {
+  CostSource,
+  PatchTelemetryPhase,
+  TelemetryKind,
+  TelemetryRecordRole,
+  UsageSource,
+} from "../../telemetry.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
-import type { CompletionReadyGateResult } from "./completion-pipeline.ts";
-import { finalize, type IterationContext, runIteration, setupLogging } from "./iteration.ts";
+import { finalize, runIteration, setupLogging } from "./iteration.ts";
 import {
   buildActiveAgents,
   maybeWarnAboutUnmergedPlanBranch,
@@ -14,8 +20,97 @@ import {
   resolveModeSpecificPreflight,
 } from "./preflight.ts";
 import { DescendantTracker } from "./reap.ts";
+import type { ProjectMatch } from "../../config.ts";
 
-export type { IterationContext, PreflightOk } from "./iteration.ts";
+export type PreflightOk = {
+  kind: "ok";
+  project: ProjectMatch;
+  projectMode: "registered" | "ad-hoc";
+  cfg: Config;
+  gitEnabled: boolean;
+  agentWorkingDir: string;
+  worktreeLocked: boolean;
+  stalepidRecovered: number | undefined;
+  specPath: string;
+  additionalReadDirs: string[] | undefined;
+};
+
+export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string };
+
+type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
+type LogStream = "stdout" | "stderr" | null;
+type LogAnnotations = Record<string, string | number | boolean | null>;
+
+type Fanout = (tag: LogTag, text: string, stream: LogStream, annotations?: LogAnnotations) => void;
+
+type SendLog = (tag: LogTag, text: string, annotations?: LogAnnotations) => void;
+
+type WriteSessionLine = (tag: LogTag, line: string) => void;
+
+type WriteTelemetry = (record: {
+  agent: string;
+  iteration: number;
+  durationMs: number;
+  kind: TelemetryKind;
+  exitReason: string;
+  record_role?: TelemetryRecordRole;
+  configured_model?: string;
+  patch_phase?: PatchTelemetryPhase;
+  usage?: {
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cache_read_input_tokens: number | null;
+    cache_creation_input_tokens: number | null;
+  };
+  usage_source?: UsageSource;
+  cost_usd?: number | null;
+  cost_source?: CostSource;
+  warnings?: string[];
+  watchdog_pgid?: number;
+  last_output_age_ms?: number | null;
+  watchdog_descendants_alive?: boolean;
+}) => void;
+
+export type LoggingContext = {
+  fanout: Fanout;
+  sendLog: SendLog;
+  writeSessionLine: WriteSessionLine;
+  writeTelemetry: WriteTelemetry;
+  sessionFd: number;
+  logClient: LogClient;
+  runNamespace: string;
+  specDisplayName: string;
+  hasTelemetryWrites: () => boolean;
+  patchIterationsCompletedForSummary: () => number;
+  implementationTouchedFiles: Set<string>;
+};
+
+export type IterationContext = {
+  preflight: PreflightOk;
+  logging: LoggingContext;
+  opts: RunCommandOptions;
+  activeAgents: Agent[];
+  descendantTracker: DescendantTracker;
+  state: {
+    iteration: number;
+    latestIterationStdout: string[];
+    latestIterationStderr: string[];
+    draftPrEnsured: boolean;
+    opencodeUnavailableNoted: boolean;
+    cursorUnavailableNoted: boolean;
+    currentController: AbortController | null;
+    completionLoopbackSignal: { failureText: string } | null;
+    previousCompletionFailureText: string | null;
+    completionTransitionReadyResult?: {
+      headSha: string;
+    };
+  };
+};
+
+export type IterationOutcome =
+  | { kind: "continue" }
+  | { kind: "return"; exitCode: number }
+  | { kind: "exit"; exitCode: number };
 // Re-export externally-consumed symbols
 export { maybeWarnAboutUnmergedPlanBranch, prepareActiveSpecPath };
 

@@ -14,44 +14,10 @@ import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from
 import { runPatchReviewPhase } from "./review.ts";
 import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
 import type { AcceptanceCriterion } from "./subspec.ts";
-
-export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string };
+import type { CompletionReadyGateResult, IterationContext } from "./run.ts";
 
 type CompletionLoopbackSignal = {
   failureText: string;
-};
-
-type IterationContextForCompletion = {
-  preflight: {
-    specPath: string;
-    gitEnabled: boolean;
-    agentWorkingDir: string;
-    cfg: any;
-  };
-  logging: {
-    fanout: any;
-    writeTelemetry: (record: any) => void;
-    patchIterationsCompletedForSummary: () => number;
-    implementationTouchedFiles: Set<string>;
-  };
-  opts: {
-    runCompletionReadyGate?: (cwd: string) => CompletionReadyGateResult;
-    skipGhCheck?: boolean;
-    reviewPasses?: number;
-    resumeReview?: boolean;
-    agents?: any;
-    __testKillGraceMs?: number;
-  };
-  activeAgents: Agent[];
-  state: {
-    iteration: number;
-    completionLoopbackSignal: CompletionLoopbackSignal | null;
-    previousCompletionFailureText: string | null;
-    draftPrEnsured: boolean;
-    completionTransitionReadyResult?: {
-      headSha: string;
-    };
-  };
 };
 
 function normalizeReadyFailureText(text: string): string {
@@ -176,7 +142,7 @@ async function generatePrBody(
   });
 }
 
-async function runCompletionReadyGate(ctx: IterationContextForCompletion): Promise<CompletionReadyGateResult> {
+async function runCompletionReadyGate(ctx: IterationContext): Promise<CompletionReadyGateResult> {
   const { preflight, logging, opts } = ctx;
   logging.fanout("harness", "completion: running ready gate\n", "stdout");
 
@@ -202,7 +168,7 @@ async function runCompletionReadyGate(ctx: IterationContextForCompletion): Promi
   }
 }
 
-async function tryFinishSpecIfDone(ctx: IterationContextForCompletion): Promise<number | null> {
+async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null> {
   const { preflight, logging } = ctx;
   if (countUnchecked(preflight.specPath) !== 0) {
     return null;

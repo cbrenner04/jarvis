@@ -26,9 +26,9 @@ a no-change result.
 
 ## Acceptance criteria
 
-- [ ] With `modes.patch.shrink: "agent"`, when the shrink agent produces no surviving file changes, the contract `bun run test` is not run and no `shrink:` commit is made.
-- [ ] With `modes.patch.shrink: "agent"`, when the shrink agent produces surviving file changes, the AC-regression and deleted-scoped-test guards still apply, `bun run test` runs, and a contract miss discards all shrink changes without elevating the run exit code.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] With `modes.patch.shrink: "agent"`, when the shrink agent produces no surviving file changes, the contract `bun run test` is not run and no `shrink:` commit is made.
+- [x] With `modes.patch.shrink: "agent"`, when the shrink agent produces surviving file changes, the AC-regression and deleted-scoped-test guards still apply, `bun run test` runs, and a contract miss discards all shrink changes without elevating the run exit code.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

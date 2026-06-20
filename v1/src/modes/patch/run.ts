@@ -905,7 +905,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const iterationStartedAt = Date.now();
   const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
 
-  if (isIndexSpec && iteration > cfg.maxIterations) {
+  if (iteration > cfg.maxIterations) {
     printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
     fanout("harness", `max iterations (${cfg.maxIterations}) reached; stopping\n`, "stderr");
     writeTelemetry({
@@ -964,11 +964,7 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   // For fix-up iterations, we don't get a task from the spec; instead we use the captured failure text
   const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);
   const taskExcerpt = isFixupIteration ? "ready: fix bun run ready failure" : task?.line.slice(0, 140);
-  const activeSubspecPath = isFixupIteration
-    ? undefined
-    : isIndexSpec
-      ? getActiveLinkedSubspecPath(specPath)
-      : specPath;
+  const activeSubspecPath = isFixupIteration ? undefined : getActiveLinkedSubspecPath(specPath);
   const preIterationHead =
     gitEnabled && existsSync(join(agentWorkingDir, ".git"))
       ? execFileSync("git", ["rev-parse", "HEAD"], {
@@ -1542,20 +1538,6 @@ async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
           ...telemetryMeta,
         });
         return { kind: "return", exitCode: done };
-      }
-      if (!isIndexSpec) {
-        fanout("harness", "one-iteration run finished with unchecked tasks remaining\n", "stdout");
-        writeTelemetry({
-          agent: agent.name,
-          iteration,
-          durationMs: iterationDurationMs(),
-          kind: "ok",
-          exitReason: "criteria-progress",
-          ...telemetryMeta,
-          ...usageCost,
-          ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
-        });
-        return { kind: "return", exitCode: 0 };
       }
       // For fix-up iterations, we don't check no-progress since all boxes are already checked;
       // instead we re-check ready at the start of the next iteration

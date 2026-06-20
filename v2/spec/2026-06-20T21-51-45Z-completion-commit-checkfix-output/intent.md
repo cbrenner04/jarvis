@@ -48,3 +48,14 @@ When the completion ready gate leaves the tree dirty solely because `check:fix` 
 
 - The completion fix-up loop is reproducible (established this session on #291/#294/#310): green tree, uncommitted check:fix output, `fix-up: ready failure`.
 - `bun run typecheck` and `bun run test` green on `main`.
+
+## Blocker
+
+Every decision and acceptance signal in this intent is already implemented and tested on `main`. Drafting would yield a no-op spec whose criteria already pass.
+
+- Commit-after-check:fix before the clean-tree assertion: `runReadyAndCommit` full tier runs `bun run ready`, then commits a dirty tree via `realCommitCheckFix` (`v1/src/ready-gate.ts:114-128`, `:86-109`). The completion gate calls it at full tier (`v1/src/modes/patch/completion-pipeline.ts:158-162`).
+- Green-dirty vs red distinction: `scripts/ready.ts:205-210` runs `check:fix` (write, exits 0) then `check`; pure-formatting → green-but-dirty → committed; unfixable/test/typecheck → red → fix-up.
+- Bounded fix-up with distinct terminal reason: `ready-stuck-red` exit 10 + telemetry (`completion-pipeline.ts:204-232`); changed-failure loops ride `maxIterations` → exit 5.
+- Tests already cover all three acceptance signals: `v1/test/run.test.ts:661` (green, check:fix committed, single pass, no fix-up), `:699` (red drives one fix-up), `:850` and `:1004` (stuck-red exit 10 + telemetry); `v1/test/ready-gate.test.ts` ("full tier runs check:fix commit path when tree is dirty"). Shipped in #254, #285, #313.
+
+Unresolved contradiction the operator must settle before this can draft: the evidence (#291/#294/#310) is from this session, yet the fix predates it. Either those runs used a jarvis build without the fix (intent is stale → close it), or there is a residual case the current code misses (e.g. `check:fix` output that survives the final `check`, a non-`full` completion path, or changed-failure loops that ride `maxIterations` too long). If a residual gap exists, rewrite the intent to name that specific case — the current text describes already-shipped behavior, so I cannot tell what new code to build.

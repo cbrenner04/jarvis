@@ -114,7 +114,7 @@ describe("planCommand", () => {
   });
 
   test("plan mode invokes `gh pr ready` via maybeMarkPlanPrReady", () => {
-    const source = readFileSync(join(dirname(__dirname), "src", "commands", "plan.ts"), "utf8");
+    const source = readFileSync(join(dirname(__dirname), "src", "modes", "plan", "run.ts"), "utf8");
     expect(source).toContain("maybeMarkPlanPrReady");
     expect(source).toContain("safeMarkPlanPrReady");
   });

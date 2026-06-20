@@ -18,11 +18,11 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/src/modes/plan/run.ts` exists and defines `planCommand`.
-- [ ] `v1/src/commands/plan.ts` no longer defines `planCommand`'s orchestration body and is substantially thinner (args + re-exports).
-- [ ] `cli.ts` and the `v1/test/plan-*` / `v1/test/modes/plan/*` suites import the same symbols from `v1/src/commands/plan.ts` as before (re-exports preserved); no test behavioral assertions change.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `v1/src/modes/plan/run.ts` exists and defines `planCommand`.
+- [x] `v1/src/commands/plan.ts` no longer defines `planCommand`'s orchestration body and is substantially thinner (args + re-exports).
+- [x] `cli.ts` and the `v1/test/plan-*` / `v1/test/modes/plan/*` suites import the same symbols from `v1/src/commands/plan.ts` as before (re-exports preserved); no test behavioral assertions change.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

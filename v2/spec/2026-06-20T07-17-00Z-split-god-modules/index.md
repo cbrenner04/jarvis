@@ -5,4 +5,4 @@ Refactor-only: split `patch/run.ts` (~2.1k LOC) and `commands/plan.ts` (~1.5k LO
 - [x] [00 - Extract patch preflight](./00-patch-preflight.md)
 - [x] [01 - Extract patch completion pipeline](./01-patch-completion-pipeline.md)
 - [x] [02 - Extract patch iteration, thin run.ts](./02-patch-iteration-thin-run.md)
-- [ ] [03 - Extract plan orchestration, args-only command](./03-plan-orchestration.md)
+- [x] [03 - Extract plan orchestration, args-only command](./03-plan-orchestration.md)

@@ -378,8 +378,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
           }
         },
         recordAttempt: (data) => {
-          const configuredModel = opts.config.modes.patch.agentOrder.find((e) => e.agent === data.agentName)?.model;
-          const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
+          const telemetryMeta = data.configuredModel ? { configured_model: data.configuredModel } : {};
 
           if (data.result.kind === "ok") {
             if (data.result.stdout.length > 0) {
@@ -395,7 +394,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
               kind: "ok",
               exitReason: "ok",
               patch_phase: "shrink",
-              ...extractUsageAndCost(data.result, data.agentName, configuredModel),
+              ...extractUsageAndCost(data.result, data.agentName, data.configuredModel),
               ...telemetryMeta,
             });
           } else if (data.result.kind === "quota") {

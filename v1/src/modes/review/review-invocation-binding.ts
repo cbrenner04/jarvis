@@ -30,9 +30,9 @@ export type ReviewInvocationBindingOptions<T extends InvocationResult = Invocati
   now?: (() => number) | undefined;
 };
 
-export async function createReviewInvocationBinding<T extends InvocationResult = InvocationResult>(
+export function createReviewInvocationBinding<T extends InvocationResult = InvocationResult>(
   opts: ReviewInvocationBindingOptions<T>,
-): Promise<InvocationBinding<T>> {
+): InvocationBinding<T> {
   const agentLabel = `${opts.agentEntry.agent} (${opts.agentEntry.model})`;
 
   const binding: InvocationBinding<T> = {

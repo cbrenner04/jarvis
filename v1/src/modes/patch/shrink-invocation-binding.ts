@@ -5,6 +5,7 @@ import type { Config } from "../../config.ts";
 
 export type ShrinkAgentAttemptData = {
   agentName: AgentName;
+  configuredModel: string | undefined;
   durationMs: number;
   result: AgentResult;
 };
@@ -51,6 +52,7 @@ export function createShrinkInvocationBinding<T extends InvocationResult = Invoc
       opts.onQuotaFallbackEmit?.(opts.agentName, spawnResult, classified);
       opts.recordAttempt?.({
         agentName: opts.agentName,
+        configuredModel: opts.configuredModel,
         durationMs: Date.now() - invocationStartedAt,
         result: classified,
       });

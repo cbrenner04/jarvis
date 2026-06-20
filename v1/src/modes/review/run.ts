@@ -69,40 +69,37 @@ async function runRoleAttempt(
   const attemptContextByBindingId = new Map<string, ReviewAttemptContext>();
 
   // Create bindings for all agents in the order
-  const bindings = await Promise.all(
-    agentOrder.map((agentEntry) =>
-      createReviewInvocationBinding({
-        agentEntry,
-        config: opts.config,
-        cwd: opts.cwd,
-        adapter,
-        roleContext,
-        loadAgent: opts.loadAgent,
-        onQuotaFallbackEmit: opts.onQuotaRotation,
-        additionalReadDirs: opts.additionalReadDirs,
-        now: opts.now,
-        recordAttemptTelemetry: async (attempt) => {
-          // Store context for later retrieval
-          const agentLabel = `${agentEntry.agent} (${agentEntry.model})`;
-          attemptContextByBindingId.set(agentLabel, attempt);
+  const bindings = agentOrder.map((agentEntry) =>
+    createReviewInvocationBinding({
+      agentEntry,
+      config: opts.config,
+      cwd: opts.cwd,
+      adapter,
+      roleContext,
+      loadAgent: opts.loadAgent,
+      onQuotaFallbackEmit: opts.onQuotaRotation,
+      additionalReadDirs: opts.additionalReadDirs,
+      now: opts.now,
+      recordAttemptTelemetry: async (attempt) => {
+        // Store context for later retrieval
+        attemptContextByBindingId.set(attempt.agentLabel, attempt);
 
-          // Record telemetry for non-ok cases; ok cases handled below after blocker check
-          if (attempt.result.kind !== "ok") {
-            const exitCode =
-              attempt.result.kind === "model_config"
-                ? 3
-                : attempt.result.kind === "error"
-                  ? attempt.result.exitCode
-                  : undefined;
-            await adapter.recordTelemetry({
-              ...attempt,
-              outcome: attempt.result.kind,
-              ...(exitCode !== undefined ? { exitCode } : {}),
-            });
-          }
-        },
-      }),
-    ),
+        // Record telemetry for non-ok cases; ok cases handled below after blocker check
+        if (attempt.result.kind !== "ok") {
+          const exitCode =
+            attempt.result.kind === "model_config"
+              ? 3
+              : attempt.result.kind === "error"
+                ? attempt.result.exitCode
+                : undefined;
+          await adapter.recordTelemetry({
+            ...attempt,
+            outcome: attempt.result.kind,
+            ...(exitCode !== undefined ? { exitCode } : {}),
+          });
+        }
+      },
+    }),
   );
 
   // Run all agents with quota fallback

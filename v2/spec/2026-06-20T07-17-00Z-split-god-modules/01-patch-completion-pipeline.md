@@ -16,17 +16,17 @@ The completion seam in `v1/src/modes/patch/run.ts` — spec-done detection, the 
 
 ## Task checklist
 
-- [ ] Create `completion-pipeline.ts` with the completion seam and its private helpers.
-- [ ] Rewire `run.ts` (`runIteration`) to import from `completion-pipeline.ts`.
-- [ ] `bun run typecheck`; `bun run test`.
+- [x] Create `completion-pipeline.ts` with the completion seam and its private helpers.
+- [x] Rewire `run.ts` (`runIteration`) to import from `completion-pipeline.ts`.
+- [x] `bun run typecheck`; `bun run test`.
 
 ## Acceptance criteria
 
-- [ ] `v1/src/modes/patch/completion-pipeline.ts` exists and defines `tryFinishSpecIfDone`, `runCompletionReadyGate`, and `generatePrBody`.
-- [ ] `v1/src/modes/patch/run.ts` no longer defines those functions and is shorter than before the change.
-- [ ] No `v1/test` behavioral assertions change (import-path edits only, if any).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
+- [x] `v1/src/modes/patch/completion-pipeline.ts` exists and defines `tryFinishSpecIfDone`, `runCompletionReadyGate`, and `generatePrBody`.
+- [x] `v1/src/modes/patch/run.ts` no longer defines those functions and is shorter than before the change.
+- [x] No `v1/test` behavioral assertions change (import-path edits only, if any).
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
 
 ## Documentation updates
 

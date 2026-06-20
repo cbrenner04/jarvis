@@ -14,7 +14,7 @@ import {
   type ReviewTelemetryEvent,
   ReviewTerminalError,
 } from "../review/types.ts";
-import { detectBlocker } from "./blocker.ts";
+import { detectBlocker } from "../../../../shared/spec-parser.ts";
 import {
   appendBoundaryBlocker,
   assertNoCommitExternalSpecBoundary,

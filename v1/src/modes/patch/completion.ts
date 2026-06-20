@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { parsePatchSpec } from "./spec.ts";
+import { parseSpec } from "../../../../shared/spec-parser.ts";
 
 export class MalformedSpecError extends Error {
   constructor(specPath: string) {
@@ -10,7 +10,7 @@ export class MalformedSpecError extends Error {
 }
 
 export function countUnchecked(specPath: string): number {
-  const parsed = parsePatchSpec(readSpec(specPath));
+  const parsed = parseSpec(readSpec(specPath));
 
   if (parsed.tasks.length === 0) {
     throw new MalformedSpecError(specPath);
@@ -30,7 +30,7 @@ export type UncheckedTaskSummary = {
 };
 
 export function getFirstUncheckedTask(specPath: string): UncheckedTaskSummary {
-  const parsed = parsePatchSpec(readSpec(specPath));
+  const parsed = parseSpec(readSpec(specPath));
 
   if (parsed.tasks.length === 0) {
     throw new MalformedSpecError(specPath);
@@ -50,7 +50,7 @@ export function getFirstUncheckedTask(specPath: string): UncheckedTaskSummary {
 }
 
 export function getActiveLinkedSubspecPath(indexPath: string): string | undefined {
-  const parsed = parsePatchSpec(readSpec(indexPath));
+  const parsed = parseSpec(readSpec(indexPath));
   const firstUncheckedLinked = parsed.linkedSubspecs.find((item) => !item.checked);
   if (firstUncheckedLinked === undefined) {
     return undefined;
@@ -64,14 +64,14 @@ export function getActiveLinkedSubspecPath(indexPath: string): string | undefine
  * Returns the path and body of the first subspec with a blocker, or undefined.
  */
 export function findBlockerInLinkedSubspecs(indexPath: string): { path: string; body: string } | undefined {
-  const parsed = parsePatchSpec(readSpec(indexPath));
+  const parsed = parseSpec(readSpec(indexPath));
   const baseDir = dirname(indexPath);
 
   for (const linked of parsed.linkedSubspecs) {
     const linkedPath = resolve(baseDir, linked.path);
     try {
       const linkedContent = readSpec(linkedPath);
-      const linkedParsed = parsePatchSpec(linkedContent);
+      const linkedParsed = parseSpec(linkedContent);
       if (linkedParsed.blocker !== undefined) {
         return {
           path: linkedPath,

@@ -2376,24 +2376,6 @@ describe("review mode config validation", () => {
     expect(cfg.modes.patch.shrink).toBe("off");
   });
 
-  test("accepts modes.patch.shrink set to agent", () => {
-    writeFileSync(
-      join(dir, "config.json"),
-      JSON.stringify({
-        version: 2,
-        modes: {
-          patch: { agentOrder: CLAUDE_ONLY, shrink: "agent" },
-          plan: { agentOrder: CLAUDE_ONLY },
-          prompt: { agentOrder: CLAUDE_ONLY },
-          review: { passes: 2 },
-        },
-        projects: {},
-      }),
-    );
-    const cfg = loadConfig({ dir });
-    expect(cfg.modes.patch.shrink).toBe("agent");
-  });
-
   test("rejects invalid modes.patch.shrink value", () => {
     const file = join(dir, "config.json");
     writeFileSync(

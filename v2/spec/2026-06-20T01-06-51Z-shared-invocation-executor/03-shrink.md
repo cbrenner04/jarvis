@@ -13,11 +13,11 @@
 
 ## Acceptance criteria
 
-- [ ] Quota exhaustion across all patch agents during shrink discards changes (reset to pre-shrink HEAD) and returns without elevating the run exit code, with the existing `shrink: all agents quota-exhausted (discarded)` line.
-- [ ] A single agent's strict-quota or lenient probable-quota result rotates to the next configured patch agent and emits the existing rotation stderr (`${agent.name}:` prefix + `result.stderr` passthrough) byte-identically for each case.
-- [ ] On success the shrink contract is unchanged: out-of-scope/spec-tree revert, AC-regression / deleted-scoped-test / failing-test discard, and the single attributed `shrink:` commit on pass.
-- [ ] `patch_phase: "shrink"` telemetry rows (kind, exitReason) are unchanged across ok/quota-fallback/quota-exhausted/error.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] Quota exhaustion across all patch agents during shrink discards changes (reset to pre-shrink HEAD) and returns without elevating the run exit code, with the existing `shrink: all agents quota-exhausted (discarded)` line.
+- [x] A single agent's strict-quota or lenient probable-quota result rotates to the next configured patch agent and emits the existing rotation stderr (`${agent.name}:` prefix + `result.stderr` passthrough) byte-identically for each case.
+- [x] On success the shrink contract is unchanged: out-of-scope/spec-tree revert, AC-regression / deleted-scoped-test / failing-test discard, and the single attributed `shrink:` commit on pass.
+- [x] `patch_phase: "shrink"` telemetry rows (kind, exitReason) are unchanged across ok/quota-fallback/quota-exhausted/error.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

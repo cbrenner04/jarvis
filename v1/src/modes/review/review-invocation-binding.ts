@@ -33,7 +33,12 @@ export type ReviewInvocationBindingOptions<T extends InvocationResult = Invocati
 export function createReviewInvocationBinding<T extends InvocationResult = InvocationResult>(
   opts: ReviewInvocationBindingOptions<T>,
 ): InvocationBinding<T> {
-  const agentLabel = `${opts.agentEntry.agent} (${opts.agentEntry.model})`;
+  // Load agent to get real attribution label
+  const agent = opts.loadAgent({
+    name: opts.agentEntry.agent,
+    model: opts.agentEntry.model,
+  });
+  const agentLabel = agent.attributionLabel ? agent.attributionLabel() : `${opts.agentEntry.agent} (${opts.agentEntry.model})`;
 
   const binding: InvocationBinding<T> = {
     id: agentLabel,
@@ -44,18 +49,15 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
         agentEntry: opts.agentEntry,
       });
 
-      // Load agent and run it
-      const agent = opts.loadAgent({
-        name: opts.agentEntry.agent,
-        model: opts.agentEntry.model,
-      });
+      // Reuse loaded agent
+      const loadedAgent = agent;
 
       // Snapshot git porcelain and run the agent
       const porcelainBefore = readPorcelainSnapshot(opts.cwd);
       const _now = opts.now ?? Date.now;
       const startedAt = _now();
 
-      const spawnResult = await agent.run(prompt, {
+      const spawnResult = await loadedAgent.run(prompt, {
         cwd: args.cwd,
         ...(args.signal !== undefined ? { signal: args.signal } : {}),
         ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
@@ -79,7 +81,7 @@ export function createReviewInvocationBinding<T extends InvocationResult = Invoc
 
       const attempt: ReviewAttemptContext = {
         ...opts.roleContext,
-        agent,
+        agent: loadedAgent,
         agentEntry: opts.agentEntry,
         agentLabel,
         prompt,

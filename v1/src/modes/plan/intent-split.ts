@@ -133,6 +133,7 @@ export async function runIntentSplitTurn(opts: {
           opts.stderr(`intent: ${agentName}: ${harnessQuotaFallbackLenientLine(spawnResult.exitCode)}\n`);
         }
       },
+      shouldAdvance: (result) => result.kind === "quota" || result.kind === "error",
     }),
   );
 

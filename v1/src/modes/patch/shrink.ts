@@ -472,8 +472,14 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
       return;
     }
 
+    // Recover the configured model from agentOrder to reconstruct agent with correct attribution label
+    const winningEntry = opts.config.modes.patch.agentOrder.find(
+      (entry) => createAgentForBinding(entry.agent, entry.model).attributionLabel() === finalAttempt.binding.id,
+    );
+    const winningModel = winningEntry?.model ?? "";
+
     result = finalAttempt.result;
-    successfulAgent = createAgentForBinding(finalAttempt.binding.id as AgentName, "");
+    successfulAgent = createAgentForBinding(finalAttempt.binding.id as AgentName, winningModel);
   } finally {
     clearTimeout(shrinkTimeoutHandle);
   }

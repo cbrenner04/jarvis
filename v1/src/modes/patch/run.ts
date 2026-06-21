@@ -20,7 +20,7 @@ import {
   prepareActiveSpecPath,
   resolveModeSpecificPreflight,
 } from "./preflight.ts";
-import { DescendantTracker } from "./reap.ts";
+import { DescendantTracker, type ProcInfo } from "./reap.ts";
 import { runSnapshotUpdateRetest as runSnapshotUpdateRetestImpl } from "./snapshot-update-retest-runner.ts";
 
 export type PreflightOk = {
@@ -125,6 +125,8 @@ export type RunIo = Io;
 
 export type ConfirmRun = (prompt: string) => string | Promise<string>;
 
+export type WatchdogListProcessesFn = (rootPid: number) => ProcInfo[];
+
 export type RunCommandOptions = {
   specPath: string;
   io: RunIo;
@@ -181,6 +183,12 @@ export type RunCommandOptions = {
    * unaffected. Production callers must not set this.
    */
   __testReapFn?: () => void;
+  /**
+   * Test-only override for the watchdog descendant-liveness process-table snapshot.
+   * When set, the watchdog uses this injected listProcesses instead of reading the real OS table.
+   * Production callers must not set this.
+   */
+  __testWatchdogListProcesses?: WatchdogListProcessesFn;
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {

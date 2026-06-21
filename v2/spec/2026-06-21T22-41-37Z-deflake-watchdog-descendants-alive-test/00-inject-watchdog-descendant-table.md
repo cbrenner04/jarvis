@@ -47,11 +47,11 @@ Affected tests (assert the snapshot result, currently read from the real table):
 
 ## Acceptance criteria
 
-- [ ] The watchdog descendant-liveness snapshot reads its process table through an injectable seam threaded from `RunCommandOptions`; absent the override, the production path still calls the real `listProcesses()` (watchdog behavior unchanged).
-- [ ] The `watchdog_descendants_alive=true` grandchildren test and the `watchdog_descendants_alive=false` agent-only-stall test inject a deterministic table; their `watchdog_descendants_alive` (`true`/`false`) and `exit_reason: "watchdog-iteration-timeout"` assertions are preserved and no longer depend on real spawn/reap timing.
-- [ ] The grandchildren test's real grandchild-kill and early-interruption (`elapsedMs <= 7200`, `watchdog_pgid` present, `last_output_age_ms=null`) assertions stay green (behavior unchanged by the seam).
-- [ ] No change to watchdog/run implementation behavior under `v1/src` beyond adding the inert test seam.
-- [ ] Done = structural determinism plus one green run: the descendant-alive assertions no longer read spawn/reap timing as a pass/fail axis (they assert against the injected table), and `bun run typecheck` and one `bun run test` (full `--parallel` suite) pass green.
+- [x] The watchdog descendant-liveness snapshot reads its process table through an injectable seam threaded from `RunCommandOptions`; absent the override, the production path still calls the real `listProcesses()` (watchdog behavior unchanged).
+- [x] The `watchdog_descendants_alive=true` grandchildren test and the `watchdog_descendants_alive=false` agent-only-stall test inject a deterministic table; their `watchdog_descendants_alive` (`true`/`false`) and `exit_reason: "watchdog-iteration-timeout"` assertions are preserved and no longer depend on real spawn/reap timing.
+- [x] The grandchildren test's real grandchild-kill and early-interruption (`elapsedMs <= 7200`, `watchdog_pgid` present, `last_output_age_ms=null`) assertions stay green (behavior unchanged by the seam).
+- [x] No change to watchdog/run implementation behavior under `v1/src` beyond adding the inert test seam.
+- [x] Done = structural determinism plus one green run: the descendant-alive assertions no longer read spawn/reap timing as a pass/fail axis (they assert against the injected table), and `bun run typecheck` and one `bun run test` (full `--parallel` suite) pass green.
 
 ## Documentation updates
 

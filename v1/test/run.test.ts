@@ -4318,6 +4318,7 @@ wait
         { dir: cfgDir },
       );
 
+      const _childPidPath = join(projectRoot, "hanging-child.pid");
       const started = Date.now();
       const code = await runWithDefaults({
         specPath: spec,
@@ -4326,6 +4327,10 @@ wait
         agents: { claude: new HangingAgent() },
         handleSignals: false,
         __testKillGraceMs: 200,
+        __testWatchdogListProcesses: (rootPid: number) => [
+          { pid: rootPid, ppid: 1, pgid: rootPid, identity: "test-root" },
+          { pid: rootPid + 1, ppid: rootPid, pgid: rootPid, identity: "test-child" },
+        ],
       });
       const elapsedMs = Date.now() - started;
 
@@ -4576,6 +4581,10 @@ while true; do :; done
         agents: { claude: new HangingAgent() },
         handleSignals: false,
         __testKillGraceMs: 200,
+        __testWatchdogListProcesses: () => {
+          // Inject an empty process table: no descendants for agent-only stall.
+          return [];
+        },
       });
 
       expect(code).toBe(8);

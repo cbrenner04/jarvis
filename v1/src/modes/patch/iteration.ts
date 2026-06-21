@@ -42,7 +42,14 @@ import { maybeMarkReady } from "./pr.ts";
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, listProcesses } from "./reap.ts";
-import type { IterationContext, IterationOutcome, LoggingContext, PreflightOk, RunCommandOptions } from "./run.ts";
+import type {
+  IterationContext,
+  IterationOutcome,
+  LoggingContext,
+  PreflightOk,
+  RunCommandOptions,
+  WatchdogListProcessesFn,
+} from "./run.ts";
 import { accumulateImplementationTouchedFiles } from "./shrink.ts";
 import {
   type AcceptanceCriterion,
@@ -98,8 +105,8 @@ function formatWatchdogDiagnosticsSuffix(
   return suffix;
 }
 
-function snapshotWatchdogDescendantsAlive(agentRootPid: number): boolean {
-  const procs = listProcesses();
+function snapshotWatchdogDescendantsAlive(agentRootPid: number, listProcessesFn?: WatchdogListProcessesFn): boolean {
+  const procs = listProcessesFn ? listProcessesFn(agentRootPid) : listProcesses();
   if (procs.length === 0) {
     return false;
   }
@@ -112,8 +119,9 @@ function killWatchdogWithDescendants(
   fanout: Fanout,
   killGraceMs: number,
   lastOutputAgeMs: number | null,
+  listProcessesFn?: WatchdogListProcessesFn,
 ): { descendantsAlive: boolean; killHandle: NodeJS.Timeout } {
-  const descendantsAlive = snapshotWatchdogDescendantsAlive(pgid);
+  const descendantsAlive = snapshotWatchdogDescendantsAlive(pgid, listProcessesFn);
   const watchdogLine =
     `[watchdog] ${reason}; killing agent pgid ${pgid}` +
     formatWatchdogDiagnosticsSuffix(lastOutputAgeMs, descendantsAlive);
@@ -545,6 +553,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         fanout,
         killGraceMs,
         watchdogLastOutputAgeMs,
+        opts.__testWatchdogListProcesses,
       );
       watchdogDescendantsAlive = result.descendantsAlive;
       watchdogKillHandle = result.killHandle;
@@ -571,6 +580,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               fanout,
               killGraceMs,
               idleWatchdogLastOutputAgeMs,
+              opts.__testWatchdogListProcesses,
             );
             idleWatchdogDescendantsAlive = result.descendantsAlive;
             watchdogKillHandle = result.killHandle;

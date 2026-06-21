@@ -86,8 +86,6 @@ type WriteTelemetry = (record: {
   watchdog_descendants_alive?: boolean;
 }) => void;
 
-type PreflightResult = PreflightOk | { kind: "error"; exitCode: number } | { kind: "exit"; exitCode: number };
-
 function formatWatchdogDiagnosticsSuffix(
   lastOutputAgeMs: number | null,
   descendantsAlive: boolean | undefined,

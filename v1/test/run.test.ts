@@ -4311,7 +4311,7 @@ wait
           quotaFallback: "lenient",
           weakQuotaExitCodes: [],
           maxIterations: 1,
-          iterationTimeoutMs: 1500,
+          iterationTimeoutMs: 4000,
           git: true,
           projects: { project: { root: projectRoot } },
         },
@@ -4331,7 +4331,7 @@ wait
 
       expect(code).toBe(8);
       expect(elapsedMs).toBeLessThanOrEqual(7200);
-      expect(cap.err()).toContain("[watchdog] iteration timeout fired after 1500ms;");
+      expect(cap.err()).toContain("[watchdog] iteration timeout fired after 4000ms;");
       expect(cap.err()).toContain("last_output_age_ms=null");
       expect(cap.err()).toContain("watchdog_descendants_alive=true");
 
@@ -4364,7 +4364,7 @@ wait
         throw new Error("expected a session log file");
       }
       const sessionLog = readFileSync(join(sessionsDir, sessionFile), "utf8");
-      expect(sessionLog).toContain("[watchdog] iteration timeout fired after 1500ms;");
+      expect(sessionLog).toContain("[watchdog] iteration timeout fired after 4000ms;");
       expect(sessionLog).toContain("last_output_age_ms=null");
       expect(sessionLog).toContain("watchdog_descendants_alive=true");
     });

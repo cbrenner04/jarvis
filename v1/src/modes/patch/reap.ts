@@ -106,9 +106,26 @@ export class DescendantTracker {
   /** pid -> start-time identity observed while the descendant was reachable. */
   private readonly seen = new Map<number, string>();
 
+  /**
+   * Process-table and kill providers. Default to the real OS calls; tests
+   * inject a fixed table and a recording kill to exercise the reap logic
+   * deterministically without spawning real processes (timing-flaky under load
+   * and unavailable in restricted sandboxes).
+   */
+  private readonly listProcessesFn: () => ProcInfo[];
+  private readonly killFn: (pid: number, signal: NodeJS.Signals) => void;
+
+  constructor(deps?: {
+    listProcesses?: () => ProcInfo[];
+    kill?: (pid: number, signal: NodeJS.Signals) => void;
+  }) {
+    this.listProcessesFn = deps?.listProcesses ?? listProcesses;
+    this.killFn = deps?.kill ?? ((pid, signal) => process.kill(pid, signal));
+  }
+
   /** Snapshot the process table and record `rootPid`'s current descendants. */
   poll(rootPid: number): void {
-    for (const proc of collectSubtree(rootPid, listProcesses())) {
+    for (const proc of collectSubtree(rootPid, this.listProcessesFn())) {
       if (proc.pid === process.pid) continue;
       this.seen.set(proc.pid, proc.identity);
     }
@@ -124,7 +141,7 @@ export class DescendantTracker {
   reap(): number {
     let killed = 0;
     if (this.seen.size === 0) return killed;
-    const current = new Map(listProcesses().map((proc) => [proc.pid, proc.identity] as const));
+    const current = new Map(this.listProcessesFn().map((proc) => [proc.pid, proc.identity] as const));
     for (const [pid, identity] of this.seen) {
       const currentIdentity = current.get(pid);
       // Gone already, or the PID was reused by a different process: drop it and
@@ -135,7 +152,7 @@ export class DescendantTracker {
       }
       if (pid === process.pid) continue;
       try {
-        process.kill(pid, "SIGKILL");
+        this.killFn(pid, "SIGKILL");
         killed += 1;
       } catch {
         // Already exited between listing and kill; nothing to do.

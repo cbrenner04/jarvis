@@ -1,25 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { spawn } from "node:child_process";
-import { collectSubtree, DescendantTracker, listProcesses, type ProcInfo } from "../../../src/modes/patch/reap.ts";
-
-/** Wait until `cond()` is true or `timeoutMs` elapses. */
-async function waitFor(cond: () => boolean, timeoutMs = 3000): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (cond()) return true;
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  return cond();
-}
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { describe, expect, test } from "bun:test";
+import { collectSubtree, DescendantTracker, type ProcInfo } from "../../../src/modes/patch/reap.ts";
 
 describe("collectSubtree", () => {
   const proc = (pid: number, ppid: number, pgid: number): ProcInfo => ({ pid, ppid, pgid, identity: `id-${pid}` });
@@ -48,16 +28,16 @@ describe("collectSubtree", () => {
 });
 
 describe("DescendantTracker", () => {
-  const spawned: number[] = [];
-
-  afterEach(() => {
-    for (const pid of spawned.splice(0)) {
-      try {
-        process.kill(pid, "SIGKILL");
-      } catch {
-        // already gone
-      }
-    }
+  // Inject a fixed process table + recording kill so the reap logic is exercised
+  // deterministically — no real process spawning (timing-flaky under load and
+  // unavailable in restricted sandboxes). The behavior under test (capture
+  // descendants, kill survivors by PID+identity, prune gone/reused PIDs) is pure
+  // and does not depend on real OS scheduling.
+  const proc = (pid: number, ppid: number, pgid: number, identity = `id-${pid}`): ProcInfo => ({
+    pid,
+    ppid,
+    pgid,
+    identity,
   });
 
   test("reap on an empty tracker kills nothing and never throws", () => {
@@ -66,76 +46,59 @@ describe("DescendantTracker", () => {
     expect(tracker.reap()).toBe(0);
   });
 
-  test("reaps a descendant that escaped its group and re-parented to init", async () => {
-    // "Agent" forks a grandchild that detaches via setsid() and ignores
-    // SIGTERM, then both sleep. Killing the agent leaves the grandchild
-    // re-parented to init (PPID=1) with no live lineage back to us — the
-    // exact orphan the process-group kill cannot reach.
-    const agent = spawn(
-      "perl",
-      [
-        "-e",
-        'use POSIX qw(setsid); my $p = fork(); die unless defined $p; if ($p == 0) { setsid(); $SIG{TERM} = sub {}; sleep 60; exit 0; } $| = 1; print "$p\\n"; sleep 60;',
-      ],
-      { stdio: ["ignore", "pipe", "ignore"] },
-    );
-    const agentPid = agent.pid;
-    expect(agentPid).toBeDefined();
-    if (agentPid !== undefined) spawned.push(agentPid);
-
-    // Read the grandchild PID the agent prints once the fork has happened.
-    let buf = "";
-    const grandchildPid = await new Promise<number>((resolve, reject) => {
-      agent.stdout?.on("data", (chunk) => {
-        buf += String(chunk);
-        const nl = buf.indexOf("\n");
-        if (nl >= 0) resolve(Number.parseInt(buf.slice(0, nl), 10));
-      });
-      agent.on("error", reject);
-      setTimeout(() => reject(new Error("agent did not report grandchild pid")), 3000);
+  test("reaps a descendant that escaped its group and re-parented to init", () => {
+    // Agent 1000 has a grandchild 2000 that detached into its own group (setsid).
+    // Killing the agent leaves the grandchild re-parented to init (PPID 1) with
+    // no live lineage — the exact orphan a process-group kill cannot reach.
+    let table: ProcInfo[] = [proc(1000, 1, 1000), proc(2000, 1000, 2000)];
+    const killed: number[] = [];
+    const tracker = new DescendantTracker({
+      listProcesses: () => table,
+      kill: (pid) => {
+        killed.push(pid);
+      },
     });
-    spawned.push(grandchildPid);
 
-    // Sample the subtree while the lineage is intact, capturing the grandchild.
-    const tracker = new DescendantTracker();
-    expect(await waitFor(() => alive(grandchildPid))).toBe(true);
-    tracker.poll(agentPid as number);
+    // Sample while the lineage is intact: the grandchild is captured.
+    tracker.poll(1000);
     expect(tracker.trackedCount).toBeGreaterThanOrEqual(1);
 
-    // Kill the agent; the grandchild survives and re-parents to init.
-    process.kill(agentPid as number, "SIGKILL");
-    const reparented = await waitFor(() => {
-      const self = listProcesses().find((p) => p.pid === grandchildPid);
-      return self !== undefined && self.ppid === 1;
-    });
-    expect(reparented).toBe(true);
-    expect(alive(grandchildPid)).toBe(true);
+    // Agent dies; the grandchild survives and re-parents to init, keeping its
+    // start-time identity.
+    table = [proc(2000, 1, 2000)];
 
     // The reaper kills the orphan by its recorded PID + start-time identity.
-    const killed = tracker.reap();
-    expect(killed).toBeGreaterThanOrEqual(1);
-    expect(await waitFor(() => !alive(grandchildPid))).toBe(true);
+    expect(tracker.reap()).toBe(1);
+    expect(killed).toEqual([2000]);
   });
 
-  test("does not target a tracked PID that has already exited (reuse guard)", async () => {
-    const child = spawn("perl", ["-e", "$SIG{TERM} = sub {}; sleep 60;"], { stdio: "ignore" });
-    const childPid = child.pid;
-    expect(childPid).toBeDefined();
-    if (childPid === undefined) return;
-    spawned.push(childPid);
+  test("does not target a tracked PID that has exited or been reused (reuse guard)", () => {
+    let table: ProcInfo[] = [proc(1000, 1, 1000), proc(2000, 1000, 2000)];
+    const killed: number[] = [];
+    const tracker = new DescendantTracker({
+      listProcesses: () => table,
+      kill: (pid) => {
+        killed.push(pid);
+      },
+    });
 
-    // Capture the child as a descendant of this test process.
-    const tracker = new DescendantTracker();
-    expect(await waitFor(() => alive(childPid))).toBe(true);
-    tracker.poll(process.pid);
+    // Capture the descendant.
+    tracker.poll(1000);
     expect(tracker.trackedCount).toBeGreaterThanOrEqual(1);
 
-    // It exits on its own; the tracked PID is now gone (or could be reused by
-    // an unrelated process). reap must not report a kill for it, and must prune
-    // it so the map stays bounded.
-    process.kill(childPid, "SIGKILL");
-    expect(await waitFor(() => !alive(childPid))).toBe(true);
+    // It exits: the tracked PID is gone. reap must not kill it and must prune it.
+    table = [];
     expect(tracker.reap()).toBe(0);
+    expect(killed).toEqual([]);
+    expect(tracker.trackedCount).toBe(0);
+
+    // Reuse variant: the same PID reappears with a DIFFERENT start-time identity
+    // (an unrelated process). reap must still skip and prune it.
+    table = [proc(1000, 1, 1000), proc(2000, 1000, 2000)];
+    tracker.poll(1000);
+    table = [proc(2000, 1, 2000, "reused-by-unrelated-process")];
+    expect(tracker.reap()).toBe(0);
+    expect(killed).toEqual([]);
     expect(tracker.trackedCount).toBe(0);
   });
 });

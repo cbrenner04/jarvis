@@ -7,7 +7,8 @@ consumes known flags and then treats the first leftover token as `specPath`, so
 `--help` flows through to `spec path does not exist: …/--help`. Only `plan` and
 `intent` short-circuit on `--help`/`-h`. Several other subcommands silently
 misinterpret it: `cleanup` ignores it and runs anyway, `triage`/`review-feedback`
-take it as a worktree name, `prompt` takes it as the prompt text.
+take it as a worktree name, `prompt` takes it as the prompt text, and `init` runs
+init silently.
 
 ## Decisions
 
@@ -22,6 +23,11 @@ take it as a worktree name, `prompt` takes it as the prompt text.
 - A subcommand with no dedicated usage string falls back to the global `USAGE`. Rules
   out inventing per-command usage text for commands that don't warrant it — keep it
   bounded.
+- A top-level `--help`/`-h` always wins: it prints jarvis help and exits 0, and is
+  never forwarded to a downstream tool (e.g. `prompt`'s prompt text, `prices`'
+  args). Rules out a pass-through command silently feeding `--help` to the underlying
+  tool, which would defeat the audit. (Which layer enforces this — `parseArgs` vs.
+  dispatch — is unspecified; only the precedence outcome is pinned.)
 
 ## Task checklist
 
@@ -33,9 +39,13 @@ take it as a worktree name, `prompt` takes it as the prompt text.
 
 - [ ] `jarvis run --help` and `jarvis run -h` print run usage to stdout and exit 0
       without producing a `spec path does not exist` error.
-- [ ] `cleanup`, `triage`, `review-feedback`, and `prompt` no longer misinterpret a
-      `--help`/`-h` argument as data (a worktree name, prompt text, or a silent run);
-      each prints help and exits 0.
+- [ ] `init`, `cleanup`, `triage`, `review-feedback`, and `prompt` no longer
+      misinterpret a `--help`/`-h` argument as data (a worktree name, prompt text, or a
+      silent init/run); each prints help and exits 0.
+- [ ] `config`, `log-server`, and `prices` recognize `--help`/`-h`: each prints help
+      and exits 0 instead of running.
+- [ ] A pass-through command (`prompt`, `prices`) given a top-level `--help`/`-h`
+      prints help and exits 0 rather than forwarding the flag downstream.
 - [ ] Existing `cli`/`parseArgs` tests stay green except where they are extended to
       cover the new `--help` handling.
 

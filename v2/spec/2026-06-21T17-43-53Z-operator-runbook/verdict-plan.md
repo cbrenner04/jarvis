@@ -1,0 +1,17 @@
+## Verdict — `operator-runbook` (first review pass)
+
+Four refinements required. The deliverable shape (single flat doc in `v1/docs/`, linked from `AGENTS.md`, one subspec) is sound and needs no change.
+
+### Required refinements
+
+1. **Capture the cross-link-to-automated-path requirement.** The intent's Scope is explicit that this runbook documents the *residual manual path* and must link out to the seeds that automate it — manual-finalize is framed as a last resort precisely because those automated paths exist. As drafted, a fully self-contained runbook with zero outbound pointers satisfies every acceptance criterion, so the spec's gates don't enforce a stated intent requirement. Add an acceptance criterion (or at minimum a Decision plus checklist item) that the manual-finalize / last-resort section cross-references the automated-path work. *Rationale: ACs must verify the intent's actual contract, not a weaker subset of it.*
+
+2. **Pin how the runbook references work that hasn't landed yet.** The seeds the runbook must point to are still unmerged WIP intents, and the `#9/#10` references resolve to nothing concrete. This is an unresolved first-consumer decision: linking to intent-file paths that will move or disappear on merge, naming the behaviors, or omitting until landed are materially different choices a reviewer would expect pinned. Add a Decision resolving it. Referencing by durable behavior name (rather than fragile `v2/spec/wip-intents/` paths) fits a permanent `v1/docs/` artifact, but the spec must state whichever it picks. *Rationale: conventions require pinning or explicitly deferring first-consumer ambiguity rather than leaving it implicit.*
+
+3. **Require technical claims to be verified against source, and correct the `noImplicitAny` conflation.** The intent groups `noImplicitAny` with `noExplicitAny` / unused-var / non-null-assertion as Biome `check:fix:unsafe` items, but `noImplicitAny` is a TypeScript compiler flag that Biome cannot auto-fix — transcribing the intent verbatim would codify a wrong claim. A runbook that gives incorrect operator guidance is worse than none. Add a Decision (or AC) that the runbook's technical claims — the `check:fix` vs `check:fix:unsafe` distinction and the admin-merge-skips-lint-gate claim — are verified against `package.json` / `scripts/ready.ts` rather than copied from the source report, and that the `noImplicitAny` item is corrected. The admin-merge/`bun run check` guidance itself verifies as accurate and may stand. *Rationale: a docs deliverable's value is its correctness; the spec should gate against inheriting the source's known error.*
+
+4. **State the "no docs index exists" Decision explicitly.** The intent says "docs index / `AGENTS.md`"; there is no separate docs index in `v1/docs/`, so linking only from `AGENTS.md` is correct. Record this as a Decision so a reviewer reads it as a deliberate resolution, not a dropped requirement. *Rationale: cheap clarity; prevents a false "missed scope" reading.*
+
+### No action
+
+Soft "covers X" prose ACs (floor for a docs deliverable), Task-checklist/AC overlap (known accepted redundancy), and the `CLAUDE.md`/`AGENTS.md` relationship (AC targets the real file) require no change.

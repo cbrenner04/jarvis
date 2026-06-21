@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, readFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { parseSpec } from "../../../../shared/spec-parser.ts";
+import { detectBlockerClaim, parseSpec, stripBlockerSection } from "../../../../shared/spec-parser.ts";
 import { openSessionLog, resolveReviewPasses } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
@@ -761,6 +761,98 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             throw new Error(`Blocker section added but body is missing in ${afterSubspecPath}`);
           }
 
+          // Check if blocker is a claim about pre-existing failures
+          const isClaim = detectBlockerClaim(blockerBody);
+          const BLOCKER_CLAIM_REJECTION_BOUND = 2;
+          const resetRejectionCounter = () => {
+            if (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath) {
+              state.consecutiveBlockerClaimRejections = 0;
+              state.consecutiveBlockerClaimRejectionsSubspecPath = afterSubspecPath;
+            }
+          };
+
+          if (
+            isClaim &&
+            gitEnabled &&
+            opts.runBaseRefTests !== undefined &&
+            (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath ||
+              state.consecutiveBlockerClaimRejections < BLOCKER_CLAIM_REJECTION_BOUND)
+          ) {
+            // Validate the claim against base ref
+            let baseRefGreen = false;
+            try {
+              // Resolve the actual base branch name (offline-first, then fallback)
+              let baseBranch = "main"; // default fallback
+              try {
+                // Try to get current branch name
+                const currentBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+                  cwd: agentWorkingDir,
+                  encoding: "utf8",
+                  stdio: "pipe",
+                }).trim();
+                if (currentBranch && currentBranch !== "HEAD") {
+                  // Try to get tracking branch from git config (local, no network)
+                  try {
+                    const trackingBranch = execFileSync("git", ["config", `branch.${currentBranch}.merge`], {
+                      cwd: agentWorkingDir,
+                      encoding: "utf8",
+                      stdio: "pipe",
+                    }).trim();
+                    if (trackingBranch && trackingBranch.startsWith("refs/heads/")) {
+                      baseBranch = trackingBranch.substring("refs/heads/".length);
+                    }
+                  } catch {
+                    // Tracking info not available, use default
+                  }
+                }
+              } catch {
+                // Fall through: couldn't determine branch, use default
+              }
+              // Use local merge-base to resolve the base ref (offline, no network calls)
+              baseRefGreen = await opts.runBaseRefTests(baseBranch);
+            } catch (err) {
+              // Validation failure: fail-safe, blocker stands
+              baseRefGreen = false;
+            }
+
+            if (baseRefGreen) {
+              // Base ref is green: reject the claim blocker
+              const currentSpecContent = readFileSync(afterSubspecPath, "utf8");
+              const strippedContent = stripBlockerSection(currentSpecContent);
+              writeFileSync(afterSubspecPath, strippedContent, "utf8");
+
+              // Update rejection tracking
+              resetRejectionCounter();
+              state.consecutiveBlockerClaimRejections += 1;
+
+              // Emit rejection telemetry
+              fanout(
+                "harness",
+                `blocker claim rejected: base ref validates green; cited failures do not reproduce\n`,
+                "stderr",
+              );
+              writeTelemetry({
+                agent: agent.name,
+                iteration,
+                durationMs: iterationDurationMs(),
+                kind: "blocker-rejected",
+                exitReason: "base-ref-green",
+                ...telemetryMeta,
+              });
+
+              // Continue the loop (do not exit 7, do not commit blocker)
+              state.iteration += 1;
+              return { kind: "continue" };
+            } else {
+              // Base ref is red or validation failed: blocker stands
+              resetRejectionCounter();
+            }
+          } else {
+            // Non-claim blocker or bound hit: reset rejection counter
+            resetRejectionCounter();
+          }
+
+          // Commit and exit 7 for blockers that stand
           if (gitEnabled) {
             try {
               commitWipProgressWithBlocker(afterSubspecPath, {

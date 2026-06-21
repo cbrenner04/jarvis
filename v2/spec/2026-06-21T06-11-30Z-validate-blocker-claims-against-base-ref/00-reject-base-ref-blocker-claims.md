@@ -36,16 +36,16 @@ production implementation lands in `01`.
 
 ## Acceptance criteria
 
-- [ ] A blocker body citing pre-existing/unrelated/baseline failures triggers base-ref validation before exit 7; an async validation seam resolving green rejects the blocker — the run continues, no exit 7, no blocker commit, and the `## Blocker` section is removed from the subspec.
-- [ ] A rejected claim blocker emits the distinct rejection telemetry event and does not emit the `blocked` / `blocker-detected` event.
-- [ ] Stripping removes exactly the `## Blocker` section (heading through next `## ` heading or EOF), leaving surrounding sections intact, including when `## Blocker` is the last section and when it carries trailing content.
-- [ ] After the per-subspec rejection bound is reached, a further matching claim blocker on that subspec stands (exit 7) instead of re-validating.
-- [ ] The same blocker body with the validation seam resolving red lets the blocker stand: the run exits 7 and commits the blocker, as today.
-- [ ] A blocker body with no pre-existing/unrelated/baseline language is not validated and exits 7 unchanged.
-- [ ] With no validation seam (or when it rejects/throws, or base ref is unresolvable, or git is disabled), the blocker stands and the run exits 7 (fail-safe).
-- [ ] The existing exit-7 blocker test in `v1/test/run.test.ts` stays green for non-claim blockers (behavior unchanged outside claim bodies).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A blocker body citing pre-existing/unrelated/baseline failures triggers base-ref validation before exit 7; an async validation seam resolving green rejects the blocker — the run continues, no exit 7, no blocker commit, and the `## Blocker` section is removed from the subspec.
+- [x] A rejected claim blocker emits the distinct rejection telemetry event and does not emit the `blocked` / `blocker-detected` event.
+- [x] Stripping removes exactly the `## Blocker` section (heading through next `## ` heading or EOF), leaving surrounding sections intact, including when `## Blocker` is the last section and when it carries trailing content.
+- [x] After the per-subspec rejection bound is reached, a further matching claim blocker on that subspec stands (exit 7) instead of re-validating.
+- [x] The same blocker body with the validation seam resolving red lets the blocker stand: the run exits 7 and commits the blocker, as today.
+- [x] A blocker body with no pre-existing/unrelated/baseline language is not validated and exits 7 unchanged.
+- [x] With no validation seam (or when it rejects/throws, or base ref is unresolvable, or git is disabled), the blocker stands and the run exits 7 (fail-safe).
+- [x] The existing exit-7 blocker test in `v1/test/run.test.ts` stays green for non-claim blockers (behavior unchanged outside claim bodies).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/v1-behaviors.md` — record that a patch-mode blocker citing pre-existing/unrelated/baseline failures is validated against the base ref before exit 7: base green rejects the blocker (run continues, `## Blocker` stripped, no blocker commit, distinct rejection telemetry event), base red / non-claim / validation failure / per-subspec rejection-bound-hit exits 7 as before.
+- [x] `v2/docs/v1-behaviors.md` — record that a patch-mode blocker citing pre-existing/unrelated/baseline failures is validated against the base ref before exit 7: base green rejects the blocker (run continues, `## Blocker` stripped, no blocker commit, distinct rejection telemetry event), base red / non-claim / validation failure / per-subspec rejection-bound-hit exits 7 as before.

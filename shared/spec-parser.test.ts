@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   detectBlocker,
+  detectBlockerClaim,
   hasPathLikeAnchor,
   isBehavioralPreservationAc,
   isStructuralAc,
   parseSpec,
+  stripBlockerSection,
 } from "./spec-parser.ts";
 
 describe("parseSpec", () => {
@@ -396,5 +398,135 @@ describe("anchor grounding in parseSpec", () => {
     const anchorWarnings = parsed.warnings.filter((w) => w.kind === "missing-anchor-behavioral-ac");
     expect(anchorWarnings).toHaveLength(1);
     expect(anchorWarnings[0]?.message).toContain("plan stops on hard error");
+  });
+});
+
+describe("blocker claim detection", () => {
+  test("detects pre-existing-failure language in blocker bodies", () => {
+    const claimBodies = [
+      "This is a pre-existing failure",
+      "This is a preexisting failure",
+      "This is unrelated to my changes",
+      "Baseline already fails with this error",
+      "This error is not caused by my changes",
+      "This is not related to my changes",
+      "This is not my change, just existing issue",
+    ];
+
+    for (const body of claimBodies) {
+      expect(detectBlockerClaim(body)).toBe(true);
+    }
+  });
+
+  test("is case-insensitive for claim detection", () => {
+    expect(detectBlockerClaim("This is a PRE-EXISTING failure")).toBe(true);
+    expect(detectBlockerClaim("This is UNRELATED to my changes")).toBe(true);
+    expect(detectBlockerClaim("BASELINE already fails")).toBe(true);
+  });
+
+  test("does not flag non-claim blockers", () => {
+    const nonClaimBodies = [
+      "Need implementation details",
+      "Waiting on external API",
+      "Something blocked the work",
+      "This feature requires more thought",
+    ];
+
+    for (const body of nonClaimBodies) {
+      expect(detectBlockerClaim(body)).toBe(false);
+    }
+  });
+});
+
+describe("blocker section stripping", () => {
+  test("removes ## Blocker section and leaves content intact", () => {
+    const content = `# Title
+
+## Acceptance criteria
+
+- [x] First
+- [ ] Second
+
+## Blocker
+
+This is blocked`;
+
+    const stripped = stripBlockerSection(content);
+    expect(stripped).toBe(`# Title
+
+## Acceptance criteria
+
+- [x] First
+- [ ] Second`);
+  });
+
+  test("handles blocker as last section", () => {
+    const content = `# Title
+
+## Acceptance criteria
+
+- [ ] Item
+
+## Blocker
+
+Blocked`;
+
+    const stripped = stripBlockerSection(content);
+    expect(stripped).toBe(`# Title
+
+## Acceptance criteria
+
+- [ ] Item`);
+  });
+
+  test("preserves other sections after blocker", () => {
+    const content = `# Title
+
+## Blocker
+
+Blocked
+
+## Notes
+
+Some notes`;
+
+    const stripped = stripBlockerSection(content);
+    expect(stripped).toBe(`# Title
+
+## Notes
+
+Some notes`);
+  });
+
+  test("handles blocker with multiline content", () => {
+    const content = `# Title
+
+## Blocker
+
+First line
+Second line
+Third line
+
+## Next section
+
+Content`;
+
+    const stripped = stripBlockerSection(content);
+    expect(stripped).toBe(`# Title
+
+## Next section
+
+Content`);
+  });
+
+  test("returns unchanged content if no blocker exists", () => {
+    const content = `# Title
+
+## Acceptance criteria
+
+- [ ] Item`;
+
+    const stripped = stripBlockerSection(content);
+    expect(stripped).toBe(content);
   });
 });

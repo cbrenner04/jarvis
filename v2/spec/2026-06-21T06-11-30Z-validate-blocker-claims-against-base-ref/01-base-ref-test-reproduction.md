@@ -17,18 +17,18 @@ base ref and return green/red, so validation works outside tests.
 
 ## Task checklist
 
-- [ ] Implement the base-ref test runner: resolve the base commit via local `git merge-base`, create a throwaway worktree detached at that commit, run `bun run test`, return pass/fail, remove the worktree in a finally.
-- [ ] Wire it as the default async base-ref-run used by `00` when no test seam is injected.
-- [ ] Add tests covering green base (blocker rejected end-to-end), red base (blocker stands), and worktree cleanup after the test run throws.
+- [x] Implement the base-ref test runner: resolve the base commit via local `git merge-base`, create a throwaway worktree detached at that commit, run `bun run test`, return pass/fail, remove the worktree in a finally.
+- [x] Wire it as the default async base-ref-run used by `00` when no test seam is injected.
+- [x] Add tests covering green base (blocker rejected end-to-end), red base (blocker stands), and worktree cleanup after the test run throws.
 
 ## Acceptance criteria
 
-- [ ] In a git checkout whose base ref is green, a patch-mode blocker citing pre-existing failures is rejected without any injected seam: the run continues past exit 7 and the `## Blocker` section is removed.
-- [ ] Validation works with the base branch already checked out in the primary worktree (detached-commit worktree, not a branch checkout) and without invoking `gh` (local merge-base, so it functions under `skipGhCheck`/offline).
-- [ ] In a checkout whose base ref genuinely fails the test command, the same blocker stands and the run exits 7.
-- [ ] The base-ref test run executes in a throwaway worktree; the agent's working directory and branch are unchanged afterward (no reset, no clean), and the worktree is removed even when the test run throws (no leftover worktree).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] In a git checkout whose base ref is green, a patch-mode blocker citing pre-existing failures is rejected without any injected seam: the run continues past exit 7 and the `## Blocker` section is removed.
+- [x] Validation works with the base branch already checked out in the primary worktree (detached-commit worktree, not a branch checkout) and without invoking `gh` (local merge-base, so it functions under `skipGhCheck`/offline).
+- [x] In a checkout whose base ref genuinely fails the test command, the same blocker stands and the run exits 7.
+- [x] The base-ref test run executes in a throwaway worktree; the agent's working directory and branch are unchanged afterward (no reset, no clean), and the worktree is removed even when the test run throws (no leftover worktree).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/v1-behaviors.md` — record that base-ref blocker validation runs the target `bun run test` in a throwaway worktree detached at the local merge-base of the agent branch and its base (offline; no `gh`), leaving the agent worktree untouched, removing the worktree on every exit path, and treating any non-zero exit as non-green (fail-safe).
+- [x] `v2/docs/v1-behaviors.md` — record that base-ref blocker validation runs the target `bun run test` in a throwaway worktree detached at the local merge-base of the agent branch and its base (offline; no `gh`), leaving the agent worktree untouched, removing the worktree on every exit path, and treating any non-zero exit as non-green (fail-safe).

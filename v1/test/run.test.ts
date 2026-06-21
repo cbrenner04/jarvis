@@ -5086,7 +5086,7 @@ while true; do :; done
       expect(lastMessage).toContain("Need implementation details");
     });
 
-    test("rejects blocker claim when base-ref validates green and continues loop", async () => {
+    function setupGitRepo(stepA: string, stepB?: string): { spec: string; subspec: string } {
       execSync("git init -b jarvis-e2e", { cwd: projectRoot });
       execSync('git config user.email "jarvis-test@example.com"', {
         cwd: projectRoot,
@@ -5096,9 +5096,17 @@ while true; do :; done
       mkdirSync(specDir, { recursive: true });
       const spec = join(specDir, "index.md");
       const subspec = join(specDir, "00-one.md");
+      const subspecContent = stepB
+        ? `# 00 - One\n\n## Acceptance criteria\n\n- [ ] ${stepA}\n- [ ] ${stepB}\n`
+        : `# 00 - One\n\n## Acceptance criteria\n\n- [ ] ${stepA}\n`;
       writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n- [ ] Step B.\n");
+      writeFileSync(subspec, subspecContent);
       execSync("git add -A && git commit -m init", { cwd: projectRoot });
+      return { spec, subspec };
+    }
+
+    test("rejects blocker claim when base-ref validates green and continues loop", async () => {
+      const { spec, subspec } = setupGitRepo("Step A.", "Step B.");
 
       const cap = captureIo();
       let iterationCount = 0;
@@ -5138,18 +5146,7 @@ while true; do :; done
     });
 
     test("blocker claim stands when base-ref validates red", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-      const specDir = join(projectRoot, "spec", "feature");
-      mkdirSync(specDir, { recursive: true });
-      const spec = join(specDir, "index.md");
-      const subspec = join(specDir, "00-one.md");
-      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
-      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+      const { spec, subspec } = setupGitRepo("Step A.");
 
       const cap = captureIo();
       const claude = new FakeAgent("claude", () => {
@@ -5176,18 +5173,7 @@ while true; do :; done
     });
 
     test("blocker claim stands after rejection bound is hit", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-      const specDir = join(projectRoot, "spec", "feature");
-      mkdirSync(specDir, { recursive: true });
-      const spec = join(specDir, "index.md");
-      const subspec = join(specDir, "00-one.md");
-      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
-      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+      const { spec, subspec } = setupGitRepo("Step A.");
 
       const cap = captureIo();
       let iterationCount = 0;
@@ -5201,8 +5187,6 @@ while true; do :; done
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
-      // Count rejection telemetry events
-      const rejectionCount = 0;
       const sessionLogDir = join(cfgDir, "session-logs");
       mkdirSync(sessionLogDir, { recursive: true });
 
@@ -5221,18 +5205,7 @@ while true; do :; done
     });
 
     test("blocker claim requires validation seam to reject", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-      const specDir = join(projectRoot, "spec", "feature");
-      mkdirSync(specDir, { recursive: true });
-      const spec = join(specDir, "index.md");
-      const subspec = join(specDir, "00-one.md");
-      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
-      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+      const { spec, subspec } = setupGitRepo("Step A.");
 
       const cap = captureIo();
       const claude = new FakeAgent("claude", () => {
@@ -5260,18 +5233,7 @@ while true; do :; done
     });
 
     test("non-claim blocker is not validated even if seam is provided", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-      const specDir = join(projectRoot, "spec", "feature");
-      mkdirSync(specDir, { recursive: true });
-      const spec = join(specDir, "index.md");
-      const subspec = join(specDir, "00-one.md");
-      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
-      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+      const { spec, subspec } = setupGitRepo("Step A.");
 
       const cap = captureIo();
       let seamCalled = false;
@@ -5304,18 +5266,7 @@ while true; do :; done
     });
 
     test("default base-ref runner is used when seam not provided", async () => {
-      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-      execSync('git config user.email "jarvis-test@example.com"', {
-        cwd: projectRoot,
-      });
-      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-      const specDir = join(projectRoot, "spec", "feature");
-      mkdirSync(specDir, { recursive: true });
-      const spec = join(specDir, "index.md");
-      const subspec = join(specDir, "00-one.md");
-      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
-      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
-      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+      const { spec, subspec } = setupGitRepo("Step A.");
 
       const cap = captureIo();
       let iterationCount = 0;

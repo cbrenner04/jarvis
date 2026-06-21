@@ -764,6 +764,12 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           // Check if blocker is a claim about pre-existing failures
           const isClaim = detectBlockerClaim(blockerBody);
           const BLOCKER_CLAIM_REJECTION_BOUND = 2;
+          const resetRejectionCounter = () => {
+            if (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath) {
+              state.consecutiveBlockerClaimRejections = 0;
+              state.consecutiveBlockerClaimRejectionsSubspecPath = afterSubspecPath;
+            }
+          };
 
           if (
             isClaim &&
@@ -789,10 +795,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               writeFileSync(afterSubspecPath, strippedContent, "utf8");
 
               // Update rejection tracking
-              if (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath) {
-                state.consecutiveBlockerClaimRejections = 0;
-                state.consecutiveBlockerClaimRejectionsSubspecPath = afterSubspecPath;
-              }
+              resetRejectionCounter();
               state.consecutiveBlockerClaimRejections += 1;
 
               // Emit rejection telemetry
@@ -815,18 +818,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               return { kind: "continue" };
             } else {
               // Base ref is red or validation failed: blocker stands
-              // Reset rejection counter when blocker is not rejected
-              if (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath) {
-                state.consecutiveBlockerClaimRejections = 0;
-                state.consecutiveBlockerClaimRejectionsSubspecPath = afterSubspecPath;
-              }
+              resetRejectionCounter();
             }
           } else {
             // Non-claim blocker or bound hit: reset rejection counter
-            if (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath) {
-              state.consecutiveBlockerClaimRejections = 0;
-              state.consecutiveBlockerClaimRejectionsSubspecPath = afterSubspecPath;
-            }
+            resetRejectionCounter();
           }
 
           // Commit and exit 7 for blockers that stand

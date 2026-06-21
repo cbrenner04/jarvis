@@ -89,7 +89,7 @@ function setupRegisteredGitWorktreeProject() {
   execSync("git commit -m 'seed'", { cwd: base });
   execSync(`git worktree add -b linked ${project} HEAD`, { cwd: base });
   registerProject("project", project, { dir: cfgDir });
-  return { dir, cfgDir, base, project };
+  return { dir, cfgDir, project };
 }
 
 class FakeAgent implements Agent {
@@ -113,6 +113,23 @@ class FakeAgent implements Agent {
 function writeDraftSpec(specDir: string): void {
   writeFileSync(join(specDir, "index.md"), "# Test Spec\n\n- [ ] [00](./00-one.md)\n", "utf8");
   writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] drafted\n", "utf8");
+}
+
+function configureGitDisabledPlanProject(cfgDir: string, reviewPasses: number): void {
+  const cfg = loadConfig({ dir: cfgDir });
+  const projectConfig = cfg.projects.project;
+  if (!projectConfig) {
+    throw new Error("expected registered project");
+  }
+  projectConfig.git = false;
+  projectConfig.plan = { commit: true };
+  cfg.modes.review.passes = reviewPasses;
+  writeConfig(cfg, { dir: cfgDir });
+}
+
+function expectNoPlanBranchOrWorktree(project: string, planName: string): void {
+  expect(existsSync(join(project, ".worktree", `plan-${planName}`))).toBe(false);
+  expect(execSync(`git branch --list plan/${planName}`, { cwd: project, encoding: "utf8" }).trim()).toBe("");
 }
 
 function failingLogClient(message: string): LogClient {
@@ -239,15 +256,7 @@ describe("planCommand", () => {
   test("git: false forces loop-only external spec output even when plan.commit is true", async () => {
     const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
     try {
-      const cfg = loadConfig({ dir: cfgDir });
-      const projectConfig = cfg.projects.project;
-      if (!projectConfig) {
-        throw new Error("expected registered project");
-      }
-      projectConfig.git = false;
-      projectConfig.plan = { commit: true };
-      cfg.modes.review.passes = 0;
-      writeConfig(cfg, { dir: cfgDir });
+      configureGitDisabledPlanProject(cfgDir, 0);
 
       mkdirSync(join(project, "spec", "unrelated"), { recursive: true });
       writeFileSync(join(project, "spec", "unrelated", "note.md"), "dirty\n", "utf8");
@@ -279,10 +288,7 @@ describe("planCommand", () => {
       expect(cap.out()).toContain("Spec written to ");
       expect(cap.out()).toContain("/specs/project/");
       expect(cap.out()).toContain("jarvis1 run ");
-      expect(existsSync(join(project, ".worktree", "plan-git-false-loop-only"))).toBe(false);
-      expect(execSync("git branch --list plan/git-false-loop-only", { cwd: project, encoding: "utf8" }).trim()).toBe(
-        "",
-      );
+      expectNoPlanBranchOrWorktree(project, "git-false-loop-only");
 
       const specPath = cap.out().match(/Spec written to (.+\/index\.md)\n/)?.[1];
       expect(specPath).toBeTruthy();
@@ -297,15 +303,7 @@ describe("planCommand", () => {
   test("resume honors git: false even when plan.commit is true", async () => {
     const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
     try {
-      const cfg = loadConfig({ dir: cfgDir });
-      const projectConfig = cfg.projects.project;
-      if (!projectConfig) {
-        throw new Error("expected registered project");
-      }
-      projectConfig.git = false;
-      projectConfig.plan = { commit: true };
-      cfg.modes.review.passes = 1;
-      writeConfig(cfg, { dir: cfgDir });
+      configureGitDisabledPlanProject(cfgDir, 1);
 
       const externalSpecDir = join(cfgDir, "specs", "project", "2026-06-21T17-50-11Z-resume-git-false");
       mkdirSync(externalSpecDir, { recursive: true });
@@ -344,15 +342,7 @@ describe("planCommand", () => {
   test("git: false fresh run survives review without boundary violations or git worktree setup", async () => {
     const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
     try {
-      const cfg = loadConfig({ dir: cfgDir });
-      const projectConfig = cfg.projects.project;
-      if (!projectConfig) {
-        throw new Error("expected registered project");
-      }
-      projectConfig.git = false;
-      projectConfig.plan = { commit: true };
-      cfg.modes.review.passes = 1;
-      writeConfig(cfg, { dir: cfgDir });
+      configureGitDisabledPlanProject(cfgDir, 1);
 
       mkdirSync(join(project, "spec", "unrelated"), { recursive: true });
       writeFileSync(join(project, "spec", "unrelated", "note.md"), "dirty\n", "utf8");
@@ -393,8 +383,7 @@ describe("planCommand", () => {
       expect(cap.err()).not.toContain("boundary violation");
       expect(cap.err()).not.toContain("git checkout");
       expect(cap.err()).not.toContain("git push");
-      expect(existsSync(join(project, ".worktree", "plan-git-false-review"))).toBe(false);
-      expect(execSync("git branch --list plan/git-false-review", { cwd: project, encoding: "utf8" }).trim()).toBe("");
+      expectNoPlanBranchOrWorktree(project, "git-false-review");
 
       const specPath = cap.out().match(/Spec written to (.+\/index\.md)\n/)?.[1];
       expect(specPath).toBeTruthy();

@@ -419,7 +419,7 @@ describe("runPlanReviewPhase", () => {
   });
 
   test("git-disabled review skips target-repo git-status boundary on worktree roots", async () => {
-    const { dir, cfgDir, base, project } = (() => {
+    const { dir, cfgDir, project } = (() => {
       const tmp = mkdtempSync(join(tmpdir(), "jarvis-plan-review-worktree-"));
       const cfgDir = join(tmp, "cfg");
       const base = join(tmp, "base");
@@ -432,7 +432,7 @@ describe("runPlanReviewPhase", () => {
       execSync("git add README.md", { cwd: base });
       execSync("git commit -m 'seed'", { cwd: base });
       execSync(`git worktree add -b linked ${project} HEAD`, { cwd: base });
-      return { dir: tmp, cfgDir, base, project };
+      return { dir: tmp, cfgDir, project };
     })();
     try {
       const specDir = join(cfgDir, "specs", "project", "review-git-false");

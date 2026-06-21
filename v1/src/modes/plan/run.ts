@@ -375,13 +375,11 @@ function computeResumeCounters(worktreePath: string): {
 function prepareResume(args: {
   cfg: ReturnType<typeof loadConfig>;
   project: ProjectMatch;
-  projectConfig: NonNullable<ReturnType<typeof loadConfig>["projects"][string]> | undefined;
-  projectRoot: string;
   specPath: string;
   mode: "resume" | "resume-draft";
 }): ResumePrep {
   const gitEnabled = effectiveGit(args.cfg, args.project.key);
-  const { commit: configuredCommit, targetDir } = resolvePlanFlags(args.cfg, args.projectConfig);
+  const { commit: configuredCommit, targetDir } = resolvePlanFlags(args.cfg, args.cfg.projects[args.project.key]);
   const commit = gitEnabled ? configuredCommit : false;
 
   // For no-commit specs, the spec path is already external; for commit specs, it's in the worktree
@@ -405,12 +403,13 @@ function prepareResume(args: {
   }
 
   // For commit: true, use the original logic
-  const worktreePath = join(args.projectRoot, ".worktree", `plan-${planName}`);
+  const projectRoot = args.project.root;
+  const worktreePath = join(projectRoot, ".worktree", `plan-${planName}`);
   let recreatedFrom: "local" | "origin" | undefined;
   if (!existsSync(worktreePath)) {
     try {
       const recreated = ensureExistingBranchWorktree({
-        projectRoot: args.projectRoot,
+        projectRoot,
         worktreeName: `plan-${planName}`,
         branchName: `plan/${planName}`,
         missingBranchMessage: `plan worktree missing at ${worktreePath}`,
@@ -437,7 +436,7 @@ function prepareResume(args: {
       recreated,
     );
   }
-  if (!remoteSpecBranchExists(args.projectRoot, planName)) {
+  if (!remoteSpecBranchExists(projectRoot, planName)) {
     throw new ResumePrepError(`plan branch plan/${planName} is not on origin; cannot resume`, recreated);
   }
   const counters = computeResumeCounters(worktreePath);
@@ -449,6 +448,10 @@ function prepareResume(args: {
     nextReviewIndex: counters.nextReviewIndex,
     ...(recreatedFrom !== undefined ? { recreatedFrom } : {}),
   };
+}
+
+function emitNoCommitPlanNextSteps(io: PlanIo, indexPath: string): void {
+  io.stdout(`Spec written to ${indexPath}\nRun with: jarvis1 run ${indexPath}\n`);
 }
 
 async function ensureUniquePlanName(
@@ -638,8 +641,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         resume = prepareResume({
           cfg,
           project,
-          projectConfig: fullProject,
-          projectRoot: project.root,
           specPath: inv.readyIntentPath,
           mode: "resume",
         });
@@ -769,7 +770,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
       } else {
         const indexPath = join(resume.externalSpecRoot ?? resume.worktreePath, resume.specDirBasename, "index.md");
-        opts.io.stdout(`Spec written to ${indexPath}\nRun with: jarvis1 run ${indexPath}\n`);
+        emitNoCommitPlanNextSteps(opts.io, indexPath);
       }
       summarizeResume("complete");
       return 0;
@@ -1307,7 +1308,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         // For commit: false, show the absolute path and jarvis run command
         const noCommitSpecRoot = computeNoCommitSpecRoot(jarvisConfigDir, project, specDirBasename);
         const indexPath = join(noCommitSpecRoot, "index.md");
-        opts.io.stdout(`Spec written to ${indexPath}\nRun with: jarvis1 run ${indexPath}\n`);
+        emitNoCommitPlanNextSteps(opts.io, indexPath);
       }
       summarizePlan("complete", specDirBasename);
 

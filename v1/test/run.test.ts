@@ -5085,6 +5085,226 @@ while true; do :; done
       expect(lastMessage).toContain("## Blocker");
       expect(lastMessage).toContain("Need implementation details");
     });
+
+    test("rejects blocker claim when base-ref validates green and continues loop", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n- [ ] Step B.\n");
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      let iterationCount = 0;
+      const claude = new FakeAgent("claude", () => {
+        iterationCount += 1;
+        if (iterationCount === 1) {
+          // First iteration: tick one and add a claim blocker
+          writeFileSync(
+            subspec,
+            "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [ ] Step B.\n\n## Blocker\n\nThis is a pre-existing failure that's unrelated to my changes\n",
+          );
+        } else if (iterationCount === 2) {
+          // Second iteration (after blocker is rejected): tick the other box
+          writeFileSync(
+            subspec,
+            "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [x] Step B.\n",
+          );
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => true, // Base ref validates green
+      });
+
+      expect(code).toBe(0); // Should succeed, not exit 7
+      expect(cap.err()).toContain("blocker claim rejected");
+      expect(cap.err()).toContain("base ref validates green");
+      expect(iterationCount).toBe(2); // Agent called twice: once for claim, once to fix
+
+      // Verify the blocker section was stripped from the subspec
+      const subspecContent = readFileSync(subspec, "utf8");
+      expect(subspecContent).not.toContain("## Blocker");
+      expect(subspecContent).not.toContain("pre-existing failure");
+    });
+
+    test("blocker claim stands when base-ref validates red", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n\n## Blocker\n\nThis is unrelated to my changes, baseline already fails\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => false, // Base ref validates red
+      });
+
+      expect(code).toBe(7); // Should exit 7, not continue
+      expect(cap.err()).toContain("This is unrelated to my changes");
+      // Should NOT contain rejection message
+      expect(cap.err()).not.toContain("blocker claim rejected");
+    });
+
+    test("blocker claim stands after rejection bound is hit", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      let iterationCount = 0;
+      const claude = new FakeAgent("claude", (callCount) => {
+        iterationCount += 1;
+        // Both iterations add the same claim blocker
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n\n## Blocker\n\nThis is pre-existing and baseline already fails\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      // Count rejection telemetry events
+      let rejectionCount = 0;
+      const sessionLogDir = join(cfgDir, "session-logs");
+      mkdirSync(sessionLogDir, { recursive: true });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir, maxIterations: 3 },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => true, // Base ref validates green for both iterations
+      });
+
+      // After bound is hit (2 rejections), the third iteration should exit 7
+      expect(code).toBe(7);
+      expect(iterationCount).toBe(3); // Agent called 3 times: 2 rejections + 1 stand
+    });
+
+    test("blocker claim requires validation seam to reject", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n\n## Blocker\n\nThis is unrelated, pre-existing baseline failure\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        // No runBaseRefTests seam provided
+      });
+
+      // Without seam, blocker should stand (fail-safe behavior)
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("This is unrelated");
+      // Should NOT contain rejection message
+      expect(cap.err()).not.toContain("blocker claim rejected");
+    });
+
+    test("non-claim blocker is not validated even if seam is provided", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      let seamCalled = false;
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n\n## Blocker\n\nNeed implementation details\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => {
+          seamCalled = true;
+          return true;
+        },
+      });
+
+      // Non-claim blocker should exit 7 without calling the seam
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("Need implementation details");
+      expect(seamCalled).toBe(false); // Seam should not be called
+      // Should NOT contain rejection message
+      expect(cap.err()).not.toContain("blocker claim rejected");
+    });
   });
 });
 

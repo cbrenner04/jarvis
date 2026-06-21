@@ -107,6 +107,8 @@ export type IterationContext = {
     };
     consecutiveEditedUnticked: number;
     consecutiveEditedUntickedSubspecPath: string | null;
+    consecutiveBlockerClaimRejections: number;
+    consecutiveBlockerClaimRejectionsSubspecPath: string | null;
   };
 };
 
@@ -148,6 +150,14 @@ export type RunCommandOptions = {
    * Production callers must not set this.
    */
   runCompletionReadyGate?: (cwd: string) => CompletionReadyGateResult;
+  /**
+   * Test/production seam for base-ref blocker-claim validation.
+   * When a blocker body contains pre-existing-failure language,
+   * runBaseRefTests is invoked with the base ref name.
+   * Returns true if base-ref tests are green (cited failures don't reproduce),
+   * false if red or validation fails. Default when absent = fail-safe (blocker stands).
+   */
+  runBaseRefTests?: (baseRef: string) => Promise<boolean>;
   /**
    * Test-only override for the watchdog/abort SIGKILL grace period in
    * milliseconds. Lets timing tests bound their wall-clock cost without
@@ -235,6 +245,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     acProgressSinceLastGate: false,
     consecutiveEditedUnticked: 0,
     consecutiveEditedUntickedSubspecPath: null,
+    consecutiveBlockerClaimRejections: 0,
+    consecutiveBlockerClaimRejectionsSubspecPath: null,
   };
 
   const onSigint = () => {

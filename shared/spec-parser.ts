@@ -298,6 +298,65 @@ export function detectBlocker(content: string): {
 }
 
 /**
+ * Detect if a blocker body contains pre-existing-failure language
+ * (e.g., "pre-existing", "preexisting", "unrelated", "baseline", "already fail", etc.).
+ * Match is case-insensitive and errs toward matching.
+ */
+export function detectBlockerClaim(body: string): boolean {
+  const normalizedBody = body.toLowerCase();
+  const claimPatterns = [
+    /pre-?existing/,
+    /unrelated/,
+    /baseline/,
+    /already fail/,
+    /not caused by/,
+    /not related to/,
+    /not my change/,
+    /pre-existing/,
+    /preexisting/,
+  ];
+
+  return claimPatterns.some((pattern) => pattern.test(normalizedBody));
+}
+
+/**
+ * Strip the ## Blocker section from spec content.
+ * Removes exactly the ## Blocker heading through the next ## heading (or EOF),
+ * leaving other sections intact. Returns the modified content.
+ */
+export function stripBlockerSection(content: string): string {
+  const blockerExtraction = extractBlockerBody(content);
+  if (blockerExtraction === undefined) {
+    // No blocker section found, return content unchanged
+    return content;
+  }
+
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blockerHeaderIndex = blockerExtraction.index;
+
+  // Find the end of the blocker section (next ## heading or EOF)
+  let blockerEndIndex = lines.length;
+  for (let i = blockerHeaderIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    const headingMatch = line.match(headingPattern);
+    if (headingMatch?.[1] === "##") {
+      blockerEndIndex = i;
+      break;
+    }
+  }
+
+  // Remove lines from blocker header through the end of the section
+  const resultLines = [...lines.slice(0, blockerHeaderIndex), ...lines.slice(blockerEndIndex)];
+
+  // Remove trailing blank lines at the end if present
+  while (resultLines.length > 0 && (resultLines[resultLines.length - 1] ?? "").trim() === "") {
+    resultLines.pop();
+  }
+
+  return resultLines.join("\n");
+}
+
+/**
  * Classify if an acceptance criterion is "structural" — a location/containment/existence
  * claim about code structure with no observable runtime/operator outcome clause.
  * Location/existence verbs: "lives in", "is defined in", "exists as", "has unit tests".

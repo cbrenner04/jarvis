@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
-export type TelemetryKind = "ok" | "quota" | "model_config" | "error" | "blocked" | "timeout";
+export type TelemetryKind = "ok" | "quota" | "model_config" | "error" | "blocked" | "blocker-rejected" | "timeout";
 
 export type TelemetryUsage = {
   input_tokens: number | null;

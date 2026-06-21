@@ -24,24 +24,24 @@ and return green/red.
 
 ## Task checklist
 
-- [ ] Add `updateSnapshotsCommand?: string` to the `Project` type and config parse/validation in `v1/src/config.ts`.
-- [ ] Implement the resolver: config field first, else detect a conventional root-`package.json` update-snapshots script in candidate-list order; return the command or `undefined`.
-- [ ] Implement the runner: resolve → if unresolvable log + return false → whitespace-tokenize the command to head+args and `execFile` it in the agent worktree → run `bun run test` → return exit-0; any non-zero/throw → log + false. Log a distinct breadcrumb on each non-green path (unresolvable vs update-errored vs still-red).
-- [ ] Wire it as the default `runSnapshotUpdateRetest` seam in `run.ts` (from `preflight.cfg` + `preflight.agentWorkingDir`) when none is injected, mirroring the `runBaseRefTests` default wiring.
-- [ ] Add tests: configured command path, detected-script path, unresolvable → false, update success + green re-test → true, update success + red re-test → false, update command failure → false. Each non-green case asserts its distinct diagnostic.
-- [ ] Add an end-to-end (no-injected-seam) test: a temp git repo fixture with a stale snapshot and an update script that clears it, exercising the default seam so a claim blocker is rejected without injection.
+- [x] Add `updateSnapshotsCommand?: string` to the `Project` type and config parse/validation in `v1/src/config.ts`.
+- [x] Implement the resolver: config field first, else detect a conventional root-`package.json` update-snapshots script in candidate-list order; return the command or `undefined`.
+- [x] Implement the runner: resolve → if unresolvable log + return false → whitespace-tokenize the command to head+args and `execFile` it in the agent worktree → run `bun run test` → return exit-0; any non-zero/throw → log + false. Log a distinct breadcrumb on each non-green path (unresolvable vs update-errored vs still-red).
+- [x] Wire it as the default `runSnapshotUpdateRetest` seam in `run.ts` (from `preflight.cfg` + `preflight.agentWorkingDir`) when none is injected, mirroring the `runBaseRefTests` default wiring.
+- [x] Add tests: configured command path, detected-script path, unresolvable → false, update success + green re-test → true, update success + red re-test → false, update command failure → false. Each non-green case asserts its distinct diagnostic.
+- [x] Add an end-to-end (no-injected-seam) test: a temp git repo fixture with a stale snapshot and an update script that clears it, exercising the default seam so a claim blocker is rejected without injection.
 
 ## Acceptance criteria
 
-- [ ] A temp git-repo fixture (stale snapshot + an update script that clears it, `updateSnapshotsCommand` configured) exercises the default seam with **no injected seam**: the claim blocker is rejected end-to-end — the run continues past exit 7 and the `## Blocker` section is removed.
-- [ ] With no `updateSnapshotsCommand` configured, the runner detects a conventional update-snapshots script from the target repo's root `package.json` (candidate-list order) and uses it; with neither configured nor detected, the seam returns non-green, logs an "unresolvable" diagnostic, and the blocker stands (exit 7).
-- [ ] The update command runs in the agent working dir and the corrected snapshot files remain in that worktree afterward (not discarded); no other working-dir paths are reverted or cleaned.
-- [ ] When the update command fails (non-zero/throws) or the re-test stays red, the seam reports non-green and the blocker stands (exit 7).
-- [ ] Each non-green outcome (unresolvable command, update-command error, still-red re-test) emits a distinct stderr diagnostic so the operator can tell why the blocker stood.
-- [ ] `jarvis config` round-trips a project `updateSnapshotsCommand` value (set, persisted, re-read) and an absent value remains absent.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A temp git-repo fixture (stale snapshot + an update script that clears it, `updateSnapshotsCommand` configured) exercises the default seam with **no injected seam**: the claim blocker is rejected end-to-end — the run continues past exit 7 and the `## Blocker` section is removed.
+- [x] With no `updateSnapshotsCommand` configured, the runner detects a conventional update-snapshots script from the target repo's root `package.json` (candidate-list order) and uses it; with neither configured nor detected, the seam returns non-green, logs an "unresolvable" diagnostic, and the blocker stands (exit 7).
+- [x] The update command runs in the agent working dir and the corrected snapshot files remain in that worktree afterward (not discarded); no other working-dir paths are reverted or cleaned.
+- [x] When the update command fails (non-zero/throws) or the re-test stays red, the seam reports non-green and the blocker stands (exit 7).
+- [x] Each non-green outcome (unresolvable command, update-command error, still-red re-test) emits a distinct stderr diagnostic so the operator can tell why the blocker stood.
+- [x] `jarvis config` round-trips a project `updateSnapshotsCommand` value (set, persisted, re-read) and an absent value remains absent.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/v1-behaviors.md` — record that the snapshot-churn gate's default seam resolves the update-snapshots command (per-project `updateSnapshotsCommand` config first, else a detected conventional root-`package.json` script in candidate-list order, else non-green fail-safe), tokenizes the command on whitespace and runs it (no shell) in the agent worktree (corrected snapshots persist), re-runs the target `bun run test`, treats any non-zero exit as non-green, and emits a distinct stderr diagnostic on each non-green path (unresolvable / update-errored / still-red).
-- [ ] Config field reference — document the per-project `updateSnapshotsCommand` field (resolution precedence over detection; used only by the snapshot-churn blocker gate).
+- [x] `v2/docs/v1-behaviors.md` — record that the snapshot-churn gate's default seam resolves the update-snapshots command (per-project `updateSnapshotsCommand` config first, else a detected conventional root-`package.json` script in candidate-list order, else non-green fail-safe), tokenizes the command on whitespace and runs it (no shell) in the agent worktree (corrected snapshots persist), re-runs the target `bun run test`, treats any non-zero exit as non-green, and emits a distinct stderr diagnostic on each non-green path (unresolvable / update-errored / still-red).
+- [x] Config field reference — document the per-project `updateSnapshotsCommand` field (resolution precedence over detection; used only by the snapshot-churn blocker gate).

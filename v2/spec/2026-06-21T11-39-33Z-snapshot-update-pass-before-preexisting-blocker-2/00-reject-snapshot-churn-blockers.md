@@ -36,14 +36,14 @@ runner lands in `01`.
 
 ## Acceptance criteria
 
-- [ ] A claim blocker that base-ref validation did not reject triggers the snapshot-update re-test seam before exit 7; the seam resolving green rejects the blocker — the run continues, no exit 7, no blocker commit, and the `## Blocker` section is removed from the subspec.
-- [ ] A snapshot-churn rejection emits a `blocker-rejected` telemetry event with `exitReason: "snapshot-churn"` and does not emit the `blocked` / `blocker-detected` event.
-- [ ] The same claim blocker with the seam resolving red lets the blocker stand: the run exits 7 and commits the blocker, as today.
-- [ ] With no seam provided (or when it throws), the blocker stands and the run exits 7 (fail-safe).
-- [ ] After the shared per-subspec claim-rejection bound is reached, a further matching claim blocker stands (exit 7) instead of invoking the snapshot seam.
-- [ ] The snapshot gate is not invoked for a blocker base-ref validation already rejected, nor for a non-claim blocker (existing base-ref and non-claim blocker tests in `v1/test/run.test.ts` stay green).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A claim blocker that base-ref validation did not reject triggers the snapshot-update re-test seam before exit 7; the seam resolving green rejects the blocker — the run continues, no exit 7, no blocker commit, and the `## Blocker` section is removed from the subspec.
+- [x] A snapshot-churn rejection emits a `blocker-rejected` telemetry event with `exitReason: "snapshot-churn"` and does not emit the `blocked` / `blocker-detected` event.
+- [x] The same claim blocker with the seam resolving red lets the blocker stand: the run exits 7 and commits the blocker, as today.
+- [x] With no seam provided (or when it throws), the blocker stands and the run exits 7 (fail-safe).
+- [x] After the shared per-subspec claim-rejection bound is reached, a further matching claim blocker stands (exit 7) instead of invoking the snapshot seam.
+- [x] The snapshot gate is not invoked for a blocker base-ref validation already rejected, nor for a non-claim blocker (existing base-ref and non-claim blocker tests in `v1/test/run.test.ts` stay green).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
-- [ ] `v2/docs/v1-behaviors.md` — extend the blocker-claim validation entry: after base-ref validation declines to reject a claim blocker, a snapshot-update re-test gate runs in the agent worktree; re-test green strips the `## Blocker`, emits `blocker-rejected` / `exitReason: "snapshot-churn"`, and continues (leaving updated snapshots dirty for the normal commit); red / absent seam / throw exits 7; the gate shares the per-subspec claim-rejection bound with base-ref. Record the injected seam `runSnapshotUpdateRetest`.
+- [x] `v2/docs/v1-behaviors.md` — extend the blocker-claim validation entry: after base-ref validation declines to reject a claim blocker, a snapshot-update re-test gate runs in the agent worktree; re-test green strips the `## Blocker`, emits `blocker-rejected` / `exitReason: "snapshot-churn"`, and continues (leaving updated snapshots dirty for the normal commit); red / absent seam / throw exits 7; the gate shares the per-subspec claim-rejection bound with base-ref. Record the injected seam `runSnapshotUpdateRetest`.

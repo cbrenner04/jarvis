@@ -21,6 +21,7 @@ import {
   resolveModeSpecificPreflight,
 } from "./preflight.ts";
 import { DescendantTracker } from "./reap.ts";
+import { runSnapshotUpdateRetest as runSnapshotUpdateRetestImpl } from "./snapshot-update-retest-runner.ts";
 
 export type PreflightOk = {
   kind: "ok";
@@ -160,6 +161,14 @@ export type RunCommandOptions = {
    */
   runBaseRefTests?: (baseRef: string) => Promise<boolean>;
   /**
+   * Test/production seam for snapshot-update re-test blocker-claim rejection.
+   * When a claim blocker is not rejected by base-ref validation,
+   * runSnapshotUpdateRetest is invoked to run an update-snapshots pass and re-test.
+   * Returns true if re-test is green (failures were outdated snapshots),
+   * false if red or validation fails. Default when absent = fail-safe (blocker stands).
+   */
+  runSnapshotUpdateRetest?: () => Promise<boolean>;
+  /**
    * Test-only override for the watchdog/abort SIGKILL grace period in
    * milliseconds. Lets timing tests bound their wall-clock cost without
    * waiting the full 5s grace for SIGTERM-ignoring grandchildren. Defaults
@@ -276,6 +285,15 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   if (opts.runBaseRefTests === undefined) {
     opts.runBaseRefTests = async (baseBranch: string): Promise<boolean> => {
       return runBaseRefTestsImpl(preflight.agentWorkingDir, baseBranch);
+    };
+  }
+
+  // Wire the default snapshot-update re-test runner if no seam is provided
+  if (opts.runSnapshotUpdateRetest === undefined) {
+    opts.runSnapshotUpdateRetest = async (): Promise<boolean> => {
+      const project = preflight.cfg.projects[preflight.project.key];
+      const configCommand = project?.updateSnapshotsCommand;
+      return runSnapshotUpdateRetestImpl(preflight.agentWorkingDir, preflight.project.root, configCommand);
     };
   }
 

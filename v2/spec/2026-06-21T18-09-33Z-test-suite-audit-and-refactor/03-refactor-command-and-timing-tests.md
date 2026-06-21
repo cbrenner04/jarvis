@@ -24,10 +24,10 @@ Files (`v1/test/`): `cli`, `gh`, `install-opencode-permissions`, `intent-command
 
 ## Acceptance criteria
 
-- [ ] Every `refactor`-verdict file in this cluster no longer spawns a real OS process and derives no assertion from live wall-clock time; `already-deterministic` files are unchanged; `marked-exception` files are renamed `*.sandbox-unrunnable.test.ts` with a justification comment.
-- [ ] These command/integration and timing tests stay green (behavior unchanged) under `bun test --parallel`.
-- [ ] No command production behavior changes beyond additive, default-preserving DI seams; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
-- [ ] `bun run test` and `bun run typecheck` pass.
+- [x] Every `refactor`-verdict file in this cluster no longer spawns a real OS process and derives no assertion from live wall-clock time; `already-deterministic` files are unchanged; `marked-exception` files are renamed `*.sandbox-unrunnable.test.ts` with a justification comment.
+- [x] These command/integration and timing tests stay green (behavior unchanged) under `bun test --parallel`.
+- [x] No command production behavior changes beyond additive, default-preserving DI seams; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
+- [x] `bun run test` and `bun run typecheck` pass.
 
 ## Documentation updates
 

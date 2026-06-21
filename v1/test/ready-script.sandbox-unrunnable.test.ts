@@ -1,3 +1,4 @@
+// This test requires real subprocess deadline/exit semantics for `runCommand` and cannot run in sandbox mode.
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

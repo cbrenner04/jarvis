@@ -1,3 +1,4 @@
+// This test requires real git/gh/worktree command flow for large plan-mode integration coverage and cannot run in sandbox mode.
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

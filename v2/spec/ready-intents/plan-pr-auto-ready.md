@@ -31,3 +31,8 @@ needed. Use the existing plan PR machinery.
 
 - `v1/src/modes/plan/pr.ts` — plan PR creation; where the ready flip belongs.
 - `v1/docs/worktrees-and-commits.md` — PR/draft mechanics.
+
+## Prerequisites
+
+- Plan mode opens its spec PR as a GitHub draft.
+- The harness owns the plan PR lifecycle (creation in `v1/src/modes/plan/pr.ts`).

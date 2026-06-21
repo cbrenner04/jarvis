@@ -19,8 +19,8 @@ has no guidance covering this case.
 
 ## Acceptance criteria
 
-- [ ] `prompts/patch/rules.md` `## Stop` section contains a bullet that a red suite observed before all edits are complete is not evidence of pre-existing breakage.
-- [ ] `prompts/patch/rules.md` `## Stop` section contains a bullet prohibiting a "pre-existing / unrelated / baseline failures" blocker on a mid-edit red (the harness validates such claims and will reject an unconfirmed one).
-- [ ] `prompts/patch/rules.md` `## Stop` section contains a bullet to finish edits and re-run before concluding the suite is broken.
-- [ ] The `## Stop` "Repeated failure" line is qualified to apply only after edits are complete.
-- [ ] `prompts/patch/rules.md` `revision:` frontmatter is bumped to 4.
+- [x] `prompts/patch/rules.md` `## Stop` section contains a bullet that a red suite observed before all edits are complete is not evidence of pre-existing breakage.
+- [x] `prompts/patch/rules.md` `## Stop` section contains a bullet prohibiting a "pre-existing / unrelated / baseline failures" blocker on a mid-edit red (the harness validates such claims and will reject an unconfirmed one).
+- [x] `prompts/patch/rules.md` `## Stop` section contains a bullet to finish edits and re-run before concluding the suite is broken.
+- [x] The `## Stop` "Repeated failure" line is qualified to apply only after edits are complete.
+- [x] `prompts/patch/rules.md` `revision:` frontmatter is bumped to 4.

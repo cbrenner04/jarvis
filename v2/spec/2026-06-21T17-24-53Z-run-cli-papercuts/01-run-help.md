@@ -1,0 +1,54 @@
+# `run --help` usage + subcommand audit
+
+## Problem
+
+`jarvis run --help` is parsed as a spec path: `parseArgs` (`v1/src/cli.ts:102-189`)
+consumes known flags and then treats the first leftover token as `specPath`, so
+`--help` flows through to `spec path does not exist: …/--help`. Only `plan` and
+`intent` short-circuit on `--help`/`-h`. Several other subcommands silently
+misinterpret it: `cleanup` ignores it and runs anyway, `triage`/`review-feedback`
+take it as a worktree name, `prompt` takes it as the prompt text, and `init` runs
+init silently.
+
+## Decisions
+
+- `run --help`/`-h` prints a `run`-specific usage string and exits 0 without
+  attempting spec resolution. Rules out routing it to the global `USAGE` only, which
+  buries the run flag list the operator asked for.
+- Audit and fix every subcommand that currently misinterprets `--help`/`-h`
+  (`run`, `init`, `config`, `log-server`, `cleanup`, `triage`, `review-feedback`,
+  `prompt`, `prices`): each recognizes the flag, prints help, and exits 0 instead of
+  running or erroring. Rules out fixing `run` alone and leaving the same papercut in
+  sibling commands the intent explicitly calls out.
+- A subcommand with no dedicated usage string falls back to the global `USAGE`. Rules
+  out inventing per-command usage text for commands that don't warrant it — keep it
+  bounded.
+- A top-level `--help`/`-h` always wins: it prints jarvis help and exits 0, and is
+  never forwarded to a downstream tool (e.g. `prompt`'s prompt text, `prices`'
+  args). Rules out a pass-through command silently feeding `--help` to the underlying
+  tool, which would defeat the audit. (Which layer enforces this — `parseArgs` vs.
+  dispatch — is unspecified; only the precedence outcome is pinned.)
+
+## Task checklist
+
+- [ ] Short-circuit `run --help`/`-h` to a run usage string, exit 0, before spec resolution.
+- [ ] Recognize `--help`/`-h` in the remaining subcommands; print help, exit 0.
+- [ ] Document the help behavior.
+
+## Acceptance criteria
+
+- [ ] `jarvis run --help` and `jarvis run -h` print run usage to stdout and exit 0
+      without producing a `spec path does not exist` error.
+- [ ] `init`, `cleanup`, `triage`, `review-feedback`, and `prompt` no longer
+      misinterpret a `--help`/`-h` argument as data (a worktree name, prompt text, or a
+      silent init/run); each prints help and exits 0.
+- [ ] `config`, `log-server`, and `prices` recognize `--help`/`-h`: each prints help
+      and exits 0 instead of running.
+- [ ] A pass-through command (`prompt`, `prices`) given a top-level `--help`/`-h`
+      prints help and exits 0 rather than forwarding the flag downstream.
+- [ ] Existing `cli`/`parseArgs` tests stay green except where they are extended to
+      cover the new `--help` handling.
+
+## Documentation updates
+
+- `v2/docs/v1-behaviors.md` — record that every subcommand honors `--help`/`-h`.

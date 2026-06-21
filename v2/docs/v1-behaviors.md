@@ -14,6 +14,7 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 ### Command surface
 
 - The shipped top-level subcommands are `run`, `init`, `config`, `log-server`, `cleanup`, `triage`, `review-feedback`, `plan`, `intent`, `prompt`, `prices`, and `help` (including `-h`/`--help` aliases to help output). Sources: `v1/src/cli.ts`
+- Every subcommand recognizes `--help` and `-h` flags and prints command-specific help text, then exits 0 without running the command or forwarding the flag downstream. For pass-through commands (`prompt`, `prices`), the `--help`/`-h` flag takes precedence over prompt text or prices subcommand, never forwarded as data. Commands without dedicated help usage strings fall back to the global usage. Sources: `v1/src/cli.ts`
 - Unknown subcommands exit non-zero and print usage, while parse-time argument errors also print usage with a command-specific error prefix. Sources: `v1/src/cli.ts`
 - `review-feedback` requires a non-empty `<worktree-name>` and exits with usage when omitted, while `triage` accepts an optional worktree argument and otherwise runs a no-arg listing mode. Sources: `v1/src/cli.ts`, `v1/src/commands/triage.ts`
 - `prices` is a two-operation command surface (`show` and `edit`) rather than one flat action, and missing/unknown prices subcommands print command-specific usage. Sources: `v1/src/commands/prices.ts`, `v1/src/commands/prices-show.ts`, `v1/src/commands/prices-edit.ts`

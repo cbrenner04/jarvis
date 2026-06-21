@@ -37,16 +37,16 @@ init silently.
 
 ## Acceptance criteria
 
-- [ ] `jarvis run --help` and `jarvis run -h` print run usage to stdout and exit 0
+- [x] `jarvis run --help` and `jarvis run -h` print run usage to stdout and exit 0
       without producing a `spec path does not exist` error.
-- [ ] `init`, `cleanup`, `triage`, `review-feedback`, and `prompt` no longer
+- [x] `init`, `cleanup`, `triage`, `review-feedback`, and `prompt` no longer
       misinterpret a `--help`/`-h` argument as data (a worktree name, prompt text, or a
       silent init/run); each prints help and exits 0.
-- [ ] `config`, `log-server`, and `prices` recognize `--help`/`-h`: each prints help
+- [x] `config`, `log-server`, and `prices` recognize `--help`/`-h`: each prints help
       and exits 0 instead of running.
-- [ ] A pass-through command (`prompt`, `prices`) given a top-level `--help`/`-h`
+- [x] A pass-through command (`prompt`, `prices`) given a top-level `--help`/`-h`
       prints help and exits 0 rather than forwarding the flag downstream.
-- [ ] Existing `cli`/`parseArgs` tests stay green except where they are extended to
+- [x] Existing `cli`/`parseArgs` tests stay green except where they are extended to
       cover the new `--help` handling.
 
 ## Documentation updates

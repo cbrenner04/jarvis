@@ -8,4 +8,5 @@ dist/
 .aider*
 running-thoughts.md
 robustness-batch-report.md
-session-report.mdoverlord-session-report.md
+session-report.md
+overlord-session-report.md

@@ -12,8 +12,8 @@ import type {
   UsageSource,
 } from "../../telemetry.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
-import { finalize, runIteration, setupLogging } from "./iteration.ts";
 import { runBaseRefTests as runBaseRefTestsImpl } from "./base-ref-test-runner.ts";
+import { finalize, runIteration, setupLogging } from "./iteration.ts";
 import {
   buildActiveAgents,
   maybeWarnAboutUnmergedPlanBranch,

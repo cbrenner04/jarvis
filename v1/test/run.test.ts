@@ -5112,10 +5112,7 @@ while true; do :; done
           );
         } else if (iterationCount === 2) {
           // Second iteration (after blocker is rejected): tick the other box
-          writeFileSync(
-            subspec,
-            "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [x] Step B.\n",
-          );
+          writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [x] Step B.\n");
         }
         return { kind: "ok", stdout: "", stderr: "" };
       });
@@ -5205,7 +5202,7 @@ while true; do :; done
       });
 
       // Count rejection telemetry events
-      let rejectionCount = 0;
+      const rejectionCount = 0;
       const sessionLogDir = join(cfgDir, "session-logs");
       mkdirSync(sessionLogDir, { recursive: true });
 
@@ -5332,10 +5329,7 @@ while true; do :; done
           );
         } else if (iterationCount === 2) {
           // Second iteration (after blocker validation): resolve it
-          writeFileSync(
-            subspec,
-            "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n",
-          );
+          writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n");
         }
         return { kind: "ok", stdout: "", stderr: "" };
       });

@@ -21,6 +21,7 @@ Work here is work on the harness itself. Layout:
 - **Agent fallback order**: `claude → codex → cursor`, configurable. See [v1/docs/agents.md](v1/docs/agents.md).
 - **Spec format** (target repos): Markdown with `- [ ]` task lists. Complete = zero unchecked items.
 - **Quota detection**: per-agent stderr/exit-code heuristics — [v1/docs/quota-signals.md](v1/docs/quota-signals.md).
+- **Operator runbook**: Reference for session patterns, sandbox blindness, and recovery workflows — [v1/docs/operator-runbook.md](v1/docs/operator-runbook.md).
 
 Each iteration the agent is told to inspect the target repo for guidance, read the spec, follow the patch-mode rules in `v1/src/modes/patch/rules.md` (injected inline), and complete the single most important unchecked task.
 

@@ -20,11 +20,12 @@ Avoid bare shell `&` (process dies when shell exits). Tracked runners (`nohup`, 
 
 When merging a draft PR for integration testing:
 
-1. **Merge without auto-pushing.** Use `gh pr merge --merge --skip-ci` to merge locally without triggering CI.
-2. **Re-run `bun run ready` locally** on the merged branch to catch lint/test issues before pushing.
-3. **Push only if ready-gate passes.** Push the merged commit once local `ready` succeeds.
+1. **Run the completion gate locally first.** Use `bun run ready` on the unmerged branch to verify all checks pass.
+2. **Merge the branch.** Once `ready` succeeds, use `gh pr merge --merge` to merge locally.
+3. **Re-run tests locally** on the merged branch to catch any integration-only issues before pushing.
+4. **Push once verified.** Push the merged commit once local verification completes.
 
-Rationale: draft PRs often have lint or flaky tests that don't surface until the full `ready` gate runs (which includes `check:fix:unsafe` and re-linting). Testing locally first avoids red commits.
+Rationale: merging first and fixing issues afterward risks red commits. Running `ready` before merge prevents most lint/test issues; re-running `test` after merge catches integration-only flakes.
 
 ## Manual-finalize recovery (last-resort path)
 
@@ -36,19 +37,21 @@ git status
 git diff
 
 # Manually fix issues (e.g., lint, type errors, test flakes)
-# Then run the final lint check explicitly
-bun run check
-
-# Verify tests still pass
-bun run test
+# Then run the completion gate explicitly
+bun run ready
 
 # Only then commit and merge
-git add -A
+git add -A  # caution: this absorbs any manual commits; Jarvis owns commits on this worktree
 git commit -m "<message>"
+
+# Tick any satisfied acceptance criteria in the spec,
+# mark the PR as ready, and merge with admin privileges
+gh pr ready
+gh pr merge --admin
 ```
 
 This is a fallback for:
-- **Completion gate**: the harness's check that all acceptance criteria are ticked before deeming the spec complete.
+- **Completion gate**: the harness's check that all acceptance criteria are ticked before deeming the spec complete. Admin-merge skips approval but does not skip local lint/test verification — the operator must run `bun run ready` or `bun run check` before merging.
 - **Lint convergence**: the full tier's `check` command (Biome lint) that must pass after `check:fix:unsafe` runs.
 - **Flaky-test retry**: `scripts/ready.ts` automatically runs parallel tests, then serially if parallel fails; if both fail, the run exits with non-zero.
 - **Parallel-load flake recovery**: when tests pass serially but failed in parallel (load-dependent issue), `ready` detects and reports this; manual re-runs of `bun test` with different parallelism can confirm the flake.
@@ -63,20 +66,19 @@ The sandbox (in Claude Code) may hide real process state in several ways:
 
 ```sh
 pgrep -f 'jarvis1 run'        # Good: specific command token
-pgrep -f '/Users/.*/bin/jarvis1'  # Better: full path if spawned that way
 pgrep -f 'run'                # Risky: too generic, matches other things
 ```
 
-Rationale: process argument strings can be rewritten by init systems. A substring like `jarvis1 run` is stable across launchers; generic tokens like `run` alone can match unrelated processes.
+Rationale: the stable command-token match (`jarvis1 run`) is the distinguishing substring. Relative-path or full-path matching is fragile; a stable token in the command line is what matters.
 
 **Workaround**: poll the log file (`tail -f run.log`) or check git history (`git log --oneline -n 10`) instead of process queries.
 
 ### Localhost/auth blindness
 
-Network requests to `localhost` and POSIX auth operations (reading `~/.netrc`, SSH keys, or system keychain) may fail or not behave as expected inside the sandbox.
+Network requests to `localhost` and POSIX auth operations (reading `~/.netrc`, SSH keys, or system keychain) may fail or not behave as expected inside the sandbox. These are *false negatives* — the operations work fine when run unsandboxed.
 
-- A background agent that needs to authenticate (e.g., against GitHub or a private registry) may hang or fail silently.
-- **Workaround**: for long background runs, ensure auth is set up *outside* the sandbox first (e.g., `gh auth status`), and test network operations in a non-sandbox shell.
+- An apparent auth failure (`gh` command fails with a permission error, `localhost` requests time out) is likely a sandbox limitation, not a real problem.
+- **Workaround**: re-run the same `jarvis`, `git`, `gh`, or `localhost` command *outside the sandbox* and do not debug the apparent auth/connection failure before re-checking unsandboxed. If the command succeeds outside the sandbox, the sandbox was the issue.
 
 ## Branch-protection and admin-merge workflow
 
@@ -91,22 +93,23 @@ This repo enforces branch protection: `main` requires at least one approval and 
 ### Admin-merge path
 
 - Jarvis flips the draft PR to `ready` once the spec completes (all acceptance criteria ticked).
-- Admin merge (`gh pr merge --admin`) skips the approval requirement and merges directly.
-- Admin merge runs `bun run ready` as part of the merge process (completion gate), so the PR is re-verified at merge time.
+- Admin merge (`gh pr merge --admin`) skips the approval requirement and merges directly *without running any local gates*.
+- The operator must run `bun run ready` (or at minimum `bun run check`) **before** the merge to verify all checks pass; admin-merge does not re-verify them.
 
 Workflow:
 1. Spec is complete (all acceptance criteria ticked).
-2. Jarvis automatically flips PR to `ready` and merges with admin privileges.
-3. The merge itself triggers `ready` (completion gate), confirming no regressions since the last local `ready`.
+2. Operator runs `bun run ready` locally to verify the spec passes all lint, type, and test gates.
+3. Jarvis automatically flips PR to `ready` and merges with admin privileges.
+4. The merge succeeds without additional gate checks; the pre-merge `ready` run is the verification step.
 
 ## `check:fix` vs `check:fix:unsafe` distinction
 
 These are Biome commands with different rule coverage and mutability:
 
-- **`check:fix`** (`bun run check:fix`): Biome's standard checks + fixes; doesn't apply unsafe rules. Safe to run in automation.
+- **`check:fix`** (`bun run check:fix`): Biome's standard checks + fixes; doesn't apply unsafe rules. Safe to run in automation. Leaves residual issues that require `--unsafe` or hand edits: unused-var, noExplicitAny, non-null assertions.
 - **`check:fix:unsafe`** (`bun run check:fix:unsafe`): Biome's standard checks + fixes *plus* unsafe rule fixes (often riskier transformations). Used only in the `full` ready tier, before re-linting with `check`.
 
-The full ready tier (run at admin-merge time) applies `check:fix:unsafe` first, then runs the full lint gate (`check`), ensuring that even aggressive fixes pass final review.
+The full ready tier (run before any merge) applies `check:fix:unsafe` first, then runs the full lint gate (`check`), ensuring that even aggressive fixes pass final review.
 
 Note: `noImplicitAny` is a TypeScript compiler flag (in `tsconfig.json`), not a Biome fix target; lint and type-checking are separate gates. Typecheck is its own `bun run typecheck` step.
 

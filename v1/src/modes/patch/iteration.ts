@@ -301,8 +301,16 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   const { specPath, gitEnabled, agentWorkingDir, cfg } = preflight;
   const { fanout, writeTelemetry, specDisplayName } = logging;
   const iteration = state.iteration;
-  const iterationStartedAt = Date.now();
-  const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
+  // Use injected clock for tests, real timing for production
+  const clock = opts.__testClock ?? {
+    now: () => Date.now(),
+    setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+    clearTimeout: (handle: NodeJS.Timeout) => clearTimeout(handle),
+    setInterval: (fn: () => void, ms: number) => setInterval(fn, ms),
+    clearInterval: (handle: NodeJS.Timeout) => clearInterval(handle),
+  };
+  const iterationStartedAt = clock.now();
+  const iterationDurationMs = (): number => clock.now() - iterationStartedAt;
 
   if (iteration > cfg.maxIterations) {
     printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
@@ -533,9 +541,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   // later escape the process group (via setsid) and re-parent to init can be
   // reaped after the agent exits, when no live lineage to them remains.
   let descendantPollHandle: NodeJS.Timeout | null = null;
-  const iterationTimeoutHandle = setTimeout(() => {
+  const iterationTimeoutHandle = clock.setTimeout(() => {
     watchdogFired = true;
-    const snapshotAt = Date.now();
+    const snapshotAt = clock.now();
     watchdogLastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
     const pgid = watchdogPgid;
     if (pgid !== null) {
@@ -553,12 +561,12 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   }, cfg.iterationTimeoutMs);
 
   // Arm idle watchdog if configured
-  const armedAt = Date.now();
+  const armedAt = clock.now();
   const idleOutputTimeoutMs = cfg.idleOutputTimeoutMs;
   if (idleOutputTimeoutMs !== undefined) {
     const scheduleIdleCheck = () => {
-      idleTimeoutHandle = setTimeout(() => {
-        const snapshotAt = Date.now();
+      idleTimeoutHandle = clock.setTimeout(() => {
+        const snapshotAt = clock.now();
         const lastOutputAt = lastOutputAtMs.current ?? armedAt;
         const idleAgeMs = snapshotAt - lastOutputAt;
         if (idleAgeMs >= idleOutputTimeoutMs) {
@@ -581,7 +589,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           scheduleIdleCheck();
         }
       }, 100); // Poll every 100ms, configurable granularity
-      idleTimeoutHandle.unref();
+      idleTimeoutHandle.unref?.();
     };
     scheduleIdleCheck();
   }
@@ -605,16 +613,16 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         watchdogPgid = pid;
         // Clear any prior descendantPollHandle before assigning the new one (re-entry-safe for retries)
         if (descendantPollHandle !== null) {
-          clearInterval(descendantPollHandle);
+          clock.clearInterval(descendantPollHandle);
           descendantPollHandle = null;
         }
         // Record descendants immediately, then keep sampling while the agent
         // runs so escapees are captured before their lineage is severed.
         ctx.descendantTracker.poll(pid);
-        descendantPollHandle = setInterval(() => {
+        descendantPollHandle = clock.setInterval(() => {
           ctx.descendantTracker.poll(pid);
         }, DESCENDANT_POLL_INTERVAL_MS);
-        descendantPollHandle.unref();
+        descendantPollHandle.unref?.();
       },
       onTransientRetry: ({ attempt, cap, exitCode }) => {
         fanout("harness", `${harnessTransientRetryLine(exitCode, attempt, cap)}\n`, "stderr");
@@ -623,7 +631,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
     // Disarm idle watchdog immediately after agent returns, before post-processing begins
     if (idleTimeoutHandle !== null) {
-      clearTimeout(idleTimeoutHandle);
+      clock.clearTimeout(idleTimeoutHandle);
       idleTimeoutHandle = null;
     }
 
@@ -1305,18 +1313,18 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     });
     return { kind: "return", exitCode: 3 };
   } finally {
-    clearTimeout(iterationTimeoutHandle);
+    clock.clearTimeout(iterationTimeoutHandle);
     if (idleTimeoutHandle !== null) {
-      clearTimeout(idleTimeoutHandle);
+      clock.clearTimeout(idleTimeoutHandle);
     }
     if (watchdogKillHandle !== null) {
-      clearTimeout(watchdogKillHandle);
+      clock.clearTimeout(watchdogKillHandle);
     }
     // Stop sampling, take one final snapshot, and reap descendants that escaped
     // the process group kill. Best-effort: never throws, never affects the exit
     // code or stop reason.
     if (descendantPollHandle !== null) {
-      clearInterval(descendantPollHandle);
+      clock.clearInterval(descendantPollHandle);
     }
     if (watchdogPgid !== null) {
       ctx.descendantTracker.poll(watchdogPgid);

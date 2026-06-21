@@ -181,6 +181,18 @@ export type RunCommandOptions = {
    * unaffected. Production callers must not set this.
    */
   __testReapFn?: () => void;
+  /**
+   * Test-only clock injection for deterministic timing in watchdog/timeout
+   * tests. When provided, iteration timing uses these functions instead of
+   * real Date.now/setTimeout/setInterval. Production callers must not set this.
+   */
+  __testClock?: {
+    now: () => number;
+    setTimeout: (fn: () => void, ms: number) => NodeJS.Timeout;
+    clearTimeout: (handle: NodeJS.Timeout) => void;
+    setInterval: (fn: () => void, ms: number) => NodeJS.Timeout;
+    clearInterval: (handle: NodeJS.Timeout) => void;
+  };
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {

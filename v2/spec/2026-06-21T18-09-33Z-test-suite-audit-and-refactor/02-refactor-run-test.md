@@ -24,18 +24,18 @@ sibling rather than stretch one PR.
 
 ## Task checklist
 
-- [ ] Apply the 00 `refactor` plan for `run.test.ts`: inject clock/poller and spawn seams.
-- [ ] Remove the widened real timeout; assert via injected time.
-- [ ] Move any irreducible real-OS case to a marked-exception sibling file.
-- [ ] Record in `v2/docs/v1-behaviors.md` only a seam that alters an observable default; test-only optional params defaulting to the real impl need no entry.
+- [x] Apply the 00 `refactor` plan for `run.test.ts`: inject clock/poller and spawn seams.
+- [x] Remove the widened real timeout; assert via injected time.
+- [x] Move any irreducible real-OS case to a marked-exception sibling file.
+- [x] Record in `v2/docs/v1-behaviors.md` only a seam that alters an observable default; test-only optional params defaulting to the real impl need no entry.
 
 ## Acceptance criteria
 
-- [ ] In the early-interrupt, elapsed-bound, and descendant-capture assertion groups, `v1/test/run.test.ts` stays green (behavior unchanged) with no real process spawn, no `Date.now`/`sleep`/`setTimeout`-based timing, and no wall-clock timeout allowance — timing is driven by an injected clock/poller. Assertions outside these groups are unchanged.
-- [ ] Early-interrupt, elapsed-bound, and descendant assertions remain present and pass.
-- [ ] Any irreducible real-OS coverage lives in a `*.sandbox-unrunnable.test.ts` sibling with a justification comment; nothing non-deterministic remains in the agent-runnable file.
-- [ ] No `run` production behavior changes beyond additive, default-preserving DI seams; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
-- [ ] `bun run test` and `bun run typecheck` pass.
+- [x] In the early-interrupt, elapsed-bound, and descendant-capture assertion groups, `v1/test/run.test.ts` stays green (behavior unchanged) with no real process spawn, no `Date.now`/`sleep`/`setTimeout`-based timing, and no wall-clock timeout allowance — timing is driven by an injected clock/poller. Assertions outside these groups are unchanged.
+- [x] Early-interrupt, elapsed-bound, and descendant assertions remain present and pass.
+- [x] Any irreducible real-OS coverage lives in a `*.sandbox-unrunnable.test.ts` sibling with a justification comment; nothing non-deterministic remains in the agent-runnable file.
+- [x] No `run` production behavior changes beyond additive, default-preserving DI seams; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
+- [x] `bun run test` and `bun run typecheck` pass.
 
 ## Documentation updates
 

@@ -380,6 +380,7 @@ describe("ready serial-retry on test failure", () => {
   test("serial-green recovers: parallel test fails, serial test passes, remaining commands run", async () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-serial-green-"));
     const executed: string[] = [];
+    const stderrLines: string[] = [];
 
     try {
       // Set up so install is skipped (mocks a cached install)
@@ -390,28 +391,44 @@ describe("ready serial-retry on test failure", () => {
         writeRecordedInstallDigest(repoRoot, digest);
       }
 
-      await withEnvAsync("JARVIS_READY_TIER", "full", async () => {
-        await runReady({
-          repoRoot,
-          runCommandFn: async (_name, args) => {
-            const step = args.join(" ");
-            executed.push(step);
-            // Parallel test fails with genuine failure code
-            if (step === "run test") {
-              return 1; // First (parallel) test fails
-            }
-            // Serial test passes
-            if (step === "test" && executed.filter((s) => s === "test").length === 1) {
-              return 0; // Serial test passes
-            }
-            // All other commands succeed
-            return 0;
-          },
+      const origWrite = process.stderr.write;
+      process.stderr.write = function (this: typeof process.stderr, chunk, ...args) {
+        stderrLines.push(String(chunk));
+        return origWrite.apply(this, [chunk, ...args] as Parameters<typeof origWrite>);
+      };
+
+      try {
+        await withEnvAsync("JARVIS_READY_TIER", "full", async () => {
+          await runReady({
+            repoRoot,
+            runCommandFn: async (_name, args) => {
+              const step = args.join(" ");
+              executed.push(step);
+              // Parallel test fails with genuine failure code
+              if (step === "run test") {
+                return 1; // First (parallel) test fails
+              }
+              // Serial test passes
+              if (step === "test" && executed.filter((s) => s === "test").length === 1) {
+                return 0; // Serial test passes
+              }
+              // All other commands succeed
+              return 0;
+            },
+          });
         });
-      });
+      } finally {
+        process.stderr.write = origWrite;
+      }
 
       // Verify execution order: check:fix, typecheck, parallel test (fails), serial test (passes), check
       expect(executed).toEqual(["run check:fix", "run typecheck", "run test", "test", "run check"]);
+
+      // Verify the recovery signal is logged
+      const stderr = stderrLines.join("");
+      expect(stderr).toContain("parallel test failed");
+      expect(stderr).toContain("retrying serially");
+      expect(stderr).toContain("parallel-load flake recovered");
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
     }

@@ -333,7 +333,7 @@ export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof
       const serialElapsed = Date.now() - startTime;
       code = await runCommandFn("bun", ["test"], timeoutMs, serialElapsed);
       if (code === 0) {
-        process.stderr.write(`ready: serial test passed; continuing\n`);
+        process.stderr.write(`ready: parallel-load flake recovered (serial test passed); continuing\n`);
       } else {
         process.stderr.write(`ready: serial test failed (code ${code})\n`);
       }

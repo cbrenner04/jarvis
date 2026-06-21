@@ -20,7 +20,7 @@ Tests that require real OS processes or wall-clock timing are **marked exception
 1. Declare themselves sandbox-unrunnable with an explicit filename marker: use a `.sandbox-unrunnable` infix in the filename. Example: `foo.sandbox-unrunnable.test.ts`.
 2. Carry a comment at the top explaining why real OS seams are necessary (e.g., "exercises the actual `execSync` and process reaping logic that must work on real systems").
 
-Real-process tests still need to exist — the actual `execSync` and process-reaping logic (`v1/src/modes/patch/reap.ts`) must have test coverage. But they are the exception, not the rule.
+Real-process tests will need to exist going forward — the actual `execSync` and process-reaping logic (`v1/src/modes/patch/reap.ts`) should have test coverage as seams are converted. Existing real-process tests that predate this convention are out of scope to convert; new seams should be covered with the DI pattern from the start.
 
 ## Worked example: DescendantTracker injection pattern
 

@@ -3,10 +3,11 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
-import { loadConfig, resolvePlanFlags } from "../config.ts";
+import { CONFIG_DIR, loadConfig, resolvePlanFlags } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
+import { computeProjectSafeId } from "../modes/plan/spec-paths.ts";
 import { ensureDraftPr, renderAttribution } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import { createIntentWorktree, createWorktreeSymlinks } from "../worktree.ts";
@@ -201,35 +202,12 @@ function hasValidPrerequisitesSection(text: string): boolean {
     .every((line) => /^- \S.*$/.test(line));
 }
 
-function validateIntentStage(
-  stagingDir: string,
-  modifiedPaths: string[],
-):
+function validateIntentStageContent(files: string[]):
   | {
       ok: true;
       intents: { slug: string; path: string }[];
     }
   | { ok: false; error: string } {
-  const allowedPrefix = `${STAGE_DIR_NAME}/`;
-  const rogue = modifiedPaths.filter((path) => path !== STAGE_DIR_NAME && !path.startsWith(allowedPrefix));
-  if (rogue.length > 0) {
-    return {
-      ok: false,
-      error: `intent: splitter wrote outside ${STAGE_DIR_NAME}/: ${rogue.join(", ")}`,
-    };
-  }
-
-  const dirEntries = readdirSync(stagingDir, { withFileTypes: true });
-  for (const entry of dirEntries) {
-    if (!entry.isFile() || !entry.name.endsWith(".md")) {
-      return {
-        ok: false,
-        error: `intent: invalid splitter output ${entry.name}; expected only markdown files`,
-      };
-    }
-  }
-
-  const files = listStageMarkdownFiles(stagingDir);
   if (files.length === 0) {
     return { ok: false, error: "intent: splitter produced no intent files" };
   }
@@ -272,6 +250,58 @@ function validateIntentStage(
   }
 
   return { ok: true, intents };
+}
+
+function validateIntentStage(
+  stagingDir: string,
+  modifiedPaths: string[],
+):
+  | {
+      ok: true;
+      intents: { slug: string; path: string }[];
+    }
+  | { ok: false; error: string } {
+  const allowedPrefix = `${STAGE_DIR_NAME}/`;
+  const rogue = modifiedPaths.filter((path) => path !== STAGE_DIR_NAME && !path.startsWith(allowedPrefix));
+  if (rogue.length > 0) {
+    return {
+      ok: false,
+      error: `intent: splitter wrote outside ${STAGE_DIR_NAME}/: ${rogue.join(", ")}`,
+    };
+  }
+
+  const dirEntries = readdirSync(stagingDir, { withFileTypes: true });
+  for (const entry of dirEntries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) {
+      return {
+        ok: false,
+        error: `intent: invalid splitter output ${entry.name}; expected only markdown files`,
+      };
+    }
+  }
+
+  const files = listStageMarkdownFiles(stagingDir);
+  return validateIntentStageContent(files);
+}
+
+function validateExternalIntentStageStructure(stagingDir: string): { ok: true } | { ok: false; error: string } {
+  try {
+    const dirEntries = readdirSync(stagingDir, { withFileTypes: true });
+    for (const entry of dirEntries) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) {
+        return {
+          ok: false,
+          error: `intent: invalid splitter output ${entry.name}; expected only markdown files`,
+        };
+      }
+    }
+  } catch {
+    return {
+      ok: false,
+      error: `intent: failed to read stage directory`,
+    };
+  }
+  return { ok: true };
 }
 
 function commitIntentSplit(opts: {
@@ -330,6 +360,30 @@ function cleanupIntentState(projectRoot: string, worktreePath: string, branch: s
   }
 }
 
+function snapshotCheckoutPaths(projectRoot: string): Set<string> {
+  const paths = new Set<string>();
+  const entries = readdirSync(projectRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === ".git" || entry.name === ".gitignore") continue;
+    paths.add(entry.name);
+  }
+  return paths;
+}
+
+function assertNoCheckoutPollution(
+  projectRoot: string,
+  baseline: Set<string>,
+): { ok: true } | { ok: false; rogue: string[] } {
+  const current = snapshotCheckoutPaths(projectRoot);
+  const rogue: string[] = [];
+  for (const path of current) {
+    if (!baseline.has(path)) {
+      rogue.push(path);
+    }
+  }
+  return rogue.length === 0 ? { ok: true } : { ok: false, rogue };
+}
+
 function renderIntentNextSteps(args: { prUrl: string; targetDir: string; emittedNames: string[] }): string {
   const lines = [
     "",
@@ -339,6 +393,18 @@ function renderIntentNextSteps(args: { prUrl: string; targetDir: string; emitted
   ];
   for (const name of args.emittedNames) {
     lines.push(`       jarvis1 plan ${args.targetDir}/ready-intents/${name}.md`);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+function renderIntentNextStepsNoCommit(args: {
+  project: { key: string; root: string };
+  emittedPaths: string[];
+}): string {
+  const lines = ["", "Next steps:", "Draft specs one intent at a time with:"];
+  for (const path of args.emittedPaths) {
+    lines.push(`  jarvis1 plan --repo ${args.project.key} ${path}`);
   }
   lines.push("");
   return lines.join("\n");
@@ -401,10 +467,6 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
   const project = entry.resolution.resolved.project;
   const fullProject = cfg.projects[project.key];
   const { commit, targetDir } = resolvePlanFlags(cfg, fullProject);
-  if (!commit) {
-    opts.io.stderr("intent: requires plan.commit=true so fan-out can open a draft PR\n");
-    return 1;
-  }
 
   const planLogClient = entry.logClient;
   planHarnessLog(planLogClient, `intent: target project=${project.key} root=${project.root}`);
@@ -420,6 +482,101 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
   const seedContent = inv.mode === "file" ? readFileSync(inv.seedPath, "utf8") : inv.seedText;
   const runStem = deriveRunName(inv);
   const runName = `${runStem}-${randomUUID().slice(0, 8)}`;
+
+  if (!commit) {
+    const jarvisConfigDir = opts.config?.dir ?? CONFIG_DIR;
+    const externalRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
+    mkdirSync(externalRoot, { recursive: true });
+
+    const externalStageDir = join(externalRoot, ".jarvis-intent-stage");
+    rmSync(externalStageDir, { recursive: true, force: true });
+    mkdirSync(externalStageDir, { recursive: true });
+
+    const checkoutBaseline = snapshotCheckoutPaths(project.root);
+
+    try {
+      const splitResult = await runIntentSplitTurn({
+        worktreePath: project.root,
+        seedLabel,
+        seedContent,
+        stagingDir: externalStageDir,
+        config: cfg,
+        stderr: opts.io.stderr,
+        additionalReadDirs: [externalStageDir],
+        ...(opts.createAgent !== undefined ? { createAgent: opts.createAgent } : {}),
+        onOutboundPrompt: (prompt) => planHarnessLog(planLogClient, prompt, "outbound"),
+      });
+
+      if (splitResult.result.kind !== "ok") {
+        if (splitResult.result.kind === "quota") {
+          opts.io.stderr(`intent: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
+          return 2;
+        }
+        if (splitResult.result.kind === "model_config") {
+          opts.io.stderr(`intent: model configuration error\n${splitResult.result.stderr}`);
+          return 3;
+        }
+        opts.io.stderr(`intent: split failed\n${splitResult.result.stderr}`);
+        return 1;
+      }
+
+      const checkoutPollution = assertNoCheckoutPollution(project.root, checkoutBaseline);
+      if (!checkoutPollution.ok) {
+        opts.io.stderr(
+          `intent: splitter wrote into checkout (cwd=${project.root}): ${checkoutPollution.rogue.join(", ")}\n`,
+        );
+        return 1;
+      }
+
+      const stageDirStructure = validateExternalIntentStageStructure(externalStageDir);
+      if (!stageDirStructure.ok) {
+        opts.io.stderr(`${stageDirStructure.error}\n`);
+        return 1;
+      }
+
+      const files = listStageMarkdownFiles(externalStageDir);
+      const validation = validateIntentStageContent(files);
+      if (!validation.ok) {
+        opts.io.stderr(`${validation.error}\n`);
+        return 1;
+      }
+
+      const emittedNames = validation.intents.map((intent) => intent.slug);
+      const readyIntentsDir = join(externalRoot, "ready-intents");
+      mkdirSync(readyIntentsDir, { recursive: true });
+
+      for (const intent of validation.intents) {
+        const destination = join(readyIntentsDir, `${intent.slug}.md`);
+        if (existsSync(destination)) {
+          opts.io.stderr(`intent: ready-intents/${intent.slug}.md already exists; refusing to overwrite\n`);
+          return 1;
+        }
+      }
+
+      for (const intent of validation.intents) {
+        renameSync(intent.path, join(readyIntentsDir, `${intent.slug}.md`));
+      }
+
+      rmSync(externalStageDir, { recursive: true, force: true });
+
+      const emittedPaths = emittedNames.map((name) => join(readyIntentsDir, `${name}.md`));
+      opts.io.stdout(
+        renderIntentNextStepsNoCommit({
+          project,
+          emittedPaths,
+        }),
+      );
+      opts.io.stderr(
+        `intent: ${emittedNames.length} intent${emittedNames.length === 1 ? "" : "s"} written to ${readyIntentsDir}\n`,
+      );
+      return 0;
+    } finally {
+      if (existsSync(externalStageDir)) {
+        rmSync(externalStageDir, { recursive: true, force: true });
+      }
+    }
+  }
+
   const branch = `intent/${runName}`;
   let worktreePath: string;
   try {

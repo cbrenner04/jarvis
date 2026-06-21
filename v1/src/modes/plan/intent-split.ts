@@ -1,5 +1,5 @@
 import { mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { executeWithQuotaFallback } from "../../../../shared/invocation/execute.ts";
 import { assemblePromptForStep } from "../../../../shared/prompts/assemble.ts";
 import { loadPromptRegistry } from "../../../../shared/prompts/registry.ts";
@@ -63,12 +63,6 @@ export function buildIntentSplitPrompt(opts: {
 `;
 }
 
-function resetIntentStageDir(worktreePath: string, stagingDir: string): void {
-  const stagePath = join(worktreePath, stagingDir);
-  rmSync(stagePath, { recursive: true, force: true });
-  mkdirSync(stagePath, { recursive: true });
-}
-
 export async function runIntentSplitTurn(opts: {
   worktreePath: string;
   seedLabel: string;
@@ -78,6 +72,7 @@ export async function runIntentSplitTurn(opts: {
   stderr?: (s: string) => void;
   createAgent?: (agentName: AgentName, model: string | undefined) => Agent;
   onOutboundPrompt?: (prompt: string) => void;
+  additionalReadDirs?: string[];
 }): Promise<{ result: AgentResult; agentLabel: string | null }> {
   const agentOrder = opts.config.modes.plan.agentOrder;
   if (agentOrder.length === 0) {
@@ -115,6 +110,12 @@ export async function runIntentSplitTurn(opts: {
 
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
 
+  const preSpinHook = () => {
+    const stagePath = isAbsolute(opts.stagingDir) ? opts.stagingDir : join(opts.worktreePath, opts.stagingDir);
+    rmSync(stagePath, { recursive: true, force: true });
+    mkdirSync(stagePath, { recursive: true });
+  };
+
   const bindings = agentOrder.map((entry) =>
     createPlanInvocationBinding({
       agentName: entry.agent,
@@ -122,7 +123,8 @@ export async function runIntentSplitTurn(opts: {
       createAgent: resolveAgent,
       config: opts.config,
       worktreePath: opts.worktreePath,
-      preSpinHook: () => resetIntentStageDir(opts.worktreePath, opts.stagingDir),
+      preSpinHook,
+      spawnOptions: opts.additionalReadDirs ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
       onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
         if (opts.stderr === undefined || classified.kind !== "quota") return;
         if (spawnResult.kind === "quota") {

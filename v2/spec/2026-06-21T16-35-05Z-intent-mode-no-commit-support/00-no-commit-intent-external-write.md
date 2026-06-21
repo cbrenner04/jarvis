@@ -103,39 +103,39 @@ fail-fast guard, which already effectively exists at line 404).
 
 ## Acceptance criteria
 
-- [ ] Under `commit: false`, `jarvis1 intent` writes each authored intent to
+- [x] Under `commit: false`, `jarvis1 intent` writes each authored intent to
       `~/.jarvis/specs/<project-safe-id>/ready-intents/<name>.md` and creates no
       git commit, push, branch, worktree, or draft PR (test asserts the external
       files exist and no `gh`/commit invocation occurs).
-- [ ] Under `commit: false`, `jarvis1 intent` runs to success (exit 0) against a
+- [x] Under `commit: false`, `jarvis1 intent` runs to success (exit 0) against a
       `project.root` that is not a git repository.
-- [ ] Under `commit: false`, the splitter turn's spawn options carry
+- [x] Under `commit: false`, the splitter turn's spawn options carry
       `additionalReadDirs` containing the external staging directory (test
       captures the split turn's options).
-- [ ] Under `commit: false`, a splitter write into the live checkout
+- [x] Under `commit: false`, a splitter write into the live checkout
       (`project.root`) aborts the run without moving any file into
       `ready-intents/`, detected without `git status`.
-- [ ] Under `commit: false`, a splitter write outside the external staging
+- [x] Under `commit: false`, a splitter write outside the external staging
       directory aborts the run without moving any file into `ready-intents/`,
       detected without `git status`, while legitimate siblings under
       `~/.jarvis/specs/<id>/` (`ready-intents/`, prior plan `*-<slug>/` dirs)
       do not trip the scan.
-- [ ] Under `commit: false`, an existing external `ready-intents/<name>.md`
+- [x] Under `commit: false`, an existing external `ready-intents/<name>.md`
       aborts as a hard collision error before any file is moved (no partial
       writes), with all destinations pre-checked before any rename.
-- [ ] Under `commit: false`, the external stage dir is removed on a successful
+- [x] Under `commit: false`, the external stage dir is removed on a successful
       run.
-- [ ] Under `commit: false`, success output prints the absolute external
+- [x] Under `commit: false`, success output prints the absolute external
       `ready-intents/<name>.md` path and a runnable
       `jarvis1 plan --repo <project> <path>` next-step command for each emitted
       intent.
-- [ ] Under `commit: true`, committed-path behavior is preserved (optional
+- [x] Under `commit: true`, committed-path behavior is preserved (optional
       params default to current behavior):
       `v1/test/intent-command.test.ts` commit-path and draft-PR tests stay green.
-- [ ] The `intent: requires plan.commit=true ...` preflight error no longer
+- [x] The `intent: requires plan.commit=true ...` preflight error no longer
       fires under `commit: false` (the run proceeds via the no-commit path).
-- [ ] `bun run typecheck` passes.
-- [ ] `bun test` passes.
+- [x] `bun run typecheck` passes.
+- [x] `bun test` passes.
 
 ## Documentation updates
 

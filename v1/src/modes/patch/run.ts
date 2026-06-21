@@ -21,6 +21,7 @@ import {
   resolveModeSpecificPreflight,
 } from "./preflight.ts";
 import { DescendantTracker } from "./reap.ts";
+import { runSnapshotUpdateRetest as runSnapshotUpdateRetestImpl } from "./snapshot-update-retest-runner.ts";
 
 export type PreflightOk = {
   kind: "ok";
@@ -284,6 +285,15 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   if (opts.runBaseRefTests === undefined) {
     opts.runBaseRefTests = async (baseBranch: string): Promise<boolean> => {
       return runBaseRefTestsImpl(preflight.agentWorkingDir, baseBranch);
+    };
+  }
+
+  // Wire the default snapshot-update re-test runner if no seam is provided
+  if (opts.runSnapshotUpdateRetest === undefined) {
+    opts.runSnapshotUpdateRetest = async (): Promise<boolean> => {
+      const project = preflight.cfg.projects[preflight.project.key];
+      const configCommand = project?.updateSnapshotsCommand;
+      return runSnapshotUpdateRetestImpl(preflight.agentWorkingDir, preflight.project.root, configCommand);
     };
   }
 

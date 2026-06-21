@@ -869,7 +869,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                   // Emit rejection telemetry
                   fanout(
                     "harness",
-                    `blocker claim rejected: snapshot-update re-test passes; failures were outdated snapshots\n`,
+                    `blocker claim rejected (snapshot-churn): snapshot-update re-test passes; failures were outdated snapshots\n`,
                     "stderr",
                   );
                   writeTelemetry({

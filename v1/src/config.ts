@@ -66,6 +66,7 @@ export type Project = {
   git?: boolean;
   siblings?: string[];
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string };
+  updateSnapshotsCommand?: string;
 };
 
 export type ProjectMatch = {
@@ -460,8 +461,18 @@ function validateConfig(input: unknown, file: string): Config {
         project.plan = plan;
       }
     }
+    const updateSnapshotsCommandRaw = (value as Record<string, unknown>).updateSnapshotsCommand;
+    if (updateSnapshotsCommandRaw !== undefined) {
+      if (typeof updateSnapshotsCommandRaw !== "string") {
+        fail(file, `project ${JSON.stringify(name)} updateSnapshotsCommand must be a string`);
+      }
+      if (updateSnapshotsCommandRaw.trim() === "") {
+        fail(file, `project ${JSON.stringify(name)} updateSnapshotsCommand must be a non-empty string`);
+      }
+      project.updateSnapshotsCommand = updateSnapshotsCommandRaw;
+    }
     // Strict keys validation for project object
-    const allowedProjectKeys = new Set(["root", "origin", "git", "siblings", "plan"]);
+    const allowedProjectKeys = new Set(["root", "origin", "git", "siblings", "plan", "updateSnapshotsCommand"]);
     const projectObj = value as Record<string, unknown>;
     for (const key of Object.keys(projectObj)) {
       if (!allowedProjectKeys.has(key)) {
@@ -474,7 +485,7 @@ function validateConfig(input: unknown, file: string): Config {
         }
         fail(
           file,
-          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan)`,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand)`,
         );
       }
     }

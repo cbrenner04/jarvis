@@ -29,6 +29,7 @@ type Project = {
   git?: boolean; // optional per-project override of the top-level `git` toggle
   siblings?: string[]; // optional array of absolute paths to sibling repositories
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string }; // optional per-project plan-mode overrides
+  updateSnapshotsCommand?: string; // optional update-snapshots command for the snapshot-churn blocker gate
 };
 
 type AgentEntry = {
@@ -74,7 +75,9 @@ type Config = {
 };
 ```
 
-**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, and `plan` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
+**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, and `updateSnapshotsCommand` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
+
+**`updateSnapshotsCommand`** (per-project, optional): the command the snapshot-churn blocker gate runs to refresh outdated snapshots before re-testing (e.g. `bun test --update-snapshots`, `vitest -u`, `jest -u`). Takes precedence over auto-detection from the target repo's root `package.json`; if neither is set, the gate fail-safes (the blocker stands). Used only by that gate.
 
 All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid
 configs are rejected with an error that names the offending file.

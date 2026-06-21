@@ -310,11 +310,11 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     while (true) {
       const outcome = await runIteration(ctx);
       if (outcome.kind === "return") {
-        runExitReason = mapExitCodeToReason(outcome.exitCode);
+        runExitReason = `${mapExitCodeToReason(outcome.exitCode)} (exit code ${outcome.exitCode})`;
         return outcome.exitCode;
       }
       if (outcome.kind === "exit") {
-        runExitReason = mapExitCodeToReason(outcome.exitCode);
+        runExitReason = `${mapExitCodeToReason(outcome.exitCode)} (exit code ${outcome.exitCode})`;
         process.exit(outcome.exitCode);
       }
       // continue

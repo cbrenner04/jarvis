@@ -399,7 +399,9 @@ Every successful `jarvis1 plan` invocation prints a next-steps block that:
 
 ### With `commit: true` (in-repo specs)
 
-Merged plan-branch PRs (and merged patch-branch PRs) can be reclaimed with:
+**On pre-commit failure:** When a `commit: true` plan fails **before** the first `plan: draft` commit (draft agent errors, validation failures, draft-phase exceptions, or draft-commit failures), jarvis automatically cleans up the associated worktree and branch, leaving no `.worktree/plan-<plan-name>/` directory or `plan/<plan-name>` branch. Cleanup is local-only; a surviving remote `origin/plan/<plan-name>` branch is expected when the failure occurs after push but before the draft commit succeeds. Resumable failure states (boundary blockers and draft/review-phase blockers where commits exist) preserve their worktrees and branches for `--resume`.
+
+**On success:** Merged plan-branch PRs (and merged patch-branch PRs) can be reclaimed with:
 
 ```sh
 jarvis1 cleanup
@@ -407,7 +409,7 @@ jarvis1 cleanup
 
 The command discovers merged git worktrees, removes them locally, then attempts to archive committed specs by moving them from the configured plan `targetDir` to `<targetDir>/completed/` (see authoritative rules in **[Worktrees: Cleanup](./worktrees-and-commits.md#cleanup)**). For plan branches, cleanup first checks `<targetDir>/<plan-name>/`, then falls back to a timestamped `<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/` directory.
 
-Manual teardown without `jarvis1 cleanup`:
+Manual teardown (when needed outside the automatic pre-commit failure cleanup or the `jarvis1 cleanup` command):
 
 ```sh
 rm -rf .worktree/plan-<plan-name>

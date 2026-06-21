@@ -925,18 +925,27 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
             opts.io.stderr(`plan: ${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`);
             emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
             summarizePlan("quota-exhausted", specDirBasename);
+            if (commit) {
+              cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
+            }
             return 2;
           }
           if (draftResult.result.kind === "model_config") {
             opts.io.stderr(`plan: model configuration error\n${draftResult.result.stderr}`);
             emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
             summarizePlan("model-config", specDirBasename);
+            if (commit) {
+              cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
+            }
             return 3;
           }
           // Generic error
           opts.io.stderr(`plan: draft phase failed\n${draftResult.result.stderr}`);
           emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("agent-error", specDirBasename);
+          if (commit) {
+            cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
+          }
           return 1;
         }
 
@@ -954,6 +963,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           opts.io.stderr(`plan: draft validation failed: ${validation.error}\n`);
           emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("error", specDirBasename);
+          if (commit) {
+            cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
+          }
           return 1;
         }
 
@@ -972,6 +984,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           opts.io.stderr(`plan: could not count subspecs\n`);
           emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
           summarizePlan("error", specDirBasename);
+          if (commit) {
+            cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
+          }
           return 1;
         }
 
@@ -983,6 +998,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         opts.io.stderr(`plan: draft phase error: ${(err as Error).message}\n`);
         emitPreservedSpecDirBreadcrumb(opts.io, externalSpecRoot, specDirBasename);
         summarizePlan("error", specDirBasename);
+        if (commit) {
+          cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
+        }
         return 1;
       }
 
@@ -1039,6 +1057,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           } catch (err) {
             opts.io.stderr(`${(err as Error).message}\n`);
             summarizePlan("error", specDirBasename);
+            cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
             return 1;
           }
         }
@@ -1076,6 +1095,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         } catch (err) {
           opts.io.stderr(`${(err as Error).message}\n`);
           summarizePlan("error", specDirBasename);
+          cleanupCommittedTempPlanState(project.root, planName, worktreePath, targetDir);
           return 1;
         }
 

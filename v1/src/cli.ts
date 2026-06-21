@@ -2,9 +2,9 @@ import { isAbsolute, resolve } from "node:path";
 import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
-import { intentCommand } from "./commands/intent.ts";
+import { INTENT_USAGE, intentCommand } from "./commands/intent.ts";
 import { logServerCommand } from "./commands/log-server.ts";
-import { planCommand } from "./commands/plan.ts";
+import { PLAN_USAGE, planCommand } from "./commands/plan.ts";
 import { pricesCommand } from "./commands/prices.ts";
 import { reviewFeedbackCommand } from "./commands/review-feedback.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
@@ -36,7 +36,7 @@ export type Subcommand =
   | "help";
 
 export type ParsedArgs =
-  | { kind: "help" }
+  | { kind: "help"; command?: string }
   | {
       kind: "run";
       specPath: string;
@@ -93,6 +93,59 @@ Commands:
   help              Show this message.
 `;
 
+const COMMAND_USAGE: Record<string, string> = {
+  run: `Usage: jarvis1 run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
+
+  Run the loop against a spec file in a registered project.
+  Use --resume-review to run the post-completion review phase on an already-complete spec.
+
+Flags:
+  --max-iterations <n>        Maximum number of patch iterations (default: 10).
+  --review-passes <n>         Number of review cycles after completion (default: 1).
+  --repo <name|path|url>      Override project resolution via name, path, or URL.
+  --cwd <dir>                 Working directory (only with git: false).
+  --resume-review             Re-enter the review phase on a completed spec.
+`,
+  init: `Usage: jarvis1 init
+
+  Register the current target repo in the project registry.
+`,
+  config: `Usage: jarvis1 config [show|edit]
+
+  View or edit the jarvis config.
+`,
+  "log-server": `Usage: jarvis1 log-server
+
+  Run the local log aggregation server.
+`,
+  cleanup: `Usage: jarvis1 cleanup [--dry-run]
+
+  Remove merged worktrees.
+`,
+  triage: `Usage: jarvis1 triage [worktree-name]
+
+  Inspect a dirty or orphaned worktree.
+`,
+  "review-feedback": `Usage: jarvis1 review-feedback <worktree-name>
+
+  Address PR review feedback on an existing patch worktree.
+`,
+  prompt: `Usage: jarvis1 prompt [--repo <name|path|url>] <text>
+
+  Run an agent against a prompt in a registered project.
+
+Flags:
+  --repo <name|path|url>      Override project resolution via name, path, or URL.
+`,
+  prices: `Usage: jarvis1 prices [show|edit]
+
+  View or edit pricing data for cost tracking.
+`,
+};
+
+// Populate from plan and intent modules to avoid duplication
+Object.assign(COMMAND_USAGE, { plan: PLAN_USAGE, intent: INTENT_USAGE });
+
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [first, ...rest] = argv;
   if (first === undefined || first === "help" || first === "-h" || first === "--help") {
@@ -100,6 +153,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   }
   switch (first) {
     case "run": {
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "run" };
+      }
       let maxIterations: string | undefined;
       let reviewPasses: string | undefined;
       let repo: string | undefined;
@@ -188,16 +244,31 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       return parsed;
     }
     case "init":
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "init" };
+      }
       return { kind: "init" };
     case "config":
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "config" };
+      }
       return { kind: "config", rest };
     case "log-server":
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "log-server" };
+      }
       return { kind: "log-server" };
     case "cleanup": {
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "cleanup" };
+      }
       const dryRun = rest.includes("--dry-run");
       return { kind: "cleanup", dryRun };
     }
     case "triage": {
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "triage" };
+      }
       const worktreeName = rest[0];
       const result: { kind: "triage"; worktreeName?: string } = {
         kind: "triage",
@@ -208,6 +279,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       return result;
     }
     case "review-feedback": {
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "review-feedback" };
+      }
       const worktreeName = rest[0];
       const result: { kind: "review-feedback"; worktreeName?: string } = {
         kind: "review-feedback",
@@ -218,10 +292,19 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       return result;
     }
     case "plan":
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "plan" };
+      }
       return { kind: "plan", rest };
     case "intent":
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "intent" };
+      }
       return { kind: "intent", rest };
     case "prompt": {
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "prompt" };
+      }
       let repo: string | undefined;
       const args = [...rest];
       for (let i = 0; i < args.length; i += 1) {
@@ -255,6 +338,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       return parsed;
     }
     case "prices":
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "prices" };
+      }
       return { kind: "prices", rest };
     default:
       return { kind: "unknown", name: first };
@@ -276,9 +362,17 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
   };
   const parsed = parseArgs(argv);
   switch (parsed.kind) {
-    case "help":
+    case "help": {
+      if (parsed.command) {
+        const usage = COMMAND_USAGE[parsed.command];
+        if (usage) {
+          io.stdout(usage);
+          return 0;
+        }
+      }
       io.stdout(USAGE);
       return 0;
+    }
     case "run": {
       let maxIterations: number | undefined;
       if (parsed.maxIterations !== undefined) {

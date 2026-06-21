@@ -240,6 +240,33 @@ describe("parseArgs", () => {
       expect(parsed.message).toContain("missing <text>");
     }
   });
+
+  test.each([
+    ["run", "--help", "run"],
+    ["run", "-h", "run"],
+    ["init", "--help", "init"],
+    ["init", "-h", "init"],
+    ["config", "--help", "config"],
+    ["config", "-h", "config"],
+    ["log-server", "--help", "log-server"],
+    ["log-server", "-h", "log-server"],
+    ["cleanup", "--help", "cleanup"],
+    ["cleanup", "-h", "cleanup"],
+    ["triage", "--help", "triage"],
+    ["triage", "-h", "triage"],
+    ["review-feedback", "--help", "review-feedback"],
+    ["review-feedback", "-h", "review-feedback"],
+    ["plan", "--help", "plan"],
+    ["plan", "-h", "plan"],
+    ["intent", "--help", "intent"],
+    ["intent", "-h", "intent"],
+    ["prompt", "--help", "prompt"],
+    ["prompt", "-h", "prompt"],
+    ["prices", "--help", "prices"],
+    ["prices", "-h", "prices"],
+  ])("%s %s → help with command %s", (cmd, flag, expectedCmd) => {
+    expect(parseArgs([cmd, flag])).toEqual({ kind: "help", command: expectedCmd });
+  });
 });
 
 describe("run", () => {
@@ -511,6 +538,28 @@ describe("run", () => {
     const { existsSync } = require("node:fs") as typeof import("node:fs");
     expect(existsSync(join(cfgDir, "config.json"))).toBe(true);
     rmSync(root, { recursive: true, force: true });
+  });
+
+  test.each([
+    ["run", ["--max-iterations", "--review-passes"]],
+    ["init", ["Register the current target repo"]],
+    ["config", ["View or edit"]],
+    ["log-server", ["log aggregation server"]],
+    ["cleanup", ["Remove merged worktrees"]],
+    ["triage", ["Inspect"]],
+    ["review-feedback", ["PR review feedback"]],
+    ["plan", []],
+    ["intent", []],
+    ["prompt", ["Run an agent against a prompt"]],
+    ["prices", ["pricing data"]],
+  ])("%s --help prints help and exits 0", (cmd, expectedStrings) => {
+    const cap = captureIo();
+    const code = run([cmd, "--help"], { io: cap.io, config: { dir: cfgDir } });
+    expect(code).toBe(0);
+    expect(cap.out()).toContain(`Usage: jarvis1 ${cmd}`);
+    expectedStrings.forEach((str) => {
+      expect(cap.out()).toContain(str);
+    });
   });
 });
 

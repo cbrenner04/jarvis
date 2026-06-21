@@ -793,15 +793,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 if (currentBranch && currentBranch !== "HEAD") {
                   // Try to get tracking branch from git config (local, no network)
                   try {
-                    const trackingBranch = execFileSync(
-                      "git",
-                      ["config", `branch.${currentBranch}.merge`],
-                      {
-                        cwd: agentWorkingDir,
-                        encoding: "utf8",
-                        stdio: "pipe",
-                      },
-                    ).trim();
+                    const trackingBranch = execFileSync("git", ["config", `branch.${currentBranch}.merge`], {
+                      cwd: agentWorkingDir,
+                      encoding: "utf8",
+                      stdio: "pipe",
+                    }).trim();
                     if (trackingBranch && trackingBranch.startsWith("refs/heads/")) {
                       baseBranch = trackingBranch.substring("refs/heads/".length);
                     }

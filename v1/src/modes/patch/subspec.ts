@@ -66,10 +66,7 @@ export function snapshotAcceptanceCriteria(subspecPath: string): AcceptanceCrite
   return parsed.acceptanceCriteria;
 }
 
-export function snapshotCommittedAcceptanceCriteria(
-  subspecPath: string,
-  opts: { cwd: string },
-): AcceptanceCriterion[] {
+export function snapshotCommittedAcceptanceCriteria(subspecPath: string, opts: { cwd: string }): AcceptanceCriterion[] {
   try {
     const gitRoot = opts.cwd;
     const relativeSpecPath = relative(realpathSync(gitRoot), realpathSync(subspecPath));

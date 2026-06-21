@@ -5,15 +5,15 @@ import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent } from "../../agents/types.ts";
 import { resolveReviewPasses } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
-import { checkPrExists, ensureDraftPr, readBranchCommits, renderAttributionSummary } from "../../pr.ts";
+import { checkPrExists, readBranchCommits } from "../../pr.ts";
 import { generateTemplateNarrative } from "../../pr-shared.ts";
 import { runReadyAndCommit } from "../../ready-gate.ts";
-import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
+import { worktreeCompletionBlocker } from "../../worktree.ts";
 import { countUnchecked, findBlockerInLinkedSubspecs } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { runPatchReviewPhase } from "./review.ts";
 import type { CompletionReadyGateResult, IterationContext } from "./run.ts";
-import { accumulateImplementationTouchedFiles, runPatchShrinkPhase } from "./shrink.ts";
+import { runPatchShrinkPhase } from "./shrink.ts";
 import type { AcceptanceCriterion } from "./subspec.ts";
 
 type CompletionLoopbackSignal = {

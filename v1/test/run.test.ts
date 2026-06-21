@@ -599,7 +599,6 @@ describe("runCommand", () => {
     expect(cap.out()).not.toContain("spec complete");
   });
 
-
   test("exits 0 when the worktree is git-clean after a completing iteration", async () => {
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });
     execSync('git config user.email "jarvis-test@example.com"', {

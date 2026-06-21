@@ -53,23 +53,23 @@ procedure exactly.
 
 ## Acceptance criteria
 
-- [ ] When the ready gate's `bun run test` step exits non-zero, the gate runs the suite serially
+- [x] When the ready gate's `bun run test` step exits non-zero, the gate runs the suite serially
       (`bun test` without `--parallel`) exactly once before declaring the test step failed.
-- [ ] A serial re-run that passes makes the gate treat the test step as green and continue to the
+- [x] A serial re-run that passes makes the gate treat the test step as green and continue to the
       remaining commands (e.g. `check`); the gate ultimately succeeds.
-- [ ] A serial re-run that fails makes the gate exit non-zero with the serial failure surfaced (no
+- [x] A serial re-run that fails makes the gate exit non-zero with the serial failure surfaced (no
       false-pass on a genuinely broken test).
-- [ ] A failure in any non-test step (`install`, `check:fix`, `typecheck`, `check`) exits
+- [x] A failure in any non-test step (`install`, `check:fix`, `typecheck`, `check`) exits
       immediately with no serial re-run, as before.
-- [ ] A test-step exit from timeout/deadline-kill or a signal (SIGINT/SIGTERM) does not trigger a
+- [x] A test-step exit from timeout/deadline-kill or a signal (SIGINT/SIGTERM) does not trigger a
       serial re-run — only a genuine test-process failure exit does.
-- [ ] The serial re-run is logged distinctly from the parallel run; serial-green emits an
+- [x] The serial re-run is logged distinctly from the parallel run; serial-green emits an
       operator-visible signal that a parallel-load flake was recovered.
-- [ ] A serial re-run that exceeds the remaining gate deadline is killed and the gate exits
+- [x] A serial re-run that exceeds the remaining gate deadline is killed and the gate exits
       non-zero (fail-closed; no special-casing of the serial run's deadline).
-- [ ] `v1/test/ready-script.test.ts` covers serial-green-recovers and serial-red-still-fails
+- [x] `v1/test/ready-script.test.ts` covers serial-green-recovers and serial-red-still-fails
       through the `runCommandFn` seam.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

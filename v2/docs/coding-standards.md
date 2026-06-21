@@ -13,7 +13,12 @@ A Biome linter gate enforces structural honesty in v2 and shared code via two ru
 
 All rules are error-level; no warnings are introduced. The gate scope covers `v2/src/**` and `shared/**` (excluding test files) via Biome `overrides`, leaving `v1/**` untouched. Fixtures demonstrating violations are in `v2/test/fixtures/` and excluded from the regular build; see the fixtures' README for verification instructions.
 
+## Test-writing conventions
+
+Tests must be deterministic and sandbox-runnable by default. See [`test-writing.md`](./test-writing.md) for agent-runnable test conventions (dependency injection seams instead of spawning real processes or depending on wall-clock timing) and how to mark the rare real-process/real-clock exception.
+
 ## Referenced documents
 
 - [`v2-architecture.md`](./v2-architecture.md) — v2 design boundaries and module responsibilities
 - [`v1-behaviors.md`](./v1-behaviors.md) — v1 behaviors that v2 does not replicate in this build window
+- [`test-writing.md`](./test-writing.md) — test-writing conventions for agent-runnable tests and sandbox-unrunnable exceptions

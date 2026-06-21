@@ -44,16 +44,16 @@ standing convention so new tests are written deterministic and sandbox-runnable 
 
 ## Acceptance criteria
 
-- [ ] `v2/docs` records a standing convention that agent-runnable tests must not spawn real OS
+- [x] `v2/docs` records a standing convention that agent-runnable tests must not spawn real OS
       processes or depend on wall-clock/scheduler timing, and must use dependency-injection seams
       (injected process tables, injected clocks/pollers) instead.
-- [ ] The convention defines "agent-runnable test" (default, sandbox-runnable) and pins how a
+- [x] The convention defines "agent-runnable test" (default, sandbox-runnable) and pins how a
       legitimate real-process/real-clock test is marked as the sandbox-unrunnable exception.
-- [ ] The convention states that automated enforcement is out of scope (deferred) and that
+- [x] The convention states that automated enforcement is out of scope (deferred) and that
       converting existing un-runnable process-spawning tests is out of scope.
-- [ ] The convention cites the #15 `DescendantTracker` `listProcesses`/`kill` injection
+- [x] The convention cites the #15 `DescendantTracker` `listProcesses`/`kill` injection
       (`v1/src/modes/patch/reap.ts`) as the pattern to follow.
-- [ ] The convention is discoverable from `v2/docs/coding-standards.md` (stated inline or via a
+- [x] The convention is discoverable from `v2/docs/coding-standards.md` (stated inline or via a
       link to a dedicated test-writing doc).
 
 ## Documentation updates

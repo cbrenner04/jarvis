@@ -399,7 +399,7 @@ Every successful `jarvis1 plan` invocation prints a next-steps block that:
 
 ### With `commit: true` (in-repo specs)
 
-**On pre-commit failure:** When a `commit: true` plan fails **before** the first `plan: draft` commit (draft agent errors, validation failures, draft-phase exceptions, or draft-commit failures), jarvis automatically cleans up the associated worktree and branch, leaving no `.worktree/plan-<plan-name>/` directory or `plan/<plan-name>` branch. Resumable failure states (boundary blockers and draft/review-phase blockers where commits exist) preserve their worktrees and branches for `--resume`.
+**On pre-commit failure:** When a `commit: true` plan fails **before** the first `plan: draft` commit (draft agent errors, validation failures, draft-phase exceptions, or draft-commit failures), jarvis automatically cleans up the associated worktree and branch, leaving no `.worktree/plan-<plan-name>/` directory or `plan/<plan-name>` branch. Cleanup is local-only; a surviving remote `origin/plan/<plan-name>` branch is expected when the failure occurs after push but before the draft commit succeeds. Resumable failure states (boundary blockers and draft/review-phase blockers where commits exist) preserve their worktrees and branches for `--resume`.
 
 **On success:** Merged plan-branch PRs (and merged patch-branch PRs) can be reclaimed with:
 

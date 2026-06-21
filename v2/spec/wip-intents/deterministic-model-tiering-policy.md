@@ -54,6 +54,15 @@ policy.
 - How does this interact with the existing agent **fallback order** (quota fallback advances agents;
   tiering changes models within an agent)? Are tier and fallback-order one ordered list or two axes?
 - Granularity: per-phase only, or per-subspec? (A spec can mix a trivial subspec and a hard one.)
+- **Per-sub-role-within-a-phase (strongest determinism candidate).** Sub-roles inside `plan`
+  (refine/draft → adversary → advocate → adjudicator → review-actuator) are *fixed positions*, so a
+  role→model table needs **zero inference** — fully deterministic by construction, no declared tier
+  required. Open: which model for which sub-role? Hypothesis (to A/B): the **adversary/critique pass
+  is where deep reasoning pays** (this session, every meaty bug — detached-worktree, regression-
+  masking, counter-ordering — was caught in review verdicts, not drafts), so *cheaper draft + opus
+  adversary* may beat *opus draft + cheap review*. Caveat: a weak draft floors the adversary (can't
+  critique a vague spec). Config note: per-phase `agentOrder`s already exist (`plan`/`review`/`patch`/
+  `prompt`); per-*pass-within-plan* would need new config granularity.
 
 ## Data points (accruing this session)
 

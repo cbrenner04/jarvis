@@ -1,10 +1,35 @@
-# Quota Signals
+# Quota Signals & Transient Errors
 
-Jarvis classifies quota exhaustion after an agent CLI exits non-zero. Exit codes
-are not documented as stable by the vendors, so the implementation treats the
-exit code as a guard (`0` is never quota at the shared spawn layer) and matches
-stderr text patterns. **Exception:** the Claude adapter reclassifies a verified
-exit-`0` JSON error envelope before accepting `kind: "ok"` (see [Claude](#claude)).
+Jarvis classifies quota exhaustion and transient transport errors after an agent
+CLI exits non-zero. Exit codes are not documented as stable by the vendors, so
+the implementation treats the exit code as a guard (`0` is never quota or transient
+at the shared spawn layer) and matches stderr text patterns. **Exception:** the
+Claude adapter reclassifies a verified exit-`0` JSON error envelope before
+accepting `kind: "ok"` (see [Claude](#claude)).
+
+## Transient transport errors
+
+A transient transport error is a momentary network failure (connection reset,
+broken pipe, HTTP 502/503/504, etc.) that exits non-zero but is not caused by
+quota exhaustion or code failure. The shared spawn layer (`src/agents/spawn.ts`)
+detects these via **`isTransientSignal`** (`src/agents/quota.ts`) and retries the
+**same** agent on the **same** binding, bounded by a fixed cap of **2 re-attempts
+(3 total spawns)**. If all attempts fail, the final error is returned as
+**`kind: "error"`** for normal fallback/termination handling. This recovery
+happens transparently before callers see a result — **no mode or binding changes**.
+
+Transient re-attempts do not reset iteration timeouts (idle, per-iteration, or
+global); whole-iteration budgets accrue across all attempts. An aborted
+invocation (timeout, SIGINT) is not retried; the abort result is returned
+immediately. Each re-attempt fires an optional `onTransientRetry` callback
+allowing modes to emit operator-facing diagnostics (see patch harness below).
+
+**Patch mode:** Patch wires `onTransientRetry` to emit `transient transport error
+(exit N); retrying same agent (attempt A/CAP)` via harness stderr so operators
+can distinguish retry from hang. This phrase shares no substring with quota
+strings (`quota exhausted; falling back` / `probable quota-like error`).
+
+## Quota fallback
 
 **Patch and plan modes:** With `quotaFallback: "lenient"`, **`applyQuotaFallbackWhenAllowed`**
 (`src/agents/quota.ts`) may upgrade `kind: "error"` using **`applyQuotaFallbackToAgentResult`**

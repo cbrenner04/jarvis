@@ -32,6 +32,7 @@ export type AgentRunOptions = {
    * ms-since-last-output at watchdog fire from this ref (not a live re-read).
    */
   lastOutputAtMs?: { current: number | null };
+  onTransientRetry?: (info: { attempt: number; cap: number; agent: AgentName; exitCode: number }) => void;
 };
 
 export interface Agent {

@@ -10,6 +10,7 @@ import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
+  harnessTransientRetryLine,
 } from "../../quota-harness-messages.ts";
 import { runSummary } from "../../run-summary.ts";
 import {
@@ -602,6 +603,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       lastOutputAtMs,
       onSpawned: ({ pid }: { pid: number }) => {
         watchdogPgid = pid;
+        // Clear any prior descendantPollHandle before assigning the new one (re-entry-safe for retries)
+        if (descendantPollHandle !== null) {
+          clearInterval(descendantPollHandle);
+          descendantPollHandle = null;
+        }
         // Record descendants immediately, then keep sampling while the agent
         // runs so escapees are captured before their lineage is severed.
         ctx.descendantTracker.poll(pid);
@@ -609,6 +615,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           ctx.descendantTracker.poll(pid);
         }, DESCENDANT_POLL_INTERVAL_MS);
         descendantPollHandle.unref();
+      },
+      onTransientRetry: ({ attempt, cap, exitCode }) => {
+        fanout("harness", `${harnessTransientRetryLine(exitCode, attempt, cap)}\n`, "stderr");
       },
     });
 

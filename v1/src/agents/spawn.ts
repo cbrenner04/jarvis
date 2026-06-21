@@ -3,7 +3,7 @@
 
 import type { StdioOptions } from "node:child_process";
 import { spawn } from "node:child_process";
-import { isModelConfigurationSignal, isQuotaSignal } from "./quota.ts";
+import { isModelConfigurationSignal, isQuotaSignal, isTransientSignal } from "./quota.ts";
 import type { AgentName, AgentResult, AgentRunOptions } from "./types.ts";
 
 export interface SpawnConfig {
@@ -17,7 +17,7 @@ export interface SpawnConfig {
   env?: Record<string, string>;
 }
 
-export function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
   return new Promise((resolvePromise) => {
     const argv = config.buildArgv(prompt, opts);
     const env = { ...process.env, PWD: config.cwd, ...config.env } as Record<string, string>;
@@ -82,7 +82,7 @@ export function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOpti
           const exitCode = code ?? -1;
           const diagnostics = `${errBuf}${outBuf}`;
 
-          // Classification order: model config → quota → generic error
+          // Classification order: model config → quota → transient retry → generic error
           if (isModelConfigurationSignal(config.name, diagnostics)) {
             settle({ kind: "model_config", stderr: diagnostics });
           } else if (isQuotaSignal(config.name, exitCode, diagnostics)) {
@@ -187,4 +187,33 @@ export function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOpti
       config.writeStdin(stdin, prompt);
     }
   });
+}
+
+const TRANSIENT_RETRY_CAP = 2;
+
+export async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+  for (let attempt = 0; attempt <= TRANSIENT_RETRY_CAP; attempt++) {
+    const result = await singleSpawn(config, prompt, opts);
+
+    // Check if we should retry on transient error
+    if (
+      attempt < TRANSIENT_RETRY_CAP &&
+      result.kind === "error" &&
+      !opts.signal?.aborted &&
+      isTransientSignal(config.name, result.exitCode, result.stderr)
+    ) {
+      opts.onTransientRetry?.({
+        attempt: attempt + 1,
+        cap: TRANSIENT_RETRY_CAP,
+        agent: config.name,
+        exitCode: result.exitCode,
+      });
+      continue;
+    }
+
+    // Return on first non-transient result or when cap is reached
+    return result;
+  }
+
+  throw new Error("Unexpected: retry loop should always return");
 }

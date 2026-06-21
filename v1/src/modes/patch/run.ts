@@ -187,7 +187,9 @@ export type RunCommandOptions = {
    * Signature: (rootPid: number) => ProcInfo[].
    * Production callers must not set this.
    */
-  __testWatchdogListProcesses?: (rootPid: number) => Array<{ pid: number; ppid: number; pgid: number; identity: string }>;
+  __testWatchdogListProcesses?: (
+    rootPid: number,
+  ) => Array<{ pid: number; ppid: number; pgid: number; identity: string }>;
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {

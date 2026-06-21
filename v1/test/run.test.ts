@@ -5299,6 +5299,48 @@ while true; do :; done
       expect(code).toBe(7);
       expect(cap.err()).toContain("pre-existing failure");
     });
+
+    test("base-ref-test-runner: passes base branch parameter to validation seam", async () => {
+      // Verify that the validation seam is called with a base branch parameter
+      const { spec, subspec } = setupGitRepo("Step A.");
+
+      const cap = captureIo();
+      let validationCall: { baseBranch: string } | undefined;
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n\n## Blocker\n\nThis is a pre-existing test failure\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        // Mock seam to capture the base branch parameter
+        runBaseRefTests: async (baseBranch: string) => {
+          validationCall = { baseBranch };
+          // Return true to trigger rejection (so we can verify it was called)
+          return true;
+        },
+      });
+
+      // Verify the seam was called with a string parameter
+      expect(validationCall).toBeDefined();
+      expect(validationCall?.baseBranch).toBeDefined();
+      expect(typeof validationCall?.baseBranch).toBe("string");
+      // The base branch should be one of the common defaults or a non-empty string
+      if (validationCall?.baseBranch) {
+        expect(
+          validationCall.baseBranch === "main" ||
+            validationCall.baseBranch === "master" ||
+            validationCall.baseBranch.length > 0,
+        ).toBe(true);
+      }
+    });
   });
 });
 

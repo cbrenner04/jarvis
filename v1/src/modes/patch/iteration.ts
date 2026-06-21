@@ -781,8 +781,39 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             // Validate the claim against base ref
             let baseRefGreen = false;
             try {
+              // Resolve the actual base branch name (offline-first, then fallback)
+              let baseBranch = "main"; // default fallback
+              try {
+                // Try to get current branch name
+                const currentBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+                  cwd: agentWorkingDir,
+                  encoding: "utf8",
+                  stdio: "pipe",
+                }).trim();
+                if (currentBranch && currentBranch !== "HEAD") {
+                  // Try to get tracking branch from git config (local, no network)
+                  try {
+                    const trackingBranch = execFileSync(
+                      "git",
+                      ["config", `branch.${currentBranch}.merge`],
+                      {
+                        cwd: agentWorkingDir,
+                        encoding: "utf8",
+                        stdio: "pipe",
+                      },
+                    ).trim();
+                    if (trackingBranch && trackingBranch.startsWith("refs/heads/")) {
+                      baseBranch = trackingBranch.substring("refs/heads/".length);
+                    }
+                  } catch {
+                    // Tracking info not available, use default
+                  }
+                }
+              } catch {
+                // Fall through: couldn't determine branch, use default
+              }
               // Use local merge-base to resolve the base ref (offline, no network calls)
-              baseRefGreen = await opts.runBaseRefTests("main");
+              baseRefGreen = await opts.runBaseRefTests(baseBranch);
             } catch (err) {
               // Validation failure: fail-safe, blocker stands
               baseRefGreen = false;

@@ -321,6 +321,7 @@ export type PlanReviewPhaseOptions = {
   specDirPath?: string;
   agentCwd?: string;
   commit: boolean;
+  gitEnabled?: boolean;
   checkBoundary?: boolean;
   logNoChangeSkip?: boolean;
   externalSpecRoot?: string;
@@ -460,9 +461,11 @@ function createPlanReviewAdapter(args: {
   const flatSpecLayout = opts.specDirPath !== undefined;
 
   const checkBoundaries = (): BoundaryCheckResult => {
-    const boundaryCheck = opts.commit
+    const boundaryCheck: BoundaryCheckResult = opts.commit
       ? assertPlanWriteBoundary(opts.worktreePath, opts.specDirBasename, targetDir)
-      : assertTargetRepoPlanBoundary(opts.projectRoot ?? opts.worktreePath);
+      : opts.gitEnabled === false
+        ? { ok: true }
+        : assertTargetRepoPlanBoundary(opts.projectRoot ?? opts.worktreePath);
     const externalBoundaryCheck: BoundaryCheckResult =
       !opts.commit && opts.externalSpecRoot
         ? assertNoCommitExternalSpecBoundary(opts.externalSpecRoot, opts.specDirBasename)

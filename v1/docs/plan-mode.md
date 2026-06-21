@@ -18,6 +18,7 @@ Plan mode consumes a **ready-intent** — a hand-authored seed produced by `jarv
 - No git branch or worktree is created; plan mode runs in the target directory root.
 - No commits, pushes, or draft PR are created.
 - The generated `index.md` includes a `repo:` binding so `jarvis1 run` can resolve the target repository.
+- A resolved project with effective `git: false` is forced onto this path even if `modes.plan.commit` or `projects.<key>.plan.commit` is `true`.
 
 **With `commit: true`:** A fresh run drafts and reviews in a **single invocation**: jarvis validates the ready-intent, drafts the spec (`plan: draft`), opens or updates the branch's draft PR, runs the review passes, and — when every phase succeeds without a blocker — **`gh pr ready` runs automatically** (same readiness transition as patch mode). It exits **`0`**. There is no intent/refine handoff.
 
@@ -231,6 +232,8 @@ The `modes.plan.commit` boolean (config v2) controls where plan-mode specs are w
 
 When `commit: false`, the spec tree must include a usable `repo:` metadata line so `jarvis1 run` can later resolve the target repository independently of the spec file's location.
 
+When effective `git` resolves to `false` for the target project, plan mode forces `commit = false` for both fresh runs and `--resume`. This disables plan worktree/branch/push/revert behavior even if `modes.plan.commit` is `true`.
+
 ### `repo:` binding and origin detection
 
 Plan mode writes a `repo:` line into the generated `index.md`. When the target project has a configured `origin` URL, that URL is used directly for portability. When `origin` is not configured but the project root is a git checkout with an `origin` remote, plan mode automatically detects that remote via `git remote get-url origin` and emits it as the portable `repo:` value. This detection is read-only and does not persist the origin back to `~/.jarvis/config.json`. On any detection failure (non-git directory, no `origin` remote, missing `git` binary, etc.), plan mode falls back silently to the registered project key, which remains resolver-safe for `jarvis1 run`.
@@ -272,6 +275,8 @@ Validation rules:
 - `origin/plan/<plan-name>` must exist; local-only plan branches still fail the preserved origin requirement after any worktree recreation.
 
 Resume does not accept positional intent text and does not require `--repo`; it operates entirely from the existing plan worktree state.
+
+For external-spec resumes (`commit: false`, including effective `git: false`), jarvis resumes review directly from `~/.jarvis/specs/<project-safe-id>/<spec-dir>/index.md` with no plan worktree/branch recreation.
 
 > **Removed:** `--resume-draft` and `--refine-turns`. Intent authoring and refinement moved to `jarvis1 intent`; plan starts at draft. `--resume-draft` is still parsed but exits with guidance to use `jarvis1 plan <ready-intent>` (fresh) or `jarvis1 plan --resume <index.md>` (post-draft review).
 
@@ -474,6 +479,8 @@ Plan mode enforces a strict write boundary: agents may only modify files within 
 5. **Exit**: Jarvis exits with code `1`. The offending paths are printed to stderr for visibility.
 
 This behavior applies at the draft phase and after each review pass. The boundary check uses the path as reported by `git status`, so symlinks that point outside `<targetDir>/<spec-dir>/` are detected and reverted.
+
+For `commit: false`, jarvis still enforces the external spec-root boundary (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`). When effective `git` is `true`, it also checks the target checkout for stray `spec/` edits. When effective `git` is `false`, that target-repo `git status` check is skipped entirely; there is no `git checkout --`, push, or plan worktree cleanup path in draft or review.
 
 The intent of this enforcement is to prevent accidental or malicious modifications to files outside the spec directory, ensuring that all plan-mode work is isolated and reviewable within the spec tree.
 

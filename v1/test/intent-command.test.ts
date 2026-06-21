@@ -89,7 +89,7 @@ class SplitAgent implements Agent {
     }
     let stageDir: string;
     const match = prompt.match(/Write the authored intents as markdown files under `([^`]+)`/);
-    if (match && match[1] && isAbsolute(match[1])) {
+    if (match?.[1] && isAbsolute(match[1])) {
       stageDir = match[1];
     } else {
       stageDir = join(opts.cwd, ".jarvis-intent-stage");

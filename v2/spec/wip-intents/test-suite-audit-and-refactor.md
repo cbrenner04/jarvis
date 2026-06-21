@@ -1,3 +1,7 @@
+---
+name: test-suite-audit-and-refactor
+---
+
 # Audit and refactor the existing test suite
 
 ## Problem

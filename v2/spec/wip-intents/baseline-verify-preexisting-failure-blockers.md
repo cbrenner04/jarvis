@@ -1,3 +1,7 @@
+---
+name: baseline-verify-preexisting-failure-blockers
+---
+
 # Verify "pre-existing failure" blocker claims against the base ref; handle snapshot churn
 
 ## Problem

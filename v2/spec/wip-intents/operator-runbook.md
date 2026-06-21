@@ -1,3 +1,7 @@
+---
+name: operator-runbook
+---
+
 # Write an operator runbook for the friction that isn't harness-automatable
 
 ## Problem

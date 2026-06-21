@@ -1,3 +1,7 @@
+---
+name: completion-gate-unsafe-lint-convergence
+---
+
 # Completion gate should converge on lint instead of forcing a hand-finalize
 
 ## Problem

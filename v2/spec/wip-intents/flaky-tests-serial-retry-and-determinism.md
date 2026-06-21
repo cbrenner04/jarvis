@@ -1,3 +1,7 @@
+---
+name: flaky-tests-serial-retry-and-determinism
+---
+
 # Reduce flaky false-blocks: serial-retry failed tests + agent-runnable determinism
 
 ## Problem

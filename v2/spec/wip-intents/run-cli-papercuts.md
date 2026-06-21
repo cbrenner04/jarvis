@@ -1,3 +1,7 @@
+---
+name: run-cli-papercuts
+---
+
 # Run-mode papercuts: exit-reason legend, `run --help`, failed-plan cleanup
 
 ## Problem

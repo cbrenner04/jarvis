@@ -387,7 +387,6 @@ function withSignalOrTimeoutTest(
   testName: string,
   exitCode: number,
   expectedCommands: string[],
-  tier: "fast" | "full" = "fast",
 ): void {
   test(testName, async () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-signal-timeout-"));
@@ -400,7 +399,7 @@ function withSignalOrTimeoutTest(
       }) as never;
 
       try {
-        await withEnvAsync("JARVIS_READY_TIER", tier, async () => {
+        await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
           try {
             await runReady({
               repoRoot,

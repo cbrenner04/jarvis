@@ -5341,6 +5341,248 @@ while true; do :; done
         ).toBe(true);
       }
     });
+
+    test("rejects blocker claim when snapshot-update re-test passes and continues loop", async () => {
+      const { spec, subspec } = setupGitRepo("Step A.", "Step B.");
+
+      const cap = captureIo();
+      let iterationCount = 0;
+      const claude = new FakeAgent("claude", () => {
+        iterationCount += 1;
+        if (iterationCount === 1) {
+          // First iteration: tick one and add a claim blocker
+          writeFileSync(
+            subspec,
+            "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [ ] Step B.\n\n## Blocker\n\nThis is a pre-existing failure that's unrelated to my changes\n",
+          );
+        } else if (iterationCount === 2) {
+          // Second iteration (after blocker is rejected): tick the other box
+          writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [x] Step B.\n");
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => false, // Base ref validates red
+        runSnapshotUpdateRetest: async () => true, // Snapshot re-test green
+      });
+
+      expect(code).toBe(0); // Should succeed, not exit 7
+      expect(cap.err()).toContain("blocker claim rejected");
+      expect(cap.err()).toContain("snapshot-update re-test passes");
+      expect(iterationCount).toBe(2); // Agent called twice: once for claim, once to fix
+
+      // Verify the blocker section was stripped from the subspec
+      const subspecContent = readFileSync(subspec, "utf8");
+      expect(subspecContent).not.toContain("## Blocker");
+      expect(subspecContent).not.toContain("pre-existing failure");
+    });
+
+    test("blocker claim stands when snapshot-update re-test fails", async () => {
+      const { spec, subspec } = setupGitRepo("Step A.");
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n\n## Blocker\n\nThis is unrelated to my changes, baseline already fails\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => false, // Base ref validates red
+        runSnapshotUpdateRetest: async () => false, // Snapshot re-test red
+      });
+
+      expect(code).toBe(7); // Should exit 7, not continue
+      expect(cap.err()).toContain("This is unrelated to my changes");
+      // Should NOT contain rejection message
+      expect(cap.err()).not.toContain("blocker claim rejected");
+    });
+
+    test("blocker claim stands when snapshot-update seam is not provided", async () => {
+      const { spec, subspec } = setupGitRepo("Step A.");
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n\n## Blocker\n\nThis is unrelated, pre-existing baseline failure\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => false, // Base ref validates red
+        // No runSnapshotUpdateRetest seam provided
+      });
+
+      // Without seam, blocker should stand (fail-safe behavior)
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("This is unrelated");
+      // Should NOT contain rejection message
+      expect(cap.err()).not.toContain("blocker claim rejected");
+    });
+
+    test("blocker claim stands when snapshot-update seam throws", async () => {
+      const { spec, subspec } = setupGitRepo("Step A.");
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n\n## Blocker\n\nThis is unrelated, baseline already broken\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => false, // Base ref validates red
+        runSnapshotUpdateRetest: async () => {
+          throw new Error("Test error");
+        },
+      });
+
+      // Seam error: fail-safe, blocker should stand
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("This is unrelated");
+      // Should NOT contain rejection message
+      expect(cap.err()).not.toContain("blocker claim rejected");
+    });
+
+    test("snapshot seam is not invoked when base-ref validation already rejected the blocker", async () => {
+      const { spec, subspec } = setupGitRepo("Step A.", "Step B.");
+
+      const cap = captureIo();
+      let snapshotSeamCalled = false;
+      let iterationCount = 0;
+      const claude = new FakeAgent("claude", () => {
+        iterationCount += 1;
+        if (iterationCount === 1) {
+          // First iteration: tick one and add a claim blocker
+          writeFileSync(
+            subspec,
+            "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [ ] Step B.\n\n## Blocker\n\nThis is a pre-existing failure that's unrelated to my changes\n",
+          );
+        } else if (iterationCount === 2) {
+          // Second iteration (after blocker is rejected by base-ref): tick the other box
+          writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n- [x] Step B.\n");
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => true, // Base ref validates green
+        runSnapshotUpdateRetest: async () => {
+          snapshotSeamCalled = true;
+          return true;
+        },
+      });
+
+      expect(code).toBe(0); // Should succeed
+      expect(cap.err()).toContain("blocker claim rejected");
+      expect(cap.err()).toContain("base ref validates green");
+      expect(snapshotSeamCalled).toBe(false); // Snapshot seam should not be called
+      expect(iterationCount).toBe(2);
+    });
+
+    test("snapshot seam is not invoked for non-claim blockers", async () => {
+      const { spec, subspec } = setupGitRepo("Step A.");
+
+      const cap = captureIo();
+      let snapshotSeamCalled = false;
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n\n## Blocker\n\nNeed implementation details\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => false,
+        runSnapshotUpdateRetest: async () => {
+          snapshotSeamCalled = true;
+          return true;
+        },
+      });
+
+      // Non-claim blocker should exit 7 without calling the snapshot seam
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("Need implementation details");
+      expect(snapshotSeamCalled).toBe(false);
+      // Should NOT contain rejection message
+      expect(cap.err()).not.toContain("blocker claim rejected");
+    });
+
+    test("snapshot seam not invoked after snapshot-rejection bound is hit", async () => {
+      const { spec, subspec } = setupGitRepo("Step A.");
+
+      const cap = captureIo();
+      let iterationCount = 0;
+      let snapshotSeamCalls = 0;
+      const claude = new FakeAgent("claude", (_callCount) => {
+        iterationCount += 1;
+        // Both iterations add the same claim blocker
+        writeFileSync(
+          subspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n\n## Blocker\n\nThis is pre-existing and baseline already fails\n",
+        );
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const sessionLogDir = join(cfgDir, "session-logs");
+      mkdirSync(sessionLogDir, { recursive: true });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir, maxIterations: 3 },
+        agents: { claude },
+        handleSignals: false,
+        runBaseRefTests: async () => false, // Base ref validates red for all iterations
+        runSnapshotUpdateRetest: async () => {
+          snapshotSeamCalls += 1;
+          return true; // Snapshot would reject if called
+        },
+      });
+
+      // After bound is hit (2 rejections), the third iteration should exit 7 without calling snapshot seam again
+      expect(code).toBe(7);
+      expect(iterationCount).toBe(3); // Agent called 3 times: 2 rejections + 1 stand
+      expect(snapshotSeamCalls).toBe(2); // Seam called only twice (for first two rejections)
+    });
   });
 });
 

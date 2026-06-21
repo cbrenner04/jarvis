@@ -8,7 +8,7 @@ not real breakage — reject the blocker and let the run continue. This catches
 snapshot rot that base-ref reproduction misses (the failure reproduces at base
 because the snapshots are stale there too).
 
-- [ ] [00 - Reject claim blockers when an injected snapshot-update re-test passes](./00-reject-snapshot-churn-blockers.md)
+- [x] [00 - Reject claim blockers when an injected snapshot-update re-test passes](./00-reject-snapshot-churn-blockers.md)
 - [ ] [01 - Resolve and run the update-snapshots command, then re-test](./01-update-snapshots-runner.md)
 
 ## Out of scope

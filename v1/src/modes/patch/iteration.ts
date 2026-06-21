@@ -844,8 +844,48 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               state.iteration += 1;
               return { kind: "continue" };
             } else {
-              // Base ref is red or validation failed: blocker stands
+              // Base ref is red or validation failed: check snapshot-churn gate
               resetRejectionCounter();
+
+              if (opts.runSnapshotUpdateRetest !== undefined) {
+                // Invoke snapshot-update re-test seam
+                let snapshotRetest = false;
+                try {
+                  snapshotRetest = await opts.runSnapshotUpdateRetest();
+                } catch (_err) {
+                  // Seam error: fail-safe, blocker stands
+                  snapshotRetest = false;
+                }
+
+                if (snapshotRetest) {
+                  // Re-test green: snapshot churn detected, reject the blocker
+                  const currentSpecContent = readFileSync(afterSubspecPath, "utf8");
+                  const strippedContent = stripBlockerSection(currentSpecContent);
+                  writeFileSync(afterSubspecPath, strippedContent, "utf8");
+
+                  // Increment rejection counter (reset already happened above)
+                  state.consecutiveBlockerClaimRejections += 1;
+
+                  // Emit rejection telemetry
+                  fanout(
+                    "harness",
+                    `blocker claim rejected: snapshot-update re-test passes; failures were outdated snapshots\n`,
+                    "stderr",
+                  );
+                  writeTelemetry({
+                    agent: agent.name,
+                    iteration,
+                    durationMs: iterationDurationMs(),
+                    kind: "blocker-rejected",
+                    exitReason: "snapshot-churn",
+                    ...telemetryMeta,
+                  });
+
+                  // Continue the loop (do not exit 7, do not commit blocker)
+                  state.iteration += 1;
+                  return { kind: "continue" };
+                }
+              }
             }
           } else {
             // Non-claim blocker or bound hit: reset rejection counter

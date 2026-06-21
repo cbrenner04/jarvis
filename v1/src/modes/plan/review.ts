@@ -26,7 +26,14 @@ import {
 import { commitPlanBlocker, commitPlanReview } from "./commits.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
-import { hasSpecDirChanges, resolvePlanSpecDirPath, snapshotSpecDirFiles } from "./spec-dir.ts";
+import {
+  hasSpecDirChanges,
+  listSpecDirChanges,
+  resolvePlanSpecDirPath,
+  restoreSpecDirSnapshot,
+  snapshotSpecDirFiles,
+  type SpecDirSnapshot,
+} from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 import { runVerdictActuator } from "./verdict-actuator.ts";
 
@@ -365,7 +372,7 @@ function resolveFinalSpecPath(opts: PlanReviewPhaseOptions): string {
 function passHasChanges(
   opts: PlanReviewPhaseOptions,
   finalSpecPath: string,
-  specSnapshotBefore: Set<string> | null,
+  specSnapshotBefore: SpecDirSnapshot | null,
 ): boolean {
   if (opts.commit) {
     return hasWorkingTreeChanges(opts.worktreePath);
@@ -373,8 +380,8 @@ function passHasChanges(
   return specSnapshotBefore !== null && hasSpecDirChanges(finalSpecPath, specSnapshotBefore);
 }
 
-function getRoleArtifactPath(worktreePath: string, role: string, passNumber: number): string {
-  return join(worktreePath, `.jarvis-review-plan-${role}-${passNumber}`);
+function getRoleArtifactPath(storageRoot: string, role: string, passNumber: number): string {
+  return join(storageRoot, `.jarvis-review-plan-${role}-${passNumber}`);
 }
 
 function hasCommittablePlanReviewChanges(worktreePath: string): boolean {
@@ -443,7 +450,7 @@ function createPlanReviewAdapter(args: {
   displayTotalPasses: number;
   intentBefore: string;
   finalSpecPath: string;
-  specSnapshotBefore: Set<string> | null;
+  specSnapshotBefore: SpecDirSnapshot | null;
   onBlocker: (blocker: string) => void;
   onAgentFailure: (passNumber: number, stderr: string) => void;
 }): ReviewAdapter {
@@ -544,7 +551,11 @@ function createPlanReviewAdapter(args: {
     enforceWriteBoundary: async (ctx) => {
       // Reviewer roles (adversary, advocate, adjudicator) are read-only on spec; revert any spec edits.
       if (ctx.role && ["adversary", "advocate", "adjudicator"].includes(ctx.role)) {
-        const editedSpecFiles = detectSpecTreeEdits(finalSpecPath, opts.worktreePath);
+        const editedSpecFiles = opts.commit
+          ? detectSpecTreeEdits(finalSpecPath, opts.worktreePath)
+          : specSnapshotBefore === null
+            ? []
+            : listSpecDirChanges(finalSpecPath, specSnapshotBefore);
         if (editedSpecFiles.length > 0) {
           const validation = validateReviewOutput(
             opts.worktreePath,
@@ -560,7 +571,11 @@ function createPlanReviewAdapter(args: {
             `plan: review pass ${ctx.passNumber} (${ctx.role}) edited spec files (reverting): ${editedSpecFiles.join(", ")}\n`,
           );
           try {
-            revertSpecTreeEdits(finalSpecPath, opts.worktreePath);
+            if (opts.commit) {
+              revertSpecTreeEdits(finalSpecPath, opts.worktreePath);
+            } else if (specSnapshotBefore !== null) {
+              restoreSpecDirSnapshot(finalSpecPath, specSnapshotBefore);
+            }
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             opts.stderr?.(`plan: revert failed: ${message}\n`);
@@ -616,7 +631,7 @@ function createPlanReviewAdapter(args: {
     commitPass: async (ctx) => {
       // Store role artifact before committing (for next role or actuator)
       if (ctx.result.kind === "ok" && ctx.role) {
-        const artifactPath = getRoleArtifactPath(opts.worktreePath, ctx.role, ctx.passNumber);
+        const artifactPath = getRoleArtifactPath(opts.commit ? opts.worktreePath : finalSpecPath, ctx.role, ctx.passNumber);
         try {
           writeFileSync(artifactPath, ctx.result.stdout, "utf8");
         } catch (err) {
@@ -635,7 +650,9 @@ function createPlanReviewAdapter(args: {
           );
         }
         if (ctx.role) {
-          rmSync(getRoleArtifactPath(opts.worktreePath, ctx.role, ctx.passNumber), { force: true });
+          rmSync(getRoleArtifactPath(opts.commit ? opts.worktreePath : finalSpecPath, ctx.role, ctx.passNumber), {
+            force: true,
+          });
         }
         return;
       }
@@ -669,12 +686,14 @@ function createPlanReviewAdapter(args: {
 
       // Clean up temp artifact files (don't commit them)
       if (ctx.role) {
-        const artifactPath = getRoleArtifactPath(opts.worktreePath, ctx.role, ctx.passNumber);
+        const artifactPath = getRoleArtifactPath(opts.commit ? opts.worktreePath : finalSpecPath, ctx.role, ctx.passNumber);
         try {
-          execFileSync("git", ["reset", "HEAD", "--", artifactPath], {
-            cwd: opts.worktreePath,
-            stdio: "pipe",
-          });
+          if (opts.commit) {
+            execFileSync("git", ["reset", "HEAD", "--", artifactPath], {
+              cwd: opts.worktreePath,
+              stdio: "pipe",
+            });
+          }
           rmSync(artifactPath, { force: true });
         } catch {
           // best-effort

@@ -212,15 +212,18 @@ function planNameCollides(
   targetDir: string,
   externalSpecRoot: string | undefined,
   specTimestamp: boolean,
+  checkCommittedPlanState: boolean,
 ): boolean {
-  if (existsSync(join(projectRoot, targetDir, planName))) {
-    return true;
-  }
-  if (existsSync(join(projectRoot, ".worktree", `plan-${planName}`))) {
-    return true;
-  }
-  if (remoteSpecBranchExists(projectRoot, planName)) {
-    return true;
+  if (checkCommittedPlanState) {
+    if (existsSync(join(projectRoot, targetDir, planName))) {
+      return true;
+    }
+    if (existsSync(join(projectRoot, ".worktree", `plan-${planName}`))) {
+      return true;
+    }
+    if (remoteSpecBranchExists(projectRoot, planName)) {
+      return true;
+    }
   }
   if (externalSpecRoot !== undefined && externalSpecDirCollides(externalSpecRoot, planName, specTimestamp)) {
     return true;
@@ -458,18 +461,19 @@ async function ensureUniquePlanName(
   projectRoot: string,
   baseName: string,
   targetDir: string = "spec",
-  opts?: { externalSpecRoot?: string; specTimestamp?: boolean },
+  opts?: { externalSpecRoot?: string; specTimestamp?: boolean; checkCommittedPlanState?: boolean },
 ): Promise<string> {
   const externalSpecRoot = opts?.externalSpecRoot;
   const specTimestamp = opts?.specTimestamp ?? false;
+  const checkCommittedPlanState = opts?.checkCommittedPlanState ?? true;
   let finalName = baseName;
-  if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp)) {
+  if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp, checkCommittedPlanState)) {
     return finalName;
   }
   let suffix = 2;
   while (true) {
     finalName = `${baseName}-${suffix}`;
-    if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp)) {
+    if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp, checkCommittedPlanState)) {
       return finalName;
     }
     suffix += 1;
@@ -800,6 +804,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const planName = await ensureUniquePlanName(project.root, readyIntentName, targetDir, {
       ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
       specTimestamp,
+      checkCommittedPlanState: commit,
     });
     const specDirBasename = specTimestamp ? `${formatPlanSpecTimestamp()}-${planName}` : planName;
     planHarnessLog(planLogClient, `plan: spec name=${planName}`);

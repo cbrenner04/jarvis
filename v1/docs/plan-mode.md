@@ -234,6 +234,8 @@ When `commit: false`, the spec tree must include a usable `repo:` metadata line 
 
 When effective `git` resolves to `false` for the target project, plan mode forces `commit = false` for both fresh runs and `--resume`. This disables plan worktree/branch/push/revert behavior even if `modes.plan.commit` is `true`.
 
+In that git-disabled path, fresh-name collision checks come only from the external spec root, and review stays external-spec-only: reviewer temp artifacts, reviewer-edit reverts, and boundary enforcement avoid repo `git status` / `git checkout` / `git clean`.
+
 ### `repo:` binding and origin detection
 
 Plan mode writes a `repo:` line into the generated `index.md`. When the target project has a configured `origin` URL, that URL is used directly for portability. When `origin` is not configured but the project root is a git checkout with an `origin` remote, plan mode automatically detects that remote via `git remote get-url origin` and emits it as the portable `repo:` value. This detection is read-only and does not persist the origin back to `~/.jarvis/config.json`. On any detection failure (non-git directory, no `origin` remote, missing `git` binary, etc.), plan mode falls back silently to the registered project key, which remains resolver-safe for `jarvis1 run`.

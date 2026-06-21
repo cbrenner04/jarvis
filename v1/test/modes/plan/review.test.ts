@@ -464,6 +464,7 @@ describe("runPlanReviewPhase", () => {
         config: makeReviewConfig({ reviewPasses: 1 }),
         reviewPassesOverride: 1,
         commit: false,
+        gitEnabled: false,
         checkBoundary: true,
         specDirPath: specDir,
         externalSpecRoot: join(cfgDir, "specs", "project"),

@@ -3,6 +3,8 @@
 Reference for the agent CLIs jarvis can invoke, the flags it passes, and the
 permission posture it enforces.
 
+See also: [Operator Runbook](./operator-runbook.md) for recurring session patterns (background-run-and-poll, branch discipline, manual finalization, sandbox blindness, and admin-merge workflow).
+
 ## Supported agents
 
 Jarvis shells out to one underlying agent CLI per iteration. Supported agents

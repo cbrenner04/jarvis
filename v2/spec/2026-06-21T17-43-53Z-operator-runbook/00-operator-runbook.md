@@ -12,16 +12,16 @@ Capture recurring session friction (operator/environment discipline) in a single
 
 ## Task checklist
 
-- [ ] Verify `check:fix` vs `check:fix:unsafe` claims and admin-merge/lint-gate claim against `package.json` and `scripts/ready.ts`; correct the `noImplicitAny` conflation
-- [ ] Write `v1/docs/operator-runbook.md` covering all scope items; manual-finalize section names the automated-path behaviors it supersedes
-- [ ] Add a link to the runbook in `AGENTS.md` under an appropriate heading
+- [x] Verify `check:fix` vs `check:fix:unsafe` claims and admin-merge/lint-gate claim against `package.json` and `scripts/ready.ts`; correct the `noImplicitAny` conflation
+- [x] Write `v1/docs/operator-runbook.md` covering all scope items; manual-finalize section names the automated-path behaviors it supersedes
+- [x] Add a link to the runbook in `AGENTS.md` under an appropriate heading
 
 ## Acceptance criteria
 
-- [ ] `v1/docs/operator-runbook.md` exists and covers: background-run-and-poll pattern, integration-merge-then-retest, manual-finalize recovery (last-resort path), sandbox blindness / false-negatives (ps/pgrep, auth, localhost), stable-substring pgrep matching, branch-protection + can't-self-approve + admin-merge workflow, `check:fix` vs `check:fix:unsafe` distinction, tracked-runner vs shell `&`, branch-before-edit discipline.
-- [ ] The manual-finalize / last-resort section in the runbook names the automated-path behaviors (completion gate, lint convergence, flaky-test retry) it is a fallback for — not a bare path to unmerged spec files.
-- [ ] The `check:fix` vs `check:fix:unsafe` distinction in the runbook is accurate per `package.json` / `scripts/ready.ts`; `noImplicitAny` is not listed as a Biome auto-fix item.
-- [ ] `AGENTS.md` contains a link to `v1/docs/operator-runbook.md`.
+- [x] `v1/docs/operator-runbook.md` exists and covers: background-run-and-poll pattern, integration-merge-then-retest, manual-finalize recovery (last-resort path), sandbox blindness / false-negatives (ps/pgrep, auth, localhost), stable-substring pgrep matching, branch-protection + can't-self-approve + admin-merge workflow, `check:fix` vs `check:fix:unsafe` distinction, tracked-runner vs shell `&`, branch-before-edit discipline.
+- [x] The manual-finalize / last-resort section in the runbook names the automated-path behaviors (completion gate, lint convergence, flaky-test retry) it is a fallback for — not a bare path to unmerged spec files.
+- [x] The `check:fix` vs `check:fix:unsafe` distinction in the runbook is accurate per `package.json` / `scripts/ready.ts`; `noImplicitAny` is not listed as a Biome auto-fix item.
+- [x] `AGENTS.md` contains a link to `v1/docs/operator-runbook.md`.
 
 ## Documentation updates
 

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
-import { loadConfig, resolvePlanFlags, CONFIG_DIR } from "../config.ts";
+import { CONFIG_DIR, loadConfig, resolvePlanFlags } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
@@ -202,9 +202,7 @@ function hasValidPrerequisitesSection(text: string): boolean {
     .every((line) => /^- \S.*$/.test(line));
 }
 
-function validateIntentStageContent(
-  files: string[],
-):
+function validateIntentStageContent(files: string[]):
   | {
       ok: true;
       intents: { slug: string; path: string }[];
@@ -563,7 +561,9 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
           emittedPaths,
         }),
       );
-      opts.io.stderr(`intent: ${emittedNames.length} intent${emittedNames.length === 1 ? "" : "s"} written to ${readyIntentsDir}\n`);
+      opts.io.stderr(
+        `intent: ${emittedNames.length} intent${emittedNames.length === 1 ? "" : "s"} written to ${readyIntentsDir}\n`,
+      );
       completed = true;
       return 0;
     } finally {

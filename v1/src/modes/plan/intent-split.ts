@@ -137,9 +137,7 @@ export async function runIntentSplitTurn(opts: {
       config: opts.config,
       worktreePath: opts.worktreePath,
       preSpinHook,
-      spawnOptions: opts.additionalReadDirs
-        ? { additionalReadDirs: opts.additionalReadDirs }
-        : undefined,
+      spawnOptions: opts.additionalReadDirs ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
       onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
         if (opts.stderr === undefined || classified.kind !== "quota") return;
         if (spawnResult.kind === "quota") {

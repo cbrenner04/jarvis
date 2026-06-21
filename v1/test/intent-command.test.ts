@@ -457,12 +457,8 @@ describe("intentCommand", () => {
       expect(existsSync(env.prState)).toBe(false);
 
       const externalRoot = join(env.cfgDir, "specs", "project");
-      expect(readFileSync(join(externalRoot, "ready-intents", "slice-one.md"), "utf8")).toContain(
-        "## Prerequisites",
-      );
-      expect(readFileSync(join(externalRoot, "ready-intents", "slice-two.md"), "utf8")).toContain(
-        "name: slice-two",
-      );
+      expect(readFileSync(join(externalRoot, "ready-intents", "slice-one.md"), "utf8")).toContain("## Prerequisites");
+      expect(readFileSync(join(externalRoot, "ready-intents", "slice-two.md"), "utf8")).toContain("name: slice-two");
       expect(existsSync(join(externalRoot, ".jarvis-intent-stage"))).toBe(false);
     } finally {
       env.cleanup();

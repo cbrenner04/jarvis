@@ -581,7 +581,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           scheduleIdleCheck();
         }
       }, 100); // Poll every 100ms, configurable granularity
-      idleTimeoutHandle!.unref?.();
+      idleTimeoutHandle?.unref?.();
     };
     scheduleIdleCheck();
   }
@@ -614,7 +614,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         descendantPollHandle = setInterval(() => {
           ctx.descendantTracker.poll(pid);
         }, DESCENDANT_POLL_INTERVAL_MS);
-        descendantPollHandle!.unref?.();
+        descendantPollHandle?.unref?.();
       },
       onTransientRetry: ({ attempt, cap, exitCode }) => {
         fanout("harness", `${harnessTransientRetryLine(exitCode, attempt, cap)}\n`, "stderr");

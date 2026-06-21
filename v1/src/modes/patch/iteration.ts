@@ -98,8 +98,11 @@ function formatWatchdogDiagnosticsSuffix(
   return suffix;
 }
 
-function snapshotWatchdogDescendantsAlive(agentRootPid: number): boolean {
-  const procs = listProcesses();
+function snapshotWatchdogDescendantsAlive(
+  agentRootPid: number,
+  listProcessesFn?: (rootPid: number) => Array<{ pid: number; ppid: number; pgid: number; identity: string }>,
+): boolean {
+  const procs = listProcessesFn ? listProcessesFn(agentRootPid) : listProcesses();
   if (procs.length === 0) {
     return false;
   }
@@ -112,8 +115,9 @@ function killWatchdogWithDescendants(
   fanout: Fanout,
   killGraceMs: number,
   lastOutputAgeMs: number | null,
+  listProcessesFn?: (rootPid: number) => Array<{ pid: number; ppid: number; pgid: number; identity: string }>,
 ): { descendantsAlive: boolean; killHandle: NodeJS.Timeout } {
-  const descendantsAlive = snapshotWatchdogDescendantsAlive(pgid);
+  const descendantsAlive = snapshotWatchdogDescendantsAlive(pgid, listProcessesFn);
   const watchdogLine =
     `[watchdog] ${reason}; killing agent pgid ${pgid}` +
     formatWatchdogDiagnosticsSuffix(lastOutputAgeMs, descendantsAlive);
@@ -545,6 +549,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         fanout,
         killGraceMs,
         watchdogLastOutputAgeMs,
+        opts.__testWatchdogListProcesses,
       );
       watchdogDescendantsAlive = result.descendantsAlive;
       watchdogKillHandle = result.killHandle;
@@ -571,6 +576,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               fanout,
               killGraceMs,
               idleWatchdogLastOutputAgeMs,
+              opts.__testWatchdogListProcesses,
             );
             idleWatchdogDescendantsAlive = result.descendantsAlive;
             watchdogKillHandle = result.killHandle;

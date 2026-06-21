@@ -181,6 +181,13 @@ export type RunCommandOptions = {
    * unaffected. Production callers must not set this.
    */
   __testReapFn?: () => void;
+  /**
+   * Test-only override for the watchdog descendant-liveness process-table snapshot.
+   * When set, the watchdog uses this injected listProcesses instead of reading the real OS table.
+   * Signature: (rootPid: number) => ProcInfo[].
+   * Production callers must not set this.
+   */
+  __testWatchdogListProcesses?: (rootPid: number) => Array<{ pid: number; ppid: number; pgid: number; identity: string }>;
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {

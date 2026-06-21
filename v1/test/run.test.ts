@@ -4318,6 +4318,7 @@ wait
         { dir: cfgDir },
       );
 
+      const childPidPath = join(projectRoot, "hanging-child.pid");
       const started = Date.now();
       const code = await runWithDefaults({
         specPath: spec,
@@ -4326,6 +4327,24 @@ wait
         agents: { claude: new HangingAgent() },
         handleSignals: false,
         __testKillGraceMs: 200,
+        __testWatchdogListProcesses: (rootPid: number) => {
+          // Inject a deterministic process table with the grandchild present.
+          // Read the child PID from the file if it exists.
+          if (existsSync(childPidPath)) {
+            try {
+              const childPid = Number.parseInt(readFileSync(childPidPath, "utf8").trim(), 10);
+              if (Number.isFinite(childPid)) {
+                return [
+                  { pid: rootPid, ppid: 1, pgid: rootPid, identity: "test-root" },
+                  { pid: childPid, ppid: rootPid, pgid: rootPid, identity: "test-child" },
+                ];
+              }
+            } catch {
+              // Fall through to empty table if file read fails
+            }
+          }
+          return [];
+        },
       });
       const elapsedMs = Date.now() - started;
 
@@ -4576,6 +4595,10 @@ while true; do :; done
         agents: { claude: new HangingAgent() },
         handleSignals: false,
         __testKillGraceMs: 200,
+        __testWatchdogListProcesses: () => {
+          // Inject an empty process table: no descendants for agent-only stall.
+          return [];
+        },
       });
 
       expect(code).toBe(8);

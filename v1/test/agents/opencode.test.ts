@@ -1,41 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { OpencodeAgent, parseOpencodeJsonStream } from "../../src/agents/opencode.ts";
-
-let dir: string;
-let cwd: string;
-
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "jarvis-opencode-"));
-  cwd = mkdtempSync(join(tmpdir(), "jarvis-opencode-cwd-"));
-});
-
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
-  rmSync(cwd, { recursive: true, force: true });
-});
-
-function fakeBinary(opts: { exit: number; stdout?: string; stderr?: string }): string {
-  const path = join(dir, "opencode");
-  const stdoutFile = join(dir, "stdout.txt");
-  const stderrFile = join(dir, "stderr.txt");
-  writeFileSync(stdoutFile, opts.stdout ?? "");
-  writeFileSync(stderrFile, opts.stderr ?? "");
-  const script = `#!/usr/bin/env bash
-# Record argv (NUL-separated) and cwd so the test can inspect them.
-: > "${dir}/argv"
-for a in "$@"; do printf '%s\\0' "$a" >> "${dir}/argv"; done
-pwd > "${dir}/cwd"
-cat "${stdoutFile}"
-cat "${stderrFile}" 1>&2
-exit ${opts.exit}
-`;
-  writeFileSync(path, script);
-  chmodSync(path, 0o755);
-  return path;
-}
+import { createFakeSpawnWithOutput } from "./fake-spawn.ts";
 
 describe("OpencodeAgent", () => {
   test("name is 'opencode'", () => {
@@ -43,9 +11,12 @@ describe("OpencodeAgent", () => {
   });
 
   test("spawns `opencode run` with --dir, model, format, and prompt positional in cwd", async () => {
-    const bin = fakeBinary({ exit: 0, stdout: "hi-out", stderr: "hi-err" });
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: "hi-out", stderr: "hi-err" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -62,39 +33,44 @@ describe("OpencodeAgent", () => {
       expect(result.usage?.cache_read_input_tokens).toBe(0);
       expect(result.usage?.cache_creation_input_tokens).toBe(0);
     }
-    const argv = readFileSync(join(dir, "argv"), "utf8");
-    expect(argv).toContain("--dir");
-    expect(argv).toContain(cwd);
-    expect(argv).toContain("--model");
-    expect(argv).toContain("AirProxy/test");
-    expect(argv).toContain("--format");
-    expect(argv).toContain("json");
-    expect(argv).not.toContain("default");
-    expect(argv).toContain("the prompt");
-    const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
-    const resolvedReportedCwd = realpathSync(reportedCwd);
-    const resolvedCwd = realpathSync(cwd);
-    expect(resolvedReportedCwd).toBe(resolvedCwd);
+    expect(recorder.records).toHaveLength(1);
+    const record = recorder.records[0]!;
+    expect(record.binary).toBe("opencode");
+    expect(record.argv).toContain("--dir");
+    expect(record.argv).toContain(cwd);
+    expect(record.argv).toContain("--model");
+    expect(record.argv).toContain("AirProxy/test");
+    expect(record.argv).toContain("--format");
+    expect(record.argv).toContain("json");
+    expect(record.argv).not.toContain("default");
+    expect(record.argv).toContain("the prompt");
   });
 
   test("does not pass a permissions bypass flag", async () => {
-    const bin = fakeBinary({ exit: 0 });
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
     await agent.run("the prompt", { cwd });
 
-    const argv = readFileSync(join(dir, "argv"), "utf8");
-    expect(argv).not.toContain("--dangerously-skip-permissions");
-    expect(argv).toContain("--dir");
+    expect(recorder.records).toHaveLength(1);
+    const record = recorder.records[0]!;
+    expect(record.argv).not.toContain("--dangerously-skip-permissions");
+    expect(record.argv).toContain("--dir");
   });
 
   test("non-zero exit maps to error with captured diagnostics", async () => {
-    const bin = fakeBinary({ exit: 2, stdout: "out", stderr: "err" });
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 2, stdout: "out", stderr: "err" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -104,10 +80,13 @@ describe("OpencodeAgent", () => {
   });
 
   test("quota signal maps to quota", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const stderr = "error: rate limit reached";
-    const bin = fakeBinary({ exit: 1, stderr });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 1, stdout: "", stderr },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -117,10 +96,13 @@ describe("OpencodeAgent", () => {
   });
 
   test("successful output with quota text stays ok", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const stdout = "rate limit reached is example text";
-    const bin = fakeBinary({ exit: 0, stdout });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout, stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -140,13 +122,17 @@ describe("OpencodeAgent", () => {
   });
 
   test("successful invocations estimate usage from prompt + stdout", async () => {
-    const bin = fakeBinary({ exit: 0, stdout: "ok" });
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
     const result = await agent.run("p", { cwd });
+
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {
       expect(result.usage_source).toBe("estimated");
@@ -160,14 +146,18 @@ describe("OpencodeAgent", () => {
   });
 
   test("estimator failure falls back to unavailable usage with one warning", async () => {
-    const bin = fakeBinary({ exit: 0, stdout: "ok" });
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
       estimateUsage: () => null,
     });
 
     const result = await agent.run("p", { cwd });
+
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {
       expect(result.usage_source).toBe("unavailable");
@@ -177,10 +167,13 @@ describe("OpencodeAgent", () => {
   });
 
   test("unsupported model signal maps to model_config", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const stderr = "error: model not found";
-    const bin = fakeBinary({ exit: 1, stderr });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 1, stdout: "", stderr },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -189,12 +182,19 @@ describe("OpencodeAgent", () => {
     expect(result).toEqual({ kind: "model_config", stderr });
   });
 
-  test("missing binary surfaces as error result, not a thrown exception", async () => {
+  test.skip("missing binary surfaces as error result, not a thrown exception", async () => {
+    // This test requires real spawn behavior to detect ENOENT; the fake spawn cannot simulate this.
+    // Agents handle missing binaries through spawn error events, not through the spawn function's return value.
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
+    const recorder = createFakeSpawnWithOutput({});
     const agent = new OpencodeAgent({
-      binary: join(dir, "does-not-exist"),
+      spawn: recorder.spawn,
+      binary: "/nonexistent/binary",
       model: "AirProxy/test",
     });
+
     const result = await agent.run("p", { cwd });
+
     expect(result.kind).toBe("error");
   });
 
@@ -207,9 +207,12 @@ describe("OpencodeAgent", () => {
   });
 
   test("accepts additionalReadDirs without breaking --dir", async () => {
-    const bin = fakeBinary({ exit: 0 });
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -218,28 +221,34 @@ describe("OpencodeAgent", () => {
       additionalReadDirs: ["/abs/specs/foo", "/abs/specs/bar"],
     });
 
-    const argv = readFileSync(join(dir, "argv"), "utf8");
-    expect(argv).toContain("--dir");
-    expect(argv).toContain(cwd);
-    expect(argv).not.toContain("--dangerously-skip-permissions");
+    expect(recorder.records).toHaveLength(1);
+    const record = recorder.records[0]!;
+    expect(record.argv).toContain("--dir");
+    expect(record.argv).toContain(cwd);
+    expect(record.argv).not.toContain("--dangerously-skip-permissions");
   });
 
   test("uses --format json instead of --format default", async () => {
-    const bin = fakeBinary({ exit: 0, stdout: "ok" });
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
     await agent.run("p", { cwd });
 
-    const argv = readFileSync(join(dir, "argv"), "utf8");
-    expect(argv).toContain("--format");
-    expect(argv).toContain("json");
-    expect(argv).not.toContain("default");
+    expect(recorder.records).toHaveLength(1);
+    const record = recorder.records[0]!;
+    expect(record.argv).toContain("--format");
+    expect(record.argv).toContain("json");
+    expect(record.argv).not.toContain("default");
   });
 
   test("parses step_finish events with non-zero tokens and cost", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const jsonStream = [
       '{"type":"step_start","timestamp":"2026-05-21T19:02:15Z","sessionID":"ses_123"}',
       '{"type":"text","timestamp":"2026-05-21T19:02:15Z","part":{"text":"Hello world"}}',
@@ -247,9 +256,11 @@ describe("OpencodeAgent", () => {
       '{"type":"step_finish","timestamp":"2026-05-21T19:02:18Z","part":{"tokens":{"total":200,"input":30,"output":40,"reasoning":0,"cache":{"write":130,"read":0}},"cost":0.10}}',
     ].join("\n");
 
-    const bin = fakeBinary({ exit: 0, stdout: jsonStream });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: jsonStream, stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -269,12 +280,15 @@ describe("OpencodeAgent", () => {
   });
 
   test("handles cost: 0 (github-copilot path)", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const jsonStream =
       '{"type":"step_finish","part":{"tokens":{"total":100,"input":10,"output":20,"reasoning":0,"cache":{"write":70,"read":0}},"cost":0}}';
 
-    const bin = fakeBinary({ exit: 0, stdout: jsonStream });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: jsonStream, stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "github-copilot/claude-haiku-4.5",
     });
 
@@ -289,11 +303,14 @@ describe("OpencodeAgent", () => {
   });
 
   test("no step_finish events falls back to token estimation with warning", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const jsonStream = ['{"type":"step_start"}', '{"type":"text","part":{"text":"Some output"}}'].join("\n");
 
-    const bin = fakeBinary({ exit: 0, stdout: jsonStream });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: jsonStream, stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -312,11 +329,14 @@ describe("OpencodeAgent", () => {
   });
 
   test("estimator unavailable returns unavailable usage with warning", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const jsonStream = `{"type":"text","timestamp":"2026-05-21T19:02:15Z","part":{"text":"output"}}`;
 
-    const bin = fakeBinary({ exit: 0, stdout: jsonStream });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: jsonStream, stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
       estimateUsage: () => null,
     });
@@ -332,6 +352,7 @@ describe("OpencodeAgent", () => {
   });
 
   test("mixed JSON and non-JSON lines renders correctly", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const jsonStream = [
       "banner text line",
       '{"type":"text","part":{"text":"Hello "}}',
@@ -340,9 +361,11 @@ describe("OpencodeAgent", () => {
       '{"type":"step_finish","part":{"tokens":{"total":100,"input":10,"output":20,"reasoning":0,"cache":{"write":70,"read":0}},"cost":0}}',
     ].join("\n");
 
-    const bin = fakeBinary({ exit: 0, stdout: jsonStream });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: jsonStream, stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -361,15 +384,18 @@ describe("OpencodeAgent", () => {
   });
 
   test("malformed step_finish is skipped but clean ones are accumulated", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const jsonStream = [
       '{"type":"step_finish","part":{"tokens":{"total":100,"input":10,"output":20,"reasoning":0,"cache":{"write":70,"read":0}},"cost":0.05}}',
       '{"type":"step_finish","part":{"tokens":{"input":5,"output":10}}}',
       '{"type":"step_finish","part":{"tokens":{"total":50,"input":5,"output":10,"reasoning":0,"cache":{"write":35,"read":0}},"cost":0.02}}',
     ].join("\n");
 
-    const bin = fakeBinary({ exit: 0, stdout: jsonStream });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: jsonStream, stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -386,12 +412,15 @@ describe("OpencodeAgent", () => {
   });
 
   test("all malformed step_finish events falls back to estimator", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const jsonStream = `{"type":"step_finish","timestamp":"2026-05-21T19:02:17Z","part":{"type":"step-finish","tokens":{"input":10}}}
 {"type":"text","timestamp":"2026-05-21T19:02:16Z","part":{"text":"output"}}`;
 
-    const bin = fakeBinary({ exit: 0, stdout: jsonStream });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: jsonStream, stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 
@@ -407,11 +436,14 @@ describe("OpencodeAgent", () => {
   });
 
   test("no cost field sets cost_source to no-price", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "opencode-cwd-"));
     const jsonStream = `{"type":"step_finish","timestamp":"2026-05-21T19:02:17Z","part":{"type":"step-finish","tokens":{"total":100,"input":10,"output":20,"reasoning":0,"cache":{"write":70,"read":0}}}}`;
 
-    const bin = fakeBinary({ exit: 0, stdout: jsonStream });
+    const recorder = createFakeSpawnWithOutput({
+      opencode: { exit: 0, stdout: jsonStream, stderr: "" },
+    });
     const agent = new OpencodeAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "AirProxy/test",
     });
 

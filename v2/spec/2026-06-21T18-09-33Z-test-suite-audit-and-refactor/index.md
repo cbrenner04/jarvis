@@ -10,7 +10,7 @@ marked-exception files are expected to pass there, not runner-excluded. 00 pins 
 coverage baseline that 05 verifies against.
 
 - [x] [00 - Audit and triage the corpus](./00-audit-and-triage.md)
-- [ ] [01 - Refactor v1 agent-adapter tests](./01-refactor-agent-adapter-tests.md)
+- [x] [01 - Refactor v1 agent-adapter tests](./01-refactor-agent-adapter-tests.md)
 - [ ] [02 - Refactor run.test.ts determinism](./02-refactor-run-test.md)
 - [ ] [03 - Refactor v1 command/integration + timing tests](./03-refactor-command-and-timing-tests.md)
 - [ ] [04 - Refactor v1 mode tests](./04-refactor-mode-tests.md)

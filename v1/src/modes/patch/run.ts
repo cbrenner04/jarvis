@@ -13,6 +13,7 @@ import type {
 } from "../../telemetry.ts";
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
 import { finalize, runIteration, setupLogging } from "./iteration.ts";
+import { runBaseRefTests as runBaseRefTestsImpl } from "./base-ref-test-runner.ts";
 import {
   buildActiveAgents,
   maybeWarnAboutUnmergedPlanBranch,
@@ -269,6 +270,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
         state.currentController.abort("run-timeout");
       }
     }, preflight.cfg.runTimeoutMs);
+  }
+
+  // Wire the default base-ref test runner if no seam is provided
+  if (opts.runBaseRefTests === undefined) {
+    opts.runBaseRefTests = async (baseBranch: string): Promise<boolean> => {
+      return runBaseRefTestsImpl(preflight.agentWorkingDir, baseBranch);
+    };
   }
 
   const ctx: IterationContext = {

@@ -5305,6 +5305,55 @@ while true; do :; done
       // Should NOT contain rejection message
       expect(cap.err()).not.toContain("blocker claim rejected");
     });
+
+    test("default base-ref runner is used when seam not provided", async () => {
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const subspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] Step A.\n");
+      execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+      const cap = captureIo();
+      let iterationCount = 0;
+      const claude = new FakeAgent("claude", () => {
+        iterationCount += 1;
+        if (iterationCount === 1) {
+          // First iteration: tick one and add a claim blocker
+          writeFileSync(
+            subspec,
+            "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n\n## Blocker\n\nThis is a pre-existing failure that's unrelated to my changes\n",
+          );
+        } else if (iterationCount === 2) {
+          // Second iteration (after blocker validation): resolve it
+          writeFileSync(
+            subspec,
+            "# 00 - One\n\n## Acceptance criteria\n\n- [x] Step A.\n",
+          );
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        // No runBaseRefTests seam provided; should use default
+      });
+
+      // The default runner will try to validate but will likely fail to find tests,
+      // so the blocker should stand (fail-safe). Code should be 7.
+      expect(code).toBe(7);
+      expect(cap.err()).toContain("pre-existing failure");
+    });
   });
 });
 

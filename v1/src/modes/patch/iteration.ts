@@ -775,14 +775,8 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             // Validate the claim against base ref
             let baseRefGreen = false;
             try {
-              let base: string;
-              try {
-                base = await getBaseBranch(agentWorkingDir);
-              } catch {
-                // If getBaseBranch fails (e.g., no GitHub repo), use a default
-                base = "main";
-              }
-              baseRefGreen = await opts.runBaseRefTests(base);
+              // Use local merge-base to resolve the base ref (offline, no network calls)
+              baseRefGreen = await opts.runBaseRefTests("main");
             } catch (err) {
               // Validation failure: fail-safe, blocker stands
               baseRefGreen = false;

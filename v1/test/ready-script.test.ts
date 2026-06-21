@@ -144,10 +144,10 @@ describe("ready tier parsing and step lists", () => {
     ]);
   });
 
-  test("full tier runs check:fix, typecheck, test, and check after install", () => {
+  test("full tier runs check:fix:unsafe, typecheck, test, and check after install", () => {
     expect(getReadyCommands("full", { runInstall: true })).toEqual([
       { name: "bun", args: ["install", "--frozen-lockfile"] },
-      { name: "bun", args: ["run", "check:fix"] },
+      { name: "bun", args: ["run", "check:fix:unsafe"] },
       { name: "bun", args: ["run", "typecheck"] },
       { name: "bun", args: ["run", "test"] },
       { name: "bun", args: ["run", "check"] },
@@ -156,17 +156,17 @@ describe("ready tier parsing and step lists", () => {
 
   test("full tier skips install in the command list when runInstall is false", () => {
     const commands = getReadyCommands("full", { runInstall: false });
-    const checkFixIndex = commands.findIndex((command) => command.args[0] === "run" && command.args[1] === "check:fix");
+    const checkFixIndex = commands.findIndex((command) => command.args[0] === "run" && command.args[1] === "check:fix:unsafe");
     const installIndex = commands.findIndex((command) => command.args[0] === "install");
 
     expect(checkFixIndex).toBe(0);
     expect(installIndex).toBe(-1);
-    expect(commands.map((command) => command.args[1])).toEqual(["check:fix", "typecheck", "test", "check"]);
+    expect(commands.map((command) => command.args[1])).toEqual(["check:fix:unsafe", "typecheck", "test", "check"]);
   });
 
-  test("full tier keeps install before check:fix when install runs", () => {
+  test("full tier keeps install before check:fix:unsafe when install runs", () => {
     const readySource = readFileSync("./scripts/ready.ts", "utf8");
-    const checkFixIndex = readySource.indexOf('{ name: "bun", args: ["run", "check:fix"]');
+    const checkFixIndex = readySource.indexOf('{ name: "bun", args: ["run", "check:fix:unsafe"]');
     const installIndex = readySource.indexOf('{ name: "bun", args: ["install",');
 
     expect(checkFixIndex).toBeGreaterThan(0);
@@ -223,7 +223,7 @@ describe("ready tier parsing and step lists", () => {
 
       expect(executed[0]).toBe("install --frozen-lockfile");
       expect(executed.slice(1).map((step) => step.replace(/^run /, ""))).toEqual([
-        "check:fix",
+        "check:fix:unsafe",
         "typecheck",
         "test",
         "check",
@@ -331,7 +331,7 @@ describe("ready install digest", () => {
       });
     });
 
-    expect(executed.map((step) => step.replace(/^run /, ""))).toEqual(["check:fix", "typecheck", "test", "check"]);
+    expect(executed.map((step) => step.replace(/^run /, ""))).toEqual(["check:fix:unsafe", "typecheck", "test", "check"]);
     expect(readRecordedInstallDigest(repoRoot)).toBe(digest);
   });
 
@@ -421,8 +421,8 @@ describe("ready serial-retry on test failure", () => {
         process.stderr.write = origWrite;
       }
 
-      // Verify execution order: check:fix, typecheck, parallel test (fails), serial test (passes), check
-      expect(executed).toEqual(["run check:fix", "run typecheck", "run test", "test", "run check"]);
+      // Verify execution order: check:fix:unsafe, typecheck, parallel test (fails), serial test (passes), check
+      expect(executed).toEqual(["run check:fix:unsafe", "run typecheck", "run test", "test", "run check"]);
 
       // Verify the recovery signal is logged
       const stderr = stderrLines.join("");
@@ -512,8 +512,8 @@ describe("ready serial-retry on test failure", () => {
               runCommandFn: async (_name, args) => {
                 const step = args.join(" ");
                 executed.push(step);
-                // check:fix fails; no serial retry should happen
-                if (step === "run check:fix") {
+                // check:fix:unsafe fails; no serial retry should happen
+                if (step === "run check:fix:unsafe") {
                   return 1;
                 }
                 return 0;
@@ -534,8 +534,8 @@ describe("ready serial-retry on test failure", () => {
       rmSync(repoRoot, { recursive: true, force: true });
     }
 
-    // Verify check:fix ran and failed without any retry
-    expect(executed).toEqual(["install --frozen-lockfile", "run check:fix"]);
+    // Verify check:fix:unsafe ran and failed without any retry
+    expect(executed).toEqual(["install --frozen-lockfile", "run check:fix:unsafe"]);
   });
 
   test("test timeout (exit code 124) does not trigger serial retry", async () => {

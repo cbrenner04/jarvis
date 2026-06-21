@@ -20,7 +20,7 @@ import {
   prepareActiveSpecPath,
   resolveModeSpecificPreflight,
 } from "./preflight.ts";
-import { DescendantTracker } from "./reap.ts";
+import { DescendantTracker, type ProcInfo } from "./reap.ts";
 import { runSnapshotUpdateRetest as runSnapshotUpdateRetestImpl } from "./snapshot-update-retest-runner.ts";
 
 export type PreflightOk = {
@@ -127,7 +127,7 @@ export type ConfirmRun = (prompt: string) => string | Promise<string>;
 
 export type WatchdogListProcessesFn = (
   rootPid: number,
-) => Array<{ pid: number; ppid: number; pgid: number; identity: string }>;
+) => ProcInfo[];
 
 export type RunCommandOptions = {
   specPath: string;

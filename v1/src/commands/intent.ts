@@ -284,9 +284,7 @@ function validateIntentStage(
   return validateIntentStageContent(files);
 }
 
-function validateExternalIntentStageStructure(
-  stagingDir: string,
-): { ok: true } | { ok: false; error: string } {
+function validateExternalIntentStageStructure(stagingDir: string): { ok: true } | { ok: false; error: string } {
   try {
     const dirEntries = readdirSync(stagingDir, { withFileTypes: true });
     for (const entry of dirEntries) {

@@ -241,92 +241,31 @@ describe("parseArgs", () => {
     }
   });
 
-  test("run --help → run-help", () => {
-    expect(parseArgs(["run", "--help"])).toEqual({ kind: "run-help" });
-  });
-
-  test("run -h → run-help", () => {
-    expect(parseArgs(["run", "-h"])).toEqual({ kind: "run-help" });
-  });
-
-  test("init --help → init-help", () => {
-    expect(parseArgs(["init", "--help"])).toEqual({ kind: "init-help" });
-  });
-
-  test("init -h → init-help", () => {
-    expect(parseArgs(["init", "-h"])).toEqual({ kind: "init-help" });
-  });
-
-  test("config --help → config-help", () => {
-    expect(parseArgs(["config", "--help"])).toEqual({ kind: "config-help" });
-  });
-
-  test("config -h → config-help", () => {
-    expect(parseArgs(["config", "-h"])).toEqual({ kind: "config-help" });
-  });
-
-  test("log-server --help → log-server-help", () => {
-    expect(parseArgs(["log-server", "--help"])).toEqual({ kind: "log-server-help" });
-  });
-
-  test("log-server -h → log-server-help", () => {
-    expect(parseArgs(["log-server", "-h"])).toEqual({ kind: "log-server-help" });
-  });
-
-  test("cleanup --help → cleanup-help", () => {
-    expect(parseArgs(["cleanup", "--help"])).toEqual({ kind: "cleanup-help" });
-  });
-
-  test("cleanup -h → cleanup-help", () => {
-    expect(parseArgs(["cleanup", "-h"])).toEqual({ kind: "cleanup-help" });
-  });
-
-  test("triage --help → triage-help", () => {
-    expect(parseArgs(["triage", "--help"])).toEqual({ kind: "triage-help" });
-  });
-
-  test("triage -h → triage-help", () => {
-    expect(parseArgs(["triage", "-h"])).toEqual({ kind: "triage-help" });
-  });
-
-  test("review-feedback --help → review-feedback-help", () => {
-    expect(parseArgs(["review-feedback", "--help"])).toEqual({ kind: "review-feedback-help" });
-  });
-
-  test("review-feedback -h → review-feedback-help", () => {
-    expect(parseArgs(["review-feedback", "-h"])).toEqual({ kind: "review-feedback-help" });
-  });
-
-  test("plan --help → plan-help", () => {
-    expect(parseArgs(["plan", "--help"])).toEqual({ kind: "plan-help" });
-  });
-
-  test("plan -h → plan-help", () => {
-    expect(parseArgs(["plan", "-h"])).toEqual({ kind: "plan-help" });
-  });
-
-  test("intent --help → intent-help", () => {
-    expect(parseArgs(["intent", "--help"])).toEqual({ kind: "intent-help" });
-  });
-
-  test("intent -h → intent-help", () => {
-    expect(parseArgs(["intent", "-h"])).toEqual({ kind: "intent-help" });
-  });
-
-  test("prompt --help → prompt-help", () => {
-    expect(parseArgs(["prompt", "--help"])).toEqual({ kind: "prompt-help" });
-  });
-
-  test("prompt -h → prompt-help", () => {
-    expect(parseArgs(["prompt", "-h"])).toEqual({ kind: "prompt-help" });
-  });
-
-  test("prices --help → prices-help", () => {
-    expect(parseArgs(["prices", "--help"])).toEqual({ kind: "prices-help" });
-  });
-
-  test("prices -h → prices-help", () => {
-    expect(parseArgs(["prices", "-h"])).toEqual({ kind: "prices-help" });
+  test.each([
+    ["run", "--help", "run"],
+    ["run", "-h", "run"],
+    ["init", "--help", "init"],
+    ["init", "-h", "init"],
+    ["config", "--help", "config"],
+    ["config", "-h", "config"],
+    ["log-server", "--help", "log-server"],
+    ["log-server", "-h", "log-server"],
+    ["cleanup", "--help", "cleanup"],
+    ["cleanup", "-h", "cleanup"],
+    ["triage", "--help", "triage"],
+    ["triage", "-h", "triage"],
+    ["review-feedback", "--help", "review-feedback"],
+    ["review-feedback", "-h", "review-feedback"],
+    ["plan", "--help", "plan"],
+    ["plan", "-h", "plan"],
+    ["intent", "--help", "intent"],
+    ["intent", "-h", "intent"],
+    ["prompt", "--help", "prompt"],
+    ["prompt", "-h", "prompt"],
+    ["prices", "--help", "prices"],
+    ["prices", "-h", "prices"],
+  ])("%s %s → help with command %s", (cmd, flag, expectedCmd) => {
+    expect(parseArgs([cmd, flag])).toEqual({ kind: "help", command: expectedCmd });
   });
 });
 
@@ -601,91 +540,26 @@ describe("run", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  test.each(["--help", "-h"])("run %s prints run usage and exits 0", (flag) => {
+  test.each([
+    ["run", ["--max-iterations", "--review-passes"]],
+    ["init", ["Register the current target repo"]],
+    ["config", ["View or edit"]],
+    ["log-server", ["log aggregation server"]],
+    ["cleanup", ["Remove merged worktrees"]],
+    ["triage", ["Inspect"]],
+    ["review-feedback", ["PR review feedback"]],
+    ["plan", []],
+    ["intent", []],
+    ["prompt", ["Run an agent against a prompt"]],
+    ["prices", ["pricing data"]],
+  ])("%s --help prints help and exits 0", (cmd, expectedStrings) => {
     const cap = captureIo();
-    const code = run(["run", flag], { io: cap.io, config: { dir: cfgDir } });
+    const code = run([cmd, "--help"], { io: cap.io, config: { dir: cfgDir } });
     expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 run");
-    expect(cap.out()).toContain("--max-iterations");
-    expect(cap.out()).toContain("--review-passes");
-  });
-
-  test.each(["--help", "-h"])("init %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["init", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 init");
-    expect(cap.out()).toContain("Register the current target repo");
-  });
-
-  test.each(["--help", "-h"])("config %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["config", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 config");
-    expect(cap.out()).toContain("View or edit");
-  });
-
-  test.each(["--help", "-h"])("log-server %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["log-server", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 log-server");
-    expect(cap.out()).toContain("log aggregation server");
-  });
-
-  test.each(["--help", "-h"])("cleanup %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["cleanup", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 cleanup");
-    expect(cap.out()).toContain("Remove merged worktrees");
-  });
-
-  test.each(["--help", "-h"])("triage %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["triage", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 triage");
-    expect(cap.out()).toContain("Inspect");
-  });
-
-  test.each(["--help", "-h"])("review-feedback %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["review-feedback", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 review-feedback");
-    expect(cap.out()).toContain("PR review feedback");
-  });
-
-  test.each(["--help", "-h"])("plan %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["plan", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 plan");
-  });
-
-  test.each(["--help", "-h"])("intent %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["intent", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 intent");
-  });
-
-  test.each(["--help", "-h"])("prompt %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["prompt", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 prompt");
-    expect(cap.out()).toContain("Run an agent against a prompt");
-  });
-
-  test.each(["--help", "-h"])("prices %s prints help and exits 0", (flag) => {
-    const cap = captureIo();
-    const code = run(["prices", flag], { io: cap.io, config: { dir: cfgDir } });
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("Usage: jarvis1 prices");
-    expect(cap.out()).toContain("pricing data");
+    expect(cap.out()).toContain(`Usage: jarvis1 ${cmd}`);
+    expectedStrings.forEach((str) => {
+      expect(cap.out()).toContain(str);
+    });
   });
 });
 

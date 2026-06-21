@@ -156,7 +156,9 @@ describe("ready tier parsing and step lists", () => {
 
   test("full tier skips install in the command list when runInstall is false", () => {
     const commands = getReadyCommands("full", { runInstall: false });
-    const checkFixIndex = commands.findIndex((command) => command.args[0] === "run" && command.args[1] === "check:fix:unsafe");
+    const checkFixIndex = commands.findIndex(
+      (command) => command.args[0] === "run" && command.args[1] === "check:fix:unsafe",
+    );
     const installIndex = commands.findIndex((command) => command.args[0] === "install");
 
     expect(checkFixIndex).toBe(0);
@@ -331,7 +333,12 @@ describe("ready install digest", () => {
       });
     });
 
-    expect(executed.map((step) => step.replace(/^run /, ""))).toEqual(["check:fix:unsafe", "typecheck", "test", "check"]);
+    expect(executed.map((step) => step.replace(/^run /, ""))).toEqual([
+      "check:fix:unsafe",
+      "typecheck",
+      "test",
+      "check",
+    ]);
     expect(readRecordedInstallDigest(repoRoot)).toBe(digest);
   });
 

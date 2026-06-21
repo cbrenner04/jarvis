@@ -4,6 +4,7 @@ import {
   applyQuotaFallbackWhenAllowed,
   isModelConfigurationSignal,
   isQuotaSignal,
+  isTransientSignal,
   isWeakQuotaSignal,
 } from "../../src/agents/quota.ts";
 
@@ -200,5 +201,52 @@ describe("applyQuotaFallbackWhenAllowed", () => {
       kind: "quota",
       stderr: err.stderr,
     });
+  });
+});
+
+describe("isTransientSignal", () => {
+  test("matches transport connection patterns", () => {
+    expect(isTransientSignal("claude", 1, "connection closed")).toBe(true);
+    expect(isTransientSignal("claude", 1, "connection reset by peer")).toBe(true);
+    expect(isTransientSignal("claude", 1, "socket hang up")).toBe(true);
+    expect(isTransientSignal("claude", 1, "broken pipe")).toBe(true);
+    expect(isTransientSignal("claude", 1, "ECONNRESET")).toBe(true);
+    expect(isTransientSignal("claude", 1, "EPIPE")).toBe(true);
+  });
+
+  test("matches stream error patterns", () => {
+    expect(isTransientSignal("claude", 1, "premature close")).toBe(true);
+    expect(isTransientSignal("claude", 1, "stream closed prematurely")).toBe(true);
+    expect(isTransientSignal("claude", 1, "stream closed")).toBe(true);
+  });
+
+  test("matches HTTP error status codes with context", () => {
+    expect(isTransientSignal("claude", 1, "error: HTTP 502 Bad Gateway")).toBe(true);
+    expect(isTransientSignal("claude", 1, "error: HTTP 503 Service Unavailable")).toBe(true);
+    expect(isTransientSignal("claude", 1, "error: HTTP 504 Gateway Timeout")).toBe(true);
+    expect(isTransientSignal("claude", 1, "HTTP status 502")).toBe(true);
+    expect(isTransientSignal("claude", 1, "service unavailable")).toBe(true);
+    expect(isTransientSignal("claude", 1, "server overloaded")).toBe(true);
+  });
+
+  test("does not match bare status codes without context", () => {
+    expect(isTransientSignal("claude", 1, "returned value 502")).toBe(false);
+    expect(isTransientSignal("claude", 1, "The answer is 503")).toBe(false);
+    expect(isTransientSignal("claude", 1, "some process exited 529")).toBe(false);
+  });
+
+  test("does not match on exit code 0", () => {
+    expect(isTransientSignal("claude", 0, "connection closed")).toBe(false);
+    expect(isTransientSignal("claude", 0, "error: HTTP 503")).toBe(false);
+  });
+
+  test("does not classify quota signals as transient", () => {
+    expect(isTransientSignal("claude", 1, "You've hit your session limit")).toBe(false);
+    expect(isTransientSignal("claude", 1, "quota exceeded")).toBe(false);
+  });
+
+  test("does not classify model configuration signals as transient", () => {
+    expect(isTransientSignal("claude", 1, "unknown model")).toBe(false);
+    expect(isTransientSignal("claude", 1, "model not found")).toBe(false);
   });
 });

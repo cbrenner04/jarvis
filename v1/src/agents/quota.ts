@@ -69,6 +69,29 @@ const aiderModelConfigurationPatterns = [
 ];
 const weakQuotaPatterns = [/\b429\b/i, /\b503\b/i, /\brate.?limit\b/i, /\btoo many requests\b/i];
 
+const sharedTransportPatterns = [
+  /\bconnection closed\b/i,
+  /\bconnection reset\b/i,
+  /\bconnection refused\b/i,
+  /\bsocket hang up\b/i,
+  /\bpremature\b.*\b(?:close|end)\b/i,
+  /\b(?:close|end)\b.*\bpremature\b/i,
+  /\bstream closed\b/i,
+  /\beconnreset\b/i,
+  /\bepipe\b/i,
+  /\bbroken pipe\b/i,
+  /\bservice unavailable\b/i,
+  /\boverloaded\b/i,
+  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b502\b/i,
+  /(?:^|\n)[^\n]*\b502\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
+  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b503\b/i,
+  /(?:^|\n)[^\n]*\b503\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
+  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b504\b/i,
+  /(?:^|\n)[^\n]*\b504\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
+  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b529\b/i,
+  /(?:^|\n)[^\n]*\b529\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
+];
+
 export function isModelConfigurationSignal(stderr: string): boolean;
 export function isModelConfigurationSignal(name: AgentName, stderr: string): boolean;
 export function isModelConfigurationSignal(nameOrStderr: AgentName | string, maybeStderr?: string): boolean {
@@ -120,6 +143,11 @@ export function isWeakQuotaSignal(
   const codes = weakExitCodes instanceof Set ? weakExitCodes : new Set(weakExitCodes);
   if (codes.has(exitCode)) return true;
   return weakQuotaPatterns.some((pattern) => pattern.test(stderr));
+}
+
+export function isTransientSignal(_name: AgentName, exitCode: number, stderr: string): boolean {
+  if (exitCode === 0) return false;
+  return sharedTransportPatterns.some((pattern) => pattern.test(stderr));
 }
 
 export type QuotaFallbackConfig = {

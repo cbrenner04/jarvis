@@ -190,3 +190,205 @@ exit 0
     }
   });
 });
+
+describe("runAgent transient retry", () => {
+  let dir: string;
+  let cwd: string;
+
+  const setup = () => {
+    dir = mkdtempSync(join(tmpdir(), "jarvis-spawn-"));
+    cwd = mkdtempSync(join(tmpdir(), "jarvis-spawn-cwd-"));
+  };
+
+  const teardown = () => {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  };
+
+  test(
+    "transient-then-success returns ok with no advancement",
+    async () => {
+      setup();
+      try {
+        const bin = join(dir, "agent");
+        const script = `#!/usr/bin/env bash
+if [ -f "${dir}/call-count" ]; then
+  COUNT=$(cat "${dir}/call-count")
+else
+  COUNT=0
+fi
+COUNT=$((COUNT + 1))
+echo $COUNT > "${dir}/call-count"
+if [ $COUNT -eq 1 ]; then
+  printf 'error: connection closed' 1>&2
+  exit 1
+fi
+printf 'success'
+exit 0
+`;
+        writeFileSync(bin, script);
+        chmodSync(bin, 0o755);
+
+        const result = await runAgent(
+          {
+            name: "claude",
+            binary: bin,
+            cwd: realpathSync(cwd),
+            buildArgv: () => [],
+            stdio: ["ignore", "pipe", "pipe"],
+            streamErrorPrefix: "test:",
+          },
+          "test",
+          { cwd: realpathSync(cwd) },
+        );
+
+        expect(result.kind).toBe("ok");
+        if (result.kind === "ok") {
+          expect(result.stdout).toBe("success");
+        }
+        const attempts = readFileSync(join(dir, "call-count"), "utf8").trim();
+        expect(parseInt(attempts, 10)).toBe(2);
+      } finally {
+        teardown();
+      }
+    },
+    { timeout: 10000 },
+  );
+
+  test(
+    "persistent transient returns error at cap of 2 retries",
+    async () => {
+      setup();
+      try {
+        const bin = join(dir, "agent");
+        const script = `#!/usr/bin/env bash
+printf 'error: connection reset' 1>&2
+exit 1
+`;
+        writeFileSync(bin, script);
+        chmodSync(bin, 0o755);
+
+        let spawnCount = 0;
+        const result = await runAgent(
+          {
+            name: "claude",
+            binary: bin,
+            cwd: realpathSync(cwd),
+            buildArgv: () => {
+              spawnCount++;
+              return [];
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+            streamErrorPrefix: "test:",
+          },
+          "test",
+          { cwd: realpathSync(cwd) },
+        );
+
+        expect(result.kind).toBe("error");
+        expect(spawnCount).toBe(3); // 1 initial + 2 retries
+      } finally {
+        teardown();
+      }
+    },
+    { timeout: 10000 },
+  );
+
+  test(
+    "aborted invocation is not retried",
+    async () => {
+      setup();
+      try {
+        const bin = join(dir, "agent");
+        const script = `#!/usr/bin/env bash
+printf 'error: connection closed' 1>&2
+exit 1
+`;
+        writeFileSync(bin, script);
+        chmodSync(bin, 0o755);
+
+        let spawnCount = 0;
+        const controller = new AbortController();
+        const result = await runAgent(
+          {
+            name: "claude",
+            binary: bin,
+            cwd: realpathSync(cwd),
+            buildArgv: () => {
+              spawnCount++;
+              if (spawnCount === 1) {
+                // Abort immediately after first spawn
+                controller.abort("test-abort");
+              }
+              return [];
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+            streamErrorPrefix: "test:",
+          },
+          "test",
+          { cwd: realpathSync(cwd), signal: controller.signal },
+        );
+
+        expect(result.kind).toBe("error");
+        expect(spawnCount).toBe(1); // Only 1 spawn, no retries
+      } finally {
+        teardown();
+      }
+    },
+    { timeout: 10000 },
+  );
+
+  test(
+    "onTransientRetry callback fires per attempt",
+    async () => {
+      setup();
+      try {
+        const bin = join(dir, "agent");
+        const script = `#!/usr/bin/env bash
+if [ -f "${dir}/call-count" ]; then
+  COUNT=$(cat "${dir}/call-count")
+else
+  COUNT=0
+fi
+COUNT=$((COUNT + 1))
+echo $COUNT > "${dir}/call-count"
+if [ $COUNT -lt 3 ]; then
+  printf 'error: socket hang up' 1>&2
+  exit 42
+fi
+printf 'success'
+exit 0
+`;
+        writeFileSync(bin, script);
+        chmodSync(bin, 0o755);
+
+        const retries: { attempt: number; cap: number; exitCode: number }[] = [];
+        const result = await runAgent(
+          {
+            name: "claude",
+            binary: bin,
+            cwd: realpathSync(cwd),
+            buildArgv: () => [],
+            stdio: ["ignore", "pipe", "pipe"],
+            streamErrorPrefix: "test:",
+          },
+          "test",
+          {
+            cwd: realpathSync(cwd),
+            onTransientRetry: (info) => {
+              retries.push({ attempt: info.attempt, cap: info.cap, exitCode: info.exitCode });
+            },
+          },
+        );
+
+        expect(result.kind).toBe("ok");
+        expect(retries.length).toBe(2);
+        expect(retries[0]).toEqual({ attempt: 1, cap: 2, exitCode: 42 });
+        expect(retries[1]).toEqual({ attempt: 2, cap: 2, exitCode: 42 });
+      } finally {
+        teardown();
+      }
+    },
+    { timeout: 10000 },
+  );
+});

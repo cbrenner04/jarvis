@@ -191,35 +191,35 @@ retry never engages (it only sees residual `error`).
 
 ## Acceptance criteria
 
-- [ ] A non-zero agent exit whose diagnostics match a transient transport/API
+- [x] A non-zero agent exit whose diagnostics match a transient transport/API
   signal (e.g. "connection closed mid-response") is re-attempted on the **same**
   agent — not advanced to the next agent and not returned as a terminal error —
   and when the next attempt exits `0` the call returns `kind: "ok"` with no agent
   advancement (test).
-- [ ] A persistently transient endpoint terminates: after the fixed cap of 2
+- [x] A persistently transient endpoint terminates: after the fixed cap of 2
   re-attempts (3 total spawns) the call returns `kind: "error"` and the existing
   control flow (advance/fail, unchanged exit codes) runs as before; the test
   asserts exactly 3 spawns so the bound — not an external limit — is what stops it
   (test).
-- [ ] `isTransientSignal` returns false for `exitCode === 0`, returns false for a
+- [x] `isTransientSignal` returns false for `exitCode === 0`, returns false for a
   bare numeric status with no error/http context (anchored match), and does not
   reclassify a strict-quota signal or a model-configuration signal as transient
   (test).
-- [ ] An invocation whose `opts.signal` is aborted (timeout/SIGINT path) is never
+- [x] An invocation whose `opts.signal` is aborted (timeout/SIGINT path) is never
   re-attempted as transient — neither when already aborted at the retry boundary
   nor when the in-flight result settled as `aborted:` (test).
-- [ ] Each transient re-attempt fires `onTransientRetry` once with
+- [x] Each transient re-attempt fires `onTransientRetry` once with
   `{ attempt, cap, agent, exitCode }`, and the patch harness line
   (`transient transport error (exit <n>); retrying same agent (attempt <a>/<cap>)`)
   shares no substring with the quota-fallback strings (`quota exhausted; falling
   back` / `probable quota-like error`) (test).
-- [ ] Patch's `onSpawned` is re-entry-safe: a second spawn within one iteration
+- [x] Patch's `onSpawned` is re-entry-safe: a second spawn within one iteration
   clears the prior `descendantPollHandle` (no leaked interval on a dead pid) and
   repoints `watchdogPgid` to the live child (test).
-- [ ] Strict-quota and model_config classification and control flow are unchanged:
+- [x] Strict-quota and model_config classification and control flow are unchanged:
   `v1/test/agents/quota.test.ts` and `v1/test/agents/spawn.test.ts` stay green
   (behavior preserved; transient is additive on the residual-`error` path).
-- [ ] `v1/docs/quota-signals.md`, `v1/docs/agent-cli-failure-pipeline.md`, and
+- [x] `v1/docs/quota-signals.md`, `v1/docs/agent-cli-failure-pipeline.md`, and
   `v2/docs/v1-behaviors.md` record the transient class, its position in the
   classification order, the same-binding bounded re-attempt, and the cap.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.

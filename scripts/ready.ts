@@ -303,6 +303,16 @@ export function runCommand(name: string, args: string[], deadlineMs: number, ela
   });
 }
 
+function isGenuineTestFailure(code: number): boolean {
+  // Exclude signal exits and timeout kills; only genuine test-process failures trigger serial retry
+  return code !== TIMEOUT_EXIT_CODE && !Object.values(SIGNAL_EXIT_CODES).includes(code);
+}
+
+function isTestStep(args: string[]): boolean {
+  // Detect `bun run test` exactly, not substring matches like `check` or `check:fix`
+  return args[0] === "run" && args[1] === "test" && args.length === 2;
+}
+
 export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof runCommand }): Promise<void> {
   const repoRoot = opts?.repoRoot ?? process.cwd();
   const runCommandFn = opts?.runCommandFn ?? runCommand;
@@ -314,7 +324,20 @@ export async function runReady(opts?: { repoRoot?: string; runCommandFn?: typeof
 
   for (const { name, args } of commands) {
     const elapsed = Date.now() - startTime;
-    const code = await runCommandFn(name, args, timeoutMs, elapsed);
+    let code = await runCommandFn(name, args, timeoutMs, elapsed);
+
+    // Serial retry: on test-step failure (genuine process exit, not signal/timeout),
+    // run the suite serially without `--parallel` before declaring red
+    if (code !== 0 && isTestStep(args) && isGenuineTestFailure(code)) {
+      process.stderr.write(`ready: parallel test failed (code ${code}); retrying serially\n`);
+      const serialElapsed = Date.now() - startTime;
+      code = await runCommandFn("bun", ["test"], timeoutMs, serialElapsed);
+      if (code === 0) {
+        process.stderr.write(`ready: serial test passed; continuing\n`);
+      } else {
+        process.stderr.write(`ready: serial test failed (code ${code})\n`);
+      }
+    }
 
     if (code !== 0) {
       process.exit(code);

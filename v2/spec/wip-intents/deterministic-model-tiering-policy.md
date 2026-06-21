@@ -70,10 +70,21 @@ policy.
 
 ## Data points (accruing this session)
 
-- sonnet plan on a trivial prompt-text intent: full-quality, ~$1.67/7m vs opus ~$3.50/14m.
+- sonnet plan on a trivial prompt-text intent: full-quality, ~$1.67/7m vs opus ~$3.50/14m. Repeated
+  on the operator-runbook (docs): sonnet 5m vs opus ~14m, quality held.
 - haiku actuator: correct code but needed iterations/hand-finalize on chokepoint refactors; fine on
-  trivial edits.
-- (more to come as the batch runs)
+  trivial edits. Idle-watchdog false-killed haiku's *productive silent* work at both 5m and 10m
+  (it edits without stdout) — see [[finalize-complete-but-dirty-run]].
+- **codex/gpt-5 actuator** (batch switched to codex mid-run to offload Claude quota): self-completed
+  plan-git-false and intent-no-commit cleanly (`criteria-complete`, in-scope, tests green) — *less*
+  finish-line hanging than haiku. But on a **doc-only** audit subspec it **ran the full `bun run
+  test` and blocked (exit 7) on a flaky test** — haiku tended not to over-run the suite on doc work.
+  So model choice shifts *which* failure modes appear (haiku: silent-hang at finish; gpt:
+  over-eager suite-running + stricter blocking). Useful evidence that some "harness" friction is
+  actually model-behavior-shaped.
+- Harness `gh`/git ops (e.g. `gh pr ready`) died a full run on a transient **TLS handshake
+  timeout** — sibling to seed 1's agent transient-retry, but for the harness's own network calls;
+  they should retry transient errors too.
 
 ## Out of scope
 

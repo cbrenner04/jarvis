@@ -4,6 +4,20 @@ name: test-suite-audit-and-refactor
 
 # Audit and refactor the existing test suite
 
+## Parked (2026-06-21) — chicken-and-egg on the flaky watchdog test
+
+Planned (6 subspecs: audit → 01-05 refactor batches; spec on main at
+`v2/spec/2026-06-21T18-09-33Z-test-suite-audit-and-refactor/`) but the run **blocked at the
+audit subspec**: the agent (codex) ran the full `bun run test` during the doc-only audit, hit the
+**flaky `watchdog_descendants_alive` timing test** (the very kind of test this seed refactors —
+it passes 7/0 in isolation, flakes under `--parallel`), and raised exit-7. Chicken-and-egg: the
+audit can't get green until the flaky test it's meant to fix is stabilized. Resume in a fresh
+session by either (a) stabilizing that watchdog test first (the #15 DI-seam pattern, = subspec
+02's job — do it standalone first), or (b) instructing the audit subspec not to run the full
+suite (it's doc-only). Note: seed 3's gate serial-retry does **not** help here — the agent ran
+`bun run test` directly, not through the ready gate.
+
+
 ## Problem
 
 The test corpus has grown to ~86 files / ~30k LOC across `v1`, `v2`, `shared`, and `test`, and

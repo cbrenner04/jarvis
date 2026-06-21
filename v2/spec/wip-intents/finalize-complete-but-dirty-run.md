@@ -21,7 +21,16 @@ gap, caused it:
    watchdog-2) exists for exactly this but is **default-off**, so the stall cost 30 minutes
    instead of seconds.
 
-Net: a finished run was thrown away and required manual commit + verify + merge.
+3. **The idle watchdog is patch-only — review/shrink/plan aren't covered.** Run #339
+   (base-ref-validation) hung in the **review actuator** (`review: actuator running with
+   verdict`, ~16 min silent) and rode the 30-min wall timeout, because
+   `idleOutputTimeoutMs` is wired only in `v1/src/modes/patch/iteration.ts`. Even with the
+   flag enabled, a hang in the review debate/actuator, shrink, or plan still rides the full
+   `iterationTimeoutMs`. The idle watchdog must cover every agent-spawning phase, not just
+   the patch iteration loop.
+
+Net: finished/near-finished runs were thrown away or delayed; #335 required manual commit +
+verify + merge, #339 lost ~30 min to an uncovered review-actuator hang.
 
 ## Direction
 
@@ -36,6 +45,9 @@ Both levers reuse machinery that already exists:
 - **Turn the idle-output watchdog on by default for runs** (or default `idleOutputTimeoutMs`
   to a sane value), so a finish-line hang dies in seconds instead of riding the 30-min
   iteration timeout. This is also general: any silent stall, not just the finish line.
+- **Extend idle-watchdog coverage to every agent-spawning phase** — review (debate +
+  actuator), shrink, and plan — not just the patch iteration loop, so a hang anywhere in the
+  pipeline is caught by `idleOutputTimeoutMs` rather than only the patch path.
 
 ## Out of scope
 

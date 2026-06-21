@@ -1,9 +1,13 @@
 # Audit and refactor the existing test suite
 
-Backward-looking remediation: triage the ~35 process/timing-touching test files, then
-refactor the genuine smells toward the determinism convention
+Backward-looking remediation: triage the process/timing-touching test files (count from the
+recorded scan, not a guess), then refactor the genuine smells toward the determinism convention
 (`v2/docs/test-writing.md`) in directory-clustered, suite-green steps. Mechanical and
 correctness-preserving — no behavior change to code under test beyond additive DI seams.
+
+"Suite stays green" is measured **sandbox-off** (where `.sandbox-unrunnable.test.ts` files run);
+marked-exception files are expected to pass there, not runner-excluded. 00 pins this and the
+coverage baseline that 05 verifies against.
 
 - [ ] [00 - Audit and triage the corpus](./00-audit-and-triage.md)
 - [ ] [01 - Refactor v1 agent-adapter tests](./01-refactor-agent-adapter-tests.md)

@@ -20,15 +20,15 @@ Files (`v1/test/`): `cli`, `gh`, `install-opencode-permissions`, `intent-command
 
 - [ ] Apply 00 verdicts to each file in this cluster.
 - [ ] Inject fixed clocks for `Date.now`/`new Date(` cases; route spawn through the injected seam; merge/drop redundant cases.
-- [ ] Record any new production DI seam in `v2/docs/v1-behaviors.md`.
+- [ ] Record in `v2/docs/v1-behaviors.md` only a seam that alters an observable default; test-only optional params defaulting to the real impl need no entry.
 
 ## Acceptance criteria
 
 - [ ] Every `refactor`-verdict file in this cluster no longer spawns a real OS process and derives no assertion from live wall-clock time; `already-deterministic` files are unchanged; `marked-exception` files are renamed `*.sandbox-unrunnable.test.ts` with a justification comment.
 - [ ] These command/integration and timing tests stay green (behavior unchanged) under `bun test --parallel`.
-- [ ] No command production behavior changes beyond additive, default-preserving DI seams; any new seam is recorded in `v2/docs/v1-behaviors.md`.
+- [ ] No command production behavior changes beyond additive, default-preserving DI seams; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
 - [ ] `bun run test` and `bun run typecheck` pass.
 
 ## Documentation updates
 
-- `v2/docs/v1-behaviors.md`: record any new production DI seam, or note none added.
+- `v2/docs/v1-behaviors.md`: record any DI seam that alters an observable default, or note none added (additive test-only params defaulting to the real impl are not recorded).

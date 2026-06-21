@@ -19,15 +19,15 @@ Files: `modes/patch/{reap,shrink,subspec}`, `modes/plan/{boundary,git-porcelain,
 
 - [ ] Apply 00 verdicts to each `v1/test/modes/**/*.test.ts` file.
 - [ ] Route spawn/git through injected seams; merge/drop redundant cases the triage flagged.
-- [ ] Record any new production DI seam in `v2/docs/v1-behaviors.md`.
+- [ ] Record in `v2/docs/v1-behaviors.md` only a seam that alters an observable default; test-only optional params defaulting to the real impl need no entry.
 
 ## Acceptance criteria
 
 - [ ] Every `refactor`-verdict file under `v1/test/modes/` no longer spawns a real OS process; `already-deterministic` files (including `reap.test.ts`) are unchanged; `marked-exception` files are renamed `*.sandbox-unrunnable.test.ts` with a justification comment.
 - [ ] The mode tests stay green (behavior unchanged) under `bun test --parallel`.
-- [ ] No mode production behavior changes beyond additive, default-preserving DI seams; any new seam is recorded in `v2/docs/v1-behaviors.md`.
+- [ ] No mode production behavior changes beyond additive, default-preserving DI seams; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
 - [ ] `bun run test` and `bun run typecheck` pass.
 
 ## Documentation updates
 
-- `v2/docs/v1-behaviors.md`: record any new production DI seam, or note none added.
+- `v2/docs/v1-behaviors.md`: record any DI seam that alters an observable default, or note none added (additive test-only params defaulting to the real impl are not recorded).

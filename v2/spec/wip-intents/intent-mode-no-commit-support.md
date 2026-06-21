@@ -1,3 +1,7 @@
+---
+name: intent-mode-no-commit-support
+---
+
 # `intent` mode can't run under `commit: false`
 
 ## Problem

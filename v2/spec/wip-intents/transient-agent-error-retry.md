@@ -1,3 +1,7 @@
+---
+name: transient-agent-error-retry
+---
+
 # Auto-retry transient agent/API errors instead of burning a full attempt
 
 ## Problem

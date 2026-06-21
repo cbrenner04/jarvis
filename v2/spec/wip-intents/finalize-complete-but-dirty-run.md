@@ -1,3 +1,7 @@
+---
+name: finalize-complete-but-dirty-run
+---
+
 # Don't waste a complete run at the finish line: commit a complete-but-dirty worktree + idle-kill a hung finish
 
 ## Problem
@@ -45,6 +49,16 @@ Both levers reuse machinery that already exists:
 - **Turn the idle-output watchdog on by default for runs** (or default `idleOutputTimeoutMs`
   to a sane value), so a finish-line hang dies in seconds instead of riding the 30-min
   iteration timeout. This is also general: any silent stall, not just the finish line.
+- **★ Liveness must track file/tool activity, not just stdout (critical calibration).** Observed
+  live: the snapshot-gate run (#346) implemented a full subspec — gate logic in `iteration.ts`,
+  seam wiring, **242 lines of tests** — with **zero stdout** (`last_output_age_ms=null`), and the
+  5-min idle watchdog **killed it mid-work** twice (haiku and sonnet identically). A stdout-only
+  idle timeout cannot distinguish a productive-but-silent agent from a genuine hang — both read as
+  null output age. The watchdog must treat **recent file mtime / tool-call activity** (the
+  `watchdog_descendants_alive` signal is already logged) as liveness, killing only when there is
+  *neither* output *nor* file activity. Until then, `idleOutputTimeoutMs` is a blunt tradeoff:
+  too low false-kills meaty implementation work, too high is slow hang detection. (Set to 600000
+  during the batch as a compromise after 300000 false-killed productive work.)
 - **Extend idle-watchdog coverage to every agent-spawning phase** — review (debate +
   actuator), shrink, and plan — not just the patch iteration loop, so a hang anywhere in the
   pipeline is caught by `idleOutputTimeoutMs` rather than only the patch path.

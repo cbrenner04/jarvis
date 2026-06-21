@@ -1,3 +1,7 @@
+---
+name: deterministic-model-tiering-policy
+---
+
 # Deterministic model-tiering: optimize cost vs failure-modes without losing determinism
 
 > **Status: evolving seed (open questions below).** Accruing data points during the overlord

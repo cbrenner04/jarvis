@@ -1,3 +1,7 @@
+---
+name: plan-pr-auto-ready
+---
+
 # Jarvis should flip its own plan PRs to ready in its lifecycle
 
 ## Problem

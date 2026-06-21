@@ -1,3 +1,7 @@
+---
+name: plan-git-false-boundary-misfire
+---
+
 # plan against a `git: false` project misfires the no-commit boundary check and git cleanup
 
 ## Problem

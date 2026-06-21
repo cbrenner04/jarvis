@@ -284,6 +284,28 @@ function validateIntentStage(
   return validateIntentStageContent(files);
 }
 
+function validateExternalIntentStageStructure(
+  stagingDir: string,
+): { ok: true } | { ok: false; error: string } {
+  try {
+    const dirEntries = readdirSync(stagingDir, { withFileTypes: true });
+    for (const entry of dirEntries) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) {
+        return {
+          ok: false,
+          error: `intent: invalid splitter output ${entry.name}; expected only markdown files`,
+        };
+      }
+    }
+  } catch {
+    return {
+      ok: false,
+      error: `intent: failed to read stage directory`,
+    };
+  }
+  return { ok: true };
+}
+
 function commitIntentSplit(opts: {
   worktreePath: string;
   branch: string;
@@ -340,28 +362,26 @@ function cleanupIntentState(projectRoot: string, worktreePath: string, branch: s
   }
 }
 
-function assertNoCheckoutPollution(projectRoot: string): { ok: true } | { ok: false; rogue: string[] } {
-  if (!existsSync(join(projectRoot, ".git"))) {
-    return { ok: true };
+function snapshotCheckoutPaths(projectRoot: string): Set<string> {
+  const paths = new Set<string>();
+  const entries = readdirSync(projectRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === ".git" || entry.name === ".gitignore") continue;
+    paths.add(entry.name);
   }
-  let output: string;
-  try {
-    output = execFileSync("git", ["status", "--porcelain=v1", "-z"], {
-      cwd: projectRoot,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-  } catch {
-    return { ok: true };
-  }
-  if (!output) {
-    return { ok: true };
-  }
-  const records = output.split("\0").filter((r) => r.length > 0);
+  return paths;
+}
+
+function assertNoCheckoutPollution(
+  projectRoot: string,
+  baseline: Set<string>,
+): { ok: true } | { ok: false; rogue: string[] } {
+  const current = snapshotCheckoutPaths(projectRoot);
   const rogue: string[] = [];
-  for (const record of records) {
-    const path = record.slice(3);
-    rogue.push(path);
+  for (const path of current) {
+    if (!baseline.has(path)) {
+      rogue.push(path);
+    }
   }
   return rogue.length === 0 ? { ok: true } : { ok: false, rogue };
 }
@@ -474,7 +494,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
     rmSync(externalStageDir, { recursive: true, force: true });
     mkdirSync(externalStageDir, { recursive: true });
 
-    let completed = false;
+    const checkoutBaseline = snapshotCheckoutPaths(project.root);
 
     try {
       const splitResult = await runIntentSplitTurn({
@@ -502,11 +522,17 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         return 1;
       }
 
-      const checkoutPollution = assertNoCheckoutPollution(project.root);
+      const checkoutPollution = assertNoCheckoutPollution(project.root, checkoutBaseline);
       if (!checkoutPollution.ok) {
         opts.io.stderr(
           `intent: splitter wrote into checkout (cwd=${project.root}): ${checkoutPollution.rogue.join(", ")}\n`,
         );
+        return 1;
+      }
+
+      const stageDirStructure = validateExternalIntentStageStructure(externalStageDir);
+      if (!stageDirStructure.ok) {
+        opts.io.stderr(`${stageDirStructure.error}\n`);
         return 1;
       }
 
@@ -545,7 +571,6 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       opts.io.stderr(
         `intent: ${emittedNames.length} intent${emittedNames.length === 1 ? "" : "s"} written to ${readyIntentsDir}\n`,
       );
-      completed = true;
       return 0;
     } finally {
       if (existsSync(externalStageDir)) {

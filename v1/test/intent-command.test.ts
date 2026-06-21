@@ -57,11 +57,27 @@ ${prerequisites.length === 0 ? "" : `\n${prerequisites.map((line) => `- ${line}`
 
 class SplitAgent implements Agent {
   readonly name: AgentName;
-  readonly #mode: "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty";
+  readonly #mode:
+    | "ok-two"
+    | "ok-one"
+    | "invalid"
+    | "invalid-prerequisites"
+    | "quota"
+    | "quota-dirty"
+    | "checkout-pollution"
+    | "stage-out-of-bounds";
 
   constructor(
     name: AgentName,
-    mode: "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty",
+    mode:
+      | "ok-two"
+      | "ok-one"
+      | "invalid"
+      | "invalid-prerequisites"
+      | "quota"
+      | "quota-dirty"
+      | "checkout-pollution"
+      | "stage-out-of-bounds",
   ) {
     this.name = name;
     this.#mode = mode;
@@ -82,6 +98,16 @@ class SplitAgent implements Agent {
     if (this.#mode === "quota-dirty") {
       writeFileSync(join(stageDir, "stale.md"), intentFile("stale", "Should be cleared."), "utf8");
       return { kind: "quota", stderr: "synthetic quota after writes" };
+    }
+    if (this.#mode === "checkout-pollution") {
+      writeFileSync(join(opts.cwd, "rogue-file.txt"), "This should not be here\n", "utf8");
+      writeFileSync(join(stageDir, "slice-one.md"), intentFile("slice-one", "First behavior."), "utf8");
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "stage-out-of-bounds") {
+      writeFileSync(join(stageDir, "slice-one.md"), intentFile("slice-one", "First behavior."), "utf8");
+      writeFileSync(join(stageDir, "notes.txt"), "This should not be here\n", "utf8");
+      return { kind: "ok", stdout: "", stderr: "" };
     }
     if (this.#mode === "invalid") {
       writeFileSync(join(stageDir, "bad-name.md"), "---\nname: wrong-name\n---\n\n## Intent\n\nBroken.\n", "utf8");
@@ -197,7 +223,17 @@ exit 0
 
 function createSplitAgentFactory(
   modes: Partial<
-    Record<AgentName, "ok-two" | "ok-one" | "invalid" | "invalid-prerequisites" | "quota" | "quota-dirty">
+    Record<
+      AgentName,
+      | "ok-two"
+      | "ok-one"
+      | "invalid"
+      | "invalid-prerequisites"
+      | "quota"
+      | "quota-dirty"
+      | "checkout-pollution"
+      | "stage-out-of-bounds"
+    >
   >,
 ) {
   return (name: AgentName): Agent => new SplitAgent(name, modes[name] ?? "ok-two");
@@ -585,6 +621,99 @@ describe("intentCommand", () => {
       expect(readFileSync(join(externalRoot, "ready-intents", "single-behavior.md"), "utf8")).toContain(
         "name: single-behavior",
       );
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("no-commit splitter turn carries additionalReadDirs in spawn options", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      let capturedAdditionalReadDirs: string[] | undefined;
+      class SpyAgent extends SplitAgent {
+        override async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          capturedAdditionalReadDirs = opts.additionalReadDirs;
+          return super.run(prompt, opts);
+        }
+      }
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: () => new SpyAgent("claude", "ok-one"),
+      });
+      expect(code).toBe(0);
+      expect(capturedAdditionalReadDirs).toBeDefined();
+      expect(capturedAdditionalReadDirs?.length).toBeGreaterThan(0);
+      expect(capturedAdditionalReadDirs?.[0]).toContain(".jarvis-intent-stage");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("no-commit checkout pollution aborts without partial writes", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "checkout-pollution" }),
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("splitter wrote into checkout");
+      expect(cap.err()).toContain("rogue-file.txt");
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      expect(existsSync(join(externalRoot, "ready-intents"))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("no-commit stage-dir structural scan rejects non-.md files while allowing legitimate siblings", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      const readyIntentsDir = join(externalRoot, "ready-intents");
+      mkdirSync(readyIntentsDir, { recursive: true });
+      writeFileSync(join(readyIntentsDir, "prior-intent.md"), "keep me\n");
+      const planDir = join(externalRoot, "2026-01-01T00-00-00Z-prior");
+      mkdirSync(planDir, { recursive: true });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "stage-out-of-bounds" }),
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("invalid splitter output notes.txt");
+      expect(cap.err()).toContain("expected only markdown files");
+      expect(readFileSync(join(readyIntentsDir, "prior-intent.md"), "utf8")).toBe("keep me\n");
+      expect(existsSync(planDir)).toBe(true);
     } finally {
       env.cleanup();
     }

@@ -5177,7 +5177,7 @@ while true; do :; done
 
       const cap = captureIo();
       let iterationCount = 0;
-      const claude = new FakeAgent("claude", (callCount) => {
+      const claude = new FakeAgent("claude", (_callCount) => {
         iterationCount += 1;
         // Both iterations add the same claim blocker
         writeFileSync(
@@ -5314,7 +5314,7 @@ while true; do :; done
         return { kind: "ok", stdout: "", stderr: "" };
       });
 
-      const code = await runWithDefaults({
+      const _code = await runWithDefaults({
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },

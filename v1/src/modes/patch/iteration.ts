@@ -798,7 +798,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                       encoding: "utf8",
                       stdio: "pipe",
                     }).trim();
-                    if (trackingBranch && trackingBranch.startsWith("refs/heads/")) {
+                    if (trackingBranch?.startsWith("refs/heads/")) {
                       baseBranch = trackingBranch.substring("refs/heads/".length);
                     }
                   } catch {
@@ -810,7 +810,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               }
               // Use local merge-base to resolve the base ref (offline, no network calls)
               baseRefGreen = await opts.runBaseRefTests(baseBranch);
-            } catch (err) {
+            } catch (_err) {
               // Validation failure: fail-safe, blocker stands
               baseRefGreen = false;
             }

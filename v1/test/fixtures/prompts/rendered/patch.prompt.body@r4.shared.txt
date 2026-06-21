@@ -41,6 +41,8 @@ Execute active spec only.
 
 ## Stop
 - Unclear: append `## Blocker` to spec; stop. Jarvis will detect it, commit any progress, and exit with code 7.
-- Repeated failure: record failure in spec; stop.
+- Mid-edit red (before all edits complete): not pre-existing breakage; finish edits and re-run.
+- Mid-edit red: do not raise pre-existing/unrelated/baseline-failures blockers; harness validates and rejects unconfirmed claims.
+- Repeated failure (after edits complete): record failure in spec; stop.
 - No TODOs. Put follow-up in spec.
 - New dependency? Record decision in spec; stop.

@@ -227,6 +227,24 @@ Good (harness, structure is the contract):
 - [ ] `patch_phase: "shrink"` is excluded from implementation iteration counts in run summary.
 ```
 
+#### Behavior-preserving (refactor) ACs: cite the test, don't paraphrase
+
+**Refactor / preservation ACs only.** When an AC's contract is "behavior is unchanged" (a refactor, extraction, or move), write it as **"`<existing-test>` stays green"** — cite the pinning test or source path — instead of paraphrasing what that test asserts. Paraphrasing is where wrong claims enter: an author who restates assumed behavior can assert a falsehood a pre-existing test already disproves (this is what produced the shared-invocation-executor spec defect, where an AC said plan "stops on a hard error" while `plan-draft-hard-error-continue.test.ts` proved the opposite). Writing the AC as a citation forces the author to locate the test and surfaces the real behavior.
+
+Good (refactor):
+
+```md
+- [ ] `run.test.ts` review-phase + draft-PR tests stay green (behavior unchanged by the extraction).
+```
+
+Bad (refactor — paraphrases behavior the author didn't verify):
+
+```md
+- [ ] Plan stops on a hard error.
+```
+
+This is **refactor-only** and must not be read as "every AC cites a test." New-behavior ACs are explicitly exempt — they keep the prose form above, backed by *new* tests; requiring them to cite a pre-existing test is nonsensical because the behavior is new. The plan-draft validator enforces this automatically: a preservation/continuation AC (verbs like `preserved`, `unchanged`, `stays`, `stops`, `continues`) that carries no path-like test/source anchor produces a non-blocking `missing-anchor-behavioral-ac` warning at draft time.
+
 Subspec heading contract (enforced by patch mode parser):
 - Acceptance criteria must use the exact heading `## Acceptance criteria`.
 - Blockers must use the exact heading `## Blocker`.

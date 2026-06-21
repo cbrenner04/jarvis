@@ -2099,6 +2099,147 @@ Date: 2026-06-18`,
     expect(readFileSync(spec, "utf8")).toContain("- [ ] [00 - One](./00-one.md)");
   });
 
+  test("bounded tick-retry: an agent that ticks on its retry turn completes without operator re-run", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    const subspec = join(specDir, "00-one.md");
+    writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", (callCount) => {
+      if (callCount === 1) {
+        // Turn 1: edit a file but tick nothing -> dirty worktree, no new AC.
+        writeFileSync(join(projectRoot, "one.txt"), "one\n");
+      } else {
+        // Retry turn: tick the satisfied criterion.
+        writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n");
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    // The retry, not an immediate exit 6, let the ticking agent finish in one run.
+    expect(code).toBe(0);
+    expect(claude.calls.length).toBe(2);
+  });
+
+  test("bounded tick-retry: an agent that never ticks stops at exit 6 after the bound and is never auto-ticked", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    const subspec = join(specDir, "00-one.md");
+    writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", (callCount) => {
+      // Edits something different each turn, never ticks.
+      writeFileSync(join(projectRoot, "one.txt"), `edit ${callCount}\n`);
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(6);
+    // Retried once (bound N=2): two calls, not an immediate exit on the first.
+    expect(claude.calls.length).toBe(2);
+    // The harness never ticked on the agent's behalf.
+    expect(readFileSync(subspec, "utf8")).toContain("- [ ] One accepted.");
+  });
+
+  test("uncommitted ticks present at iteration start are committed and advance the spec (no deadlock)", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    const subspec = join(specDir, "00-one.md");
+    writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+    // The criterion is ticked in the working tree but NOT committed — the deadlock setup.
+    writeFileSync(subspec, "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n");
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    // The uncommitted tick is committed at iteration start and the spec completes —
+    // without the agent ever running (no re-detection of "no progress").
+    expect(code).toBe(0);
+    expect(claude.calls.length).toBe(0);
+  });
+
+  test("bounded tick-retry: an AC tick between edited-but-unticked iterations resets the count", async () => {
+    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+    execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n"));
+    const subspec = join(specDir, "00-one.md");
+    const header = "# 00 - One\n\n## Acceptance criteria\n\n";
+    writeFileSync(subspec, `${header}- [ ] First.\n- [ ] Second.\n`);
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", (callCount) => {
+      if (callCount === 2) {
+        // Progress: tick one of two criteria -> resets the edited-but-unticked count.
+        writeFileSync(subspec, `${header}- [x] First.\n- [ ] Second.\n`);
+      } else {
+        // Turns 1, 3, 4: edit a file, tick nothing.
+        writeFileSync(join(projectRoot, "one.txt"), `edit ${callCount}\n`);
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    // count: t1=1, t2 ticks (reset 0), t3=1, t4=2 -> exit 6 at the 4th call.
+    // Without the reset it would exit 6 at the 3rd call (t1=1, t3=2).
+    expect(code).toBe(6);
+    expect(claude.calls.length).toBe(4);
+  });
+
   test("exits 4 with unticked criteria guidance when linked subspec clean iteration makes no progress", async () => {
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });
     execSync('git config user.email "jarvis-test@example.com"', {

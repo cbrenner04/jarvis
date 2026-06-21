@@ -5,22 +5,12 @@
 // and real process group behavior that cannot be made deterministic without actual OS interaction.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { execSync } from "node:child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runAgent } from "../src/agents/spawn.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
-import { type AgentEntry, registerProject, writeConfig } from "../src/config.ts";
+import { registerProject, writeConfig } from "../src/config.ts";
 import type { RunCommandOptions, RunIo } from "../src/modes/patch/run.ts";
 import { runCommand } from "../src/modes/patch/run.ts";
 

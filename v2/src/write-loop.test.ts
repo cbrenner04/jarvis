@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
-import { type ExternalWorktree, type WithExternalWorktreeResult } from "./external-worktree.ts";
+import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
@@ -299,9 +299,9 @@ describe("write loop", () => {
       },
     ];
 
-    await expect(
-      runLoop({ jarvisRoot, stateDbPath, bindings: crashBindings, maxIterations: 1 }),
-    ).rejects.toThrow("simulated crash");
+    await expect(runLoop({ jarvisRoot, stateDbPath, bindings: crashBindings, maxIterations: 1 })).rejects.toThrow(
+      "simulated crash",
+    );
     expect(firstRunCalls).toBe(1);
 
     let resumedCalls = 0;

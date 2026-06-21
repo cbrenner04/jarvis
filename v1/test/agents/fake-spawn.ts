@@ -1,6 +1,6 @@
-import { Readable, Writable } from "node:stream";
-import { EventEmitter } from "node:events";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { EventEmitter } from "node:events";
+import { Readable, Writable } from "node:stream";
 
 export interface FakeSpawnRecord {
   binary: string;
@@ -26,14 +26,20 @@ class FakeChildProcess extends EventEmitter implements ChildProcess {
   stdin: Writable | null = null;
   stdout: Readable | null = null;
   stderr: Readable | null = null;
-  stdio: [Writable | null, Readable | null, Readable | null, Writable | Readable | null | undefined, Writable | Readable | null | undefined];
+  stdio: [
+    Writable | null,
+    Readable | null,
+    Readable | null,
+    Writable | Readable | null | undefined,
+    Writable | Readable | null | undefined,
+  ];
 
   constructor(stdout: string, stderr: string, exitCode: number = 0) {
     super();
 
     // Create stdin as a writable stream (tests might write to it)
     this.stdin = new Writable({
-      write(chunk, encoding, callback) {
+      write(_chunk, _encoding, callback) {
         callback();
       },
     });
@@ -55,12 +61,7 @@ class FakeChildProcess extends EventEmitter implements ChildProcess {
     return true;
   }
 
-  send(
-    _message: any,
-    _sendHandle?: any,
-    _options?: any,
-    _callback?: (error: Error | null) => void,
-  ): boolean {
+  send(_message: any, _sendHandle?: any, _options?: any, _callback?: (error: Error | null) => void): boolean {
     return false;
   }
 

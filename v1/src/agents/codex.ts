@@ -10,8 +10,8 @@
 // `--color never`: documented on `codex exec --help`; disables ANSI so session
 // logs match Claude/Cursor-style plain text more closely.
 
-import { randomUUID } from "node:crypto";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { computeCost } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
 import { getCodexSessionsDir, resolveCodexSessionUsage, snapshotCodexSessionFiles } from "./codex-session.ts";
@@ -63,15 +63,7 @@ export class CodexAgent implements Agent {
       binary: this.#binary,
       cwd: opts.cwd,
       buildArgv: (_prompt, opts) => {
-        const argv = [
-          "exec",
-          "--color",
-          "never",
-          "--sandbox",
-          "workspace-write",
-          "-c",
-          'approval_policy="on-request"',
-        ];
+        const argv = ["exec", "--color", "never", "--sandbox", "workspace-write", "-c", 'approval_policy="on-request"'];
         for (const dir of opts.additionalReadDirs ?? []) {
           argv.push("--add-dir", dir);
         }

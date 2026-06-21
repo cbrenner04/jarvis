@@ -1,7 +1,11 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
-import { type ExternalWorktreeInput, type LockStatus, type WithExternalWorktreeResult, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
+import {
+  type ExternalWorktreeInput,
+  type LockStatus,
+  withExternalWorktree as realWithExternalWorktree,
+} from "./external-worktree.ts";
 import { runStep, type StepRunResult } from "./step-runner.ts";
 import { renderWriteExecutePrompt } from "./write-prompt.ts";
 

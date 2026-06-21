@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CodexAgent } from "../../src/agents/codex.ts";
@@ -25,7 +25,7 @@ function withHome<T>(home: string, fn: () => T | Promise<T>): T | Promise<T> {
   }
 }
 
-function expectAugmentedPrompt(stdin: string, basePrompt: string): void {
+function _expectAugmentedPrompt(stdin: string, basePrompt: string): void {
   expect(stdin.startsWith(`${basePrompt}\n`)).toBe(true);
   expect(stdin).toMatch(/<!-- jarvis-codex-invocation: [0-9a-f-]{36} -->$/);
 }

@@ -25,7 +25,7 @@ export class MockClock {
     return { unref: () => {}, ref: () => {} } as NodeJS.Timeout;
   }
 
-  clearTimeout(handle: NodeJS.Timeout): void {
+  clearTimeout(_handle: NodeJS.Timeout): void {
     // Find and remove by searching for the handle's corresponding id
     // Since we don't track handle -> id mapping, we clean up during advance()
   }
@@ -37,7 +37,7 @@ export class MockClock {
     return { unref: () => {}, ref: () => {} } as NodeJS.Timeout;
   }
 
-  clearInterval(handle: NodeJS.Timeout): void {
+  clearInterval(_handle: NodeJS.Timeout): void {
     // Same as clearTimeout - we clean up during advance()
   }
 
@@ -59,14 +59,16 @@ export class MockClock {
   /** Run all currently due callbacks without advancing time. */
   runAll(): void {
     while (this.scheduledTimeouts.size > 0 || this.scheduledIntervals.size > 0) {
-      const nextTimeout = Array.from(this.scheduledTimeouts.values()).sort(
-        (a, b) => a.dueMs - b.dueMs,
-      )[0];
-      const nextInterval = Array.from(this.scheduledIntervals.values()).sort(
-        (a, b) => a.dueMs - b.dueMs,
-      )[0];
+      const nextTimeout = Array.from(this.scheduledTimeouts.values()).sort((a, b) => a.dueMs - b.dueMs)[0];
+      const nextInterval = Array.from(this.scheduledIntervals.values()).sort((a, b) => a.dueMs - b.dueMs)[0];
 
-      const next = !nextTimeout ? nextInterval : !nextInterval ? nextTimeout : nextTimeout.dueMs < nextInterval.dueMs ? nextTimeout : nextInterval;
+      const next = !nextTimeout
+        ? nextInterval
+        : !nextInterval
+          ? nextTimeout
+          : nextTimeout.dueMs < nextInterval.dueMs
+            ? nextTimeout
+            : nextInterval;
 
       if (!next) break;
 
@@ -77,9 +79,7 @@ export class MockClock {
 
   private _runCallbacks(): void {
     // Run all due timeouts once
-    const dueTimeouts = Array.from(this.scheduledTimeouts.values()).filter(
-      (cb) => cb.dueMs <= this.currentMs,
-    );
+    const dueTimeouts = Array.from(this.scheduledTimeouts.values()).filter((cb) => cb.dueMs <= this.currentMs);
     for (const cb of dueTimeouts) {
       this.scheduledTimeouts.delete(cb.id);
       try {
@@ -90,9 +90,7 @@ export class MockClock {
     }
 
     // Run all due intervals and reschedule them
-    const dueIntervals = Array.from(this.scheduledIntervals.values()).filter(
-      (cb) => cb.dueMs <= this.currentMs,
-    );
+    const dueIntervals = Array.from(this.scheduledIntervals.values()).filter((cb) => cb.dueMs <= this.currentMs);
     for (const cb of dueIntervals) {
       // Reschedule interval (guess at the interval duration from the last scheduled time)
       const interval = 100; // Default poll interval, could be configurable

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
-import { type ExternalWorktree, type WithExternalWorktreeResult } from "./external-worktree.ts";
+import type { ExternalWorktree, WithExternalWorktreeResult } from "./external-worktree.ts";
 import { executeWrite } from "./write.ts";
 
 const roots: string[] = [];
@@ -40,11 +40,7 @@ function setupRepo(): { jarvisRoot: string } {
   return { jarvisRoot };
 }
 
-function runWrite(args: {
-  jarvisRoot: string;
-  bindings: readonly InvocationBinding[];
-  artifactPath?: string;
-}) {
+function runWrite(args: { jarvisRoot: string; bindings: readonly InvocationBinding[]; artifactPath?: string }) {
   return executeWrite({
     worktree: {
       projectRoot: "/fake",

@@ -1,6 +1,6 @@
 import { appendFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
-import { getExternalWorktreePath, withExternalWorktree as realWithExternalWorktree } from "./external-worktree.ts";
+import { getExternalWorktreePath } from "./external-worktree.ts";
 import { type OutcomeKind, openStateStore, type RunStatus, type StateStore } from "./state-store.ts";
 import type { StepRunResult } from "./step-runner.ts";
 import { executeWrite, type WriteExecuteInput } from "./write.ts";

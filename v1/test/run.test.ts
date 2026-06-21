@@ -31,7 +31,6 @@ import {
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../src/quota-harness-messages.ts";
-import { MockClock } from "./mock-clock.ts";
 
 function captureIo(): { io: RunIo; out: () => string; err: () => string } {
   let out = "";
@@ -4255,7 +4254,6 @@ exit 0
       expect(cap.err()).toContain("exceeded timeout");
     });
 
-
     test("watchdog timeout with pgid unavailable records last_output_age_ms only", async () => {
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
@@ -4321,7 +4319,6 @@ exit 0
       expect(timeoutRow).not.toHaveProperty("watchdog_pgid");
       expect(timeoutRow).not.toHaveProperty("watchdog_descendants_alive");
     });
-
 
     test("global run timeout causes exit code 8", async () => {
       const spec = writeSpec("- [ ] todo\n");

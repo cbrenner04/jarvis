@@ -46,7 +46,7 @@ are refactored here.
 - [x] `findings.md` records the green basis (suite measured sandbox-off; marked-exception files run, not excluded) and a per-target assertion inventory (+ coverage numbers if emitted) as the baseline 05 checks for no-net-coverage-loss.
 - [x] `findings.md` lists any redundant or slow tests flagged for merge/drop, or states none found.
 - [x] `v2/docs/test-writing.md` contains a determinism smell checklist covering real process spawn, wall-clock/timing dependence, ordering/parallelism sensitivity, redundancy, and slow tests; and its "Out of scope" section no longer disavows converting existing tests.
-- [ ] No `*.test.ts` source file is modified by this subspec; `bun run test` and `bun run typecheck` pass.
+- [x] No `*.test.ts` source file is modified by this subspec; `bun run test` and `bun run typecheck` pass.
 
 ## Documentation updates
 

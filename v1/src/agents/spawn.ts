@@ -17,11 +17,7 @@ export interface SpawnConfig {
   env?: Record<string, string>;
 }
 
-function singleSpawn(
-  config: SpawnConfig,
-  prompt: string,
-  opts: AgentRunOptions,
-): Promise<AgentResult> {
+function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
   return new Promise((resolvePromise) => {
     const argv = config.buildArgv(prompt, opts);
     const env = { ...process.env, PWD: config.cwd, ...config.env } as Record<string, string>;
@@ -195,29 +191,29 @@ function singleSpawn(
 
 const TRANSIENT_RETRY_CAP = 2;
 
-export function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-  return new Promise(async (resolvePromise) => {
-    for (let attempt = 0; attempt <= TRANSIENT_RETRY_CAP; attempt++) {
-      const result = await singleSpawn(config, prompt, opts);
+export async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+  for (let attempt = 0; attempt <= TRANSIENT_RETRY_CAP; attempt++) {
+    const result = await singleSpawn(config, prompt, opts);
 
-      // Check if we should retry on transient error
-      if (
-        attempt < TRANSIENT_RETRY_CAP &&
-        result.kind === "error" &&
-        !opts.signal?.aborted &&
-        isTransientSignal(config.name, result.exitCode, result.stderr)
-      ) {
-        opts.onTransientRetry?.({
-          attempt: attempt + 1,
-          cap: TRANSIENT_RETRY_CAP,
-          agent: config.name,
-          exitCode: result.exitCode,
-        });
-        continue;
-      }
-
-      // Return on first non-transient result or when cap is reached
-      return resolvePromise(result);
+    // Check if we should retry on transient error
+    if (
+      attempt < TRANSIENT_RETRY_CAP &&
+      result.kind === "error" &&
+      !opts.signal?.aborted &&
+      isTransientSignal(config.name, result.exitCode, result.stderr)
+    ) {
+      opts.onTransientRetry?.({
+        attempt: attempt + 1,
+        cap: TRANSIENT_RETRY_CAP,
+        agent: config.name,
+        exitCode: result.exitCode,
+      });
+      continue;
     }
-  });
+
+    // Return on first non-transient result or when cap is reached
+    return result;
+  }
+
+  throw new Error("Unexpected: retry loop should always return");
 }

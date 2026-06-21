@@ -383,11 +383,7 @@ describe("ready install digest", () => {
   });
 });
 
-function withSignalOrTimeoutTest(
-  testName: string,
-  exitCode: number,
-  expectedCommands: string[],
-): void {
+function withSignalOrTimeoutTest(testName: string, exitCode: number, expectedCommands: string[]): void {
   test(testName, async () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-signal-timeout-"));
     const executed: string[] = [];

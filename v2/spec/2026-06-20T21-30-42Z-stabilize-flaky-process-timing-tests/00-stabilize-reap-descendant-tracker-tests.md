@@ -25,10 +25,10 @@ Under `bun test --parallel` on a loaded machine, CPU contention slows process sp
 
 ## Acceptance criteria
 
-- [ ] The two named `DescendantTracker` tests in `v1/test/modes/patch/reap.test.ts` pass in isolation and inside the full `bun run test` run, and no longer read scheduler/wall-clock timing as a pass/fail axis (structurally deterministic, not statistically de-flaked).
-- [ ] Their assertion intent is preserved: pre-kill descendant capture, re-parent-to-init detection, identity-based reap, and the exited-PID reuse guard each still verify the same behavior (no deleted or weakened checks); the mechanism still fails a genuinely broken reaping implementation.
-- [ ] No change to `v1/src/modes/patch/reap.ts`; changes are confined to `reap.test.ts` and any test-only helper it imports.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] The two named `DescendantTracker` tests in `v1/test/modes/patch/reap.test.ts` pass in isolation and inside the full `bun run test` run, and no longer read scheduler/wall-clock timing as a pass/fail axis (structurally deterministic, not statistically de-flaked).
+- [x] Their assertion intent is preserved: pre-kill descendant capture, re-parent-to-init detection, identity-based reap, and the exited-PID reuse guard each still verify the same behavior (no deleted or weakened checks); the mechanism still fails a genuinely broken reaping implementation.
+- [x] A minimal dependency-injection seam (optional constructor `listProcesses`/`kill` providers) is added to `DescendantTracker` in `v1/src/modes/patch/reap.ts` for testability; production behavior is unchanged (defaults to the real OS calls). Test changes are otherwise confined to `reap.test.ts`. [approach revised per operator steer: inject a fixed process table rather than spawn real processes]
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

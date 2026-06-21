@@ -522,11 +522,19 @@ describe("runPlanReviewPhase git-disabled", () => {
         createAgent: () =>
           new FakeAgent("claude", (prompt) => {
             if (prompt.includes("Review: Adversary")) {
-              writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] reviewer-edit\n", "utf8");
+              writeFileSync(
+                join(specDir, "00-one.md"),
+                "# One\n\n## Acceptance criteria\n\n- [ ] reviewer-edit\n",
+                "utf8",
+              );
               return { kind: "ok", stdout: "Adversary findings.\n", stderr: "" };
             }
             if (prompt.includes("Review Verdict")) {
-              writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] actuator-edit\n", "utf8");
+              writeFileSync(
+                join(specDir, "00-one.md"),
+                "# One\n\n## Acceptance criteria\n\n- [ ] actuator-edit\n",
+                "utf8",
+              );
               return { kind: "ok", stdout: "", stderr: "" };
             }
             return { kind: "ok", stdout: "No objections.\n", stderr: "" };

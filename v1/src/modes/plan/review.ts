@@ -31,8 +31,8 @@ import {
   listSpecDirChanges,
   resolvePlanSpecDirPath,
   restoreSpecDirSnapshot,
-  snapshotSpecDirFiles,
   type SpecDirSnapshot,
+  snapshotSpecDirFiles,
 } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 import { runVerdictActuator } from "./verdict-actuator.ts";
@@ -631,7 +631,11 @@ function createPlanReviewAdapter(args: {
     commitPass: async (ctx) => {
       // Store role artifact before committing (for next role or actuator)
       if (ctx.result.kind === "ok" && ctx.role) {
-        const artifactPath = getRoleArtifactPath(opts.commit ? opts.worktreePath : finalSpecPath, ctx.role, ctx.passNumber);
+        const artifactPath = getRoleArtifactPath(
+          opts.commit ? opts.worktreePath : finalSpecPath,
+          ctx.role,
+          ctx.passNumber,
+        );
         try {
           writeFileSync(artifactPath, ctx.result.stdout, "utf8");
         } catch (err) {
@@ -686,7 +690,11 @@ function createPlanReviewAdapter(args: {
 
       // Clean up temp artifact files (don't commit them)
       if (ctx.role) {
-        const artifactPath = getRoleArtifactPath(opts.commit ? opts.worktreePath : finalSpecPath, ctx.role, ctx.passNumber);
+        const artifactPath = getRoleArtifactPath(
+          opts.commit ? opts.worktreePath : finalSpecPath,
+          ctx.role,
+          ctx.passNumber,
+        );
         try {
           if (opts.commit) {
             execFileSync("git", ["reset", "HEAD", "--", artifactPath], {

@@ -473,7 +473,9 @@ async function ensureUniquePlanName(
   let suffix = 2;
   while (true) {
     finalName = `${baseName}-${suffix}`;
-    if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp, checkCommittedPlanState)) {
+    if (
+      !planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp, checkCommittedPlanState)
+    ) {
       return finalName;
     }
     suffix += 1;

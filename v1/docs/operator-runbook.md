@@ -4,19 +4,17 @@ Reference for recurring session friction: patterns, workflows, and recovery path
 
 ## Background-run-and-poll pattern
 
-When spawning a long-running jarvis invocation that might outlast the current shell session, use tracked runners instead of bare shell backgrounding:
+When spawning a long-running jarvis invocation that might outlast the current shell session, use a tracked runner:
 
 ```sh
-# Good: nohup + poll
 nohup jarvis1 run <spec> >run.log 2>&1 &
-# then poll: tail -f run.log, or check git branch changes
-
-# Avoid: bare shell &
-jarvis1 run <spec> &
-# Process dies with shell; no recovery path
+screen -d -m jarvis1 run <spec>
+tmux new-session -d -s jarvis1 "jarvis1 run <spec>"
 ```
 
-Rationale: bare `&` backgrounds the process in the current job pool, so closing the terminal kills the agent. A tracked runner (`nohup`, `screen`, `tmux`, or a systemd timer) survives the session and leaves a durable log.
+Then poll: `tail -f run.log`, or check `git log --oneline -n 10` for branch changes.
+
+Avoid bare shell `&` (process dies when shell exits). Tracked runners (`nohup`, `screen`, `tmux`, or systemd timer) survive shell exit and leave a durable log.
 
 ## Integration-merge-then-retest pattern
 
@@ -61,11 +59,17 @@ The sandbox (in Claude Code) may hide real process state in several ways:
 
 ### `ps` and `pgrep` blindness
 
-`ps` and `pgrep` can only see processes in the current execution context; background processes spawned outside the sandbox are invisible. This means:
+`ps` and `pgrep` can only see processes in the current execution context; background processes spawned outside the sandbox are invisible. A background agent (`nohup jarvis1 run ...`) won't show up in `pgrep` queries inside. When matching process names, use stable substrings that won't collide with unrelated processes:
 
-- A background agent (`nohup jarvis1 run ...`) running outside the sandbox won't show up in `ps` or `pgrep` queries run inside.
-- Checking "is the run still going?" with `pgrep jarvis` inside the sandbox returns false negatives.
-- **Workaround**: poll the log file (`tail -f run.log`) or check git history (`git log --oneline -n 10`) instead of process queries.
+```sh
+pgrep -f 'jarvis1 run'        # Good: specific command token
+pgrep -f '/Users/.*/bin/jarvis1'  # Better: full path if spawned that way
+pgrep -f 'run'                # Risky: too generic, matches other things
+```
+
+Rationale: process argument strings can be rewritten by init systems. A substring like `jarvis1 run` is stable across launchers; generic tokens like `run` alone can match unrelated processes.
+
+**Workaround**: poll the log file (`tail -f run.log`) or check git history (`git log --oneline -n 10`) instead of process queries.
 
 ### Localhost/auth blindness
 
@@ -73,23 +77,6 @@ Network requests to `localhost` and POSIX auth operations (reading `~/.netrc`, S
 
 - A background agent that needs to authenticate (e.g., against GitHub or a private registry) may hang or fail silently.
 - **Workaround**: for long background runs, ensure auth is set up *outside* the sandbox first (e.g., `gh auth status`), and test network operations in a non-sandbox shell.
-
-## Stable-substring `pgrep` matching
-
-When matching process names with `pgrep`, use stable substrings that won't collide with unrelated processes:
-
-```sh
-# Good: specific command token
-pgrep -f 'jarvis1 run' | head -1
-
-# Risky: too generic, matches other things
-pgrep -f 'run'
-
-# Better: full path if spawned that way
-pgrep -f '/Users/.*/bin/jarvis1'
-```
-
-Rationale: process argument strings can be rewritten by init systems or job runners. A substring like `jarvis1 run` is stable across common launchers; a generic token like `run` or even `jarvis` alone can match unrelated processes.
 
 ## Branch-protection and admin-merge workflow
 
@@ -122,30 +109,6 @@ These are Biome commands with different rule coverage and mutability:
 The full ready tier (run at admin-merge time) applies `check:fix:unsafe` first, then runs the full lint gate (`check`), ensuring that even aggressive fixes pass final review.
 
 Note: `noImplicitAny` is a TypeScript compiler flag (in `tsconfig.json`), not a Biome fix target; lint and type-checking are separate gates. Typecheck is its own `bun run typecheck` step.
-
-## Tracked-runner vs shell backgrounding
-
-### Shell backgrounding (`&`)
-
-```sh
-jarvis1 run <spec> &
-```
-
-Advantages: simple, no extra tool.
-Disadvantages: process dies when shell exits; no durable log without explicit redirection; no polling mechanism.
-
-### Tracked runners
-
-```sh
-nohup jarvis1 run <spec> >run.log 2>&1 &
-screen -d -m jarvis1 run <spec>
-tmux new-session -d -s jarvis1 "jarvis1 run <spec>"
-```
-
-Advantages: survives shell exit; durable log; can be resumed/polled.
-Disadvantages: requires extra tool or setup.
-
-For any spec that might run longer than the current shell session (tests, large refactors, multi-day runs), use a tracked runner.
 
 ## Branch-before-edit discipline
 

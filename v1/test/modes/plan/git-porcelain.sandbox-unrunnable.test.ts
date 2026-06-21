@@ -1,3 +1,4 @@
+// This test requires real git porcelain output contract.
 import { describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";

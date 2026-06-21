@@ -1,3 +1,4 @@
+// This test requires real git worktree / review-flow repository state.
 import { describe, expect, test } from "bun:test";
 import { execFileSync, execSync } from "node:child_process";
 import { randomBytes } from "node:crypto";

@@ -1,3 +1,4 @@
+// This test requires real git commit / diff state for plan PR rendering and commit selection.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync, execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";

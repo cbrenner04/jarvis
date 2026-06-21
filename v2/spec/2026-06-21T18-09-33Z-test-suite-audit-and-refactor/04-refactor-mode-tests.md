@@ -23,10 +23,10 @@ Files: `modes/patch/{reap,shrink,subspec}`, `modes/plan/{boundary,git-porcelain,
 
 ## Acceptance criteria
 
-- [ ] Every `refactor`-verdict file under `v1/test/modes/` no longer spawns a real OS process; `already-deterministic` files (including `reap.test.ts`) are unchanged; `marked-exception` files are renamed `*.sandbox-unrunnable.test.ts` with a justification comment.
-- [ ] The mode tests stay green (behavior unchanged) under `bun test --parallel`.
-- [ ] No mode production behavior changes beyond additive, default-preserving DI seams; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
-- [ ] `bun run test` and `bun run typecheck` pass.
+- [x] Every `refactor`-verdict file under `v1/test/modes/` no longer spawns a real OS process; `already-deterministic` files (including `reap.test.ts`) are unchanged; `marked-exception` files are renamed `*.sandbox-unrunnable.test.ts` with a justification comment.
+- [x] The mode tests stay green (behavior unchanged) under `bun test --parallel`.
+- [x] No mode production behavior changes beyond additive, default-preserving DI seams; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
+- [x] `bun run test` and `bun run typecheck` pass.
 
 ## Documentation updates
 

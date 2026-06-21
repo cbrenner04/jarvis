@@ -203,7 +203,7 @@ export function getReadyCommands(tier: ReadyTier, opts: { runInstall: boolean })
   }
 
   commands.push(
-    { name: "bun", args: ["run", "check:fix"] },
+    { name: "bun", args: ["run", "check:fix:unsafe"] },
     { name: "bun", args: ["run", "typecheck"] },
     { name: "bun", args: ["run", "test"] },
     { name: "bun", args: ["run", "check"] },

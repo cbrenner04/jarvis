@@ -144,10 +144,10 @@ describe("ready tier parsing and step lists", () => {
     ]);
   });
 
-  test("full tier runs check:fix, typecheck, test, and check after install", () => {
+  test("full tier runs check:fix:unsafe, typecheck, test, and check after install", () => {
     expect(getReadyCommands("full", { runInstall: true })).toEqual([
       { name: "bun", args: ["install", "--frozen-lockfile"] },
-      { name: "bun", args: ["run", "check:fix"] },
+      { name: "bun", args: ["run", "check:fix:unsafe"] },
       { name: "bun", args: ["run", "typecheck"] },
       { name: "bun", args: ["run", "test"] },
       { name: "bun", args: ["run", "check"] },
@@ -156,17 +156,19 @@ describe("ready tier parsing and step lists", () => {
 
   test("full tier skips install in the command list when runInstall is false", () => {
     const commands = getReadyCommands("full", { runInstall: false });
-    const checkFixIndex = commands.findIndex((command) => command.args[0] === "run" && command.args[1] === "check:fix");
+    const checkFixIndex = commands.findIndex(
+      (command) => command.args[0] === "run" && command.args[1] === "check:fix:unsafe",
+    );
     const installIndex = commands.findIndex((command) => command.args[0] === "install");
 
     expect(checkFixIndex).toBe(0);
     expect(installIndex).toBe(-1);
-    expect(commands.map((command) => command.args[1])).toEqual(["check:fix", "typecheck", "test", "check"]);
+    expect(commands.map((command) => command.args[1])).toEqual(["check:fix:unsafe", "typecheck", "test", "check"]);
   });
 
-  test("full tier keeps install before check:fix when install runs", () => {
+  test("full tier keeps install before check:fix:unsafe when install runs", () => {
     const readySource = readFileSync("./scripts/ready.ts", "utf8");
-    const checkFixIndex = readySource.indexOf('{ name: "bun", args: ["run", "check:fix"]');
+    const checkFixIndex = readySource.indexOf('{ name: "bun", args: ["run", "check:fix:unsafe"]');
     const installIndex = readySource.indexOf('{ name: "bun", args: ["install",');
 
     expect(checkFixIndex).toBeGreaterThan(0);
@@ -223,7 +225,7 @@ describe("ready tier parsing and step lists", () => {
 
       expect(executed[0]).toBe("install --frozen-lockfile");
       expect(executed.slice(1).map((step) => step.replace(/^run /, ""))).toEqual([
-        "check:fix",
+        "check:fix:unsafe",
         "typecheck",
         "test",
         "check",
@@ -331,7 +333,12 @@ describe("ready install digest", () => {
       });
     });
 
-    expect(executed.map((step) => step.replace(/^run /, ""))).toEqual(["check:fix", "typecheck", "test", "check"]);
+    expect(executed.map((step) => step.replace(/^run /, ""))).toEqual([
+      "check:fix:unsafe",
+      "typecheck",
+      "test",
+      "check",
+    ]);
     expect(readRecordedInstallDigest(repoRoot)).toBe(digest);
   });
 
@@ -375,6 +382,50 @@ describe("ready install digest", () => {
     expect(readRecordedInstallDigest(worktree)).toBe("wt-digest");
   });
 });
+
+function withSignalOrTimeoutTest(testName: string, exitCode: number, expectedCommands: string[]): void {
+  test(testName, async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-signal-timeout-"));
+    const executed: string[] = [];
+
+    try {
+      const origExit = process.exit;
+      process.exit = ((code: number) => {
+        throw new Error(`process.exit(${code})`);
+      }) as never;
+
+      try {
+        await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
+          try {
+            await runReady({
+              repoRoot,
+              runCommandFn: async (_name, args) => {
+                const step = args.join(" ");
+                executed.push(step);
+                if (step === "run test") {
+                  return exitCode;
+                }
+                return 0;
+              },
+            });
+          } catch (err) {
+            if (String(err).includes("process.exit")) {
+              // Expected
+            } else {
+              throw err;
+            }
+          }
+        });
+      } finally {
+        process.exit = origExit;
+      }
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+
+    expect(executed).toEqual(expectedCommands);
+  });
+}
 
 describe("ready serial-retry on test failure", () => {
   test("serial-green recovers: parallel test fails, serial test passes, remaining commands run", async () => {
@@ -421,8 +472,8 @@ describe("ready serial-retry on test failure", () => {
         process.stderr.write = origWrite;
       }
 
-      // Verify execution order: check:fix, typecheck, parallel test (fails), serial test (passes), check
-      expect(executed).toEqual(["run check:fix", "run typecheck", "run test", "test", "run check"]);
+      // Verify execution order: check:fix:unsafe, typecheck, parallel test (fails), serial test (passes), check
+      expect(executed).toEqual(["run check:fix:unsafe", "run typecheck", "run test", "test", "run check"]);
 
       // Verify the recovery signal is logged
       const stderr = stderrLines.join("");
@@ -512,8 +563,8 @@ describe("ready serial-retry on test failure", () => {
               runCommandFn: async (_name, args) => {
                 const step = args.join(" ");
                 executed.push(step);
-                // check:fix fails; no serial retry should happen
-                if (step === "run check:fix") {
+                // check:fix:unsafe fails; no serial retry should happen
+                if (step === "run check:fix:unsafe") {
                   return 1;
                 }
                 return 0;
@@ -534,139 +585,22 @@ describe("ready serial-retry on test failure", () => {
       rmSync(repoRoot, { recursive: true, force: true });
     }
 
-    // Verify check:fix ran and failed without any retry
-    expect(executed).toEqual(["install --frozen-lockfile", "run check:fix"]);
+    // Verify check:fix:unsafe ran and failed without any retry
+    expect(executed).toEqual(["install --frozen-lockfile", "run check:fix:unsafe"]);
   });
 
-  test("test timeout (exit code 124) does not trigger serial retry", async () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-timeout-"));
-    const executed: string[] = [];
+  withSignalOrTimeoutTest("test timeout (exit code 124) does not trigger serial retry", 124, [
+    "run typecheck",
+    "run test",
+  ]);
 
-    try {
-      const origExit = process.exit;
-      process.exit = ((code: number) => {
-        throw new Error(`process.exit(${code})`);
-      }) as never;
+  withSignalOrTimeoutTest("test SIGINT exit (exit code 130) does not trigger serial retry", 130, [
+    "run typecheck",
+    "run test",
+  ]);
 
-      try {
-        await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
-          try {
-            await runReady({
-              repoRoot,
-              runCommandFn: async (_name, args) => {
-                const step = args.join(" ");
-                executed.push(step);
-                // Parallel test times out (exit code 124)
-                if (step === "run test") {
-                  return 124; // TIMEOUT_EXIT_CODE
-                }
-                return 0;
-              },
-            });
-          } catch (err) {
-            if (String(err).includes("process.exit")) {
-              // Expected
-            } else {
-              throw err;
-            }
-          }
-        });
-      } finally {
-        process.exit = origExit;
-      }
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true });
-    }
-
-    // Verify timeout exit did not trigger serial retry
-    expect(executed).toEqual(["run typecheck", "run test"]);
-  });
-
-  test("test SIGINT exit (exit code 130) does not trigger serial retry", async () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-sigint-"));
-    const executed: string[] = [];
-
-    try {
-      const origExit = process.exit;
-      process.exit = ((code: number) => {
-        throw new Error(`process.exit(${code})`);
-      }) as never;
-
-      try {
-        await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
-          try {
-            await runReady({
-              repoRoot,
-              runCommandFn: async (_name, args) => {
-                const step = args.join(" ");
-                executed.push(step);
-                // Parallel test killed by SIGINT (exit code 130)
-                if (step === "run test") {
-                  return 130; // SIGNAL_EXIT_CODES[SIGINT]
-                }
-                return 0;
-              },
-            });
-          } catch (err) {
-            if (String(err).includes("process.exit")) {
-              // Expected
-            } else {
-              throw err;
-            }
-          }
-        });
-      } finally {
-        process.exit = origExit;
-      }
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true });
-    }
-
-    // Verify SIGINT exit did not trigger serial retry
-    expect(executed).toEqual(["run typecheck", "run test"]);
-  });
-
-  test("test SIGTERM exit (exit code 143) does not trigger serial retry", async () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), "jarvis-ready-sigterm-"));
-    const executed: string[] = [];
-
-    try {
-      const origExit = process.exit;
-      process.exit = ((code: number) => {
-        throw new Error(`process.exit(${code})`);
-      }) as never;
-
-      try {
-        await withEnvAsync("JARVIS_READY_TIER", "fast", async () => {
-          try {
-            await runReady({
-              repoRoot,
-              runCommandFn: async (_name, args) => {
-                const step = args.join(" ");
-                executed.push(step);
-                // Parallel test killed by SIGTERM (exit code 143)
-                if (step === "run test") {
-                  return 143; // SIGNAL_EXIT_CODES[SIGTERM]
-                }
-                return 0;
-              },
-            });
-          } catch (err) {
-            if (String(err).includes("process.exit")) {
-              // Expected
-            } else {
-              throw err;
-            }
-          }
-        });
-      } finally {
-        process.exit = origExit;
-      }
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true });
-    }
-
-    // Verify SIGTERM exit did not trigger serial retry
-    expect(executed).toEqual(["run typecheck", "run test"]);
-  });
+  withSignalOrTimeoutTest("test SIGTERM exit (exit code 143) does not trigger serial retry", 143, [
+    "run typecheck",
+    "run test",
+  ]);
 });

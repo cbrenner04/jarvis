@@ -34,17 +34,17 @@ of this change.)
 
 ## Task checklist
 
-- [ ] Swap `check:fix` → `check:fix:unsafe` in the full-tier branch of `getReadyCommands` (`scripts/ready.ts`).
-- [ ] Update all affected `ready-script.test.ts` sites: every order assertion plus the source-string guard that matches on the `check:fix` literal.
-- [ ] Update every `v2/docs/v1-behaviors.md` entry naming the old pipeline (completion-gate `:50`, review-phase baseline `:40`, plan-mode ready `:297`, ready-pipeline `:368`).
+- [x] Swap `check:fix` → `check:fix:unsafe` in the full-tier branch of `getReadyCommands` (`scripts/ready.ts`).
+- [x] Update all affected `ready-script.test.ts` sites: every order assertion plus the source-string guard that matches on the `check:fix` literal.
+- [x] Update every `v2/docs/v1-behaviors.md` entry naming the old pipeline (completion-gate `:50`, review-phase baseline `:40`, plan-mode ready `:297`, ready-pipeline `:368`).
 
 ## Acceptance criteria
 
-- [ ] `getReadyCommands("full", { runInstall: true })` returns the auto-fix step as `bun run check:fix:unsafe` (not `check:fix`), positioned before typecheck/test/check.
-- [ ] The full-tier sequence still ends with `bun run check` as the final step.
-- [ ] Fast tier is unchanged (`typecheck` then `test`, no auto-fix, no `check`).
-- [ ] `ready-script.test.ts` order assertions and the source-string guard stay green against the new `["check:fix:unsafe", "typecheck", "test", "check"]` sequence.
-- [ ] `ready-gate.test.ts` stays green (commit-and-recheck mechanics unchanged by the command swap).
+- [x] `getReadyCommands("full", { runInstall: true })` returns the auto-fix step as `bun run check:fix:unsafe` (not `check:fix`), positioned before typecheck/test/check.
+- [x] The full-tier sequence still ends with `bun run check` as the final step.
+- [x] Fast tier is unchanged (`typecheck` then `test`, no auto-fix, no `check`).
+- [x] `ready-script.test.ts` order assertions and the source-string guard stay green against the new `["check:fix:unsafe", "typecheck", "test", "check"]` sequence.
+- [x] `ready-gate.test.ts` stays green (commit-and-recheck mechanics unchanged by the command swap).
 
 ## Documentation updates
 

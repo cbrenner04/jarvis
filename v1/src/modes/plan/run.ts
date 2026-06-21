@@ -608,7 +608,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
     const fullProject = cfg.projects[project.key];
     const gitEnabled = effectiveGit(cfg, project.key);
-    const { specTimestamp, commit: configuredCommit, targetDir: resolvedTargetDir } = resolvePlanFlags(cfg, fullProject);
+    const {
+      specTimestamp,
+      commit: configuredCommit,
+      targetDir: resolvedTargetDir,
+    } = resolvePlanFlags(cfg, fullProject);
     const commit = gitEnabled ? configuredCommit : false;
     const targetDir = inv.targetDir ?? resolvedTargetDir;
     planHarnessLog(

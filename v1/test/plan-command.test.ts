@@ -96,10 +96,7 @@ class FakeAgent implements Agent {
   readonly name: AgentName;
   readonly #runImpl: (prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>;
 
-  constructor(
-    name: AgentName,
-    runImpl: (prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>,
-  ) {
+  constructor(name: AgentName, runImpl: (prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>) {
     this.name = name;
     this.#runImpl = runImpl;
   }
@@ -283,11 +280,11 @@ describe("planCommand", () => {
       expect(cap.out()).toContain("/specs/project/");
       expect(cap.out()).toContain("jarvis1 run ");
       expect(existsSync(join(project, ".worktree", "plan-git-false-loop-only"))).toBe(false);
-      expect(execSync("git branch --list plan/git-false-loop-only", { cwd: project, encoding: "utf8" }).trim()).toBe("");
+      expect(execSync("git branch --list plan/git-false-loop-only", { cwd: project, encoding: "utf8" }).trim()).toBe(
+        "",
+      );
 
-      const specPath = cap
-        .out()
-        .match(/Spec written to (.+\/index\.md)\n/)?.[1];
+      const specPath = cap.out().match(/Spec written to (.+\/index\.md)\n/)?.[1];
       expect(specPath).toBeTruthy();
       if (specPath) {
         expect(readFileSync(specPath, "utf8")).toContain("repo:");
@@ -312,8 +309,16 @@ describe("planCommand", () => {
 
       const externalSpecDir = join(cfgDir, "specs", "project", "2026-06-21T17-50-11Z-resume-git-false");
       mkdirSync(externalSpecDir, { recursive: true });
-      writeFileSync(join(externalSpecDir, "intent.md"), "---\nname: resume-git-false\n---\n\n## Prerequisites\n\nnone\n", "utf8");
-      writeFileSync(join(externalSpecDir, "index.md"), "# Resume Spec\n\nrepo: project\n\n- [ ] [00](./00-one.md)\n", "utf8");
+      writeFileSync(
+        join(externalSpecDir, "intent.md"),
+        "---\nname: resume-git-false\n---\n\n## Prerequisites\n\nnone\n",
+        "utf8",
+      );
+      writeFileSync(
+        join(externalSpecDir, "index.md"),
+        "# Resume Spec\n\nrepo: project\n\n- [ ] [00](./00-one.md)\n",
+        "utf8",
+      );
       writeFileSync(join(externalSpecDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] stay\n", "utf8");
 
       const cap = captureIo();
@@ -391,9 +396,7 @@ describe("planCommand", () => {
       expect(existsSync(join(project, ".worktree", "plan-git-false-review"))).toBe(false);
       expect(execSync("git branch --list plan/git-false-review", { cwd: project, encoding: "utf8" }).trim()).toBe("");
 
-      const specPath = cap
-        .out()
-        .match(/Spec written to (.+\/index\.md)\n/)?.[1];
+      const specPath = cap.out().match(/Spec written to (.+\/index\.md)\n/)?.[1];
       expect(specPath).toBeTruthy();
       if (specPath) {
         expect(readFileSync(join(dirname(specPath), "00-one.md"), "utf8")).toContain("reviewed");

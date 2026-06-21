@@ -444,7 +444,7 @@ describe("runPlanReviewPhase", () => {
       mkdirSync(join(project, "spec", "unrelated"), { recursive: true });
       writeFileSync(join(project, "spec", "unrelated", "note.md"), "dirty\n");
 
-      const agent = new FakeAgent("claude", (_c, prompt, opts) => {
+      const agent = new FakeAgent("claude", (_c, prompt, _opts) => {
         if (prompt.includes("Review Verdict")) {
           writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] y\n");
           return { kind: "ok", stdout: "", stderr: "" };

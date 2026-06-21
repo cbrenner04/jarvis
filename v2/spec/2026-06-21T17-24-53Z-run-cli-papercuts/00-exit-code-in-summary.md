@@ -36,16 +36,16 @@ self-describing on its own.
 
 ## Acceptance criteria
 
-- [ ] The `jarvis run` summary's `exit reason:` line includes the numeric process exit
+- [x] The `jarvis run` summary's `exit reason:` line includes the numeric process exit
       code alongside the reason word (e.g. `exit reason: quota-exhausted (exit code 2)`),
       on both the telemetry and no-telemetry summary branches.
-- [ ] The `v1/docs/run-loop.md` exit-code legend maps each code to the reason word
+- [x] The `v1/docs/run-loop.md` exit-code legend maps each code to the reason word
       `mapExitCodeToReason` returns for it.
-- [ ] A `run-summary` test asserts the composed `<reason-word> (exit code <n>)` shape on
+- [x] A `run-summary` test asserts the composed `<reason-word> (exit code <n>)` shape on
       the no-telemetry branch (`runSummary` with no telemetry records).
-- [ ] Existing `run-summary` tests stay green except where they assert the old
+- [x] Existing `run-summary` tests stay green except where they assert the old
       `exit reason:` line, which is updated to the new shape.
-- [ ] The plan summary's `exit reason:` line is unchanged (no numeric code added).
+- [x] The plan summary's `exit reason:` line is unchanged (no numeric code added).
 
 ## Documentation updates
 

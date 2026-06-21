@@ -36,26 +36,26 @@ worktree and branch leak with nothing committed, forcing manual `git worktree re
 
 ## Task checklist
 
-- [ ] Invoke `cleanupCommittedTempPlanState` on each pre-draft-commit failure return
+- [x] Invoke `cleanupCommittedTempPlanState` on each pre-draft-commit failure return
       (commit: true): draft agent error/quota/model-config, validation failure, subspec
       count failure, draft-phase exception, the boundary-path `commitPlanBlocker` catch
       (`:1039`), and the `commitPlanDraft` catch (`:1076`).
-- [ ] Leave the blocker/PR/review paths and SIGINT untouched.
-- [ ] Update docs.
+- [x] Leave the blocker/PR/review paths and SIGINT untouched.
+- [x] Update docs.
 
 ## Acceptance criteria
 
-- [ ] A `commit: true` plan that fails before any `plan: draft` commit — including the
+- [x] A `commit: true` plan that fails before any `plan: draft` commit — including the
       blocker-commit and draft-commit throw paths — leaves no `.worktree/plan-<name>`
       directory and no `plan/<name>` branch.
-- [ ] A `commit: true` plan that reaches the boundary blocked state (a pushed
+- [x] A `commit: true` plan that reaches the boundary blocked state (a pushed
       `plan: blocker` commit, no `plan: draft` commit and no draft PR yet) preserves its
       worktree and branch for resume — unchanged from current behavior.
-- [ ] A `commit: true` plan that reaches the draft blocker state (committed `plan: draft`
+- [x] A `commit: true` plan that reaches the draft blocker state (committed `plan: draft`
       and an open draft PR) preserves its worktree and branch for resume — unchanged.
-- [ ] A `commit: false`/`git: false` plan failure never removes the project checkout or
+- [x] A `commit: false`/`git: false` plan failure never removes the project checkout or
       deletes a branch.
-- [ ] Existing plan blocker and resume tests stay green (cleanup added only on the
+- [x] Existing plan blocker and resume tests stay green (cleanup added only on the
       pre-commit failure paths).
 
 ## Documentation updates

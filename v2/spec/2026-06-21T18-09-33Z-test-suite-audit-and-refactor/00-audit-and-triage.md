@@ -51,7 +51,3 @@ are refactored here.
 ## Documentation updates
 
 - `v2/docs/test-writing.md`: add the determinism smell checklist (new-test regression guard); strike or rewrite the "Out of scope" clauses ("Converting existing tests", "Existing real-process tests … out of scope to convert") so the durable convention no longer contradicts the conversion work this spec performs.
-
-## Blocker
-
-- `bun run test` failed outside this audit/doc-only scope in [v1/test/run.test.ts](/Users/christopherbrenner/Work/jarvis/.worktree/2026-06-21T18-09-33Z-test-suite-audit-and-refactor/v1/test/run.test.ts:4336): the watchdog timeout test expected `watchdog_descendants_alive=true` but the run reported `watchdog_descendants_alive=false`. `bun run typecheck` passed.

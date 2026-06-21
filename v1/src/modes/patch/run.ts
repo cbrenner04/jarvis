@@ -125,9 +125,7 @@ export type RunIo = Io;
 
 export type ConfirmRun = (prompt: string) => string | Promise<string>;
 
-export type WatchdogListProcessesFn = (
-  rootPid: number,
-) => ProcInfo[];
+export type WatchdogListProcessesFn = (rootPid: number) => ProcInfo[];
 
 export type RunCommandOptions = {
   specPath: string;

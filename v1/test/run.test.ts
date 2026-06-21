@@ -4318,7 +4318,7 @@ wait
         { dir: cfgDir },
       );
 
-      const childPidPath = join(projectRoot, "hanging-child.pid");
+      const _childPidPath = join(projectRoot, "hanging-child.pid");
       const started = Date.now();
       const code = await runWithDefaults({
         specPath: spec,

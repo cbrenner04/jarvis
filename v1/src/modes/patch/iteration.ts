@@ -2,19 +2,15 @@ import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, readFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
-import type { Agent } from "../../agents/types.ts";
-import { readGitOriginUrl } from "../../commands/init.ts";
-import { type Config, effectiveGit, openSessionLog, type ProjectMatch, resolveReviewPasses } from "../../config.ts";
-import { assertGhReady, getBaseBranch } from "../../gh.ts";
+import { openSessionLog, resolveReviewPasses } from "../../config.ts";
+import { getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
-import { checkPrExists, ensureDraftPr, readBranchCommits, renderAttributionSummary } from "../../pr.ts";
-import { generateTemplateNarrative } from "../../pr-shared.ts";
+import { ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
-import { runReadyAndCommit } from "../../ready-gate.ts";
 import { runSummary } from "../../run-summary.ts";
 import {
   appendTelemetryLine,
@@ -25,16 +21,8 @@ import {
   type UsageSource,
 } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
-import {
-  bestEffortFetch,
-  createWorktreeSymlinks,
-  ensureWorktree,
-  getSpecName,
-  hasUpstream,
-  pushCurrent,
-  worktreeCompletionBlocker,
-} from "../../worktree.ts";
-import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
+import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
+import { releaseWorktreeLock } from "../../worktree-lock.ts";
 import {
   countUnchecked,
   findBlockerInLinkedSubspecs,
@@ -42,28 +30,18 @@ import {
   getFirstUncheckedTask,
 } from "./completion.ts";
 import {
-  type CompletionLoopbackSignal,
   diffAcceptanceCriteria,
   generatePrBody,
   getCurrentBranch,
   getIndexTitle,
-  lookupPrUrl,
   tryFinishSpecIfDone,
 } from "./completion-pipeline.ts";
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
-import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
+import { maybeMarkReady } from "./pr.ts";
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
-import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, type DescendantTracker, listProcesses } from "./reap.ts";
-import type {
-  CompletionReadyGateResult,
-  IterationContext,
-  IterationOutcome,
-  LoggingContext,
-  PreflightOk,
-  RunCommandOptions,
-  RunIo,
-} from "./run.ts";
+import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, listProcesses } from "./reap.ts";
+import type { IterationContext, IterationOutcome, LoggingContext, PreflightOk, RunCommandOptions } from "./run.ts";
 import { accumulateImplementationTouchedFiles } from "./shrink.ts";
 import {
   type AcceptanceCriterion,
@@ -71,6 +49,7 @@ import {
   commitWipProgress,
   commitWipProgressWithBlocker,
   snapshotAcceptanceCriteria,
+  snapshotCommittedAcceptanceCriteria,
 } from "./subspec.ts";
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
@@ -377,7 +356,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     return { kind: "return", exitCode: 2 };
   }
 
-  const configuredPatchModelEntry = cfg.modes.patch.agentOrder.find((entry: any) => entry.agent === agent.name);
+  const configuredPatchModelEntry = cfg.modes.patch.agentOrder.find((entry) => entry.agent === agent.name);
   const telemetryMeta =
     configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
   const configuredPatchModel = configuredPatchModelEntry?.model;
@@ -412,6 +391,73 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         ...telemetryMeta,
       });
       return { kind: "return", exitCode: 7 };
+    }
+  }
+
+  // Handle uncommitted ticks at iteration start: if acceptance criteria are ticked
+  // in the working tree but absent from committed HEAD, commit them as progress
+  // and loop back without spawning the agent
+  if (!isFixupIteration && activeSubspecPath !== undefined && gitEnabled) {
+    const workingTreeCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+    const committedCriteria = snapshotCommittedAcceptanceCriteria(activeSubspecPath, {
+      cwd: agentWorkingDir,
+    });
+    const uncommittedTicks = diffAcceptanceCriteria(committedCriteria, workingTreeCriteria);
+    if (uncommittedTicks.length > 0) {
+      const allChecked = workingTreeCriteria.length > 0 && workingTreeCriteria.every((c) => c.checked);
+      const checkedTotal = workingTreeCriteria.filter((c) => c.checked).length;
+      try {
+        if (allChecked) {
+          commitSubspec(activeSubspecPath, {
+            cwd: agentWorkingDir,
+            agentLabel: agent.attributionLabel(),
+          });
+        } else {
+          commitWipProgress(activeSubspecPath, {
+            cwd: agentWorkingDir,
+            newlyChecked: uncommittedTicks,
+            checkedTotal,
+            total: workingTreeCriteria.length,
+            agentLabel: agent.attributionLabel(),
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        fanout("harness", `failed to commit uncommitted ticks for ${activeSubspecPath}: ${message}\n`, "stderr");
+        return { kind: "return", exitCode: 1 };
+      }
+
+      if (!opts.skipGhCheck && allChecked) {
+        try {
+          const firstPush = !hasUpstream(agentWorkingDir);
+          pushCurrent({ cwd: agentWorkingDir, firstPush });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          fanout("harness", `failed to push uncommitted-ticks commit for ${activeSubspecPath}: ${message}\n`, "stderr");
+          return { kind: "return", exitCode: 1 };
+        }
+      }
+
+      if (allChecked) {
+        state.iteration += 1;
+        const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
+        if (state.completionLoopbackSignal !== null) {
+          return { kind: "continue" };
+        }
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "ok",
+          exitReason: "completed-spec",
+          record_role: "run_terminal",
+          ...telemetryMeta,
+        });
+        return { kind: "return", exitCode: done };
+      }
+
+      state.iteration += 1;
+      return { kind: "continue" };
     }
   }
 
@@ -694,6 +740,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         const allChecked = afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
         const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
+        if (allChecked || newlyChecked.length > 0) {
+          state.consecutiveEditedUnticked = 0;
+          state.consecutiveEditedUntickedSubspecPath = null;
+        }
+
         // Check if a blocker was added during this iteration
         const afterParse = parseSpec(readFileSync(afterSubspecPath, "utf8"));
         const hasBlockerNow = afterParse.blocker !== undefined;
@@ -855,6 +906,18 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           if (gitEnabled) {
             const blocker = worktreeCompletionBlocker(agentWorkingDir);
             if (blocker !== undefined) {
+              const EDITED_UNTICKED_BOUND = 2;
+              if (!isFixupIteration && activeSubspecPath !== undefined) {
+                if (activeSubspecPath !== state.consecutiveEditedUntickedSubspecPath) {
+                  state.consecutiveEditedUnticked = 0;
+                  state.consecutiveEditedUntickedSubspecPath = activeSubspecPath;
+                }
+                state.consecutiveEditedUnticked += 1;
+                if (state.consecutiveEditedUnticked < EDITED_UNTICKED_BOUND) {
+                  state.iteration += 1;
+                  return { kind: "continue" };
+                }
+              }
               const unchecked = afterCriteria.filter((c) => !c.checked);
               const unmetList = unchecked.map((c) => `  - ${c.text}`).join("\n");
               const worktreeName = basename(agentWorkingDir);
@@ -1031,7 +1094,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       return { kind: "continue" };
     }
     if (result.kind === "model_config") {
-      const entry = cfg.modes.patch.agentOrder.find((e: any) => e.agent === agent.name);
+      const entry = cfg.modes.patch.agentOrder.find((e) => e.agent === agent.name);
       const configErr = `${agent.name}: configured patch model ${JSON.stringify(entry?.model)} is not supported by this CLI/account\n`;
       fanout("harness", configErr, "stderr");
       if (result.stderr.length > 0) {
@@ -1143,7 +1206,7 @@ function splitLines(text: string): string[] {
   return lines;
 }
 
-async function confirmFromStdin(_prompt: string): Promise<string> {
+async function _confirmFromStdin(_prompt: string): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);

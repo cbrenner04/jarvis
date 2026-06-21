@@ -53,16 +53,11 @@ A ticking agent breaks out: if iter2 ticks a satisfied AC, the existing `newlyCh
 
 ## Acceptance criteria
 
-- [ ] An iteration that edits files and ticks no new acceptance criterion (dirty worktree) no longer exits `6` on the first occurrence; the run loops back and a fake agent that ticks the satisfied criteria on its second turn completes the spec in the same invocation (exit `0`, no operator re-run) (test).
-- [ ] A fake agent that edits files but never ticks stops with exit `6` only after the bound (`N` consecutive edited-but-unticked iterations on the same subspec), not on the first occurrence; the test fixes `N < maxIterations` so the bound, not the loop ceiling, is what stops it (test).
-- [ ] The edited-but-unticked counter is consecutive and per-active-subspec: an AC tick (progress) between two edited-but-unticked iterations resets it (test).
-- [ ] A subspec whose acceptance criteria are ticked in the file but uncommitted at iteration start has those ticks committed and is advanced — and this recovery holds at `maxIterations = 1` (no retry budget), covering both a partial-tick re-entry (committed ticks complete the spec only partially, run proceeds) and a fully-completing re-entry (commit finishes the spec) — rather than re-detecting no-progress and exiting `4` or `6` (test).
-- [ ] An iteration with no edits and no new tick still stops with exit `4`; blocker (exit `7`) and completion fix-up (exit `10`) paths are unchanged (their existing tests stay green) (test).
-- [ ] The harness never ticks acceptance criteria itself — the retry only re-prompts; a run where the agent writes **zero** ticks anywhere (so the test cannot conflate "committed the agent's ticks" with "harness auto-ticked") ends with the subspec's criteria still unticked in the file and the run stopped at the bound (test).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] An iteration that edits files and ticks no new acceptance criterion (dirty worktree) no longer exits `6` on the first occurrence; the run loops back and a fake agent that ticks the satisfied criteria on its second turn completes the spec in the same invocation (exit `0`, no operator re-run) (test).
+- [x] A fake agent that edits files but never ticks stops with exit `6` only after the bound (`N` consecutive edited-but-unticked iterations on the same subspec), not on the first occurrence; the test fixes `N < maxIterations` so the bound, not the loop ceiling, is what stops it (test).
+- [x] The edited-but-unticked counter is consecutive and per-active-subspec: an AC tick (progress) between two edited-but-unticked iterations resets it (test).
+- [x] A subspec whose acceptance criteria are ticked in the file but uncommitted at iteration start has those ticks committed and is advanced — and this recovery holds at `maxIterations = 1` (no retry budget), covering both a partial-tick re-entry (committed ticks complete the spec only partially, run proceeds) and a fully-completing re-entry (commit finishes the spec) — rather than re-detecting no-progress and exiting `4` or `6` (test).
+- [x] An iteration with no edits and no new tick still stops with exit `4`; blocker (exit `7`) and completion fix-up (exit `10`) paths are unchanged (their existing tests stay green) (test).
+- [x] The harness never ticks acceptance criteria itself — the retry only re-prompts; a run where the agent writes **zero** ticks anywhere (so the test cannot conflate "committed the agent's ticks" with "harness auto-ticked") ends with the subspec's criteria still unticked in the file and the run stopped at the bound (test).
+- [x] `bun run typecheck` and `bun run test` pass.
 
-## Documentation updates
-
-- `v1/docs/run-loop.md` (exit-code table row for `6` ~`:726`): the edited-files/no-new-AC/dirty case now gets a bounded tick-retry (`N` consecutive same-subspec occurrences) before exiting `6` rather than stopping on the first; uncommitted ticks present at iteration start are committed and counted as progress.
-- `v2/docs/v1-behaviors.md` (exit-code mapping ~`:326` and the patch tick/no-progress behaviors ~`:327-330`): record the bounded tick-retry on edited-but-unticked iterations and the uncommitted-ticks-are-progress rule; note retries count against `maxIterations` and the harness still never auto-ticks.
-- `v2/spec/wip-intents/no-progress-stop-spares-green-work.md`: remove once landed.

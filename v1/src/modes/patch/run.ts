@@ -105,6 +105,8 @@ export type IterationContext = {
     completionTransitionReadyResult?: {
       headSha: string;
     };
+    consecutiveEditedUnticked: number;
+    consecutiveEditedUntickedSubspecPath: string | null;
   };
 };
 
@@ -231,6 +233,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     previousCompletionFailureText: null,
     consecutiveRedFixups: 0,
     acProgressSinceLastGate: false,
+    consecutiveEditedUnticked: 0,
+    consecutiveEditedUntickedSubspecPath: null,
   };
 
   const onSigint = () => {

@@ -66,6 +66,22 @@ export function snapshotAcceptanceCriteria(subspecPath: string): AcceptanceCrite
   return parsed.acceptanceCriteria;
 }
 
+export function snapshotCommittedAcceptanceCriteria(subspecPath: string, opts: { cwd: string }): AcceptanceCriterion[] {
+  try {
+    const gitRoot = opts.cwd;
+    const relativeSpecPath = relative(realpathSync(gitRoot), realpathSync(subspecPath));
+    const committed = execFileSync("git", ["show", `HEAD:${relativeSpecPath}`], {
+      cwd: gitRoot,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    const parsed = parseSpec(committed);
+    return parsed.acceptanceCriteria;
+  } catch {
+    return [];
+  }
+}
+
 export function commitWipProgress(
   subspecPath: string,
   opts: {

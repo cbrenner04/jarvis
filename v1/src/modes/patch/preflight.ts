@@ -4,7 +4,6 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent } from "../../agents/types.ts";
-import type { Io } from "../../cli.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
 import {
   type Config,

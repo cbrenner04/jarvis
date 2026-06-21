@@ -14,4 +14,4 @@ coverage baseline that 05 verifies against.
 - [x] [02 - Refactor run.test.ts determinism](./02-refactor-run-test.md)
 - [x] [03 - Refactor v1 command/integration + timing tests](./03-refactor-command-and-timing-tests.md)
 - [x] [04 - Refactor v1 mode tests](./04-refactor-mode-tests.md)
-- [ ] [05 - Refactor shared + v2 tests; verify suite](./05-refactor-shared-v2-and-verify.md)
+- [x] [05 - Refactor shared + v2 tests; verify suite](./05-refactor-shared-v2-and-verify.md)

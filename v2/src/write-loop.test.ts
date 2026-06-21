@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
+import { type ExternalWorktree, type WithExternalWorktreeResult } from "./external-worktree.ts";
 import { openStateStore, type StateStore } from "./state-store.ts";
 import { simulatedBindings } from "./testing/bindings.ts";
 import { executeWriteLoop, type WriteLoopInput } from "./write-loop.ts";
@@ -16,25 +16,37 @@ afterEach(() => {
   }
 });
 
-function setupRepo(): { repoRoot: string; jarvisRoot: string; stateDbPath: string } {
+function createFakeWithExternalWorktree(jarvisRoot: string) {
+  return async function fakeWithExternalWorktree<T>(
+    args: { projectName: string; branchName: string; jarvisRoot?: string },
+    run: (worktree: ExternalWorktree) => Promise<T> | T,
+  ): Promise<WithExternalWorktreeResult<T>> {
+    const effectiveJarvisRoot = args.jarvisRoot ?? jarvisRoot;
+    const worktreePath = join(effectiveJarvisRoot, "worktrees", args.projectName, args.branchName);
+    mkdirSync(worktreePath, { recursive: true });
+    if (!existsSync(join(worktreePath, "spec.md"))) {
+      writeFileSync(join(worktreePath, "spec.md"), "- [ ] work\n", "utf8");
+    }
+    const value = await run({ path: worktreePath, reused: existsSync(join(worktreePath, ".reused")) });
+    mkdirSync(join(worktreePath, ".."), { recursive: true });
+    writeFileSync(join(worktreePath, ".reused"), "true\n", "utf8");
+    return {
+      worktree: { path: worktreePath, reused: existsSync(join(worktreePath, ".reused")) },
+      lock: { kind: "acquired" },
+      value,
+    };
+  };
+}
+
+function setupRepo(): { jarvisRoot: string; stateDbPath: string } {
   const root = mkdtempSync(join(tmpdir(), "jarvis-v2-loop-"));
   roots.push(root);
-  const repoRoot = join(root, "repo");
   const jarvisRoot = join(root, "jarvis-home");
   const stateDbPath = join(jarvisRoot, "state", "v2.sqlite");
-
-  execFileSync("git", ["init", repoRoot], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "config", "user.email", "test@example.com"], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "config", "user.name", "Test User"], { stdio: "pipe" });
-  writeFileSync(join(repoRoot, "spec.md"), "- [ ] work\n", "utf8");
-  execFileSync("git", ["-C", repoRoot, "add", "spec.md"], { stdio: "pipe" });
-  execFileSync("git", ["-C", repoRoot, "commit", "-m", "seed"], { stdio: "pipe" });
-
-  return { repoRoot, jarvisRoot, stateDbPath };
+  return { jarvisRoot, stateDbPath };
 }
 
 async function runLoop(args: {
-  repoRoot: string;
   jarvisRoot: string;
   stateDbPath: string;
   bindings: readonly InvocationBinding[];
@@ -49,7 +61,7 @@ async function runLoop(args: {
   const store = args.store ?? openStateStore(args.stateDbPath);
   const loopInput: WriteLoopInput = {
     worktree: {
-      projectRoot: args.repoRoot,
+      projectRoot: "/fake",
       projectName: "demo",
       branchName: args.branchName ?? "write-run",
       baseRef: args.baseRef ?? "HEAD",
@@ -60,6 +72,7 @@ async function runLoop(args: {
     expectedArtifactPath: args.artifactPath ?? "proof.txt",
     bindings: args.bindings,
     stateStore: store,
+    withExternalWorktree: createFakeWithExternalWorktree(args.jarvisRoot),
   };
   if (args.maxIterations !== undefined) {
     loopInput.maxIterations = args.maxIterations;
@@ -124,9 +137,9 @@ function progressThenDone(n: number): InvocationBinding[] {
 
 describe("write loop", () => {
   test("calls executeWrite repeatedly until terminal", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
-    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
+    const result = await runLoop({ jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
 
     expect(result.kind).toBe("complete");
     expect(result.iterationsConsumed).toBe(3);
@@ -134,10 +147,9 @@ describe("write loop", () => {
   });
 
   test("progress loops again and artifact contract not checked mid-loop", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
     const result = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["progress"]),
@@ -150,10 +162,9 @@ describe("write loop", () => {
   });
 
   test("done with passing artifact contract ends loop successfully", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
     const result = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
@@ -164,10 +175,9 @@ describe("write loop", () => {
   });
 
   test("no-work with passing artifact contract ends loop successfully", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
     const result = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["no-work"], { artifactPath: "proof.txt", emitArtifact: true }),
@@ -179,10 +189,9 @@ describe("write loop", () => {
   });
 
   test("done/no-work with failing contract appends blocker and stops", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
     const result = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: false }),
@@ -197,9 +206,9 @@ describe("write loop", () => {
   });
 
   test("blocked stops immediately with distinct outcome", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
-    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: simulatedBindings(["blocked"]) });
+    const result = await runLoop({ jarvisRoot, stateDbPath, bindings: simulatedBindings(["blocked"]) });
 
     expect(result.kind).toBe("blocked");
     expect(result.iterationsConsumed).toBe(1);
@@ -207,10 +216,9 @@ describe("write loop", () => {
   });
 
   test("budget exhausted while progress yields soft-stop outcome", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
     const result = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["progress"]),
@@ -223,10 +231,9 @@ describe("write loop", () => {
   });
 
   test("invocation_failure is terminal", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
     const result = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["quota", "quota"]),
@@ -237,16 +244,16 @@ describe("write loop", () => {
   });
 
   test("max iterations per-invocation with default constant", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
-    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: simulatedBindings(["progress"]) });
+    const result = await runLoop({ jarvisRoot, stateDbPath, bindings: simulatedBindings(["progress"]) });
 
     expect(result.iterationsConsumed).toBe(10); // Default max
     expect(result.kind).toBe("budget-exhausted");
   });
 
   test("cancellation propagates via AbortSignal", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
     const controller = new AbortController();
     let calls = 0;
     const bindings: InvocationBinding[] = [
@@ -260,7 +267,7 @@ describe("write loop", () => {
       },
     ];
 
-    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings, signal: controller.signal });
+    const result = await runLoop({ jarvisRoot, stateDbPath, bindings, signal: controller.signal });
 
     expect(result.kind).toBe("progress");
     expect(result.iterationsConsumed).toBe(2);
@@ -268,9 +275,9 @@ describe("write loop", () => {
   });
 
   test("each iteration persists through state store boundary", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
 
-    const result = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
+    const result = await runLoop({ jarvisRoot, stateDbPath, bindings: progressThenDone(2) });
 
     const run = loadRunOnce(stateDbPath, result.runId);
     expect(run).not.toBeNull();
@@ -278,7 +285,7 @@ describe("write loop", () => {
   });
 
   test("re-invoking an interrupted run re-runs that iteration over the dirty worktree", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
     const dirtiedMarker = "dirty.txt";
     let firstRunCalls = 0;
     const crashBindings: InvocationBinding[] = [
@@ -293,7 +300,7 @@ describe("write loop", () => {
     ];
 
     await expect(
-      runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: crashBindings, maxIterations: 1 }),
+      runLoop({ jarvisRoot, stateDbPath, bindings: crashBindings, maxIterations: 1 }),
     ).rejects.toThrow("simulated crash");
     expect(firstRunCalls).toBe(1);
 
@@ -310,7 +317,7 @@ describe("write loop", () => {
       },
     ];
 
-    const resumed = await runLoop({ repoRoot, jarvisRoot, stateDbPath, bindings: resumeBindings, maxIterations: 1 });
+    const resumed = await runLoop({ jarvisRoot, stateDbPath, bindings: resumeBindings, maxIterations: 1 });
 
     expect(resumed.kind).toBe("complete");
     expect(resumed.iterationsConsumed).toBe(1);
@@ -323,9 +330,8 @@ describe("write loop", () => {
   });
 
   test("a budget-soft-stopped run resumes with a fresh per-invocation budget", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
     const first = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["progress"]),
@@ -335,7 +341,6 @@ describe("write loop", () => {
     expect(first.kind).toBe("budget-exhausted");
 
     const second = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),
@@ -351,9 +356,8 @@ describe("write loop", () => {
   });
 
   test("a different baseRef, specPath, and worktree on the same project and branch still resumes the same run", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
     const first = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["progress"]),
@@ -367,7 +371,6 @@ describe("write loop", () => {
     rmSync(run.worktreePath, { recursive: true, force: true });
 
     const resumed = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       baseRef: "main",
@@ -381,9 +384,8 @@ describe("write loop", () => {
   });
 
   test("a different branch creates a fresh run", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
     const first = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["progress"]),
@@ -391,7 +393,6 @@ describe("write loop", () => {
     });
 
     const second = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       branchName: "other-write-run",
@@ -403,7 +404,7 @@ describe("write loop", () => {
   });
 
   test("re-running a boundary that fails mid-transaction retries the same attempt without duplicate history", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
     let firstInvocationCalls = 0;
     const completeBindings: InvocationBinding[] = [
       {
@@ -418,7 +419,6 @@ describe("write loop", () => {
 
     await expect(
       runLoop({
-        repoRoot,
         jarvisRoot,
         stateDbPath,
         bindings: completeBindings,
@@ -430,7 +430,6 @@ describe("write loop", () => {
 
     let resumedCalls = 0;
     const resumed = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: [
@@ -455,9 +454,8 @@ describe("write loop", () => {
   });
 
   test("resume rebuilds a missing worktree from the branch", async () => {
-    const { repoRoot, jarvisRoot, stateDbPath } = setupRepo();
+    const { jarvisRoot, stateDbPath } = setupRepo();
     const first = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["progress"]),
@@ -471,7 +469,6 @@ describe("write loop", () => {
     expect(existsSync(worktreePath)).toBe(false);
 
     const second = await runLoop({
-      repoRoot,
       jarvisRoot,
       stateDbPath,
       bindings: simulatedBindings(["done"], { artifactPath: "proof.txt", emitArtifact: true }),

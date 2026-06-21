@@ -25,11 +25,11 @@ Files: `shared/{git,preload,worktree-lock}.test.ts`,
 
 ## Acceptance criteria
 
-- [ ] Every `refactor`-verdict file in `shared/` and `v2/src/` no longer spawns a real OS process or depends on live wall-clock time; `already-deterministic` files are unchanged; `marked-exception` files are renamed `*.sandbox-unrunnable.test.ts` with a justification comment.
-- [ ] No primitive-matching file across the corpus retains an unresolved `refactor`/`marked-exception` verdict from `findings.md`.
-- [ ] Each distinct behavior assertion in the `findings.md` baseline is still exercised (kept, moved, or merged) — no net coverage loss measured against that baseline.
-- [ ] `bun run test` (parallel) passes, and a serial `bun test` over the full corpus also passes (no ordering/parallelism dependence). Marked-exception files are verified green sandbox-off, per the green basis recorded in `findings.md`.
-- [ ] `bun run typecheck` passes; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
+- [x] Every `refactor`-verdict file in `shared/` and `v2/src/` no longer spawns a real OS process or depends on live wall-clock time; `already-deterministic` files are unchanged; `marked-exception` files are renamed `*.sandbox-unrunnable.test.ts` with a justification comment.
+- [x] No primitive-matching file across the corpus retains an unresolved `refactor`/`marked-exception` verdict from `findings.md`.
+- [x] Each distinct behavior assertion in the `findings.md` baseline is still exercised (kept, moved, or merged) — no net coverage loss measured against that baseline.
+- [x] `bun run test` (parallel) passes, and a serial `bun test` over the full corpus also passes (no ordering/parallelism dependence). Marked-exception files are verified green sandbox-off, per the green basis recorded in `findings.md`.
+- [x] `bun run typecheck` passes; any seam that alters an observable default is recorded in `v2/docs/v1-behaviors.md` (test-only optional params defaulting to the real impl need no entry).
 
 ## Documentation updates
 

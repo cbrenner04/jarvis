@@ -1,3 +1,5 @@
+// Marked as .sandbox-unrunnable: requires real `git worktree` behavior for branch materialization and lock semantics.
+
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

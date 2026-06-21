@@ -371,6 +371,7 @@ Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged
 - Test file ownership is enforced by disjoint-roots: v1 tests live under `v1/test/`, v2 tests co-locate next to v2 source under `v2/`, and shared-owned tests live under `shared/`. v1/v2 tests may import `shared/**` runtime code; this is coverage, not ownership violation. Sources: `test/test-slices.test.ts`, `v2/src`, `shared/`
 - Agent-spawn safety preload (`test/setup-fake-agents.ts`) is repo-wide infrastructure loaded globally via `bunfig.toml` preload for all test slice runs, preventing accidental real-agent-CLI spawns under any slice invocation. Sources: `bunfig.toml`, `test/setup-fake-agents.ts`
 - `bun run ready` reaches the test phase via `bun run test` (the aggregate command) and does not use scoped slices; the ready pipeline order (install → check:fix:unsafe → typecheck → test → check) is enforced by regression tests. Sources: `scripts/ready.ts`, `v1/test/ready-script.test.ts`
+- Test-only DI seams added during test suite determinism refactoring: `v2/src/write.ts` and `v2/src/write-loop.ts` accept optional `withExternalWorktree` parameters (test-only, default to real implementation) for dependency injection in unit tests. These additive parameters preserve all observable defaults and require no v1-behavior catalog entry. Sources: `v2/src/write.ts`, `v2/src/write-loop.ts`, `v2/spec/2026-06-21T18-09-33Z-test-suite-audit-and-refactor/05-refactor-shared-v2-and-verify.md`
 
 ## Maintenance requirement for future v1 changes
 

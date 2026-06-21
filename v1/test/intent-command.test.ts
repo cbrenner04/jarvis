@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { intentCommand, parseIntentArgs } from "../src/commands/intent.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
@@ -67,11 +67,17 @@ class SplitAgent implements Agent {
     this.#mode = mode;
   }
 
-  async run(_prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+  async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
     if (this.#mode === "quota") {
       return { kind: "quota", stderr: "synthetic quota" };
     }
-    const stageDir = join(opts.cwd, ".jarvis-intent-stage");
+    let stageDir: string;
+    const match = prompt.match(/Write the authored intents as markdown files under `([^`]+)`/);
+    if (match && match[1] && isAbsolute(match[1])) {
+      stageDir = match[1];
+    } else {
+      stageDir = join(opts.cwd, ".jarvis-intent-stage");
+    }
     mkdirSync(stageDir, { recursive: true });
     if (this.#mode === "quota-dirty") {
       writeFileSync(join(stageDir, "stale.md"), intentFile("stale", "Should be cleared."), "utf8");
@@ -422,6 +428,167 @@ describe("intentCommand", () => {
       const worktree = findIntentWorktree(env.projectRoot);
       expect(existsSync(join(worktree, "spec", "ready-intents", "stale.md"))).toBe(false);
       expect(existsSync(join(worktree, "spec", "ready-intents", "single-behavior.md"))).toBe(true);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("no-commit inline seed writes N intents to external ready-intents without git/PR", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-two" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("2 intents written to");
+      expect(cap.out()).toContain("jarvis1 plan --repo project");
+      expect(cap.out()).toContain("ready-intents/slice-one.md");
+      expect(cap.out()).toContain("ready-intents/slice-two.md");
+      expect(existsSync(env.prState)).toBe(false);
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      expect(readFileSync(join(externalRoot, "ready-intents", "slice-one.md"), "utf8")).toContain(
+        "## Prerequisites",
+      );
+      expect(readFileSync(join(externalRoot, "ready-intents", "slice-two.md"), "utf8")).toContain(
+        "name: slice-two",
+      );
+      expect(existsSync(join(externalRoot, ".jarvis-intent-stage"))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("no-commit works against a non-git project root", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-intent-no-git-"));
+    try {
+      const cfgDir = join(dir, "cfg");
+      const projectRoot = join(dir, "project");
+      mkdirSync(projectRoot);
+      registerProject("project", projectRoot, { dir: cfgDir });
+
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.modes.plan.agentOrder = [{ agent: "claude", model: "haiku" }];
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: projectRoot,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-one" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("1 intent written to");
+
+      const externalRoot = join(cfgDir, "specs", "project");
+      expect(readFileSync(join(externalRoot, "ready-intents", "single-behavior.md"), "utf8")).toContain(
+        "name: single-behavior",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("no-commit collision aborts without partial writes", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      const readyIntentsDir = join(externalRoot, "ready-intents");
+      mkdirSync(readyIntentsDir, { recursive: true });
+      writeFileSync(join(readyIntentsDir, "slice-one.md"), "keep me\n");
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-two" }),
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("ready-intents/slice-one.md already exists");
+      expect(readFileSync(join(readyIntentsDir, "slice-one.md"), "utf8")).toBe("keep me\n");
+      expect(existsSync(join(readyIntentsDir, "slice-two.md"))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("no-commit cleanup removes stage directory on success", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-two" }),
+      });
+      expect(code).toBe(0);
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      const stageDir = join(externalRoot, ".jarvis-intent-stage");
+      expect(existsSync(stageDir)).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("committed-path behavior is preserved with no-commit configured", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const wipDir = join(env.projectRoot, "spec", "wip-intents");
+      mkdirSync(wipDir, { recursive: true });
+      const seedPath = join(wipDir, "raw-seed.md");
+      writeFileSync(seedPath, "# Seed\n");
+      execSync("git add spec/", { cwd: env.projectRoot });
+      execSync("git commit -m 'add wip-intents'", { cwd: env.projectRoot });
+      execSync("git push", { cwd: env.projectRoot });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [seedPath],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-one" }),
+      });
+      expect(code).toBe(0);
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      expect(readFileSync(join(externalRoot, "ready-intents", "single-behavior.md"), "utf8")).toContain(
+        "name: single-behavior",
+      );
     } finally {
       env.cleanup();
     }

@@ -65,13 +65,30 @@ specs/PRs get drafted, not the one-PR-per-spec rule itself.
 
 ## Runtime behavior
 
-Intent mode reuses the existing committed-run plumbing:
+Intent mode reuses the existing plan-mode plumbing:
 
 - the same repo resolution and log-server preflight as other top-level modes
 - the same plan agent order and quota fallback rules as plan mode
-- a dedicated git worktree/branch for the split commit and draft PR
-- the shared draft-PR helper used elsewhere in v1
 
 Splitter output is staged first and validated before anything moves into
 `ready-intents/`. Invalid output aborts the run without partial
 `ready-intents/` writes and without opening a PR.
+
+### Committed-plan mode (`commit: true`)
+
+When `modes.plan.commit` is `true` (default), intent mode creates a dedicated
+git worktree/branch for the split commit and draft PR, and uses the shared
+draft-PR helper used elsewhere in v1.
+
+### No-commit mode (`commit: false`)
+
+When `modes.plan.commit` is `false`, intent mode writes authored intents to an
+external Jarvis-managed directory (`~/.jarvis/specs/<project-safe-id>/ready-intents/`)
+and skips worktree/branch/commit/push/PR operations. This enables intent splitting
+in isolated setups (no-git project roots or `git: false` configurations). The
+splitter runs with `--add-dir` access to a temporary external staging directory,
+writes-effective only for adapters supporting additional readable directories
+(claude, codex). On completion, the operator receives absolute-path
+`jarvis1 plan --repo <project> <path>` next-step commands per emitted intent.
+Fallback to cursor/opencode agents writes no files and fails validation
+(inherited `--add-dir` limitation).

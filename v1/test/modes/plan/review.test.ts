@@ -417,6 +417,70 @@ describe("runPlanReviewPhase", () => {
       cleanup();
     }
   });
+
+  test("git-disabled review skips target-repo git-status boundary on worktree roots", async () => {
+    const { dir, cfgDir, project } = (() => {
+      const tmp = mkdtempSync(join(tmpdir(), "jarvis-plan-review-worktree-"));
+      const cfgDir = join(tmp, "cfg");
+      const base = join(tmp, "base");
+      const project = join(tmp, "project");
+      mkdirSync(base);
+      execSync("git init -b main", { cwd: base });
+      execSync("git config user.email 'test@example.com'", { cwd: base });
+      execSync("git config user.name 'Test User'", { cwd: base });
+      writeFileSync(join(base, "README.md"), "seed\n");
+      execSync("git add README.md", { cwd: base });
+      execSync("git commit -m 'seed'", { cwd: base });
+      execSync(`git worktree add -b linked ${project} HEAD`, { cwd: base });
+      return { dir: tmp, cfgDir, project };
+    })();
+    try {
+      const specDir = join(cfgDir, "specs", "project", "review-git-false");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), "---\nname: review-git-false\n---\n\n# Intent\n\nseed\n");
+      writeFileSync(join(specDir, "index.md"), "# Draft\n\nrepo: project\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
+
+      mkdirSync(join(project, "spec", "unrelated"), { recursive: true });
+      writeFileSync(join(project, "spec", "unrelated", "note.md"), "dirty\n");
+
+      const agent = new FakeAgent("claude", (_c, prompt, _opts) => {
+        if (prompt.includes("Review Verdict")) {
+          writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] y\n");
+          return { kind: "ok", stdout: "", stderr: "" };
+        }
+        if (prompt.includes("Review: Adjudicator")) {
+          return { kind: "ok", stdout: "Tighten the spec.\n", stderr: "" };
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      let stderr = "";
+      const result = await runPlanReviewPhase({
+        worktreePath: project,
+        projectRoot: project,
+        name: "review-git-false",
+        specDirBasename: "review-git-false",
+        config: makeReviewConfig({ reviewPasses: 1 }),
+        reviewPassesOverride: 1,
+        commit: false,
+        gitEnabled: false,
+        checkBoundary: true,
+        specDirPath: specDir,
+        externalSpecRoot: join(cfgDir, "specs", "project"),
+        stderr: (s) => {
+          stderr += s;
+        },
+        createAgent: () => agent,
+      });
+
+      expect(result.exitCode, stderr).toBe(0);
+      expect(stderr).not.toContain("boundary violation");
+      expect(readFileSync(join(specDir, "00-one.md"), "utf8")).toContain("- [ ] y");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("validateReviewOutput", () => {

@@ -17,7 +17,7 @@ import type { PlanCommandOptions, PlanIo } from "../../commands/plan.ts";
 import { describePlanInvocation, isExistingFile, parsePlanArgs } from "../../commands/plan-args.ts";
 import {
   CONFIG_DIR,
-  findProjectForPath,
+  effectiveGit,
   loadConfig,
   type ProjectMatch,
   resolvePlanFlags,
@@ -212,15 +212,18 @@ function planNameCollides(
   targetDir: string,
   externalSpecRoot: string | undefined,
   specTimestamp: boolean,
+  checkCommittedPlanState: boolean,
 ): boolean {
-  if (existsSync(join(projectRoot, targetDir, planName))) {
-    return true;
-  }
-  if (existsSync(join(projectRoot, ".worktree", `plan-${planName}`))) {
-    return true;
-  }
-  if (remoteSpecBranchExists(projectRoot, planName)) {
-    return true;
+  if (checkCommittedPlanState) {
+    if (existsSync(join(projectRoot, targetDir, planName))) {
+      return true;
+    }
+    if (existsSync(join(projectRoot, ".worktree", `plan-${planName}`))) {
+      return true;
+    }
+    if (remoteSpecBranchExists(projectRoot, planName)) {
+      return true;
+    }
   }
   if (externalSpecRoot !== undefined && externalSpecDirCollides(externalSpecRoot, planName, specTimestamp)) {
     return true;
@@ -373,17 +376,14 @@ function computeResumeCounters(worktreePath: string): {
 }
 
 function prepareResume(args: {
-  projectRoot: string;
+  cfg: ReturnType<typeof loadConfig>;
+  project: ProjectMatch;
   specPath: string;
   mode: "resume" | "resume-draft";
-  config?: PlanCommandOptions["config"];
 }): ResumePrep {
-  const cfg = loadConfig(args.config);
-  const project = findProjectForPath(args.specPath, args.config);
-  if (project === undefined) {
-    throw new Error(`could not determine project for spec path: ${args.specPath}`);
-  }
-  const { commit, targetDir } = resolvePlanFlags(cfg, project);
+  const gitEnabled = effectiveGit(args.cfg, args.project.key);
+  const { commit: configuredCommit, targetDir } = resolvePlanFlags(args.cfg, args.cfg.projects[args.project.key]);
+  const commit = gitEnabled ? configuredCommit : false;
 
   // For no-commit specs, the spec path is already external; for commit specs, it's in the worktree
   const isNoCommit = !commit;
@@ -398,7 +398,7 @@ function prepareResume(args: {
     return {
       planName,
       specDirBasename: specDir,
-      worktreePath: project.root,
+      worktreePath: args.project.root,
       externalSpecRoot,
       nextResumeIndex: 0,
       nextReviewIndex: 0,
@@ -406,12 +406,13 @@ function prepareResume(args: {
   }
 
   // For commit: true, use the original logic
-  const worktreePath = join(args.projectRoot, ".worktree", `plan-${planName}`);
+  const projectRoot = args.project.root;
+  const worktreePath = join(projectRoot, ".worktree", `plan-${planName}`);
   let recreatedFrom: "local" | "origin" | undefined;
   if (!existsSync(worktreePath)) {
     try {
       const recreated = ensureExistingBranchWorktree({
-        projectRoot: args.projectRoot,
+        projectRoot,
         worktreeName: `plan-${planName}`,
         branchName: `plan/${planName}`,
         missingBranchMessage: `plan worktree missing at ${worktreePath}`,
@@ -438,7 +439,7 @@ function prepareResume(args: {
       recreated,
     );
   }
-  if (!remoteSpecBranchExists(args.projectRoot, planName)) {
+  if (!remoteSpecBranchExists(projectRoot, planName)) {
     throw new ResumePrepError(`plan branch plan/${planName} is not on origin; cannot resume`, recreated);
   }
   const counters = computeResumeCounters(worktreePath);
@@ -452,22 +453,29 @@ function prepareResume(args: {
   };
 }
 
+function emitNoCommitPlanNextSteps(io: PlanIo, indexPath: string): void {
+  io.stdout(`Spec written to ${indexPath}\nRun with: jarvis1 run ${indexPath}\n`);
+}
+
 async function ensureUniquePlanName(
   projectRoot: string,
   baseName: string,
   targetDir: string = "spec",
-  opts?: { externalSpecRoot?: string; specTimestamp?: boolean },
+  opts?: { externalSpecRoot?: string; specTimestamp?: boolean; checkCommittedPlanState?: boolean },
 ): Promise<string> {
   const externalSpecRoot = opts?.externalSpecRoot;
   const specTimestamp = opts?.specTimestamp ?? false;
+  const checkCommittedPlanState = opts?.checkCommittedPlanState ?? true;
   let finalName = baseName;
-  if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp)) {
+  if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp, checkCommittedPlanState)) {
     return finalName;
   }
   let suffix = 2;
   while (true) {
     finalName = `${baseName}-${suffix}`;
-    if (!planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp)) {
+    if (
+      !planNameCollides(projectRoot, finalName, targetDir, externalSpecRoot, specTimestamp, checkCommittedPlanState)
+    ) {
       return finalName;
     }
     suffix += 1;
@@ -608,11 +616,17 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     planHarnessLog(planLogClient, `plan: target project=${project.key} root=${project.root}`);
 
     const fullProject = cfg.projects[project.key];
-    const { specTimestamp, commit, targetDir: resolvedTargetDir } = resolvePlanFlags(cfg, fullProject);
+    const gitEnabled = effectiveGit(cfg, project.key);
+    const {
+      specTimestamp,
+      commit: configuredCommit,
+      targetDir: resolvedTargetDir,
+    } = resolvePlanFlags(cfg, fullProject);
+    const commit = gitEnabled ? configuredCommit : false;
     const targetDir = inv.targetDir ?? resolvedTargetDir;
     planHarnessLog(
       planLogClient,
-      `plan: resolved flags specTimestamp=${specTimestamp} commit=${commit} targetDir=${targetDir}`,
+      `plan: resolved flags specTimestamp=${specTimestamp} commit=${commit} targetDir=${targetDir} gitEnabled=${gitEnabled}`,
     );
 
     if (inv.resume || inv.resumeDraft) {
@@ -631,10 +645,10 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       let resume: ResumePrep;
       try {
         resume = prepareResume({
-          projectRoot: project.root,
+          cfg,
+          project,
           specPath: inv.readyIntentPath,
           mode: "resume",
-          ...(opts.config !== undefined ? { config: opts.config } : {}),
         });
       } catch (err) {
         if (err instanceof ResumePrepError && err.recreatedFrom !== undefined && err.worktreePath !== undefined) {
@@ -691,24 +705,29 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           stderr: opts.io.stderr,
           planTelemetry: resumePlanTelemetry,
           targetDir: resumeTargetDir,
-          commit: true,
+          commit,
+          gitEnabled,
           checkBoundary: false,
           logNoChangeSkip: false,
           createAgent: resolveAgent,
-          updatePrBody: async () => {
-            await safeUpdatePrBody({
-              agent: prDescAgent,
-              timeoutMs: cfg.iterationTimeoutMs,
-              io: opts.io,
-              branch,
-              base: getCurrentBranch(project.root),
-              worktreePath: resume.worktreePath,
-              name: resume.planName,
-              specDirBasename: resume.specDirBasename,
-              prNarrative: cfg.modes.plan.prNarrative ?? "template",
-              targetDir: resumeTargetDir,
-            });
-          },
+          ...(commit
+            ? {
+                updatePrBody: async () => {
+                  await safeUpdatePrBody({
+                    agent: prDescAgent,
+                    timeoutMs: cfg.iterationTimeoutMs,
+                    io: opts.io,
+                    branch,
+                    base: getCurrentBranch(project.root),
+                    worktreePath: resume.worktreePath,
+                    name: resume.planName,
+                    specDirBasename: resume.specDirBasename,
+                    prNarrative: cfg.modes.plan.prNarrative ?? "template",
+                    targetDir: resumeTargetDir,
+                  });
+                },
+              }
+            : {}),
           isInterrupted: () => interrupted,
           onPassStart: (pass, total) => {
             opts.io.stderr(`plan: review pass ${pass}/${total} starting\n`);
@@ -738,21 +757,26 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         }
       }
 
-      let prUrl: string | null = null;
-      try {
-        prUrl = getPrUrl(resume.worktreePath, branch);
-      } catch {
-        // best-effort; completion still succeeds without a URL
-      }
-      if (prUrl !== null) {
-        opts.io.stdout(
-          renderPlanNextSteps({
-            prUrl,
-            planName: resume.planName,
-            specDirBasename: resume.specDirBasename,
-            targetDir: resumeTargetDir,
-          }),
-        );
+      if (commit) {
+        let prUrl: string | null = null;
+        try {
+          prUrl = getPrUrl(resume.worktreePath, branch);
+        } catch {
+          // best-effort; completion still succeeds without a URL
+        }
+        if (prUrl !== null) {
+          opts.io.stdout(
+            renderPlanNextSteps({
+              prUrl,
+              planName: resume.planName,
+              specDirBasename: resume.specDirBasename,
+              targetDir: resumeTargetDir,
+            }),
+          );
+        }
+      } else {
+        const indexPath = join(resume.externalSpecRoot ?? resume.worktreePath, resume.specDirBasename, "index.md");
+        emitNoCommitPlanNextSteps(opts.io, indexPath);
       }
       summarizeResume("complete");
       return 0;
@@ -782,6 +806,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     const planName = await ensureUniquePlanName(project.root, readyIntentName, targetDir, {
       ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
       specTimestamp,
+      checkCommittedPlanState: commit,
     });
     const specDirBasename = specTimestamp ? `${formatPlanSpecTimestamp()}-${planName}` : planName;
     planHarnessLog(planLogClient, `plan: spec name=${planName}`);
@@ -1005,9 +1030,11 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       }
 
       // Check boundary before draft commit
-      const boundaryCheck = commit
+      const boundaryCheck: BoundaryCheckResult = commit
         ? assertPlanWriteBoundary(worktreePath, specDirBasename, targetDir)
-        : assertTargetRepoPlanBoundary(project.root);
+        : gitEnabled
+          ? assertTargetRepoPlanBoundary(project.root)
+          : { ok: true };
 
       // For no-commit runs, also check the external spec directory
       const externalBoundaryCheck: BoundaryCheckResult =
@@ -1206,6 +1233,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           planTelemetry: planTelemetryWriter,
           targetDir,
           commit,
+          gitEnabled,
           checkBoundary: true,
           logNoChangeSkip: true,
           createAgent: resolveAgent,
@@ -1287,7 +1315,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         // For commit: false, show the absolute path and jarvis run command
         const noCommitSpecRoot = computeNoCommitSpecRoot(jarvisConfigDir, project, specDirBasename);
         const indexPath = join(noCommitSpecRoot, "index.md");
-        opts.io.stdout(`Spec written to ${indexPath}\nRun with: jarvis1 run ${indexPath}\n`);
+        emitNoCommitPlanNextSteps(opts.io, indexPath);
       }
       summarizePlan("complete", specDirBasename);
 

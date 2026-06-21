@@ -63,17 +63,6 @@ export function buildIntentSplitPrompt(opts: {
 `;
 }
 
-function resetIntentStageDirExternal(stagePath: string): void {
-  rmSync(stagePath, { recursive: true, force: true });
-  mkdirSync(stagePath, { recursive: true });
-}
-
-function resetIntentStageDir(worktreePath: string, stagingDir: string): void {
-  const stagePath = join(worktreePath, stagingDir);
-  rmSync(stagePath, { recursive: true, force: true });
-  mkdirSync(stagePath, { recursive: true });
-}
-
 export async function runIntentSplitTurn(opts: {
   worktreePath: string;
   seedLabel: string;
@@ -122,11 +111,9 @@ export async function runIntentSplitTurn(opts: {
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
 
   const preSpinHook = () => {
-    if (isAbsolute(opts.stagingDir)) {
-      resetIntentStageDirExternal(opts.stagingDir);
-    } else {
-      resetIntentStageDir(opts.worktreePath, opts.stagingDir);
-    }
+    const stagePath = isAbsolute(opts.stagingDir) ? opts.stagingDir : join(opts.worktreePath, opts.stagingDir);
+    rmSync(stagePath, { recursive: true, force: true });
+    mkdirSync(stagePath, { recursive: true });
   };
 
   const bindings = agentOrder.map((entry) =>

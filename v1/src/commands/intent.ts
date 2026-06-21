@@ -366,19 +366,6 @@ function assertNoCheckoutPollution(projectRoot: string): { ok: true } | { ok: fa
   return rogue.length === 0 ? { ok: true } : { ok: false, rogue };
 }
 
-function assertExternalStageBoundary(stageDir: string): { ok: true } | { ok: false; rogue: string[] } {
-  if (!existsSync(stageDir)) {
-    return { ok: true };
-  }
-  let entries: string[];
-  try {
-    entries = readdirSync(stageDir);
-  } catch {
-    return { ok: false, rogue: ["(failed to read stage dir)"] };
-  }
-  return { ok: true };
-}
-
 function renderIntentNextSteps(args: { prUrl: string; targetDir: string; emittedNames: string[] }): string {
   const lines = [
     "",
@@ -520,12 +507,6 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         opts.io.stderr(
           `intent: splitter wrote into checkout (cwd=${project.root}): ${checkoutPollution.rogue.join(", ")}\n`,
         );
-        return 1;
-      }
-
-      const stageBoundary = assertExternalStageBoundary(externalStageDir);
-      if (!stageBoundary.ok) {
-        opts.io.stderr(`intent: splitter wrote outside stage dir: ${stageBoundary.rogue.join(", ")}\n`);
         return 1;
       }
 

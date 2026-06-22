@@ -208,6 +208,8 @@ describe("runAgent transient retry", () => {
     rmSync(cwd, { recursive: true, force: true });
   };
 
+  const noOpSleep = async () => {};
+
   test(
     "transient-then-success returns ok with no advancement",
     async () => {
@@ -244,9 +246,7 @@ exit 0
           "test",
           {
             cwd: realpathSync(cwd),
-            sleepMs: async () => {
-              // no-op sleep for test
-            },
+            sleepMs: noOpSleep,
           },
         );
 
@@ -393,9 +393,7 @@ exit 0
             onTransientRetry: (info) => {
               retries.push({ attempt: info.attempt, cap: info.cap, exitCode: info.exitCode });
             },
-            sleepMs: async () => {
-              // no-op sleep for test
-            },
+            sleepMs: noOpSleep,
           },
         );
 

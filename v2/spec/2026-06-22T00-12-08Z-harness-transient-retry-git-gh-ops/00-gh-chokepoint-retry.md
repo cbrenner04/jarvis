@@ -21,17 +21,21 @@ without perturbing the shipped agent classifier.
 ## Decisions
 
 - Reuse the shipped classifier; do not reimplement it. Add a name-agnostic
-  export in `v1/src/agents/quota.ts` (e.g. `isTransientNetworkError(stderr,
-  exitCode)`) that matches `sharedTransportPatterns` ∪ a new harness-scoped
-  git/gh phrasing list, with the same `exitCode === 0` → false guard. Rules out
-  calling `isTransientSignal` with a fake `AgentName`, and rules out a parallel
-  pattern list that duplicates `sharedTransportPatterns`.
-- The new git/gh phrasings (`TLS handshake timeout`, `could not resolve host` /
-  name-resolution failure, `operation timed out` / `timed out`, SSL/handshake
-  errors, `the remote end hung up unexpectedly`) live in a **harness-scoped**
-  list, not in the agent path's pattern lists. Rules out widening the shipped
-  agent classifier's surface as a side effect (a separate, unmeasured behavior
-  change).
+  export in `v1/src/agents/quota.ts` `isTransientNetworkError(exitCode,
+  stderr)` — arg order matching the sibling classifier family (exitCode first)
+  to avoid a swap bug across the two call sites — that matches
+  `sharedTransportPatterns` ∪ a new harness-scoped git/gh phrasing list, with
+  the same `exitCode === 0` → false guard. Rules out calling `isTransientSignal`
+  with a fake `AgentName`, and rules out a parallel pattern list that duplicates
+  `sharedTransportPatterns`.
+- The new git/gh phrasings are grounded in the observed seed-3 stderr plus
+  well-known git/gh wordings, not enumerated for thoroughness: `TLS handshake
+  timeout` (seed 3), `could not resolve host` (git DNS failure), `operation
+  timed out` / `timed out`, `SSL_ERROR` / handshake errors, `the remote end hung
+  up unexpectedly` (git over HTTPS). They live in a **harness-scoped** list, not
+  in the agent path's pattern lists. Rules out widening the shipped agent
+  classifier's surface as a side effect (a separate, unmeasured behavior
+  change), and rules out inventing precision on transients no path exercises.
 - Bounded re-attempt cap mirrors the agent path: **2 re-attempts (3 total
   invocations)**, an internal constant. Rules out a divergent cap, an unbounded
   retry, and a configurable knob nobody has asked for.
@@ -45,21 +49,30 @@ without perturbing the shipped agent classifier.
   not-authenticated, 404, branch-protection `BLOCKED`, and the `ENOENT`
   binary-not-found `child.on("error")` path — match no transient pattern and
   fast-fail with exactly one invocation. Rules out retrying auth/permission
-  errors that will never recover.
-- Each re-attempt is operator-observable: a harness stderr line distinct from a
-  hang, built by a new `harnessGitGhTransientRetryLine(op, attempt, cap)` in
-  `v1/src/quota-harness-messages.ts`, sharing no substring with the quota
-  strings (`quota exhausted; falling back` / `probable quota-like error`) or the
-  agent line (`transient transport error …`). Emitted via an injectable callback
-  defaulting to a `process.stderr` write so tests can assert it. Rules out a
-  silent retry indistinguishable from a hang.
-- The retry policy (cap, backoff, classifier) is a single shared unit reused by
-  the sync git/gh ops in [01](./01-sync-git-gh-retry.md); no duplicated
-  cap/backoff/pattern constants across the two paths.
+  errors that will never recover. (Offline / `could not resolve host` is
+  transient by design: it pays the full capped retry before surfacing, not a
+  fast-fail — the "permanent fast-fails" framing covers auth/404/`BLOCKED`, not
+  network unreachability.)
+- Each re-attempt is operator-distinguishable: a harness stderr line not
+  confusable with a hang or a quota fallback, built by a new
+  `harnessGitGhTransientRetryLine(op, attempt, cap)` in
+  `v1/src/quota-harness-messages.ts`, op-scoped and visibly distinct from the
+  quota strings (`quota exhausted; falling back` / `probable quota-like error`)
+  and the agent transient line. Emitted via an injectable callback defaulting to
+  a `process.stderr` write so tests can assert it. Rules out a silent retry
+  indistinguishable from a hang. (`op` is a short op label — the gh/git
+  subcommand, e.g. `gh pr comment`, `git push` — so the multi-subcommand
+  chokepoint identifies which call is retrying.)
+- The retry **policy** is shared with the sync git/gh ops in
+  [01](./01-sync-git-gh-retry.md): one classifier (`isTransientNetworkError`),
+  one set of cap/backoff constants, one message builder. The loop **bodies**
+  differ (async re-await here, sync re-invoke in 01) and are two thin
+  implementations over that shared policy — not one function. Rules out
+  duplicated cap/backoff/pattern constants across the two paths.
 
 ## Task checklist
 
-- Add `isTransientNetworkError(stderr, exitCode)` + the harness-scoped git/gh
+- Add `isTransientNetworkError(exitCode, stderr)` + the harness-scoped git/gh
   phrasing list to `v1/src/agents/quota.ts`; leave the agent classifier
   (`isTransientSignal`, `sharedTransportPatterns`) unchanged.
 - Add `harnessGitGhTransientRetryLine(op, attempt, cap)` to
@@ -74,8 +87,9 @@ without perturbing the shipped agent classifier.
   false, and permanent (`BLOCKED`/auth/404) not matched; `runGhCommand` retries
   a transient result to success; persistent transient returns the last result
   after exactly 3 invocations (bound, not external limit); permanent failure
-  invokes exactly once; the harness retry line fires per re-attempt and shares
-  no substring with quota/agent strings.
+  invokes exactly once; the injectable sleep seam fires once per re-attempt
+  (N−1 across N attempts); the harness retry line fires per re-attempt and is
+  op-scoped and distinct from the quota/agent strings.
 - Docs: `v1/docs/quota-signals.md` (classifier now also guards the harness's own
   gh ops; new git/gh phrasings + bounded backoff), `v2/docs/v1-behaviors.md`
   (`runGhCommand` bounded-retries transient gh failures; permanent fast-fail).
@@ -95,8 +109,11 @@ without perturbing the shipped agent classifier.
   new git/gh phrasings, and the shipped agent classifier (`isTransientSignal`
   truth table in `v1/test/agents/quota.test.ts`) stays green — agent behavior
   unchanged (test).
-- [ ] Each gh re-attempt emits `harnessGitGhTransientRetryLine`, which shares no
-  substring with the quota-fallback strings or the agent transient line (test).
+- [ ] The injectable sleep seam is invoked once per re-attempt — N−1 times
+  across N attempts — so backoff is exercised, not skipped (test).
+- [ ] Each gh re-attempt emits `harnessGitGhTransientRetryLine`, an op-scoped
+  line operator-distinguishable from the quota-fallback strings and the agent
+  transient line (not confusable with a hang or a quota fallback) (test).
 - [ ] `v1/docs/quota-signals.md` and `v2/docs/v1-behaviors.md` record the gh
   chokepoint retry, the reused classifier + new git/gh phrasings, the cap, the
   bounded backoff, and that permanent failures fast-fail.

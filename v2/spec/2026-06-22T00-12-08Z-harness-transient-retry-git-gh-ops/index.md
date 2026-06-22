@@ -10,3 +10,8 @@ the harness's own git/gh calls; keep permanent failures fast-failing.
 
 - [ ] [00 - Bounded transient retry inside the gh chokepoint](./00-gh-chokepoint-retry.md)
 - [ ] [01 - Bounded transient retry on the sync git push / gh pr ready ops](./01-sync-git-gh-retry.md)
+
+Scope is deliberately narrowed to the harness's own network ops: `runGhCommand`,
+`pushCurrent`, and the direct `gh pr ready` shell-outs. `git fetch origin`
+(`bestEffortFetch`) is excluded by design — it already swallows all failures and
+cannot kill a run; other `git` execFileSync sites are local-only.

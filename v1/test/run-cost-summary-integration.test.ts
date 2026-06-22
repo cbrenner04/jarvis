@@ -31,6 +31,7 @@ class FakeAgent implements Agent {
   }
 }
 
+const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.4" };
 
 class FakeCodexNoUsd implements Agent {
@@ -87,6 +88,9 @@ describe("run summary integration", () => {
     writeFileSync(specPath, "- [ ] todo\n");
     const agent = new FakeAgent();
     const cap = captureIo();
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
 
     const code = await runCommand({
       specPath,

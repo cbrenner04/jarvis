@@ -1,125 +1,105 @@
-# Operator Runbook
+# Observer Runbook
 
-Reference for recurring session friction: patterns, workflows, and recovery paths when automated gates fail or need human intervention.
+Reference for an **observer** driving Jarvis runs on a target repo — launching runs, polling them, reviewing PRs, admin-merging, and recovering when automated gates fail. "Observer" and "operator" are used interchangeably.
+
+This runbook is **target-agnostic**: Jarvis is the constant; the repo it's pointed at varies. Where a concrete command appears (e.g. `bun run ready`), it's an example from dogfooding Jarvis-on-Jarvis — substitute the target repo's equivalent gate (its test/lint/typecheck commands, found in the target's `CLAUDE.md`/`AGENTS.md` or package scripts).
+
+## Observer responsibilities (definition of done)
+
+An observer session is not done when the PRs merge — it's done when the findings and tooling persist. Every session owes:
+
+1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. Keep stuck work moving (diagnose, finalize, or re-queue).
+2. **Create wip-intents** in `v2/spec/wip-intents/` for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
+3. **Write a final report** (gitignored local artifact, e.g. `overlord-session-report.md`) covering: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost.
+4. **Maintain this runbook** directly (branch → PR → admin-merge — lighter than the full intent→plan→run pipeline). The user sends this runbook to observers as their onboarding doc, so keep it current and target-agnostic.
 
 ## Background-run-and-poll pattern
 
-When spawning a long-running jarvis invocation that might outlast the current shell session, use a tracked runner:
+Launch long-running Jarvis invocations detached so they outlive the current shell/turn, then poll for completion:
 
 ```sh
-nohup jarvis1 run <spec> >run.log 2>&1 &
+nohup jarvis1 run <spec> >run.log 2>&1 &      # human shell
 screen -d -m jarvis1 run <spec>
-tmux new-session -d -s jarvis1 "jarvis1 run <spec>"
+tmux new-session -d -s jarvis "jarvis1 run <spec>"
 ```
 
-Then poll: `tail -f run.log`, or check `git log --oneline -n 10` for branch changes.
+Poll via `tail -f run.log`, `git log --oneline -n 10` on the worktree branch, the spec's `index.md` checkbox count, or `~/.jarvis/runs.jsonl` (terminal `exit_reason` rows per `namespace`).
 
-Avoid bare shell `&` (process dies when shell exits). Tracked runners (`nohup`, `screen`, `tmux`, or systemd timer) survive shell exit and leave a durable log.
+Avoid bare shell `&` — the process dies when the shell exits, and runs untracked.
+
+**If the observer is itself an agent** with a background-task runner (e.g. Claude Code's background Bash): launch the Jarvis command **as the background task directly** — do *not* nest `nohup … &` inside it. Nesting detaches the process and returns immediately, so the runner marks the task "complete" while the real run keeps executing untracked (no exit notification). The bare command-as-task gives a clean completion signal.
+
+## Concurrency — avoid cross-run conflicts
+
+- **Don't run two Jarvis commands that touch the same files concurrently.** Separate worktrees prevent lock contention, but overlapping edits produce merge conflicts later (and CPU contention raises flake rates). Sequence runs that share files; merge each as it lands so branches stay close to `main`.
+- **Don't branch-switch the primary checkout while a `plan`/`intent` is starting** — it reads the seed from the primary checkout at startup; a switch mid-read is a race. Merges and `pull` on `main` (no branch switch) are safe.
+- For observer-side edits (like this runbook) while runs are in flight, work in a **separate worktree** so the primary checkout stays on `main`.
 
 ## Integration-merge-then-retest pattern
 
-When merging a draft PR for integration testing:
+When a PR branched before recent merges (`mergeStateStatus: BEHIND`/`DIRTY`), reconcile before merging:
 
-1. **Run the completion gate locally first.** Use `bun run ready` on the unmerged branch to verify all checks pass.
-2. **Merge the branch.** Once `ready` succeeds, use `gh pr merge --merge` to merge locally.
-3. **Re-run tests locally** on the merged branch to catch any integration-only issues before pushing.
-4. **Push once verified.** Push the merged commit once local verification completes.
+1. **Trial-merge `main` into the branch's worktree** (`git merge --no-commit origin/main`) and inspect conflicts.
+2. **Resolve to keep both works' value** — don't blindly take one side. When two runs independently solved the same problem differently, merge toward the higher-coverage / more-correct outcome; recover any needed code verbatim from git rather than retyping.
+3. **Re-run the target's full gate** (sandbox-off if it spawns processes) on the merged tree, and confirm coverage didn't regress (see below) before committing the merge.
+4. Push, mark ready, admin-merge.
 
-Rationale: merging first and fixing issues afterward risks red commits. Running `ready` before merge prevents most lint/test issues; re-running `test` after merge catches integration-only flakes.
+**Watch for silently-dropped tests in refactor PRs.** A "mechanical, no-behavior-change" refactor can quietly delete or fail to relocate tests. Before merging, diff `grep -c 'test('` across the full test tree (including relocated `*.sandbox-unrunnable.test.ts`-style files) at branch HEAD vs the merge-base; if the count dropped, `comm -23` the sorted test names to see exactly which, and confirm each drop was intentional. Restore unintended drops verbatim from git.
 
 ## Manual-finalize recovery (last-resort path)
 
-When automated gates (completion gate, lint convergence, flaky-test retry, or parallel-load flake recovery) fail or are unsafe to re-run, use manual finalization:
+When automated gates fail or are unsafe to re-run, finalize by hand **in the worktree** (the observer is finalizing, not an agent editing mid-run):
 
 ```sh
-# Inspect the worktree state
-git status
-git diff
-
-# Manually fix issues (e.g., lint, type errors, test flakes)
-# Then run the completion gate explicitly
-bun run ready
-
-# Only then commit and merge
-git add -A  # caution: this absorbs any manual commits; Jarvis owns commits on this worktree
+git status && git diff                 # inspect worktree state
+# fix issues (lint, types, flakes), then run the target's gate explicitly:
+bun run ready                          # ← substitute target repo's gate
+git add -A                             # caution: absorbs manual commits; Jarvis owns commits here
 git commit -m "<message>"
-
-# Tick any satisfied acceptance criteria in the spec,
-# mark the PR as ready, and merge with admin privileges
-gh pr ready
-gh pr merge --admin
+gh pr ready && gh pr merge --admin     # ready first — admin-merge refuses a draft
 ```
 
-This is a fallback for:
-- **Completion gate**: the harness's check that all acceptance criteria are ticked before deeming the spec complete. Admin-merge skips approval but does not skip local lint/test verification — the operator must run `bun run ready` or `bun run check` before merging.
-- **Lint convergence**: the full tier's `check` command (Biome lint) that must pass after `check:fix:unsafe` runs.
-- **Flaky-test retry**: `scripts/ready.ts` automatically runs parallel tests, then serially if parallel fails; if both fail, the run exits with non-zero.
-- **Parallel-load flake recovery**: when tests pass serially but failed in parallel (load-dependent issue), `ready` detects and reports this; manual re-runs of `bun test` with different parallelism can confirm the flake.
+Common cases:
+- **Complete-but-dirty run.** Spec checklists all ticked but the worktree has uncommitted work the agent didn't commit before exiting — commit it and finalize (never auto-tick criteria).
+- **Transient-killed plan.** A plan that died on a transient agent-error leaves a dirty plan worktree. If the review actuator had already finished (verdict file written, subspec edits applied) and only the commit/index-reconcile was lost, **reconcile the `index.md` to match the subspecs the actuator created, then commit** — cheaper and more deterministic than re-running the review pass. If the edits look truncated, discard and re-resume instead.
+- **Flaky parallel-load failure.** Tests that pass serially/in-isolation but fail under `--parallel` are load flakes — re-run the failing test(s) in isolation; if green, finalize.
+
+Admin-merge skips approval and CI gating but **not** local verification — always run the target's gate before merging.
 
 ## Sandbox blindness and false-negatives
 
-The sandbox (in Claude Code) may hide real process state in several ways:
+The sandbox (e.g. in Claude Code) can hide real state:
 
-### `ps` and `pgrep` blindness
+### `ps`/`pgrep` blindness and flag traps
 
-`ps` and `pgrep` can only see processes in the current execution context; background processes spawned outside the sandbox are invisible. A background agent (`nohup jarvis1 run ...`) won't show up in `pgrep` queries inside. When matching process names, use stable substrings that won't collide with unrelated processes:
+- Background processes spawned outside the sandbox are invisible to in-sandbox `ps`/`pgrep`; process inspection **must run sandbox-off**.
+- Match on stable command tokens, not generic words: `pgrep -f 'cli.ts run <spec>'`, not `pgrep -f run`.
+- **BSD/macOS `pgrep` has no `-c` count flag** (that's Linux procps). `pgrep -fc …` errors → a `|| echo 0` fallback then makes every process look dead. Count with `pgrep -f '<token>' | wc -l` instead.
+- Workaround for liveness without process queries: poll the log, `runs.jsonl`, or git history.
 
-```sh
-pgrep -f 'jarvis1 run'        # Good: specific command token
-pgrep -f 'run'                # Risky: too generic, matches other things
-```
+### Localhost/auth/TLS blindness
 
-Rationale: the stable command-token match (`jarvis1 run`) is the distinguishing substring. Relative-path or full-path matching is fragile; a stable token in the command line is what matters.
-
-**Workaround**: poll the log file (`tail -f run.log`) or check git history (`git log --oneline -n 10`) instead of process queries.
-
-### Localhost/auth blindness
-
-Network requests to `localhost` and POSIX auth operations (reading `~/.netrc`, SSH keys, or system keychain) may fail or not behave as expected inside the sandbox. These are *false negatives* — the operations work fine when run unsandboxed.
-
-- An apparent auth failure (`gh` command fails with a permission error, `localhost` requests time out) is likely a sandbox limitation, not a real problem.
-- **Workaround**: re-run the same `jarvis`, `git`, `gh`, or `localhost` command *outside the sandbox* and do not debug the apparent auth/connection failure before re-checking unsandboxed. If the command succeeds outside the sandbox, the sandbox was the issue.
+`gh`/`git` network calls, `localhost` requests, and auth/keychain reads may fail *inside* the sandbox with TLS-cert or permission errors that are **false negatives**. Re-run the same command sandbox-off before debugging — if it succeeds there, the sandbox was the cause.
 
 ## Branch-protection and admin-merge workflow
 
-This repo enforces branch protection: `main` requires at least one approval and a passing CI check.
+The target repo may enforce branch protection (`main` requires approval + passing CI) with no self-approval. Workflow:
 
-### Can't self-approve
+1. Spec complete (all acceptance criteria ticked) → Jarvis flips the draft PR to `ready` (or the observer runs `gh pr ready`).
+2. Run the target's gate locally to verify lint/type/test pass (admin-merge does **not** re-verify).
+3. `gh pr merge --admin --squash` overrides the approval/up-to-date requirement and merges directly.
 
-- Draft PRs are opened as *draft* so they don't count toward the approval requirement.
-- A single-operator workflow still needs a self-approval workaround because `main` branch protection blocks self-approval.
-- The workaround is to bump the PR out of draft status, let CI run and pass, then **use admin merge** (Jarvis-owned step, not manual).
+A `mergeStateStatus` of `BLOCKED` typically means branch-protection only (admin overrides); `DIRTY` means a real conflict to resolve first; `BEHIND` is mergeable via admin.
 
-### Admin-merge path
+## Target-repo gate specifics (example: Jarvis-on-Jarvis)
 
-- Jarvis flips the draft PR to `ready` once the spec completes (all acceptance criteria ticked).
-- Admin merge (`gh pr merge --admin`) skips the approval requirement and merges directly *without running any local gates*.
-- The operator must run `bun run ready` (or at minimum `bun run check`) **before** the merge to verify all checks pass; admin-merge does not re-verify them.
+Gate commands vary per target — read the target's package scripts / `CLAUDE.md`. For the Jarvis repo itself:
 
-Workflow:
-1. Spec is complete (all acceptance criteria ticked).
-2. Operator runs `bun run ready` locally to verify the spec passes all lint, type, and test gates.
-3. Jarvis automatically flips PR to `ready` and merges with admin privileges.
-4. The merge succeeds without additional gate checks; the pre-merge `ready` run is the verification step.
-
-## `check:fix` vs `check:fix:unsafe` distinction
-
-These are Biome commands with different rule coverage and mutability:
-
-- **`check:fix`** (`bun run check:fix`): Biome's standard checks + fixes; doesn't apply unsafe rules. Safe to run in automation. Leaves residual issues that require `--unsafe` or hand edits: unused-var, noExplicitAny, non-null assertions.
-- **`check:fix:unsafe`** (`bun run check:fix:unsafe`): Biome's standard checks + fixes *plus* unsafe rule fixes (often riskier transformations). Used only in the `full` ready tier, before re-linting with `check`.
-
-The full ready tier (run before any merge) applies `check:fix:unsafe` first, then runs the full lint gate (`check`), ensuring that even aggressive fixes pass final review.
-
-Note: `noImplicitAny` is a TypeScript compiler flag (in `tsconfig.json`), not a Biome fix target; lint and type-checking are separate gates. Typecheck is its own `bun run typecheck` step.
+- **`bun run ready`** — the full completion gate (typecheck + lint + tests, with a serial retry on parallel-test failure). Jarvis runs this automatically on spec completion; the observer runs it before any hand/admin-merge.
+- **`check:fix`** (safe Biome fixes) leaves residual `noExplicitAny`/unused-var/non-null issues; **`check:fix:unsafe`** applies the riskier fixes and runs in the full ready tier before the final `check` lint.
+- **`bun run typecheck`** is a separate gate (TS compiler; `noImplicitAny` lives in `tsconfig.json`, not Biome).
+- Tests that spawn real processes live in `*.sandbox-unrunnable.test.ts` files and only run **sandbox-off**.
 
 ## Branch-before-edit discipline
 
-Always create a new git worktree or branch *before* making edits to code or specs:
-
-1. **For active work**: specs already on disk are run through `jarvis` via worktrees (one worktree per active spec; names are UTC timestamps for uniqueness).
-2. **For new specs**: draft first in plan mode (which creates its own worktree), merge to `main`, then start a separate patch-mode run on a new worktree.
-3. **Never edit specs or code on `main` directly.** All work happens on a branch or worktree; `main` is a stable merge target.
-
-Rationale: worktrees allow parallel spec drafting and testing without blocking each other. Editing `main` directly creates ambiguity about whether changes are integrated or in-progress.
-
+Never edit specs or code on `main` directly. Active specs run through Jarvis on per-spec worktrees (UTC-timestamp names); new specs draft in plan mode (own worktree) → merge → then a separate run. Observer-side doc edits get their own worktree/branch too. `main` stays a stable merge target.

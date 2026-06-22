@@ -53,16 +53,12 @@ export function evaluateIdleWatchdog(opts: {
   armedAt: number;
   idleOutputTimeoutMs: number;
 }): { shouldFire: boolean; lastFileActivityAgeMs: number | null } {
-  const effectiveLastActivityAt = Math.max(
-    opts.lastOutputAt ?? opts.armedAt,
-    opts.lastFileActivityAt ?? opts.armedAt,
-  );
+  const effectiveLastActivityAt = Math.max(opts.lastOutputAt ?? opts.armedAt, opts.lastFileActivityAt ?? opts.armedAt);
 
   const idleAgeMs = opts.now - effectiveLastActivityAt;
   const shouldFire = idleAgeMs >= opts.idleOutputTimeoutMs;
 
-  const lastFileActivityAgeMs =
-    opts.lastFileActivityAt === null ? null : opts.now - opts.lastFileActivityAt;
+  const lastFileActivityAgeMs = opts.lastFileActivityAt === null ? null : opts.now - opts.lastFileActivityAt;
 
   return { shouldFire, lastFileActivityAgeMs };
 }

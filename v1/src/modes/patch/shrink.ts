@@ -14,12 +14,12 @@ import { runReadyGateWithTier } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
 import { pushCurrent } from "../../worktree.ts";
+import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import { updatePrBody } from "./pr.ts";
 import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { createShrinkInvocationBinding } from "./shrink-invocation-binding.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
-import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 
 type ShrinkLogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type ShrinkLogStream = "stdout" | "stderr" | null;
@@ -362,13 +362,15 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
 
   // Arm idle watchdog if configured
   const shrinkArmedAt = Date.now();
-  const shrinkIdleOutputTimeoutMs = opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+  const shrinkIdleOutputTimeoutMs =
+    opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
   const shrinkWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
   if (shrinkIdleOutputTimeoutMs > 0) {
     const scheduleShrinkIdleCheck = () => {
       shrinkIdleTimeoutHandle = setTimeout(() => {
         const snapshotAt = Date.now();
-        const lastOutputAgeMs = shrinkLastOutputAtMs.current === null ? null : snapshotAt - shrinkLastOutputAtMs.current;
+        const lastOutputAgeMs =
+          shrinkLastOutputAtMs.current === null ? null : snapshotAt - shrinkLastOutputAtMs.current;
 
         const sampledFileActivityAt = sampleFileActivityIfNeeded({
           lastOutputAgeMs,
@@ -391,7 +393,11 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         });
 
         if (shouldFire) {
-          opts.fanout("harness", `[watchdog] idle timeout fired after ${shrinkIdleOutputTimeoutMs}ms; killing agent\n`, "stderr");
+          opts.fanout(
+            "harness",
+            `[watchdog] idle timeout fired after ${shrinkIdleOutputTimeoutMs}ms; killing agent\n`,
+            "stderr",
+          );
           shrinkController.abort("idle-timeout");
         } else {
           scheduleShrinkIdleCheck();

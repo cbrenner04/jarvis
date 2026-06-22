@@ -4,8 +4,8 @@ import { execSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import { runAgent } from "../../../src/agents/spawn.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt } from "../../../src/modes/patch/prompt.ts";
 import {
@@ -850,7 +850,7 @@ while true; do :; done
       });
       const elapsedMs = Date.now() - startTime;
 
-      const hasIdleTimeout = telemetry.some((r) => r.exit_reason === "watchdog-idle-timeout");
+      const hasIdleTimeout = telemetry.some((r) => r.exitReason === "watchdog-idle-timeout");
       expect(code, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(8);
       expect(elapsedMs).toBeLessThan(5000);
       expect(hasIdleTimeout, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(true);

@@ -946,7 +946,9 @@ while true; do :; done
         .map((line) => JSON.parse(line) as Record<string, unknown>);
       const idleRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
       expect(idleRow).toBeDefined();
-      expect(typeof idleRow?.last_file_activity_age_ms === "number" || idleRow?.last_file_activity_age_ms === null).toBe(true);
+      expect(
+        typeof idleRow?.last_file_activity_age_ms === "number" || idleRow?.last_file_activity_age_ms === null,
+      ).toBe(true);
     });
 
     test("idle watchdog includes last_file_activity_age_ms in telemetry", async () => {

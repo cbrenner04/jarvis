@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import { detectBlockerClaim, parseSpec, stripBlockerSection } from "../../../../shared/spec-parser.ts";
 import { openSessionLog, resolveReviewPasses } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
@@ -38,6 +37,7 @@ import {
   getIndexTitle,
   tryFinishSpecIfDone,
 } from "./completion-pipeline.ts";
+import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { maybeMarkReady } from "./pr.ts";
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
@@ -679,11 +679,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
     // Check for idle timeout
     if (result.kind === "error" && result.stderr.includes("aborted: idle-timeout")) {
-      fanout(
-        "harness",
-        `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs}ms\n`,
-        "stderr",
-      );
+      fanout("harness", `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs}ms\n`, "stderr");
       const idleTelemetryRecord: TelemetryRecord = {
         agent: agent.name,
         iteration,

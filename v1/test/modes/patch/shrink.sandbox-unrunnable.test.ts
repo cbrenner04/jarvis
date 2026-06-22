@@ -4,8 +4,8 @@ import { execSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import { runAgent } from "../../../src/agents/spawn.ts";
+import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
 import type { Config } from "../../../src/config.ts";
 import { buildShrinkPrompt } from "../../../src/modes/patch/prompt.ts";
 import {
@@ -519,7 +519,7 @@ while true; do :; done
         },
         cwd: dir,
         specPath,
-        allowlist: new Set(),
+        allowlist: new Set(["impl.txt"]),
         fanout,
         writeTelemetry: (record) => {
           telemetry.push(record);
@@ -535,7 +535,7 @@ while true; do :; done
       const elapsedMs = Date.now() - startTime;
 
       expect(elapsedMs).toBeLessThan(5000);
-      const idleTimeoutRecord = telemetry.find((r) => r.exit_reason === "watchdog-idle-timeout");
+      const idleTimeoutRecord = telemetry.find((r) => r.exitReason === "watchdog-idle-timeout");
       expect(idleTimeoutRecord, `Telemetry: ${JSON.stringify(telemetry)}`).toBeDefined();
     } finally {
       cleanup();

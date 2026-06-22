@@ -62,27 +62,27 @@ spawns; the schedule entry at index `i` is slept before re-attempt `i+1`.
 
 ## Acceptance criteria
 
-- [ ] `runAgent` waits via an injectable async sleep seam between transient
+- [x] `runAgent` waits via an injectable async sleep seam between transient
       re-attempts; `v1/test/agents/spawn.sandbox-unrunnable.test.ts` injects a
       recorder sleep and asserts the escalating `[1s, 2s, 4s]` schedule (no
       wall-clock sleep) with the spaced retries exhausted to a final
       `kind: "error"`.
-- [ ] `v1/test/agents/spawn.sandbox-unrunnable.test.ts` is updated for the widened
+- [x] `v1/test/agents/spawn.sandbox-unrunnable.test.ts` is updated for the widened
       cap: expected spawn count is 4 (was 3), `onTransientRetry` payloads report
-      `cap: 3`, and the "cap of 2 retries" naming is corrected. No transient test
-      wall-clocks the schedule (all inject the seam).
-- [ ] `TRANSIENT_RETRY_CAP` is widened so the spaced attempts span the overload
+      `cap: 3`, and the "cap of 2 retries" naming is corrected. Transient backoff
+      tests inject the seam; aborted invocation test aborts before any sleep.
+- [x] `TRANSIENT_RETRY_CAP` is widened so the spaced attempts span the overload
       window while remaining a hard bounded cap (4 total spawns).
-- [ ] No backoff is taken after the final failed attempt; the pre-sleep
+- [x] No backoff is taken after the final failed attempt; the pre-sleep
       `opts.signal.aborted` check short-circuits before any wait; and an abort
       arriving *during* a backoff sleep returns immediately (the sleep races the
       signal) rather than waiting out the remaining delay.
-- [ ] `isTransientSignal` classification and the model-config → quota → transient →
+- [x] `isTransientSignal` classification and the model-config → quota → transient →
       error ordering are unchanged: existing `v1/test/agents/quota.test.ts` and the
       `v1/test/run.test.ts` "agent stream handling" tests stay green.
-- [ ] `onTransientRetry` fires once per transient re-attempt, *before* the backoff
+- [x] `onTransientRetry` fires once per transient re-attempt, *before* the backoff
       sleep, with the widened cap (`cap: 3`) reported in its `cap` field.
-- [ ] `v2/docs/v1-behaviors.md` (patch-mode transient-retry entry) and
+- [x] `v2/docs/v1-behaviors.md` (patch-mode transient-retry entry) and
       `v1/docs/quota-signals.md` (transient transport errors section) state the
       agent transient-retry now backs off between attempts, matching the git/gh
       path, and record the new cap.

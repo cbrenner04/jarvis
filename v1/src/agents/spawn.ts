@@ -191,9 +191,35 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
   });
 }
 
-const TRANSIENT_RETRY_CAP = 2;
+const TRANSIENT_RETRY_CAP = 3;
+const TRANSIENT_BACKOFF_SCHEDULE_MS = [1000, 2000, 4000];
+
+function defaultSleepMs(delayMs: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    let timeout: NodeJS.Timeout | null = setTimeout(() => {
+      timeout = null;
+      if (signal) {
+        signal.removeEventListener("abort", handleAbort);
+      }
+      resolve();
+    }, delayMs);
+    const handleAbort = () => {
+      if (timeout !== null) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      resolve();
+    };
+    signal?.addEventListener("abort", handleAbort);
+  });
+}
 
 export async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+  const sleepMs = opts.sleepMs ?? defaultSleepMs;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_CAP; attempt++) {
     const result = await singleSpawn(config, prompt, opts);
 
@@ -210,6 +236,21 @@ export async function runAgent(config: SpawnConfig, prompt: string, opts: AgentR
         agent: config.name,
         exitCode: result.exitCode,
       });
+
+      // Sleep before re-attempt, racing the abort signal
+      if (!opts.signal?.aborted && attempt < TRANSIENT_BACKOFF_SCHEDULE_MS.length) {
+        await sleepMs(TRANSIENT_BACKOFF_SCHEDULE_MS[attempt]!, opts.signal);
+      }
+
+      // Abort may have arrived during the sleep; short-circuit before spawning
+      if (opts.signal?.aborted) {
+        return {
+          kind: "error",
+          exitCode: -1,
+          stderr: `aborted: ${opts.signal.reason ? String(opts.signal.reason) : "aborted"}`,
+        };
+      }
+
       continue;
     }
 

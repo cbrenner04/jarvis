@@ -713,5 +713,241 @@ while true; do :; done
       expect(idleRow).toBeDefined();
       expect(idleRow?.kind).toBe("timeout");
     });
+
+    test("silent but file-editing agent is not killed by idle watchdog", async () => {
+      const idleTimeoutMs = 800;
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const fileEditScript = join(projectRoot, "file-edit-agent.sh");
+      writeFileSync(
+        fileEditScript,
+        `#!/usr/bin/env bash
+set -euo pipefail
+# Edit a file every 300ms, but emit no output — should not trigger idle timeout
+for i in {1..5}; do
+  echo "edit $i" >> "$PWD/output.txt"
+  sleep 0.3
+done
+echo "done"
+`,
+      );
+      chmodSync(fileEditScript, 0o755);
+
+      class FileEditAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: fileEditScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 30 * 60_000,
+          idleOutputTimeoutMs: idleTimeoutMs,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude: new FileEditAgent() },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).not.toBe(8);
+      expect(cap.err()).not.toContain("[watchdog] idle timeout fired");
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const idleRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
+      expect(idleRow).toBeUndefined();
+    });
+
+    test("fully idle agent (no output, no file writes) is killed by idle watchdog", async () => {
+      const idleTimeoutMs = 800;
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const fullyIdleScript = join(projectRoot, "fully-idle.sh");
+      writeFileSync(
+        fullyIdleScript,
+        `#!/usr/bin/env bash
+while true; do :; done
+`,
+      );
+      chmodSync(fullyIdleScript, 0o755);
+
+      class FullyIdleAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: fullyIdleScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 30 * 60_000,
+          idleOutputTimeoutMs: idleTimeoutMs,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude: new FullyIdleAgent() },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("[watchdog] idle timeout fired");
+      // File activity includes pre-existing files in the working directory (like spec file)
+      // so it will be detected. The important thing is that the watchdog still fired.
+      expect(cap.err()).toContain("last_file_activity_age_ms=");
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const idleRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
+      expect(idleRow).toBeDefined();
+      expect(typeof idleRow?.last_file_activity_age_ms === "number" || idleRow?.last_file_activity_age_ms === null).toBe(true);
+    });
+
+    test("idle watchdog includes last_file_activity_age_ms in telemetry", async () => {
+      const idleTimeoutMs = 1000;
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const idleScript = join(projectRoot, "idle-hang.sh");
+      writeFileSync(
+        idleScript,
+        `#!/usr/bin/env bash
+while true; do :; done
+`,
+      );
+      chmodSync(idleScript, 0o755);
+
+      class IdleAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: idleScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 30 * 60_000,
+          idleOutputTimeoutMs: idleTimeoutMs,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude: new IdleAgent() },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("last_file_activity_age_ms=");
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const idleRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
+      expect(idleRow).toBeDefined();
+      expect(idleRow).toHaveProperty("last_file_activity_age_ms");
+    });
   });
 });

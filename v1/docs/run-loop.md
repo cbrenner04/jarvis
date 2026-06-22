@@ -566,8 +566,11 @@ purposes:
   entry at invocation time). Watchdog-triggered iteration timeouts include optional
   **`watchdog_pgid`** (the killed agent process-group id), **`last_output_age_ms`**
   (ms since the last stdout/stderr chunk at watchdog fire; `null` when no output
-  arrived), and **`watchdog_descendants_alive`** (`true` when ≥1 descendant of the
-  agent root pid was live at snapshot; omitted when pgid was unavailable). Set
+  arrived), **`last_file_activity_age_ms`** (ms since the most-recent file
+  modification in the working tree at watchdog fire; `null` when no file activity
+  detected), and **`watchdog_descendants_alive`** (`true` when ≥1 descendant of the
+  agent root pid was live at snapshot; omitted when pgid was unavailable). Idle
+  watchdog fires only when both output and file activity are stale. Set
   `telemetryPath` to `null` to disable.
 
 ### Token usage and cost tracking
@@ -777,23 +780,40 @@ row still includes `last_output_age_ms` and omits `watchdog_pgid` and
 
 ### Idle-output watchdog
 
-An optional idle-output watchdog bounds iterations by agent output activity.
+An optional idle-output watchdog bounds iterations by liveness: absence of both
+agent output activity *and* file-system activity in the working tree.
 Configure `idleOutputTimeoutMs` (in milliseconds) to abort an iteration if the
-agent produces no stdout/stderr for that span. Disabled by default (when unset).
-The idle watchdog composes with the wall-clock `iterationTimeoutMs`: whichever
-fires first aborts the iteration; both are armed concurrently.
+agent produces no stdout/stderr *and* makes no file edits for that span. Disabled
+by default (when unset). The idle watchdog composes with the wall-clock
+`iterationTimeoutMs`: whichever fires first aborts the iteration; both are armed
+concurrently.
 
-The idle bound resets on every stdout/stderr chunk from the agent. If no output
-has arrived when the watchdog fires, `last_output_age_ms` in telemetry is `null`.
+The idle bound resets on every stdout/stderr chunk from the agent *or* file
+modification in the working tree (excluding `.git/` internal changes). File
+activity is checked by scanning the most-recent mtime in the agent working tree
+(excluding `.git/`). The scan occurs only when both output and file activity are
+already stale, minimizing filesystem I/O. Writes to gitignored paths count as
+file activity and prevent idle abort.
+
+Liveness is `max(lastOutputAt, lastFileActivityAt, armedAt)`: the watchdog fires
+only when this effective last-activity time exceeds `idleOutputTimeoutMs`.
+This prevents false-positive aborts of silent-but-productive agents (e.g. a code
+generation or refactoring pass that writes files without stdout).
+
+If no output has arrived when the watchdog fires, `last_output_age_ms` in
+telemetry is `null`. If no file activity is detected, `last_file_activity_age_ms`
+is `null`. When both are `null`, the agent produced neither output nor file edits
+for the full idle window.
 Idle abort returns exit code `8` with `exitReason: "watchdog-idle-timeout"`
 (distinct from `watchdog-iteration-timeout`). Idle timeouts are **not** classified
 as quota and do not trigger agent fallback.
 
 When the agent root pid is known at idle-fire time, Jarvis logs:
-`[watchdog] idle timeout fired after Nms; killing agent pgid <pgid> last_output_age_ms=<n|null> watchdog_descendants_alive=<true|false>`,
+`[watchdog] idle timeout fired after Nms; killing agent pgid <pgid> last_output_age_ms=<n|null> last_file_activity_age_ms=<n|null> watchdog_descendants_alive=<true|false>`,
 then kills the process group (same SIGTERM → grace → SIGKILL sequence as the
 wall-clock timeout). When pgid is unavailable, no `[watchdog]` line is emitted
-and no group kill runs, but telemetry still records `last_output_age_ms`.
+and no group kill runs, but telemetry still records `last_output_age_ms` and
+`last_file_activity_age_ms`.
 
 ### Orphan process reaping
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runReadyAndCommit, runReadyGateWithTier, selectReadyTier } from "../src/ready-gate.ts";
@@ -83,6 +83,71 @@ describe("runReadyAndCommit", () => {
 
     expect(tiers).toEqual(["full"]);
     expect(commitCalled).toBe(true);
+  });
+});
+
+describe("runReadyAndCommit readyCommand", () => {
+  let sentinelDir: string;
+
+  beforeEach(() => {
+    sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-sentinel-"));
+  });
+
+  afterEach(() => {
+    rmSync(sentinelDir, { recursive: true, force: true });
+  });
+
+  test("invokes readyCommand instead of bun run ready", () => {
+    const sentinel = join(sentinelDir, "invoked");
+    const script = join(sentinelDir, "ready.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+
+    runReadyAndCommit({ cwd: dir, readyCommand: script });
+
+    expect(existsSync(sentinel)).toBe(true);
+  });
+
+  test("passes JARVIS_READY_TIER env var to readyCommand", () => {
+    const tierFile = join(sentinelDir, "tier.txt");
+    const script = join(sentinelDir, "ready.sh");
+    writeFileSync(script, `#!/bin/sh\necho "$JARVIS_READY_TIER" > "${tierFile}"\n`);
+    chmodSync(script, 0o755);
+
+    runReadyAndCommit({ cwd: dir, tier: "fast", readyCommand: script });
+
+    expect(readFileSync(tierFile, "utf8").trim()).toBe("fast");
+  });
+
+  test("error message names the readyCommand on failure", () => {
+    const script = join(sentinelDir, "failing.sh");
+    writeFileSync(script, `#!/bin/sh\nexit 1\n`);
+    chmodSync(script, 0o755);
+
+    expect(() => runReadyAndCommit({ cwd: dir, readyCommand: script })).toThrow(script);
+  });
+});
+
+describe("runReadyGateWithTier readyCommand", () => {
+  let sentinelDir: string;
+
+  beforeEach(() => {
+    sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-sentinel-"));
+  });
+
+  afterEach(() => {
+    rmSync(sentinelDir, { recursive: true, force: true });
+  });
+
+  test("threads readyCommand to runReadyAndCommit", () => {
+    const sentinel = join(sentinelDir, "invoked");
+    const script = join(sentinelDir, "ready.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+
+    runReadyGateWithTier({ cwd: dir, agentLabel: "test", readyCommand: script });
+
+    expect(existsSync(sentinel)).toBe(true);
   });
 });
 

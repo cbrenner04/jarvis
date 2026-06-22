@@ -1577,7 +1577,9 @@ describe("plan flags", () => {
     );
     expect(() => loadConfig({ dir })).toThrow(/myproject/);
     expect(() => loadConfig({ dir })).toThrow(/oringn/);
-    expect(() => loadConfig({ dir })).toThrow(/root, origin, git, siblings, plan/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand/,
+    );
   });
 
   test("rejects unknown keys under project.plan", () => {
@@ -1605,6 +1607,98 @@ describe("plan flags", () => {
     expect(() => loadConfig({ dir })).toThrow(/specTimestamp, commit/);
   });
 
+  test("round-trips readyCommand", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-ready-cmd",
+            readyCommand: "my-script.sh --ci",
+          },
+        },
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.projects.myproject?.readyCommand).toBe("my-script.sh --ci");
+  });
+
+  test("rejects empty readyCommand", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-ready-cmd-empty",
+            readyCommand: "",
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/readyCommand/);
+    expect(() => loadConfig({ dir })).toThrow(/non-empty/);
+  });
+
+  test("rejects whitespace-only readyCommand", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-ready-cmd-ws",
+            readyCommand: "   ",
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/readyCommand/);
+    expect(() => loadConfig({ dir })).toThrow(/non-empty/);
+  });
+
+  test("rejects non-string readyCommand", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {
+          myproject: {
+            root: "/tmp/jarvis-ready-cmd-type",
+            readyCommand: 42,
+          },
+        },
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(/readyCommand/);
+    expect(() => loadConfig({ dir })).toThrow(/string/);
+  });
+
   test("accepts correctly-shaped config with all allowed keys", () => {
     writeFileSync(
       join(dir, "config.json"),
@@ -1623,6 +1717,7 @@ describe("plan flags", () => {
             git: true,
             siblings: ["/tmp/other"],
             plan: { specTimestamp: false, commit: true },
+            readyCommand: "my-ready.sh",
           },
         },
       }),
@@ -1634,6 +1729,7 @@ describe("plan flags", () => {
       git: true,
       siblings: ["/tmp/other"],
       plan: { specTimestamp: false, commit: true },
+      readyCommand: "my-ready.sh",
     });
   });
 });

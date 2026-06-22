@@ -1,7 +1,7 @@
 // This test requires real git history rewriting / branch movement semantics.
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAgent } from "../../../src/agents/spawn.ts";
@@ -538,6 +538,37 @@ while true; do :; done
       const idleTimeoutRecord = telemetry.find((r) => r.exitReason === "watchdog-idle-timeout");
       expect(idleTimeoutRecord, `Telemetry: ${JSON.stringify(telemetry)}`).toBeDefined();
     } finally {
+      cleanup();
+    }
+  });
+
+  test("invokes readyCommand at pre-shrink gate site", async () => {
+    const { dir: repoDir, specPath, cleanup } = setupShrinkRepo();
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-shrink-ready-cmd-"));
+    const sentinel = join(sentinelDir, "ready-invoked");
+    const script = join(sentinelDir, "ready.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+    const harness: string[] = [];
+    try {
+      const agent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+      await runPatchShrinkPhase({
+        config: makeShrinkConfig(),
+        cwd: repoDir,
+        specPath,
+        allowlist: new Set(["impl.txt"]),
+        readyCommand: script,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude: agent },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+      expect(existsSync(sentinel)).toBe(true);
+    } finally {
+      rmSync(sentinelDir, { recursive: true, force: true });
       cleanup();
     }
   });

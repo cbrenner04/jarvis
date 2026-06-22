@@ -80,6 +80,8 @@ export type PatchShrinkPhaseOptions = {
   };
   /** Refresh callback: called when pre-shrink gate re-runs `ready` and succeeds, to update the recorded result. */
   refreshRecordedGreenResult?: (headSha: string) => void;
+  /** Per-project override for `bun run ready`. Passed to `runReadyGateWithTier`. */
+  readyCommand?: string;
   /** Patch worktree directory for idle watchdog file-activity scanning. */
   patchWorktreeDir?: string;
   /** Idle output timeout in milliseconds (0 to disable). */
@@ -313,6 +315,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         const tier = runReadyGateWithTier({
           cwd: opts.cwd,
           agentLabel: "shrink-baseline",
+          ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
           ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
           ...(opts.refreshRecordedGreenResult !== undefined
             ? { refreshRecordedGreenResult: opts.refreshRecordedGreenResult }

@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Per-project readyCommand override](./00-ready-command-override.md)
+- [x] [00 - Per-project readyCommand override](./00-ready-command-override.md)

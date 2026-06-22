@@ -1,7 +1,7 @@
 // This test requires real git history / branch state for PR body and draft/ready semantics.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentResult } from "../../../src/agents/types.ts";
@@ -518,6 +518,31 @@ describe("maybeMarkReady", () => {
     ).toThrow("commitCheckFix failed");
 
     expect(ghPrReadyCalled).toBe(false);
+  });
+
+  test("invokes readyCommand at maybeMarkReady gate site", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-pr-ready-cmd-"));
+    try {
+      const sentinel = join(sentinelDir, "invoked");
+      const script = join(sentinelDir, "ready.sh");
+      writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+      chmodSync(script, 0o755);
+
+      maybeMarkReady({
+        indexPath,
+        cwd: dir,
+        readyCommand: script,
+        checkPrExists: () => true,
+        commitCheckFix: () => {}, // stub commit/push; tree may be dirty from test setup
+        ghPrReady: () => {}, // stub gh pr ready
+      });
+
+      expect(existsSync(sentinel)).toBe(true);
+    } finally {
+      rmSync(sentinelDir, { recursive: true, force: true });
+    }
   });
 });
 

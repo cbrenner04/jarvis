@@ -75,9 +75,11 @@ type Config = {
 };
 ```
 
-**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, and `updateSnapshotsCommand` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
+**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `updateSnapshotsCommand`, and `readyCommand` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
 
 **`updateSnapshotsCommand`** (per-project, optional): the command the snapshot-churn blocker gate runs to refresh outdated snapshots before re-testing (e.g. `bun test --update-snapshots`, `vitest -u`, `jest -u`). Takes precedence over auto-detection from the target repo's root `package.json`; if neither is set, the gate fail-safes (the blocker stands). Used only by that gate.
+
+**`readyCommand`** (per-project, optional): overrides `bun run ready` at all patch-mode ready gate sites (completion transition, pre-shrink, review baseline, review final, and `maybeMarkReady`). Value is tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. Receives the `JARVIS_READY_TIER` env var (`"fast"` or `"full"`) unchanged. When unset, the gate falls back to `bun run ready`.
 
 All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid
 configs are rejected with an error that names the offending file.

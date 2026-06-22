@@ -23,12 +23,12 @@ Observers driving Jarvis on a non-Jarvis target repo surface harness gaps but ca
 
 ## Acceptance criteria
 
-- [ ] `.github/ISSUE_TEMPLATE/harness-suggestion.md` exists with well-formed frontmatter carrying `name`, `about`, and `labels: harness-suggestion`.
-- [ ] The template body prompts for all three: the observed friction/gap, the target repo and Jarvis command involved, and the suggested change.
-- [ ] `v1/docs/operator-runbook.md` `## Harness suggestions from other repos` gives the other-repo observer an explicit cross-repo submit invocation targeting `cbrenner04/jarvis` (via `gh ... --repo cbrenner04/jarvis --template` or the web chooser URL) that needs no jarvis-repo checkout.
-- [ ] The same section tells the Jarvis-on-Jarvis observer to list suggestions via `gh issue list --repo cbrenner04/jarvis --label harness-suggestion` with a documented fallback for when the label is absent, convert each into a `v2/spec/wip-intents/` intent, and close the issue referencing the seeded intent — and permits closing without seeding when a suggestion isn't worth one.
-- [ ] The section sequences `gh label create harness-suggestion --repo cbrenner04/jarvis` as a one-time prerequisite ahead of the label-dependent steps.
-- [ ] The section's opening reads as dual-audience: a reader told elsewhere they aren't the runbook's primary audience can tell the submit steps are addressed to them.
+- [x] `.github/ISSUE_TEMPLATE/harness-suggestion.md` exists with well-formed frontmatter carrying `name`, `about`, and `labels: harness-suggestion`.
+- [x] The template body prompts for all three: the observed friction/gap, the target repo and Jarvis command involved, and the suggested change.
+- [x] `v1/docs/operator-runbook.md` `## Harness suggestions from other repos` gives the other-repo observer an explicit cross-repo submit invocation targeting `cbrenner04/jarvis` (via `gh ... --repo cbrenner04/jarvis --template` or the web chooser URL) that needs no jarvis-repo checkout.
+- [x] The same section tells the Jarvis-on-Jarvis observer to list suggestions via `gh issue list --repo cbrenner04/jarvis --label harness-suggestion` with a documented fallback for when the label is absent, convert each into a `v2/spec/wip-intents/` intent, and close the issue referencing the seeded intent — and permits closing without seeding when a suggestion isn't worth one.
+- [x] The section sequences `gh label create harness-suggestion --repo cbrenner04/jarvis` as a one-time prerequisite ahead of the label-dependent steps.
+- [x] The section's opening reads as dual-audience: a reader told elsewhere they aren't the runbook's primary audience can tell the submit steps are addressed to them.
 
 ## Post-merge note
 

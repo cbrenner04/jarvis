@@ -365,6 +365,7 @@ Items marked `[uncertain]` need additional evidence (code inspection, tests, or 
 ## Surprising or possibly vestigial behaviors
 
 Items tagged **[v2-cleanup candidate]** are dead or vestigial code paths flagged for explicit drop/keep decisions during v2 design.
+
 - Log-server connectivity is a hard gate for both patch and plan modes even though post-preflight log delivery failures are ignored; this makes local observability service availability stricter than later per-message reliability. Sources: `v1/src/mode-entry.ts`, `v1/src/log-server-preflight.ts`, `v1/src/modes/patch/run.ts`
 - The fallback non-index prompt defaults to `exit` on empty or unrecognized input, so a mistaken Enter can terminate `jarvis1 run` without any agent attempt. Sources: `v1/src/modes/patch/run.ts`
 

@@ -40,15 +40,15 @@ fix these in place before validation instead of re-running the agent.
 
 ## Acceptance criteria
 
-- [ ] A staged intent file with no leading `---` frontmatter block gets a `---\nname: <slug>\n---` block prepended (slug = filename) and the run completes (committed: split commit + draft PR; no-commit: files written to external `ready-intents/`) instead of aborting.
-- [ ] A staged intent file with a `---` frontmatter block that lacks a `name:` key gets `name: <slug>` inserted into the existing block (no second `---` block is created) and the run completes.
-- [ ] A staged intent file whose frontmatter `name:` does not match its filename slug has only its `name:` value rewritten to the slug and the run completes; the previously-asserted `must declare name:` abort no longer fires for this case (the mismatched-name expectation in `v1/test/intent-command.sandbox-unrunnable.test.ts` is updated to assert success). The fixture for this case already has a `## Prerequisites` section, so it isolates name-repair.
-- [ ] A staged intent file missing a `## Prerequisites` section (including a wrong-level/wrong-case near-miss heading) gets an empty `## Prerequisites` section appended — the near-miss heading is left in place, not promoted — and the run completes.
-- [ ] An already-compliant staged file (matching `name:` and a present `## Prerequisites`) is left unchanged by the repair pass.
-- [ ] Repair applies on both the committed (`commit: true`) and no-commit (`commit: false`) paths.
-- [ ] A staged file with a non-bullet (malformed) `## Prerequisites` body still aborts the run with no partial `ready-intents/` writes and no PR — `v1/test/intent-command.sandbox-unrunnable.test.ts` "non-bullet prerequisites abort" stays green.
-- [ ] Disallowed filenames (ordering prefix, `index`, characters outside `[a-z0-9-]`), duplicate slugs, and zero emitted files still abort with no partial writes and no PR.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A staged intent file with no leading `---` frontmatter block gets a `---\nname: <slug>\n---` block prepended (slug = filename) and the run completes (committed: split commit + draft PR; no-commit: files written to external `ready-intents/`) instead of aborting.
+- [x] A staged intent file with a `---` frontmatter block that lacks a `name:` key gets `name: <slug>` inserted into the existing block (no second `---` block is created) and the run completes.
+- [x] A staged intent file whose frontmatter `name:` does not match its filename slug has only its `name:` value rewritten to the slug and the run completes; the previously-asserted `must declare name:` abort no longer fires for this case (the mismatched-name expectation in `v1/test/intent-command.sandbox-unrunnable.test.ts` is updated to assert success). The fixture for this case already has a `## Prerequisites` section, so it isolates name-repair.
+- [x] A staged intent file missing a `## Prerequisites` section (including a wrong-level/wrong-case near-miss heading) gets an empty `## Prerequisites` section appended — the near-miss heading is left in place, not promoted — and the run completes.
+- [x] An already-compliant staged file (matching `name:` and a present `## Prerequisites`) is left unchanged by the repair pass.
+- [x] Repair applies on both the committed (`commit: true`) and no-commit (`commit: false`) paths.
+- [x] A staged file with a non-bullet (malformed) `## Prerequisites` body still aborts the run with no partial `ready-intents/` writes and no PR — `v1/test/intent-command.sandbox-unrunnable.test.ts` "non-bullet prerequisites abort" stays green.
+- [x] Disallowed filenames (ordering prefix, `index`, characters outside `[a-z0-9-]`), duplicate slugs, and zero emitted files still abort with no partial writes and no PR.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

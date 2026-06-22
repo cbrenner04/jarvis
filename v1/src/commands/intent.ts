@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
 import { CONFIG_DIR, loadConfig, resolvePlanFlags } from "../config.ts";
@@ -202,7 +202,82 @@ function hasValidPrerequisitesSection(text: string): boolean {
     .every((line) => /^- \S.*$/.test(line));
 }
 
-function validateIntentStageContent(files: string[]):
+function repairIntentFile(path: string, slug: string): void {
+  const content = readFileSync(path, "utf8");
+  let text = content.replace(/\r\n/g, "\n");
+  let modified = false;
+
+  const lines = text.split("\n");
+  let blockEndIdx = -1;
+  const hasLeadingDash = (lines[0] ?? "") === "---";
+
+  // Find frontmatter block end
+  if (hasLeadingDash) {
+    for (let i = 1; i < lines.length; i += 1) {
+      if ((lines[i] ?? "") === "---") {
+        blockEndIdx = i;
+        break;
+      }
+    }
+  }
+
+  // Repair frontmatter name:
+  if (blockEndIdx === -1 && !hasLeadingDash) {
+    // Case 1: No frontmatter block, prepend one
+    lines.unshift("---", `name: ${slug}`, "---");
+    modified = true;
+  } else if (blockEndIdx !== -1) {
+    // Frontmatter exists with proper closing, check for name: key
+    let hasName = false;
+    let nameLineIdx = -1;
+    let nameValue: string | null = null;
+
+    for (let i = 1; i < blockEndIdx; i += 1) {
+      const line = lines[i] ?? "";
+      const match = /^name:\s*(.*)$/.exec(line);
+      if (match) {
+        hasName = true;
+        nameLineIdx = i;
+        nameValue = (match[1] ?? "").trim();
+        break;
+      }
+    }
+
+    if (hasName && nameLineIdx !== -1 && nameValue !== slug) {
+      // Case 3: Rewrite if mismatched or empty
+      lines[nameLineIdx] = `name: ${slug}`;
+      modified = true;
+    } else if (!hasName) {
+      // Case 2: Insert name: into existing block (before the closing ---)
+      lines.splice(blockEndIdx, 0, `name: ${slug}`);
+      modified = true;
+    }
+  }
+  // If blockEndIdx === -1 && hasLeadingDash, unterminated frontmatter: skip repair
+
+  text = lines.join("\n");
+
+  // Repair Prerequisites section
+  if (!hasPrerequisitesSection(text)) {
+    // Append empty Prerequisites section
+    text += "\n\n## Prerequisites\n";
+    modified = true;
+  }
+
+  if (modified) {
+    writeFileSync(path, text, "utf8");
+  }
+}
+
+function repairIntentStageContent(stagingDir: string): void {
+  const files = listStageMarkdownFiles(stagingDir);
+  for (const path of files) {
+    const slug = basename(path, ".md");
+    repairIntentFile(path, slug);
+  }
+}
+
+function validateIntentFilenames(files: string[]):
   | {
       ok: true;
       intents: { slug: string; path: string }[];
@@ -226,6 +301,19 @@ function validateIntentStageContent(files: string[]):
       return { ok: false, error: `intent: duplicate emitted name ${slug}` };
     }
     seen.add(slug);
+    intents.push({ slug, path });
+  }
+
+  return { ok: true, intents };
+}
+
+function validateIntentStageContent(intents: { slug: string; path: string }[]):
+  | {
+      ok: true;
+      intents: { slug: string; path: string }[];
+    }
+  | { ok: false; error: string } {
+  for (const { slug, path } of intents) {
     const content = readFileSync(path, "utf8");
     const frontmatterName = parseIntentFrontmatterName(content);
     if (frontmatterName !== slug) {
@@ -246,13 +334,12 @@ function validateIntentStageContent(files: string[]):
         error: `intent: ${basename(path)} must list prerequisites as one bullet per line`,
       };
     }
-    intents.push({ slug, path });
   }
 
   return { ok: true, intents };
 }
 
-function validateIntentStage(
+function gateIntentStage(
   stagingDir: string,
   modifiedPaths: string[],
 ):
@@ -281,7 +368,25 @@ function validateIntentStage(
   }
 
   const files = listStageMarkdownFiles(stagingDir);
-  return validateIntentStageContent(files);
+  return validateIntentFilenames(files);
+}
+
+function validateIntentStage(
+  stagingDir: string,
+  modifiedPaths: string[],
+):
+  | {
+      ok: true;
+      intents: { slug: string; path: string }[];
+    }
+  | { ok: false; error: string } {
+  const gating = gateIntentStage(stagingDir, modifiedPaths);
+  if (!gating.ok) {
+    return gating;
+  }
+
+  repairIntentStageContent(stagingDir);
+  return validateIntentStageContent(gating.intents);
 }
 
 function validateExternalIntentStageStructure(stagingDir: string): { ok: true } | { ok: false; error: string } {
@@ -535,7 +640,15 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       }
 
       const files = listStageMarkdownFiles(externalStageDir);
-      const validation = validateIntentStageContent(files);
+      const filenameValidation = validateIntentFilenames(files);
+      if (!filenameValidation.ok) {
+        opts.io.stderr(`${filenameValidation.error}\n`);
+        return 1;
+      }
+
+      repairIntentStageContent(externalStageDir);
+
+      const validation = validateIntentStageContent(filenameValidation.intents);
       if (!validation.ok) {
         opts.io.stderr(`${validation.error}\n`);
         return 1;

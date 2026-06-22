@@ -8,6 +8,7 @@ import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
+  HARNESS_NO_PROGRESS_FALLBACK,
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
   harnessTransientRetryLine,
@@ -1228,6 +1229,23 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       // For fix-up iterations, we don't check no-progress since all boxes are already checked;
       // instead we re-check ready at the start of the next iteration
       if (!isFixupIteration && after === before && !subspecCompleted && !subspecProgressed) {
+        activeAgents.shift();
+        if (activeAgents.length > 0) {
+          fanout("harness", `${agent.name}: ${HARNESS_NO_PROGRESS_FALLBACK}\n`, "stderr");
+          writeTelemetry({
+            agent: agent.name,
+            iteration,
+            durationMs: iterationDurationMs(),
+            kind: "ok",
+            exitReason: "no-progress-fallback",
+            ...telemetryMeta,
+            ...usageCost,
+            ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
+          });
+          state.iteration += 1;
+          return { kind: "continue" };
+        }
+
         printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
         fanout("harness", `iteration ${iteration} made no progress; stopping\n`, "stderr");
 

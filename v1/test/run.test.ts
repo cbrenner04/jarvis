@@ -81,6 +81,7 @@ let originalPath: string | undefined;
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
+const CURSOR_ENTRY = { agent: "cursor" as const, model: "Composer 2.5" };
 const CLAUDE_MONTHLY_SPEND_FIXTURE = readFileSync(
   join(import.meta.dir, "fixtures/claude/2.1.142-monthly-spend-limit.json"),
   "utf8",
@@ -1911,6 +1912,10 @@ Date: 2026-06-18`,
   });
 
   test("exits 4 when a successful iteration makes no progress", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({
@@ -1930,6 +1935,102 @@ Date: 2026-06-18`,
     expect(code).toBe(4);
     expect(cap.err()).toContain("iteration 1 made no progress; stopping");
     expect(claude.calls).toHaveLength(1);
+  });
+
+  test("no-progress escalates through agentOrder and exits 4 only after last rung", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(4);
+    // claude no-progressed and escalated
+    expect(cap.err()).toContain("no progress; escalating to next agent");
+    // terminal stop only after codex (last rung) also no-progressed
+    expect(cap.err()).toContain("iteration 2 made no progress; stopping");
+    // bounded tail printed once (terminal stop only)
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+    // no stopping message emitted on the advance step
+    expect(cap.err()).not.toContain("iteration 1 made no progress; stopping");
+  });
+
+  test("no-progress escalation re-selects the same active subspec after advancing", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    setupGit();
+    const specDir = join(projectRoot, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const spec = join(specDir, "index.md");
+    const firstSubspec = join(specDir, "00-one.md");
+    const secondSubspec = join(specDir, "01-two.md");
+    writeFileSync(spec, withRepo("- [ ] [00 - One](./00-one.md)\n- [ ] [01 - Two](./01-two.md)\n"));
+    writeFileSync(firstSubspec, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One done.\n");
+    writeFileSync(secondSubspec, "# 01 - Two\n\n## Acceptance criteria\n\n- [ ] Two done.\n");
+    execSync("git add -A && git commit -m init", { cwd: projectRoot });
+
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(4);
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+    // Both rungs targeted the first subspec, not the second
+    expect(claude.calls[0]?.prompt).toContain(firstSubspec);
+    expect(codex.calls[0]?.prompt).toContain(firstSubspec);
+    expect(claude.calls[0]?.prompt).not.toContain(secondSubspec);
+    expect(codex.calls[0]?.prompt).not.toContain(secondSubspec);
+  });
+
+  test("maxIterations pre-empts no-progress ladder exhaustion before the final rung runs", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    const cursor = new FakeAgent("cursor", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    // maxIterations: 2 means the cap fires after codex no-progresses on iteration 2,
+    // preventing cursor (the third rung) from ever running; exit is 5, not 4.
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir, maxIterations: 2 },
+      agents: { claude, codex, cursor },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(5);
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+    expect(cursor.calls).toHaveLength(0);
+    expect(cap.err()).toContain("max iterations (2) reached");
   });
 
   test("completion takes precedence over no-progress", async () => {
@@ -2256,6 +2357,10 @@ Date: 2026-06-18`,
   });
 
   test("exits 4 with unticked criteria guidance when linked subspec clean iteration makes no progress", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });
     execSync('git config user.email "jarvis-test@example.com"', {
       cwd: projectRoot,
@@ -3397,6 +3502,10 @@ exit 0
   });
 
   test("no-progress exit prints bounded tail of latest iteration output", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({

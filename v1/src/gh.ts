@@ -161,10 +161,6 @@ function defaultSleepSync(ms: number): void {
   }
 }
 
-function isAlreadyReadyError(stderr: string): boolean {
-  return /\balready ready\b/i.test(stderr) || /\bnot a draft\b/i.test(stderr);
-}
-
 export type SyncTransientRetryOptions = {
   op: string; // operation label for messages, e.g. "git push" or "gh pr ready"
   sleepSync?: (ms: number) => void;
@@ -188,7 +184,7 @@ export function withSyncTransientRetry(thunk: () => void, opts: SyncTransientRet
       const exitCode = -1; // execFileSync errors don't have status; treat as -1
 
       // For gh pr ready, treat "already ready" as success (lost-ack case)
-      if (isPrReady && isAlreadyReadyError(stderr)) {
+      if (isPrReady && (/\balready ready\b/i.test(stderr) || /\bnot a draft\b/i.test(stderr))) {
         return;
       }
 

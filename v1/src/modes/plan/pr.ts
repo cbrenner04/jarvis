@@ -320,20 +320,21 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
     return;
   }
 
-  const realGhPrReady = (branch: string, cwd: string) => {
-    execFileSync("gh", ["pr", "ready", branch], {
-      cwd,
-      env: process.env,
-      stdio: "pipe",
-    });
-  };
-
   const retryGhPrReady = (branch: string, cwd: string) => {
-    withSyncTransientRetry(() => realGhPrReady(branch, cwd), {
-      op: "gh pr ready",
-      isPrReady: true,
-      ...opts.ghPrReadyRetryOpts,
-    });
+    withSyncTransientRetry(
+      () => {
+        execFileSync("gh", ["pr", "ready", branch], {
+          cwd,
+          env: process.env,
+          stdio: "pipe",
+        });
+      },
+      {
+        op: "gh pr ready",
+        isPrReady: true,
+        ...opts.ghPrReadyRetryOpts,
+      },
+    );
   };
 
   runReadyAndCommit({

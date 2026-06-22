@@ -272,11 +272,8 @@ export type PushCurrentOptions = {
   retryOpts?: Partial<SyncTransientRetryOptions>;
 };
 
-export function pushCurrent(opts: PushCurrentOptions | { cwd: string; firstPush: boolean }): void {
-  const cwd = opts.cwd;
-  const firstPush = opts.firstPush;
-  const execSync = ("execSync" in opts && opts.execSync) || undefined;
-  const retryOpts = ("retryOpts" in opts && opts.retryOpts) || undefined;
+export function pushCurrent(opts: PushCurrentOptions): void {
+  const { cwd, firstPush, execSync, retryOpts } = opts;
 
   const args = firstPush ? ["push", "-u", "origin", getCurrentBranch(cwd)] : ["push"];
 

@@ -2,64 +2,43 @@ import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { runGhCommand, withSyncTransientRetry } from "../src/gh.ts";
 
-function fakeSpawnEmittingError(err: NodeJS.ErrnoException): unknown {
-  return () => {
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter;
-      stderr: EventEmitter;
-    };
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    queueMicrotask(() => {
-      child.emit("error", err);
-    });
-    return child;
+function createFakeChild(
+  onSetup?: (child: EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }) => void,
+): EventEmitter & { stdout: EventEmitter; stderr: EventEmitter } {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
   };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  if (onSetup) queueMicrotask(() => onSetup(child));
+  return child;
+}
+
+function fakeSpawnEmittingError(err: NodeJS.ErrnoException): unknown {
+  return () => createFakeChild((child) => child.emit("error", err));
 }
 
 function fakeSpawnReturning(exitCode: number, stdout = "", stderr = ""): unknown {
-  return (_cmd: string, _args: string[], _opts: unknown) => {
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter;
-      stderr: EventEmitter;
-    };
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    queueMicrotask(() => {
-      if (stdout) {
-        child.stdout.emit("data", Buffer.from(stdout));
-      }
-      if (stderr) {
-        child.stderr.emit("data", Buffer.from(stderr));
-      }
+  return () =>
+    createFakeChild((child) => {
+      if (stdout) child.stdout.emit("data", Buffer.from(stdout));
+      if (stderr) child.stderr.emit("data", Buffer.from(stderr));
       child.emit("close", exitCode);
     });
-    return child;
-  };
 }
 
 function fakeSpawnSequence(results: Array<{ exitCode: number; stdout?: string; stderr?: string }>): unknown {
   let callCount = 0;
-  return (_cmd: string, _args: string[], _opts: unknown) => {
+  return () => {
     const result = results[Math.min(callCount, results.length - 1)];
     if (!result) throw new Error("fakeSpawnSequence: no results provided");
     callCount++;
-    const child = new EventEmitter() as EventEmitter & {
-      stdout: EventEmitter;
-      stderr: EventEmitter;
-    };
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    queueMicrotask(() => {
-      if (result.stdout) {
-        child.stdout.emit("data", Buffer.from(result.stdout));
-      }
-      if (result.stderr) {
-        child.stderr.emit("data", Buffer.from(result.stderr));
-      }
+    return createFakeChild((child) => {
+      if (result.stdout) child.stdout.emit("data", Buffer.from(result.stdout));
+      if (result.stderr) child.stderr.emit("data", Buffer.from(result.stderr));
       child.emit("close", result.exitCode);
     });
-    return child;
   };
 }
 

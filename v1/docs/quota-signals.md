@@ -13,16 +13,19 @@ A transient transport error is a momentary network failure (connection reset,
 broken pipe, HTTP 502/503/504, etc.) that exits non-zero but is not caused by
 quota exhaustion or code failure. The shared spawn layer (`src/agents/spawn.ts`)
 detects these via **`isTransientSignal`** (`src/agents/quota.ts`) and retries the
-**same** agent on the **same** binding, bounded by a fixed cap of **2 re-attempts
-(3 total spawns)**. If all attempts fail, the final error is returned as
-**`kind: "error"`** for normal fallback/termination handling. This recovery
-happens transparently before callers see a result — **no mode or binding changes**.
+**same** agent on the **same** binding, bounded by a fixed cap of **3 re-attempts
+(4 total spawns)** with **escalating backoff ([1s, 2s, 4s]** before re-attempts
+1/2/3). If all attempts fail, the final error is returned as **`kind: "error"`**
+for normal fallback/termination handling. This recovery happens transparently
+before callers see a result — **no mode or binding changes**.
 
 Transient re-attempts do not reset iteration timeouts (idle, per-iteration, or
 global); whole-iteration budgets accrue across all attempts. An aborted
 invocation (timeout, SIGINT) is not retried; the abort result is returned
-immediately. Each re-attempt fires an optional `onTransientRetry` callback
-allowing modes to emit operator-facing diagnostics (see patch harness below).
+immediately. Backoff sleep races the abort signal — an abort arriving during
+backoff returns immediately without waiting out the remaining delay. Each
+re-attempt fires an optional `onTransientRetry` callback allowing modes to emit
+operator-facing diagnostics (see patch harness below).
 
 **Patch mode:** Patch wires `onTransientRetry` to emit `transient transport error
 (exit N); retrying same agent (attempt A/CAP)` via harness stderr so operators
@@ -46,8 +49,8 @@ phrasings that the agent path does not exercise:
 
 Bounded retry cap is **2 re-attempts (3 total invocations)**, with a **1-second
 backoff** between attempts (network transients benefit from a brief pause; agent
-spawn deliberately had none). Sleep is injectable for tests. Permanent gh
-failures — not-authenticated, 404, branch-protection `BLOCKED` — do not match
+spawn matches with escalating backoff). Sleep is injectable for tests. Permanent
+gh failures — not-authenticated, 404, branch-protection `BLOCKED` — do not match
 any pattern and fast-fail with exactly one invocation. Each re-attempt emits
 `OP: transient network error; retrying (attempt A/CAP)` via an injectable
 `onRetry` callback, operator-distinguishable from quota strings and the agent

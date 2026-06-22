@@ -191,9 +191,26 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
   });
 }
 
-const TRANSIENT_RETRY_CAP = 2;
+const TRANSIENT_RETRY_CAP = 3;
+const TRANSIENT_BACKOFF_SCHEDULE_MS = [1000, 2000, 4000];
+
+function defaultSleepMs(delayMs: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timeout = setTimeout(resolve, delayMs);
+    const handleAbort = () => {
+      clearTimeout(timeout);
+      resolve();
+    };
+    signal?.addEventListener("abort", handleAbort);
+  });
+}
 
 export async function runAgent(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+  const sleepMs = opts.sleepMs ?? defaultSleepMs;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_CAP; attempt++) {
     const result = await singleSpawn(config, prompt, opts);
 
@@ -210,6 +227,11 @@ export async function runAgent(config: SpawnConfig, prompt: string, opts: AgentR
         agent: config.name,
         exitCode: result.exitCode,
       });
+
+      // Sleep before re-attempt, racing the abort signal
+      if (!opts.signal?.aborted && attempt < TRANSIENT_BACKOFF_SCHEDULE_MS.length) {
+        await sleepMs(TRANSIENT_BACKOFF_SCHEDULE_MS[attempt]!, opts.signal);
+      }
       continue;
     }
 

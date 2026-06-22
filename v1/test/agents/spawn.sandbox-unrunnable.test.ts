@@ -242,7 +242,12 @@ exit 0
             streamErrorPrefix: "test:",
           },
           "test",
-          { cwd: realpathSync(cwd) },
+          {
+            cwd: realpathSync(cwd),
+            sleepMs: async () => {
+              // no-op sleep for test
+            },
+          },
         );
 
         expect(result.kind).toBe("ok");
@@ -259,7 +264,7 @@ exit 0
   );
 
   test(
-    "persistent transient returns error at cap of 2 retries",
+    "persistent transient returns error at cap of 3 retries",
     async () => {
       setup();
       try {
@@ -272,6 +277,7 @@ exit 1
         chmodSync(bin, 0o755);
 
         let spawnCount = 0;
+        const recordedSleeps: number[] = [];
         const result = await runAgent(
           {
             name: "claude",
@@ -285,11 +291,17 @@ exit 1
             streamErrorPrefix: "test:",
           },
           "test",
-          { cwd: realpathSync(cwd) },
+          {
+            cwd: realpathSync(cwd),
+            sleepMs: async (delayMs) => {
+              recordedSleeps.push(delayMs);
+            },
+          },
         );
 
         expect(result.kind).toBe("error");
-        expect(spawnCount).toBe(3); // 1 initial + 2 retries
+        expect(spawnCount).toBe(4); // 1 initial + 3 retries
+        expect(recordedSleeps).toEqual([1000, 2000, 4000]);
       } finally {
         teardown();
       }
@@ -381,17 +393,21 @@ exit 0
             onTransientRetry: (info) => {
               retries.push({ attempt: info.attempt, cap: info.cap, exitCode: info.exitCode });
             },
+            sleepMs: async () => {
+              // no-op sleep for test
+            },
           },
         );
 
         expect(result.kind).toBe("ok");
         expect(retries.length).toBe(2);
-        expect(retries[0]).toEqual({ attempt: 1, cap: 2, exitCode: 42 });
-        expect(retries[1]).toEqual({ attempt: 2, cap: 2, exitCode: 42 });
+        expect(retries[0]).toEqual({ attempt: 1, cap: 3, exitCode: 42 });
+        expect(retries[1]).toEqual({ attempt: 2, cap: 3, exitCode: 42 });
       } finally {
         teardown();
       }
     },
     { timeout: 10000 },
   );
+
 });

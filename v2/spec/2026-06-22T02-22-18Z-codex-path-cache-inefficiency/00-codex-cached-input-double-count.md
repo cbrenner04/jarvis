@@ -25,13 +25,13 @@ Clamp in `extractTokenUsage`, not `resolveCodexSessionUsage`: that selector pick
 
 ## Acceptance criteria
 
-- [ ] For a codex session reporting `input_tokens: T` and `cached_input_tokens: C` (C ≤ T), recorded telemetry has `input_tokens = T - C` and `cache_read_input_tokens = C`.
-- [ ] When `cached_input_tokens > input_tokens` (malformed), recorded `input_tokens` is `0`, never negative.
-- [ ] `computeCost` over the fixture usage (`input_tokens: 53251`, `cached_input_tokens: 50048`) charges the 50048 cached tokens only at the cache-read rate, not the input rate — i.e. cost equals `3203*input_rate + 50048*cache_read_rate`, not `53251*input_rate + 50048*cache_read_rate`.
-- [ ] `v1/test/codex-session.test.ts` is updated to assert fresh-only `input_tokens` and stays green.
-- [ ] `v1/test/agents/codex.test.ts` stays green.
+- [x] For a codex session reporting `input_tokens: T` and `cached_input_tokens: C` (C ≤ T), recorded telemetry has `input_tokens = T - C` and `cache_read_input_tokens = C`.
+- [x] When `cached_input_tokens > input_tokens` (malformed), recorded `input_tokens` is `0`, never negative.
+- [x] `computeCost` over the fixture usage (`input_tokens: 53251`, `cached_input_tokens: 50048`) charges the 50048 cached tokens only at the cache-read rate, not the input rate — i.e. cost equals `3203*input_rate + 50048*cache_read_rate`, not `53251*input_rate + 50048*cache_read_rate`.
+- [x] `v1/test/codex-session.test.ts` is updated to assert fresh-only `input_tokens` and stays green.
+- [x] `v1/test/agents/codex.test.ts` stays green.
 
 ## Documentation updates
 
-- [ ] `v2/docs/v1-behaviors.md`: update the codex usage/cost entry (currently ~L231/L240) to record that codex `input_tokens` is normalized to fresh-only (cached subtracted) before costing.
-- [ ] `v1/docs/agents.md`: note the codex cached-token normalization where codex usage/cost is described.
+- [x] `v2/docs/v1-behaviors.md`: update the codex usage/cost entry (currently ~L231/L240) to record that codex `input_tokens` is normalized to fresh-only (cached subtracted) before costing.
+- [x] `v1/docs/agents.md`: note the codex cached-token normalization where codex usage/cost is described.

@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { computeCost } from "../src/prices/cost.ts";
+import type { Prices } from "../src/prices/load.ts";
 import {
   listChangedCodexSessionFiles,
   parseCodexSessionUsage,
@@ -25,7 +27,7 @@ describe("parseCodexSessionUsage", () => {
     const result = parseCodexSessionUsage(join(import.meta.dir, "fixtures", "codex", "0.130.0-session.jsonl"));
 
     expect(result.usage).toEqual({
-      input_tokens: 643195,
+      input_tokens: 36475,
       output_tokens: 5101,
       cache_read_input_tokens: 606720,
       cache_creation_input_tokens: null,
@@ -73,7 +75,7 @@ describe("parseCodexSessionUsage", () => {
       );
       const result = parseCodexSessionUsage(path);
       expect(result.usage).toEqual({
-        input_tokens: 100,
+        input_tokens: 50,
         output_tokens: 10,
         cache_read_input_tokens: 50,
         cache_creation_input_tokens: null,
@@ -118,7 +120,7 @@ describe("parseCodexSessionUsage", () => {
       );
       const result = parseCodexSessionUsage(path);
       expect(result.usage).toEqual({
-        input_tokens: 20,
+        input_tokens: 12,
         output_tokens: 4,
         cache_read_input_tokens: 8,
         cache_creation_input_tokens: null,
@@ -330,6 +332,65 @@ describe("resolveCodexSessionUsage", () => {
       });
       expect(r.sessionFile).toBeNull();
       expect(r.warnings.some((w) => w.includes("no changed session file matched"))).toBe(true);
+    });
+  });
+});
+
+describe("codex usage and cost calculation", () => {
+  test("codex cached input tokens do not double-bill at input rate", () => {
+    const prices: Prices = {
+      version: 1,
+      models: {
+        "gpt-5": {
+          input_per_mtok: 1000,
+          output_per_mtok: 2000,
+          cache_read_per_mtok: 100,
+          cache_write_per_mtok: 1000,
+          source_url: "test",
+          as_of: "2026-01-01",
+        },
+      },
+    };
+
+    const usage = {
+      input_tokens: 3203,
+      cache_read_input_tokens: 50048,
+      output_tokens: 248,
+      cache_creation_input_tokens: null,
+    };
+
+    const { cost_usd } = computeCost(usage, "gpt-5", prices);
+
+    const expectedCost = (3203 * 1000 + 248 * 2000 + 50048 * 100) / 1_000_000;
+    expect(cost_usd).toBeCloseTo(expectedCost, 10);
+  });
+
+  test("when cached > input (malformed), input is clamped to 0", () => {
+    withTempDir((dir) => {
+      const path = join(dir, "session.jsonl");
+      writeFileSync(
+        path,
+        JSON.stringify({
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            info: {
+              total_token_usage: {
+                input_tokens: 100,
+                cached_input_tokens: 150,
+                output_tokens: 10,
+              },
+            },
+          },
+        }),
+      );
+      const result = parseCodexSessionUsage(path);
+      expect(result.usage).toEqual({
+        input_tokens: 0,
+        output_tokens: 10,
+        cache_read_input_tokens: 150,
+        cache_creation_input_tokens: null,
+      });
     });
   });
 });

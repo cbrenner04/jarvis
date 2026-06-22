@@ -8,4 +8,4 @@ The intent's "surface effective per-run cost per agent" ask needs no new work: t
 
 **Dropped: 01 — price the default codex model.** `gpt-5.3-codex`'s OpenAI subscription access was pulled, so it's reached via the **cursor** agent (whose `GPT-5.3 Codex` price row already exists), not the codex/OpenAI adapter. Pricing a codex/OpenAI default that can no longer reach the model is moot, and the cheap-tier model selection (haiku → `cursor:gpt-5.3-codex`) belongs to the model-tiering work — folded into `deterministic-model-tiering-policy`.
 
-- [ ] [00 - Stop double-billing codex cached input tokens](./00-codex-cached-input-double-count.md)
+- [x] [00 - Stop double-billing codex cached input tokens](./00-codex-cached-input-double-count.md)

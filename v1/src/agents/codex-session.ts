@@ -381,8 +381,17 @@ function extractTokenUsage(event: unknown): TelemetryUsage | null {
   const cachedInput = numberOrNull(totalRec.cached_input_tokens);
   const output = numberOrNull(totalRec.output_tokens);
 
+  let freshInput: number | null = null;
+  if (input !== null) {
+    if (cachedInput !== null) {
+      freshInput = Math.max(0, input - cachedInput);
+    } else {
+      freshInput = input;
+    }
+  }
+
   return {
-    input_tokens: input,
+    input_tokens: freshInput,
     output_tokens: output,
     cache_read_input_tokens: cachedInput,
     cache_creation_input_tokens: null,

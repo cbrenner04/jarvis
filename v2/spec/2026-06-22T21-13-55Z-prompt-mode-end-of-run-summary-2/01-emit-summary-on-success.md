@@ -70,17 +70,17 @@ the telemetry line and emits the summary on both success termini.
 
 ## Acceptance criteria
 
-- [ ] On no-diff success the prompt telemetry row carries
+- [x] On no-diff success the prompt telemetry row carries
   `usage`/`usage_source`/`cost_usd`/`cost_source` derived from the agent result
   (not agent/model/duration only).
-- [ ] On no-diff success stdout emits the agent output first, then a
+- [x] On no-diff success stdout emits the agent output first, then a
   `─── prompt summary ───` block (agent + model, tokens/cost, duration) and an
   outcome line stating no changes were made; exit code is 0.
-- [ ] On diff success stdout contains the prompt summary block and an outcome
+- [x] On diff success stdout contains the prompt summary block and an outcome
   line that includes the created PR URL; exit code is 0.
-- [ ] Exactly one prompt telemetry row is written per successful run (no
+- [x] Exactly one prompt telemetry row is written per successful run (no
   duplicate from the `finally` block).
-- [ ] No summary is emitted and exit codes are unchanged on the
+- [x] No summary is emitted and exit codes are unchanged on the
   quota-exhausted, agent-failure, timeout, and commit/push/PR-failure paths
   (existing `v1/test/modes/prompt/run.test.ts` error/quota/timeout tests stay
   green).

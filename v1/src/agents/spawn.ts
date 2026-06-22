@@ -200,9 +200,18 @@ function defaultSleepMs(delayMs: number, signal?: AbortSignal): Promise<void> {
       resolve();
       return;
     }
-    const timeout = setTimeout(resolve, delayMs);
+    let timeout: NodeJS.Timeout | null = setTimeout(() => {
+      timeout = null;
+      if (signal) {
+        signal.removeEventListener("abort", handleAbort);
+      }
+      resolve();
+    }, delayMs);
     const handleAbort = () => {
-      clearTimeout(timeout);
+      if (timeout !== null) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
       resolve();
     };
     signal?.addEventListener("abort", handleAbort);
@@ -232,6 +241,16 @@ export async function runAgent(config: SpawnConfig, prompt: string, opts: AgentR
       if (!opts.signal?.aborted && attempt < TRANSIENT_BACKOFF_SCHEDULE_MS.length) {
         await sleepMs(TRANSIENT_BACKOFF_SCHEDULE_MS[attempt]!, opts.signal);
       }
+
+      // Abort may have arrived during the sleep; short-circuit before spawning
+      if (opts.signal?.aborted) {
+        return {
+          kind: "error",
+          exitCode: -1,
+          stderr: `aborted: ${opts.signal.reason ? String(opts.signal.reason) : "aborted"}`,
+        };
+      }
+
       continue;
     }
 

@@ -69,8 +69,8 @@ spawns; the schedule entry at index `i` is slept before re-attempt `i+1`.
       `kind: "error"`.
 - [x] `v1/test/agents/spawn.sandbox-unrunnable.test.ts` is updated for the widened
       cap: expected spawn count is 4 (was 3), `onTransientRetry` payloads report
-      `cap: 3`, and the "cap of 2 retries" naming is corrected. No transient test
-      wall-clocks the schedule (all inject the seam).
+      `cap: 3`, and the "cap of 2 retries" naming is corrected. Transient backoff
+      tests inject the seam; aborted invocation test aborts before any sleep.
 - [x] `TRANSIENT_RETRY_CAP` is widened so the spaced attempts span the overload
       window while remaining a hard bounded cap (4 total spawns).
 - [x] No backoff is taken after the final failed attempt; the pre-sleep

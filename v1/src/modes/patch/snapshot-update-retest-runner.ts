@@ -5,11 +5,7 @@ import { join } from "node:path";
 // Candidate list for conventional update-snapshots scripts (checked in order)
 const UPDATE_SNAPSHOT_SCRIPT_CANDIDATES = ["test:update", "test:u", "update-snapshots", "updateSnapshots"];
 
-export type RunCommandFn = (
-  command: string,
-  args: string[],
-  cwd: string,
-) => void;
+export type RunCommandFn = (command: string, args: string[], cwd: string) => void;
 
 function defaultRunCommand(command: string, args: string[], cwd: string): void {
   execFileSync(command, args, {

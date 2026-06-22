@@ -3,11 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-export type RunCommandFn = (
-  command: string,
-  args: string[],
-  cwd: string,
-) => void;
+export type RunCommandFn = (command: string, args: string[], cwd: string) => void;
 
 function defaultRunCommand(command: string, args: string[], cwd: string): void {
   execFileSync(command, args, {

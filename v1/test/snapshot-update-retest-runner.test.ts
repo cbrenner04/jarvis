@@ -165,7 +165,7 @@ describe("snapshot-update-retest-runner", () => {
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
 
-    const mockRunCommand = (command: string, args: string[], cwd: string) => {
+    const mockRunCommand = (command: string, args: string[], _cwd: string) => {
       if (command === "bun" && args[0] === "run" && args[1] === "test") {
         // Parallel test invocation: fail once, then pass on next call
         parallelInvocationCount++;
@@ -197,7 +197,7 @@ describe("snapshot-update-retest-runner", () => {
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
 
-    const mockRunCommand = (command: string, args: string[], cwd: string) => {
+    const mockRunCommand = (command: string, args: string[], _cwd: string) => {
       if (command === "bun" && args[0] === "run" && args[1] === "test") {
         // Parallel test invocation: always fail
         parallelInvocationCount++;
@@ -227,13 +227,13 @@ describe("snapshot-update-retest-runner", () => {
 
     let testInvocationCount = 0;
 
-    const mockRunCommand = (command: string, args: string[], cwd: string) => {
+    const mockRunCommand = (command: string, args: string[], _cwd: string) => {
       // Simulate update command failure (bun run test:update)
       if (command === "bun" && args[0] === "run" && args[1] === "test:update") {
         throw new Error("Simulated update command failure");
       }
       // Count test invocations
-      if (command === "bun" && (args[0] === "run" && args[1] === "test" || args[0] === "test")) {
+      if (command === "bun" && ((args[0] === "run" && args[1] === "test") || args[0] === "test")) {
         testInvocationCount++;
       }
     };
@@ -256,7 +256,7 @@ describe("snapshot-update-retest-runner", () => {
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
 
-    const mockRunCommand = (command: string, args: string[], cwd: string) => {
+    const mockRunCommand = (command: string, args: string[], _cwd: string) => {
       if (command === "bun" && args[0] === "run" && args[1] === "test") {
         parallelInvocationCount++;
         // Pass on first invocation

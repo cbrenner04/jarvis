@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
 import { runBaseRefTests } from "../src/modes/patch/base-ref-test-runner";
 
 describe("base-ref-test-runner", () => {
   let tmpDir: string;
   let projectRoot: string;
-  let gitDir: string;
+  let _gitDir: string;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "base-ref-test-"));
     projectRoot = join(tmpDir, "project");
-    gitDir = join(projectRoot, ".git");
+    _gitDir = join(projectRoot, ".git");
     mkdirSync(projectRoot);
 
     // Initialize git repo
@@ -45,7 +45,7 @@ describe("base-ref-test-runner", () => {
   test("returns false when test fails", async () => {
     let testInvocationCount = 0;
 
-    const mockRunCommand = (command: string, args: string[], cwd: string) => {
+    const mockRunCommand = (command: string, args: string[], _cwd: string) => {
       if (command === "bun" && args[0] === "run" && args[1] === "test") {
         testInvocationCount++;
         throw new Error("Simulated test failure");
@@ -64,7 +64,7 @@ describe("base-ref-test-runner", () => {
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
 
-    const mockRunCommand = (command: string, args: string[], cwd: string) => {
+    const mockRunCommand = (command: string, args: string[], _cwd: string) => {
       if (command === "bun" && args[0] === "run" && args[1] === "test") {
         parallelInvocationCount++;
         throw new Error("Simulated parallel test failure");
@@ -84,7 +84,7 @@ describe("base-ref-test-runner", () => {
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
 
-    const mockRunCommand = (command: string, args: string[], cwd: string) => {
+    const mockRunCommand = (command: string, args: string[], _cwd: string) => {
       if (command === "bun" && args[0] === "run" && args[1] === "test") {
         parallelInvocationCount++;
         throw new Error("Simulated parallel test failure");
@@ -104,7 +104,7 @@ describe("base-ref-test-runner", () => {
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
 
-    const mockRunCommand = (command: string, args: string[], cwd: string) => {
+    const mockRunCommand = (command: string, args: string[], _cwd: string) => {
       if (command === "bun" && args[0] === "run" && args[1] === "test") {
         parallelInvocationCount++;
         // Parallel pass: no retry needed

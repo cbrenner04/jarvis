@@ -6,6 +6,7 @@ import type { CommitInfo } from "../../pr.ts";
 import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, readBranchCommits } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
 import { generateNarrativeViaAgent } from "../../pr-shared.ts";
+import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import { type ReadyTier, runReadyAndCommit } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
@@ -283,8 +284,10 @@ export type MaybeMarkPlanPrReadyOpts = {
   runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for post-ready check:fix commit/push. Used by tests when markReady is absent. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
-  /** Seam for the `gh pr ready <branch>` shell-out. Used by tests when markReady is absent. */
+  /** Seam for the `gh pr ready <branch>` shell-out. Used by tests when markReady is absent. Defaults to execFileSync call wrapped with retry. */
   ghPrReady?: (branch: string, cwd: string) => void;
+  /** Seam for retry behavior: exec, sleep, onRetry callbacks. Injected into the retry wrapper below ghPrReady. */
+  ghPrReadyRetryOpts?: Partial<SyncTransientRetryOptions>;
 };
 
 /**
@@ -325,6 +328,17 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
     });
   };
 
+  const retryGhPrReady = (branch: string, cwd: string) => {
+    withSyncTransientRetry(
+      () => realGhPrReady(branch, cwd),
+      {
+        op: "gh pr ready",
+        isPrReady: true,
+        ...opts.ghPrReadyRetryOpts,
+      },
+    );
+  };
+
   runReadyAndCommit({
     cwd: opts.cwd,
     ...(opts.agentLabel !== undefined ? { agentLabel: opts.agentLabel } : {}),
@@ -332,7 +346,7 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
     ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
   });
 
-  const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
+  const ghPrReadyFn = opts.ghPrReady ?? retryGhPrReady;
   ghPrReadyFn(opts.branch, opts.cwd);
 }
 

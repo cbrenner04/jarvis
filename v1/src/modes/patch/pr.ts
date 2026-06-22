@@ -6,6 +6,7 @@ import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
 import { generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS } from "../../pr-shared.ts";
+import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import {
   type ReadyTier,
   type RunReadyAndCommitOpts,
@@ -176,8 +177,10 @@ export type MaybeMarkReadyOpts = {
   runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only when markReady is absent and tree is dirty after runReady. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
-  /** Seam for the `gh pr ready <branch>` shell-out. Used by tests to verify it is/isn't called. Defaults to execFileSync call. */
+  /** Seam for the `gh pr ready <branch>` shell-out. Used by tests to verify it is/isn't called. Defaults to execFileSync call wrapped with retry. */
   ghPrReady?: (branch: string, cwd: string) => void;
+  /** Seam for retry behavior: exec, sleep, onRetry callbacks. Injected into the retry wrapper below ghPrReady. */
+  ghPrReadyRetryOpts?: Partial<SyncTransientRetryOptions>;
   /** Recorded green result from completion transition: reuse when tree unchanged, refresh on re-run. */
   recordedGreenResult?: {
     /** HEAD sha from completion transition ready gate (post-`runReadyAndCommit`). */
@@ -215,6 +218,17 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
     });
   };
 
+  const retryGhPrReady = (branch: string, cwd: string) => {
+    withSyncTransientRetry(
+      () => realGhPrReady(branch, cwd),
+      {
+        op: "gh pr ready",
+        isPrReady: true,
+        ...opts.ghPrReadyRetryOpts,
+      },
+    );
+  };
+
   // Run ready at the tier selected from the recorded green carrier, then flip draft→ready.
   runReadyGateWithTier({
     cwd: opts.cwd,
@@ -227,7 +241,7 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
       : {}),
   });
 
-  const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
+  const ghPrReadyFn = opts.ghPrReady ?? retryGhPrReady;
   ghPrReadyFn(branch, opts.cwd);
 }
 

@@ -4,8 +4,8 @@ import { harnessGitGhTransientRetryLine } from "./quota-harness-messages.ts";
 
 type SpawnFn = typeof spawn;
 
-const GH_RETRY_CAP = 3; // 3 total invocations (2 re-attempts)
-const GH_RETRY_BACKOFF_MS = 1000;
+export const GH_RETRY_CAP = 3; // 3 total invocations (2 re-attempts)
+export const GH_RETRY_BACKOFF_MS = 1000;
 
 export type GhCommandOptions = {
   spawnImpl?: SpawnFn;
@@ -149,5 +149,69 @@ export async function postPrComment(prNumber: number, body: string, cwd?: string
   if (result.exitCode !== 0) {
     const errorMessage = result.stderr || result.stdout;
     throw new Error(`failed to post PR comment: ${errorMessage.trim()}`);
+  }
+}
+
+function defaultSleepSync(ms: number): void {
+  // Bun is injected by the Bun runtime; unavailable in non-Bun environments
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bunGlobal = (globalThis as any).Bun;
+  if (bunGlobal?.sleepSync) {
+    bunGlobal.sleepSync(ms);
+  }
+}
+
+function isAlreadyReadyError(stderr: string): boolean {
+  return /\balready ready\b/i.test(stderr) || /\bnot a draft\b/i.test(stderr);
+}
+
+export type SyncTransientRetryOptions = {
+  op: string; // operation label for messages, e.g. "git push" or "gh pr ready"
+  sleepSync?: (ms: number) => void;
+  onRetry?: (line: string) => void;
+  isPrReady?: boolean; // when true, "already ready" stderr resolves as success
+};
+
+export function withSyncTransientRetry(
+  thunk: () => void,
+  opts: SyncTransientRetryOptions,
+): void {
+  const { op, sleepSync = defaultSleepSync, onRetry, isPrReady = false } = opts;
+
+  let lastError: Error | null = null;
+  let attempt = 1;
+
+  while (attempt <= GH_RETRY_CAP) {
+    try {
+      thunk();
+      return;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const stderr = lastError.message;
+      const exitCode = -1; // execFileSync errors don't have status; treat as -1
+
+      // For gh pr ready, treat "already ready" as success (lost-ack case)
+      if (isPrReady && isAlreadyReadyError(stderr)) {
+        return;
+      }
+
+      // Check if transient; if not, re-throw immediately
+      if (!isTransientNetworkError(exitCode, stderr)) {
+        throw lastError;
+      }
+
+      // Transient error: retry if we haven't hit the cap yet
+      if (attempt >= GH_RETRY_CAP) {
+        throw lastError;
+      }
+
+      attempt++;
+
+      if (onRetry) {
+        onRetry(harnessGitGhTransientRetryLine(op, attempt, GH_RETRY_CAP));
+      }
+
+      sleepSync(GH_RETRY_BACKOFF_MS);
+    }
   }
 }

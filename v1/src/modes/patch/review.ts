@@ -6,7 +6,7 @@ import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
-import { getBaseBranch, postPrComment } from "../../gh.ts";
+import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
 import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
 import {
@@ -960,22 +960,32 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       if (opts.runFinalGate) {
         opts.runFinalGate(branch, skipReady ? "skip" : "full");
       } else if (skipReady) {
-        execFileSync("gh", ["pr", "ready", branch], {
-          cwd: opts.cwd,
-          env: process.env,
-          stdio: "pipe",
-        });
+        withSyncTransientRetry(
+          () => {
+            execFileSync("gh", ["pr", "ready", branch], {
+              cwd: opts.cwd,
+              env: process.env,
+              stdio: "pipe",
+            });
+          },
+          { op: "gh pr ready", isPrReady: true },
+        );
       } else {
         runReadyAndCommit({
           cwd: opts.cwd,
           agentLabel: "review-final",
           tier: "full",
         });
-        execFileSync("gh", ["pr", "ready", branch], {
-          cwd: opts.cwd,
-          env: process.env,
-          stdio: "pipe",
-        });
+        withSyncTransientRetry(
+          () => {
+            execFileSync("gh", ["pr", "ready", branch], {
+              cwd: opts.cwd,
+              env: process.env,
+              stdio: "pipe",
+            });
+          },
+          { op: "gh pr ready", isPrReady: true },
+        );
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

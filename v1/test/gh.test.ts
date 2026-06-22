@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { runGhCommand, type GhCommandOptions } from "../src/gh.ts";
+import { runGhCommand, type GhCommandOptions, withSyncTransientRetry, type SyncTransientRetryOptions } from "../src/gh.ts";
 
 function fakeSpawnEmittingError(err: NodeJS.ErrnoException): unknown {
   return () => {
@@ -285,5 +285,213 @@ describe("runGhCommand retry on transient errors", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("output");
+  });
+});
+
+describe("withSyncTransientRetry on git push", () => {
+  test("retries transient git push error and succeeds on later attempt", () => {
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("connection reset");
+      }
+      // Second attempt succeeds
+    };
+
+    withSyncTransientRetry(thunk, { op: "git push" });
+    expect(callCount).toBe(2);
+  });
+
+  test("stops retrying after cap (3 total invocations) for transient push", () => {
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      throw new Error("TLS handshake timeout");
+    };
+
+    expect(() => {
+      withSyncTransientRetry(thunk, { op: "git push" });
+    }).toThrow("TLS handshake timeout");
+
+    expect(callCount).toBe(3);
+  });
+
+  test("does not retry on permanent push failure (non-fast-forward)", () => {
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      throw new Error("failed to push some refs to 'origin'");
+    };
+
+    expect(() => {
+      withSyncTransientRetry(thunk, { op: "git push" });
+    }).toThrow("failed to push some refs");
+
+    expect(callCount).toBe(1);
+  });
+
+  test("preserves error message on permanent failure for caller try/catch", () => {
+    const originalError = "fatal: refusing to merge unrelated histories";
+    const thunk = () => {
+      throw new Error(originalError);
+    };
+
+    let caughtMessage = "";
+    try {
+      withSyncTransientRetry(thunk, { op: "git push" });
+    } catch (err) {
+      caughtMessage = err instanceof Error ? err.message : String(err);
+    }
+
+    expect(caughtMessage).toBe(originalError);
+  });
+
+  test("invokes sleep seam once per re-attempt", () => {
+    const sleepCalls: number[] = [];
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      if (callCount <= 2) {
+        throw new Error("connection reset");
+      }
+    };
+
+    withSyncTransientRetry(thunk, {
+      op: "git push",
+      sleepSync: (ms: number) => {
+        sleepCalls.push(ms);
+      },
+    });
+
+    // 3 attempts = 2 re-attempts = 2 sleeps
+    expect(sleepCalls).toHaveLength(2);
+    expect(sleepCalls[0]).toBe(1000);
+    expect(sleepCalls[1]).toBe(1000);
+  });
+
+  test("emits retry line via onRetry callback", () => {
+    const retryLines: string[] = [];
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      if (callCount <= 2) {
+        throw new Error("connection timed out");
+      }
+    };
+
+    withSyncTransientRetry(thunk, {
+      op: "git push",
+      onRetry: (line: string) => {
+        retryLines.push(line);
+      },
+      sleepSync: () => {},
+    });
+
+    expect(retryLines).toHaveLength(2);
+    expect(retryLines[0]).toContain("git push");
+    expect(retryLines[0]).toContain("attempt 2/3");
+    expect(retryLines[1]).toContain("git push");
+    expect(retryLines[1]).toContain("attempt 3/3");
+  });
+});
+
+describe("withSyncTransientRetry on gh pr ready", () => {
+  test("retries transient gh pr ready error and succeeds on later attempt", () => {
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("TLS handshake timeout");
+      }
+    };
+
+    withSyncTransientRetry(thunk, { op: "gh pr ready", isPrReady: true });
+    expect(callCount).toBe(2);
+  });
+
+  test("stops retrying after cap (3 total invocations) for transient gh pr ready", () => {
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      throw new Error("could not resolve host");
+    };
+
+    expect(() => {
+      withSyncTransientRetry(thunk, { op: "gh pr ready", isPrReady: true });
+    }).toThrow("could not resolve host");
+
+    expect(callCount).toBe(3);
+  });
+
+  test("treats 'already ready' stderr as success (lost-ack case)", () => {
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("error: this pull request is not a draft");
+      }
+    };
+
+    // Should not throw
+    withSyncTransientRetry(thunk, { op: "gh pr ready", isPrReady: true });
+    expect(callCount).toBe(1);
+  });
+
+  test("treats 'already ready' (alternate phrasing) as success", () => {
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("error: pull request is already ready for review");
+      }
+    };
+
+    withSyncTransientRetry(thunk, { op: "gh pr ready", isPrReady: true });
+    expect(callCount).toBe(1);
+  });
+
+  test("does not retry on permanent gh pr ready failure (BLOCKED)", () => {
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      throw new Error("error: Pull request is blocked by branch protection rule");
+    };
+
+    expect(() => {
+      withSyncTransientRetry(thunk, { op: "gh pr ready", isPrReady: true });
+    }).toThrow("Pull request is blocked");
+
+    expect(callCount).toBe(1);
+  });
+
+  test("does not retry on permanent gh pr ready failure (not authenticated)", () => {
+    let callCount = 0;
+    const thunk = () => {
+      callCount++;
+      throw new Error("AUTHENTICATION FAILED");
+    };
+
+    expect(() => {
+      withSyncTransientRetry(thunk, { op: "gh pr ready", isPrReady: true });
+    }).toThrow("AUTHENTICATION FAILED");
+
+    expect(callCount).toBe(1);
+  });
+
+  test("preserves error message on permanent gh pr ready failure", () => {
+    const originalError = "error: 404 Not Found";
+    const thunk = () => {
+      throw new Error(originalError);
+    };
+
+    let caughtMessage = "";
+    try {
+      withSyncTransientRetry(thunk, { op: "gh pr ready", isPrReady: true });
+    } catch (err) {
+      caughtMessage = err instanceof Error ? err.message : String(err);
+    }
+
+    expect(caughtMessage).toBe(originalError);
   });
 });

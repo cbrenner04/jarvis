@@ -310,12 +310,16 @@ function setupEnv(prMode?: PrModeOption): {
   writeFileSync(join(projectRoot, "README.md"), "test\n");
   writeFileSync(
     join(projectRoot, "package.json"),
-    JSON.stringify({
-      name: "test-project",
-      scripts: {
-        ready: "true",
+    `${JSON.stringify(
+      {
+        name: "test-project",
+        scripts: {
+          ready: "true",
+        },
       },
-    }, null, 2) + "\n",
+      null,
+      2,
+    )}\n`,
   );
   execSync("git add README.md package.json", { cwd: projectRoot });
   execSync("git commit -m 'initial'", { cwd: projectRoot });
@@ -336,16 +340,16 @@ if [[ "$1 $2" == "pr create" ]]; then touch "$PR_STATE_FILE"; exit 0; fi
 if [[ "$1 $2" == "pr view" ]]; then
   if [[ "$*" == *"--json url"* ]]; then printf 'https://example.com/pull/1\\n'; exit 0; fi
   # More specific patterns first (with select)
-  if [[ "$*" == *"select(.state==\"OPEN\") | {number: .number, isDraft: .isDraft}"* ]]; then
+  if [[ "$*" == *"select(.state=="OPEN") | {number: .number, isDraft: .isDraft}"* ]]; then
     if [[ ! -f "$PR_STATE_FILE" ]]; then exit 1; fi
     if [[ -f "$PR_READY_FILE" ]]; then
-      printf '{\"number\":1,\"state\":\"OPEN\",\"isDraft\":false}\\n'
+      printf '{"number":1,"state":"OPEN","isDraft":false}\\n'
     else
-      printf '{\"number\":1,\"state\":\"OPEN\",\"isDraft\":true}\\n'
+      printf '{"number":1,"state":"OPEN","isDraft":true}\\n'
     fi
     exit 0
   fi
-  if [[ "$*" == *"select(.state==\"OPEN\") | .number"* ]]; then
+  if [[ "$*" == *"select(.state=="OPEN") | .number"* ]]; then
     if [[ ! -f "$PR_STATE_FILE" ]]; then exit 1; fi
     printf '1\\n'
     exit 0

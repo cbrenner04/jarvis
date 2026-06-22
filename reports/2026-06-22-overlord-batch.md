@@ -54,7 +54,11 @@ Merged main (one `v1-behaviors.md` conflict, kept both serial-retry + complete-b
 
 ### Overlord session (this Claude) — separate
 
-The overlord/observer session cost is tracked by Claude Code's own `/cost`, not in `runs.jsonl`, and runs on top of the telemetry spend above (it was unavailable to capture inline this session). Per the prior overlord report, it's typically comparable to the Jarvis telemetry total.
+Tracked by Claude Code's `/cost` (not in `runs.jsonl`), on top of the telemetry spend above.
+
+```text
+(paste /cost output)
+```
 
 ## Open for the operator
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { defaultRunCommand, type RunCommandFn } from "./run-command.ts";
 
@@ -78,6 +78,22 @@ export async function runSnapshotUpdateRetest(
     return false;
   }
 
+  // Helper to check if test files exist in the agent working dir
+  const hasTestFiles = (): boolean => {
+    try {
+      const entries = readdirSync(agentWorkingDir, { recursive: true });
+      for (const entry of entries) {
+        if (typeof entry === "string" && entry.endsWith(".test.ts")) {
+          return true;
+        }
+      }
+    } catch {
+      // If we can't read the directory, assume tests exist (fail-safe)
+      return true;
+    }
+    return false;
+  };
+
   // Re-run tests in the agent working dir
   let testPassed = false;
   try {
@@ -93,6 +109,11 @@ export async function runSnapshotUpdateRetest(
     } catch {
       process.stderr.write(`snapshot-churn: serial re-test failed\n`);
       console.error("[snapshot-churn] re-test still failing after update");
+      testPassed = false;
+    }
+    // Guard: if serial run passed but no test files were discovered,
+    // treat as non-green to avoid incorrectly reporting snapshot update as successful
+    if (testPassed && !hasTestFiles()) {
       testPassed = false;
     }
   }

@@ -61,6 +61,12 @@ describe("base-ref-test-runner", () => {
   });
 
   test("serial retry: recovers from parallel-load flake", async () => {
+    // Create and commit a test file so it exists in the worktree
+    const testFile = join(projectRoot, "test.test.ts");
+    writeFileSync(testFile, "test('test', () => {})");
+    execFileSync("git", ["add", "."], { cwd: projectRoot, stdio: "pipe" });
+    execFileSync("git", ["commit", "-m", "add test"], { cwd: projectRoot, stdio: "pipe" });
+
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
 
@@ -81,6 +87,12 @@ describe("base-ref-test-runner", () => {
   });
 
   test("serial retry: reports still-failed when serial also fails", async () => {
+    // Create and commit a test file so it exists in the worktree
+    const testFile = join(projectRoot, "test.test.ts");
+    writeFileSync(testFile, "test('test', () => {})");
+    execFileSync("git", ["add", "."], { cwd: projectRoot, stdio: "pipe" });
+    execFileSync("git", ["commit", "-m", "add test"], { cwd: projectRoot, stdio: "pipe" });
+
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
 
@@ -118,4 +130,6 @@ describe("base-ref-test-runner", () => {
     expect(parallelInvocationCount).toBe(1);
     expect(serialInvocationCount).toBe(0);
   });
+
+
 });

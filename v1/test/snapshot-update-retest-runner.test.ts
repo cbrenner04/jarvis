@@ -161,6 +161,8 @@ describe("snapshot-update-retest-runner", () => {
     };
     writeFileSync(join(projectRoot, "package.json"), JSON.stringify(packageJson));
     writeFileSync(join(workDir, "package.json"), JSON.stringify(packageJson));
+    // Create a test file so hasTestFiles() returns true
+    writeFileSync(join(workDir, "test.test.ts"), "test('test', () => {})");
 
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
@@ -193,6 +195,8 @@ describe("snapshot-update-retest-runner", () => {
     };
     writeFileSync(join(projectRoot, "package.json"), JSON.stringify(packageJson));
     writeFileSync(join(workDir, "package.json"), JSON.stringify(packageJson));
+    // Create a test file so hasTestFiles() returns true
+    writeFileSync(join(workDir, "test.test.ts"), "test('test', () => {})");
 
     let parallelInvocationCount = 0;
     let serialInvocationCount = 0;
@@ -269,5 +273,86 @@ describe("snapshot-update-retest-runner", () => {
     expect(result).toBe(true);
     expect(parallelInvocationCount).toBe(1);
     expect(serialInvocationCount).toBe(0); // Serial never runs when parallel passes
+  });
+
+  test("serial retry: emits operator signals on recovery", async () => {
+    const packageJson = {
+      scripts: {
+        "test:update": "true",
+        test: "true",
+      },
+    };
+    writeFileSync(join(projectRoot, "package.json"), JSON.stringify(packageJson));
+    writeFileSync(join(workDir, "package.json"), JSON.stringify(packageJson));
+    // Create a test file so hasTestFiles() returns true
+    writeFileSync(join(workDir, "test.test.ts"), "test('test', () => {})");
+
+    let stderrLines: string[] = [];
+    const originalWrite = process.stderr.write;
+    process.stderr.write = (msg: string) => {
+      stderrLines.push(msg);
+      return true;
+    };
+
+    try {
+      let parallelInvocationCount = 0;
+      const mockRunCommand = (command: string, args: string[], _cwd: string) => {
+        if (command === "bun" && args[0] === "run" && args[1] === "test") {
+          parallelInvocationCount++;
+          throw new Error("Simulated parallel test failure");
+        } else if (command === "bun" && args[0] === "test" && args.length === 1) {
+          // Serial pass
+        }
+      };
+
+      const result = await runSnapshotUpdateRetest(workDir, projectRoot, undefined, mockRunCommand);
+      expect(result).toBe(true);
+
+      // Verify operator signals are emitted
+      expect(stderrLines).toContain("snapshot-churn: parallel re-test failed; retrying serially\n");
+      expect(stderrLines).toContain("snapshot-churn: parallel-load flake recovered (serial re-test passed)\n");
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+  });
+
+  test("serial retry: emits operator signals on still-failed", async () => {
+    const packageJson = {
+      scripts: {
+        "test:update": "true",
+        test: "true",
+      },
+    };
+    writeFileSync(join(projectRoot, "package.json"), JSON.stringify(packageJson));
+    writeFileSync(join(workDir, "package.json"), JSON.stringify(packageJson));
+    // Create a test file so hasTestFiles() returns true
+    writeFileSync(join(workDir, "test.test.ts"), "test('test', () => {})");
+
+    let stderrLines: string[] = [];
+    const originalWrite = process.stderr.write;
+    process.stderr.write = (msg: string) => {
+      stderrLines.push(msg);
+      return true;
+    };
+
+    try {
+      const mockRunCommand = (command: string, args: string[], _cwd: string) => {
+        if (command === "bun" && args[0] === "run" && args[1] === "test") {
+          throw new Error("Simulated parallel test failure");
+        } else if (command === "bun" && args[0] === "test" && args.length === 1) {
+          // Serial also fails
+          throw new Error("Simulated serial test failure");
+        }
+      };
+
+      const result = await runSnapshotUpdateRetest(workDir, projectRoot, undefined, mockRunCommand);
+      expect(result).toBe(false);
+
+      // Verify operator signals are emitted
+      expect(stderrLines).toContain("snapshot-churn: parallel re-test failed; retrying serially\n");
+      expect(stderrLines).toContain("snapshot-churn: serial re-test failed\n");
+    } finally {
+      process.stderr.write = originalWrite;
+    }
   });
 });

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultRunCommand, type RunCommandFn } from "./run-command.ts";
@@ -43,6 +43,22 @@ export async function runBaseRefTests(
       return false;
     }
 
+    // Helper to check if test files exist in the worktree
+    const hasTestFiles = (): boolean => {
+      try {
+        const entries = readdirSync(worktreeDir, { recursive: true });
+        for (const entry of entries) {
+          if (typeof entry === "string" && entry.endsWith(".test.ts")) {
+            return true;
+          }
+        }
+      } catch {
+        // If we can't read the directory, assume tests exist (fail-safe)
+        return true;
+      }
+      return false;
+    };
+
     // Run tests in the worktree
     let testPassed = false;
     try {
@@ -57,6 +73,11 @@ export async function runBaseRefTests(
         testPassed = true;
       } catch {
         process.stderr.write(`base-ref-test: serial test failed\n`);
+        testPassed = false;
+      }
+      // Guard: if serial run passed but no test files were discovered,
+      // treat as non-green to avoid flipping a genuinely red base to green
+      if (testPassed && !hasTestFiles()) {
         testPassed = false;
       }
     }

@@ -337,6 +337,30 @@ describe("resolveCodexSessionUsage", () => {
 });
 
 describe("codex usage and cost calculation", () => {
+  test("real fixture: cached input tokens billed only at cache-read rate", () => {
+    const fixtureUsage = parseCodexSessionUsage(join(import.meta.dir, "fixtures", "codex", "0.130.0-session.jsonl"));
+    expect(fixtureUsage.usage).not.toBeNull();
+
+    const prices: Prices = {
+      version: 1,
+      models: {
+        "gpt-5": {
+          input_per_mtok: 1000,
+          output_per_mtok: 2000,
+          cache_read_per_mtok: 100,
+          cache_write_per_mtok: 1000,
+          source_url: "test",
+          as_of: "2026-01-01",
+        },
+      },
+    };
+
+    const { cost_usd } = computeCost(fixtureUsage.usage!, "gpt-5", prices);
+
+    const expectedCost = (36475 * 1000 + 5101 * 2000 + 606720 * 100) / 1_000_000;
+    expect(cost_usd).toBeCloseTo(expectedCost, 10);
+  });
+
   test("codex cached input tokens do not double-bill at input rate", () => {
     const prices: Prices = {
       version: 1,

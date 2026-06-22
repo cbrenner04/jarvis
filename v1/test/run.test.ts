@@ -1410,6 +1410,52 @@ Date: 2026-06-18`,
       expect(code).toBe(0);
       expect(cap.out()).toContain("spec complete");
     });
+
+    test("uses project readyCommand at completion-transition gate site", async () => {
+      setupGit();
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+
+      // Write sentinel and script outside the git repo so git tree stays clean
+      const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-sentinel-"));
+      try {
+        const sentinel = join(sentinelDir, "invoked");
+        const script = join(sentinelDir, "ready.sh");
+        writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+        chmodSync(script, 0o755);
+
+        const cfg = loadConfig({ dir: cfgDir });
+        if (cfg.projects.project === undefined) {
+          cfg.projects.project = { root: projectRoot };
+        }
+        cfg.projects.project.readyCommand = script;
+        writeConfig(cfg, { dir: cfgDir });
+
+        const cap = captureIo();
+        const claude = new FakeAgent("claude", () => {
+          writeFileSync(spec, "- [x] todo\n");
+          execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+          return { kind: "ok", stdout: "", stderr: "" };
+        });
+
+        const code = await runCommand({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+          skipGhCheck: true,
+          reviewPasses: 0,
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+        });
+
+        expect(code).toBe(0);
+        expect(cap.out()).toContain("spec complete");
+        expect(existsSync(sentinel)).toBe(true);
+      } finally {
+        rmSync(sentinelDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe("post-completion gate tier matrix", () => {

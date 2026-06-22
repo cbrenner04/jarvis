@@ -26,12 +26,12 @@ at the repo's real command. Let a registered project configure an alternate comm
 
 ## Acceptance criteria
 
-- [ ] A registered project with `readyCommand` set runs that command in place of `bun run ready`, with a test per gate site asserting the configured command is the one invoked: completion transition, pre-shrink gate, review baseline, review final, and `maybeMarkReady` (a missed threading site silently falls back to `bun run ready`, so each site is covered independently).
-- [ ] For `maybeMarkReady`, the override propagates through `maybeMarkReady → runReadyGateWithTier` to the actual command invocation — verified at the invocation, not merely that `runReadyGateWithTier` accepts the parameter.
-- [ ] The configured command is invoked with `JARVIS_READY_TIER` set to the selected tier (`fast` or `full`), and tier selection / green-carrier reuse behavior is unchanged.
-- [ ] When the gate runs `full` and leaves the tree dirty, the existing `check:fix` commit (`Jarvis-Agent` trailer) and push still run; when the configured command exits non-zero the PR is left draft and the surfaced failure includes the command's captured output and names the configured command.
-- [ ] `validateConfig` rejects a `readyCommand` that is empty, whitespace-only, or non-string, and rejects unknown project keys while accepting `readyCommand`; a config with `readyCommand` round-trips through load/write unchanged.
-- [ ] A project with no `readyCommand`, and an ad-hoc (unregistered) run, both invoke `bun run ready` exactly as before — existing `ready-gate` and gate-call-site tests stay green (behavior unchanged when unset).
+- [x] A registered project with `readyCommand` set runs that command in place of `bun run ready`, with a test per gate site asserting the configured command is the one invoked: completion transition, pre-shrink gate, review baseline, review final, and `maybeMarkReady` (a missed threading site silently falls back to `bun run ready`, so each site is covered independently).
+- [x] For `maybeMarkReady`, the override propagates through `maybeMarkReady → runReadyGateWithTier` to the actual command invocation — verified at the invocation, not merely that `runReadyGateWithTier` accepts the parameter.
+- [x] The configured command is invoked with `JARVIS_READY_TIER` set to the selected tier (`fast` or `full`), and tier selection / green-carrier reuse behavior is unchanged.
+- [x] When the gate runs `full` and leaves the tree dirty, the existing `check:fix` commit (`Jarvis-Agent` trailer) and push still run; when the configured command exits non-zero the PR is left draft and the surfaced failure includes the command's captured output and names the configured command.
+- [x] `validateConfig` rejects a `readyCommand` that is empty, whitespace-only, or non-string, and rejects unknown project keys while accepting `readyCommand`; a config with `readyCommand` round-trips through load/write unchanged.
+- [x] A project with no `readyCommand`, and an ad-hoc (unregistered) run, both invoke `bun run ready` exactly as before — existing `ready-gate` and gate-call-site tests stay green (behavior unchanged when unset).
 
 ## Documentation updates
 

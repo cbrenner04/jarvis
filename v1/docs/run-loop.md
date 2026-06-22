@@ -203,6 +203,11 @@ treating it as complete.
 When a `git: true` patch run reaches the completion transition (zero unchecked
 boxes and a clean worktree), Jarvis runs `bun run ready` once, harness-side,
 before proceeding to post-completion phases (shrink, review, `maybeMarkReady`).
+If the project config has a `readyCommand` set, that command is used instead
+of `bun run ready` at all five gate sites (completion transition, pre-shrink,
+review baseline, review final, `maybeMarkReady`). The command is tokenized on
+whitespace and invoked via `execFileSync` (no shell) with `JARVIS_READY_TIER`
+set in the environment.
 This completion-transition gate always runs the **`full`** tier through
 `runReadyAndCommit` and consumes zero agent tokens.
 

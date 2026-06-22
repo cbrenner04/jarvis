@@ -172,7 +172,10 @@ function commitAndPushCompleteDirtyWorktree(cwd: string): boolean {
   return true;
 }
 
-async function runCompletionReadyGate(ctx: IterationContext): Promise<CompletionReadyGateResult> {
+async function runCompletionReadyGate(
+  ctx: IterationContext,
+  readyCommand?: string,
+): Promise<CompletionReadyGateResult> {
   const { preflight, logging, opts } = ctx;
   logging.fanout("harness", "completion: running ready gate\n", "stdout");
 
@@ -189,6 +192,7 @@ async function runCompletionReadyGate(ctx: IterationContext): Promise<Completion
       cwd: preflight.agentWorkingDir,
       agentLabel: "completion-ready",
       tier: "full",
+      ...(readyCommand !== undefined ? { readyCommand } : {}),
     });
     return { kind: "green" };
   } catch (err) {
@@ -235,6 +239,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   }
   logging.fanout("harness", "spec complete\n", "stdout");
 
+  const readyCommand = preflight.cfg.projects[preflight.project.key]?.readyCommand;
   const reviewPasses = resolveReviewPasses(preflight.cfg, ctx.opts.reviewPasses);
   const implementationIterations = logging.patchIterationsCompletedForSummary();
   const shouldRunShrink =
@@ -246,7 +251,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
 
   // Run completion ready gate before shrink and review
   if (shouldRunCompletionReadyGate) {
-    const gateResult = await runCompletionReadyGate(ctx);
+    const gateResult = await runCompletionReadyGate(ctx, readyCommand);
     if (gateResult.kind === "red") {
       // Red completion ready gate.
       // Check if this is a stuck-red stop: failure unchanged and no new checkbox/blocker
@@ -376,6 +381,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         ...(ctx.opts.__testKillGraceMs !== undefined ? { __testKillGraceMs: ctx.opts.__testKillGraceMs } : {}),
         patchWorktreeDir: preflight.agentWorkingDir,
         idleOutputTimeoutMs: preflight.cfg.idleOutputTimeoutMs,
+        ...(readyCommand !== undefined ? { readyCommand } : {}),
         ...(ctx.state.completionTransitionReadyResult !== undefined
           ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
           : {}),
@@ -407,6 +413,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         ...(ctx.opts.resumeReview === true ? { resumeReview: true } : {}),
         patchWorktreeDir: preflight.agentWorkingDir,
         idleOutputTimeoutMs: preflight.cfg.idleOutputTimeoutMs,
+        ...(readyCommand !== undefined ? { readyCommand } : {}),
         ...(ctx.state.completionTransitionReadyResult !== undefined
           ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
           : {}),
@@ -428,6 +435,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         indexPath: preflight.specPath,
         cwd: preflight.agentWorkingDir,
         agentLabel: "patch-complete",
+        ...(readyCommand !== undefined ? { readyCommand } : {}),
         ...(ctx.state.completionTransitionReadyResult !== undefined
           ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
           : {}),

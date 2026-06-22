@@ -173,6 +173,8 @@ export type MaybeMarkReadyOpts = {
   checkPrExists?: (branch: string, cwd: string) => boolean;
   /** Short-circuit seam: stubs the entire ready + commit + gh-pr-ready sequence. When present, skips all other seams. */
   markReady?: (branch: string, cwd: string) => void;
+  /** Per-project override for `bun run ready`. Passed to `runReadyGateWithTier`. */
+  readyCommand?: string;
   /** Seam for just `bun run ready`. Used by tests when markReady is absent. Defaults to execFileSync call. */
   runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only when markReady is absent and tree is dirty after runReady. */
@@ -231,6 +233,7 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   runReadyGateWithTier({
     cwd: opts.cwd,
     agentLabel: opts.agentLabel ?? "",
+    ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
     ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
     ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),

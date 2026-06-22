@@ -56,19 +56,24 @@ export type RunReadyAndCommitOpts = {
   tier?: ReadyTier;
   /** Test seam: agent label for the commit trailer. Threaded to the `commitCheckFix` seam. */
   agentLabel?: string;
+  /** Per-project override for `bun run ready`. Tokenized on whitespace; no shell. Receives `JARVIS_READY_TIER`. */
+  readyCommand?: string;
   /** Seam for just `bun run ready`. Defaults to execFileSync call. */
   runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only after a `full` tier when tree is dirty. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
 };
 
-/** Run `bun run ready` at `tier` and, on `full` only, commit/push any `check:fix` output. */
+/** Run `bun run ready` (or the configured `readyCommand`) at `tier` and, on `full` only, commit/push any `check:fix` output. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const tier = opts.tier ?? "full";
 
   const realBunRunReady = (cwd: string, readyTier: ReadyTier) => {
+    const tokens = opts.readyCommand !== undefined ? opts.readyCommand.trim().split(/\s+/) : ["bun", "run", "ready"];
+    const [head, ...args] = tokens;
+    const displayCmd = tokens.join(" ");
     try {
-      execFileSync("bun", ["run", "ready"], {
+      execFileSync(head!, args, {
         cwd,
         env: { ...process.env, JARVIS_READY_TIER: readyTier },
         stdio: "pipe",
@@ -79,7 +84,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
         stderr?: Buffer;
       };
       const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-      throw new Error(captured ? `bun run ready failed:\n${captured}` : `bun run ready failed`);
+      throw new Error(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
     }
   };
 
@@ -135,6 +140,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
 export function runReadyGateWithTier(opts: {
   cwd: string;
   agentLabel: string;
+  readyCommand?: string;
   recordedGreenResult?: RecordedGreenResult;
   runReady?: (cwd: string, tier: ReadyTier) => void;
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
@@ -148,6 +154,7 @@ export function runReadyGateWithTier(opts: {
     cwd: opts.cwd,
     tier,
     agentLabel: opts.agentLabel,
+    ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
     ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
   });

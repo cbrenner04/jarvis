@@ -1,7 +1,7 @@
 // This test requires real repo / branch / remote state for review-flow integration behavior.
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAgent } from "../../../src/agents/spawn.ts";
@@ -860,6 +860,107 @@ while true; do :; done
       expect(hasIdleTimeout, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(true);
     } finally {
       cleanup();
+    }
+  });
+
+  test("invokes readyCommand at review baseline gate site", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "jarvis-review-baseline-ready-cmd-"));
+    const repoDir = join(parent, "repo");
+    const originDir = join(parent, "origin.git");
+    mkdirSync(repoDir);
+    execSync(`git init --bare ${originDir}`);
+    execSync("git init -b main", { cwd: repoDir });
+    execSync("git config user.email 'test@example.com'", { cwd: repoDir });
+    execSync("git config user.name 'Test User'", { cwd: repoDir });
+    execSync(`git remote add origin ${originDir}`, { cwd: repoDir });
+    const specDir = join(repoDir, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "index.md");
+    writeFileSync(specPath, "# Feature\n\n- [x] [00](./00-one.md)\n");
+    writeFileSync(join(specDir, "00-one.md"), "# 00\n\n## Acceptance criteria\n\n- [x] done\n");
+    writeFileSync(join(repoDir, "impl.txt"), "seed\n");
+    execSync("git add -A", { cwd: repoDir });
+    execSync("git commit -m 'seed'", { cwd: repoDir });
+    execSync("git push -u origin main", { cwd: repoDir });
+
+    // Sentinel lives outside the git repo so the tree stays clean after the script runs
+    const sentinel = join(parent, "baseline-invoked");
+    const script = join(parent, "ready.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+
+    try {
+      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewPasses: 1, reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: repoDir,
+        specPath,
+        reviewPassesOverride: 1,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        readyCommand: script,
+        // runBaselineGate NOT provided — real gate runs with readyCommand
+        runFinalGate: (_branch, _tier) => {}, // stub final gate to avoid gh pr ready
+        baseBranch: "main",
+      });
+      expect(code).toBe(0);
+      expect(existsSync(sentinel)).toBe(true);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  test("invokes readyCommand at review final gate site", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "jarvis-review-final-ready-cmd-"));
+    const repoDir = join(parent, "repo");
+    const originDir = join(parent, "origin.git");
+    mkdirSync(repoDir);
+    execSync(`git init --bare ${originDir}`);
+    execSync("git init -b main", { cwd: repoDir });
+    execSync("git config user.email 'test@example.com'", { cwd: repoDir });
+    execSync("git config user.name 'Test User'", { cwd: repoDir });
+    execSync(`git remote add origin ${originDir}`, { cwd: repoDir });
+    const specDir = join(repoDir, "spec", "feature");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "index.md");
+    writeFileSync(specPath, "# Feature\n\n- [x] [00](./00-one.md)\n");
+    writeFileSync(join(specDir, "00-one.md"), "# 00\n\n## Acceptance criteria\n\n- [x] done\n");
+    writeFileSync(join(repoDir, "impl.txt"), "seed\n");
+    execSync("git add -A", { cwd: repoDir });
+    execSync("git commit -m 'seed'", { cwd: repoDir });
+    execSync("git push -u origin main", { cwd: repoDir });
+
+    // Sentinel lives outside the git repo
+    const sentinel = join(parent, "final-invoked");
+    const script = join(parent, "ready.sh");
+    writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
+    chmodSync(script, 0o755);
+
+    try {
+      const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
+      // runBaselineGate stubbed; runFinalGate NOT provided — real gate runs with readyCommand
+      // gh pr ready will fail (no PR on main), causing exit code 1; sentinel proves readyCommand ran
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewPasses: 1, reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: repoDir,
+        specPath,
+        reviewPassesOverride: 1,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        readyCommand: script,
+        runBaselineGate: () => {}, // stub baseline gate
+        // runFinalGate NOT provided — real gate runs with readyCommand
+        baseBranch: "main",
+      });
+      // exit 1 because gh pr ready fails (no PR exists), but readyCommand ran
+      expect(code).toBe(1);
+      expect(existsSync(sentinel)).toBe(true);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
     }
   });
 });

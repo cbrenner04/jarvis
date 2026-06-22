@@ -20,10 +20,10 @@
 
 ## Acceptance criteria
 
-- [ ] With no `idleOutputTimeoutMs` configured, the idle watchdog is armed at 600000 ms.
-- [ ] `idleOutputTimeoutMs: 0` disables the idle watchdog (no idle abort regardless of silence).
-- [ ] A negative `idleOutputTimeoutMs` is rejected with a config validation error.
-- [ ] Idle-watchdog tests and any config-default tests asserting `idleOutputTimeoutMs` unset (including `v1/test/run.sandbox-unrunnable.test.ts`) stay green after updating the unset case to expect default-on.
+- [x] With no `idleOutputTimeoutMs` configured, the idle watchdog is armed at 600000 ms.
+- [x] `idleOutputTimeoutMs: 0` disables the idle watchdog (no idle abort regardless of silence).
+- [x] A negative `idleOutputTimeoutMs` is rejected with a config validation error.
+- [x] Idle-watchdog tests and any config-default tests asserting `idleOutputTimeoutMs` unset (including `v1/test/run.sandbox-unrunnable.test.ts`) stay green after updating the unset case to expect default-on.
 
 ## Documentation updates
 

@@ -24,10 +24,10 @@ These phases live behind a **different invocation binding** than patch mode and 
 
 ## Acceptance criteria
 
-- [ ] A silent hang in plan draft (no output, no file activity) aborts with exit `8` / `exitReason: "watchdog-idle-timeout"` on the idle bound, before `iterationTimeoutMs`.
-- [ ] A silent hang in plan review aborts on the idle bound.
-- [ ] A silent hang in plan verdict-actuator aborts on the idle bound.
-- [ ] In each plan phase, a silent-but-file-editing agent within the idle window (writing under the plan worktree) is not killed.
+- [x] A silent hang in plan draft (no output, no file activity) aborts with exit `8` / `exitReason: "watchdog-idle-timeout"` on the idle bound, before `iterationTimeoutMs`.
+- [x] A silent hang in plan review aborts on the idle bound.
+- [x] A silent hang in plan verdict-actuator aborts on the idle bound.
+- [x] In each plan phase, a silent-but-file-editing agent within the idle window (writing under the plan worktree) is not killed.
 
 ## Documentation updates
 

@@ -8,6 +8,7 @@ import { detectBlocker } from "../../../../shared/spec-parser.ts";
 import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
+import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "../patch/idle-watchdog.ts";
 import { runReview } from "../review/run.ts";
 import {
   type ReviewAdapter,
@@ -342,6 +343,10 @@ export type PlanReviewPhaseOptions = {
   onPassStart?: (displayPassNumber: number, displayTotalPasses: number) => void;
   /** Additional read directories passed to agent (for external spec storage). */
   additionalReadDirs?: string[];
+  /** Plan worktree directory for idle watchdog file-activity scanning. */
+  planWorktreeDir?: string;
+  /** Idle output timeout in milliseconds (0 to disable). */
+  idleOutputTimeoutMs?: number | undefined;
 };
 
 function firstNonEmptyLine(text: string): string {
@@ -723,6 +728,82 @@ function createPlanReviewAdapter(args: {
   };
 }
 
+function withPlanReviewIdleWatchdog(
+  agent: Agent,
+  opts: {
+    idleOutputTimeoutMs?: number;
+    config: Config;
+    planWorktreeDir?: string;
+    stderr?: (s: string) => void;
+  },
+): Agent {
+  return {
+    name: agent.name,
+    attributionLabel: () => agent.attributionLabel(),
+    run: async (prompt: string, runOpts) => {
+      const reviewController = new AbortController();
+      const lastOutputAtMs = { current: null as number | null };
+      let lastFileActivityAtMs: number | null = null;
+      let idleTimeoutHandle: NodeJS.Timeout | null = null;
+
+      // Arm idle watchdog if configured
+      const armedAt = Date.now();
+      const idleOutputTimeoutMs =
+        opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+      const worktreeDir = opts.planWorktreeDir ?? (typeof runOpts.cwd === "string" ? runOpts.cwd : process.cwd());
+      if (idleOutputTimeoutMs > 0) {
+        const scheduleIdleCheck = () => {
+          idleTimeoutHandle = setTimeout(() => {
+            const snapshotAt = Date.now();
+            const lastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
+
+            const sampledFileActivityAt = sampleFileActivityIfNeeded({
+              lastOutputAgeMs,
+              idleOutputTimeoutMs,
+              now: snapshotAt,
+              armedAt,
+              workingDir: worktreeDir,
+            });
+
+            if (sampledFileActivityAt !== null) {
+              lastFileActivityAtMs = sampledFileActivityAt;
+            }
+
+            const { shouldFire } = evaluateIdleWatchdog({
+              now: snapshotAt,
+              lastOutputAt: lastOutputAtMs.current,
+              lastFileActivityAt: lastFileActivityAtMs,
+              armedAt,
+              idleOutputTimeoutMs,
+            });
+
+            if (shouldFire) {
+              opts.stderr?.(`[watchdog] idle timeout fired after ${idleOutputTimeoutMs}ms; killing agent\n`);
+              reviewController.abort("idle-timeout");
+            } else {
+              scheduleIdleCheck();
+            }
+          }, 100);
+          idleTimeoutHandle?.unref?.();
+        };
+        scheduleIdleCheck();
+      }
+
+      try {
+        return await agent.run(prompt, {
+          ...runOpts,
+          signal: reviewController.signal,
+          lastOutputAtMs,
+        });
+      } finally {
+        if (idleTimeoutHandle !== null) {
+          clearTimeout(idleTimeoutHandle);
+        }
+      }
+    },
+  };
+}
+
 /** Run plan review passes through the shared review runner. */
 export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<PlanReviewPhaseResult> {
   const resolveAgent = (agentName: AgentName, model: string | undefined): Agent => {
@@ -777,6 +858,8 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
           targetDir,
           onOutboundPrompt: opts.onOutboundPrompt,
           createAgent: resolveAgent,
+          ...(opts.planWorktreeDir !== undefined ? { planWorktreeDir: opts.planWorktreeDir } : {}),
+          ...(opts.idleOutputTimeoutMs !== undefined ? { idleOutputTimeoutMs: opts.idleOutputTimeoutMs } : {}),
           ...(opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : {}),
         });
       } catch (err) {
@@ -860,7 +943,15 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
           },
         });
       },
-      loadAgent: ({ name, model }) => resolveAgent(name as AgentName, model),
+      loadAgent: ({ name, model }) => {
+        const agent = resolveAgent(name as AgentName, model);
+        return withPlanReviewIdleWatchdog(agent, {
+          ...(opts.idleOutputTimeoutMs !== undefined ? { idleOutputTimeoutMs: opts.idleOutputTimeoutMs } : {}),
+          config: opts.config,
+          ...(opts.planWorktreeDir !== undefined ? { planWorktreeDir: opts.planWorktreeDir } : {}),
+          ...(opts.stderr !== undefined ? { stderr: opts.stderr } : {}),
+        });
+      },
       onAllAgentsQuotaExhausted: (message) => {
         opts.stderr?.(`plan: ${message}\n`);
       },

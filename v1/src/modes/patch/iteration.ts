@@ -37,6 +37,7 @@ import {
   getIndexTitle,
   tryFinishSpecIfDone,
 } from "./completion-pipeline.ts";
+import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { maybeMarkReady } from "./pr.ts";
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
@@ -70,7 +71,7 @@ type SendLog = (tag: LogTag, text: string, annotations?: LogAnnotations) => void
 
 type WriteSessionLine = (tag: LogTag, line: string) => void;
 
-type WriteTelemetry = (record: {
+type TelemetryRecord = {
   agent: string;
   iteration: number;
   durationMs: number;
@@ -91,14 +92,19 @@ type WriteTelemetry = (record: {
   warnings?: string[];
   watchdog_pgid?: number;
   last_output_age_ms?: number | null;
+  last_file_activity_age_ms?: number | null;
   watchdog_descendants_alive?: boolean;
-}) => void;
+};
+
+type WriteTelemetry = (record: TelemetryRecord) => void;
 
 function formatWatchdogDiagnosticsSuffix(
   lastOutputAgeMs: number | null,
+  lastFileActivityAgeMs: number | null,
   descendantsAlive: boolean | undefined,
 ): string {
   let suffix = ` last_output_age_ms=${lastOutputAgeMs === null ? "null" : String(lastOutputAgeMs)}`;
+  suffix += ` last_file_activity_age_ms=${lastFileActivityAgeMs === null ? "null" : String(lastFileActivityAgeMs)}`;
   if (descendantsAlive !== undefined) {
     suffix += ` watchdog_descendants_alive=${descendantsAlive}`;
   }
@@ -119,12 +125,13 @@ function killWatchdogWithDescendants(
   fanout: Fanout,
   killGraceMs: number,
   lastOutputAgeMs: number | null,
+  lastFileActivityAgeMs: number | null,
   listProcessesFn?: WatchdogListProcessesFn,
 ): { descendantsAlive: boolean; killHandle: NodeJS.Timeout } {
   const descendantsAlive = snapshotWatchdogDescendantsAlive(pgid, listProcessesFn);
   const watchdogLine =
     `[watchdog] ${reason}; killing agent pgid ${pgid}` +
-    formatWatchdogDiagnosticsSuffix(lastOutputAgeMs, descendantsAlive);
+    formatWatchdogDiagnosticsSuffix(lastOutputAgeMs, lastFileActivityAgeMs, descendantsAlive);
   fanout("harness", `${watchdogLine}\n`, "stderr");
   try {
     process.kill(-pgid, "SIGTERM");
@@ -173,6 +180,9 @@ export function setupLogging(opts: RunCommandOptions, preflight: PreflightOk, lo
         ...(record.patch_phase !== undefined ? { patch_phase: record.patch_phase } : {}),
         ...(record.watchdog_pgid !== undefined ? { watchdog_pgid: record.watchdog_pgid } : {}),
         ...(record.last_output_age_ms !== undefined ? { last_output_age_ms: record.last_output_age_ms } : {}),
+        ...(record.last_file_activity_age_ms !== undefined
+          ? { last_file_activity_age_ms: record.last_file_activity_age_ms }
+          : {}),
         ...(record.watchdog_descendants_alive !== undefined
           ? { watchdog_descendants_alive: record.watchdog_descendants_alive }
           : {}),
@@ -532,11 +542,14 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   let watchdogFired = false;
   let watchdogKillHandle: NodeJS.Timeout | null = null;
   let watchdogLastOutputAgeMs: number | null = null;
+  let watchdogLastFileActivityAgeMs: number | null = null;
   let watchdogDescendantsAlive: boolean | undefined;
   let idleTimeoutHandle: NodeJS.Timeout | null = null;
   let idleWatchdogLastOutputAgeMs: number | null = null;
+  let idleWatchdogLastFileActivityAgeMs: number | null = null;
   let idleWatchdogDescendantsAlive: boolean | undefined;
   const lastOutputAtMs = { current: null as number | null };
+  let lastFileActivityAtMs: number | null = null;
   // Poll the agent's process subtree while it is alive so descendants that
   // later escape the process group (via setsid) and re-parent to init can be
   // reaped after the agent exits, when no live lineage to them remains.
@@ -545,6 +558,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     watchdogFired = true;
     const snapshotAt = Date.now();
     watchdogLastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
+    watchdogLastFileActivityAgeMs = lastFileActivityAtMs === null ? null : snapshotAt - lastFileActivityAtMs;
     const pgid = watchdogPgid;
     if (pgid !== null) {
       const result = killWatchdogWithDescendants(
@@ -553,6 +567,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         fanout,
         killGraceMs,
         watchdogLastOutputAgeMs,
+        watchdogLastFileActivityAgeMs,
         opts.__testWatchdogListProcesses,
       );
       watchdogDescendantsAlive = result.descendantsAlive;
@@ -561,17 +576,41 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     state.currentController?.abort("iteration-timeout");
   }, cfg.iterationTimeoutMs);
 
-  // Arm idle watchdog if configured
+  // Arm idle watchdog if configured (default 600000 when unset)
   const armedAt = Date.now();
-  const idleOutputTimeoutMs = cfg.idleOutputTimeoutMs;
-  if (idleOutputTimeoutMs !== undefined) {
+  const idleOutputTimeoutMs = cfg.idleOutputTimeoutMs ?? 600000;
+  if (idleOutputTimeoutMs > 0) {
     const scheduleIdleCheck = () => {
       idleTimeoutHandle = setTimeout(() => {
         const snapshotAt = Date.now();
-        const lastOutputAt = lastOutputAtMs.current ?? armedAt;
-        const idleAgeMs = snapshotAt - lastOutputAt;
-        if (idleAgeMs >= idleOutputTimeoutMs) {
-          idleWatchdogLastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
+        const lastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
+
+        // Sample file activity only on the cheap path — when output is already stale
+        // and watchdog is about to fire
+        const sampledFileActivityAt = sampleFileActivityIfNeeded({
+          lastOutputAgeMs,
+          idleOutputTimeoutMs,
+          now: snapshotAt,
+          armedAt,
+          workingDir: agentWorkingDir,
+        });
+
+        if (sampledFileActivityAt !== null) {
+          lastFileActivityAtMs = sampledFileActivityAt;
+        }
+
+        // Evaluate watchdog: fire only if both output AND file activity are stale
+        const { shouldFire, lastFileActivityAgeMs } = evaluateIdleWatchdog({
+          now: snapshotAt,
+          lastOutputAt: lastOutputAtMs.current,
+          lastFileActivityAt: lastFileActivityAtMs,
+          armedAt,
+          idleOutputTimeoutMs,
+        });
+
+        if (shouldFire) {
+          idleWatchdogLastOutputAgeMs = lastOutputAgeMs;
+          idleWatchdogLastFileActivityAgeMs = lastFileActivityAgeMs;
           const pgid = watchdogPgid;
           if (pgid !== null) {
             const result = killWatchdogWithDescendants(
@@ -580,6 +619,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               fanout,
               killGraceMs,
               idleWatchdogLastOutputAgeMs,
+              idleWatchdogLastFileActivityAgeMs,
               opts.__testWatchdogListProcesses,
             );
             idleWatchdogDescendantsAlive = result.descendantsAlive;
@@ -639,43 +679,53 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
     // Check for idle timeout
     if (result.kind === "error" && result.stderr.includes("aborted: idle-timeout")) {
-      fanout(
-        "harness",
-        `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs ?? "?"}ms\n`,
-        "stderr",
-      );
-      writeTelemetry({
+      fanout("harness", `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs}ms\n`, "stderr");
+      const idleTelemetryRecord: TelemetryRecord = {
         agent: agent.name,
         iteration,
         durationMs: iterationDurationMs(),
         kind: "timeout",
         exitReason: "watchdog-idle-timeout",
-        ...telemetryMeta,
-        ...(watchdogPgid !== null ? { watchdog_pgid: watchdogPgid } : {}),
         last_output_age_ms: idleWatchdogLastOutputAgeMs,
-        ...(idleWatchdogDescendantsAlive !== undefined
-          ? { watchdog_descendants_alive: idleWatchdogDescendantsAlive }
-          : {}),
-      });
+        last_file_activity_age_ms: idleWatchdogLastFileActivityAgeMs,
+      };
+      if (configuredPatchModelEntry?.model !== undefined) {
+        idleTelemetryRecord.configured_model = configuredPatchModelEntry.model;
+      }
+      if (watchdogPgid !== null) {
+        idleTelemetryRecord.watchdog_pgid = watchdogPgid;
+      }
+      if (idleWatchdogDescendantsAlive !== undefined) {
+        idleTelemetryRecord.watchdog_descendants_alive = idleWatchdogDescendantsAlive;
+      }
+      writeTelemetry(idleTelemetryRecord);
       return { kind: "return", exitCode: 8 };
     }
 
     // Check for iteration timeout
     if (result.kind === "error" && result.stderr.includes("aborted: iteration-timeout")) {
       fanout("harness", `iteration ${iteration} exceeded timeout of ${cfg.iterationTimeoutMs}ms\n`, "stderr");
-      writeTelemetry({
+      const iterationTelemetryRecord: TelemetryRecord = {
         agent: agent.name,
         iteration,
         durationMs: iterationDurationMs(),
         kind: "timeout",
         exitReason: watchdogFired ? "watchdog-iteration-timeout" : "iteration-timeout",
-        ...telemetryMeta,
-        ...(watchdogPgid !== null ? { watchdog_pgid: watchdogPgid } : {}),
-        ...(watchdogFired ? { last_output_age_ms: watchdogLastOutputAgeMs } : {}),
-        ...(watchdogFired && watchdogDescendantsAlive !== undefined
-          ? { watchdog_descendants_alive: watchdogDescendantsAlive }
-          : {}),
-      });
+      };
+      if (configuredPatchModelEntry?.model !== undefined) {
+        iterationTelemetryRecord.configured_model = configuredPatchModelEntry.model;
+      }
+      if (watchdogPgid !== null) {
+        iterationTelemetryRecord.watchdog_pgid = watchdogPgid;
+      }
+      if (watchdogFired) {
+        iterationTelemetryRecord.last_output_age_ms = watchdogLastOutputAgeMs;
+        iterationTelemetryRecord.last_file_activity_age_ms = watchdogLastFileActivityAgeMs;
+      }
+      if (watchdogFired && watchdogDescendantsAlive !== undefined) {
+        iterationTelemetryRecord.watchdog_descendants_alive = watchdogDescendantsAlive;
+      }
+      writeTelemetry(iterationTelemetryRecord);
       return { kind: "return", exitCode: 8 };
     }
 

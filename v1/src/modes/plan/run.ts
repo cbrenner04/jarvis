@@ -710,6 +710,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           checkBoundary: false,
           logNoChangeSkip: false,
           createAgent: resolveAgent,
+          planWorktreeDir: resume.worktreePath,
+          idleOutputTimeoutMs: cfg.idleOutputTimeoutMs,
           ...(commit
             ? {
                 updatePrBody: async () => {
@@ -942,6 +944,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           planTelemetry: planTelemetryWriter,
           targetDir,
           createAgent: resolveAgent,
+          planWorktreeDir: worktreePath,
+          idleOutputTimeoutMs: cfg.idleOutputTimeoutMs,
         });
 
         // Check if draft succeeded
@@ -1239,6 +1243,8 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           createAgent: resolveAgent,
           ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           projectRoot: project.root,
+          planWorktreeDir: worktreePath,
+          idleOutputTimeoutMs: cfg.idleOutputTimeoutMs,
           ...(commit
             ? {
                 updatePrBody: async () => {

@@ -25,10 +25,10 @@ This is not free reuse. The output-age signal (`lastOutputAtMs`) exists **only**
 
 ## Acceptance criteria
 
-- [ ] A silent hang in the patch review actuator (no output, no file activity) aborts with exit `8` / `exitReason: "watchdog-idle-timeout"` on the idle bound, before `iterationTimeoutMs`.
-- [ ] A silent hang in the patch review debate aborts on the idle bound.
-- [ ] A silent hang in the shrink phase aborts on the idle bound.
-- [ ] In each covered phase, a silent-but-file-editing agent within the idle window is not killed (file-activity liveness from subspec 00 applies uniformly).
+- [x] A silent hang in the patch review actuator (no output, no file activity) aborts with exit `8` / `exitReason: "watchdog-idle-timeout"` on the idle bound, before `iterationTimeoutMs`.
+- [x] A silent hang in the patch review debate aborts on the idle bound.
+- [x] A silent hang in the shrink phase aborts on the idle bound.
+- [x] In each covered phase, a silent-but-file-editing agent within the idle window is not killed (file-activity liveness from subspec 00 applies uniformly).
 
 ## Documentation updates
 

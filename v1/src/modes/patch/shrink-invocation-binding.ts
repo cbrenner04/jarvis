@@ -20,6 +20,7 @@ export type ShrinkInvocationBindingOptions<_T extends InvocationResult = Invocat
   onQuotaFallbackEmit?: (agentName: AgentName, spawnResult: AgentResult, classified: AgentResult) => void;
   recordAttempt?: (data: ShrinkAgentAttemptData) => void;
   abortKillGraceMs?: number;
+  lastOutputAtMs?: { current: number | null } | undefined;
 };
 
 export function createShrinkInvocationBinding<T extends InvocationResult = InvocationResult>(
@@ -37,6 +38,7 @@ export function createShrinkInvocationBinding<T extends InvocationResult = Invoc
         cwd: args.cwd,
         ...(args.signal !== undefined ? { signal: args.signal } : {}),
         ...(opts.abortKillGraceMs !== undefined ? { abortKillGraceMs: opts.abortKillGraceMs } : {}),
+        ...(opts.lastOutputAtMs !== undefined ? { lastOutputAtMs: opts.lastOutputAtMs } : {}),
       });
 
       const classified = applyQuotaFallbackWhenAllowed(

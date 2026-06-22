@@ -37,12 +37,12 @@ Deferred to first consumer: mtime scan mechanism (recursive walk vs other read) 
 
 ## Acceptance criteria
 
-- [ ] An agent producing no stdout/stderr but writing files within the idle window is not aborted; the run continues past `idleOutputTimeoutMs`.
-- [ ] An agent producing neither stdout/stderr nor file writes for `idleOutputTimeoutMs` is aborted with exit `8` and `exitReason: "watchdog-idle-timeout"`.
-- [ ] The `[watchdog]` idle line and telemetry row include `last_file_activity_age_ms`.
-- [ ] `.git/`-only changes (no working-tree file edits) do not count as file activity and do not prevent an idle abort.
-- [ ] A write to a gitignored working-tree path counts as file activity and prevents an idle abort within the window.
-- [ ] Existing idle/iteration watchdog tests in `v1/test/run.sandbox-unrunnable.test.ts` stay green (true-hang kill behavior unchanged when there is no file activity).
+- [x] An agent producing no stdout/stderr but writing files within the idle window is not aborted; the run continues past `idleOutputTimeoutMs`.
+- [x] An agent producing neither stdout/stderr nor file writes for `idleOutputTimeoutMs` is aborted with exit `8` and `exitReason: "watchdog-idle-timeout"`.
+- [x] The `[watchdog]` idle line and telemetry row include `last_file_activity_age_ms`.
+- [x] `.git/`-only changes (no working-tree file edits) do not count as file activity and do not prevent an idle abort.
+- [x] A write to a gitignored working-tree path counts as file activity and prevents an idle abort within the window.
+- [x] Existing idle/iteration watchdog tests in `v1/test/run.sandbox-unrunnable.test.ts` stay green (true-hang kill behavior unchanged when there is no file activity).
 
 ## Documentation updates
 

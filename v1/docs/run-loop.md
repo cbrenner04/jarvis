@@ -182,11 +182,18 @@ GitHub-style task list items. An unchecked item is a line matching
 `^\s*- \[ \]\s`; checked items use `- [x]` or `- [X]`.
 
 When effective `git` is `true` and the agent `cwd` is a git checkout (normal
-runs that use a worktree), Jarvis also requires a clean `git status` before
-printing **spec complete**. That way checkbox completion cannot succeed while
-changes are still only on disk. When effective `git` is `false`, the
-clean-tree check is skipped: completion is purely "zero unchecked boxes",
-regardless of dirty or untracked files in the agent's working directory.
+runs that use a worktree), the run can proceed to completion phases when all
+checkboxes are checked. If the worktree has uncommitted changes, Jarvis
+auto-commits them with `git add -A` and message "chore: complete-but-dirty
+commit" (with `Jarvis-Agent: completion-ready` trailer), then pushes and
+proceeds through the normal completion path (ready gate, shrink, review,
+PR ready). The complete-but-dirty commit happens before the ready gate runs,
+so a subsequent ready gate failure leaves the PR in draft state and the run
+reflects the gate failure, not completion success. If the worktree remains
+dirty after the auto-commit (unexpected state), the run exits with guidance
+(`exit 6`). When effective `git` is `false`, the clean-tree check is skipped:
+completion is purely "zero unchecked boxes", regardless of dirty or untracked
+files in the agent's working directory.
 
 A spec with no task list checkboxes is malformed. Jarvis fails fast instead of
 treating it as complete.
@@ -566,8 +573,11 @@ purposes:
   entry at invocation time). Watchdog-triggered iteration timeouts include optional
   **`watchdog_pgid`** (the killed agent process-group id), **`last_output_age_ms`**
   (ms since the last stdout/stderr chunk at watchdog fire; `null` when no output
-  arrived), and **`watchdog_descendants_alive`** (`true` when ≥1 descendant of the
-  agent root pid was live at snapshot; omitted when pgid was unavailable). Set
+  arrived), **`last_file_activity_age_ms`** (ms since the most-recent file
+  modification in the working tree at watchdog fire; `null` when no file activity
+  detected), and **`watchdog_descendants_alive`** (`true` when ≥1 descendant of the
+  agent root pid was live at snapshot; omitted when pgid was unavailable). Idle
+  watchdog fires only when both output and file activity are stale. Set
   `telemetryPath` to `null` to disable.
 
 ### Token usage and cost tracking
@@ -777,23 +787,41 @@ row still includes `last_output_age_ms` and omits `watchdog_pgid` and
 
 ### Idle-output watchdog
 
-An optional idle-output watchdog bounds iterations by agent output activity.
-Configure `idleOutputTimeoutMs` (in milliseconds) to abort an iteration if the
-agent produces no stdout/stderr for that span. Disabled by default (when unset).
-The idle watchdog composes with the wall-clock `iterationTimeoutMs`: whichever
-fires first aborts the iteration; both are armed concurrently.
+An optional idle-output watchdog bounds agent phases by liveness: absence of both
+agent output activity *and* file-system activity in the working tree.
+Configure `idleOutputTimeoutMs` (in milliseconds) to abort if the
+agent produces no stdout/stderr *and* makes no file edits for that span. Default
+is 600000 (10 minutes); set to `0` to disable. The idle watchdog applies uniformly
+to patch iteration, review (debate and actuator), shrink, and plan (draft, review, verdict-actuator) phases. It composes with
+the wall-clock `iterationTimeoutMs`: whichever fires first aborts the phase;
+both are armed concurrently.
 
-The idle bound resets on every stdout/stderr chunk from the agent. If no output
-has arrived when the watchdog fires, `last_output_age_ms` in telemetry is `null`.
+The idle bound resets on every stdout/stderr chunk from the agent *or* file
+modification in the working tree (excluding `.git/` internal changes). File
+activity is checked by scanning the most-recent mtime in the agent working tree
+(excluding `.git/`). The scan occurs only when both output and file activity are
+already stale, minimizing filesystem I/O. Writes to gitignored paths count as
+file activity and prevent idle abort.
+
+Liveness is `max(lastOutputAt, lastFileActivityAt, armedAt)`: the watchdog fires
+only when this effective last-activity time exceeds `idleOutputTimeoutMs`.
+This prevents false-positive aborts of silent-but-productive agents (e.g. a code
+generation or refactoring pass that writes files without stdout).
+
+If no output has arrived when the watchdog fires, `last_output_age_ms` in
+telemetry is `null`. If no file activity is detected, `last_file_activity_age_ms`
+is `null`. When both are `null`, the agent produced neither output nor file edits
+for the full idle window.
 Idle abort returns exit code `8` with `exitReason: "watchdog-idle-timeout"`
 (distinct from `watchdog-iteration-timeout`). Idle timeouts are **not** classified
 as quota and do not trigger agent fallback.
 
 When the agent root pid is known at idle-fire time, Jarvis logs:
-`[watchdog] idle timeout fired after Nms; killing agent pgid <pgid> last_output_age_ms=<n|null> watchdog_descendants_alive=<true|false>`,
+`[watchdog] idle timeout fired after Nms; killing agent pgid <pgid> last_output_age_ms=<n|null> last_file_activity_age_ms=<n|null> watchdog_descendants_alive=<true|false>`,
 then kills the process group (same SIGTERM → grace → SIGKILL sequence as the
 wall-clock timeout). When pgid is unavailable, no `[watchdog]` line is emitted
-and no group kill runs, but telemetry still records `last_output_age_ms`.
+and no group kill runs, but telemetry still records `last_output_age_ms` and
+`last_file_activity_age_ms`.
 
 ### Orphan process reaping
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { runReadyAndCommit, runReadyGateWithTier, selectReadyTier } from "../src/ready-gate.ts";
 
 let dir = "";
@@ -88,7 +88,7 @@ describe("runReadyAndCommit", () => {
 
 describe("biome.json noNonNullAssertion override", () => {
   test("override exists with fix:none and warn level", () => {
-    const biome = JSON.parse(readFileSync(resolve(__dirname, "../../biome.json"), "utf8"));
+    const biome = JSON.parse(readFileSync(join(__dirname, "../../biome.json"), "utf8"));
     const rule = biome?.linter?.rules?.style?.noNonNullAssertion;
     expect(rule).toBeDefined();
     expect(rule.fix).toBe("none");

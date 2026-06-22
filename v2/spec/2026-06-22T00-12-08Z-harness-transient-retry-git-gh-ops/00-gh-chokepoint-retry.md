@@ -96,25 +96,25 @@ without perturbing the shipped agent classifier.
 
 ## Acceptance criteria
 
-- [ ] A transient-classified non-zero `gh` result (e.g. `TLS handshake timeout`,
+- [x] A transient-classified non-zero `gh` result (e.g. `TLS handshake timeout`,
   `could not resolve host`) from `runGhCommand` is re-invoked on the same call
   and, when a later attempt exits `0`, `runGhCommand` returns that success
   (test).
-- [ ] A persistently transient `gh` failure terminates: after the fixed cap the
+- [x] A persistently transient `gh` failure terminates: after the fixed cap the
   call returns the last non-zero result; the test asserts exactly 3 invocations
   so the bound — not an external limit — is what stops it (test).
-- [ ] A permanent `gh` failure (branch-protection `BLOCKED`, not-authenticated,
+- [x] A permanent `gh` failure (branch-protection `BLOCKED`, not-authenticated,
   or 404) is returned without retry — exactly one invocation (test).
-- [ ] `isTransientNetworkError` returns false for `exitCode === 0`, matches the
+- [x] `isTransientNetworkError` returns false for `exitCode === 0`, matches the
   new git/gh phrasings, and the shipped agent classifier (`isTransientSignal`
   truth table in `v1/test/agents/quota.test.ts`) stays green — agent behavior
   unchanged (test).
-- [ ] The injectable sleep seam is invoked once per re-attempt — N−1 times
+- [x] The injectable sleep seam is invoked once per re-attempt — N−1 times
   across N attempts — so backoff is exercised, not skipped (test).
-- [ ] Each gh re-attempt emits `harnessGitGhTransientRetryLine`, an op-scoped
+- [x] Each gh re-attempt emits `harnessGitGhTransientRetryLine`, an op-scoped
   line operator-distinguishable from the quota-fallback strings and the agent
   transient line (not confusable with a hang or a quota fallback) (test).
-- [ ] `v1/docs/quota-signals.md` and `v2/docs/v1-behaviors.md` record the gh
+- [x] `v1/docs/quota-signals.md` and `v2/docs/v1-behaviors.md` record the gh
   chokepoint retry, the reused classifier + new git/gh phrasings, the cap, the
   bounded backoff, and that permanent failures fast-fail.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.

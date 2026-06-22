@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../shared/git.ts";
-import { getBaseBranch } from "./gh.ts";
+import { getBaseBranch, type SyncTransientRetryOptions, withSyncTransientRetry } from "./gh.ts";
 
 export function getSpecName(specPath: string): string {
   const resolvedPath = resolve(specPath);
@@ -265,18 +265,45 @@ export function worktreeCompletionBlocker(cwd: string): string | undefined {
   }
 }
 
-export function pushCurrent(opts: { cwd: string; firstPush: boolean }): void {
-  const args = opts.firstPush ? ["push", "-u", "origin", getCurrentBranch(opts.cwd)] : ["push"];
-  try {
-    execFileSync("git", args, {
-      cwd: opts.cwd,
-      env: process.env,
-      stdio: "pipe",
+export type PushCurrentOptions = {
+  cwd: string;
+  firstPush: boolean;
+  execSync?: () => void;
+  retryOpts?: Partial<SyncTransientRetryOptions>;
+};
+
+export function pushCurrent(opts: PushCurrentOptions): void {
+  const { cwd, firstPush, execSync, retryOpts } = opts;
+
+  const args = firstPush ? ["push", "-u", "origin", getCurrentBranch(cwd)] : ["push"];
+
+  const realExecSync =
+    execSync ||
+    (() => {
+      execFileSync("git", args, {
+        cwd,
+        env: process.env,
+        stdio: "pipe",
+      });
     });
-  } catch (err) {
+
+  const handleError = (err: unknown): void => {
     const stderr = getProcessStderr(err);
     throw new Error(stderr.length > 0 ? stderr : String(err));
-  }
+  };
+
+  const thunk = () => {
+    try {
+      realExecSync();
+    } catch (err) {
+      handleError(err);
+    }
+  };
+
+  withSyncTransientRetry(thunk, {
+    op: "git push",
+    ...retryOpts,
+  });
 }
 
 export function hasUpstream(cwd: string): boolean {

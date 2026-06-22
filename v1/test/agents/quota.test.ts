@@ -4,6 +4,7 @@ import {
   applyQuotaFallbackWhenAllowed,
   isModelConfigurationSignal,
   isQuotaSignal,
+  isTransientNetworkError,
   isTransientSignal,
   isWeakQuotaSignal,
 } from "../../src/agents/quota.ts";
@@ -248,5 +249,56 @@ describe("isTransientSignal", () => {
   test("does not classify model configuration signals as transient", () => {
     expect(isTransientSignal("claude", 1, "unknown model")).toBe(false);
     expect(isTransientSignal("claude", 1, "model not found")).toBe(false);
+  });
+});
+
+describe("isTransientNetworkError", () => {
+  test("matches shared transport patterns", () => {
+    expect(isTransientNetworkError(1, "connection closed")).toBe(true);
+    expect(isTransientNetworkError(1, "connection reset by peer")).toBe(true);
+    expect(isTransientNetworkError(1, "socket hang up")).toBe(true);
+    expect(isTransientNetworkError(1, "broken pipe")).toBe(true);
+    expect(isTransientNetworkError(1, "error: HTTP 502 Bad Gateway")).toBe(true);
+    expect(isTransientNetworkError(1, "error: HTTP 503 Service Unavailable")).toBe(true);
+  });
+
+  test("matches git/gh-specific TLS patterns", () => {
+    expect(isTransientNetworkError(1, "TLS handshake timeout")).toBe(true);
+    expect(isTransientNetworkError(1, "SSL_ERROR")).toBe(true);
+    expect(isTransientNetworkError(1, "SSL error: something went wrong")).toBe(true);
+    expect(isTransientNetworkError(1, "handshake failure")).toBe(true);
+  });
+
+  test("matches git/gh-specific DNS patterns", () => {
+    expect(isTransientNetworkError(1, "could not resolve host")).toBe(true);
+    expect(isTransientNetworkError(1, "could not resolve host github.com")).toBe(true);
+  });
+
+  test("matches git/gh-specific timeout patterns", () => {
+    expect(isTransientNetworkError(1, "operation timed out")).toBe(true);
+    expect(isTransientNetworkError(1, "timed out waiting for response")).toBe(true);
+  });
+
+  test("matches git/gh remote hang-up pattern", () => {
+    expect(isTransientNetworkError(1, "the remote end hung up unexpectedly")).toBe(true);
+  });
+
+  test("does not match on exit code 0", () => {
+    expect(isTransientNetworkError(0, "TLS handshake timeout")).toBe(false);
+    expect(isTransientNetworkError(0, "could not resolve host")).toBe(false);
+    expect(isTransientNetworkError(0, "connection closed")).toBe(false);
+  });
+
+  test("does not match permanent gh failures", () => {
+    expect(isTransientNetworkError(1, "BLOCKED")).toBe(false);
+    expect(isTransientNetworkError(1, "not authenticated")).toBe(false);
+    expect(isTransientNetworkError(1, "404")).toBe(false);
+  });
+
+  test("agent classifier stays unchanged (isTransientSignal truth table)", () => {
+    // Verify that isTransientSignal still works as before
+    expect(isTransientSignal("claude", 1, "connection closed")).toBe(true);
+    expect(isTransientSignal("claude", 0, "connection closed")).toBe(false);
+    expect(isTransientSignal("claude", 1, "unknown model")).toBe(false);
   });
 });

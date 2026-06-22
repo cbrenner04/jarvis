@@ -92,6 +92,16 @@ const sharedTransportPatterns = [
   /(?:^|\n)[^\n]*\b529\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
 ];
 
+const harnessGitGhTransportPatterns = [
+  /\bTLS handshake timeout\b/i,
+  /\bcould not resolve host\b/i,
+  /\btimed out\b/i,
+  /\bSSL_ERROR\b/i,
+  /\bSSL error\b/i,
+  /\bhandshake failure\b/i,
+  /\bthe remote end hung up unexpectedly\b/i,
+];
+
 export function isModelConfigurationSignal(stderr: string): boolean;
 export function isModelConfigurationSignal(name: AgentName, stderr: string): boolean;
 export function isModelConfigurationSignal(nameOrStderr: AgentName | string, maybeStderr?: string): boolean {
@@ -148,6 +158,14 @@ export function isWeakQuotaSignal(
 export function isTransientSignal(_name: AgentName, exitCode: number, stderr: string): boolean {
   if (exitCode === 0) return false;
   return sharedTransportPatterns.some((pattern) => pattern.test(stderr));
+}
+
+export function isTransientNetworkError(exitCode: number, stderr: string): boolean {
+  if (exitCode === 0) return false;
+  return (
+    sharedTransportPatterns.some((pattern) => pattern.test(stderr)) ||
+    harnessGitGhTransportPatterns.some((pattern) => pattern.test(stderr))
+  );
 }
 
 export type QuotaFallbackConfig = {

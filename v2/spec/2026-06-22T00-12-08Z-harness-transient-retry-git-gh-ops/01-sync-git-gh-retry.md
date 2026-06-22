@@ -93,25 +93,25 @@ first.
 
 ## Acceptance criteria
 
-- [ ] A transient `git push` failure (e.g. connection reset / TLS handshake
+- [x] A transient `git push` failure (e.g. connection reset / TLS handshake
   timeout) is retried on the same op and succeeds when a later attempt succeeds;
   a persistently transient push throws after exactly 3 attempts (bound, not
   external limit) (test).
-- [ ] A transient `gh pr ready` failure is retried and succeeds when a later
+- [x] A transient `gh pr ready` failure is retried and succeeds when a later
   attempt succeeds; a persistently transient `gh pr ready` throws after exactly
   3 attempts (test).
-- [ ] A `gh pr ready` retry that hits an already-flipped PR ("already ready" /
+- [x] A `gh pr ready` retry that hits an already-flipped PR ("already ready" /
   "not a draft" stderr) resolves as success, not a fast-fail — the lost-ack
   case that motivated this spec does not re-break (test).
-- [ ] A permanent `git push` rejection (non-fast-forward / auth) and a permanent
+- [x] A permanent `git push` rejection (non-fast-forward / auth) and a permanent
   `gh pr ready` failure (`BLOCKED` / 404 / not-authenticated) each throw after
   exactly one attempt, with the existing thrown-error text preserved so caller
   try/catch behavior is unchanged (test).
-- [ ] The injectable sleep seam is invoked once per re-attempt — N−1 times
+- [x] The injectable sleep seam is invoked once per re-attempt — N−1 times
   across N attempts — so backoff is exercised, not skipped (test).
-- [ ] Each sync re-attempt emits `harnessGitGhTransientRetryLine` (shared with
+- [x] Each sync re-attempt emits `harnessGitGhTransientRetryLine` (shared with
   [00](./00-gh-chokepoint-retry.md)) (test).
-- [ ] `v2/docs/v1-behaviors.md` records that `git push` and the direct
+- [x] `v2/docs/v1-behaviors.md` records that `git push` and the direct
   `gh pr ready` ops bounded-retry transient failures and fast-fail permanent
   ones with preserved error text.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.

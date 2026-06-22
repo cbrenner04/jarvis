@@ -29,6 +29,30 @@ allowing modes to emit operator-facing diagnostics (see patch harness below).
 can distinguish retry from hang. This phrase shares no substring with quota
 strings (`quota exhausted; falling back` / `probable quota-like error`).
 
+### Git/gh chokepoint retry
+
+The harness chokepoint `runGhCommand` (`src/gh.ts`) — used for `gh auth status`,
+`gh repo view`, `gh pr comment`, and review-feedback gh calls — implements the
+same bounded retry pattern for transient git/gh network errors. The classifier
+**`isTransientNetworkError`** (`src/agents/quota.ts`) matches the shared
+`sharedTransportPatterns` (agent-spawned errors) ∪ harness-scoped git/gh
+phrasings that the agent path does not exercise:
+
+- `TLS handshake timeout` (seed 3 kill signal)
+- `could not resolve host` (DNS failure)
+- `operation timed out` / `timed out`
+- `SSL_ERROR` / `SSL error` / `handshake failure`
+- `the remote end hung up unexpectedly` (git over HTTPS)
+
+Bounded retry cap is **2 re-attempts (3 total invocations)**, with a **1-second
+backoff** between attempts (network transients benefit from a brief pause; agent
+spawn deliberately had none). Sleep is injectable for tests. Permanent gh
+failures — not-authenticated, 404, branch-protection `BLOCKED` — do not match
+any pattern and fast-fail with exactly one invocation. Each re-attempt emits
+`OP: transient network error; retrying (attempt A/CAP)` via an injectable
+`onRetry` callback, operator-distinguishable from quota strings and the agent
+transient line (not confusable with hang or fallback).
+
 ## Quota fallback
 
 **Patch and plan modes:** With `quotaFallback: "lenient"`, **`applyQuotaFallbackWhenAllowed`**
@@ -347,6 +371,29 @@ made in the iteration. It is intentionally empty by default until real
 samples justify a code being added. Populate it via `~/.jarvis/config.json`
 when a vendor consistently signals quota with a non-zero exit code that
 the strict patterns miss.
+
+### `harnessGitGhTransportPatterns` (git/gh chokepoint retry)
+
+Git/gh-specific transient patterns used by `isTransientNetworkError` and the
+bounded-retry `runGhCommand` chokepoint. These are **not** added to the agent
+classifier to avoid perturbing agent-spawn behavior as a side effect.
+
+- `/\\bTLS handshake timeout\\b/i` — Matched.
+  Sample link: seed 3 (gh auth status failure).
+- `/\\bcould not resolve host\\b/i` — Unverified best-effort.
+  Sample link: none yet (git DNS failure pattern).
+- `/\\boperation timed out\\b/i` — Unverified best-effort.
+  Sample link: none yet.
+- `/\\btimed out\\b/i` — Unverified best-effort.
+  Sample link: none yet.
+- `/\\bSSL_ERROR\\b/i` — Unverified best-effort.
+  Sample link: none yet.
+- `/\\bSSL error\\b/i` — Unverified best-effort.
+  Sample link: none yet.
+- `/\\bhandshake failure\\b/i` — Unverified best-effort.
+  Sample link: none yet.
+- `/\\bthe remote end hung up unexpectedly\\b/i` — Unverified best-effort.
+  Sample link: none yet (git over HTTPS pattern).
 
 ## Follow-up TODOs
 

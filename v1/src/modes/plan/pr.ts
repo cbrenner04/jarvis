@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
+import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import type { CommitInfo } from "../../pr.ts";
 import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, readBranchCommits } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
@@ -283,8 +284,10 @@ export type MaybeMarkPlanPrReadyOpts = {
   runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for post-ready check:fix commit/push. Used by tests when markReady is absent. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
-  /** Seam for the `gh pr ready <branch>` shell-out. Used by tests when markReady is absent. */
+  /** Seam for the `gh pr ready <branch>` shell-out. Used by tests when markReady is absent. Defaults to execFileSync call wrapped with retry. */
   ghPrReady?: (branch: string, cwd: string) => void;
+  /** Seam for retry behavior: exec, sleep, onRetry callbacks. Injected into the retry wrapper below ghPrReady. */
+  ghPrReadyRetryOpts?: Partial<SyncTransientRetryOptions>;
 };
 
 /**
@@ -317,12 +320,21 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
     return;
   }
 
-  const realGhPrReady = (branch: string, cwd: string) => {
-    execFileSync("gh", ["pr", "ready", branch], {
-      cwd,
-      env: process.env,
-      stdio: "pipe",
-    });
+  const retryGhPrReady = (branch: string, cwd: string) => {
+    withSyncTransientRetry(
+      () => {
+        execFileSync("gh", ["pr", "ready", branch], {
+          cwd,
+          env: process.env,
+          stdio: "pipe",
+        });
+      },
+      {
+        op: "gh pr ready",
+        isPrReady: true,
+        ...opts.ghPrReadyRetryOpts,
+      },
+    );
   };
 
   runReadyAndCommit({
@@ -332,7 +344,7 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
     ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
   });
 
-  const ghPrReadyFn = opts.ghPrReady ?? realGhPrReady;
+  const ghPrReadyFn = opts.ghPrReady ?? retryGhPrReady;
   ghPrReadyFn(opts.branch, opts.cwd);
 }
 

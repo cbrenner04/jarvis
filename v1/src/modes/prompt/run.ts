@@ -167,6 +167,8 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
 
   const runStartedAt = new Date();
   const runStartedMs = Date.now();
+  const telemetryPath = cfg.telemetryPath ?? null;
+  const namespace = `${project.key}:prompt`;
   let exitCode = 0;
   let exitReason = "success";
   let telemetryKind: TelemetryKind = "ok";
@@ -174,18 +176,7 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
   let configuredModel: string | undefined;
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
-  let okResult:
-    | {
-        usage_source?: "agent" | "estimated" | "unavailable";
-        usage?: {
-          input_tokens: number | null;
-          output_tokens: number | null;
-          cache_read_input_tokens: number | null;
-          cache_creation_input_tokens: number | null;
-        };
-        cost_usd?: number | null;
-      }
-    | undefined;
+  let usageAndCost: Record<string, any> = {};
   let telemetryWritten = false;
 
   try {
@@ -332,7 +323,7 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
           agentOutput = result.stdout;
           agentSuccess = true;
           telemetryKind = "ok";
-          okResult = result;
+          usageAndCost = extractUsageAndCost(result, agent.name, configuredModel);
           break;
         }
 
@@ -397,9 +388,6 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
 
       // Write enriched telemetry before summary reads it
       const durationMs = Date.now() - runStartedMs;
-      const telemetryPath = cfg.telemetryPath ?? null;
-      const namespace = `${project.key}:prompt`;
-      const usageAndCost = okResult !== undefined ? extractUsageAndCost(okResult, agentUsed.name, configuredModel) : {};
 
       appendTelemetryLine(telemetryPath, {
         ts: runStartedAt.toISOString(),
@@ -493,9 +481,6 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
 
     // Capture duration after PR creation
     const durationMs = Date.now() - runStartedMs;
-    const telemetryPath = cfg.telemetryPath ?? null;
-    const namespace = `${project.key}:prompt`;
-    const usageAndCost = okResult !== undefined ? extractUsageAndCost(okResult, agentUsed.name, configuredModel) : {};
 
     // Write enriched telemetry before summary reads it
     appendTelemetryLine(telemetryPath, {
@@ -536,8 +521,6 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     // Write telemetry only if success termini didn't already write it
     if (!telemetryWritten) {
       const durationMs = Date.now() - runStartedMs;
-      const telemetryPath = cfg.telemetryPath ?? null;
-      const namespace = `${project.key}:prompt`;
 
       appendTelemetryLine(telemetryPath, {
         ts: runStartedAt.toISOString(),

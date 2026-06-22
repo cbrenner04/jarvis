@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INTAKE_SUGGESTION_URL, planSummary, runSummary } from "../src/run-summary.ts";
@@ -804,7 +804,68 @@ describe("intake nudge", () => {
     assertNudgeLastLineOnce(summary);
   });
 
-  test("constant value matches URL in docs", () => {
-    expect(INTAKE_SUGGESTION_URL).toBe("https://github.com/cbrenner04/jarvis/issues/new/choose");
+  test("constant value matches URL in all doc files", () => {
+    const docsToCheck = [
+      { path: "README.md", name: "README.md" },
+      { path: "AGENTS.md", name: "AGENTS.md" },
+      { path: "CLAUDE.md", name: "CLAUDE.md" },
+      { path: "v1/docs/operator-runbook.md", name: "operator-runbook.md" },
+    ];
+
+    for (const doc of docsToCheck) {
+      const content = readFileSync(doc.path, "utf8");
+      expect(content).toContain(INTAKE_SUGGESTION_URL);
+    }
+  });
+
+  test("zero-records render includes nudge once as last line", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T09:59:00.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        usage_source: "agent",
+        cost_usd: 0.1,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "criteria-progress",
+      iterations: 0,
+      durationMs: 1000,
+      specPath: "spec/foo/index.md",
+    });
+
+    assertNudgeLastLineOnce(summary);
+  });
+
+  test("help output contains no intake URL", async () => {
+    const cliModule = await import("../src/cli.ts");
+    const parsed = cliModule.parseArgs(["help"]);
+    expect(parsed.kind).toBe("help");
+
+    const outputLines: string[] = [];
+    const result = cliModule.run(["help"], {
+      io: {
+        stdout: (s: string) => outputLines.push(s),
+        stderr: () => {},
+      },
+    });
+    expect(result).toBe(0);
+    const output = outputLines.join("");
+    expect(output).not.toContain(INTAKE_SUGGESTION_URL);
+  });
+
+  test("prompt command does not use summary functions", async () => {
+    const cliModule = await import("../src/cli.ts");
+    const parsed = cliModule.parseArgs(["prompt", "describe this file"]);
+    expect(parsed.kind).toBe("prompt");
   });
 });

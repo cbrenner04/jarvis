@@ -206,6 +206,8 @@ Coverage:
 
 - **Quota fallback**: Quota-only attempts are excluded from aggregated totals with the same quota-excluded notes as patch mode.
 
+- **Intake nudge**: Every plan summary ends with a single-line nudge: `Hit a harness gap? https://github.com/cbrenner04/jarvis/issues/new/choose`, directing operators to the harness suggestion intake channel.
+
 No summary is printed for configuration or project-resolution failures that occur **before** any agent invocation.
 
 ## PR body updates

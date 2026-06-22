@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { planSummary, runSummary } from "../src/run-summary.ts";
+import { INTAKE_SUGGESTION_URL, planSummary, runSummary } from "../src/run-summary.ts";
 
 function writeTelemetry(lines: object[]): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-run-summary-"));
@@ -707,5 +707,167 @@ describe("runSummary", () => {
     expect(summary).toContain("attempts: 1");
     expect(summary).not.toContain("shrink attempts");
     expect(summary).toContain("$0.07");
+  });
+});
+
+describe("intake nudge", () => {
+  test("runSummary includes intake nudge as last line", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        usage_source: "agent",
+        cost_usd: 0.1,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "criteria-progress",
+      iterations: 1,
+      durationMs: 1000,
+      specPath: "spec/foo/index.md",
+    });
+
+    const lines = summary.trimEnd().split("\n");
+    const lastLine = lines[lines.length - 1];
+    expect(lastLine).toMatch(/Hit a harness gap\?/);
+    expect(lastLine).toContain(INTAKE_SUGGESTION_URL);
+    expect(summary).toEqual(summary.replace(/\n/g, "\n").replace(new RegExp(`${INTAKE_SUGGESTION_URL}.*`), INTAKE_SUGGESTION_URL));
+  });
+
+  test("runSummary nudge appears exactly once", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        usage_source: "agent",
+        cost_usd: 0.1,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "criteria-progress",
+      iterations: 1,
+      durationMs: 1000,
+      specPath: "spec/foo/index.md",
+    });
+
+    const count = (summary.match(new RegExp(INTAKE_SUGGESTION_URL, "g")) || []).length;
+    expect(count).toBe(1);
+  });
+
+  test("runSummary with no-telemetry includes nudge as last line", () => {
+    const summary = runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "error",
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+
+    const lines = summary.trimEnd().split("\n");
+    const lastLine = lines[lines.length - 1];
+    expect(lastLine).toMatch(/Hit a harness gap\?/);
+    expect(lastLine).toContain(INTAKE_SUGGESTION_URL);
+  });
+
+  test("planSummary includes intake nudge as last line", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "plan:k:n",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 100,
+        kind: "ok",
+        exit_reason: "plan-draft-ok",
+        mode: "plan",
+        plan_phase: "draft",
+        usage_source: "agent",
+        cost_usd: 0.05,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = planSummary({
+      telemetryPath,
+      namespace: "plan:k:n",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "complete",
+      durationMs: 500,
+      specPath: "spec/foo/index.md",
+    });
+
+    const lines = summary.trimEnd().split("\n");
+    const lastLine = lines[lines.length - 1];
+    expect(lastLine).toMatch(/Hit a harness gap\?/);
+    expect(lastLine).toContain(INTAKE_SUGGESTION_URL);
+  });
+
+  test("planSummary nudge appears exactly once", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "plan:k:n",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 100,
+        kind: "ok",
+        exit_reason: "plan-draft-ok",
+        mode: "plan",
+        plan_phase: "draft",
+        usage_source: "agent",
+        cost_usd: 0.05,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = planSummary({
+      telemetryPath,
+      namespace: "plan:k:n",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "complete",
+      durationMs: 500,
+      specPath: "spec/foo/index.md",
+    });
+
+    const count = (summary.match(new RegExp(INTAKE_SUGGESTION_URL, "g")) || []).length;
+    expect(count).toBe(1);
+  });
+
+  test("planSummary with no-telemetry includes nudge as last line", () => {
+    const summary = planSummary({
+      telemetryPath: null,
+      namespace: "plan:k:n",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "error",
+      durationMs: 500,
+      specPath: "spec/foo/index.md",
+    });
+
+    const lines = summary.trimEnd().split("\n");
+    const lastLine = lines[lines.length - 1];
+    expect(lastLine).toMatch(/Hit a harness gap\?/);
+    expect(lastLine).toContain(INTAKE_SUGGESTION_URL);
+  });
+
+  test("constant value matches URL in docs", () => {
+    expect(INTAKE_SUGGESTION_URL).toBe("https://github.com/cbrenner04/jarvis/issues/new/choose");
   });
 });

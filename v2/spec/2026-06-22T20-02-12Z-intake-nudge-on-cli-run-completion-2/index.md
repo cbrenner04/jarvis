@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Surface intake URL once in run/plan summaries](./00-intake-nudge-in-summaries.md)
+- [x] [00 - Surface intake URL once in run/plan summaries](./00-intake-nudge-in-summaries.md)

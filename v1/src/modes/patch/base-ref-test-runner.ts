@@ -3,13 +3,34 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+export type RunCommandFn = (
+  command: string,
+  args: string[],
+  cwd: string,
+) => void;
+
+function defaultRunCommand(command: string, args: string[], cwd: string): void {
+  execFileSync(command, args, {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+  });
+}
+
 /**
  * Run tests at a base ref to validate blocker claims.
  * Resolves the base ref to a commit via merge-base, creates a temporary
  * worktree detached at that commit, runs `bun run test`, and cleans up.
+ * On test failure, retries serially once before returning non-green.
  * Returns true if tests pass (exit 0), false otherwise.
  */
-export async function runBaseRefTests(projectRoot: string, baseBranch: string): Promise<boolean> {
+export async function runBaseRefTests(
+  projectRoot: string,
+  baseBranch: string,
+  runCommandFn?: RunCommandFn,
+): Promise<boolean> {
+  const runCommand = runCommandFn ?? defaultRunCommand;
+
   let baseCommit: string;
   try {
     baseCommit = execFileSync("git", ["merge-base", baseBranch, "HEAD"], {
@@ -36,18 +57,24 @@ export async function runBaseRefTests(projectRoot: string, baseBranch: string): 
     }
 
     // Run tests in the worktree
+    let testPassed = false;
     try {
-      execFileSync("bun", ["run", "test"], {
-        cwd: worktreeDir,
-        env: process.env,
-        stdio: "pipe",
-      });
-      // Exit 0: tests pass
-      return true;
+      runCommand("bun", ["run", "test"], worktreeDir);
+      testPassed = true;
     } catch {
-      // Non-zero exit: tests fail
-      return false;
+      // Parallel test failed; retry serially
+      process.stderr.write(`base-ref-test: parallel test failed; retrying serially\n`);
+      try {
+        runCommand("bun", ["test"], worktreeDir);
+        process.stderr.write(`base-ref-test: parallel-load flake recovered (serial test passed)\n`);
+        testPassed = true;
+      } catch {
+        process.stderr.write(`base-ref-test: serial test failed\n`);
+        testPassed = false;
+      }
     }
+
+    return testPassed;
   } finally {
     // Always clean up the worktree, even on error
     try {

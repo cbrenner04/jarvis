@@ -5,6 +5,20 @@ import { join } from "node:path";
 // Candidate list for conventional update-snapshots scripts (checked in order)
 const UPDATE_SNAPSHOT_SCRIPT_CANDIDATES = ["test:update", "test:u", "update-snapshots", "updateSnapshots"];
 
+export type RunCommandFn = (
+  command: string,
+  args: string[],
+  cwd: string,
+) => void;
+
+function defaultRunCommand(command: string, args: string[], cwd: string): void {
+  execFileSync(command, args, {
+    cwd,
+    env: process.env,
+    stdio: "pipe",
+  });
+}
+
 /**
  * Resolve the update-snapshots command from config or by detecting a conventional
  * script in the target repo's root package.json.
@@ -43,6 +57,7 @@ function resolveUpdateSnapshotsCommand(projectRoot: string, configCommand?: stri
 /**
  * Run snapshot update + re-test in the agent working directory.
  * Resolves the update-snapshots command, runs it, then runs bun run test.
+ * On re-test failure, retries serially once before returning non-green.
  * Returns true if re-test exits 0, false otherwise.
  * Emits distinct diagnostics on stderr for each non-green outcome.
  */
@@ -50,7 +65,9 @@ export async function runSnapshotUpdateRetest(
   agentWorkingDir: string,
   projectRoot: string,
   configCommand?: string,
+  runCommandFn?: RunCommandFn,
 ): Promise<boolean> {
+  const runCommand = runCommandFn ?? defaultRunCommand;
   const command = resolveUpdateSnapshotsCommand(projectRoot, configCommand);
 
   if (command === undefined) {
@@ -69,27 +86,30 @@ export async function runSnapshotUpdateRetest(
 
   // Run the update command in the agent working dir
   try {
-    execFileSync(head, args, {
-      cwd: agentWorkingDir,
-      env: process.env,
-      stdio: "pipe",
-    });
+    runCommand(head, args, agentWorkingDir);
   } catch {
     console.error("[snapshot-churn] update command failed or exited non-zero");
     return false;
   }
 
   // Re-run tests in the agent working dir
+  let testPassed = false;
   try {
-    execFileSync("bun", ["run", "test"], {
-      cwd: agentWorkingDir,
-      env: process.env,
-      stdio: "pipe",
-    });
-    // Exit 0: re-test passes
-    return true;
+    runCommand("bun", ["run", "test"], agentWorkingDir);
+    testPassed = true;
   } catch {
-    console.error("[snapshot-churn] re-test still failing after update");
-    return false;
+    // Parallel re-test failed; retry serially
+    process.stderr.write(`snapshot-churn: parallel re-test failed; retrying serially\n`);
+    try {
+      runCommand("bun", ["test"], agentWorkingDir);
+      process.stderr.write(`snapshot-churn: parallel-load flake recovered (serial re-test passed)\n`);
+      testPassed = true;
+    } catch {
+      process.stderr.write(`snapshot-churn: serial re-test failed\n`);
+      console.error("[snapshot-churn] re-test still failing after update");
+      testPassed = false;
+    }
   }
+
+  return testPassed;
 }

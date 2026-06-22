@@ -21,6 +21,7 @@ An observer session is not done when the PRs merge — it's done when the findin
 3. **Triage incoming harness suggestions** from other-repo observers (see below) into wip-intents.
 4. **Write a final report** (gitignored local artifact, e.g. `overlord-session-report.md`) covering: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost.
 5. **Maintain this runbook** directly (branch → PR → admin-merge — lighter than the full intent→plan→run pipeline). Keep it current; batch edits rather than one PR per thought.
+6. **Run end-of-session cleanup** ([below](#end-of-session-cleanup)) — `jarvis1 cleanup` to retire merged worktrees and archive specs, then relocate any v1-work specs it parked under `v2/spec/completed/` into `v1/spec/completed/`.
 
 ## Experimentation — encouraged, but bounded
 
@@ -161,6 +162,25 @@ Merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. 
 - **`check:fix`** (safe Biome fixes) leaves residual `noExplicitAny`/unused-var/non-null issues; **`check:fix:unsafe`** applies the riskier fixes and runs in the full ready tier before the final `check` lint. `noNonNullAssertion` has `fix: "none"` in `biome.json` (level retained at `warn`) — it is not rewritten by `check:fix:unsafe` because its autofix rewrites `!` to `?.`, which is `T | undefined` under `noUncheckedIndexedAccess` and fails the subsequent `typecheck` step.
 - **`bun run typecheck`** is a separate gate (TS compiler; `noImplicitAny` lives in `tsconfig.json`, not Biome).
 - Tests that spawn real processes live in `*.sandbox-unrunnable.test.ts` files and only run **sandbox-off**.
+
+## End-of-session cleanup
+
+Run before wrapping a session:
+
+1. **`jarvis1 cleanup`** — removes merged worktrees and archives each completed spec into
+   `v2/spec/completed/`. It prompts `[y/N]`; pipe `echo y | jarvis1 cleanup` in a non-interactive
+   shell. (`--dry-run` to preview.)
+2. **Relocate v1-work specs.** `cleanup` archives every spec under `v2/spec/completed/` regardless of
+   what it touched. Specs that actually implemented v1 changes (anything under `v1/`, `shared/`, or
+   root config like `biome.json`) belong in **`v1/spec/completed/`** — move them there
+   (`git mv v2/spec/completed/<spec> v1/spec/completed/`) so `v2/spec/completed/` holds only genuine
+   v2 planning work. Pure-v2 specs stay put. Commit the move (branch → PR → admin-merge).
+3. **Prune consumed seeds.** Delete `v2/spec/wip-intents/*` whose work shipped this session, and any
+   `v2/spec/ready-intents/*` left over from a plan that didn't consume them. Batch with the move.
+
+> This hand-relocation is a known harness gap (`cleanup` should route a spec to the right
+> `vN/spec/completed/` by what it changed); seeded as a wip-intent, not yet automated. Until then, do
+> it by hand here.
 
 ## Branch-before-edit discipline
 

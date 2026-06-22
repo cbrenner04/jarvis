@@ -18,9 +18,9 @@ import {
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
+import { promptSummary } from "../../run-summary.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
-import { promptSummary } from "../../run-summary.ts";
 import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "../patch/reap.ts";
@@ -174,7 +174,18 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
   let configuredModel: string | undefined;
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
-  let okResult: { usage_source?: "agent" | "estimated" | "unavailable"; usage?: { input_tokens: number | null; output_tokens: number | null; cache_read_input_tokens: number | null; cache_creation_input_tokens: number | null }; cost_usd?: number | null } | undefined;
+  let okResult:
+    | {
+        usage_source?: "agent" | "estimated" | "unavailable";
+        usage?: {
+          input_tokens: number | null;
+          output_tokens: number | null;
+          cache_read_input_tokens: number | null;
+          cache_creation_input_tokens: number | null;
+        };
+        cost_usd?: number | null;
+      }
+    | undefined;
   let telemetryWritten = false;
 
   try {

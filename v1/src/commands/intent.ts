@@ -7,8 +7,8 @@ import { CONFIG_DIR, loadConfig, resolvePlanFlags } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
-import { computeProjectSafeId } from "../modes/plan/spec-paths.ts";
 import { getOpenPrState, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
+import { computeProjectSafeId } from "../modes/plan/spec-paths.ts";
 import { ensureDraftPr, renderAttribution } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import { createIntentWorktree, createWorktreeSymlinks } from "../worktree.ts";
@@ -516,11 +516,7 @@ function renderIntentNextStepsNoCommit(args: {
   return lines.join("\n");
 }
 
-function safeMarkPlanPrReady(args: {
-  io: IntentIo;
-  branch: string;
-  worktreePath: string;
-}): void {
+function safeMarkPlanPrReady(args: { io: IntentIo; branch: string; worktreePath: string }): void {
   try {
     maybeMarkPlanPrReady({
       branch: args.branch,

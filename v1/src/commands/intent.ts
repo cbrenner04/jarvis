@@ -208,54 +208,52 @@ function repairIntentFile(path: string, slug: string): void {
   let modified = false;
 
   const lines = text.split("\n");
+  let blockEndIdx = -1;
 
-  // Repair frontmatter name:
-  if ((lines[0] ?? "") !== "---") {
-    // Case 1: No frontmatter block, prepend one
-    text = `---\nname: ${slug}\n---\n${text}`;
-    modified = true;
-  } else {
-    // Find the end of the frontmatter block
-    let blockEndIdx = -1;
+  // Find frontmatter block end
+  if ((lines[0] ?? "") === "---") {
     for (let i = 1; i < lines.length; i += 1) {
       if ((lines[i] ?? "") === "---") {
         blockEndIdx = i;
         break;
       }
     }
+  }
 
-    if (blockEndIdx !== -1) {
-      // Block exists, check for name: key
-      let hasName = false;
-      let nameLineIdx = -1;
-      let nameValue: string | null = null;
+  // Repair frontmatter name:
+  if (blockEndIdx === -1) {
+    // Case 1: No frontmatter block, prepend one
+    lines.unshift("---", `name: ${slug}`, "---");
+    modified = true;
+  } else {
+    // Frontmatter exists, check for name: key
+    let hasName = false;
+    let nameLineIdx = -1;
+    let nameValue: string | null = null;
 
-      for (let i = 1; i < blockEndIdx; i += 1) {
-        const line = lines[i] ?? "";
-        const match = /^name:\s*(.+)\s*$/.exec(line);
-        if (match?.[1]) {
-          hasName = true;
-          nameLineIdx = i;
-          nameValue = match[1].trim();
-          break;
-        }
+    for (let i = 1; i < blockEndIdx; i += 1) {
+      const line = lines[i] ?? "";
+      const match = /^name:\s*(.+)\s*$/.exec(line);
+      if (match?.[1]) {
+        hasName = true;
+        nameLineIdx = i;
+        nameValue = match[1].trim();
+        break;
       }
+    }
 
-      if (hasName && nameLineIdx !== -1) {
-        // Case 3: Rewrite if mismatched
-        if (nameValue !== slug) {
-          lines[nameLineIdx] = `name: ${slug}`;
-          modified = true;
-        }
-      } else {
-        // Case 2: Insert name: into existing block (before the closing ---)
-        lines.splice(blockEndIdx, 0, `name: ${slug}`);
-        modified = true;
-      }
-
-      text = lines.join("\n");
+    if (hasName && nameLineIdx !== -1 && nameValue !== slug) {
+      // Case 3: Rewrite if mismatched
+      lines[nameLineIdx] = `name: ${slug}`;
+      modified = true;
+    } else if (!hasName) {
+      // Case 2: Insert name: into existing block (before the closing ---)
+      lines.splice(blockEndIdx, 0, `name: ${slug}`);
+      modified = true;
     }
   }
+
+  text = lines.join("\n");
 
   // Repair Prerequisites section
   if (!hasPrerequisitesSection(text)) {

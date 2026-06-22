@@ -70,7 +70,10 @@ class SplitAgent implements Agent {
     | "repair-mismatched-name"
     | "repair-no-frontmatter"
     | "repair-missing-name"
-    | "repair-missing-prerequisites";
+    | "repair-missing-prerequisites"
+    | "repair-unterminated-frontmatter"
+    | "repair-near-miss-prerequisites"
+    | "repair-empty-name";
 
   constructor(
     name: AgentName,
@@ -86,7 +89,10 @@ class SplitAgent implements Agent {
       | "repair-mismatched-name"
       | "repair-no-frontmatter"
       | "repair-missing-name"
-      | "repair-missing-prerequisites",
+      | "repair-missing-prerequisites"
+      | "repair-unterminated-frontmatter"
+      | "repair-near-miss-prerequisites"
+      | "repair-empty-name",
   ) {
     this.name = name;
     this.#mode = mode;
@@ -175,6 +181,59 @@ name: missing-prereqs
 ## Intent
 
 Should have Prerequisites added.
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "repair-unterminated-frontmatter") {
+      writeFileSync(
+        join(stageDir, "unterminated.md"),
+        `---
+title: Some title
+incomplete frontmatter
+
+## Intent
+
+Body content.
+
+## Prerequisites
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "repair-near-miss-prerequisites") {
+      writeFileSync(
+        join(stageDir, "near-miss.md"),
+        `---
+name: near-miss
+---
+
+## Intent
+
+Body content.
+
+### Prerequisites
+
+This is a near-miss heading.
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "repair-empty-name") {
+      writeFileSync(
+        join(stageDir, "empty-name.md"),
+        `---
+name:
+---
+
+## Intent
+
+Body content.
+
+## Prerequisites
 `,
         "utf8",
       );
@@ -308,6 +367,9 @@ function createSplitAgentFactory(
       | "repair-no-frontmatter"
       | "repair-missing-name"
       | "repair-missing-prerequisites"
+      | "repair-unterminated-frontmatter"
+      | "repair-near-miss-prerequisites"
+      | "repair-empty-name"
     >
   >,
 ) {
@@ -915,6 +977,104 @@ describe("intentCommand", () => {
       expect(content2).toContain("---\nname: slice-two\n---");
       expect(content1).toContain("## Prerequisites");
       expect(content2).toContain("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: unterminated frontmatter is not repaired and fails validation", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-unterminated-frontmatter" }),
+      });
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("must declare name: unterminated");
+      expect(existsSync(env.prState)).toBe(false);
+      expect(existsSync(join(env.projectRoot, ".worktree"))).toBe(true);
+      expect(readdirSync(join(env.projectRoot, ".worktree"))).toHaveLength(0);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: near-miss Prerequisites heading (### instead of ##) is left in place while empty section is appended", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-near-miss-prerequisites" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("intent: split commit pushed");
+      expect(existsSync(env.prState)).toBe(true);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "near-miss.md"), "utf8");
+      expect(content).toContain("### Prerequisites");
+      expect(content).toContain("## Prerequisites");
+      const lines = content.split("\n");
+      const lastContent = lines.filter((line) => line.trim()).pop();
+      expect(lastContent).toBe("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: empty name value is filled with slug", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-empty-name" }),
+      });
+      expect(code).toBe(0);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "empty-name.md"), "utf8");
+      expect(content).toContain("name: empty-name");
+      expect(content).toContain("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: missing name key in no-commit path is inserted", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-missing-name" }),
+      });
+      expect(code).toBe(0);
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      const content = readFileSync(join(externalRoot, "ready-intents", "missing-name.md"), "utf8");
+      expect(content).toContain("name: missing-name");
+      expect(content).toContain("description: A test intent");
+      expect(content).toContain("## Prerequisites");
     } finally {
       env.cleanup();
     }

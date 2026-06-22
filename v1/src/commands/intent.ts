@@ -209,9 +209,10 @@ function repairIntentFile(path: string, slug: string): void {
 
   const lines = text.split("\n");
   let blockEndIdx = -1;
+  const hasLeadingDash = (lines[0] ?? "") === "---";
 
   // Find frontmatter block end
-  if ((lines[0] ?? "") === "---") {
+  if (hasLeadingDash) {
     for (let i = 1; i < lines.length; i += 1) {
       if ((lines[i] ?? "") === "---") {
         blockEndIdx = i;
@@ -221,29 +222,29 @@ function repairIntentFile(path: string, slug: string): void {
   }
 
   // Repair frontmatter name:
-  if (blockEndIdx === -1) {
+  if (blockEndIdx === -1 && !hasLeadingDash) {
     // Case 1: No frontmatter block, prepend one
     lines.unshift("---", `name: ${slug}`, "---");
     modified = true;
-  } else {
-    // Frontmatter exists, check for name: key
+  } else if (blockEndIdx !== -1) {
+    // Frontmatter exists with proper closing, check for name: key
     let hasName = false;
     let nameLineIdx = -1;
     let nameValue: string | null = null;
 
     for (let i = 1; i < blockEndIdx; i += 1) {
       const line = lines[i] ?? "";
-      const match = /^name:\s*(.+)\s*$/.exec(line);
-      if (match?.[1]) {
+      const match = /^name:\s*(.*)$/.exec(line);
+      if (match) {
         hasName = true;
         nameLineIdx = i;
-        nameValue = match[1].trim();
+        nameValue = match[1]!.trim();
         break;
       }
     }
 
     if (hasName && nameLineIdx !== -1 && nameValue !== slug) {
-      // Case 3: Rewrite if mismatched
+      // Case 3: Rewrite if mismatched or empty
       lines[nameLineIdx] = `name: ${slug}`;
       modified = true;
     } else if (!hasName) {
@@ -252,6 +253,7 @@ function repairIntentFile(path: string, slug: string): void {
       modified = true;
     }
   }
+  // If blockEndIdx === -1 && hasLeadingDash, unterminated frontmatter: skip repair
 
   text = lines.join("\n");
 
@@ -275,7 +277,7 @@ function repairIntentStageContent(stagingDir: string): void {
   }
 }
 
-function validateIntentStageContent(files: string[]):
+function validateIntentFilenames(files: string[]):
   | {
       ok: true;
       intents: { slug: string; path: string }[];
@@ -299,6 +301,19 @@ function validateIntentStageContent(files: string[]):
       return { ok: false, error: `intent: duplicate emitted name ${slug}` };
     }
     seen.add(slug);
+    intents.push({ slug, path });
+  }
+
+  return { ok: true, intents };
+}
+
+function validateIntentStageContent(intents: { slug: string; path: string }[]):
+  | {
+      ok: true;
+      intents: { slug: string; path: string }[];
+    }
+  | { ok: false; error: string } {
+  for (const { slug, path } of intents) {
     const content = readFileSync(path, "utf8");
     const frontmatterName = parseIntentFrontmatterName(content);
     if (frontmatterName !== slug) {
@@ -319,13 +334,12 @@ function validateIntentStageContent(files: string[]):
         error: `intent: ${basename(path)} must list prerequisites as one bullet per line`,
       };
     }
-    intents.push({ slug, path });
   }
 
   return { ok: true, intents };
 }
 
-function validateIntentStage(
+function gateIntentStage(
   stagingDir: string,
   modifiedPaths: string[],
 ):
@@ -354,7 +368,25 @@ function validateIntentStage(
   }
 
   const files = listStageMarkdownFiles(stagingDir);
-  return validateIntentStageContent(files);
+  return validateIntentFilenames(files);
+}
+
+function validateIntentStage(
+  stagingDir: string,
+  modifiedPaths: string[],
+):
+  | {
+      ok: true;
+      intents: { slug: string; path: string }[];
+    }
+  | { ok: false; error: string } {
+  const gating = gateIntentStage(stagingDir, modifiedPaths);
+  if (!gating.ok) {
+    return gating;
+  }
+
+  repairIntentStageContent(stagingDir);
+  return validateIntentStageContent(gating.intents);
 }
 
 function validateExternalIntentStageStructure(stagingDir: string): { ok: true } | { ok: false; error: string } {
@@ -607,10 +639,16 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         return 1;
       }
 
+      const files = listStageMarkdownFiles(externalStageDir);
+      const filenameValidation = validateIntentFilenames(files);
+      if (!filenameValidation.ok) {
+        opts.io.stderr(`${filenameValidation.error}\n`);
+        return 1;
+      }
+
       repairIntentStageContent(externalStageDir);
 
-      const files = listStageMarkdownFiles(externalStageDir);
-      const validation = validateIntentStageContent(files);
+      const validation = validateIntentStageContent(filenameValidation.intents);
       if (!validation.ok) {
         opts.io.stderr(`${validation.error}\n`);
         return 1;
@@ -694,8 +732,6 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       opts.io.stderr(`intent: split failed\n${splitResult.result.stderr}`);
       return 1;
     }
-
-    repairIntentStageContent(stageDir);
 
     const validation = validateIntentStage(stageDir, listModifiedPaths(worktreePath));
     if (!validation.ok) {

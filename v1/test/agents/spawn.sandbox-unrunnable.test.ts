@@ -208,6 +208,8 @@ describe("runAgent transient retry", () => {
     rmSync(cwd, { recursive: true, force: true });
   };
 
+  const noOpSleep = async () => {};
+
   test(
     "transient-then-success returns ok with no advancement",
     async () => {
@@ -242,7 +244,10 @@ exit 0
             streamErrorPrefix: "test:",
           },
           "test",
-          { cwd: realpathSync(cwd) },
+          {
+            cwd: realpathSync(cwd),
+            sleepMs: noOpSleep,
+          },
         );
 
         expect(result.kind).toBe("ok");
@@ -259,7 +264,7 @@ exit 0
   );
 
   test(
-    "persistent transient returns error at cap of 2 retries",
+    "persistent transient returns error at cap of 3 retries",
     async () => {
       setup();
       try {
@@ -272,6 +277,7 @@ exit 1
         chmodSync(bin, 0o755);
 
         let spawnCount = 0;
+        const recordedSleeps: number[] = [];
         const result = await runAgent(
           {
             name: "claude",
@@ -285,11 +291,17 @@ exit 1
             streamErrorPrefix: "test:",
           },
           "test",
-          { cwd: realpathSync(cwd) },
+          {
+            cwd: realpathSync(cwd),
+            sleepMs: async (delayMs) => {
+              recordedSleeps.push(delayMs);
+            },
+          },
         );
 
         expect(result.kind).toBe("error");
-        expect(spawnCount).toBe(3); // 1 initial + 2 retries
+        expect(spawnCount).toBe(4); // 1 initial + 3 retries
+        expect(recordedSleeps).toEqual([1000, 2000, 4000]);
       } finally {
         teardown();
       }
@@ -381,13 +393,88 @@ exit 0
             onTransientRetry: (info) => {
               retries.push({ attempt: info.attempt, cap: info.cap, exitCode: info.exitCode });
             },
+            sleepMs: noOpSleep,
           },
         );
 
         expect(result.kind).toBe("ok");
         expect(retries.length).toBe(2);
-        expect(retries[0]).toEqual({ attempt: 1, cap: 2, exitCode: 42 });
-        expect(retries[1]).toEqual({ attempt: 2, cap: 2, exitCode: 42 });
+        expect(retries[0]).toEqual({ attempt: 1, cap: 3, exitCode: 42 });
+        expect(retries[1]).toEqual({ attempt: 2, cap: 3, exitCode: 42 });
+      } finally {
+        teardown();
+      }
+    },
+    { timeout: 10000 },
+  );
+
+  test(
+    "abort during backoff sleep returns immediately",
+    async () => {
+      setup();
+      try {
+        const bin = join(dir, "agent");
+        const script = `#!/usr/bin/env bash
+printf 'error: connection reset' 1>&2
+exit 1
+`;
+        writeFileSync(bin, script);
+        chmodSync(bin, 0o755);
+
+        let spawnCount = 0;
+        const controller = new AbortController();
+        let sleepAbortedDuring = false;
+
+        const result = await runAgent(
+          {
+            name: "claude",
+            binary: bin,
+            cwd: realpathSync(cwd),
+            buildArgv: () => {
+              spawnCount++;
+              return [];
+            },
+            stdio: ["ignore", "pipe", "pipe"],
+            streamErrorPrefix: "test:",
+          },
+          "test",
+          {
+            cwd: realpathSync(cwd),
+            signal: controller.signal,
+            sleepMs: async (delayMs, signal) => {
+              // After the first spawn, we're in the backoff sleep.
+              // Trigger abort mid-sleep to test the race.
+              if (spawnCount === 1) {
+                const abortPromise = new Promise<void>((resolve) => {
+                  const timeout = setTimeout(() => {
+                    resolve();
+                  }, delayMs);
+                  const handleAbort = () => {
+                    clearTimeout(timeout);
+                    sleepAbortedDuring = true;
+                    resolve();
+                  };
+                  signal?.addEventListener("abort", handleAbort);
+                  // Trigger abort after a small delay, in the middle of the sleep.
+                  setTimeout(() => {
+                    controller.abort("test-abort");
+                  }, 50);
+                });
+                await abortPromise;
+              } else {
+                // For other sleeps, no-op.
+                await noOpSleep();
+              }
+            },
+          },
+        );
+
+        // Should return error due to abort, not continue retrying.
+        expect(result.kind).toBe("error");
+        // Only 1 spawn before the abort kicked in during the first backoff sleep.
+        expect(spawnCount).toBe(1);
+        // Verify abort happened during the sleep.
+        expect(sleepAbortedDuring).toBe(true);
       } finally {
         teardown();
       }

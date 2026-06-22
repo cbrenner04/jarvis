@@ -17,6 +17,7 @@ jarvis1 intent "<prompt>"        (or <targetDir>/wip-intents/<seed>.md)
   → write N files to <targetDir>/ready-intents/
   → commit
   → open draft PR for split review
+  → auto-ready the PR for operator review
 ```
 
 Intent mode does **not** run refine, does **not** draft spec directories, and
@@ -50,9 +51,18 @@ Each emitted file:
 - includes a `## Prerequisites` section
 - uses one bullet line per prerequisite behavior when prerequisites are non-empty
 
+The emit contract is harness-enforced with deterministic repair. Missing or
+mismatched frontmatter `name:` and a missing `## Prerequisites` section are
+repaired before validation — `name:` is rewritten to match the filename slug,
+and an empty `## Prerequisites` section is appended when absent. A near-miss
+heading (e.g., `### Prerequisites` or `## prerequisites`) is treated as absent
+and receives an empty section; it is not promoted. Malformed `## Prerequisites`
+bodies (non-bullet text) remain a hard error and abort without partial writes.
+
 `name:` collisions are hard errors. If `<targetDir>/ready-intents/<name>.md`
 already exists, the run aborts without overwriting files and without opening a
-PR.
+PR. Disallowed filenames (ordering prefixes, `index`, characters outside
+`[a-z0-9-]`) also abort as structural errors.
 
 ## Split rule
 
@@ -70,15 +80,18 @@ Intent mode reuses the existing plan-mode plumbing:
 - the same repo resolution and log-server preflight as other top-level modes
 - the same plan agent order and quota fallback rules as plan mode
 
-Splitter output is staged first and validated before anything moves into
-`ready-intents/`. Invalid output aborts the run without partial
-`ready-intents/` writes and without opening a PR.
+Splitter output is staged first, mechanically repaired (frontmatter `name:` and
+`## Prerequisites`), and validated before anything moves into `ready-intents/`.
+Structural errors (bad filenames, duplicates, malformed prerequisites, no files)
+abort the run without partial `ready-intents/` writes and without opening a PR.
 
 ### Committed-plan mode (`commit: true`)
 
 When `modes.plan.commit` is `true` (default), intent mode creates a dedicated
 git worktree/branch for the split commit and draft PR, and uses the shared
-draft-PR helper used elsewhere in v1.
+draft-PR helper used elsewhere in v1. On successful completion, the split PR
+is automatically marked ready for review (via `bun run ready` gate + `gh pr
+ready`), the same as plan mode.
 
 ### No-commit mode (`commit: false`)
 

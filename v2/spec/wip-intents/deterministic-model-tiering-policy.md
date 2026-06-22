@@ -85,6 +85,13 @@ policy.
 - Harness `gh`/git ops (e.g. `gh pr ready`) died a full run on a transient **TLS handshake
   timeout** — sibling to seed 1's agent transient-retry, but for the harness's own network calls;
   they should retry transient errors too.
+- **gpt-5.3-codex is the cheap-tier #2 (after haiku).** A solid implementation/actuator model,
+  ~haiku-class, cheap. OpenAI **pulled subscription access**, so reach it via the **cursor** agent,
+  not the codex/OpenAI adapter; its price is the existing Cursor `GPT-5.3 Codex` row. Concrete cheap
+  tier ≈ `[haiku, cursor:gpt-5.3-codex]`. Being a capable actuator, it sits *above* the
+  [[actuator-role-model-floor]] (unlike weak haiku-conversational failures). See
+  [[gpt-5.3-codex-cheap-tier-via-cursor]]. (This is why `codex-path-cache-inefficiency` dropped its
+  default-codex-pricing subspec — the model isn't reached via codex/OpenAI anymore.)
 
 ## Out of scope
 

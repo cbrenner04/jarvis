@@ -33,6 +33,12 @@ export type AgentRunOptions = {
    */
   lastOutputAtMs?: { current: number | null };
   onTransientRetry?: (info: { attempt: number; cap: number; agent: AgentName; exitCode: number }) => void;
+  /**
+   * Injectable async sleep for backoff between transient retry attempts.
+   * Called with (delayMs, signal) and should resolve when the delay elapses
+   * or the signal aborts. Defaults to a promise-based sleep.
+   */
+  sleepMs?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
 };
 
 export interface Agent {

@@ -123,8 +123,8 @@ export type ConfigOptions = {
 
 const DEFAULT_AGENT_MODELS: Record<AgentName, string> = {
   claude: "haiku",
-  codex: "gpt-5.3-codex",
-  cursor: "Composer 2",
+  codex: "gpt-5.4",
+  cursor: "Composer 2.5",
   opencode: "github-copilot/claude-opus-4.8",
   aider: "ollama_chat/qwen3.6:35b",
 };

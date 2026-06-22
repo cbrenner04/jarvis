@@ -2,7 +2,7 @@
 id: patch.rules
 behavior: patch-rules
 kind: fragment
-revision: 4
+revision: 5
 ---
 # Patch Mode
 
@@ -24,7 +24,8 @@ Execute active spec only.
 - Do not edit `index.md`. Jarvis flips the index checkbox itself when all acceptance criteria are checked.
 - Jarvis re-invokes for the next iteration; iterate the same subspec until all its acceptance criteria are checked.
 - Use commands from target repo `AGENTS.md`; no equivalents.
-- Run required typecheck/tests before ticking the criteria they cover.
+- Run tests strategically: skip `bun run test` only when the iteration changed nothing under tested paths (no source files, test files, prompt fragments, or fixtures — only human-facing prose). Run `bun run typecheck` only when any typed source changed. This avoids flake exposure on docs-only iterations with zero signal.
+- If `bun run test` fails, re-run once serially as `bun test` (without `--parallel`, no path/filter args) before treating the failure as real or grounding a blocker; only a serially-reproducing failure is real. This recovers from parallel-load flakes without hiding genuine breakage.
 - Leave tree compiling.
 
 ## Stop

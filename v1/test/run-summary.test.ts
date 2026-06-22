@@ -740,7 +740,9 @@ describe("intake nudge", () => {
     const lastLine = lines[lines.length - 1];
     expect(lastLine).toMatch(/Hit a harness gap\?/);
     expect(lastLine).toContain(INTAKE_SUGGESTION_URL);
-    expect(summary).toEqual(summary.replace(/\n/g, "\n").replace(new RegExp(`${INTAKE_SUGGESTION_URL}.*`), INTAKE_SUGGESTION_URL));
+    expect(summary).toEqual(
+      summary.replace(/\n/g, "\n").replace(new RegExp(`${INTAKE_SUGGESTION_URL}.*`), INTAKE_SUGGESTION_URL),
+    );
   });
 
   test("runSummary nudge appears exactly once", () => {

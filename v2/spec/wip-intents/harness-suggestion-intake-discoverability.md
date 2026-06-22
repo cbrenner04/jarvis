@@ -28,14 +28,16 @@ triage; discovery is the gap.
 - **CLI nudge** — surface the intake link in `jarvis` output (where? help footer vs run/prompt
   completion). Operator wants this; scope the lowest-noise placement.
 
-## Open questions
+## Decisions (operator, 2026-06-22)
 
-- CLI nudge placement: `jarvis1 help` footer, end-of-run summary, or both? Avoid per-iteration
-  noise.
-- Single canonical link (the `issues/new/choose` URL) reused across all four surfaces, or
-  CLI-vs-web split per surface?
-- Does the runbook's existing submit section stay the source of truth (others link to it), or do
-  the new surfaces carry the invocation directly?
+- **CLI nudge placement: end-of-run summary only** — not the `help` footer, not per-iteration.
+  Surfaced once when a `run`/`prompt` completes; lowest-noise placement that an outside operator
+  actually sees in context.
+- **Single canonical `issues/new/choose` URL across all four surfaces** (README, AGENTS.md,
+  `config.yml`, CLI end-of-run). One link to keep current, no drift; works whether clicked or
+  pasted.
+- **Runbook stays the source of truth** for the full submit/triage procedure; the new surfaces are
+  thin pointers to the canonical URL, not duplicated invocations.
 
 ## Out of scope
 

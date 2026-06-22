@@ -4,107 +4,68 @@ name: deterministic-model-tiering-policy
 
 # Deterministic model-tiering: optimize cost vs failure-modes without losing determinism
 
-> **Status: shape decided (2026-06-22) — ready to plan.** Operator chose **static per-phase
-> floors** (candidate shape 3 below): review/shrink cheap, actuator floored above haiku, plan
-> strong. Fixed mapping, fully deterministic, directly fixes the observed actuator weakness;
-> declared-tier (shape 1) can refine later. **Prerequisite:** build sub-role→model config
-> granularity first — `modes.patch.agentOrder` today sets one model for all of patch mode
-> (actuator + fix-up), so "floor the actuator" isn't expressible yet ([[actuator-role-model-floor]]).
-> Evidence this session: haiku as actuator stalled repeatedly (~23min, caught only by the iteration
-> timeout), weakened correct code, and made out-of-scope edits — below a usable actuator floor.
+> **Status (2026-06-22): staged into three pieces after design review.** The umbrella "one policy,
+> not three knobs" goal stands, but the build is sequenced smallest-toil-first. This seed is now the
+> **record of the staging + the difficulty-score follow-on**; the near-term piece lives in its own
+> seed.
 
-## Problem
+## The hard constraint (unchanged)
 
-Jarvis has multiple model-selection knobs that today are ad-hoc:
-- J / review-shrink-model-tiering (shipped): cheap models fine for **read-only** review roles.
-- [[actuator-role-model-floor]] (seed 7): a **floor** so the actuator isn't run on too-weak a model.
-- Observed live this session: a **sonnet-authored spec** for a trivial prompt-text intent was
-  full-quality at ~half the opus cost/time; and the **haiku actuator** needed sonnet-class
-  intervention on the meatier specs.
+Determinism is a core Jarvis value. Cost-optimization may only use a **declared** complexity signal
+(recorded once in spec/intent metadata, or a recorded failure signal), never a **per-run inferred**
+hardness judgment.
 
-These are the same dial — cost vs failure-resistance — turned independently per phase. We want one
-**policy**, not three knobs. The hard constraint: it must stay **deterministic** (a core Jarvis
-value). "Use the cheap model unless the task is hard" is *not* deterministic if the harness has to
-**infer** hardness each run.
+## Staging
 
-## Crux
+1. **Escalate-on-no-progress (near-term — build first).** A no-progress stop auto-advances the
+   `agentOrder` ladder and retries instead of exiting. Reuses existing config, zero new schema,
+   removes the manual model-bump toil. Owns the actuator-floor need (a too-weak actuator
+   self-recovers by climbing). → [[escalate-actuator-on-no-progress]]. **Trigger is no-progress
+   only** for now; other deterministic failures (nonzero exit, gate-fail) come later.
 
-Determinism and cost-optimization only coexist when the complexity signal is **declared, not
-inferred**. A recorded decision (in spec/intent metadata, or a recorded failure signal) is
-deterministic; a per-run hardness judgment is not.
+2. **Difficulty score (follow-on — this seed).** A declared `tier: trivial|standard|hard` stamped on
+   the spec/intent at plan/intent time (operator-overridable) that sets the **starting rung** of the
+   ladder, so a known-hard spec skips the wasted cheap attempt and a trivial one stays cheap.
+   Deterministic because decided once and recorded, not re-inferred per run. Deferred behind #1
+   deliberately: it's an *optimizer* (skip a ~22s wasted attempt), not a correctness fix — ship #1,
+   learn whether the wasted attempts actually add up, then decide if this earns its surface (new spec
+   field + stamping mechanism + tier→rung table + override plumbing).
 
-## Candidate shapes
+3. **Per-sub-role model granularity (v2).** Each fixed sub-role within a phase (`patch`: actuator vs
+   fix-up; `plan`: refine/draft → adversary → advocate → adjudicator → review-actuator) carrying its
+   own agent:model. Fully deterministic by construction (fixed positions, zero inference) and the
+   strongest long-term shape — but it **explodes the config**, and v2 will likely model it
+   differently. Not a prerequisite for #1 or #2. Hypothesis worth A/B-ing when built: the
+   adversary/critique pass is where deep reasoning pays (this session, every meaty bug was caught in
+   review verdicts, not drafts), so *cheap draft + strong adversary* may beat *strong draft + cheap
+   review*.
 
-1. **Declared tier.** Spec/intent carries `tier: trivial|standard|hard` (or a model id); harness
-   maps tier→model with a fixed table. The **intent step already sizes work** — it could stamp the
-   tier as it splits (a single-behavior trivial intent → `tier: trivial`), so tiering rides the
-   sizing that already happens. Deterministic: decided once, recorded.
-2. **Escalate-on-failure ladder.** Start cheap; a deterministic failure signal (nonzero exit,
-   no-progress stop, lint-fail at gate) promotes the next attempt to a stronger model. Deterministic
-   trigger; bounded waste. This is the "haiku → sonnet on failure" pattern as a rule;
-   [[actuator-role-model-floor]] is the floor that stops the ladder starting too cheap.
-3. **Static per-phase floors.** review cheap / actuate floored / plan strong. Fully deterministic
-   but coarse — can't tell a trivial plan from a chokepoint-refactor plan.
+## Open questions for the difficulty-score follow-on (#2)
 
-**Leaning synthesis:** declared tier sets the floor (stamped by the intent step), escalate-on-failure
-handles the rest. Deterministic at both ends; unifies J + seed 7 + the two experiments into one
-policy.
-
-## Open questions
-
-- Who stamps the tier — the intent step (automatic, from split size), the operator, or both (operator
-  override of an intent default)? Can the intent step set a tier deterministically, or is that itself
-  an inference?
-- What is the tier→model table, and is it per-phase (a `trivial` plan vs a `trivial` actuate may map
+- Who stamps the tier — the intent/plan step (automatic from split size), the operator, or both
+  (operator override of an intent default)? Can the step set it deterministically, or is that itself
+  an inference? (Stamped-once-and-recorded keeps it deterministic regardless.)
+- The tier→rung table: is it per-phase (a `trivial` plan vs a `trivial` actuate may map
   differently)?
-- Does escalate-on-failure re-run wasted-cheap-attempt cost beat just starting at the floor? When is
-  the ladder worth it vs a static floor?
-- Does this **supersede** seed 7 and the J guidance (fold them in), or sit above them as the umbrella
-  policy?
-- How does this interact with the existing agent **fallback order** (quota fallback advances agents;
-  tiering changes models within an agent)? Are tier and fallback-order one ordered list or two axes?
-- Granularity: per-phase only, or per-subspec? (A spec can mix a trivial subspec and a hard one.)
-- **Per-sub-role-within-a-phase (strongest determinism candidate).** Sub-roles inside `plan`
-  (refine/draft → adversary → advocate → adjudicator → review-actuator) are *fixed positions*, so a
-  role→model table needs **zero inference** — fully deterministic by construction, no declared tier
-  required. Open: which model for which sub-role? Hypothesis (to A/B): the **adversary/critique pass
-  is where deep reasoning pays** (this session, every meaty bug — detached-worktree, regression-
-  masking, counter-ordering — was caught in review verdicts, not drafts), so *cheaper draft + opus
-  adversary* may beat *opus draft + cheap review*. Caveat: a weak draft floors the adversary (can't
-  critique a vague spec). Config note: per-phase `agentOrder`s already exist (`plan`/`review`/`patch`/
-  `prompt`); per-*pass-within-plan* would need new config granularity.
+- Does difficulty-score interact with #1's ladder as "sets the start, escalation climbs from there"?
+  (Leaning yes — they compose cleanly.)
 
-## Data points (accruing this session)
+## Data points (this session)
 
-- sonnet plan on a trivial prompt-text intent: full-quality, ~$1.67/7m vs opus ~$3.50/14m. Repeated
-  on the operator-runbook (docs): sonnet 5m vs opus ~14m, quality held.
-- haiku actuator: correct code but needed iterations/hand-finalize on chokepoint refactors; fine on
-  trivial edits. Idle-watchdog false-killed haiku's *productive silent* work at both 5m and 10m
-  (it edits without stdout) — see [[finalize-complete-but-dirty-run]].
-- **codex/gpt-5 actuator** (batch switched to codex mid-run to offload Claude quota): self-completed
-  plan-git-false and intent-no-commit cleanly (`criteria-complete`, in-scope, tests green) — *less*
-  finish-line hanging than haiku. But on a **doc-only** audit subspec it **ran the full `bun run
-  test` and blocked (exit 7) on a flaky test** — haiku tended not to over-run the suite on doc work.
-  So model choice shifts *which* failure modes appear (haiku: silent-hang at finish; gpt:
-  over-eager suite-running + stricter blocking). Useful evidence that some "harness" friction is
-  actually model-behavior-shaped.
-- Harness `gh`/git ops (e.g. `gh pr ready`) died a full run on a transient **TLS handshake
-  timeout** — sibling to seed 1's agent transient-retry, but for the harness's own network calls;
-  they should retry transient errors too.
-- **gpt-5.3-codex is the cheap-tier #2 (after haiku).** A solid implementation/actuator model,
-  ~haiku-class, cheap. OpenAI **pulled subscription access**, so reach it via the **cursor** agent,
-  not the codex/OpenAI adapter; its price is the existing Cursor `GPT-5.3 Codex` row. Concrete cheap
-  tier ≈ `[haiku, cursor:gpt-5.3-codex]`. Being a capable actuator, it sits *above* the
-  [[actuator-role-model-floor]] (unlike weak haiku-conversational failures). See
-  [[gpt-5.3-codex-cheap-tier-via-cursor]]. (This is why `codex-path-cache-inefficiency` dropped its
-  default-codex-pricing subspec — the model isn't reached via codex/OpenAI anymore.)
+- haiku actuator stalled in 22s (conversational reply, no edits) on the biome-config spec;
+  manual sonnet bump → criteria-complete. Direct motivation for #1.
+- sonnet plan on a trivial prompt-text intent: full-quality at ~half opus cost/time (~$1.67/7m vs
+  opus ~$3.50/14m); repeated on a docs spec (sonnet 5m vs opus ~14m). Motivates declared cheap tiers.
+- gpt-5.3-codex is the cheap-tier #2 after haiku — a capable actuator, reached via the **cursor**
+  agent (OpenAI pulled subscription access). See [[gpt-5.3-codex-cheap-tier-via-cursor]].
 
 ## Out of scope
 
-- Per-run *inferred* complexity scoring (non-deterministic — the thing this seed rejects).
+- Per-run *inferred* complexity scoring (non-deterministic — the thing this rejects).
 
 ## References
 
-- [[actuator-role-model-floor]] — the floor half of the ladder.
-- J / `2026-06-20T06-29-05Z-review-shrink-model-tiering` — read-only-role tiering (shipped).
-- `v1/docs/agents.md` — agent fallback order this must reconcile with.
+- [[escalate-actuator-on-no-progress]] — the near-term piece (#1).
+- J / `v1/spec/completed/2026-06-20T06-29-05Z-review-shrink-model-tiering` — read-only-role tiering
+  (shipped).
+- `v1/docs/agents.md` — agent fallback order this reconciles with.

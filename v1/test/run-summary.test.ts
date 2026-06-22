@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INTAKE_SUGGESTION_URL, planSummary, runSummary } from "../src/run-summary.ts";
+import { INTAKE_SUGGESTION_URL, planSummary, promptSummary, runSummary } from "../src/run-summary.ts";
 
 function writeTelemetry(lines: object[]): string {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-run-summary-"));
@@ -710,6 +710,231 @@ describe("runSummary", () => {
   });
 });
 
+describe("promptSummary", () => {
+  test("single-agent happy path with all fields", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "prompt:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "success",
+        configured_model: "claude-haiku-4-5-20251001",
+        mode: "prompt",
+        usage: {
+          input_tokens: 1000,
+          output_tokens: 500,
+          cache_read_input_tokens: 100,
+          cache_creation_input_tokens: 200,
+        },
+        usage_source: "agent",
+        cost_usd: 0.42,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = promptSummary({
+      telemetryPath,
+      namespace: "prompt:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "success",
+      durationMs: 83_000,
+    });
+
+    expect(summary).toContain("prompt summary");
+    expect(summary).not.toContain("spec:");
+    expect(summary).not.toContain("iterations:");
+    expect(summary).not.toContain("phase attempts:");
+    expect(summary).toContain("claude (claude-haiku-4-5-20251001) (1 attempt(s))");
+    expect(summary).toContain("$0.42");
+    expect(summary).toContain("cache_r");
+    expect(summary).toContain("cache_w");
+  });
+
+  test("prompt summary ignores patch-mode rows", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "prompt:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        mode: "patch",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 500,
+          output_tokens: 500,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 9,
+        cost_source: "agent",
+      },
+      {
+        ts: "2026-05-16T10:00:02.000Z",
+        namespace: "prompt:spec",
+        agent: "codex",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "success",
+        mode: "prompt",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.02,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = promptSummary({
+      telemetryPath,
+      namespace: "prompt:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "success",
+      durationMs: 2000,
+    });
+    expect(summary).toContain("$0.02");
+    expect(summary).not.toContain("$9");
+  });
+
+  test("prompt summary ignores plan-mode rows", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "prompt:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 100,
+        kind: "ok",
+        exit_reason: "plan-draft-ok",
+        mode: "plan",
+        plan_phase: "draft",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 99999,
+          output_tokens: 1,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 99,
+        cost_source: "agent",
+      },
+      {
+        ts: "2026-05-16T10:00:02.000Z",
+        namespace: "prompt:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 100,
+        kind: "ok",
+        exit_reason: "success",
+        mode: "prompt",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.02,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = promptSummary({
+      telemetryPath,
+      namespace: "prompt:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "success",
+      durationMs: 2000,
+    });
+    expect(summary).toContain("$0.02");
+    expect(summary).not.toContain("$99");
+  });
+
+  test("handles missing telemetry file gracefully", () => {
+    expect(
+      promptSummary({
+        telemetryPath: "/nonexistent/runs.jsonl",
+        namespace: "prompt:x",
+        startTs: "2026-05-17T01:02:03.000Z",
+        exitReason: "error",
+        durationMs: 123,
+      }),
+    ).toContain("prompt summary");
+  });
+
+  test("no-telemetry branch includes numeric exit code in reason", () => {
+    const summary = promptSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "prompt:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "error (exit code 1)",
+      durationMs: 123,
+    });
+
+    expect(summary).toContain("exit reason: error (exit code 1)");
+    expect(summary).not.toContain("spec:");
+    expect(summary).not.toContain("iterations:");
+    expect(summary).not.toContain("phase attempts:");
+  });
+});
+
+describe("recordMatchesMode three-way matching", () => {
+  test("patch mode matches only patch records", () => {
+    const patchRecord = { mode: "patch" } as any;
+    const promptRecord = { mode: "prompt" } as any;
+    const planRecord = { mode: "plan" } as any;
+
+    const telemetryPath = writeTelemetry([patchRecord, promptRecord, planRecord]);
+    const runSummaryText = runSummary({
+      telemetryPath,
+      namespace: "test",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "test",
+      iterations: 1,
+      durationMs: 1000,
+      specPath: "spec/test.md",
+    });
+
+    expect(runSummaryText).toContain("run summary");
+  });
+
+  test("prompt mode matches only prompt records", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:test",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "success",
+        mode: "prompt",
+        usage_source: "agent",
+        usage: { input_tokens: 10, output_tokens: 5 },
+        cost_usd: 0.01,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = promptSummary({
+      telemetryPath,
+      namespace: "p:test",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "success",
+      durationMs: 1000,
+    });
+
+    expect(summary).toContain("prompt summary");
+    expect(summary).toContain("claude");
+  });
+});
+
 describe("intake nudge", () => {
   function assertNudgeLastLineOnce(summary: string) {
     const lines = summary.trimEnd().split("\n");
@@ -799,6 +1024,45 @@ describe("intake nudge", () => {
       exitReason: "error",
       durationMs: 500,
       specPath: "spec/foo/index.md",
+    });
+
+    assertNudgeLastLineOnce(summary);
+  });
+
+  test("promptSummary includes nudge once as last line", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "prompt:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "success",
+        mode: "prompt",
+        usage_source: "agent",
+        cost_usd: 0.1,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = promptSummary({
+      telemetryPath,
+      namespace: "prompt:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "success",
+      durationMs: 1000,
+    });
+
+    assertNudgeLastLineOnce(summary);
+  });
+
+  test("promptSummary with no-telemetry includes nudge once as last line", () => {
+    const summary = promptSummary({
+      telemetryPath: null,
+      namespace: "prompt:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "error",
+      durationMs: 500,
     });
 
     assertNudgeLastLineOnce(summary);

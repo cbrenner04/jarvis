@@ -86,6 +86,50 @@ describe("runReadyAndCommit", () => {
   });
 });
 
+describe("runReadyAndCommit skip", () => {
+  test("skip runs no command, returns green, no check:fix commit", () => {
+    let readyCalled = false;
+    let commitCalled = false;
+
+    runReadyAndCommit({
+      cwd: dir,
+      skip: true,
+      tier: "full",
+      runReady: () => {
+        readyCalled = true;
+      },
+      commitCheckFix: () => {
+        commitCalled = true;
+      },
+    });
+
+    expect(readyCalled).toBe(false);
+    expect(commitCalled).toBe(false);
+  });
+});
+
+describe("runReadyAndCommit custom command", () => {
+  test("runs the custom command and is green on exit 0", () => {
+    const marker = join(dir, "ran.txt");
+    runReadyAndCommit({
+      cwd: dir,
+      tier: "fast", // avoid check:fix path; just exercise the command
+      readyCommand: `printf ran > ${JSON.stringify(marker)}`,
+    });
+    expect(readFileSync(marker, "utf8")).toBe("ran");
+  });
+
+  test("throws with the named command on nonzero exit", () => {
+    expect(() =>
+      runReadyAndCommit({
+        cwd: dir,
+        tier: "fast",
+        readyCommand: "echo boom >&2; exit 3",
+      }),
+    ).toThrow(/ready gate failed \(`echo boom >&2; exit 3`\)/);
+  });
+});
+
 describe("biome.json noNonNullAssertion override", () => {
   test("override exists with fix:none and warn level", () => {
     const biome = JSON.parse(readFileSync(join(__dirname, "../../biome.json"), "utf8"));
@@ -137,5 +181,26 @@ describe("runReadyGateWithTier", () => {
     expect(tier).toBe("full");
     expect(tiers).toEqual(["full"]);
     expect(refreshedSha).toBe(execSync("git rev-parse HEAD", { cwd: dir, encoding: "utf8" }).trim());
+  });
+
+  test("skip is a no-op green and does not refresh the carrier", () => {
+    const tiers: string[] = [];
+    let refreshed = false;
+
+    const tier = runReadyGateWithTier({
+      cwd: dir,
+      agentLabel: "test",
+      skip: true,
+      runReady: (_cwd, readyTier) => {
+        tiers.push(readyTier);
+      },
+      refreshRecordedGreenResult: () => {
+        refreshed = true;
+      },
+    });
+
+    expect(tier).toBe("full");
+    expect(tiers).toEqual([]);
+    expect(refreshed).toBe(false);
   });
 });

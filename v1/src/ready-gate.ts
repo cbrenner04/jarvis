@@ -56,30 +56,49 @@ export type RunReadyAndCommitOpts = {
   tier?: ReadyTier;
   /** Test seam: agent label for the commit trailer. Threaded to the `commitCheckFix` seam. */
   agentLabel?: string;
-  /** Seam for just `bun run ready`. Defaults to execFileSync call. */
+  /** Per-project override: shell command run instead of `bun run ready`. */
+  readyCommand?: string;
+  /** Per-project override: when true, the gate is a no-op and returns green without running anything. */
+  skip?: boolean;
+  /** Seam for the ready command itself. Defaults to `bun run ready` (or `readyCommand` when set). */
   runReady?: (cwd: string, tier: ReadyTier) => void;
   /** Seam for dirty-check, git add -A, git commit, idempotency re-check, and pushCurrent together. Called only after a `full` tier when tree is dirty. */
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
 };
 
-/** Run `bun run ready` at `tier` and, on `full` only, commit/push any `check:fix` output. */
+/** Run the ready gate at `tier` and, on `full` only, commit/push any `check:fix` output. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
+  // skip wins: run nothing, treat as green (no command, no check:fix commit).
+  if (opts.skip === true) {
+    return;
+  }
+
   const tier = opts.tier ?? "full";
 
   const realBunRunReady = (cwd: string, readyTier: ReadyTier) => {
+    const cmd = opts.readyCommand;
+    const label = cmd !== undefined ? `ready gate failed (\`${cmd}\`)` : "bun run ready failed";
     try {
-      execFileSync("bun", ["run", "ready"], {
-        cwd,
-        env: { ...process.env, JARVIS_READY_TIER: readyTier },
-        stdio: "pipe",
-      });
+      if (cmd !== undefined) {
+        execFileSync("sh", ["-c", cmd], {
+          cwd,
+          env: { ...process.env, JARVIS_READY_TIER: readyTier },
+          stdio: "pipe",
+        });
+      } else {
+        execFileSync("bun", ["run", "ready"], {
+          cwd,
+          env: { ...process.env, JARVIS_READY_TIER: readyTier },
+          stdio: "pipe",
+        });
+      }
     } catch (err) {
       const out = err as NodeJS.ErrnoException & {
         stdout?: Buffer;
         stderr?: Buffer;
       };
       const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-      throw new Error(captured ? `bun run ready failed:\n${captured}` : `bun run ready failed`);
+      throw new Error(captured ? `${label}:\n${captured}` : label);
     }
   };
 
@@ -136,10 +155,16 @@ export function runReadyGateWithTier(opts: {
   cwd: string;
   agentLabel: string;
   recordedGreenResult?: RecordedGreenResult;
+  readyCommand?: string;
+  skip?: boolean;
   runReady?: (cwd: string, tier: ReadyTier) => void;
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
   refreshRecordedGreenResult?: (headSha: string) => void;
 }): ReadyTier {
+  // skip: no-op green, no tier selection, no carrier refresh.
+  if (opts.skip === true) {
+    return "full";
+  }
   const tier = selectReadyTier({
     cwd: opts.cwd,
     ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
@@ -148,6 +173,7 @@ export function runReadyGateWithTier(opts: {
     cwd: opts.cwd,
     tier,
     agentLabel: opts.agentLabel,
+    ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
     ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),
   });

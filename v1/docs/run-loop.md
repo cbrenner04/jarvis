@@ -206,6 +206,15 @@ before proceeding to post-completion phases (shrink, review, `maybeMarkReady`).
 This completion-transition gate always runs the **`full`** tier through
 `runReadyAndCommit` and consumes zero agent tokens.
 
+**Per-project override.** `modes.patch.ready` / `projects.<key>.ready`
+(resolved once at preflight, field-level precedence — see
+[config.md § `ready`](./config.md#ready-completion-ready-gate-override)) can
+replace `bun run ready` with a custom `command` or `skip` the gate entirely.
+When `skip` is set, every ready gate (this one plus the shrink, review, and
+`maybeMarkReady` sites) is a no-op green: nothing runs, no `check:fix` commit,
+and the PR is still marked ready — no fix-up loop. When `command` is set, that
+shell command runs instead of `bun run ready` at each site.
+
 On success, the harness records a green result keyed to:
 - **HEAD sha**: Read via a separate `git rev-parse HEAD` *after*
   `runReadyAndCommit` returns, capturing the post-commit state if

@@ -12,6 +12,7 @@ import {
   openSessionLog,
   registerProject,
   resolvePlanFlags,
+  resolveReadyConfig,
   resolveReviewAgentOrder,
   resolveReviewPasses,
   setGit,
@@ -2412,5 +2413,102 @@ describe("review mode config validation", () => {
     expect(() => loadConfig({ dir })).toThrow(file);
     expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.shrink/);
     expect(() => loadConfig({ dir })).toThrow(/off.*agent/);
+  });
+});
+
+describe("resolveReadyConfig", () => {
+  test("neither global nor project: defaults to skip=false, no command", () => {
+    const cfg = testConfig({
+      patch: { agentOrder: CLAUDE_ONLY },
+      plan: { agentOrder: CLAUDE_ONLY },
+      prompt: { agentOrder: CLAUDE_ONLY },
+      review: { passes: 1 },
+    });
+    expect(resolveReadyConfig(cfg, "app")).toEqual({ skip: false });
+    expect(resolveReadyConfig(cfg, undefined)).toEqual({ skip: false });
+  });
+
+  test("global only", () => {
+    const cfg = testConfig(
+      {
+        patch: { agentOrder: CLAUDE_ONLY, ready: { command: "make ci", skip: false } },
+        plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 1 },
+      },
+      { projects: { app: { root: "/tmp/a" } } },
+    );
+    expect(resolveReadyConfig(cfg, "app")).toEqual({ command: "make ci", skip: false });
+  });
+
+  test("project only", () => {
+    const cfg = testConfig(
+      {
+        patch: { agentOrder: CLAUDE_ONLY },
+        plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 1 },
+      },
+      { projects: { app: { root: "/tmp/a", ready: { skip: true } } } },
+    );
+    expect(resolveReadyConfig(cfg, "app")).toEqual({ skip: true });
+  });
+
+  test("both: field-level precedence (project command, global skip)", () => {
+    const cfg = testConfig(
+      {
+        patch: { agentOrder: CLAUDE_ONLY, ready: { command: "make ci", skip: true } },
+        plan: { agentOrder: CLAUDE_ONLY },
+        prompt: { agentOrder: CLAUDE_ONLY },
+        review: { passes: 1 },
+      },
+      { projects: { app: { root: "/tmp/a", ready: { command: "bun test" } } } },
+    );
+    // command from project; skip falls back to global true (project didn't set skip)
+    expect(resolveReadyConfig(cfg, "app")).toEqual({ command: "bun test", skip: true });
+  });
+});
+
+describe("ready config validation", () => {
+  function write(obj: unknown): string {
+    const file = join(dir, "config.json");
+    writeFileSync(file, JSON.stringify(obj));
+    return file;
+  }
+  const base = {
+    version: 2,
+    modes: {
+      patch: { agentOrder: CLAUDE_ONLY },
+      plan: { agentOrder: CLAUDE_ONLY },
+      prompt: { agentOrder: CLAUDE_ONLY },
+      review: { passes: 2 },
+    },
+    projects: {},
+  };
+
+  test("accepts valid modes.patch.ready and projects.<key>.ready", () => {
+    write({
+      ...base,
+      modes: { ...base.modes, patch: { agentOrder: CLAUDE_ONLY, ready: { command: "make ci", skip: false } } },
+      projects: { app: { root: "/tmp/a", ready: { skip: true } } },
+    });
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.ready).toEqual({ command: "make ci", skip: false });
+    expect(cfg.projects.app?.ready).toEqual({ skip: true });
+  });
+
+  test("rejects empty command string", () => {
+    write({ ...base, modes: { ...base.modes, patch: { agentOrder: CLAUDE_ONLY, ready: { command: "  " } } } });
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.ready\.command must be a non-empty string/);
+  });
+
+  test("rejects non-boolean skip", () => {
+    write({ ...base, projects: { app: { root: "/tmp/a", ready: { skip: "yes" } } } });
+    expect(() => loadConfig({ dir })).toThrow(/ready\.skip must be a boolean/);
+  });
+
+  test("rejects unknown key in ready", () => {
+    write({ ...base, modes: { ...base.modes, patch: { agentOrder: CLAUDE_ONLY, ready: { nope: true } } } });
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.ready: unknown key "nope"/);
   });
 });

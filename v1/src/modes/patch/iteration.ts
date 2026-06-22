@@ -1063,6 +1063,8 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                     indexPath: afterSpecPath,
                     cwd: agentWorkingDir,
                     agentLabel: agent.attributionLabel(),
+                    ...(preflight.ready.command !== undefined ? { readyCommand: preflight.ready.command } : {}),
+                    readySkip: preflight.ready.skip,
                     ...(ctx.state.completionTransitionReadyResult !== undefined
                       ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
                       : {}),

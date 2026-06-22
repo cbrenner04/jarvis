@@ -34,6 +34,8 @@ export type PreflightOk = {
   stalepidRecovered: number | undefined;
   specPath: string;
   additionalReadDirs: string[] | undefined;
+  /** Resolved per-project ready-gate override (field-level precedence over `modes.patch.ready`). */
+  ready: { command?: string; skip: boolean };
 };
 
 export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string };

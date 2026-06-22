@@ -30,6 +30,7 @@ type Project = {
   siblings?: string[]; // optional array of absolute paths to sibling repositories
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string }; // optional per-project plan-mode overrides
   updateSnapshotsCommand?: string; // optional update-snapshots command for the snapshot-churn blocker gate
+  ready?: { command?: string; skip?: boolean }; // optional per-project ready-gate override (see `ready`)
 };
 
 type AgentEntry = {
@@ -41,6 +42,7 @@ type ModeConfig = {
   agentOrder: AgentEntry[];
   prNarrative?: "template" | "agent"; // PR narrative mode: default "template"
   shrink?: "off" | "agent"; // patch mode only: whether to run shrink phase (default "agent")
+  ready?: { command?: string; skip?: boolean }; // patch mode only: global default ready-gate override (see `ready`)
   commit?: boolean; // plan mode only: whether to commit specs to the target repo (default true)
   targetDir?: string; // plan mode only: relative path where committed specs are routed (default "spec")
 };
@@ -75,7 +77,7 @@ type Config = {
 };
 ```
 
-**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, and `updateSnapshotsCommand` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
+**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `updateSnapshotsCommand`, and `ready` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
 
 **`updateSnapshotsCommand`** (per-project, optional): the command the snapshot-churn blocker gate runs to refresh outdated snapshots before re-testing (e.g. `bun test --update-snapshots`, `vitest -u`, `jest -u`). Takes precedence over auto-detection from the target repo's root `package.json`; if neither is set, the gate fail-safes (the blocker stands). Used only by that gate.
 
@@ -258,6 +260,63 @@ Example configuration to disable shrink for a project:
   }
 }
 ```
+
+## `ready` (completion ready gate override)
+
+The completion "ready gate" runs `bun run ready` by default (selecting a fast/full
+tier) and commits any `check:fix` output before flipping the draft PR to ready.
+Target repos that lack a `ready` script make this gate fail, sending the agent
+into destructive fix-up flailing. Two optional overrides avoid that.
+
+Set them globally on **`modes.patch.ready`** (default for all repos) and/or per
+project on **`projects.<key>.ready`** (override). Both accept:
+
+- `command` (non-empty string): run this shell command instead of `bun run ready`.
+  It is invoked as `sh -c <command>` in the worktree with `JARVIS_READY_TIER`
+  (`fast`/`full`) exported. Nonzero exit fails the gate; the error names the
+  command. On the `full` tier, the existing dirty-tree `check:fix` commit/push
+  still runs after the command succeeds.
+- `skip` (boolean, default `false`): when `true`, the gate runs **nothing** and
+  is treated as green — no command, no `check:fix` commit. The PR is still marked
+  ready normally. Use this for repos with no ready gate at all.
+
+**Precedence is field-level**, resolved once at preflight:
+
+```
+command = projects.<key>.ready.command ?? modes.patch.ready.command
+skip    = projects.<key>.ready.skip    ?? modes.patch.ready.skip    ?? false
+```
+
+So a project can override just `command` while inheriting the global `skip`, or
+vice versa. When `skip` is `true`, `command` is irrelevant (nothing runs).
+
+Validation: if present, `command` must be a non-empty string and `skip` a
+boolean; unknown keys under `ready` are rejected.
+
+Example — a target repo with no `bun run ready` script that should skip the gate
+entirely, plus a global default command for everything else:
+
+```json
+{
+  "modes": {
+    "patch": {
+      "agentOrder": [{ "agent": "claude", "model": "haiku" }],
+      "ready": { "command": "make ci" }
+    }
+  },
+  "projects": {
+    "legacy-repo": {
+      "root": "/path/to/legacy-repo",
+      "ready": { "skip": true }
+    }
+  }
+}
+```
+
+The override applies to every ready-gate call site in patch mode: the completion
+transition gate, the pre-shrink gate, the review baseline/final gates, and
+`maybeMarkReady`. Plan mode and the default `bun run ready` behavior are
+unchanged when neither field is set.
 
 ## `worktreeSymlinks`
 

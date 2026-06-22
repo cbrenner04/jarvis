@@ -10,6 +10,7 @@ import {
   effectiveGit,
   findProjectMatchForPath,
   type ProjectMatch,
+  resolveReadyConfig,
   resolveReviewPasses,
   setProjectOrigin,
 } from "../../config.ts";
@@ -198,6 +199,7 @@ export async function resolveModeSpecificPreflight(
     stalepidRecovered,
     specPath,
     additionalReadDirs,
+    ready: resolveReadyConfig(cfg, project.key),
   };
 }
 

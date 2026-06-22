@@ -60,6 +60,9 @@ export const TELEMETRY_PATH = join(CONFIG_DIR, "runs.jsonl");
 const AGENT_NAMES = ["claude", "codex", "cursor", "opencode", "aider"] as const;
 export type AgentName = (typeof AGENT_NAMES)[number];
 
+/** Per-project / global override for the completion ready gate. */
+export type ReadyConfig = { command?: string; skip?: boolean };
+
 export type Project = {
   root: string;
   origin?: string;
@@ -67,6 +70,7 @@ export type Project = {
   siblings?: string[];
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string };
   updateSnapshotsCommand?: string;
+  ready?: ReadyConfig;
 };
 
 export type ProjectMatch = {
@@ -87,6 +91,7 @@ export type ModeConfig = {
   targetDir?: string;
   prNarrative?: "template" | "agent";
   shrink?: "off" | "agent";
+  ready?: ReadyConfig; // patch mode only: global default ready-gate override
 };
 
 export type ReviewModeConfig = {
@@ -226,6 +231,11 @@ function validateConfig(input: unknown, file: string): Config {
   let patchShrink: "off" | "agent" = "agent";
   if (patchModeObj.shrink !== undefined) {
     patchShrink = validateShrink(patchModeObj.shrink, "modes.patch.shrink", (message) => fail(file, message));
+  }
+
+  let patchReady: ReadyConfig | undefined;
+  if (patchModeObj.ready !== undefined) {
+    patchReady = validateReadyConfig(patchModeObj.ready, "modes.patch.ready", (message) => fail(file, message));
   }
 
   const planMode = modesObj.plan;
@@ -471,8 +481,22 @@ function validateConfig(input: unknown, file: string): Config {
       }
       project.updateSnapshotsCommand = updateSnapshotsCommandRaw;
     }
+    const readyRaw = (value as Record<string, unknown>).ready;
+    if (readyRaw !== undefined) {
+      project.ready = validateReadyConfig(readyRaw, `project ${JSON.stringify(name)} ready`, (message) =>
+        fail(file, message),
+      );
+    }
     // Strict keys validation for project object
-    const allowedProjectKeys = new Set(["root", "origin", "git", "siblings", "plan", "updateSnapshotsCommand"]);
+    const allowedProjectKeys = new Set([
+      "root",
+      "origin",
+      "git",
+      "siblings",
+      "plan",
+      "updateSnapshotsCommand",
+      "ready",
+    ]);
     const projectObj = value as Record<string, unknown>;
     for (const key of Object.keys(projectObj)) {
       if (!allowedProjectKeys.has(key)) {
@@ -485,7 +509,7 @@ function validateConfig(input: unknown, file: string): Config {
         }
         fail(
           file,
-          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand)`,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, ready)`,
         );
       }
     }
@@ -499,6 +523,7 @@ function validateConfig(input: unknown, file: string): Config {
         agentOrder: patchAgentOrder,
         prNarrative: patchPrNarrative,
         shrink: patchShrink,
+        ...(patchReady !== undefined ? { ready: patchReady } : {}),
       },
       plan: {
         agentOrder: planAgentOrder,
@@ -674,6 +699,33 @@ function validateShrink(value: unknown, name: string, failWith: (message: string
   failWith(`${name} must be "off" or "agent"`);
 }
 
+function validateReadyConfig(value: unknown, name: string, failWith: (message: string) => never): ReadyConfig {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    failWith(`${name} must be an object with optional "command" and "skip"`);
+  }
+  const obj = value as Record<string, unknown>;
+  const ready: ReadyConfig = {};
+  if (obj.command !== undefined) {
+    if (typeof obj.command !== "string" || obj.command.trim().length === 0) {
+      failWith(`${name}.command must be a non-empty string`);
+    }
+    ready.command = obj.command;
+  }
+  if (obj.skip !== undefined) {
+    if (typeof obj.skip !== "boolean") {
+      failWith(`${name}.skip must be a boolean`);
+    }
+    ready.skip = obj.skip;
+  }
+  const allowed = new Set(["command", "skip"]);
+  for (const key of Object.keys(obj)) {
+    if (!allowed.has(key)) {
+      failWith(`${name}: unknown key ${JSON.stringify(key)} (allowed: command, skip)`);
+    }
+  }
+  return ready;
+}
+
 export function validateTargetDir(value: unknown, name: string, failWith: (message: string) => never): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     failWith(`${name} must be a non-empty string`);
@@ -826,6 +878,18 @@ export function resolvePlanFlags(
     commit: projectPlan?.commit ?? globalPlan?.commit ?? true,
     targetDir: projectPlan?.targetDir ?? globalPlan?.targetDir ?? "spec",
   };
+}
+
+/**
+ * Resolve the effective ready-gate config with field-level precedence:
+ * project override wins per field over the `modes.patch.ready` global default.
+ */
+export function resolveReadyConfig(cfg: Config, projectKey?: string): { command?: string; skip: boolean } {
+  const globalReady = cfg.modes?.patch?.ready;
+  const projectReady = projectKey !== undefined ? cfg.projects[projectKey]?.ready : undefined;
+  const command = projectReady?.command ?? globalReady?.command;
+  const skip = projectReady?.skip ?? globalReady?.skip ?? false;
+  return { ...(command !== undefined ? { command } : {}), skip };
 }
 
 export function resolveReviewPasses(cfg: Config, cliOverride?: number): number {

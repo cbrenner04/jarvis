@@ -188,6 +188,10 @@ export type MaybeMarkReadyOpts = {
   };
   /** Refresh callback: called when ready re-runs and succeeds, to update the recorded result. */
   refreshRecordedGreenResult?: (headSha: string) => void;
+  /** Per-project ready-gate override: custom command run instead of `bun run ready`. */
+  readyCommand?: string;
+  /** Per-project ready-gate override: when true, the gate is a no-op green and the PR is still marked ready. */
+  readySkip?: boolean;
 };
 
 export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
@@ -231,6 +235,8 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   runReadyGateWithTier({
     cwd: opts.cwd,
     agentLabel: opts.agentLabel ?? "",
+    ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+    ...(opts.readySkip !== undefined ? { skip: opts.readySkip } : {}),
     ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
     ...(opts.runReady !== undefined ? { runReady: opts.runReady } : {}),
     ...(opts.commitCheckFix !== undefined ? { commitCheckFix: opts.commitCheckFix } : {}),

@@ -69,6 +69,10 @@ export type PatchShrinkPhaseOptions = {
   skipPreShrinkGate?: boolean;
   /** Test seam for pre-shrink `bun run ready`. */
   runPreShrinkGate?: () => void;
+  /** Per-project ready-gate override: custom command run instead of `bun run ready`. */
+  readyCommand?: string;
+  /** Per-project ready-gate override: when true, pre-shrink gate is a no-op green. */
+  readySkip?: boolean;
   /** Test seam for contract `bun run test` validation. */
   runContractTests?: (cwd: string) => boolean;
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
@@ -313,6 +317,8 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         const tier = runReadyGateWithTier({
           cwd: opts.cwd,
           agentLabel: "shrink-baseline",
+          ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
+          ...(opts.readySkip !== undefined ? { skip: opts.readySkip } : {}),
           ...(opts.recordedGreenResult !== undefined ? { recordedGreenResult: opts.recordedGreenResult } : {}),
           ...(opts.refreshRecordedGreenResult !== undefined
             ? { refreshRecordedGreenResult: opts.refreshRecordedGreenResult }

@@ -258,6 +258,10 @@ export type PatchReviewPhaseOptions = {
   runBaselineGate?: (tier: ReadyTier) => void;
   /** Test seam for final `bun run ready` + `gh pr ready`. */
   runFinalGate?: (branch: string, tier: ReadyTier | "skip") => void;
+  /** Per-project ready-gate override: custom command run instead of `bun run ready`. */
+  readyCommand?: string;
+  /** Per-project ready-gate override: when true, baseline and final gates are no-op green. */
+  readySkip?: boolean;
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
   baseBranch?: string;
   /** Actuator context: the active patch agents to use for verdict execution. */
@@ -750,11 +754,14 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
 
       if (opts.runBaselineGate) {
         opts.runBaselineGate(tier);
+      } else if (opts.readySkip === true) {
+        // No-op green: run nothing, no carrier refresh.
       } else {
         runReadyAndCommit({
           cwd: opts.cwd,
           agentLabel: "review-baseline",
           tier,
+          ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
         });
         if (tier === "full" && opts.refreshRecordedGreenResult) {
           opts.refreshRecordedGreenResult(getCurrentHeadSha(opts.cwd));
@@ -1135,7 +1142,8 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
 
       if (opts.runFinalGate) {
         opts.runFinalGate(branch, skipReady ? "skip" : "full");
-      } else if (skipReady) {
+      } else if (skipReady || opts.readySkip === true) {
+        // No ready command (cached green, or ready.skip): just mark the PR ready.
         withSyncTransientRetry(
           () => {
             execFileSync("gh", ["pr", "ready", branch], {
@@ -1151,6 +1159,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           cwd: opts.cwd,
           agentLabel: "review-final",
           tier: "full",
+          ...(opts.readyCommand !== undefined ? { readyCommand: opts.readyCommand } : {}),
         });
         withSyncTransientRetry(
           () => {

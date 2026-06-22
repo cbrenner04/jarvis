@@ -287,7 +287,7 @@ describe("snapshot-update-retest-runner", () => {
     // Create a test file so hasTestFiles() returns true
     writeFileSync(join(workDir, "test.test.ts"), "test('test', () => {})");
 
-    let stderrLines: string[] = [];
+    const stderrLines: string[] = [];
     const originalWrite = process.stderr.write;
     process.stderr.write = (msg: string) => {
       stderrLines.push(msg);
@@ -295,10 +295,10 @@ describe("snapshot-update-retest-runner", () => {
     };
 
     try {
-      let parallelInvocationCount = 0;
+      let _parallelInvocationCount = 0;
       const mockRunCommand = (command: string, args: string[], _cwd: string) => {
         if (command === "bun" && args[0] === "run" && args[1] === "test") {
-          parallelInvocationCount++;
+          _parallelInvocationCount++;
           throw new Error("Simulated parallel test failure");
         } else if (command === "bun" && args[0] === "test" && args.length === 1) {
           // Serial pass
@@ -328,7 +328,7 @@ describe("snapshot-update-retest-runner", () => {
     // Create a test file so hasTestFiles() returns true
     writeFileSync(join(workDir, "test.test.ts"), "test('test', () => {})");
 
-    let stderrLines: string[] = [];
+    const stderrLines: string[] = [];
     const originalWrite = process.stderr.write;
     process.stderr.write = (msg: string) => {
       stderrLines.push(msg);

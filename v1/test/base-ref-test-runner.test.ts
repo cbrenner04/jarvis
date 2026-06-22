@@ -130,6 +130,4 @@ describe("base-ref-test-runner", () => {
     expect(parallelInvocationCount).toBe(1);
     expect(serialInvocationCount).toBe(0);
   });
-
-
 });

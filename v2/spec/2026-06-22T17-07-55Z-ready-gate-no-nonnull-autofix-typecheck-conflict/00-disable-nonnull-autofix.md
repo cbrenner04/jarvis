@@ -41,15 +41,15 @@ while CI stays green (CI runs `check`, which is non-mutating).
 
 ## Acceptance criteria
 
-- [ ] `bun run check:fix:unsafe` leaves a type-correct indexed non-null
+- [x] `bun run check:fix:unsafe` leaves a type-correct indexed non-null
   assertion (e.g. `match[1]!.trim()`) unchanged — it is not rewritten to `?.`.
-- [ ] `bun run ready` completes its `typecheck` step without a TS2322 introduced
+- [x] `bun run ready` completes its `typecheck` step without a TS2322 introduced
   by the preceding `check:fix:unsafe` step on such a file.
-- [ ] `bun run check` still reports `noNonNullAssertion` as a `warn` diagnostic
+- [x] `bun run check` still reports `noNonNullAssertion` as a `warn` diagnostic
   (the fix is disabled; the rule is not removed and its level is unchanged).
-- [ ] A regression test fails if the `noNonNullAssertion` override is removed
+- [x] A regression test fails if the `noNonNullAssertion` override is removed
   from `biome.json` or its `fix` is re-enabled.
-- [ ] No biome rule other than `noNonNullAssertion` changes level or fix
+- [x] No biome rule other than `noNonNullAssertion` changes level or fix
   behavior in `biome.json`.
 
 ## Documentation updates

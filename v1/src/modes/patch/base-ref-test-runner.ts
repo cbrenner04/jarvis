@@ -2,16 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-export type RunCommandFn = (command: string, args: string[], cwd: string) => void;
-
-function defaultRunCommand(command: string, args: string[], cwd: string): void {
-  execFileSync(command, args, {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-  });
-}
+import { defaultRunCommand, type RunCommandFn } from "./run-command.ts";
 
 /**
  * Run tests at a base ref to validate blocker claims.

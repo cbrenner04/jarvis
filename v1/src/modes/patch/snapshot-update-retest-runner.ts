@@ -1,19 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { defaultRunCommand, type RunCommandFn } from "./run-command.ts";
 
 // Candidate list for conventional update-snapshots scripts (checked in order)
 const UPDATE_SNAPSHOT_SCRIPT_CANDIDATES = ["test:update", "test:u", "update-snapshots", "updateSnapshots"];
-
-export type RunCommandFn = (command: string, args: string[], cwd: string) => void;
-
-function defaultRunCommand(command: string, args: string[], cwd: string): void {
-  execFileSync(command, args, {
-    cwd,
-    env: process.env,
-    stdio: "pipe",
-  });
-}
 
 /**
  * Resolve the update-snapshots command from config or by detecting a conventional

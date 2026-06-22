@@ -57,8 +57,16 @@ Merged main (one `v1-behaviors.md` conflict, kept both serial-retry + complete-b
 Tracked by Claude Code's `/cost` (not in `runs.jsonl`), on top of the telemetry spend above.
 
 ```text
-(paste /cost output)
+  Total cost:            $97.88
+  Total duration (API):  2h 27m 8s
+  Total duration (wall): 17h 23m 30s
+  Total code changes:    818 lines added, 161 lines removed
+  Usage by model:
+      claude-haiku-4-5:  1.3k input, 35 output, 0 cache read, 0 cache write ($0.0015)
+       claude-opus-4-8:  67.7k input, 586.5k output, 138.2m cache read, 1.4m cache write ($97.87)
 ```
+
+**NOTE**: this includes the other 2026-06-22 costs. The 50/50 split on cost between the operator and jarvis runs seems to be continuing.
 
 ## Open for the operator
 

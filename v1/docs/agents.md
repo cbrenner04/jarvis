@@ -131,8 +131,8 @@ configured `provider/model` string as its `model`:
       "agentOrder": [
         { "agent": "opencode", "model": "github-copilot/claude-opus-4.8" },
         { "agent": "claude", "model": "haiku" },
-        { "agent": "codex", "model": "gpt-5.3-codex" },
-        { "agent": "cursor", "model": "Composer 2" }
+        { "agent": "codex", "model": "gpt-5.4" },
+        { "agent": "cursor", "model": "Composer 2.5" }
       ]
     }
   }
@@ -171,8 +171,8 @@ ollama pull qwen3.6:35b
       "agentOrder": [
         { "agent": "aider", "model": "ollama_chat/qwen3.6:35b" },
         { "agent": "claude", "model": "haiku" },
-        { "agent": "codex", "model": "gpt-5.3-codex" },
-        { "agent": "cursor", "model": "Composer 2" }
+        { "agent": "codex", "model": "gpt-5.4" },
+        { "agent": "cursor", "model": "Composer 2.5" }
       ]
     }
   }

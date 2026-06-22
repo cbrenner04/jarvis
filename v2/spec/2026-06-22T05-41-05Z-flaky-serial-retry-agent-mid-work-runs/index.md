@@ -15,4 +15,4 @@ it, and prompt guidance is **best-effort** (agents may not honor it), not a
 guarantee.
 
 - [x] [00 - Serial-retry harness-controlled suite runs (base-ref + snapshot retest)](./00-harness-suite-run-serial-retry.md)
-- [ ] [01 - Patch-rules: doc-only subspecs skip the suite; serial-retry before blocking on a test flake](./01-patch-rules-doc-only-and-serial-retry.md)
+- [x] [01 - Patch-rules: doc-only subspecs skip the suite; serial-retry before blocking on a test flake](./01-patch-rules-doc-only-and-serial-retry.md)

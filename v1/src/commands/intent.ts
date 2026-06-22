@@ -238,7 +238,7 @@ function repairIntentFile(path: string, slug: string): void {
       if (match) {
         hasName = true;
         nameLineIdx = i;
-        nameValue = match[1]!.trim();
+        nameValue = (match[1] ?? "").trim();
         break;
       }
     }

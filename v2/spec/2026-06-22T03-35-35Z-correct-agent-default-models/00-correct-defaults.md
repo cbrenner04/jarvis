@@ -10,24 +10,26 @@
 ## Decisions
 
 - codex default → `gpt-5.4` — reachable + already priced. Rules out `gpt-5.5` (newer/pricier, not the established fallback tier).
-- cursor default → `Composer 2.5`. Changing the requested model **string** is what switches the model; the `cursor.ts` price-key alias only maps cost.
-- Keep the `cursor.ts` `"Composer 2" → composer-2.5` price-key alias (`v1/src/agents/cursor.ts:43`). Rules out deleting it — it still prices legacy configs that pin `Composer 2`.
+- cursor default → `Composer 2.5`. Changing the requested model **string** is what switches the model.
+- Two cursor maps, do not conflate: the **CLI-invocation slug map** (`"Composer 2" → composer-2.5`, what the CLI actually runs) and a **separate identity price-key map** (a `Composer 2` string prices via the `Composer 2` row, never `composer-2.5`; pinned by a test asserting `resolveAgentPriceKey("cursor", "Composer 2") === "Composer 2"`).
+- Keep the `cursor.ts` `"Composer 2" → composer-2.5` CLI-slug entry (`v1/src/agents/cursor.ts:43`). Rules out deleting it — a config pinned to `Composer 2` keeps running the better `composer-2.5` model. (Legacy `Composer 2` *pricing* survives independently via the unchanged `Composer 2` price row, not via this entry.)
 - Do **not** add a codex/OpenAI `gpt-5.3-codex` price entry. `gpt-5.3-codex` is cursor-only now; its Cursor `GPT-5.3 Codex` price row stays. Rules out re-pricing it under codex to make the old default reachable.
 
 ## Task checklist
 
 - [ ] `config.ts:126-127`: `codex` → `gpt-5.4`, `cursor` → `Composer 2.5`.
-- [ ] Update tests that pin the default agent order / models (e.g. `v1/test/config.test.ts` `DEFAULT_AGENT_ORDER` + default-bootstrap assertions, and any other default-config assertions across `v1/test`). Test inputs that deliberately exercise overrides with arbitrary model strings need not change.
-- [ ] Docs: `v1/docs/agents.md` default-order references; `v2/docs/v1-behaviors.md` lines pinning the default models.
+- [ ] Update test assertions **derived from `DEFAULT_AGENT_ORDER`/bootstrap defaults**; leave fixtures that pin arbitrary model strings to exercise overrides. Confirmed must-change sites: `v1/test/config.test.ts` `DEFAULT_AGENT_ORDER` + default-bootstrap assertions. Apply the rule to any other default-derived assertion across `v1/test` (do not rely on `bun run test` failures to surface them — override fixtures and stale non-default-block assertions can both stay green).
+- [ ] Classify the run-summary rendered-output assertion printing `codex (gpt-5.3-codex)`: if its input is default-derived, update to `gpt-5.4`; if it's an override fixture, leave it.
+- [ ] Docs (all four stale spots): `v1/docs/agents.md` — the two JSON default-order examples; `v2/docs/v1-behaviors.md` — the table row and the prose line pinning the default models.
 
 ## Acceptance criteria
 
 - [ ] A freshly bootstrapped config's default `modes.patch.agentOrder` (and `modes.plan`/`modes.prompt`) lists `codex` with model `gpt-5.4` and `cursor` with model `Composer 2.5`; no default entry references `gpt-5.3-codex` or `Composer 2`.
 - [ ] `data/prices.json` has no codex/OpenAI `gpt-5.3-codex` entry added; the existing Cursor `GPT-5.3 Codex` and `Composer 2` rows are unchanged.
-- [ ] `cursor.ts` still resolves a `Composer 2` model string to the `composer-2.5` price key (legacy alias preserved).
+- [ ] `cursor.ts` still maps the `Composer 2` model string to the `composer-2.5` CLI-invocation slug — a config pinned to `Composer 2` keeps running `composer-2.5`. The existing test asserting `resolveAgentPriceKey("cursor", "Composer 2") === "Composer 2"` (identity price key) stays green.
 - [ ] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 
-- `v1/docs/agents.md`: corrected default-order examples show `codex`/`gpt-5.4` and `cursor`/`Composer 2.5`.
-- `v2/docs/v1-behaviors.md`: default `agentOrder` entries record `codex` (`gpt-5.4`) and `cursor` (`Composer 2.5`).
+- `v1/docs/agents.md`: both JSON default-order examples show `codex`/`gpt-5.4` and `cursor`/`Composer 2.5`.
+- `v2/docs/v1-behaviors.md` (mandatory — this changes existing v1 behavior): update both the table row and the prose line pinning the default models to `codex` (`gpt-5.4`) and `cursor` (`Composer 2.5`).

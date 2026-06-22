@@ -711,41 +711,16 @@ describe("runSummary", () => {
 });
 
 describe("intake nudge", () => {
-  test("runSummary includes intake nudge as last line", () => {
-    const telemetryPath = writeTelemetry([
-      {
-        ts: "2026-05-16T10:00:01.000Z",
-        namespace: "p:spec",
-        agent: "claude",
-        iteration: 1,
-        duration_ms: 1000,
-        kind: "ok",
-        exit_reason: "criteria-progress",
-        usage_source: "agent",
-        cost_usd: 0.1,
-        cost_source: "agent",
-      },
-    ]);
-    const summary = runSummary({
-      telemetryPath,
-      namespace: "p:spec",
-      startTs: "2026-05-16T10:00:00.000Z",
-      exitReason: "criteria-progress",
-      iterations: 1,
-      durationMs: 1000,
-      specPath: "spec/foo/index.md",
-    });
-
+  function assertNudgeLastLineOnce(summary: string) {
     const lines = summary.trimEnd().split("\n");
     const lastLine = lines[lines.length - 1];
     expect(lastLine).toMatch(/Hit a harness gap\?/);
     expect(lastLine).toContain(INTAKE_SUGGESTION_URL);
-    expect(summary).toEqual(
-      summary.replace(/\n/g, "\n").replace(new RegExp(`${INTAKE_SUGGESTION_URL}.*`), INTAKE_SUGGESTION_URL),
-    );
-  });
+    const count = (summary.match(new RegExp(INTAKE_SUGGESTION_URL, "g")) || []).length;
+    expect(count).toBe(1);
+  }
 
-  test("runSummary nudge appears exactly once", () => {
+  test("runSummary includes nudge once as last line", () => {
     const telemetryPath = writeTelemetry([
       {
         ts: "2026-05-16T10:00:01.000Z",
@@ -770,11 +745,10 @@ describe("intake nudge", () => {
       specPath: "spec/foo/index.md",
     });
 
-    const count = (summary.match(new RegExp(INTAKE_SUGGESTION_URL, "g")) || []).length;
-    expect(count).toBe(1);
+    assertNudgeLastLineOnce(summary);
   });
 
-  test("runSummary with no-telemetry includes nudge as last line", () => {
+  test("runSummary with no-telemetry includes nudge once as last line", () => {
     const summary = runSummary({
       telemetryPath: "/nonexistent/runs.jsonl",
       namespace: "p:x",
@@ -785,13 +759,10 @@ describe("intake nudge", () => {
       specPath: "spec/x/index.md",
     });
 
-    const lines = summary.trimEnd().split("\n");
-    const lastLine = lines[lines.length - 1];
-    expect(lastLine).toMatch(/Hit a harness gap\?/);
-    expect(lastLine).toContain(INTAKE_SUGGESTION_URL);
+    assertNudgeLastLineOnce(summary);
   });
 
-  test("planSummary includes intake nudge as last line", () => {
+  test("planSummary includes nudge once as last line", () => {
     const telemetryPath = writeTelemetry([
       {
         ts: "2026-05-16T10:00:01.000Z",
@@ -817,43 +788,10 @@ describe("intake nudge", () => {
       specPath: "spec/foo/index.md",
     });
 
-    const lines = summary.trimEnd().split("\n");
-    const lastLine = lines[lines.length - 1];
-    expect(lastLine).toMatch(/Hit a harness gap\?/);
-    expect(lastLine).toContain(INTAKE_SUGGESTION_URL);
+    assertNudgeLastLineOnce(summary);
   });
 
-  test("planSummary nudge appears exactly once", () => {
-    const telemetryPath = writeTelemetry([
-      {
-        ts: "2026-05-16T10:00:01.000Z",
-        namespace: "plan:k:n",
-        agent: "claude",
-        iteration: 1,
-        duration_ms: 100,
-        kind: "ok",
-        exit_reason: "plan-draft-ok",
-        mode: "plan",
-        plan_phase: "draft",
-        usage_source: "agent",
-        cost_usd: 0.05,
-        cost_source: "agent",
-      },
-    ]);
-    const summary = planSummary({
-      telemetryPath,
-      namespace: "plan:k:n",
-      startTs: "2026-05-16T10:00:00.000Z",
-      exitReason: "complete",
-      durationMs: 500,
-      specPath: "spec/foo/index.md",
-    });
-
-    const count = (summary.match(new RegExp(INTAKE_SUGGESTION_URL, "g")) || []).length;
-    expect(count).toBe(1);
-  });
-
-  test("planSummary with no-telemetry includes nudge as last line", () => {
+  test("planSummary with no-telemetry includes nudge once as last line", () => {
     const summary = planSummary({
       telemetryPath: null,
       namespace: "plan:k:n",
@@ -863,10 +801,7 @@ describe("intake nudge", () => {
       specPath: "spec/foo/index.md",
     });
 
-    const lines = summary.trimEnd().split("\n");
-    const lastLine = lines[lines.length - 1];
-    expect(lastLine).toMatch(/Hit a harness gap\?/);
-    expect(lastLine).toContain(INTAKE_SUGGESTION_URL);
+    assertNudgeLastLineOnce(summary);
   });
 
   test("constant value matches URL in docs", () => {

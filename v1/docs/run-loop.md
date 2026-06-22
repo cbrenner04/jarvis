@@ -708,7 +708,7 @@ jarvis prints a summary block to stdout with:
     `agent` versus `computed` versus `no-price` (combinations involving
     `"unavailable"` / `"no-usage"` intentionally do **not** count as mixes)
   - null-dollar rows excluded from the displayed total.
-- Every run summary ends with a single-line nudge: `Hit a harness gap? https://github.com/cbrenner04/jarvis/issues/new/choose`, directing operators to the harness suggestion intake channel.
+- Every run summary ends with: `Hit a harness gap? https://github.com/cbrenner04/jarvis/issues/new/choose`
 
 
 The summary table is computed from the session's telemetry JSONL lines

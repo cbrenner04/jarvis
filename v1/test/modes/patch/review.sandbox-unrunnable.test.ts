@@ -780,7 +780,11 @@ while true; do :; done
     const reviewIdleTimeoutMs = 1000;
     const { dir, specPath, specDir, cleanup } = setupPatchReviewRepo();
     try {
-      const tmpDir = join(dir, "tmp");
+      // Place the hang script OUTSIDE the repo working tree (under the test's
+      // parent dir): before the actuator spawns, the review flow reverts stray
+      // reviewer code edits with `git clean -fd`, which would remove an
+      // untracked in-repo script and ENOENT the actuator.
+      const tmpDir = join(dir, "..", "idle-actuator");
       mkdirSync(tmpDir, { recursive: true });
 
       const idleScript = join(tmpDir, "idle-hang.sh");

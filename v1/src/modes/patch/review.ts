@@ -1026,6 +1026,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
             opts.fanout("harness", result.stderr, "stderr");
           }
           const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
+          if (isIdleTimeout) {
+            // The actuator writes via opts.writeTelemetry (not trackingWriteTelemetry),
+            // so set the idle flag directly; the catch maps it to exit 8.
+            idleTimeoutOccurred = true;
+          }
           const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : 1;
           opts.writeTelemetry({
             agent: agent.name,
@@ -1105,6 +1110,12 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       return reviewExitCode;
     }
   } catch (err) {
+    // An idle-watchdog abort surfaces as a thrown ReviewTerminalError (exit -1);
+    // the telemetry record already set idleTimeoutOccurred, so map it to 8 here
+    // too (the return-path check above is skipped when the actuator throws).
+    if (idleTimeoutOccurred) {
+      return 8;
+    }
     if (err instanceof ReviewTerminalError) {
       return err.exitCode;
     }

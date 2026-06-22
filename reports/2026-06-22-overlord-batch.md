@@ -2,6 +2,10 @@
 
 Jarvis-on-Jarvis overlord run: drove the wip-intent queue through plan→run→merge, reviewed every PR, admin-merged on a green gate. Continuation of the prior overlord session (post-compaction).
 
+```sh
+claude --resume ead0c37c-a08d-4dd5-9510-6a0287846a43
+```
+
 ## Shipped (8 PRs merged, 7 intents)
 
 | Intent | PRs | Effect |

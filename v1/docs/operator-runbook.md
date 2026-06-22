@@ -1,8 +1,8 @@
-# Observer Runbook
+# Jarvis-on-Jarvis Observer Runbook
 
-Reference for an **observer** driving Jarvis runs on a target repo — launching runs, polling them, reviewing PRs, admin-merging, and recovering when automated gates fail. "Observer" and "operator" are used interchangeably.
+Reference for the **observer** dogfooding Jarvis on the Jarvis repo itself — driving Jarvis runs to improve the harness, reviewing PRs, admin-merging, and recovering when automated gates fail. "Observer" and "operator" are used interchangeably.
 
-This runbook is **target-agnostic**: Jarvis is the constant; the repo it's pointed at varies. Where a concrete command appears (e.g. `bun run ready`), it's an example from dogfooding Jarvis-on-Jarvis — substitute the target repo's equivalent gate (its test/lint/typecheck commands, found in the target's `CLAUDE.md`/`AGENTS.md` or package scripts).
+Scope: this is the **Jarvis-on-Jarvis** runbook. An observer driving Jarvis on some *other* target repo isn't this doc's audience — they just run the prescribed process to land that repo's work, and surface any harness gaps through the intake (see [Harness suggestions from other repos](#harness-suggestions-from-other-repos)), which the Jarvis-on-Jarvis observer triages.
 
 ## North star
 
@@ -16,10 +16,24 @@ The measure of progress is the **shrinking count of manual interventions per ses
 
 An observer session is not done when the PRs merge — it's done when the findings and tooling persist. Every session owes:
 
-1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. **Merge by the method you're instructed to use for the session; if no instruction is given, follow the target repo's own merge rules** — don't assume you may admin-merge or self-approve (see [Merging](#merging)). Keep stuck work moving (diagnose, finalize, or re-queue).
+1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive (see [Merging](#merging)). Keep stuck work moving (diagnose, finalize, or re-queue).
 2. **Create wip-intents** in `v2/spec/wip-intents/` for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
-3. **Write a final report** (gitignored local artifact, e.g. `overlord-session-report.md`) covering: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost.
-4. **Maintain this runbook** directly (branch → PR → merge per the session/target rules — lighter than the full intent→plan→run pipeline). The user sends this runbook to observers as their onboarding doc, so keep it current and target-agnostic.
+3. **Triage incoming harness suggestions** from other-repo observers (see below) into wip-intents.
+4. **Write a final report** (gitignored local artifact, e.g. `overlord-session-report.md`) covering: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost.
+5. **Maintain this runbook** directly (branch → PR → admin-merge — lighter than the full intent→plan→run pipeline). Keep it current; batch edits rather than one PR per thought.
+
+## Experimentation — encouraged, but bounded
+
+Improving the harness means experimenting: cheaper agents, model tiering, cost/speed optimization. It's encouraged, within limits:
+
+- **Not at the cost of churn or toil.** Don't thrash — batch tiny PRs, avoid parallelism that creates merge-conflict/reconciliation work, avoid spinning re-runs. Optimization should yield *less* toil.
+- **Don't destabilize the harness.** Other repos depend on this harness — keep `main` green and treat `config.json` (agent order, models) carefully, since it affects all runs.
+- **Cost/speed optimization** is worth pursuing, but through sanctioned channels (the model-tiering / codex-cache / transient-backoff intents), not corner-cutting.
+- **Never circumvent prescribed process.** No hand-implementing specs to save time; specs go through plan→run→gate. Hand work is limited to *sanctioned recovery* (below) and must always re-run the gate.
+
+## Harness suggestions from other repos
+
+An observer on a non-Jarvis target repo can't create wip-intents (they're not in this repo). They submit harness suggestions through the intake channel; the Jarvis-on-Jarvis observer triages each into a wip-intent. (The intake mechanism itself is tracked by the `harness-suggestion-intake` intent.)
 
 ## Background-run-and-poll pattern
 
@@ -49,10 +63,10 @@ When a PR branched before recent merges (`mergeStateStatus: BEHIND`/`DIRTY`), re
 
 1. **Trial-merge `main` into the branch's worktree** (`git merge --no-commit origin/main`) and inspect conflicts.
 2. **Resolve to keep both works' value** — don't blindly take one side. When two runs independently solved the same problem differently, merge toward the higher-coverage / more-correct outcome; recover any needed code verbatim from git rather than retyping.
-3. **Re-run the target's full gate** (sandbox-off if it spawns processes) on the merged tree, and confirm coverage didn't regress (see below) before committing the merge.
-4. Push, mark ready, admin-merge.
+3. **Re-run `bun run test`** (sandbox-off — process-spawning tests run there) on the merged tree, and confirm coverage didn't regress (see below) before committing the merge.
+4. Push, `gh pr ready`, admin-merge.
 
-**Watch for silently-dropped tests in refactor PRs.** A "mechanical, no-behavior-change" refactor can quietly delete or fail to relocate tests. Before merging, diff `grep -c 'test('` across the full test tree (including relocated `*.sandbox-unrunnable.test.ts`-style files) at branch HEAD vs the merge-base; if the count dropped, `comm -23` the sorted test names to see exactly which, and confirm each drop was intentional. Restore unintended drops verbatim from git.
+**Watch for silently-dropped tests in refactor PRs.** A "mechanical, no-behavior-change" refactor can quietly delete or fail to relocate tests. Before merging, diff `grep -c 'test('` across the full test tree (including relocated `*.sandbox-unrunnable.test.ts` files) at branch HEAD vs the merge-base; if the count dropped, `comm -23` the sorted test names to see exactly which, and confirm each drop was intentional. Restore unintended drops verbatim from git.
 
 ## Manual-finalize recovery (last-resort path)
 
@@ -60,12 +74,11 @@ When automated gates fail or are unsafe to re-run, finalize by hand **in the wor
 
 ```sh
 git status && git diff                 # inspect worktree state
-# fix issues (lint, types, flakes), then run the target's gate explicitly:
-bun run ready                          # ← substitute target repo's gate
+# fix issues (lint, types, flakes), then run the gate explicitly:
+bun run ready
 git add -A                             # caution: absorbs manual commits; Jarvis owns commits here
 git commit -m "<message>"
-gh pr ready                            # un-draft, then merge per the session/target rules
-# Jarvis-on-Jarvis example: gh pr merge --admin --squash  (ready first — admin refuses a draft)
+gh pr ready && gh pr merge --admin --squash   # ready first — admin refuses a draft
 ```
 
 Common cases:
@@ -73,7 +86,7 @@ Common cases:
 - **Transient-killed plan.** A plan that died on a transient agent-error leaves a dirty plan worktree. If the review actuator had already finished (verdict file written, subspec edits applied) and only the commit/index-reconcile was lost, **reconcile the `index.md` to match the subspecs the actuator created, then commit** — cheaper and more deterministic than re-running the review pass. If the edits look truncated, discard and re-resume instead.
 - **Flaky parallel-load failure.** Tests that pass serially/in-isolation but fail under `--parallel` are load flakes — re-run the failing test(s) in isolation; if green, finalize.
 
-No merge method substitutes for local verification — always run the target's gate before merging (admin-merge in particular skips approval and CI gating).
+Admin-merge skips approval and CI gating but **not** local verification — always run `bun run ready` before merging.
 
 ## Sandbox blindness and false-negatives
 
@@ -92,23 +105,15 @@ The sandbox (e.g. in Claude Code) can hide real state:
 
 ## Merging
 
-**Default rule: merge the way you're told to for the session. Absent any instruction, follow the target repo's own merge rules** — its branch protection, required approvals/reviewers, and CI gates. Do **not** assume admin-merge or self-approval is available; on most repos it isn't, and an observer is not the owner. When the rules are unclear or block you, surface it rather than forcing a merge.
-
-The admin-merge path below is the **Jarvis-on-Jarvis convention only**: a single owner-operator repo where the owner has explicitly authorized `--admin` to bypass the no-self-approval rule. It does not generalize.
-
-### Admin-merge (Jarvis-on-Jarvis, owner-operated)
-
-`main` enforces branch protection (approval + passing CI) with no self-approval, so the owner authorizes admin-merge:
+`main` enforces branch protection (approval + passing CI) with no self-approval, and the owner has authorized **admin-merge** for this dogfooding workflow:
 
 1. Spec complete (all acceptance criteria ticked) → Jarvis flips the draft PR to `ready` (or the observer runs `gh pr ready`).
-2. Run the gate locally to verify lint/type/test pass (admin-merge does **not** re-verify).
+2. Run `bun run ready` locally to verify lint/type/test pass (admin-merge does **not** re-verify).
 3. `gh pr merge --admin --squash` overrides the approval/up-to-date requirement and merges directly.
 
-A `mergeStateStatus` of `BLOCKED` typically means branch-protection only (admin overrides); `DIRTY` means a real conflict to resolve first; `BEHIND` is mergeable via admin.
+Merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. A `mergeStateStatus` of `BLOCKED` typically means branch-protection only (admin overrides); `DIRTY` means a real conflict to resolve first; `BEHIND` is mergeable via admin.
 
-## Target-repo gate specifics (example: Jarvis-on-Jarvis)
-
-Gate commands vary per target — read the target's package scripts / `CLAUDE.md`. For the Jarvis repo itself:
+## The gate
 
 - **`bun run ready`** — the full completion gate (typecheck + lint + tests, with a serial retry on parallel-test failure). Jarvis runs this automatically on spec completion; the observer runs it before any hand/admin-merge.
 - **`check:fix`** (safe Biome fixes) leaves residual `noExplicitAny`/unused-var/non-null issues; **`check:fix:unsafe`** applies the riskier fixes and runs in the full ready tier before the final `check` lint.

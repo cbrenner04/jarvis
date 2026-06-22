@@ -33,7 +33,43 @@ Improving the harness means experimenting: cheaper agents, model tiering, cost/s
 
 ## Harness suggestions from other repos
 
-An observer on a non-Jarvis target repo can't create wip-intents (they're not in this repo). They submit harness suggestions through the intake channel; the Jarvis-on-Jarvis observer triages each into a wip-intent. (The intake mechanism itself is tracked by the `harness-suggestion-intake` intent.)
+**This section addresses both audiences:** observers driving Jarvis on a non-Jarvis target repo (the "submit" path below) and the Jarvis-on-Jarvis observer (the "triage" path).
+
+An observer on a non-Jarvis target repo can't create wip-intents (they're not in this repo). They submit harness suggestions through the GitHub intake channel; the Jarvis-on-Jarvis observer triages each into a wip-intent.
+
+### Submit (other-repo observer)
+
+Hit friction or found a harness gap? Submit it via the intake channel — no Jarvis repo checkout required.
+
+**Option 1: CLI**
+```sh
+gh issue create --repo cbrenner04/jarvis --template harness-suggestion
+```
+
+**Option 2: Web**
+Visit https://github.com/cbrenner04/jarvis/issues/new/choose and select the "Harness suggestion" template.
+
+The template prompts for: the friction/gap you hit, the target repo and Jarvis command in play, and your suggested change. The issue auto-labels itself.
+
+### Triage (Jarvis-on-Jarvis observer)
+
+**One-time prerequisite:** Create the harness-suggestion label (once per Jarvis repo):
+```sh
+gh label create harness-suggestion --repo cbrenner04/jarvis
+```
+
+Then, list incoming suggestions:
+```sh
+gh issue list --repo cbrenner04/jarvis --label harness-suggestion --state open
+```
+
+If the label is absent or you're filtering without it, fall back to searching the open-issue list manually.
+
+For each suggestion:
+1. **Review** the issue and assess whether it's worth a wip-intent (it usually is — harness friction is the point of this intake).
+2. **Create a wip-intent** in `v2/spec/wip-intents/` capturing the suggestion. Use the issue content to seed the intent's problem statement and decisions.
+3. **Close the issue** with a comment referencing the seeded intent (e.g., "Seeded as v2/spec/wip-intents/2026-06-22-example-intent.md").
+4. **Allow closing without a seed** if the suggestion isn't actionable or doesn't warrant an intent — rare, but OK (e.g., duplicate of an existing issue, or out-of-scope for Jarvis's design).
 
 ## Background-run-and-poll pattern
 

@@ -183,7 +183,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 | Field | Default | Effect |
 | --- | --- | --- |
 | `version` | `2` | Schema version; only `2` is accepted. `1` (or legacy `agentOrder`/`planAgentOrder`/`patchModels` keys) is rejected with migration guidance. |
-| `modes.patch.agentOrder` | `claude`/`haiku`, `codex`/`gpt-5.3-codex`, `cursor`/`Composer 2` | Ordered agent+model entries for patch runs; advanced on quota. |
+| `modes.patch.agentOrder` | `claude`/`haiku`, `codex`/`gpt-5.4`, `cursor`/`Composer 2.5` | Ordered agent+model entries for patch runs; advanced on quota. |
 | `modes.patch.shrink` | `"agent"` | Whether post-completion shrink phase runs: `"agent"` enables agent shrink (default); `"off"` disables the phase entirely. |
 | `modes.plan.agentOrder` | same as patch default | Ordered agent+model entries for plan phases. |
 | `modes.plan.{specTimestamp,commit,targetDir}` | `true` / `true` / `"spec"` | Plan output routing; each is overridable per project under `projects.<key>.plan`. |
@@ -221,7 +221,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 ### Roster and default order
 
 - v1 recognizes exactly five adapter names (`claude`, `codex`, `cursor`, `opencode`, `aider`) and `createAgent()` instantiates the matching adapter class directly from that name/model pair. Sources: `v1/src/agents/types.ts`, `v1/src/agents/factory.ts`
-- Default `modes.patch.agentOrder` and `modes.plan.agentOrder` include only three entries in this order: `claude` (`haiku`), `codex` (`gpt-5.3-codex`), then `cursor` (`Composer 2`); `opencode` and `aider` are supported but opt-in via config edits. Sources: `v1/src/config.ts`, `v1/docs/agents.md`
+- Default `modes.patch.agentOrder` and `modes.plan.agentOrder` include only three entries in this order: `claude` (`haiku`), `codex` (`gpt-5.4`), then `cursor` (`Composer 2.5`); `opencode` and `aider` are supported but opt-in via config edits. Sources: `v1/src/config.ts`, `v1/docs/agents.md`
 - [v2 divergence] v1's combined `{agent, model}` per-mode `agentOrder` is intentionally **not** carried forward to v2. v2 splits the two axes: a per-machine **agent fallback order** (just agents) and a separate machine-independent **category→agent→model store** (categories: thinking/reviewing/executing), with a step naming a category and the model resolving per agent. No v1 migration — v1 keeps the combined order. Sources: `v2/docs/v2-architecture.md` (per-project config), `v2/docs/v2-vision.md` (Models separate from agents)
 - Both patch and plan modes execute agents in their configured order and advance only when an agent result is classified as quota-related; if the active agent returns a non-quota hard error, the mode stops instead of trying later agents. Sources: `v1/src/modes/patch/run.ts`, `v1/src/commands/plan.ts`, `v1/src/agents/quota.ts`
 

@@ -17,17 +17,17 @@
 
 ## Task checklist
 
-- [ ] `config.ts:126-127`: `codex` → `gpt-5.4`, `cursor` → `Composer 2.5`.
-- [ ] Update test assertions **derived from `DEFAULT_AGENT_ORDER`/bootstrap defaults**; leave fixtures that pin arbitrary model strings to exercise overrides. Confirmed must-change sites: `v1/test/config.test.ts` `DEFAULT_AGENT_ORDER` + default-bootstrap assertions. Apply the rule to any other default-derived assertion across `v1/test` (do not rely on `bun run test` failures to surface them — override fixtures and stale non-default-block assertions can both stay green).
-- [ ] Classify the run-summary rendered-output assertion printing `codex (gpt-5.3-codex)`: if its input is default-derived, update to `gpt-5.4`; if it's an override fixture, leave it.
-- [ ] Docs (all four stale spots): `v1/docs/agents.md` — the two JSON default-order examples; `v2/docs/v1-behaviors.md` — the table row and the prose line pinning the default models.
+- [x] `config.ts:126-127`: `codex` → `gpt-5.4`, `cursor` → `Composer 2.5`.
+- [x] Update test assertions **derived from `DEFAULT_AGENT_ORDER`/bootstrap defaults**; leave fixtures that pin arbitrary model strings to exercise overrides. Confirmed must-change sites: `v1/test/config.test.ts` `DEFAULT_AGENT_ORDER` + default-bootstrap assertions. Apply the rule to any other default-derived assertion across `v1/test` (do not rely on `bun run test` failures to surface them — override fixtures and stale non-default-block assertions can both stay green).
+- [x] Classify the run-summary rendered-output assertion printing `codex (gpt-5.3-codex)`: if its input is default-derived, update to `gpt-5.4`; if it's an override fixture, leave it.
+- [x] Docs (all four stale spots): `v1/docs/agents.md` — the two JSON default-order examples; `v2/docs/v1-behaviors.md` — the table row and the prose line pinning the default models.
 
 ## Acceptance criteria
 
-- [ ] A freshly bootstrapped config's default `modes.patch.agentOrder` (and `modes.plan`/`modes.prompt`) lists `codex` with model `gpt-5.4` and `cursor` with model `Composer 2.5`; no default entry references `gpt-5.3-codex` or `Composer 2`.
-- [ ] `data/prices.json` has no codex/OpenAI `gpt-5.3-codex` entry added; the existing Cursor `GPT-5.3 Codex` and `Composer 2` rows are unchanged.
-- [ ] `cursor.ts` still maps the `Composer 2` model string to the `composer-2.5` CLI-invocation slug — a config pinned to `Composer 2` keeps running `composer-2.5`. The existing test asserting `resolveAgentPriceKey("cursor", "Composer 2") === "Composer 2"` (identity price key) stays green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] A freshly bootstrapped config's default `modes.patch.agentOrder` (and `modes.plan`/`modes.prompt`) lists `codex` with model `gpt-5.4` and `cursor` with model `Composer 2.5`; no default entry references `gpt-5.3-codex` or `Composer 2`.
+- [x] `data/prices.json` has no codex/OpenAI `gpt-5.3-codex` entry added; the existing Cursor `GPT-5.3 Codex` and `Composer 2` rows are unchanged.
+- [x] `cursor.ts` still maps the `Composer 2` model string to the `composer-2.5` CLI-invocation slug — a config pinned to `Composer 2` keeps running `composer-2.5`. The existing test asserting `resolveAgentPriceKey("cursor", "Composer 2") === "Composer 2"` (identity price key) stays green.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

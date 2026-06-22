@@ -43,8 +43,8 @@ describe("config show", () => {
     const parsed = JSON.parse(cap.out());
     const defaultOrder = [
       { agent: "claude", model: "haiku" },
-      { agent: "codex", model: "gpt-5.3-codex" },
-      { agent: "cursor", model: "Composer 2" },
+      { agent: "codex", model: "gpt-5.4" },
+      { agent: "cursor", model: "Composer 2.5" },
     ];
     expect(parsed.version).toBe(2);
     expect(parsed.modes.patch).toEqual({ agentOrder: defaultOrder, prNarrative: "template", shrink: "agent" });
@@ -93,8 +93,8 @@ describe("config set-patch-order", () => {
     ]);
     expect(cfg.modes.plan.agentOrder).toEqual([
       { agent: "claude", model: "haiku" },
-      { agent: "codex", model: "gpt-5.3-codex" },
-      { agent: "cursor", model: "Composer 2" },
+      { agent: "codex", model: "gpt-5.4" },
+      { agent: "cursor", model: "Composer 2.5" },
     ]);
   });
 
@@ -206,8 +206,8 @@ describe("config set-plan-order", () => {
     ]);
     expect(cfg.modes.patch.agentOrder).toEqual([
       { agent: "claude", model: "haiku" },
-      { agent: "codex", model: "gpt-5.3-codex" },
-      { agent: "cursor", model: "Composer 2" },
+      { agent: "codex", model: "gpt-5.4" },
+      { agent: "cursor", model: "Composer 2.5" },
     ]);
   });
 

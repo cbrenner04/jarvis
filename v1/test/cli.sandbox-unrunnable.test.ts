@@ -378,8 +378,8 @@ describe("run", () => {
     expect(parsed.version).toBe(2);
     const expectedOrder = [
       { agent: "claude", model: "haiku" },
-      { agent: "codex", model: "gpt-5.3-codex" },
-      { agent: "cursor", model: "Composer 2" },
+      { agent: "codex", model: "gpt-5.4" },
+      { agent: "cursor", model: "Composer 2.5" },
     ];
     expect(parsed.modes.patch.agentOrder).toEqual(expectedOrder);
     expect(parsed.modes.plan.agentOrder).toEqual(expectedOrder);

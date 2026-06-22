@@ -4,6 +4,14 @@ Reference for an **observer** driving Jarvis runs on a target repo — launching
 
 This runbook is **target-agnostic**: Jarvis is the constant; the repo it's pointed at varies. Where a concrete command appears (e.g. `bun run ready`), it's an example from dogfooding Jarvis-on-Jarvis — substitute the target repo's equivalent gate (its test/lint/typecheck commands, found in the target's `CLAUDE.md`/`AGENTS.md` or package scripts).
 
+## North star
+
+The observer should be touching **only `jarvis` commands — and as few as possible.** Every hands-on step that isn't invoking a jarvis command (resolving a conflict, reconciling an index, restoring a dropped test, manually finalizing, re-running after a transient) is a **harness gap, not the job** — each is a wip-intent waiting to be written, whose definition of done is "a future observer doesn't do this by hand."
+
+But **"fewer manual steps" is not "more commands."** The fix for a manual step is almost always to fold the behavior into an *existing* command's automatic flow (the harness just does it inside `run`/`plan`/the gate), **not** to add a new subcommand. New commands are a last resort, for a genuinely distinct operator intent that can't live inside an existing flow. Resist command proliferation.
+
+The measure of progress is the **shrinking count of manual interventions per session**, not the number of commands. Some turns surface a gap; many won't — don't force a new intent every turn.
+
 ## Observer responsibilities (definition of done)
 
 An observer session is not done when the PRs merge — it's done when the findings and tooling persist. Every session owes:

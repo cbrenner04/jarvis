@@ -8,6 +8,7 @@ import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
 import { computeProjectSafeId } from "../modes/plan/spec-paths.ts";
+import { getOpenPrState, maybeMarkPlanPrReady } from "../modes/plan/pr.ts";
 import { ensureDraftPr, renderAttribution } from "../pr.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../quota-harness-messages.ts";
 import { createIntentWorktree, createWorktreeSymlinks } from "../worktree.ts";
@@ -515,6 +516,22 @@ function renderIntentNextStepsNoCommit(args: {
   return lines.join("\n");
 }
 
+function safeMarkPlanPrReady(args: {
+  io: IntentIo;
+  branch: string;
+  worktreePath: string;
+}): void {
+  try {
+    maybeMarkPlanPrReady({
+      branch: args.branch,
+      cwd: args.worktreePath,
+      getOpenPrState,
+    });
+  } catch (err) {
+    args.io.stderr(`warning: could not mark PR ready for review: ${(err as Error).message}\n`);
+  }
+}
+
 export async function intentCommand(opts: IntentCommandOptions): Promise<number> {
   const args = opts.args ?? [];
   if (args.includes("--help") || args.includes("-h")) {
@@ -796,6 +813,11 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       }),
     );
     opts.io.stderr(`intent: draft PR #${prResult.number} ${prResult.created ? "opened" : "updated"}\n`);
+    safeMarkPlanPrReady({
+      io: opts.io,
+      branch,
+      worktreePath,
+    });
     completed = true;
     return 0;
   } finally {

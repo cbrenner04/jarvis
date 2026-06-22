@@ -17,6 +17,7 @@ jarvis1 intent "<prompt>"        (or <targetDir>/wip-intents/<seed>.md)
   → write N files to <targetDir>/ready-intents/
   → commit
   → open draft PR for split review
+  → auto-ready the PR for operator review
 ```
 
 Intent mode does **not** run refine, does **not** draft spec directories, and
@@ -88,7 +89,9 @@ abort the run without partial `ready-intents/` writes and without opening a PR.
 
 When `modes.plan.commit` is `true` (default), intent mode creates a dedicated
 git worktree/branch for the split commit and draft PR, and uses the shared
-draft-PR helper used elsewhere in v1.
+draft-PR helper used elsewhere in v1. On successful completion, the split PR
+is automatically marked ready for review (via `bun run ready` gate + `gh pr
+ready`), the same as plan mode.
 
 ### No-commit mode (`commit: false`)
 

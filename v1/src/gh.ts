@@ -81,7 +81,7 @@ async function defaultSleep(ms: number): Promise<void> {
 }
 
 function defaultOnRetry(line: string): void {
-  process.stderr.write(line + "\n");
+  process.stderr.write(`${line}\n`);
 }
 
 export async function runGhCommand(
@@ -151,11 +151,7 @@ export async function postPrComment(prNumber: number, body: string, cwd?: string
   // Note: `gh pr comment` retries on transient failures but has no guard against
   // duplicate-on-retry (lost-ack case). Unlike `gh pr ready` which signals "already ready",
   // a re-posted comment is cosmetic and does not kill the run, so this is accepted.
-  const result = await runGhCommand(
-    ["pr", "comment", String(prNumber), "--body", body],
-    cwd,
-    { op: "gh pr comment" },
-  );
+  const result = await runGhCommand(["pr", "comment", String(prNumber), "--body", body], cwd, { op: "gh pr comment" });
   if (result.exitCode !== 0) {
     const errorMessage = result.stderr || result.stdout;
     throw new Error(`failed to post PR comment: ${errorMessage.trim()}`);
@@ -172,7 +168,7 @@ function defaultSleepSync(ms: number): void {
 }
 
 function defaultOnRetrySync(line: string): void {
-  process.stderr.write(line + "\n");
+  process.stderr.write(`${line}\n`);
 }
 
 export type SyncTransientRetryOptions = {

@@ -43,8 +43,10 @@ Hit friction or found a harness gap? Submit it via the intake channel — no Jar
 
 **Option 1: CLI**
 ```sh
-gh issue create --repo cbrenner04/jarvis --template harness-suggestion
+gh issue create --repo cbrenner04/jarvis --template harness-suggestion.md
 ```
+
+(The `harness-suggestion` label is created during setup and applied automatically at submit time.)
 
 **Option 2: Web**
 Visit https://github.com/cbrenner04/jarvis/issues/new/choose and select the "Harness suggestion" template. The issue auto-labels itself.

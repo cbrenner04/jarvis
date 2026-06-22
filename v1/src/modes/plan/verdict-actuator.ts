@@ -8,6 +8,7 @@ import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName } from "../../agents/types.ts";
 import type { Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
+import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "../patch/idle-watchdog.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
@@ -111,6 +112,10 @@ export type VerdictActuatorOptions = {
   createAgent?: ((agentName: AgentName, model: string | undefined) => Agent) | undefined;
   /** Additional read directories passed to agent (for external spec storage). */
   additionalReadDirs?: string[];
+  /** Plan worktree directory for idle watchdog file-activity scanning. */
+  planWorktreeDir?: string;
+  /** Idle output timeout in milliseconds (0 to disable). */
+  idleOutputTimeoutMs?: number | undefined;
 };
 
 /**
@@ -157,6 +162,53 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
     throw new Error(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
   }
 
+  const verdictController = new AbortController();
+  const verdictLastOutputAtMs = { current: null as number | null };
+  let verdictLastFileActivityAtMs: number | null = null;
+  let verdictIdleTimeoutHandle: NodeJS.Timeout | null = null;
+
+  // Arm idle watchdog if configured
+  const verdictArmedAt = Date.now();
+  const verdictIdleOutputTimeoutMs = opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+  const verdictWorktreeDir = opts.planWorktreeDir ?? opts.worktreePath;
+  if (verdictIdleOutputTimeoutMs > 0) {
+    const scheduleVerdictIdleCheck = () => {
+      verdictIdleTimeoutHandle = setTimeout(() => {
+        const snapshotAt = Date.now();
+        const lastOutputAgeMs = verdictLastOutputAtMs.current === null ? null : snapshotAt - verdictLastOutputAtMs.current;
+
+        const sampledFileActivityAt = sampleFileActivityIfNeeded({
+          lastOutputAgeMs,
+          idleOutputTimeoutMs: verdictIdleOutputTimeoutMs,
+          now: snapshotAt,
+          armedAt: verdictArmedAt,
+          workingDir: verdictWorktreeDir,
+        });
+
+        if (sampledFileActivityAt !== null) {
+          verdictLastFileActivityAtMs = sampledFileActivityAt;
+        }
+
+        const { shouldFire } = evaluateIdleWatchdog({
+          now: snapshotAt,
+          lastOutputAt: verdictLastOutputAtMs.current,
+          lastFileActivityAt: verdictLastFileActivityAtMs,
+          armedAt: verdictArmedAt,
+          idleOutputTimeoutMs: verdictIdleOutputTimeoutMs,
+        });
+
+        if (shouldFire) {
+          opts.stderr?.(`[watchdog] idle timeout fired after ${verdictIdleOutputTimeoutMs}ms; killing agent\n`);
+          verdictController.abort("idle-timeout");
+        } else {
+          scheduleVerdictIdleCheck();
+        }
+      }, 100);
+      verdictIdleTimeoutHandle?.unref?.();
+    };
+    scheduleVerdictIdleCheck();
+  }
+
   const bindings = agentOrder.map((entry) =>
     createPlanInvocationBinding({
       agentName: entry.agent,
@@ -165,6 +217,7 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
       config: opts.config,
       worktreePath: opts.worktreePath,
       spawnOptions: opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
+      lastOutputAtMs: verdictLastOutputAtMs,
       onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
         emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified);
       },
@@ -180,25 +233,32 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
     }),
   );
 
-  const execution = await executeWithQuotaFallback({
-    prompt,
-    cwd: opts.worktreePath,
-    bindings,
-  });
+  try {
+    const execution = await executeWithQuotaFallback({
+      prompt,
+      cwd: opts.worktreePath,
+      bindings,
+      signal: verdictController.signal,
+    });
 
-  const finalResult = execution.final?.result;
-  if (finalResult?.kind === "ok") {
-    opts.stderr?.(`plan: verdict actuator completed\n`);
-    return;
+    const finalResult = execution.final?.result;
+    if (finalResult?.kind === "ok") {
+      opts.stderr?.(`plan: verdict actuator completed\n`);
+      return;
+    }
+
+    if (finalResult?.kind === "quota") {
+      throw new Error(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+    }
+
+    if (finalResult === undefined) {
+      throw new Error(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+    }
+
+    throw new Error(`verdict actuator error (${finalResult.kind})`);
+  } finally {
+    if (verdictIdleTimeoutHandle !== null) {
+      clearTimeout(verdictIdleTimeoutHandle);
+    }
   }
-
-  if (finalResult?.kind === "quota") {
-    throw new Error(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
-  }
-
-  if (finalResult === undefined) {
-    throw new Error(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
-  }
-
-  throw new Error(`verdict actuator error (${finalResult.kind})`);
 }

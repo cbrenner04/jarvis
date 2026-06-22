@@ -9,6 +9,7 @@ import { createAgent as defaultCreateAgent } from "../../agents/factory.ts";
 import type { Agent, AgentResult } from "../../agents/types.ts";
 import type { AgentName, Config } from "../../config.ts";
 import { HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED } from "../../quota-harness-messages.ts";
+import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "../patch/idle-watchdog.ts";
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
@@ -35,6 +36,10 @@ export type DraftPhaseOptions = {
   onOutboundPrompt?: (prompt: string) => void;
   /** Additional read directories passed to agent (for external spec storage). */
   additionalReadDirs?: string[];
+  /** Plan worktree directory for idle watchdog file-activity scanning. */
+  planWorktreeDir?: string;
+  /** Idle output timeout in milliseconds (0 to disable). */
+  idleOutputTimeoutMs?: number | undefined;
 };
 
 /**
@@ -162,6 +167,53 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
 
   const resolveAgent = opts.createAgent ?? defaultCreateAgent;
 
+  const draftController = new AbortController();
+  const draftLastOutputAtMs = { current: null as number | null };
+  let draftLastFileActivityAtMs: number | null = null;
+  let draftIdleTimeoutHandle: NodeJS.Timeout | null = null;
+
+  // Arm idle watchdog if configured
+  const draftArmedAt = Date.now();
+  const draftIdleOutputTimeoutMs = opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+  const draftWorktreeDir = opts.planWorktreeDir ?? opts.worktreePath;
+  if (draftIdleOutputTimeoutMs > 0) {
+    const scheduleDraftIdleCheck = () => {
+      draftIdleTimeoutHandle = setTimeout(() => {
+        const snapshotAt = Date.now();
+        const lastOutputAgeMs = draftLastOutputAtMs.current === null ? null : snapshotAt - draftLastOutputAtMs.current;
+
+        const sampledFileActivityAt = sampleFileActivityIfNeeded({
+          lastOutputAgeMs,
+          idleOutputTimeoutMs: draftIdleOutputTimeoutMs,
+          now: snapshotAt,
+          armedAt: draftArmedAt,
+          workingDir: draftWorktreeDir,
+        });
+
+        if (sampledFileActivityAt !== null) {
+          draftLastFileActivityAtMs = sampledFileActivityAt;
+        }
+
+        const { shouldFire } = evaluateIdleWatchdog({
+          now: snapshotAt,
+          lastOutputAt: draftLastOutputAtMs.current,
+          lastFileActivityAt: draftLastFileActivityAtMs,
+          armedAt: draftArmedAt,
+          idleOutputTimeoutMs: draftIdleOutputTimeoutMs,
+        });
+
+        if (shouldFire) {
+          opts.stderr?.(`[watchdog] idle timeout fired after ${draftIdleOutputTimeoutMs}ms; killing agent\n`);
+          draftController.abort("idle-timeout");
+        } else {
+          scheduleDraftIdleCheck();
+        }
+      }, 100);
+      draftIdleTimeoutHandle?.unref?.();
+    };
+    scheduleDraftIdleCheck();
+  }
+
   const bindings = agentOrder.map((entry) =>
     createPlanInvocationBinding({
       agentName: entry.agent,
@@ -170,6 +222,7 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
       config: opts.config,
       worktreePath: opts.worktreePath,
       spawnOptions: opts.additionalReadDirs !== undefined ? { additionalReadDirs: opts.additionalReadDirs } : undefined,
+      lastOutputAtMs: draftLastOutputAtMs,
       onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
         emitPlanAgentQuotaFallback(opts.stderr, agentName, spawnResult, classified);
       },
@@ -186,36 +239,43 @@ export async function runDraftPhase(opts: DraftPhaseOptions): Promise<{
     }),
   );
 
-  const execution = await executeWithQuotaFallback({
-    prompt,
-    cwd: agentCwd,
-    bindings,
-  });
+  try {
+    const execution = await executeWithQuotaFallback({
+      prompt,
+      cwd: agentCwd,
+      bindings,
+      signal: draftController.signal,
+    });
 
-  let agentLabel: string | null = null;
-  if (execution.final?.binding) {
-    agentLabel = execution.final.binding.id;
+    let agentLabel: string | null = null;
+    if (execution.final?.binding) {
+      agentLabel = execution.final.binding.id;
+    }
+
+    const finalResult = execution.final?.result;
+    if (finalResult?.kind === "ok") {
+      const subspecCount = countSubspecs(specDirPath);
+      return { result: finalResult, subspecCount, agentLabel };
+    }
+
+    if (finalResult === undefined) {
+      return {
+        result: {
+          kind: "error",
+          exitCode: 2,
+          stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
+        },
+        subspecCount: null,
+        agentLabel: null,
+      };
+    }
+
+    return { result: finalResult, subspecCount: null, agentLabel };
+  } finally {
+    if (draftIdleTimeoutHandle !== null) {
+      clearTimeout(draftIdleTimeoutHandle);
+    }
   }
-
-  const finalResult = execution.final?.result;
-  if (finalResult?.kind === "ok") {
-    const subspecCount = countSubspecs(specDirPath);
-    return { result: finalResult, subspecCount, agentLabel };
-  }
-
-  if (finalResult === undefined) {
-    return {
-      result: {
-        kind: "error",
-        exitCode: 2,
-        stderr: `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED} (no agent invocations)`,
-      },
-      subspecCount: null,
-      agentLabel: null,
-    };
-  }
-
-  return { result: finalResult, subspecCount: null, agentLabel };
 }
 
 /**

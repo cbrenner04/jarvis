@@ -8,4 +8,4 @@ Sequenced: 00 calibrates the idle watchdog (file-activity liveness) so 01 can sa
 - [x] [01 - Default the idle watchdog on](./01-idle-watchdog-default-on.md)
 - [x] [02 - Harness commits a complete-but-dirty worktree](./02-commit-complete-but-dirty.md)
 - [x] [03 - Idle watchdog covers patch review and shrink phases](./03-idle-watchdog-patch-phases.md)
-- [ ] [04 - Idle watchdog covers plan draft, review, and verdict-actuator phases](./04-idle-watchdog-plan-phases.md)
+- [x] [04 - Idle watchdog covers plan draft, review, and verdict-actuator phases](./04-idle-watchdog-plan-phases.md)

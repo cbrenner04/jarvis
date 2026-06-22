@@ -23,6 +23,7 @@ export type PlanInvocationBindingOptions<T extends InvocationResult = Invocation
   spawnOptions?: { additionalReadDirs?: string[] } | undefined;
   preSpinHook?: () => void;
   shouldAdvance?: ((result: T) => boolean) | undefined;
+  lastOutputAtMs?: { current: number | null } | undefined;
 };
 
 export function createPlanInvocationBinding<T extends InvocationResult = InvocationResult>(
@@ -46,6 +47,7 @@ export function createPlanInvocationBinding<T extends InvocationResult = Invocat
         ...(opts.spawnOptions?.additionalReadDirs !== undefined
           ? { additionalReadDirs: opts.spawnOptions.additionalReadDirs }
           : {}),
+        ...(opts.lastOutputAtMs !== undefined ? { lastOutputAtMs: opts.lastOutputAtMs } : {}),
       });
 
       const porcelainAfter = readGitPorcelainSnapshot(opts.worktreePath);

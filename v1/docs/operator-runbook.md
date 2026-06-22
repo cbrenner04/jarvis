@@ -41,24 +41,28 @@ An observer on a non-Jarvis target repo can't create wip-intents (they're not in
 
 Hit friction or found a harness gap? Submit it via the intake channel — no Jarvis repo checkout required.
 
-**Option 1: CLI**
+#### Option 1: CLI
+
 ```sh
 gh issue create --repo cbrenner04/jarvis --template harness-suggestion.md
 ```
 
 (The `harness-suggestion` label is created during setup and applied automatically at submit time.)
 
-**Option 2: Web**
-Visit https://github.com/cbrenner04/jarvis/issues/new/choose and select the "Harness suggestion" template. The issue auto-labels itself.
+#### Option 2: Web
+
+Visit <https://github.com/cbrenner04/jarvis/issues/new/choose> and select the "Harness suggestion" template. The issue auto-labels itself.
 
 ### Triage (Jarvis-on-Jarvis observer)
 
 **One-time prerequisite:** Create the harness-suggestion label (once per Jarvis repo):
+
 ```sh
 gh label create harness-suggestion --repo cbrenner04/jarvis
 ```
 
 Then, list incoming suggestions:
+
 ```sh
 gh issue list --repo cbrenner04/jarvis --label harness-suggestion --state open
 ```
@@ -66,6 +70,7 @@ gh issue list --repo cbrenner04/jarvis --label harness-suggestion --state open
 If the label is absent or you're filtering without it, fall back to searching the open-issue list manually.
 
 For each suggestion:
+
 1. **Review** the issue and assess whether it's worth a wip-intent.
 2. **Create a wip-intent** in `v2/spec/wip-intents/` capturing the suggestion. Use the issue content to seed the intent's problem statement and decisions.
 3. **Close the issue** with a comment referencing the seeded intent (e.g., "Seeded as v2/spec/wip-intents/2026-06-22-example-intent.md").
@@ -118,6 +123,7 @@ gh pr ready && gh pr merge --admin --squash   # ready first — admin refuses a 
 ```
 
 Common cases:
+
 - **Complete-but-dirty run.** Spec checklists all ticked but the worktree has uncommitted work the agent didn't commit before exiting — commit it and finalize (never auto-tick criteria).
 - **Transient-killed plan.** A plan that died on a transient agent-error leaves a dirty plan worktree. If the review actuator had already finished (verdict file written, subspec edits applied) and only the commit/index-reconcile was lost, **reconcile the `index.md` to match the subspecs the actuator created, then commit** — cheaper and more deterministic than re-running the review pass. If the edits look truncated, discard and re-resume instead.
 - **Flaky parallel-load failure.** Tests that pass serially/in-isolation but fail under `--parallel` are load flakes — re-run the failing test(s) in isolation; if green, finalize.

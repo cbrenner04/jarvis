@@ -3,7 +3,6 @@ name: Harness suggestion
 about: Report a friction point or gap in the Jarvis harness
 labels: harness-suggestion
 ---
-
 ## Friction or gap observed
 
 <!-- What friction did you hit? What harness behavior would be better? -->

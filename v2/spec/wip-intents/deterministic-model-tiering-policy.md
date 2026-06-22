@@ -4,8 +4,14 @@ name: deterministic-model-tiering-policy
 
 # Deterministic model-tiering: optimize cost vs failure-modes without losing determinism
 
-> **Status: evolving seed (open questions below).** Accruing data points during the overlord
-> batch; settle the open questions, then run through intent → plan. Modify freely until then.
+> **Status: shape decided (2026-06-22) — ready to plan.** Operator chose **static per-phase
+> floors** (candidate shape 3 below): review/shrink cheap, actuator floored above haiku, plan
+> strong. Fixed mapping, fully deterministic, directly fixes the observed actuator weakness;
+> declared-tier (shape 1) can refine later. **Prerequisite:** build sub-role→model config
+> granularity first — `modes.patch.agentOrder` today sets one model for all of patch mode
+> (actuator + fix-up), so "floor the actuator" isn't expressible yet ([[actuator-role-model-floor]]).
+> Evidence this session: haiku as actuator stalled repeatedly (~23min, caught only by the iteration
+> timeout), weakened correct code, and made out-of-scope edits — below a usable actuator floor.
 
 ## Problem
 

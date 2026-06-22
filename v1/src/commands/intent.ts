@@ -516,17 +516,6 @@ function renderIntentNextStepsNoCommit(args: {
   return lines.join("\n");
 }
 
-function safeMarkPlanPrReady(args: { io: IntentIo; branch: string; worktreePath: string }): void {
-  try {
-    maybeMarkPlanPrReady({
-      branch: args.branch,
-      cwd: args.worktreePath,
-      getOpenPrState,
-    });
-  } catch (err) {
-    args.io.stderr(`warning: could not mark PR ready for review: ${(err as Error).message}\n`);
-  }
-}
 
 export async function intentCommand(opts: IntentCommandOptions): Promise<number> {
   const args = opts.args ?? [];
@@ -809,11 +798,15 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       }),
     );
     opts.io.stderr(`intent: draft PR #${prResult.number} ${prResult.created ? "opened" : "updated"}\n`);
-    safeMarkPlanPrReady({
-      io: opts.io,
-      branch,
-      worktreePath,
-    });
+    try {
+      maybeMarkPlanPrReady({
+        branch,
+        cwd: worktreePath,
+        getOpenPrState,
+      });
+    } catch (err) {
+      opts.io.stderr(`warning: could not mark PR ready for review: ${(err as Error).message}\n`);
+    }
     completed = true;
     return 0;
   } finally {

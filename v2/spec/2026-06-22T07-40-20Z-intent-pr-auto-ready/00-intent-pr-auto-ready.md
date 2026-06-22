@@ -16,15 +16,15 @@ draft — the operator flips it by hand. Plan mode already auto-readies its PR
 
 ## Task checklist
 
-- [ ] After `ensureDraftPr` succeeds in the `commit: true` intent path, run the auto-ready (gate + `gh pr ready`) wrapped warn-and-continue.
-- [ ] Update `v1/docs/intent-mode.md` and `v2/docs/v1-behaviors.md`.
+- [x] After `ensureDraftPr` succeeds in the `commit: true` intent path, run the auto-ready (gate + `gh pr ready`) wrapped warn-and-continue.
+- [x] Update `v1/docs/intent-mode.md` and `v2/docs/v1-behaviors.md`.
 
 ## Acceptance criteria
 
-- [ ] A successful committed `jarvis1 intent` run leaves its PR ready (not draft) after the split commit, via the same ready-gate + `gh pr ready` step plan mode uses.
-- [ ] If the ready gate or `gh pr ready` fails, the intent run still exits 0, prints a warning, and leaves the PR draft.
-- [ ] No-commit (`commit: false`) intent runs are unchanged: no PR, no `gh pr ready`.
-- [ ] Re-running on an already-ready PR is a no-op (state guard) and still exits 0.
+- [x] A successful committed `jarvis1 intent` run leaves its PR ready (not draft) after the split commit, via the same ready-gate + `gh pr ready` step plan mode uses.
+- [x] If the ready gate or `gh pr ready` fails, the intent run still exits 0, prints a warning, and leaves the PR draft.
+- [x] No-commit (`commit: false`) intent runs are unchanged: no PR, no `gh pr ready`.
+- [x] Re-running on an already-ready PR is a no-op (state guard) and still exits 0.
 
 ## Documentation updates
 

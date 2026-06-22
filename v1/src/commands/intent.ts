@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
 import { CONFIG_DIR, loadConfig, resolvePlanFlags } from "../config.ts";
@@ -200,6 +200,81 @@ function hasValidPrerequisitesSection(text: string): boolean {
     .split("\n")
     .filter((line) => line.trim().length > 0)
     .every((line) => /^- \S.*$/.test(line));
+}
+
+function repairIntentFile(path: string, slug: string): void {
+  const content = readFileSync(path, "utf8");
+  let text = content.replace(/\r\n/g, "\n");
+  let modified = false;
+
+  const lines = text.split("\n");
+
+  // Repair frontmatter name:
+  if ((lines[0] ?? "") !== "---") {
+    // Case 1: No frontmatter block, prepend one
+    text = `---\nname: ${slug}\n---\n${text}`;
+    modified = true;
+  } else {
+    // Find the end of the frontmatter block
+    let blockEndIdx = -1;
+    for (let i = 1; i < lines.length; i += 1) {
+      if ((lines[i] ?? "") === "---") {
+        blockEndIdx = i;
+        break;
+      }
+    }
+
+    if (blockEndIdx !== -1) {
+      // Block exists, check for name: key
+      let hasName = false;
+      let nameLineIdx = -1;
+      let nameValue: string | null = null;
+
+      for (let i = 1; i < blockEndIdx; i += 1) {
+        const line = lines[i] ?? "";
+        const match = /^name:\s*(.+)\s*$/.exec(line);
+        if (match?.[1]) {
+          hasName = true;
+          nameLineIdx = i;
+          nameValue = match[1].trim();
+          break;
+        }
+      }
+
+      if (hasName && nameLineIdx !== -1) {
+        // Case 3: Rewrite if mismatched
+        if (nameValue !== slug) {
+          lines[nameLineIdx] = `name: ${slug}`;
+          modified = true;
+        }
+      } else {
+        // Case 2: Insert name: into existing block (before the closing ---)
+        lines.splice(blockEndIdx, 0, `name: ${slug}`);
+        modified = true;
+      }
+
+      text = lines.join("\n");
+    }
+  }
+
+  // Repair Prerequisites section
+  if (!hasPrerequisitesSection(text)) {
+    // Append empty Prerequisites section
+    text += "\n\n## Prerequisites\n";
+    modified = true;
+  }
+
+  if (modified) {
+    writeFileSync(path, text, "utf8");
+  }
+}
+
+function repairIntentStageContent(stagingDir: string): void {
+  const files = listStageMarkdownFiles(stagingDir);
+  for (const path of files) {
+    const slug = basename(path, ".md");
+    repairIntentFile(path, slug);
+  }
 }
 
 function validateIntentStageContent(files: string[]):
@@ -534,6 +609,8 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         return 1;
       }
 
+      repairIntentStageContent(externalStageDir);
+
       const files = listStageMarkdownFiles(externalStageDir);
       const validation = validateIntentStageContent(files);
       if (!validation.ok) {
@@ -619,6 +696,8 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
       opts.io.stderr(`intent: split failed\n${splitResult.result.stderr}`);
       return 1;
     }
+
+    repairIntentStageContent(stageDir);
 
     const validation = validateIntentStage(stageDir, listModifiedPaths(worktreePath));
     if (!validation.ok) {

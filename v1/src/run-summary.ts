@@ -1,6 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { CostSource, TelemetryRecord, TelemetryUsage, UsageSource } from "./telemetry.ts";
 
+export const INTAKE_SUGGESTION_URL = "https://github.com/cbrenner04/jarvis/issues/new/choose";
+
 type RunSummaryArgs = {
   telemetryPath: string | null;
   namespace: string;
@@ -255,6 +257,8 @@ function renderSummaryFromRecords(args: {
 
   if (args.runRecords.length === 0) {
     lines.push("(no telemetry records found for this run)");
+    lines.push("");
+    lines.push(`Hit a harness gap? ${INTAKE_SUGGESTION_URL}`);
     return `${lines.join("\n")}\n`;
   }
 
@@ -461,6 +465,8 @@ function renderSummaryFromRecords(args: {
     }
   }
 
+  lines.push("");
+  lines.push(`Hit a harness gap? ${INTAKE_SUGGESTION_URL}`);
   return `${lines.join("\n")}\n`;
 }
 
@@ -476,6 +482,7 @@ export function runSummary(args: RunSummaryArgs): string {
       "",
       "(no telemetry records found for this run)",
       "",
+      `Hit a harness gap? ${INTAKE_SUGGESTION_URL}`,
     ];
     return lines.join("\n");
   }
@@ -514,6 +521,7 @@ export function planSummary(args: PlanSummaryArgs): string {
       "",
       "(no telemetry records found for this run)",
       "",
+      `Hit a harness gap? ${INTAKE_SUGGESTION_URL}`,
     ];
     return lines.join("\n");
   }

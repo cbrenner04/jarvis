@@ -206,6 +206,8 @@ Coverage:
 
 - **Quota fallback**: Quota-only attempts are excluded from aggregated totals with the same quota-excluded notes as patch mode.
 
+- Every plan summary ends with: `Hit a harness gap? https://github.com/cbrenner04/jarvis/issues/new/choose`
+
 No summary is printed for configuration or project-resolution failures that occur **before** any agent invocation.
 
 ## PR body updates

@@ -25,13 +25,13 @@ summaries (`runSummary` / `planSummary` in `v1/src/run-summary.ts`).
 
 ## Acceptance criteria
 
-- [ ] `run` summary output ends with a single distinct line containing the canonical `issues/new/choose` intake URL, including the zero-records render case.
-- [ ] `plan` summary output ends with a single distinct line containing the canonical `issues/new/choose` intake URL, including the zero-records render case.
-- [ ] The nudge URL is read from one shared exported code constant; both `runSummary` and `planSummary` reference that constant rather than a string literal.
-- [ ] The URL appears exactly once per emitted summary across all four return sites in `run-summary.ts`. As a unit-test invariant on the exported functions, the no-telemetry render also carries the nudge — this is a property of the pure functions, not an operator-reachable CLI path (both call sites gate on writes, so the no-telemetry summary is not emitted to the operator via the CLI).
-- [ ] `help` output contains no intake URL.
-- [ ] `prompt`-mode completion emits no intake nudge — verified by the absence of any nudge on every prompt exit path (prompt has no summary surface).
-- [ ] The constant's value equals the URL hardcoded in README.md, AGENTS.md, CLAUDE.md, and `v1/docs/operator-runbook.md`, verified by the equality check (or manual-review item) named in the task checklist.
+- [x] `run` summary output ends with a single distinct line containing the canonical `issues/new/choose` intake URL, including the zero-records render case.
+- [x] `plan` summary output ends with a single distinct line containing the canonical `issues/new/choose` intake URL, including the zero-records render case.
+- [x] The nudge URL is read from one shared exported code constant; both `runSummary` and `planSummary` reference that constant rather than a string literal.
+- [x] The URL appears exactly once per emitted summary across all four return sites in `run-summary.ts`. As a unit-test invariant on the exported functions, the no-telemetry render also carries the nudge — this is a property of the pure functions, not an operator-reachable CLI path (both call sites gate on writes, so the no-telemetry summary is not emitted to the operator via the CLI).
+- [x] `help` output contains no intake URL.
+- [x] `prompt`-mode completion emits no intake nudge — verified by the absence of any nudge on every prompt exit path (prompt has no summary surface).
+- [x] The constant's value equals the URL hardcoded in README.md, AGENTS.md, CLAUDE.md, and `v1/docs/operator-runbook.md`, verified by the equality check (or manual-review item) named in the task checklist.
 
 ## Documentation updates
 

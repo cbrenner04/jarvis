@@ -19,6 +19,7 @@ import { buildShrinkPrompt } from "./prompt.ts";
 import { detectSpecTreeEdits, revertSpecTreeEdits } from "./review.ts";
 import { createShrinkInvocationBinding } from "./shrink-invocation-binding.ts";
 import { type AcceptanceCriterion, snapshotAcceptanceCriteria } from "./subspec.ts";
+import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 
 type ShrinkLogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type ShrinkLogStream = "stdout" | "stderr" | null;
@@ -79,6 +80,10 @@ export type PatchShrinkPhaseOptions = {
   };
   /** Refresh callback: called when pre-shrink gate re-runs `ready` and succeeds, to update the recorded result. */
   refreshRecordedGreenResult?: (headSha: string) => void;
+  /** Patch worktree directory for idle watchdog file-activity scanning. */
+  patchWorktreeDir?: string;
+  /** Idle output timeout in milliseconds (0 to disable). */
+  idleOutputTimeoutMs?: number | undefined;
 };
 
 /** True when `file` is under `specDir`. */
@@ -351,6 +356,51 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
   const startedMs = Date.now();
   let result: AgentResult | undefined;
   let successfulAgent: Agent | undefined;
+  const shrinkLastOutputAtMs = { current: null as number | null };
+  let shrinkLastFileActivityAtMs: number | null = null;
+  let shrinkIdleTimeoutHandle: NodeJS.Timeout | null = null;
+
+  // Arm idle watchdog if configured
+  const shrinkArmedAt = Date.now();
+  const shrinkIdleOutputTimeoutMs = opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+  const shrinkWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
+  if (shrinkIdleOutputTimeoutMs > 0) {
+    const scheduleShrinkIdleCheck = () => {
+      shrinkIdleTimeoutHandle = setTimeout(() => {
+        const snapshotAt = Date.now();
+        const lastOutputAgeMs = shrinkLastOutputAtMs.current === null ? null : snapshotAt - shrinkLastOutputAtMs.current;
+
+        const sampledFileActivityAt = sampleFileActivityIfNeeded({
+          lastOutputAgeMs,
+          idleOutputTimeoutMs: shrinkIdleOutputTimeoutMs,
+          now: snapshotAt,
+          armedAt: shrinkArmedAt,
+          workingDir: shrinkWorktreeDir,
+        });
+
+        if (sampledFileActivityAt !== null) {
+          shrinkLastFileActivityAtMs = sampledFileActivityAt;
+        }
+
+        const { shouldFire } = evaluateIdleWatchdog({
+          now: snapshotAt,
+          lastOutputAt: shrinkLastOutputAtMs.current,
+          lastFileActivityAt: shrinkLastFileActivityAtMs,
+          armedAt: shrinkArmedAt,
+          idleOutputTimeoutMs: shrinkIdleOutputTimeoutMs,
+        });
+
+        if (shouldFire) {
+          opts.fanout("harness", `[watchdog] idle timeout fired after ${shrinkIdleOutputTimeoutMs}ms; killing agent\n`, "stderr");
+          shrinkController.abort("idle-timeout");
+        } else {
+          scheduleShrinkIdleCheck();
+        }
+      }, 100);
+      shrinkIdleTimeoutHandle?.unref?.();
+    };
+    scheduleShrinkIdleCheck();
+  }
 
   try {
     const createAgentForBinding = (agentName: AgentName, model: string) => {
@@ -366,6 +416,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         config: opts.config,
         cwd: opts.cwd,
         abortKillGraceMs: killGraceMs,
+        lastOutputAtMs: shrinkLastOutputAtMs,
         onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
           if (spawnResult.kind === "quota") {
             opts.fanout("harness", `${agentName}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
@@ -418,12 +469,18 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
               ...telemetryMeta,
             });
           } else {
+            let exitReasonStr = "agent-error";
+            if (data.result.stderr.includes("aborted: idle-timeout")) {
+              exitReasonStr = "watchdog-idle-timeout";
+            } else if (data.result.stderr.includes("aborted: shrink-timeout")) {
+              exitReasonStr = "timeout";
+            }
             opts.writeTelemetry({
               agent: data.agentName,
               iteration: 1,
               durationMs: data.durationMs,
               kind: "error",
-              exitReason: data.result.stderr.includes("aborted: shrink-timeout") ? "timeout" : "agent-error",
+              exitReason: exitReasonStr,
               patch_phase: "shrink",
               ...telemetryMeta,
             });
@@ -482,6 +539,9 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     successfulAgent = createAgentForBinding(finalAttempt.binding.id as AgentName, winningModel);
   } finally {
     clearTimeout(shrinkTimeoutHandle);
+    if (shrinkIdleTimeoutHandle !== null) {
+      clearTimeout(shrinkIdleTimeoutHandle);
+    }
   }
 
   if (result === undefined || result.kind !== "ok" || successfulAgent === undefined) {

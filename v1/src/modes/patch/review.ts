@@ -29,6 +29,7 @@ import {
 import { updatePrBody } from "./pr.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt, type ReviewPromptOpts } from "./prompt.ts";
 import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "./reap.ts";
+import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 
 /** Sentinel file a review agent writes (at the repo root) to signal a blocker. */
 export const REVIEW_BLOCKER_FILE = ".jarvis-review-blocker";
@@ -276,6 +277,10 @@ export type PatchReviewPhaseOptions = {
   __testAfterPollFn?: () => void;
   /** Test-only poll interval when `__testAfterPollFn` is set. */
   __testDescendantPollIntervalMs?: number;
+  /** Patch worktree directory for idle watchdog file-activity scanning. */
+  patchWorktreeDir?: string;
+  /** Idle output timeout in milliseconds (0 to disable). */
+  idleOutputTimeoutMs?: number | undefined;
 };
 
 type ReapOverride = PatchReviewPhaseOptions["__testReapOverride"];
@@ -332,6 +337,9 @@ function withReviewPassTimeout(
     reapOverride?: ReapOverride;
     afterPoll?: () => void;
     descendantPollIntervalMs?: number;
+    patchWorktreeDir?: string;
+    idleOutputTimeoutMs?: number;
+    fanout?: (tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr", text: string, stream: "stdout" | "stderr" | null) => void;
   },
 ): Agent {
   return {
@@ -342,6 +350,9 @@ function withReviewPassTimeout(
       let watchdogPgid: number | null = null;
       const tracker = new DescendantTracker();
       let pollIntervalHandle: NodeJS.Timeout | null = null;
+      const lastOutputAtMs = { current: null as number | null };
+      let lastFileActivityAtMs: number | null = null;
+      let idleTimeoutHandle: NodeJS.Timeout | null = null;
 
       const passTimeoutHandle = setTimeout(() => {
         if (watchdogPgid !== null) {
@@ -354,11 +365,63 @@ function withReviewPassTimeout(
         passController.abort("review-pass-timeout");
       }, opts.timeoutMs);
 
+      // Arm idle watchdog if configured
+      const armedAt = Date.now();
+      const idleOutputTimeoutMs = opts.idleOutputTimeoutMs ?? 600000;
+      const worktreeDir = opts.patchWorktreeDir ?? (typeof runOpts.cwd === 'string' ? runOpts.cwd : process.cwd());
+      if (idleOutputTimeoutMs > 0) {
+        const scheduleIdleCheck = () => {
+          idleTimeoutHandle = setTimeout(() => {
+            const snapshotAt = Date.now();
+            const lastOutputAgeMs = lastOutputAtMs.current === null ? null : snapshotAt - lastOutputAtMs.current;
+
+            const sampledFileActivityAt = sampleFileActivityIfNeeded({
+              lastOutputAgeMs,
+              idleOutputTimeoutMs,
+              now: snapshotAt,
+              armedAt,
+              workingDir: worktreeDir,
+            });
+
+            if (sampledFileActivityAt !== null) {
+              lastFileActivityAtMs = sampledFileActivityAt;
+            }
+
+            const { shouldFire } = evaluateIdleWatchdog({
+              now: snapshotAt,
+              lastOutputAt: lastOutputAtMs.current,
+              lastFileActivityAt: lastFileActivityAtMs,
+              armedAt,
+              idleOutputTimeoutMs,
+            });
+
+            if (shouldFire) {
+              if (opts.fanout) {
+                opts.fanout("harness", `[watchdog] idle timeout fired after ${idleOutputTimeoutMs}ms; killing agent\n`, "stderr");
+              }
+              if (watchdogPgid !== null) {
+                try {
+                  process.kill(-watchdogPgid, "SIGTERM");
+                } catch {
+                  // best-effort
+                }
+              }
+              passController.abort("idle-timeout");
+            } else {
+              scheduleIdleCheck();
+            }
+          }, 100);
+          idleTimeoutHandle?.unref?.();
+        };
+        scheduleIdleCheck();
+      }
+
       try {
         return await agent.run(prompt, {
           ...runOpts,
           signal: passController.signal,
           abortKillGraceMs: opts.killGraceMs,
+          lastOutputAtMs,
           onSpawned: ({ pid }) => {
             watchdogPgid = pid;
             pollIntervalHandle = startDescendantPolling(tracker, pid, {
@@ -369,6 +432,9 @@ function withReviewPassTimeout(
         });
       } finally {
         clearTimeout(passTimeoutHandle);
+        if (idleTimeoutHandle !== null) {
+          clearTimeout(idleTimeoutHandle);
+        }
         stopDescendantPollingAndReap(tracker, watchdogPgid, pollIntervalHandle, opts.reapOverride);
       }
     },
@@ -439,7 +505,12 @@ function createPatchReviewAdapter(args: {
         break;
       case "error":
         kind = "error";
-        exitReason = event.result.kind;
+        // Check if this is an idle timeout
+        if (event.result.kind === "error" && event.result.stderr.includes("aborted: idle-timeout")) {
+          exitReason = "watchdog-idle-timeout";
+        } else {
+          exitReason = event.result.kind;
+        }
         break;
     }
 
@@ -658,6 +729,7 @@ function createPatchReviewAdapter(args: {
 
 /** Run patch review passes through the shared review runner. */
 export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promise<number> {
+  let idleTimeoutOccurred = false;
   if (!opts.skipGates) {
     opts.fanout("harness", "review: running baseline gate\n", "stdout");
     try {
@@ -700,9 +772,13 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     opts.__testAfterPollFn !== undefined && opts.__testDescendantPollIntervalMs !== undefined
       ? opts.__testDescendantPollIntervalMs
       : undefined;
+  const idleOutputTimeoutMs = opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
   const reviewPassTimeoutOpts = {
     timeoutMs: opts.iterationTimeoutMs,
     killGraceMs,
+    idleOutputTimeoutMs,
+    patchWorktreeDir: opts.patchWorktreeDir ?? opts.cwd,
+    fanout: opts.fanout,
     ...(opts.__testReapOverride !== undefined ? { reapOverride: opts.__testReapOverride } : {}),
     ...(opts.__testAfterPollFn !== undefined ? { afterPoll: opts.__testAfterPollFn } : {}),
     ...(descendantPollIntervalMs !== undefined ? { descendantPollIntervalMs } : {}),
@@ -750,6 +826,58 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       const actuatorTracker = new DescendantTracker();
       let actuatorPollHandle: NodeJS.Timeout | null = null;
       let actuatorPgid: number | null = null;
+      const actuatorLastOutputAtMs = { current: null as number | null };
+      let actuatorLastFileActivityAtMs: number | null = null;
+      let actuatorIdleTimeoutHandle: NodeJS.Timeout | null = null;
+
+      // Arm idle watchdog for actuator if configured
+      const actuatorArmedAt = Date.now();
+      const actuatorIdleOutputTimeoutMs = opts.idleOutputTimeoutMs !== undefined ? opts.idleOutputTimeoutMs : (opts.config.idleOutputTimeoutMs ?? 600000);
+      const actuatorWorktreeDir = opts.patchWorktreeDir ?? opts.cwd;
+      if (actuatorIdleOutputTimeoutMs > 0) {
+        const scheduleActuatorIdleCheck = () => {
+          actuatorIdleTimeoutHandle = setTimeout(() => {
+            const snapshotAt = Date.now();
+            const lastOutputAgeMs = actuatorLastOutputAtMs.current === null ? null : snapshotAt - actuatorLastOutputAtMs.current;
+
+            const sampledFileActivityAt = sampleFileActivityIfNeeded({
+              lastOutputAgeMs,
+              idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
+              now: snapshotAt,
+              armedAt: actuatorArmedAt,
+              workingDir: actuatorWorktreeDir,
+            });
+
+            if (sampledFileActivityAt !== null) {
+              actuatorLastFileActivityAtMs = sampledFileActivityAt;
+            }
+
+            const { shouldFire } = evaluateIdleWatchdog({
+              now: snapshotAt,
+              lastOutputAt: actuatorLastOutputAtMs.current,
+              lastFileActivityAt: actuatorLastFileActivityAtMs,
+              armedAt: actuatorArmedAt,
+              idleOutputTimeoutMs: actuatorIdleOutputTimeoutMs,
+            });
+
+            if (shouldFire) {
+              opts.fanout("harness", `[watchdog] idle timeout fired after ${actuatorIdleOutputTimeoutMs}ms; killing agent\n`, "stderr");
+              if (actuatorPgid !== null) {
+                try {
+                  process.kill(-actuatorPgid, "SIGTERM");
+                } catch {
+                  // best-effort
+                }
+              }
+              actuatorController.abort("idle-timeout");
+            } else {
+              scheduleActuatorIdleCheck();
+            }
+          }, 100);
+          actuatorIdleTimeoutHandle?.unref?.();
+        };
+        scheduleActuatorIdleCheck();
+      }
 
       try {
         opts.fanout("outbound", prompt, null, {
@@ -761,6 +889,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           cwd: opts.cwd,
           signal: actuatorController.signal,
           abortKillGraceMs: killGraceMs,
+          lastOutputAtMs: actuatorLastOutputAtMs,
           onSpawned: ({ pid }) => {
             actuatorPgid = pid;
             actuatorPollHandle = startDescendantPolling(actuatorTracker, pid, {
@@ -881,13 +1010,14 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           if (result.kind !== "quota" && result.stderr.length > 0) {
             opts.fanout("harness", result.stderr, "stderr");
           }
+          const isIdleTimeout = result.kind === "error" && result.stderr.includes("aborted: idle-timeout");
           const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : 1;
           opts.writeTelemetry({
             agent: agent.name,
             iteration: ctx.passNumber,
             durationMs,
             kind: result.kind === "quota" ? "quota" : result.kind === "model_config" ? "error" : "error",
-            exitReason: result.kind,
+            exitReason: isIdleTimeout ? "watchdog-idle-timeout" : result.kind,
             patch_phase: "review",
             ...telemetryMeta,
           });
@@ -895,16 +1025,27 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         }
       } finally {
         clearTimeout(actuatorTimeoutHandle);
+        if (actuatorIdleTimeoutHandle !== null) {
+          clearTimeout(actuatorIdleTimeoutHandle);
+        }
         stopDescendantPollingAndReap(actuatorTracker, actuatorPgid, actuatorPollHandle, opts.__testReapOverride);
       }
     };
   };
 
   try {
+    const wrappedTelemetry = opts.writeTelemetry;
+    const trackingWriteTelemetry = (record: Parameters<typeof opts.writeTelemetry>[0]) => {
+      if (record.exitReason === "watchdog-idle-timeout") {
+        idleTimeoutOccurred = true;
+      }
+      wrappedTelemetry(record);
+    };
+
     const runReviewOpts: RunReviewOptions = {
       config: opts.config,
       cwd: opts.cwd,
-      adapter: createPatchReviewAdapter({ opts, specDir, branch, base }),
+      adapter: createPatchReviewAdapter({ opts: { ...opts, writeTelemetry: trackingWriteTelemetry }, specDir, branch, base }),
       ...(opts.reviewPassesOverride !== undefined ? { reviewPassesOverride: opts.reviewPassesOverride } : {}),
       loadAgent: ({ name, model }) => {
         const override = opts.agents?.[name as AgentName];
@@ -935,6 +1076,10 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     }
 
     const reviewExitCode = await runReview(runReviewOpts);
+
+    if (idleTimeoutOccurred) {
+      return 8;
+    }
 
     if (reviewExitCode !== 0) {
       return reviewExitCode;

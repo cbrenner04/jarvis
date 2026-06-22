@@ -787,12 +787,13 @@ row still includes `last_output_age_ms` and omits `watchdog_pgid` and
 
 ### Idle-output watchdog
 
-An optional idle-output watchdog bounds iterations by liveness: absence of both
+An optional idle-output watchdog bounds patch-mode phases by liveness: absence of both
 agent output activity *and* file-system activity in the working tree.
-Configure `idleOutputTimeoutMs` (in milliseconds) to abort an iteration if the
+Configure `idleOutputTimeoutMs` (in milliseconds) to abort if the
 agent produces no stdout/stderr *and* makes no file edits for that span. Default
-is 600000 (10 minutes); set to `0` to disable. The idle watchdog composes with
-the wall-clock `iterationTimeoutMs`: whichever fires first aborts the iteration;
+is 600000 (10 minutes); set to `0` to disable. The idle watchdog applies uniformly
+to patch iteration, review (debate and actuator), and shrink phases. It composes with
+the wall-clock `iterationTimeoutMs`: whichever fires first aborts the phase;
 both are armed concurrently.
 
 The idle bound resets on every stdout/stderr chunk from the agent *or* file

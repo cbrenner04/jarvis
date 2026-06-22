@@ -1,10 +1,11 @@
 // This test requires real repo / branch / remote state for review-flow integration behavior.
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../../../src/agents/types.ts";
+import { runAgent } from "../../../src/agents/spawn.ts";
 import type { Config } from "../../../src/config.ts";
 import { buildReviewPrompt, buildVerdictActuatorPrompt } from "../../../src/modes/patch/prompt.ts";
 import {
@@ -695,6 +696,164 @@ describe("runPatchReviewPhase", () => {
       });
 
       expect(code).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("idle watchdog timeout fires in review debate phase", async () => {
+    const reviewIdleTimeoutMs = 1000;
+    const { dir, specPath, specDir, cleanup } = setupPatchReviewRepo();
+    try {
+      const tmpDir = join(dir, "tmp");
+      mkdirSync(tmpDir, { recursive: true });
+
+      const idleScript = join(tmpDir, "idle-hang.sh");
+      writeFileSync(
+        idleScript,
+        `#!/usr/bin/env bash
+set -euo pipefail
+# Hang without emitting output — will hit idle timeout
+while true; do :; done
+`,
+      );
+      chmodSync(idleScript, 0o755);
+
+      class IdleAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: idleScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      const cap = { out: "", err: "" };
+      const fanout = (_tag: string, text: string) => {
+        cap.err += text;
+      };
+      const telemetry: Record<string, unknown>[] = [];
+      const startTime = Date.now();
+      const code = await runPatchReviewPhase({
+        config: {
+          ...makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+          idleOutputTimeoutMs: reviewIdleTimeoutMs,
+        },
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout,
+        writeTelemetry: (record) => {
+          telemetry.push(record);
+        },
+        agents: { claude: new IdleAgent() },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        patchWorktreeDir: dir,
+        idleOutputTimeoutMs: reviewIdleTimeoutMs,
+        __testKillGraceMs: 200,
+      });
+      const elapsedMs = Date.now() - startTime;
+
+      expect(code).toBe(8);
+      expect(elapsedMs).toBeLessThan(5000);
+      expect(cap.err).toContain("idle timeout fired after");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("idle watchdog timeout fires in review actuator phase", async () => {
+    const reviewIdleTimeoutMs = 1000;
+    const { dir, specPath, specDir, cleanup } = setupPatchReviewRepo();
+    try {
+      const tmpDir = join(dir, "tmp");
+      mkdirSync(tmpDir, { recursive: true });
+
+      const idleScript = join(tmpDir, "idle-hang.sh");
+      writeFileSync(
+        idleScript,
+        `#!/usr/bin/env bash
+set -euo pipefail
+# Hang without emitting output — will hit idle timeout
+while true; do :; done
+`,
+      );
+      chmodSync(idleScript, 0o755);
+
+      class IdleAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: idleScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      const reviewer = new FakeAgent("claude", () => ({
+        kind: "ok",
+        stdout: "test-verdict",
+        stderr: "",
+      }));
+
+      const cap = { out: "", err: "" };
+      const fanout = (_tag: string, text: string) => {
+        cap.err += text;
+      };
+      const telemetry: Record<string, unknown>[] = [];
+      const startTime = Date.now();
+      const code = await runPatchReviewPhase({
+        config: {
+          ...makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+          idleOutputTimeoutMs: reviewIdleTimeoutMs,
+        },
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout,
+        writeTelemetry: (record) => {
+          telemetry.push(record);
+        },
+        agents: { claude: reviewer },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+        actuatorAgents: [new IdleAgent()],
+        patchWorktreeDir: dir,
+        idleOutputTimeoutMs: reviewIdleTimeoutMs,
+        __testKillGraceMs: 200,
+      });
+      const elapsedMs = Date.now() - startTime;
+
+      const hasIdleTimeout = telemetry.some((r) => r.exit_reason === "watchdog-idle-timeout");
+      expect(code, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(8);
+      expect(elapsedMs).toBeLessThan(5000);
+      expect(hasIdleTimeout, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(true);
     } finally {
       cleanup();
     }

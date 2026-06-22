@@ -192,7 +192,7 @@ Top-level `~/.jarvis/config.json` fields and their runtime effect (defaults from
 | `weakQuotaExitCodes` | `[]` | Exit codes treated as weak-quota signals under lenient policy. |
 | `maxIterations` | `10` | Patch iteration cap; `--max-iterations <n>` overrides. |
 | `iterationTimeoutMs` | `1800000` (30 min) | Per-iteration wall-clock watchdog timeout → exit `8`. |
-| `idleOutputTimeoutMs` | unset | Optional idle-output watchdog timeout → exit `8`; aborts iteration if agent produces no stdout/stderr for the configured span. |
+| `idleOutputTimeoutMs` | `600000` (10 min) | Idle-output watchdog timeout → exit `8`; aborts iteration if agent produces no stdout/stderr and no file edits for the configured span. Set to `0` to disable. |
 | `runTimeoutMs` | unset | Optional whole-run timeout → exit `8`. |
 | `logServerUrl` | `http://127.0.0.1:4310/logs` | Endpoint for preflight + log sends. |
 | `logServerBind` | `127.0.0.1:4310` | Bind address for `jarvis1 log-server`. |

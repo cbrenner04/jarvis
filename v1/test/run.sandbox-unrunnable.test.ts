@@ -550,7 +550,7 @@ echo "done"
       expect(idleRow).toBeUndefined();
     });
 
-    test("idle watchdog disabled when idleOutputTimeoutMs is unset", async () => {
+    test("idle watchdog disabled when idleOutputTimeoutMs is 0", async () => {
       const spec = writeSpec("- [ ] todo\n");
       const cap = captureIo();
       const idleScript = join(projectRoot, "idle-hang.sh");
@@ -600,7 +600,7 @@ while true; do :; done
           weakQuotaExitCodes: [],
           maxIterations: 1,
           iterationTimeoutMs: 3000,
-          // idleOutputTimeoutMs is unset
+          idleOutputTimeoutMs: 0,
           git: true,
           projects: { project: { root: projectRoot } },
         },
@@ -627,6 +627,81 @@ while true; do :; done
         .map((line) => JSON.parse(line) as Record<string, unknown>);
       const idleRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
       expect(idleRow).toBeUndefined();
+    });
+
+    test("idle watchdog armed by default when idleOutputTimeoutMs unset", async () => {
+      const idleTimeoutMs = 1000;
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const idleScript = join(projectRoot, "idle-hang.sh");
+      writeFileSync(
+        idleScript,
+        `#!/usr/bin/env bash
+while true; do :; done
+`,
+      );
+      chmodSync(idleScript, 0o755);
+
+      class IdleAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: idleScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 30000,
+          idleOutputTimeoutMs: idleTimeoutMs,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude: new IdleAgent() },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("[watchdog] idle timeout fired");
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const idleRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
+      expect(idleRow).toBeDefined();
     });
 
     test("idle abort is not classified as quota and does not trigger fallback", async () => {

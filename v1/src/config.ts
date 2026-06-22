@@ -155,6 +155,7 @@ const DEFAULT_CONFIG: Config = {
   weakQuotaExitCodes: [],
   maxIterations: 10,
   iterationTimeoutMs: 30 * 60_000,
+  idleOutputTimeoutMs: 600000,
   logServerUrl: "http://127.0.0.1:4310/logs",
   logServerBind: "127.0.0.1:4310",
   telemetryPath: TELEMETRY_PATH,
@@ -314,12 +315,11 @@ function validateConfig(input: unknown, file: string): Config {
     (message) => fail(file, message),
   );
 
-  let idleOutputTimeoutMs: number | undefined;
-  if (obj.idleOutputTimeoutMs !== undefined) {
-    idleOutputTimeoutMs = validatePositiveInteger(obj.idleOutputTimeoutMs, "idleOutputTimeoutMs", (message) =>
-      fail(file, message),
-    );
-  }
+  const idleOutputTimeoutMs = validateNonNegativeIntegerWithZeroDisable(
+    obj.idleOutputTimeoutMs ?? 600000,
+    "idleOutputTimeoutMs",
+    (message) => fail(file, message),
+  );
 
   let runTimeoutMs: number | undefined;
   if (obj.runTimeoutMs !== undefined) {
@@ -517,7 +517,7 @@ function validateConfig(input: unknown, file: string): Config {
     weakQuotaExitCodes,
     maxIterations,
     iterationTimeoutMs,
-    ...(idleOutputTimeoutMs !== undefined ? { idleOutputTimeoutMs } : {}),
+    ...(idleOutputTimeoutMs !== 600000 ? { idleOutputTimeoutMs } : {}),
     ...(runTimeoutMs !== undefined ? { runTimeoutMs } : {}),
     logServerUrl,
     logServerBind,
@@ -596,6 +596,19 @@ export function validateNonNegativeInteger(
 ): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     failWith(`${name} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function validateNonNegativeIntegerWithZeroDisable(
+  value: unknown,
+  name: string,
+  failWith: (message: string) => never = (message) => {
+    throw new Error(message);
+  },
+): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    failWith(`${name} must be a non-negative integer (0 to disable)`);
   }
   return value;
 }

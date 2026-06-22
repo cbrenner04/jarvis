@@ -576,10 +576,10 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     state.currentController?.abort("iteration-timeout");
   }, cfg.iterationTimeoutMs);
 
-  // Arm idle watchdog if configured
+  // Arm idle watchdog if configured (default 600000 when unset)
   const armedAt = Date.now();
-  const idleOutputTimeoutMs = cfg.idleOutputTimeoutMs;
-  if (idleOutputTimeoutMs !== undefined) {
+  const idleOutputTimeoutMs = cfg.idleOutputTimeoutMs ?? 600000;
+  if (idleOutputTimeoutMs > 0) {
     const scheduleIdleCheck = () => {
       idleTimeoutHandle = setTimeout(() => {
         const snapshotAt = Date.now();
@@ -681,7 +681,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     if (result.kind === "error" && result.stderr.includes("aborted: idle-timeout")) {
       fanout(
         "harness",
-        `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs ?? "?"}ms\n`,
+        `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs}ms\n`,
         "stderr",
       );
       const idleTelemetryRecord: TelemetryRecord = {

@@ -783,10 +783,10 @@ row still includes `last_output_age_ms` and omits `watchdog_pgid` and
 An optional idle-output watchdog bounds iterations by liveness: absence of both
 agent output activity *and* file-system activity in the working tree.
 Configure `idleOutputTimeoutMs` (in milliseconds) to abort an iteration if the
-agent produces no stdout/stderr *and* makes no file edits for that span. Disabled
-by default (when unset). The idle watchdog composes with the wall-clock
-`iterationTimeoutMs`: whichever fires first aborts the iteration; both are armed
-concurrently.
+agent produces no stdout/stderr *and* makes no file edits for that span. Default
+is 600000 (10 minutes); set to `0` to disable. The idle watchdog composes with
+the wall-clock `iterationTimeoutMs`: whichever fires first aborts the iteration;
+both are armed concurrently.
 
 The idle bound resets on every stdout/stderr chunk from the agent *or* file
 modification in the working tree (excluding `.git/` internal changes). File

@@ -516,7 +516,6 @@ function renderIntentNextStepsNoCommit(args: {
   return lines.join("\n");
 }
 
-
 export async function intentCommand(opts: IntentCommandOptions): Promise<number> {
   const args = opts.args ?? [];
   if (args.includes("--help") || args.includes("-h")) {

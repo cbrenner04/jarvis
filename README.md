@@ -403,6 +403,10 @@ details, including cleanup and triage behavior.
 
 Agents working in this repository should also read [AGENTS.md](AGENTS.md).
 
+## Hit a harness gap?
+
+Found friction using Jarvis on another repo? [Submit a harness suggestion](https://github.com/cbrenner04/jarvis/issues/new/choose).
+
 ## Development
 
 This repo is TypeScript on Bun with strict compiler settings and Biome for

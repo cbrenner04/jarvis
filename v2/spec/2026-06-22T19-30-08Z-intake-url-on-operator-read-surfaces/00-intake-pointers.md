@@ -22,9 +22,9 @@ actually touch: `README.md` or `AGENTS.md`/`CLAUDE.md`.
 
 ## Acceptance criteria
 
-- [ ] `README.md` contains a "Hit a harness gap?" pointer whose link is exactly `https://github.com/cbrenner04/jarvis/issues/new/choose`.
-- [ ] `AGENTS.md` contains a pointer directing coding agents to surface harness friction at exactly `https://github.com/cbrenner04/jarvis/issues/new/choose`.
-- [ ] Neither surface restates the submit or triage procedure (no numbered submit/triage steps); each is a thin pointer and `v1/docs/operator-runbook.md` remains the only place carrying the full procedure.
+- [x] `README.md` contains a "Hit a harness gap?" pointer whose link is exactly `https://github.com/cbrenner04/jarvis/issues/new/choose`.
+- [x] `AGENTS.md` contains a pointer directing coding agents to surface harness friction at exactly `https://github.com/cbrenner04/jarvis/issues/new/choose`.
+- [x] Neither surface restates the submit or triage procedure (no numbered submit/triage steps); each is a thin pointer and `v1/docs/operator-runbook.md` remains the only place carrying the full procedure.
 
 ## Documentation updates
 

@@ -46,3 +46,7 @@ Multi-file specs go in `v1/spec/<UTC-timestamp>-<name>/` with an `index.md`. The
 ## PR attribution
 
 Jarvis stamps every commit with a `Jarvis-Agent: <label>` trailer and renders an attribution footer onto draft-PR bodies from them — automatic, not requested of the agent. Mechanics (footer format, plan-mode meta-commit collapsing): [v1/docs/worktrees-and-commits.md](v1/docs/worktrees-and-commits.md).
+
+## Harness friction?
+
+If you hit friction using Jarvis as a coding agent in another repo — a missing feature, a workflow gap, a confusing error — [surface it here](https://github.com/cbrenner04/jarvis/issues/new/choose). This is the official channel for harness suggestions.

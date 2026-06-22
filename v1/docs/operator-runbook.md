@@ -8,10 +8,10 @@ This runbook is **target-agnostic**: Jarvis is the constant; the repo it's point
 
 An observer session is not done when the PRs merge — it's done when the findings and tooling persist. Every session owes:
 
-1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. Keep stuck work moving (diagnose, finalize, or re-queue).
+1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. **Merge by the method you're instructed to use for the session; if no instruction is given, follow the target repo's own merge rules** — don't assume you may admin-merge or self-approve (see [Merging](#merging)). Keep stuck work moving (diagnose, finalize, or re-queue).
 2. **Create wip-intents** in `v2/spec/wip-intents/` for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
 3. **Write a final report** (gitignored local artifact, e.g. `overlord-session-report.md`) covering: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost.
-4. **Maintain this runbook** directly (branch → PR → admin-merge — lighter than the full intent→plan→run pipeline). The user sends this runbook to observers as their onboarding doc, so keep it current and target-agnostic.
+4. **Maintain this runbook** directly (branch → PR → merge per the session/target rules — lighter than the full intent→plan→run pipeline). The user sends this runbook to observers as their onboarding doc, so keep it current and target-agnostic.
 
 ## Background-run-and-poll pattern
 
@@ -56,7 +56,8 @@ git status && git diff                 # inspect worktree state
 bun run ready                          # ← substitute target repo's gate
 git add -A                             # caution: absorbs manual commits; Jarvis owns commits here
 git commit -m "<message>"
-gh pr ready && gh pr merge --admin     # ready first — admin-merge refuses a draft
+gh pr ready                            # un-draft, then merge per the session/target rules
+# Jarvis-on-Jarvis example: gh pr merge --admin --squash  (ready first — admin refuses a draft)
 ```
 
 Common cases:
@@ -64,7 +65,7 @@ Common cases:
 - **Transient-killed plan.** A plan that died on a transient agent-error leaves a dirty plan worktree. If the review actuator had already finished (verdict file written, subspec edits applied) and only the commit/index-reconcile was lost, **reconcile the `index.md` to match the subspecs the actuator created, then commit** — cheaper and more deterministic than re-running the review pass. If the edits look truncated, discard and re-resume instead.
 - **Flaky parallel-load failure.** Tests that pass serially/in-isolation but fail under `--parallel` are load flakes — re-run the failing test(s) in isolation; if green, finalize.
 
-Admin-merge skips approval and CI gating but **not** local verification — always run the target's gate before merging.
+No merge method substitutes for local verification — always run the target's gate before merging (admin-merge in particular skips approval and CI gating).
 
 ## Sandbox blindness and false-negatives
 
@@ -81,12 +82,18 @@ The sandbox (e.g. in Claude Code) can hide real state:
 
 `gh`/`git` network calls, `localhost` requests, and auth/keychain reads may fail *inside* the sandbox with TLS-cert or permission errors that are **false negatives**. Re-run the same command sandbox-off before debugging — if it succeeds there, the sandbox was the cause.
 
-## Branch-protection and admin-merge workflow
+## Merging
 
-The target repo may enforce branch protection (`main` requires approval + passing CI) with no self-approval. Workflow:
+**Default rule: merge the way you're told to for the session. Absent any instruction, follow the target repo's own merge rules** — its branch protection, required approvals/reviewers, and CI gates. Do **not** assume admin-merge or self-approval is available; on most repos it isn't, and an observer is not the owner. When the rules are unclear or block you, surface it rather than forcing a merge.
+
+The admin-merge path below is the **Jarvis-on-Jarvis convention only**: a single owner-operator repo where the owner has explicitly authorized `--admin` to bypass the no-self-approval rule. It does not generalize.
+
+### Admin-merge (Jarvis-on-Jarvis, owner-operated)
+
+`main` enforces branch protection (approval + passing CI) with no self-approval, so the owner authorizes admin-merge:
 
 1. Spec complete (all acceptance criteria ticked) → Jarvis flips the draft PR to `ready` (or the observer runs `gh pr ready`).
-2. Run the target's gate locally to verify lint/type/test pass (admin-merge does **not** re-verify).
+2. Run the gate locally to verify lint/type/test pass (admin-merge does **not** re-verify).
 3. `gh pr merge --admin --squash` overrides the approval/up-to-date requirement and merges directly.
 
 A `mergeStateStatus` of `BLOCKED` typically means branch-protection only (admin overrides); `DIRTY` means a real conflict to resolve first; `BEHIND` is mergeable via admin.

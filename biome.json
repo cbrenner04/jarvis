@@ -27,7 +27,13 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true
+      "recommended": true,
+      "style": {
+        "noNonNullAssertion": {
+          "level": "warn",
+          "fix": "none"
+        }
+      }
     }
   },
   "assist": {

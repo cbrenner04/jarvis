@@ -158,7 +158,7 @@ Merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. 
 ## The gate
 
 - **`bun run ready`** — the full completion gate (typecheck + lint + tests, with a serial retry on parallel-test failure). Jarvis runs this automatically on spec completion; the observer runs it before any hand/admin-merge.
-- **`check:fix`** (safe Biome fixes) leaves residual `noExplicitAny`/unused-var/non-null issues; **`check:fix:unsafe`** applies the riskier fixes and runs in the full ready tier before the final `check` lint.
+- **`check:fix`** (safe Biome fixes) leaves residual `noExplicitAny`/unused-var/non-null issues; **`check:fix:unsafe`** applies the riskier fixes and runs in the full ready tier before the final `check` lint. `noNonNullAssertion` has `fix: "none"` in `biome.json` (level retained at `warn`) — it is not rewritten by `check:fix:unsafe` because its autofix rewrites `!` to `?.`, which is `T | undefined` under `noUncheckedIndexedAccess` and fails the subsequent `typecheck` step.
 - **`bun run typecheck`** is a separate gate (TS compiler; `noImplicitAny` lives in `tsconfig.json`, not Biome).
 - Tests that spawn real processes live in `*.sandbox-unrunnable.test.ts` files and only run **sandbox-off**.
 

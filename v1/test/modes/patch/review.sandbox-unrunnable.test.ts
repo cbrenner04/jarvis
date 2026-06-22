@@ -864,31 +864,12 @@ while true; do :; done
   });
 
   test("invokes readyCommand at review baseline gate site", async () => {
-    const parent = mkdtempSync(join(tmpdir(), "jarvis-review-baseline-ready-cmd-"));
-    const repoDir = join(parent, "repo");
-    const originDir = join(parent, "origin.git");
-    mkdirSync(repoDir);
-    execSync(`git init --bare ${originDir}`);
-    execSync("git init -b main", { cwd: repoDir });
-    execSync("git config user.email 'test@example.com'", { cwd: repoDir });
-    execSync("git config user.name 'Test User'", { cwd: repoDir });
-    execSync(`git remote add origin ${originDir}`, { cwd: repoDir });
-    const specDir = join(repoDir, "spec", "feature");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "index.md");
-    writeFileSync(specPath, "# Feature\n\n- [x] [00](./00-one.md)\n");
-    writeFileSync(join(specDir, "00-one.md"), "# 00\n\n## Acceptance criteria\n\n- [x] done\n");
-    writeFileSync(join(repoDir, "impl.txt"), "seed\n");
-    execSync("git add -A", { cwd: repoDir });
-    execSync("git commit -m 'seed'", { cwd: repoDir });
-    execSync("git push -u origin main", { cwd: repoDir });
-
-    // Sentinel lives outside the git repo so the tree stays clean after the script runs
-    const sentinel = join(parent, "baseline-invoked");
-    const script = join(parent, "ready.sh");
+    const { dir: repoDir, specPath, cleanup } = setupPatchReviewRepo();
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-review-baseline-ready-cmd-"));
+    const sentinel = join(sentinelDir, "baseline-invoked");
+    const script = join(sentinelDir, "ready.sh");
     writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
     chmodSync(script, 0o755);
-
     try {
       const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
       const code = await runPatchReviewPhase({
@@ -908,36 +889,18 @@ while true; do :; done
       expect(code).toBe(0);
       expect(existsSync(sentinel)).toBe(true);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      rmSync(sentinelDir, { recursive: true, force: true });
+      cleanup();
     }
   });
 
   test("invokes readyCommand at review final gate site", async () => {
-    const parent = mkdtempSync(join(tmpdir(), "jarvis-review-final-ready-cmd-"));
-    const repoDir = join(parent, "repo");
-    const originDir = join(parent, "origin.git");
-    mkdirSync(repoDir);
-    execSync(`git init --bare ${originDir}`);
-    execSync("git init -b main", { cwd: repoDir });
-    execSync("git config user.email 'test@example.com'", { cwd: repoDir });
-    execSync("git config user.name 'Test User'", { cwd: repoDir });
-    execSync(`git remote add origin ${originDir}`, { cwd: repoDir });
-    const specDir = join(repoDir, "spec", "feature");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "index.md");
-    writeFileSync(specPath, "# Feature\n\n- [x] [00](./00-one.md)\n");
-    writeFileSync(join(specDir, "00-one.md"), "# 00\n\n## Acceptance criteria\n\n- [x] done\n");
-    writeFileSync(join(repoDir, "impl.txt"), "seed\n");
-    execSync("git add -A", { cwd: repoDir });
-    execSync("git commit -m 'seed'", { cwd: repoDir });
-    execSync("git push -u origin main", { cwd: repoDir });
-
-    // Sentinel lives outside the git repo
-    const sentinel = join(parent, "final-invoked");
-    const script = join(parent, "ready.sh");
+    const { dir: repoDir, specPath, cleanup } = setupPatchReviewRepo();
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-review-final-ready-cmd-"));
+    const sentinel = join(sentinelDir, "final-invoked");
+    const script = join(sentinelDir, "ready.sh");
     writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
     chmodSync(script, 0o755);
-
     try {
       const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "No issues", stderr: "" }));
       // runBaselineGate stubbed; runFinalGate NOT provided — real gate runs with readyCommand
@@ -960,7 +923,8 @@ while true; do :; done
       expect(code).toBe(1);
       expect(existsSync(sentinel)).toBe(true);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      rmSync(sentinelDir, { recursive: true, force: true });
+      cleanup();
     }
   });
 });

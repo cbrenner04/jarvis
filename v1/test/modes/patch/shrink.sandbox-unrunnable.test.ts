@@ -543,31 +543,12 @@ while true; do :; done
   });
 
   test("invokes readyCommand at pre-shrink gate site", async () => {
-    const parent = mkdtempSync(join(tmpdir(), "jarvis-shrink-ready-cmd-"));
-    const repoDir = join(parent, "repo");
-    const originDir = join(parent, "origin.git");
-    mkdirSync(repoDir);
-    execSync(`git init --bare ${originDir}`);
-    execSync("git init -b main", { cwd: repoDir });
-    execSync("git config user.email 'test@example.com'", { cwd: repoDir });
-    execSync("git config user.name 'Test User'", { cwd: repoDir });
-    execSync(`git remote add origin ${originDir}`, { cwd: repoDir });
-    const specDir = join(repoDir, "spec", "feature");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "index.md");
-    writeFileSync(specPath, "# Feature\n\n- [x] [00](./00-one.md)\n");
-    writeFileSync(join(specDir, "00-one.md"), "# 00\n\n## Acceptance criteria\n\n- [x] done\n");
-    writeFileSync(join(repoDir, "impl.txt"), "seed\n");
-    execSync("git add -A", { cwd: repoDir });
-    execSync("git commit -m 'seed'", { cwd: repoDir });
-    execSync("git push -u origin main", { cwd: repoDir });
-
-    // Sentinel lives outside the git repo so the tree stays clean after the script runs
-    const sentinel = join(parent, "ready-invoked");
-    const script = join(parent, "ready.sh");
+    const { dir: repoDir, specPath, cleanup } = setupShrinkRepo();
+    const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-shrink-ready-cmd-"));
+    const sentinel = join(sentinelDir, "ready-invoked");
+    const script = join(sentinelDir, "ready.sh");
     writeFileSync(script, `#!/bin/sh\ntouch "${sentinel}"\n`);
     chmodSync(script, 0o755);
-
     const harness: string[] = [];
     try {
       const agent = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
@@ -587,7 +568,8 @@ while true; do :; done
       });
       expect(existsSync(sentinel)).toBe(true);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      rmSync(sentinelDir, { recursive: true, force: true });
+      cleanup();
     }
   });
 });

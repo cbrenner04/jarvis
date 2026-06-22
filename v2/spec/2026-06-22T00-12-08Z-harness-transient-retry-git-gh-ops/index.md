@@ -8,7 +8,7 @@ not: a complete, reviewed run died because `gh pr ready` hit a TLS handshake
 timeout at the finish line. Reuse the shipped classifier + a bounded retry on
 the harness's own git/gh calls; keep permanent failures fast-failing.
 
-- [ ] [00 - Bounded transient retry inside the gh chokepoint](./00-gh-chokepoint-retry.md)
+- [x] [00 - Bounded transient retry inside the gh chokepoint](./00-gh-chokepoint-retry.md)
 - [ ] [01 - Bounded transient retry on the sync git push / gh pr ready ops](./01-sync-git-gh-retry.md)
 
 Scope is deliberately narrowed to the harness's own network ops: `runGhCommand`,

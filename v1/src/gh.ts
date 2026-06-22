@@ -1,8 +1,20 @@
 import { type SpawnOptions, spawn } from "node:child_process";
+import { isTransientNetworkError } from "./agents/quota.ts";
+import { harnessGitGhTransientRetryLine } from "./quota-harness-messages.ts";
 
 type SpawnFn = typeof spawn;
 
-export async function runGhCommand(
+const GH_RETRY_CAP = 3; // 3 total invocations (2 re-attempts)
+const GH_RETRY_BACKOFF_MS = 1000;
+
+export type GhCommandOptions = {
+  spawnImpl?: SpawnFn;
+  sleepMs?: (ms: number) => Promise<void>;
+  onRetry?: (line: string) => void;
+  op?: string; // operation label for messages, e.g. "gh auth status"
+};
+
+async function runGhCommandOnce(
   args: string[],
   cwd?: string,
   spawnImpl: SpawnFn = spawn,
@@ -62,6 +74,51 @@ export async function runGhCommand(
       });
     });
   });
+}
+
+async function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function runGhCommand(
+  args: string[],
+  cwd?: string,
+  optsOrSpawn?: GhCommandOptions | SpawnFn,
+): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}> {
+  let opts: GhCommandOptions;
+
+  // Support both old API (third param is SpawnFn) and new API (third param is GhCommandOptions)
+  if (typeof optsOrSpawn === "function") {
+    opts = { spawnImpl: optsOrSpawn };
+  } else {
+    opts = optsOrSpawn ?? {};
+  }
+
+  const { spawnImpl = spawn, sleepMs = defaultSleep, onRetry, op } = opts;
+
+  let lastResult = await runGhCommandOnce(args, cwd, spawnImpl);
+
+  let attempt = 1;
+  while (lastResult.exitCode !== 0 && isTransientNetworkError(lastResult.exitCode, lastResult.stderr)) {
+    if (attempt >= GH_RETRY_CAP) {
+      break;
+    }
+
+    attempt++;
+
+    if (onRetry) {
+      onRetry(harnessGitGhTransientRetryLine(op || "gh", attempt, GH_RETRY_CAP));
+    }
+
+    await sleepMs(GH_RETRY_BACKOFF_MS);
+    lastResult = await runGhCommandOnce(args, cwd, spawnImpl);
+  }
+
+  return lastResult;
 }
 
 export async function assertGhReady(): Promise<void> {

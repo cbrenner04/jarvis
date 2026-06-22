@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeCost } from "../src/prices/cost.ts";
-import type { Prices } from "../src/prices/load.ts";
 import {
   listChangedCodexSessionFiles,
   parseCodexSessionUsage,
@@ -12,6 +10,8 @@ import {
   sessionFileCwdsCompatible,
   snapshotCodexSessionFiles,
 } from "../src/agents/codex-session.ts";
+import { computeCost } from "../src/prices/cost.ts";
+import type { Prices } from "../src/prices/load.ts";
 
 function withTempDir(fn: (dir: string) => void): void {
   const dir = mkdtempSync(join(tmpdir(), "jarvis-codex-session-"));

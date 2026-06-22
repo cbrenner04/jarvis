@@ -95,7 +95,6 @@ const sharedTransportPatterns = [
 const harnessGitGhTransportPatterns = [
   /\bTLS handshake timeout\b/i,
   /\bcould not resolve host\b/i,
-  /\boperation timed out\b/i,
   /\btimed out\b/i,
   /\bSSL_ERROR\b/i,
   /\bSSL error\b/i,

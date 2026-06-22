@@ -80,6 +80,10 @@ async function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function defaultOnRetry(line: string): void {
+  process.stderr.write(line + "\n");
+}
+
 export async function runGhCommand(
   args: string[],
   cwd?: string,
@@ -98,7 +102,7 @@ export async function runGhCommand(
     opts = optsOrSpawn ?? {};
   }
 
-  const { spawnImpl = spawn, sleepMs = defaultSleep, onRetry, op } = opts;
+  const { spawnImpl = spawn, sleepMs = defaultSleep, onRetry = defaultOnRetry, op } = opts;
 
   let lastResult = await runGhCommandOnce(args, cwd, spawnImpl);
 
@@ -110,9 +114,7 @@ export async function runGhCommand(
 
     attempt++;
 
-    if (onRetry) {
-      onRetry(harnessGitGhTransientRetryLine(op || "gh", attempt, GH_RETRY_CAP));
-    }
+    onRetry(harnessGitGhTransientRetryLine(op || "gh", attempt, GH_RETRY_CAP));
 
     await sleepMs(GH_RETRY_BACKOFF_MS);
     lastResult = await runGhCommandOnce(args, cwd, spawnImpl);
@@ -122,7 +124,7 @@ export async function runGhCommand(
 }
 
 export async function assertGhReady(): Promise<void> {
-  const result = await runGhCommand(["auth", "status"]);
+  const result = await runGhCommand(["auth", "status"], undefined, { op: "gh auth status" });
   if (result.exitCode !== 0) {
     let errorMessage = "gh: not authenticated or not installed. Run `gh auth login` to proceed.";
     if (result.stderr.length > 0) {
@@ -136,6 +138,7 @@ export async function getBaseBranch(cwd?: string): Promise<string> {
   const result = await runGhCommand(
     ["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
     cwd,
+    { op: "gh repo view" },
   );
   if (result.exitCode !== 0) {
     const errorMessage = result.stderr || result.stdout;
@@ -145,7 +148,14 @@ export async function getBaseBranch(cwd?: string): Promise<string> {
 }
 
 export async function postPrComment(prNumber: number, body: string, cwd?: string): Promise<void> {
-  const result = await runGhCommand(["pr", "comment", String(prNumber), "--body", body], cwd);
+  // Note: `gh pr comment` retries on transient failures but has no guard against
+  // duplicate-on-retry (lost-ack case). Unlike `gh pr ready` which signals "already ready",
+  // a re-posted comment is cosmetic and does not kill the run, so this is accepted.
+  const result = await runGhCommand(
+    ["pr", "comment", String(prNumber), "--body", body],
+    cwd,
+    { op: "gh pr comment" },
+  );
   if (result.exitCode !== 0) {
     const errorMessage = result.stderr || result.stdout;
     throw new Error(`failed to post PR comment: ${errorMessage.trim()}`);
@@ -161,6 +171,10 @@ function defaultSleepSync(ms: number): void {
   }
 }
 
+function defaultOnRetrySync(line: string): void {
+  process.stderr.write(line + "\n");
+}
+
 export type SyncTransientRetryOptions = {
   op: string; // operation label for messages, e.g. "git push" or "gh pr ready"
   sleepSync?: (ms: number) => void;
@@ -169,7 +183,7 @@ export type SyncTransientRetryOptions = {
 };
 
 export function withSyncTransientRetry(thunk: () => void, opts: SyncTransientRetryOptions): void {
-  const { op, sleepSync = defaultSleepSync, onRetry, isPrReady = false } = opts;
+  const { op, sleepSync = defaultSleepSync, onRetry = defaultOnRetrySync, isPrReady = false } = opts;
 
   let lastError: Error | null = null;
   let attempt = 1;
@@ -180,8 +194,18 @@ export function withSyncTransientRetry(thunk: () => void, opts: SyncTransientRet
       return;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      const stderr = lastError.message;
-      const exitCode = -1; // execFileSync errors don't have status; treat as -1
+      // Extract stderr: check if error has .stderr Buffer property, otherwise use message
+      let stderr = "";
+      if (
+        typeof lastError === "object" &&
+        "stderr" in lastError &&
+        Buffer.isBuffer((lastError as { stderr: unknown }).stderr)
+      ) {
+        stderr = (lastError as { stderr: Buffer }).stderr.toString("utf8");
+      } else {
+        stderr = lastError.message;
+      }
+      const exitCode = (lastError as any).status ?? -1;
 
       // For gh pr ready, treat "already ready" as success (lost-ack case)
       if (isPrReady && (/\balready ready\b/i.test(stderr) || /\bnot a draft\b/i.test(stderr))) {
@@ -200,9 +224,7 @@ export function withSyncTransientRetry(thunk: () => void, opts: SyncTransientRet
 
       attempt++;
 
-      if (onRetry) {
-        onRetry(harnessGitGhTransientRetryLine(op, attempt, GH_RETRY_CAP));
-      }
+      onRetry(harnessGitGhTransientRetryLine(op, attempt, GH_RETRY_CAP));
 
       sleepSync(GH_RETRY_BACKOFF_MS);
     }

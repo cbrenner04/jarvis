@@ -10,7 +10,7 @@ That defeats the intent's goal: a quota-offload switch to codex shows no per-run
 
 Add a `gpt-5.3-codex` entry to `data/prices.json` keyed exactly as `resolveCodexPriceKey` returns — rules out relying on the existing `"GPT-5.3 Codex"` Cursor label, which the codex adapter never looks up.
 Entry must include `cache_read_per_mtok` strictly below `input_per_mtok` so cached tokens (after subspec 00) are discounted, matching every other priced model.
-Rates and `source_url`/`as_of` come from official OpenAI gpt-5.3-codex pricing. `Deferred to first consumer: exact per-mtok rates — pin from the OpenAI pricing page at implementation time.`
+Pin exact per-mtok rates from the cited official OpenAI gpt-5.3-codex pricing page at implementation time (not deferred — `computeCost` is live and needs real rates the instant the row lands; the `cache_read < input` AC would pass on placeholder numbers, so it cannot stand in for correct rates). Rates must come from OpenAI's official page, not the on-disk `"GPT-5.3 Codex"` Cursor row: Cursor is a reseller whose rates may be marked up or repackaged, whereas the codex adapter bills against OpenAI directly. Record `source_url`/`as_of` from that page.
 
 ## Task checklist
 

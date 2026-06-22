@@ -17,6 +17,7 @@ Jarvis-on-Jarvis overlord run: drove the wip-intent queue through plan→run→m
 ## #390 — hand-debugged (operator recovery, authorized)
 
 Parked mid-session (review-actuator idle-watchdog test red); a haiku fix-up only reformatted it. Root-caused two bugs:
+
 1. **Production:** idle abort threw `ReviewTerminalError(-1)`, propagating past the `idleTimeoutOccurred → return 8` return-path check; and the actuator wrote telemetry via `opts.writeTelemetry` (not the `trackingWriteTelemetry` wrapper that sets the flag). Fix: set the flag in the actuator's idle branch + honor it in the catch.
 2. **Test fixture:** hang script lived untracked inside the repo → review's reviewer-edit revert (`git clean -fd`) removed it before the actuator spawned (ENOENT). Moved outside the repo tree.
 
@@ -31,9 +32,29 @@ Merged main (one `v1-behaviors.md` conflict, kept both serial-retry + complete-b
 - **Spec quality was consistently high.** Plan-mode (opus) produced atomic, well-grounded specs with explicit "rules out" rationale; review passes mostly made no changes. The grounding caught real subtleties (async vs sync sleep seam, coverage-based not extension-based doc-only-skip, label-prerequisite sequencing).
 - **Recurring git hygiene:** `gh pr merge --delete-branch` fails to delete the local branch while its worktree exists — harmless (remote deleted), cleaned up with explicit `git worktree remove` after.
 
-## Cost (2026-06-22 day total, all runs)
+## Cost / tokens / timing breakdown
 
-~$59.54 across plan + run telemetry (includes pre-compaction finalize/transient/codex work). Per-intent plan+impl ran ~$5–9; the costliest single run was flaky-serial plan ($4.76, deep adversary engagement on the open-ended design choice).
+*Final successful plan+run per intent (plans opus; runs haiku actuator). Cost/tokens/time from each run's summary stdout.*
+
+| Intent | Plan (model · $ · time) | Run (model · $ · time) | Tokens in→out (plan / run) |
+| --- | --- | --- | --- |
+| correct-agent-default-models | opus · $2.47 · 7m | haiku · $2.27 · 22m | 13k→20k / 8k→31k |
+| agent-transient-retry-backoff | opus · $2.72 · 7m | haiku · $2.46 · 28m | 13k→23k / 8k→51k |
+| flaky-serial-retry-mid-work | opus · $4.76 · 13m | haiku · $3.99 · 46m¹ | 13k→42k / 9k→89k |
+| intent-split-emit-contract | opus · $3.03 · 8m | haiku · $3.34 · 36m² | 13k→27k / 8k→85k |
+| intent-pr-auto-ready | opus · $2.78 · 7m | haiku · $3.64 · 36m¹ | 16k→17k / 6k→81k |
+| harness-suggestion-intake | opus · $2.17 · 7m | haiku · $1.46 · 16m | 12k→19k / 8k→23k |
+| finalize-complete-but-dirty (#390) | opus · — (prior session) | haiku · ~$6.75³ · — | — / — |
+
+¹ Includes a ~23-min review-actuator stall killed only by the blunt 30-min iteration timeout (no idle watchdog on the running harness — the very thing #390 fixes).
+² Run first errored on a `check:fix:unsafe`-induced typecheck failure (the `noNonNullAssertion` trap, [[check-fix-unsafe-rewrites-nonnull-assertions]]); resolved by an operator gate-compat fix + finalize re-run.
+³ #390's plan was prior-session; this is the `finalize-complete-but-dirty-run` namespace total across re-drives (original stalled run that was killed, the gate-red finalize, and the post-watchdog-fix finalize) plus operator hand-debug. The standalone pre-compaction finalize run was $4.05 (exited agent-error). Hand-finalized.
+
+**Jarvis telemetry spend (2026-06-22):** ~$59.54 across all plan+run summaries in `runs.jsonl` (includes the pre-compaction harness-transient / codex-path-cache / finalize work and all re-runs). Per-intent plan+impl landed ~$4–9.
+
+### Overlord session (this Claude) — separate
+
+The overlord/observer session cost is tracked by Claude Code's own `/cost`, not in `runs.jsonl`, and runs on top of the telemetry spend above (it was unavailable to capture inline this session). Per the prior overlord report, it's typically comparable to the Jarvis telemetry total.
 
 ## Open for the operator
 

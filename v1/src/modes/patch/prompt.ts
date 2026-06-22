@@ -122,7 +122,7 @@ export function buildFixupPrompt(specPath: string, failureText: string, siblings
     "",
     failureText.trim(),
     "",
-    "Fix the cause of this `bun run ready` failure. Do not edit the spec checklist; all boxes are already ticked.",
+    "Fix the cause of this completion ready gate failure. Do not edit the spec checklist; all boxes are already ticked.",
     "",
   ].join("\n");
   return `${preamble}\n${base}`;

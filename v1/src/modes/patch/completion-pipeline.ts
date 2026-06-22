@@ -267,7 +267,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         const worktreeName = basename(preflight.agentWorkingDir);
         logging.fanout(
           "harness",
-          `bun run ready failed:\n${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          `${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
           "stderr",
         );
         logging.writeTelemetry({
@@ -300,7 +300,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         const worktreeName = basename(preflight.agentWorkingDir);
         logging.fanout(
           "harness",
-          `bun run ready failed:\n${gateResult.failureText}\n\nThe ready gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations with no acceptance criteria progress and the failure differed each pass. The issue persists without convergence.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          `${gateResult.failureText}\n\nThe ready gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations with no acceptance criteria progress and the failure differed each pass. The issue persists without convergence.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
           "stderr",
         );
         logging.writeTelemetry({

@@ -1577,7 +1577,9 @@ describe("plan flags", () => {
     );
     expect(() => loadConfig({ dir })).toThrow(/myproject/);
     expect(() => loadConfig({ dir })).toThrow(/oringn/);
-    expect(() => loadConfig({ dir })).toThrow(/root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand/);
+    expect(() => loadConfig({ dir })).toThrow(
+      /root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand/,
+    );
   });
 
   test("rejects unknown keys under project.plan", () => {

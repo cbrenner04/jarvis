@@ -483,7 +483,15 @@ function validateConfig(input: unknown, file: string): Config {
       project.readyCommand = readyCommandRaw;
     }
     // Strict keys validation for project object
-    const allowedProjectKeys = new Set(["root", "origin", "git", "siblings", "plan", "updateSnapshotsCommand", "readyCommand"]);
+    const allowedProjectKeys = new Set([
+      "root",
+      "origin",
+      "git",
+      "siblings",
+      "plan",
+      "updateSnapshotsCommand",
+      "readyCommand",
+    ]);
     const projectObj = value as Record<string, unknown>;
     for (const key of Object.keys(projectObj)) {
       if (!allowedProjectKeys.has(key)) {

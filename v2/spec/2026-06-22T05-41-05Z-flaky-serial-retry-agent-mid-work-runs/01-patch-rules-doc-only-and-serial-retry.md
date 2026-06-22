@@ -58,21 +58,21 @@ change.
 
 ## Acceptance criteria
 
-- [ ] `prompts/patch/rules.md` (`patch.rules`) instructs the agent to skip
+- [x] `prompts/patch/rules.md` (`patch.rules`) instructs the agent to skip
       `bun run test` only when the iteration changed nothing under a tested path
       (no source, test, prompt fragment, or fixture — only human-facing prose),
       defined by coverage and not by file extension.
-- [ ] `prompts/patch/rules.md` instructs the agent, on a `bun run test` failure,
+- [x] `prompts/patch/rules.md` instructs the agent, on a `bun run test` failure,
       to re-run once serially (`bun test` without `--parallel`) before treating
       the failure as real or grounding a blocker, and to treat only a
       serially-reproducing failure as real.
-- [ ] `patch.rules` and `patch.prompt.body` revision markers are bumped; the
+- [x] `patch.rules` and `patch.prompt.body` revision markers are bumped; the
       rendered shared + codex-wrapper fixtures under
       `v1/test/fixtures/prompts/rendered/` are regenerated for the new revision.
-- [ ] `v1/test/prompts/rendered-snapshots.test.ts` asserts the new
+- [x] `v1/test/prompts/rendered-snapshots.test.ts` asserts the new
       `patch.prompt.body` revision and stays green; `v1/test/prompt.test.ts`
       (patch prompt contains the rules body) stays green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

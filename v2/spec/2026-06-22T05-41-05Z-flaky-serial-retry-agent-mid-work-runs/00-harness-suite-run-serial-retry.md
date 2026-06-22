@@ -81,26 +81,26 @@ guidance.
 
 ## Acceptance criteria
 
-- [ ] When `runBaseRefTests`' `bun run test` exits non-zero, the runner re-runs
+- [x] When `runBaseRefTests`' `bun run test` exits non-zero, the runner re-runs
       the suite serially (`bun test`) exactly once; serial-green is reported as
       base-green, serial-red as base-non-green.
-- [ ] When `runSnapshotUpdateRetest`' re-test exits non-zero, the runner re-runs
+- [x] When `runSnapshotUpdateRetest`' re-test exits non-zero, the runner re-runs
       the suite serially (`bun test`) exactly once; serial-green is reported as
       retest-green, serial-red as retest-non-green.
-- [ ] A failure in a non-test step (git setup in base-ref; the update-snapshots
+- [x] A failure in a non-test step (git setup in base-ref; the update-snapshots
       command in snapshot retest) returns non-green immediately with no serial
       re-run.
-- [ ] Each runner emits all three operator signals: a retry-starting line, a
+- [x] Each runner emits all three operator signals: a retry-starting line, a
       recovered line on parallel-red → serial-green, and a serial-still-failed
       line on parallel-red → serial-red.
-- [ ] Both runners accept an injectable test-invocation command (`runCommandFn`-
+- [x] Both runners accept an injectable test-invocation command (`runCommandFn`-
       style); `v1/test/snapshot-update-retest-runner.test.ts` and the base-ref
       runner coverage drive serial-green-recovers and serial-red-still-fails
       through that seam.
-- [ ] Existing `runBaseRefTests`/`runSnapshotUpdateRetest` blocker-validation
+- [x] Existing `runBaseRefTests`/`runSnapshotUpdateRetest` blocker-validation
       behavior is otherwise unchanged: `run.test.ts` blocker base-ref and
       snapshot-churn tests stay green.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

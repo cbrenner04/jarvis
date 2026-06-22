@@ -172,10 +172,7 @@ export type SyncTransientRetryOptions = {
   isPrReady?: boolean; // when true, "already ready" stderr resolves as success
 };
 
-export function withSyncTransientRetry(
-  thunk: () => void,
-  opts: SyncTransientRetryOptions,
-): void {
+export function withSyncTransientRetry(thunk: () => void, opts: SyncTransientRetryOptions): void {
   const { op, sleepSync = defaultSleepSync, onRetry, isPrReady = false } = opts;
 
   let lastError: Error | null = null;

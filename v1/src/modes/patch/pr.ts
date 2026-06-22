@@ -3,10 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
+import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
 import { generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS } from "../../pr-shared.ts";
-import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import {
   type ReadyTier,
   type RunReadyAndCommitOpts,
@@ -219,14 +219,11 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
   };
 
   const retryGhPrReady = (branch: string, cwd: string) => {
-    withSyncTransientRetry(
-      () => realGhPrReady(branch, cwd),
-      {
-        op: "gh pr ready",
-        isPrReady: true,
-        ...opts.ghPrReadyRetryOpts,
-      },
-    );
+    withSyncTransientRetry(() => realGhPrReady(branch, cwd), {
+      op: "gh pr ready",
+      isPrReady: true,
+      ...opts.ghPrReadyRetryOpts,
+    });
   };
 
   // Run ready at the tier selected from the recorded green carrier, then flip draft→ready.

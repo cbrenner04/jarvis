@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { runGhCommand, type GhCommandOptions, withSyncTransientRetry, type SyncTransientRetryOptions } from "../src/gh.ts";
+import { runGhCommand, withSyncTransientRetry } from "../src/gh.ts";
 
 function fakeSpawnEmittingError(err: NodeJS.ErrnoException): unknown {
   return () => {
@@ -239,7 +239,7 @@ describe("runGhCommand retry on transient errors", () => {
       { exitCode: 0, stdout: "success" },
     ]) as any;
 
-    const result = await runGhCommand(["auth", "status"], undefined, {
+    const _result = await runGhCommand(["auth", "status"], undefined, {
       spawnImpl: fakeSpawn,
       sleepMs: async (ms: number) => {
         sleepCalls.push(ms);
@@ -261,7 +261,7 @@ describe("runGhCommand retry on transient errors", () => {
       { exitCode: 0, stdout: "success" },
     ]) as any;
 
-    const result = await runGhCommand(["gh", "auth", "status"], undefined, {
+    const _result = await runGhCommand(["gh", "auth", "status"], undefined, {
       spawnImpl: fakeSpawn,
       sleepMs: async () => {},
       onRetry: (line: string) => {

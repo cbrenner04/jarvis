@@ -2,11 +2,11 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
+import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import type { CommitInfo } from "../../pr.ts";
 import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, readBranchCommits } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
 import { generateNarrativeViaAgent } from "../../pr-shared.ts";
-import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import { type ReadyTier, runReadyAndCommit } from "../../ready-gate.ts";
 import { buildPrDescriptionPrompt } from "./pr-description-prompt.ts";
 
@@ -329,14 +329,11 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
   };
 
   const retryGhPrReady = (branch: string, cwd: string) => {
-    withSyncTransientRetry(
-      () => realGhPrReady(branch, cwd),
-      {
-        op: "gh pr ready",
-        isPrReady: true,
-        ...opts.ghPrReadyRetryOpts,
-      },
-    );
+    withSyncTransientRetry(() => realGhPrReady(branch, cwd), {
+      op: "gh pr ready",
+      isPrReady: true,
+      ...opts.ghPrReadyRetryOpts,
+    });
   };
 
   runReadyAndCommit({

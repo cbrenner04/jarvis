@@ -280,7 +280,8 @@ export function pushCurrent(opts: PushCurrentOptions | { cwd: string; firstPush:
 
   const args = firstPush ? ["push", "-u", "origin", getCurrentBranch(cwd)] : ["push"];
 
-  const realExecSync = execSync ||
+  const realExecSync =
+    execSync ||
     (() => {
       execFileSync("git", args, {
         cwd,

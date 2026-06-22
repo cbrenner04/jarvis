@@ -17,20 +17,34 @@ the telemetry line and emits the summary on both success termini.
 - Call `extractUsageAndCost(result, agent.name, configuredModel)` on the
   successful `ok` result (as `patch`/`plan` do) and write its
   `usage`/`usage_source`/`cost_usd`/`cost_source` onto the telemetry record.
+  The `ok` `result` is currently loop-scoped (run.ts:279); hoist it (or the
+  extracted fields) out of the agent loop so the success termini can read it.
   Rules out: hand-rolling usage extraction or shipping the summary without cost
   data.
 - Telemetry must be appended **before** `promptSummary` reads it, since the
-  builder reads the JSONL file. Move the success-path telemetry write ahead of
-  the summary emit and ensure the `finally` block does not double-write the same
-  row. Rules out: leaving the write in `finally` (summary would render
-  `(no telemetry records found)`), and leaving a duplicate row (would inflate
-  the attempt count and cost table).
+  builder reads the JSONL file. Write the enriched row **at each success
+  terminus** (no-diff `return 0` ~381 and post-PR `return 0` ~443), ahead of the
+  summary emit. Guard the `finally` write (run.ts:~456) with a write-once flag
+  so it fires only when no terminus already wrote — failure paths (`return 1`)
+  still emit exactly one row through `finally`. Rules out: leaving the write in
+  `finally` (summary would render `(no telemetry records found)`), and leaving a
+  duplicate row (would inflate the attempt count and cost table).
+- Capture diff-path duration **after** `gh pr create` at the terminus,
+  preserving today's `Date.now() - runStartedMs` wall-clock semantics (currently
+  computed in `finally` ~452, after commit/push/PR). Rules out: capturing
+  duration before PR creation, which would understate `duration:` by the
+  git/push/gh time.
 - Error/quota/timeout and commit/push/PR-failure paths keep their existing
   telemetry write and exit codes unchanged — summary is emitted only on the
   two success termini (exit 0). Rules out: emitting a summary on failure exits.
 - Capture `gh pr create` stdout (it prints the PR URL) and surface the URL in
-  the outcome line. Rules out: opening the PR without telling the operator where
-  it landed.
+  the outcome line. The call passes `stdio: "pipe"` but no `encoding`
+  (run.ts:~435), so its return is not a string today; add `encoding: "utf8"` and
+  trim to obtain the URL. Rules out: opening the PR without telling the operator
+  where it landed.
+- No-diff path stdout order: agent output first (`opts.io.stdout(agentOutput)`
+  ~380), then the summary block + outcome line. Rules out: interleaving that
+  buries the agent response under the summary.
 - Outcome line distinguishes the two paths: a no-diff line (no changes made) and
   a PR-opened line including the PR URL. Emit the outcome line with the summary
   block on stdout. Deferred to first consumer: exact outcome wording — pin at
@@ -42,11 +56,16 @@ the telemetry line and emits the summary on both success termini.
 
 ## Task checklist
 
-- On the successful `ok` branch, capture `extractUsageAndCost(...)` fields.
-- Restructure telemetry emission so the enriched row is written once, before the
-  summary is rendered, on both success paths; keep the failure-path write.
-- Capture `gh pr create` stdout to obtain the PR URL.
-- Emit `promptSummary({...})` plus the outcome line on both success paths.
+- Hoist the loop-scoped `ok` `result` (run.ts:279) out of the loop and capture
+  `extractUsageAndCost(...)` fields.
+- Restructure telemetry emission so the enriched row is written once at each
+  success terminus before the summary renders; add the write-once guard on the
+  `finally` block; keep the failure-path write.
+- Add `encoding: "utf8"` to the `gh pr create` call and trim its stdout to get
+  the PR URL.
+- Capture diff-path duration after `gh pr create`.
+- Emit `promptSummary({...})` plus the outcome line on both success paths
+  (no-diff: after the agent-output stdout).
 - Cover both paths in `v1/test/modes/prompt/run.test.ts`.
 
 ## Acceptance criteria
@@ -54,9 +73,9 @@ the telemetry line and emits the summary on both success termini.
 - [ ] On no-diff success the prompt telemetry row carries
   `usage`/`usage_source`/`cost_usd`/`cost_source` derived from the agent result
   (not agent/model/duration only).
-- [ ] On no-diff success stdout contains a `─── prompt summary ───` block (agent
-  + model, tokens/cost, duration) and an outcome line stating no changes were
-  made; exit code is 0.
+- [ ] On no-diff success stdout emits the agent output first, then a
+  `─── prompt summary ───` block (agent + model, tokens/cost, duration) and an
+  outcome line stating no changes were made; exit code is 0.
 - [ ] On diff success stdout contains the prompt summary block and an outcome
   line that includes the created PR URL; exit code is 0.
 - [ ] Exactly one prompt telemetry row is written per successful run (no

@@ -14,9 +14,16 @@ subspec adds that rendering surface; the prompt-mode call site is wired in `01`.
   shape (single-attempt run). Rules out: reusing `runSummary` (it pairs
   `iterations` + `attempts`, both meaningless for a single-pass prompt).
 - Extend `TelemetrySummaryMode` and `recordMatchesMode` to a three-way match so
-  `"prompt"` selects only `mode === "prompt"` rows. Rules out: the current
-  binary `!== "plan"` fallthrough, which would let `patch` summaries absorb
-  prompt rows and vice versa.
+  `"prompt"` selects only `mode === "prompt"` rows. Predicate literally:
+  `patch → mode === "patch"`, `prompt → mode === "prompt"`,
+  `plan → mode === "plan"`. Rules out: the current binary `!== "plan"`
+  fallthrough, which would let `patch` summaries absorb prompt rows and vice
+  versa.
+- Prompt mode has **no spec path**, so suppress the `spec:` line rather than
+  emit an empty/placeholder one. `renderSummaryFromRecords` renders `spec:`
+  unconditionally (run-summary.ts:235); parameterize it (e.g. make `specPath`
+  optional / add a flag) so `promptSummary` omits the line. Rules out: passing
+  an empty or placeholder `specPath` and emitting a meaningless `spec:` header.
 - Prompt is single-pass: render no `iterations` line and no `phase attempts`
   line; use attempt-style labels (`rowCountNoun`/`noteUnitNoun` = `attempt`).
   Rules out: emitting patch-style `iterations:` for a mode with no iteration
@@ -33,7 +40,9 @@ subspec adds that rendering surface; the prompt-mode call site is wired in `01`.
 - Add `"prompt"` to `TelemetrySummaryMode` and a three-way `recordMatchesMode`.
 - Add `promptSummary(args)` with the no-telemetry fallback branch (matching
   `planSummary`'s early return) and a `renderSummaryFromRecords` call using
-  attempt labels and no iteration/phase-attempt headers.
+  attempt labels, no `spec:` line, and no iteration/phase-attempt headers.
+- Pin the no-telemetry fallback header set: title + `exit reason:` + `duration:`
+  + the sentinel — no `spec:`, no `phase attempts:`, no `iterations:`.
 - Unit-test `promptSummary` and the extended `recordMatchesMode` in
   `v1/test/run-summary.test.ts`.
 
@@ -45,11 +54,12 @@ subspec adds that rendering surface; the prompt-mode call site is wired in `01`.
 - [ ] `promptSummary` renders a `─── prompt summary ───` block carrying the
   per-agent cost table (agent+model, tokens, cost, source), `duration:`, and
   `exit reason:` for a synthetic `mode: "prompt"` ok record with usage/cost.
-- [ ] `promptSummary` emits neither an `iterations:` line nor a `phase attempts:`
-  line.
-- [ ] `promptSummary` returns the no-telemetry fallback block (the
-  `(no telemetry records found for this run)` text) when `telemetryPath` is null
-  or the file is absent.
+- [ ] The populated `promptSummary` block emits no `spec:` line, no `iterations:`
+  line, and no `phase attempts:` line.
+- [ ] `promptSummary` returns the no-telemetry fallback block when
+  `telemetryPath` is null or the file is absent; the fallback emits title,
+  `exit reason:`, `duration:`, and the `(no telemetry records found for this run)`
+  text, and emits no `spec:`/`phase attempts:`/`iterations:` line.
 - [ ] Existing `runSummary`/`planSummary` tests in `v1/test/run-summary.test.ts`
   stay green (rendering for patch/plan unchanged by the three-way match).
 

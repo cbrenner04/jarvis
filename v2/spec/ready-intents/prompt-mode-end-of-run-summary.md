@@ -26,11 +26,23 @@ PR-opened (include the PR URL when one was created). Leave error-exit paths
 (quota/agent-error/timeout, commit/push/PR failures) unchanged — this is the
 success terminus only.
 
+This intent includes the telemetry enrichment the summary depends on (folded in
+after a plan-time blocker found the data isn't there yet — in-scope work, not a
+precondition):
+
+- **Enrich the prompt telemetry line** to carry the fields the shared builder
+  renders: have `prompt` mode call `extractUsageAndCost` (as `patch`/`plan` do) and
+  write `usage` / `usage_source` / `cost_usd` / `cost_source` alongside the existing
+  agent / model / duration on its telemetry record.
+- **Make the builder accept prompt records**: `recordMatchesMode` currently matches
+  only `patch`/`plan`; extend it to accept `mode: "prompt"` so a `promptSummary` can
+  render from the prompt line.
+
 Note for plan: prompt mode currently writes its telemetry line in the `finally`
-block after the success-path `return`, so the summary's data source and emit
-point need sequencing.
+block after the success-path `return`, so the summary's data source and emit point
+need sequencing (the summary must read the enriched values).
 
-## Prerequisites
+## Out of scope
 
-- The shared run-summary builder reads per-run telemetry to render agent/model, tokens, cost, and duration.
-- `prompt` mode records a per-run telemetry line carrying agent, configured model, duration, and cost/usage.
+- `run` / `plan` summaries — unchanged.
+- Error-exit paths (quota/agent-error/timeout, commit/push/PR failures) — unchanged.

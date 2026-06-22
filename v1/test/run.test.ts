@@ -1911,6 +1911,10 @@ Date: 2026-06-18`,
   });
 
   test("exits 4 when a successful iteration makes no progress", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({
@@ -1930,6 +1934,36 @@ Date: 2026-06-18`,
     expect(code).toBe(4);
     expect(cap.err()).toContain("iteration 1 made no progress; stopping");
     expect(claude.calls).toHaveLength(1);
+  });
+
+  test("no-progress escalates through agentOrder and exits 4 only after last rung", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(4);
+    // claude no-progressed and escalated
+    expect(cap.err()).toContain("no progress; escalating to next agent");
+    // terminal stop only after codex (last rung) also no-progressed
+    expect(cap.err()).toContain("iteration 2 made no progress; stopping");
+    // bounded tail printed once (terminal stop only)
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+    // no stopping message emitted on the advance step
+    expect(cap.err()).not.toContain("iteration 1 made no progress; stopping");
   });
 
   test("completion takes precedence over no-progress", async () => {
@@ -2256,6 +2290,10 @@ Date: 2026-06-18`,
   });
 
   test("exits 4 with unticked criteria guidance when linked subspec clean iteration makes no progress", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
     execSync("git init -b jarvis-e2e", { cwd: projectRoot });
     execSync('git config user.email "jarvis-test@example.com"', {
       cwd: projectRoot,
@@ -3397,6 +3435,10 @@ exit 0
   });
 
   test("no-progress exit prints bounded tail of latest iteration output", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
     const claude = new FakeAgent("claude", () => ({

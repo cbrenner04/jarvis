@@ -109,6 +109,8 @@ rotating agents after a quota-classified result:
 Canonical string constants: `src/quota-harness-messages.ts`. Plan rotation
 lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.
 
+**No-progress escalation (patch only):** When an iteration makes no progress, patch mode also advances `agentOrder` before exiting 4. The per-agent advance line is `<agent>: no progress; escalating to next agent` — distinct from quota-fallback phrasing so operators can distinguish the cause. Exit 4 is reached only after the last rung also makes no progress. See [agents.md § agentOrder as an escalation ladder](./agents.md) for full semantics.
+
 ### Patch telemetry (`~/.jarvis/runs.jsonl`)
 
 Only **`jarvis1 run`** (patch mode) appends JSONL via `writeTelemetry` today.
@@ -119,6 +121,7 @@ For quota events, records use **`kind`: `"quota"`** with **`exitReason`**:
 | `quota-exhausted` | No fallback agents remain (including empty order edge cases). |
 | `quota-fallback` | Strict quota on the current agent; at least one later agent remains. |
 | `probable-quota-fallback` | Lenient weak-quota upgrade on the current agent; at least one later agent remains. |
+| `no-progress-fallback` | No-progress advance: the current agent made no progress and at least one later agent remains. Emitted on a non-terminal `kind: "ok"` row; the telemetry kind is `ok` (not `quota`). |
 
 Timeout records use **`kind`: `"timeout"`** with:
 

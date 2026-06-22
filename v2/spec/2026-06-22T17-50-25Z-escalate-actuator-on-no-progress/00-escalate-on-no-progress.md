@@ -29,15 +29,15 @@ A no-progress stop in patch mode (`iteration.ts` `result.kind === "ok"` path, cu
 
 ## Acceptance criteria
 
-- [ ] A new multi-rung test shows that with a multi-entry `modes.patch.agentOrder`, a no-progress iteration advances to the next agent and retries instead of exiting, and the retried iteration runs against the same subspec.
-- [ ] Exit 4 (`no-progress`) is returned only after the final `agentOrder` entry also makes no progress, unless `maxIterations` is reached first.
-- [ ] A single-rung `modes.patch.agentOrder` exits 4 on the first no-progress iteration; the existing `run.test.ts` no-progress tests are modified to pin a single `claude` entry to preserve this case.
-- [ ] The on-advance stderr line reports a no-progress escalation (mentions no-progress/escalation), not merely differing from the quota-fallback line.
-- [ ] The advancing iteration emits a distinct `exitReason` (e.g. `no-progress-fallback`) on a non-terminal `kind: "ok"` telemetry row, not a quota-flavored kind or the terminal `no-progress` reason.
-- [ ] The terminal "stopping" / bounded-tail / unticked-acceptance-criteria output prints only on the terminal exit-4 stop, not on each advance.
-- [ ] `v1/docs/agents.md` documents `agentOrder` advancing on no-progress, framing it as an escalation ladder ordered cheap→strong, and notes that advancing couples agent and model.
-- [ ] `v1/docs/run-loop.md` exit-4 row and/or `v1/docs/quota-signals.md` state that no-progress escalates through `agentOrder` before exiting 4.
-- [ ] `v2/docs/v1-behaviors.md` records that patch no-progress is no longer an immediate exit-4 (advances through `agentOrder` first), updating the relevant existing exit-4 entries.
+- [x] A new multi-rung test shows that with a multi-entry `modes.patch.agentOrder`, a no-progress iteration advances to the next agent and retries instead of exiting, and the retried iteration runs against the same subspec.
+- [x] Exit 4 (`no-progress`) is returned only after the final `agentOrder` entry also makes no progress, unless `maxIterations` is reached first.
+- [x] A single-rung `modes.patch.agentOrder` exits 4 on the first no-progress iteration; the existing `run.test.ts` no-progress tests are modified to pin a single `claude` entry to preserve this case.
+- [x] The on-advance stderr line reports a no-progress escalation (mentions no-progress/escalation), not merely differing from the quota-fallback line.
+- [x] The advancing iteration emits a distinct `exitReason` (e.g. `no-progress-fallback`) on a non-terminal `kind: "ok"` telemetry row, not a quota-flavored kind or the terminal `no-progress` reason.
+- [x] The terminal "stopping" / bounded-tail / unticked-acceptance-criteria output prints only on the terminal exit-4 stop, not on each advance.
+- [x] `v1/docs/agents.md` documents `agentOrder` advancing on no-progress, framing it as an escalation ladder ordered cheap→strong, and notes that advancing couples agent and model.
+- [x] `v1/docs/run-loop.md` exit-4 row and/or `v1/docs/quota-signals.md` state that no-progress escalates through `agentOrder` before exiting 4.
+- [x] `v2/docs/v1-behaviors.md` records that patch no-progress is no longer an immediate exit-4 (advances through `agentOrder` first), updating the relevant existing exit-4 entries.
 
 ## Documentation updates
 

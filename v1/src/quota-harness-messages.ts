@@ -18,3 +18,6 @@ export function harnessGitGhTransientRetryLine(op: string, attempt: number, cap:
 
 /** Same phrase as in patch harness final exhaustion line (no trailing newline). */
 export const HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED = "all agents quota-exhausted";
+
+/** Emitted on stderr when no-progress escalates to the next agent (no trailing newline). */
+export const HARNESS_NO_PROGRESS_FALLBACK = "no progress; escalating to next agent";

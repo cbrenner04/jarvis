@@ -62,6 +62,7 @@ let cfgDir: string;
 let originalPath: string | undefined;
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
+const CODEX_ENTRY = { agent: "codex" as const, model: "gpt-5.3-codex" };
 
 function writeSpec(content: string): string {
   const specPath = join(projectRoot, "spec", "index.md");
@@ -219,6 +220,86 @@ wait
       const sessionLog = readFileSync(join(sessionsDir, sessionFile), "utf8");
       expect(sessionLog).toContain("[watchdog] iteration timeout fired after 4000ms;");
       expect(sessionLog).toContain("last_output_age_ms=null");
+    });
+
+    test("watchdog timeout records watchdog_descendants_alive false for agent-only stall", async () => {
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const hangScript = join(projectRoot, "agent-only-hang.sh");
+      writeFileSync(
+        hangScript,
+        `#!/usr/bin/env bash
+while true; do :; done
+`,
+      );
+      chmodSync(hangScript, 0o755);
+
+      class HangingAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: hangScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 1500,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude: new HangingAgent() },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+        __testWatchdogListProcesses: () => {
+          // Inject an empty process table: no descendants for agent-only stall.
+          return [];
+        },
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("watchdog_descendants_alive=false");
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const timeoutRow = rows.find(
+        (row) => row.record_role !== "run_terminal" && row.exit_reason === "watchdog-iteration-timeout",
+      );
+      expect(timeoutRow).toBeDefined();
+      expect(timeoutRow?.watchdog_descendants_alive).toBe(false);
     });
   });
 
@@ -546,6 +627,91 @@ while true; do :; done
         .map((line) => JSON.parse(line) as Record<string, unknown>);
       const idleRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
       expect(idleRow).toBeUndefined();
+    });
+
+    test("idle abort is not classified as quota and does not trigger fallback", async () => {
+      const idleTimeoutMs = 1000;
+      const spec = writeSpec("- [ ] todo\n");
+      const cap = captureIo();
+      const idleScript = join(projectRoot, "idle-hang.sh");
+      writeFileSync(
+        idleScript,
+        `#!/usr/bin/env bash
+while true; do :; done
+`,
+      );
+      chmodSync(idleScript, 0o755);
+
+      class IdleAgent implements Agent {
+        readonly name = "claude" as const;
+        async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+          return runAgent(
+            {
+              name: this.name,
+              binary: idleScript,
+              cwd: opts.cwd,
+              buildArgv: () => [],
+              stdio: ["ignore", "pipe", "pipe"],
+              streamErrorPrefix: "test:",
+            },
+            prompt,
+            opts,
+          );
+        }
+        attributionLabel(): string {
+          return "fake-claude";
+        }
+      }
+
+      const claude = new IdleAgent();
+      const codex = new FakeAgent("codex", () => ({
+        kind: "error",
+        exitCode: 1,
+        stderr: "fallback should not be triggered",
+      }));
+
+      writeConfig(
+        {
+          version: 2,
+          modes: {
+            patch: { agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY] },
+            plan: { agentOrder: [CLAUDE_ENTRY] },
+            prompt: { agentOrder: [CLAUDE_ENTRY] },
+            review: { passes: 2 },
+          },
+          quotaFallback: "lenient",
+          weakQuotaExitCodes: [],
+          maxIterations: 1,
+          iterationTimeoutMs: 30 * 60_000,
+          idleOutputTimeoutMs: idleTimeoutMs,
+          git: true,
+          projects: { project: { root: projectRoot } },
+        },
+        { dir: cfgDir },
+      );
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude, codex },
+        handleSignals: false,
+        __testKillGraceMs: 200,
+      });
+
+      expect(code).toBe(8);
+      expect(cap.err()).toContain("idle timeout fired");
+      // Should NOT contain fallback message for codex
+      expect(cap.err()).not.toContain("fallback should not be triggered");
+
+      const telemetryPath = join(cfgDir, "runs.jsonl");
+      const rows = readFileSync(telemetryPath, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      const idleRow = rows.find((row) => row.exit_reason === "watchdog-idle-timeout");
+      expect(idleRow).toBeDefined();
+      expect(idleRow?.kind).toBe("timeout");
     });
   });
 });

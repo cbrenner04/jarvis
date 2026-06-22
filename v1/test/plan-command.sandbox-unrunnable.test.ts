@@ -76,6 +76,63 @@ function setupRegisteredProject() {
   return { dir, cfgDir, project };
 }
 
+function setupRegisteredGitWorktreeProject() {
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-worktree-cmd-"));
+  const cfgDir = join(dir, "cfg");
+  const base = join(dir, "base");
+  const project = join(dir, "project");
+  mkdirSync(base);
+  execSync("git init -b main", { cwd: base });
+  execSync("git config user.email 'test@example.com'", { cwd: base });
+  execSync("git config user.name 'Test User'", { cwd: base });
+  writeFileSync(join(base, "README.md"), "seed\n");
+  execSync("git add README.md", { cwd: base });
+  execSync("git commit -m 'seed'", { cwd: base });
+  execSync(`git worktree add -b linked ${project} HEAD`, { cwd: base });
+  registerProject("project", project, { dir: cfgDir });
+  return { dir, cfgDir, project };
+}
+
+class FakeAgent implements Agent {
+  readonly name: AgentName;
+  readonly #runImpl: (prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>;
+
+  constructor(name: AgentName, runImpl: (prompt: string, opts: AgentRunOptions) => AgentResult | Promise<AgentResult>) {
+    this.name = name;
+    this.#runImpl = runImpl;
+  }
+
+  run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
+    return Promise.resolve(this.#runImpl(prompt, opts));
+  }
+
+  attributionLabel(): string {
+    return `fake-${this.name}`;
+  }
+}
+
+function writeDraftSpec(specDir: string): void {
+  writeFileSync(join(specDir, "index.md"), "# Test Spec\n\n- [ ] [00](./00-one.md)\n", "utf8");
+  writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] drafted\n", "utf8");
+}
+
+function configureGitDisabledPlanProject(cfgDir: string, reviewPasses: number): void {
+  const cfg = loadConfig({ dir: cfgDir });
+  const projectConfig = cfg.projects.project;
+  if (!projectConfig) {
+    throw new Error("expected registered project");
+  }
+  projectConfig.git = false;
+  projectConfig.plan = { commit: true };
+  cfg.modes.review.passes = reviewPasses;
+  writeConfig(cfg, { dir: cfgDir });
+}
+
+function expectNoPlanBranchOrWorktree(project: string, planName: string): void {
+  expect(existsSync(join(project, ".worktree", `plan-${planName}`))).toBe(false);
+  expect(execSync(`git branch --list plan/${planName}`, { cwd: project, encoding: "utf8" }).trim()).toBe("");
+}
+
 function failingLogClient(message: string): LogClient {
   return {
     assertReachable: async () => {
@@ -191,6 +248,304 @@ describe("planCommand", () => {
       // Should not have leaked git stderr from baseBranch call
       // (it was fixed by gating behind if(commit))
       expect(stderr).not.toContain("fatal: not a git repository");
+    } finally {
+      process.env.PATH = originalPath;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("git: false forces loop-only external spec output even when plan.commit is true", async () => {
+    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    try {
+      configureGitDisabledPlanProject(cfgDir, 0);
+
+      mkdirSync(join(project, "spec", "unrelated"), { recursive: true });
+      writeFileSync(join(project, "spec", "unrelated", "note.md"), "dirty\n", "utf8");
+
+      const intentPath = writeReadyIntent(project, "git-false-loop-only");
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: [intentPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+        createAgent: () =>
+          new FakeAgent("claude", (_prompt, opts) => {
+            const specDir = opts.additionalReadDirs?.[0];
+            if (!specDir) {
+              throw new Error("expected external spec dir");
+            }
+            writeDraftSpec(specDir);
+            return { kind: "ok", stdout: "", stderr: "" };
+          }),
+      });
+
+      expect(code).toBe(0);
+      expect(cap.err()).not.toContain("plan: not yet implemented");
+      expect(cap.err()).not.toContain("boundary violation");
+      expect(cap.out()).toContain("Intent: ");
+      expect(cap.out()).toContain("Spec written to ");
+      expect(cap.out()).toContain("/specs/project/");
+      expect(cap.out()).toContain("jarvis1 run ");
+      expectNoPlanBranchOrWorktree(project, "git-false-loop-only");
+
+      const specPath = cap.out().match(/Spec written to (.+\/index\.md)\n/)?.[1];
+      expect(specPath).toBeTruthy();
+      if (specPath) {
+        expect(readFileSync(specPath, "utf8")).toContain("repo:");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("git: false fresh naming ignores repo, worktree, and branch collisions outside the external spec root", async () => {
+    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    try {
+      configureGitDisabledPlanProject(cfgDir, 0);
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.modes.plan.specTimestamp = false;
+      const projectConfig = cfg.projects.project;
+      if (!projectConfig) {
+        throw new Error("expected registered project");
+      }
+      projectConfig.origin = "https://example.com/acme/project.git";
+      writeConfig(cfg, { dir: cfgDir });
+
+      mkdirSync(join(project, "spec", "git-false-collision"), { recursive: true });
+      mkdirSync(join(project, ".worktree", "plan-git-false-collision"), { recursive: true });
+      execSync("git branch plan/git-false-collision", { cwd: project });
+
+      const intentPath = writeReadyIntent(project, "git-false-collision");
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: [intentPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+        createAgent: () =>
+          new FakeAgent("claude", (_prompt, opts) => {
+            const specDir = opts.additionalReadDirs?.[0];
+            if (!specDir) {
+              throw new Error("expected external spec dir");
+            }
+            writeDraftSpec(specDir);
+            return { kind: "ok", stdout: "", stderr: "" };
+          }),
+      });
+
+      expect(code).toBe(0);
+      const specPath = cap.out().match(/Spec written to (.+\/index\.md)\n/)?.[1];
+      expect(specPath).toBeTruthy();
+      expect(specPath).toContain("/git-false-collision/index.md");
+      expect(specPath).not.toContain("git-false-collision-2");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume honors git: false even when plan.commit is true", async () => {
+    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    try {
+      configureGitDisabledPlanProject(cfgDir, 1);
+
+      const externalSpecDir = join(cfgDir, "specs", "project", "2026-06-21T17-50-11Z-resume-git-false");
+      mkdirSync(externalSpecDir, { recursive: true });
+      writeFileSync(
+        join(externalSpecDir, "intent.md"),
+        "---\nname: resume-git-false\n---\n\n## Prerequisites\n\nnone\n",
+        "utf8",
+      );
+      writeFileSync(
+        join(externalSpecDir, "index.md"),
+        "# Resume Spec\n\nrepo: project\n\n- [ ] [00](./00-one.md)\n",
+        "utf8",
+      );
+      writeFileSync(join(externalSpecDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] stay\n", "utf8");
+
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: ["--repo", "project", "--resume", join(externalSpecDir, "index.md")],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+        createAgent: () => new FakeAgent("claude", () => ({ kind: "ok", stdout: "", stderr: "" })),
+      });
+
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("plan: resume r");
+      expect(cap.err()).not.toContain("missing spec/");
+      expect(cap.err()).not.toContain("is not checked out on plan/");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("git: false fresh run survives review without boundary violations or git worktree setup", async () => {
+    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    try {
+      configureGitDisabledPlanProject(cfgDir, 1);
+
+      mkdirSync(join(project, "spec", "unrelated"), { recursive: true });
+      writeFileSync(join(project, "spec", "unrelated", "note.md"), "dirty\n", "utf8");
+
+      let callCount = 0;
+      const intentPath = writeReadyIntent(project, "git-false-review");
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: [intentPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+        createAgent: () =>
+          new FakeAgent("claude", (prompt, opts) => {
+            callCount += 1;
+            const specDir = opts.additionalReadDirs?.[0];
+            if (!specDir) {
+              throw new Error("expected external spec dir");
+            }
+            if (callCount === 1) {
+              writeDraftSpec(specDir);
+              return { kind: "ok", stdout: "", stderr: "" };
+            }
+            if (prompt.includes("Review: Adjudicator")) {
+              return { kind: "ok", stdout: "Tighten the spec.\n", stderr: "" };
+            }
+            if (prompt.includes("Review Verdict")) {
+              writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] reviewed\n", "utf8");
+              return { kind: "ok", stdout: "", stderr: "" };
+            }
+            return { kind: "ok", stdout: "", stderr: "" };
+          }),
+      });
+
+      expect(code).toBe(0);
+      expect(cap.err()).not.toContain("boundary violation");
+      expect(cap.err()).not.toContain("git checkout");
+      expect(cap.err()).not.toContain("git push");
+      expectNoPlanBranchOrWorktree(project, "git-false-review");
+
+      const specPath = cap.out().match(/Spec written to (.+\/index\.md)\n/)?.[1];
+      expect(specPath).toBeTruthy();
+      if (specPath) {
+        expect(readFileSync(join(dirname(specPath), "00-one.md"), "utf8")).toContain("reviewed");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("git: false keeps external-spec boundary enforcement active", async () => {
+    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    try {
+      configureGitDisabledPlanProject(cfgDir, 0);
+
+      const intentPath = writeReadyIntent(project, "git-false-boundary");
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: [intentPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+        createAgent: () =>
+          new FakeAgent("claude", (_prompt, opts) => {
+            const specDir = opts.additionalReadDirs?.[0];
+            if (!specDir) {
+              throw new Error("expected external spec dir");
+            }
+            writeDraftSpec(specDir);
+            mkdirSync(join(dirname(specDir), "escaped-spec"), { recursive: true });
+            return { kind: "ok", stdout: "", stderr: "" };
+          }),
+      });
+
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("plan: boundary violation detected before draft commit");
+      expect(cap.err()).toContain("escaped-spec");
+      expect(cap.err()).not.toContain("(git status failed)");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("runPlanReviewPhase git-disabled", () => {
+  test("reviewer spec edits are reverted without git and actuator changes still apply", async () => {
+    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    const originalPath = process.env.PATH;
+    try {
+      configureGitDisabledPlanProject(cfgDir, 1);
+      const cfg = loadConfig({ dir: cfgDir });
+      const projectConfig = cfg.projects.project;
+      if (!projectConfig) {
+        throw new Error("expected registered project");
+      }
+      projectConfig.origin = "https://example.com/acme/project.git";
+      writeConfig(cfg, { dir: cfgDir });
+
+      const binDir = join(dir, "bin");
+      mkdirSync(binDir);
+      process.env.PATH = binDir;
+
+      const externalSpecRoot = join(cfgDir, "specs", "project");
+      const specDir = join(externalSpecRoot, "git-false-review");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(
+        join(specDir, "intent.md"),
+        "---\nname: git-false-review\n---\n\n## Prerequisites\n\nnone\n",
+        "utf8",
+      );
+      writeFileSync(join(specDir, "index.md"), "# Review Spec\n\nrepo: project\n\n- [ ] [00](./00-one.md)\n", "utf8");
+      writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] drafted\n", "utf8");
+
+      const result = await runPlanReviewPhase({
+        worktreePath: project,
+        name: "git-false-review",
+        specDirBasename: "git-false-review",
+        specDirPath: specDir,
+        config: cfg,
+        reviewPassesOverride: 1,
+        commit: false,
+        gitEnabled: false,
+        externalSpecRoot,
+        checkBoundary: true,
+        additionalReadDirs: [specDir],
+        createAgent: () =>
+          new FakeAgent("claude", (prompt) => {
+            if (prompt.includes("Review: Adversary")) {
+              writeFileSync(
+                join(specDir, "00-one.md"),
+                "# One\n\n## Acceptance criteria\n\n- [ ] reviewer-edit\n",
+                "utf8",
+              );
+              return { kind: "ok", stdout: "Adversary findings.\n", stderr: "" };
+            }
+            if (prompt.includes("Review Verdict")) {
+              writeFileSync(
+                join(specDir, "00-one.md"),
+                "# One\n\n## Acceptance criteria\n\n- [ ] actuator-edit\n",
+                "utf8",
+              );
+              return { kind: "ok", stdout: "", stderr: "" };
+            }
+            return { kind: "ok", stdout: "No objections.\n", stderr: "" };
+          }),
+      });
+
+      expect(result.exitCode).toBe(0);
+      expect(readFileSync(join(specDir, "00-one.md"), "utf8")).toContain("actuator-edit");
+      expect(readFileSync(join(specDir, "00-one.md"), "utf8")).not.toContain("reviewer-edit");
+      expect(existsSync(join(project, ".jarvis-review-plan-adversary-1"))).toBe(false);
     } finally {
       process.env.PATH = originalPath;
       rmSync(dir, { recursive: true, force: true });

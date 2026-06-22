@@ -69,13 +69,13 @@ Reuse the existing `commit === false` code path for the git-disabled case (force
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 plan` against a project resolved to `git: false` completes without a `plan: boundary violation detected` line and writes the spec tree to `~/.jarvis/specs/<safe-id>/<spec-dir>/` (with a `repo:` binding in `index.md`).
-- [ ] A `git: false` plan run creates no `.worktree/plan-<name>` directory and no `plan/<name>` branch under the project root.
-- [ ] A `git: false` plan run invokes no `git checkout`/revert and no `git push` (no `pathspec 'spec/'`/no-upstream errors); the only boundary enforcement is the external-spec-dir check.
-- [ ] An explicit `plan.commit: true` is overridden to loop-only when the resolved project is `git: false`, at both fresh-run and `--resume` resolution.
-- [ ] A `git: false` run that survives draft and enters multi-pass review produces no boundary violation and no stray git calls in the review phase (the review-phase boundary call site is guarded too, not just draft).
-- [ ] `git: true` plan runs are unaffected: existing `plan-command.test.ts` and `plan-end-to-end.test.ts` stay green (behavior unchanged for git-enabled projects).
-- [ ] Existing `commit: false` behavior on a non-git root stays green: `plan-no-commit-intent-output.test.ts` stays green.
+- [x] `jarvis1 plan` against a project resolved to `git: false` completes without a `plan: boundary violation detected` line and writes the spec tree to `~/.jarvis/specs/<safe-id>/<spec-dir>/` (with a `repo:` binding in `index.md`).
+- [x] A `git: false` plan run creates no `.worktree/plan-<name>` directory and no `plan/<name>` branch under the project root.
+- [x] A `git: false` plan run invokes no `git checkout`/revert and no `git push` (no `pathspec 'spec/'`/no-upstream errors); the only boundary enforcement is the external-spec-dir check.
+- [x] An explicit `plan.commit: true` is overridden to loop-only when the resolved project is `git: false`, at both fresh-run and `--resume` resolution.
+- [x] A `git: false` run that survives draft and enters multi-pass review produces no boundary violation and no stray git calls in the review phase (the review-phase boundary call site is guarded too, not just draft).
+- [x] `git: true` plan runs are unaffected: existing `plan-command.test.ts` and `plan-end-to-end.test.ts` stay green (behavior unchanged for git-enabled projects).
+- [x] Existing `commit: false` behavior on a non-git root stays green: `plan-no-commit-intent-output.test.ts` stays green.
 
 ## Documentation updates
 

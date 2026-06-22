@@ -1,5 +1,12 @@
 # Audit and refactor the existing test suite
 
+> **PARKED (2026-06-21).** The run blocked at subspec 00: the agent ran the full `bun run test`
+> during the doc-only audit and hit the flaky `watchdog_descendants_alive` timing test — the very
+> test this audit exists to fix (passes 7/0 in isolation, flakes under `--parallel`).
+> Chicken-and-egg. To resume: stabilize that watchdog test first (the #15 DI-seam pattern — it's
+> subspec 02's job; do it standalone), then run the audit. Or instruct subspec 00 not to run the
+> full suite (it's doc-only).
+
 Backward-looking remediation: triage the process/timing-touching test files (count from the
 recorded scan, not a guess), then refactor the genuine smells toward the determinism convention
 (`v2/docs/test-writing.md`) in directory-clustered, suite-green steps. Mechanical and

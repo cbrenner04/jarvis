@@ -4,6 +4,16 @@ name: actuator-role-model-floor
 
 # Don't route the one-shot actuator to a model too weak to act
 
+## Deferred (2026-06-21) — folds into [[deterministic-model-tiering-policy]]
+
+Deferred during the overlord batch: this is the **floor-half** of the model-tiering ladder, and it
+**depends on config granularity that doesn't exist yet.** You cannot floor "the actuator" today —
+`modes.patch.agentOrder` sets the model for the *whole* patch mode (actuator + fix-up), not the
+actuator sub-role. So this seed can't be implemented without first adding sub-mode role→model
+granularity, which is exactly the [[deterministic-model-tiering-policy]] work. Implement it there
+(declared-tier floor + escalate-on-failure), not as a standalone. Kept here as the concrete
+floor requirement that policy must satisfy.
+
 ## Problem
 
 J (#310) added model-tiering guidance for read-only **review/shrink** roles — faster/cheaper
@@ -26,14 +36,8 @@ rather than new orchestration.
 - Review/shrink tiering — already shipped (J); unchanged.
 - A new model registry — bind to the existing fallback-order config.
 
-## Documentation updates
-
-- `v2/docs/v1-behaviors.md` — record the actuator model-floor behavior.
-- Extend J's tiering guidance (`v1/spec/completed/2026-06-20T06-29-05Z-review-shrink-model-tiering/`
-  landed it) to cover the actuator.
-
 ## References
 
 - `v1/spec/completed/2026-06-20T06-29-05Z-review-shrink-model-tiering/00-model-tiering-guidance.md`
   — J's role/model guidance to extend.
-- `v1/docs/agents.md` — agent fallback order (`claude → codex → cursor`) the floor binds to.
+- `v1/docs/agents.md` — agent fallback order the floor binds to.

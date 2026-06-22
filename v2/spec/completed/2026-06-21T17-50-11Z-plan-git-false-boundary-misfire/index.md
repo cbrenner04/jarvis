@@ -2,4 +2,4 @@
 
 repo: https://github.com/cbrenner04/jarvis
 
-- [ ] [00 - Plan honors `git: false` as loop-only](./00-plan-honor-git-false-loop-only.md)
+- [x] [00 - Plan honors `git: false` as loop-only](./00-plan-honor-git-false-loop-only.md)

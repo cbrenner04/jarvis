@@ -10,6 +10,7 @@
 // `--color never`: documented on `codex exec --help`; disables ANSI so session
 // logs match Claude/Cursor-style plain text more closely.
 
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { computeCost } from "../prices/cost.ts";
 import { loadPrices } from "../prices/load.ts";
@@ -20,6 +21,7 @@ import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 export type CodexAgentOptions = {
   binary?: string;
   model?: string;
+  spawn?: (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess;
 };
 
 const CODEX_MODEL_LABELS: Record<string, string> = {};
@@ -41,10 +43,12 @@ export class CodexAgent implements Agent {
   readonly name = "codex" as const;
   readonly #binary: string;
   readonly #model: string | undefined;
+  readonly #spawn: ((binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess) | undefined;
 
   constructor(opts: CodexAgentOptions = {}) {
     this.#binary = opts.binary ?? "codex";
     this.#model = opts.model;
+    this.#spawn = opts.spawn;
   }
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
@@ -54,39 +58,31 @@ export class CodexAgent implements Agent {
     const invocationMarker = `<!-- jarvis-codex-invocation: ${invocationId} -->`;
     const augmentedPrompt = `${prompt}\n${invocationMarker}`;
 
-    const result = await runAgent(
-      {
-        name: this.name,
-        binary: this.#binary,
-        cwd: opts.cwd,
-        buildArgv: (_prompt, opts) => {
-          const argv = [
-            "exec",
-            "--color",
-            "never",
-            "--sandbox",
-            "workspace-write",
-            "-c",
-            'approval_policy="on-request"',
-          ];
-          for (const dir of opts.additionalReadDirs ?? []) {
-            argv.push("--add-dir", dir);
-          }
-          if (this.#model !== undefined) {
-            argv.push("--model", this.#model);
-          }
-          return argv;
-        },
-        stdio: ["pipe", "pipe", "pipe"],
-        writeStdin: (stdin, piped) => {
-          stdin.write(piped);
-          stdin.end();
-        },
-        streamErrorPrefix: "codex:",
+    const config: Parameters<typeof runAgent>[0] = {
+      name: this.name,
+      binary: this.#binary,
+      cwd: opts.cwd,
+      buildArgv: (_prompt, opts) => {
+        const argv = ["exec", "--color", "never", "--sandbox", "workspace-write", "-c", 'approval_policy="on-request"'];
+        for (const dir of opts.additionalReadDirs ?? []) {
+          argv.push("--add-dir", dir);
+        }
+        if (this.#model !== undefined) {
+          argv.push("--model", this.#model);
+        }
+        return argv;
       },
-      augmentedPrompt,
-      opts,
-    );
+      stdio: ["pipe", "pipe", "pipe"],
+      writeStdin: (stdin, piped) => {
+        stdin.write(piped);
+        stdin.end();
+      },
+      streamErrorPrefix: "codex:",
+    };
+    if (this.#spawn !== undefined) {
+      config.spawn = this.#spawn;
+    }
+    const result = await runAgent(config, augmentedPrompt, opts);
 
     if (result.kind !== "ok") {
       return result;

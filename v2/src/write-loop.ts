@@ -59,7 +59,16 @@ export async function executeWriteLoop(args: WriteLoopInput): Promise<WriteLoopR
 
       const attemptId = resumedAttemptId ?? store.recordAttemptStart(runId);
       resumedAttemptId = null;
-      const { result } = await executeWrite(args);
+      const writeArgs: Parameters<typeof executeWrite>[0] = {
+        worktree: args.worktree,
+        specPath: args.specPath,
+        stepRules: args.stepRules,
+        expectedArtifactPath: args.expectedArtifactPath,
+        bindings: args.bindings,
+        ...(args.signal && { signal: args.signal }),
+        ...(args.withExternalWorktree && { withExternalWorktree: args.withExternalWorktree }),
+      };
+      const { result } = await executeWrite(writeArgs);
       iterationsConsumed += 1;
 
       if (result.kind === "progress") {

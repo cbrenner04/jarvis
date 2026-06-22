@@ -4,6 +4,7 @@
 // prompt piped on stdin. Stdin is used (instead of an argv positional) so the
 // prompt size is not bounded by the OS argv limit. JSON output is always used so
 // Claude-reported token usage and cost can be extracted.
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { isClaudeZeroExitQuotaEnvelope, parseClaudeJsonOutput } from "./claude-json.ts";
 import { runAgent } from "./spawn.ts";
 import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
@@ -11,6 +12,7 @@ import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 export type ClaudeAgentOptions = {
   binary?: string;
   model?: string;
+  spawn?: (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess;
 };
 
 const CLAUDE_MODEL_LABELS: Record<string, string> = {
@@ -39,39 +41,41 @@ export class ClaudeAgent implements Agent {
   readonly name = "claude" as const;
   readonly #binary: string;
   readonly #model: string | undefined;
+  readonly #spawn: ((binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess) | undefined;
 
   constructor(opts: ClaudeAgentOptions = {}) {
     this.#binary = opts.binary ?? "claude";
     this.#model = opts.model;
+    this.#spawn = opts.spawn;
   }
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-    const result = await runAgent(
-      {
-        name: this.name,
-        binary: this.#binary,
-        cwd: opts.cwd,
-        buildArgv: (_prompt, opts) => {
-          const argv = ["-p", "--permission-mode", "acceptEdits"];
-          for (const dir of opts.additionalReadDirs ?? []) {
-            argv.push("--add-dir", dir);
-          }
-          if (this.#model !== undefined) {
-            argv.push("--model", this.#model);
-          }
-          argv.push("--output-format", "json");
-          return argv;
-        },
-        stdio: ["pipe", "pipe", "pipe"],
-        writeStdin: (stdin, prompt) => {
-          stdin.write(prompt);
-          stdin.end();
-        },
-        streamErrorPrefix: "claude:",
+    const config: Parameters<typeof runAgent>[0] = {
+      name: this.name,
+      binary: this.#binary,
+      cwd: opts.cwd,
+      buildArgv: (_prompt, opts) => {
+        const argv = ["-p", "--permission-mode", "acceptEdits"];
+        for (const dir of opts.additionalReadDirs ?? []) {
+          argv.push("--add-dir", dir);
+        }
+        if (this.#model !== undefined) {
+          argv.push("--model", this.#model);
+        }
+        argv.push("--output-format", "json");
+        return argv;
       },
-      prompt,
-      opts,
-    );
+      stdio: ["pipe", "pipe", "pipe"],
+      writeStdin: (stdin, prompt) => {
+        stdin.write(prompt);
+        stdin.end();
+      },
+      streamErrorPrefix: "claude:",
+    };
+    if (this.#spawn !== undefined) {
+      config.spawn = this.#spawn;
+    }
+    const result = await runAgent(config, prompt, opts);
 
     if (result.kind === "ok") {
       if (isClaudeZeroExitQuotaEnvelope(result.stdout)) {

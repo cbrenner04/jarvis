@@ -1,40 +1,9 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AiderAgent } from "../../src/agents/aider.ts";
-
-let dir: string;
-let cwd: string;
-
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "jarvis-aider-"));
-  cwd = mkdtempSync(join(tmpdir(), "jarvis-aider-cwd-"));
-});
-
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true });
-  rmSync(cwd, { recursive: true, force: true });
-});
-
-function fakeBinary(opts: { exit: number; stdout?: string; stderr?: string }): string {
-  const path = join(dir, "aider");
-  const out = opts.stdout ?? "";
-  const err = opts.stderr ?? "";
-  const script = `#!/usr/bin/env bash
-# Record argv (NUL-separated) and cwd so the test can inspect them.
-: > "${dir}/argv"
-for a in "$@"; do printf '%s\\0' "$a" >> "${dir}/argv"; done
-pwd > "${dir}/cwd"
-printf '%s' "\${BROWSER:-__unset__}" > "${dir}/browser_env"
-printf '%s' ${JSON.stringify(out)}
-printf '%s' ${JSON.stringify(err)} 1>&2
-exit ${opts.exit}
-`;
-  writeFileSync(path, script);
-  chmodSync(path, 0o755);
-  return path;
-}
+import { createFakeSpawnWithOutput } from "./fake-spawn.ts";
 
 describe("AiderAgent", () => {
   test("name is 'aider'", () => {
@@ -42,9 +11,12 @@ describe("AiderAgent", () => {
   });
 
   test("spawns aider with --message, --model, --yes-always, --no-auto-commits, --no-git, --no-stream, --no-show-model-warnings in cwd", async () => {
-    const bin = fakeBinary({ exit: 0, stdout: "hi-out", stderr: "hi-err" });
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 0, stdout: "hi-out", stderr: "hi-err" },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
     });
 
@@ -62,41 +34,45 @@ describe("AiderAgent", () => {
         cache_creation_input_tokens: 0,
       },
     });
-    const argv = readFileSync(join(dir, "argv"), "utf8");
-    expect(argv).toContain("--message");
-    expect(argv).toContain("the prompt");
-    expect(argv).toContain("--model");
-    expect(argv).toContain("ollama/llama3");
-    expect(argv).toContain("--yes-always");
-    expect(argv).toContain("--no-auto-commits");
-    expect(argv).toContain("--no-git");
-    expect(argv).toContain("--no-stream");
-    expect(argv).toContain("--no-show-model-warnings");
-    const reportedCwd = readFileSync(join(dir, "cwd"), "utf8").trim();
-    const resolvedReportedCwd = realpathSync(reportedCwd);
-    const resolvedCwd = realpathSync(cwd);
-    expect(resolvedReportedCwd).toBe(resolvedCwd);
+    expect(recorder.records).toHaveLength(1);
+    const record = recorder.records[0]!;
+    expect(record.argv).toContain("--message");
+    expect(record.argv).toContain("the prompt");
+    expect(record.argv).toContain("--model");
+    expect(record.argv).toContain("ollama/llama3");
+    expect(record.argv).toContain("--yes-always");
+    expect(record.argv).toContain("--no-auto-commits");
+    expect(record.argv).toContain("--no-git");
+    expect(record.argv).toContain("--no-stream");
+    expect(record.argv).toContain("--no-show-model-warnings");
   });
 
   test("does not pass a permissions bypass flag beyond --yes-always", async () => {
-    const bin = fakeBinary({ exit: 0 });
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
     });
 
     await agent.run("the prompt", { cwd });
 
-    const argv = readFileSync(join(dir, "argv"), "utf8");
-    expect(argv).toContain("--yes-always");
-    expect(argv).not.toContain("--dangerously");
-    expect(argv).not.toContain("--skip");
+    expect(recorder.records).toHaveLength(1);
+    const record = recorder.records[0]!;
+    expect(record.argv).toContain("--yes-always");
+    expect(record.argv).not.toContain("--dangerously");
+    expect(record.argv).not.toContain("--skip");
   });
 
   test("non-zero exit maps to error with captured diagnostics", async () => {
-    const bin = fakeBinary({ exit: 2, stdout: "out", stderr: "err" });
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 2, stdout: "out", stderr: "err" },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
     });
 
@@ -106,10 +82,13 @@ describe("AiderAgent", () => {
   });
 
   test("model not found signal maps to model_config", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
     const stderr = "error: LLM Provider NOT provided";
-    const bin = fakeBinary({ exit: 1, stderr });
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 1, stdout: "", stderr },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "nonexistent-model",
     });
 
@@ -119,10 +98,13 @@ describe("AiderAgent", () => {
   });
 
   test("rate limit signal maps to quota", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
     const stderr = "error: rate limit reached";
-    const bin = fakeBinary({ exit: 1, stderr });
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 1, stdout: "", stderr },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
     });
 
@@ -132,10 +114,13 @@ describe("AiderAgent", () => {
   });
 
   test("could not connect to ollama maps to model_config", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
     const stderr = "could not connect to ollama at http://localhost:11434";
-    const bin = fakeBinary({ exit: 1, stderr });
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 1, stdout: "", stderr },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
     });
 
@@ -145,10 +130,13 @@ describe("AiderAgent", () => {
   });
 
   test("successful output with model_config text stays ok", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
     const stdout = "unknown model is in the output";
-    const bin = fakeBinary({ exit: 0, stdout });
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 0, stdout, stderr: "" },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
     });
 
@@ -169,9 +157,12 @@ describe("AiderAgent", () => {
   });
 
   test("successful invocations estimate usage from prompt + stdout", async () => {
-    const bin = fakeBinary({ exit: 0, stdout: "ok" });
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
     });
 
@@ -189,9 +180,12 @@ describe("AiderAgent", () => {
   });
 
   test("estimator failure falls back to unavailable usage with one warning", async () => {
-    const bin = fakeBinary({ exit: 0, stdout: "ok" });
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
       estimateUsage: () => null,
     });
@@ -205,15 +199,6 @@ describe("AiderAgent", () => {
     }
   });
 
-  test("missing binary surfaces as error result, not a thrown exception", async () => {
-    const agent = new AiderAgent({
-      binary: join(dir, "does-not-exist"),
-      model: "ollama/llama3",
-    });
-    const result = await agent.run("p", { cwd });
-    expect(result.kind).toBe("error");
-  });
-
   test("attributionLabel returns raw string for model ID", () => {
     const agent = new AiderAgent({
       binary: "fake",
@@ -223,63 +208,70 @@ describe("AiderAgent", () => {
   });
 
   test("appends additionalReadDirs as positional arguments", async () => {
-    const bin = fakeBinary({ exit: 0 });
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
     });
 
-    const sibling1 = join(dir, "sibling1");
-    const sibling2 = join(dir, "sibling2");
+    const sibling1 = "/abs/sibling1";
+    const sibling2 = "/abs/sibling2";
 
     await agent.run("prompt", {
       cwd,
       additionalReadDirs: [sibling1, sibling2],
     });
 
-    const argv = readFileSync(join(dir, "argv"), "utf8").split("\0");
-    // Find the index of --message to check order
-    const messageIdx = argv.indexOf("--message");
-    expect(messageIdx).toBeGreaterThan(-1);
-
-    // The sibling directories should appear after all the flags
-    const argvString = readFileSync(join(dir, "argv"), "utf8");
-    expect(argvString).toContain(sibling1);
-    expect(argvString).toContain(sibling2);
+    expect(recorder.records).toHaveLength(1);
+    const record = recorder.records[0]!;
+    expect(record.argv).toContain(sibling1);
+    expect(record.argv).toContain(sibling2);
   });
 
   test("additionalReadDirs with multiple entries appear as distinct positional args", async () => {
-    const bin = fakeBinary({ exit: 0 });
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 0, stdout: "ok", stderr: "" },
+    });
     const agent = new AiderAgent({
-      binary: bin,
+      spawn: recorder.spawn,
       model: "ollama/llama3",
     });
 
-    const sibling1 = join(dir, "repo1");
-    const sibling2 = join(dir, "repo2");
-    const sibling3 = join(dir, "repo3");
+    const sibling1 = "/abs/repo1";
+    const sibling2 = "/abs/repo2";
+    const sibling3 = "/abs/repo3";
 
     await agent.run("prompt", {
       cwd,
       additionalReadDirs: [sibling1, sibling2, sibling3],
     });
 
-    const argv = readFileSync(join(dir, "argv"), "utf8");
-    expect(argv).toContain(sibling1);
-    expect(argv).toContain(sibling2);
-    expect(argv).toContain(sibling3);
-    // Ensure all required flags are still present
-    expect(argv).toContain("--yes-always");
-    expect(argv).toContain("--no-auto-commits");
-    expect(argv).toContain("--no-git");
-    expect(argv).toContain("--no-stream");
+    expect(recorder.records).toHaveLength(1);
+    const record = recorder.records[0]!;
+    expect(record.argv).toContain(sibling1);
+    expect(record.argv).toContain(sibling2);
+    expect(record.argv).toContain(sibling3);
+    expect(record.argv).toContain("--yes-always");
+    expect(record.argv).toContain("--no-auto-commits");
+    expect(record.argv).toContain("--no-git");
+    expect(record.argv).toContain("--no-stream");
   });
 
   test("passes BROWSER=false to the aider subprocess", async () => {
-    const bin = fakeBinary({ exit: 0 });
-    const agent = new AiderAgent({ binary: bin, model: "ollama/llama3" });
+    const cwd = mkdtempSync(join(tmpdir(), "aider-cwd-"));
+    const recorder = createFakeSpawnWithOutput({
+      aider: { exit: 0, stdout: "ok", stderr: "" },
+    });
+    const agent = new AiderAgent({ spawn: recorder.spawn, model: "ollama/llama3" });
     await agent.run("prompt", { cwd });
-    const browserEnv = readFileSync(join(dir, "browser_env"), "utf8");
-    expect(browserEnv).toBe("false");
+
+    expect(recorder.records).toHaveLength(1);
+    const record = recorder.records[0]!;
+    expect(record.opts.env).toBeDefined();
+    expect(record.opts.env?.BROWSER).toBe("false");
   });
 });

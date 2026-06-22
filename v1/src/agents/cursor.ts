@@ -5,6 +5,7 @@
 // `-p`/`--print` is headless mode with full tool access; `--output-format text`
 // matches Claude-style transcript output (see `cursor agent --help`);
 // `--workspace` sets the working directory; the prompt is the trailing positional.
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { estimateCursorUsage } from "./cursor-tokens.ts";
 import { runAgent } from "./spawn.ts";
 import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
@@ -12,6 +13,7 @@ import type { Agent, AgentResult, AgentRunOptions } from "./types.ts";
 export type CursorAgentOptions = {
   binary?: string;
   model?: string;
+  spawn?: (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess;
 };
 
 // Cursor's model menu, sourced from https://cursor.com/docs/models-and-pricing.
@@ -73,32 +75,34 @@ export class CursorAgent implements Agent {
   readonly name = "cursor" as const;
   readonly #binary: string;
   readonly #model: string | undefined;
+  readonly #spawn: ((binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess) | undefined;
 
   constructor(opts: CursorAgentOptions = {}) {
     this.#binary = opts.binary ?? "cursor";
     this.#model = opts.model;
+    this.#spawn = opts.spawn;
   }
 
   run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-    return runAgent(
-      {
-        name: this.name,
-        binary: this.#binary,
-        cwd: opts.cwd,
-        buildArgv: (prompt, opts) => {
-          const argv = ["agent", "-p", "--output-format", "text"];
-          if (this.#model !== undefined) {
-            argv.push("--model", resolveCursorCliModel(this.#model));
-          }
-          argv.push("--force", "--workspace", opts.cwd, prompt);
-          return argv;
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-        streamErrorPrefix: "cursor:",
+    const config: Parameters<typeof runAgent>[0] = {
+      name: this.name,
+      binary: this.#binary,
+      cwd: opts.cwd,
+      buildArgv: (prompt, opts) => {
+        const argv = ["agent", "-p", "--output-format", "text"];
+        if (this.#model !== undefined) {
+          argv.push("--model", resolveCursorCliModel(this.#model));
+        }
+        argv.push("--force", "--workspace", opts.cwd, prompt);
+        return argv;
       },
-      prompt,
-      opts,
-    ).then((result) => {
+      stdio: ["ignore", "pipe", "pipe"],
+      streamErrorPrefix: "cursor:",
+    };
+    if (this.#spawn !== undefined) {
+      config.spawn = this.#spawn;
+    }
+    return runAgent(config, prompt, opts).then((result) => {
       if (result.kind !== "ok") {
         return result;
       }

@@ -20,7 +20,25 @@ Tests that require real OS processes or wall-clock timing are **marked exception
 1. Declare themselves sandbox-unrunnable with an explicit filename marker: use a `.sandbox-unrunnable` infix in the filename. Example: `foo.sandbox-unrunnable.test.ts`.
 2. Carry a comment at the top explaining why real OS seams are necessary (e.g., "exercises the actual `execSync` and process reaping logic that must work on real systems").
 
-Real-process tests will need to exist going forward — the actual `execSync` and process-reaping logic (`v1/src/modes/patch/reap.ts`) should have test coverage as seams are converted. Existing real-process tests that predate this convention are out of scope to convert; new seams should be covered with the DI pattern from the start.
+Keep a real-process test only when the OS/git/process boundary is the behavior under test. If the subprocess or clock is incidental to the assertion, convert the test to an agent-runnable DI seam instead of keeping a real process.
+
+## Determinism smell checklist
+
+Treat these as triage smells for both new tests and existing ones:
+
+- **Real process spawn is incidental**: the test shells out only to inspect argv, cwd, env, retries, or stdout/stderr shaping. Fix by injecting a spawn/process runner seam.
+- **Wall-clock or scheduler dependence**: assertions depend on `Date.now()`, `new Date()`, `setTimeout`, `sleep`, elapsed milliseconds, or load-sensitive watchdog slack. Fix by injecting a clock and poller.
+- **Ordering / parallelism sensitivity**: the test assumes serial execution, shared mutable globals, or worker timing. Fix by isolating state, removing cross-test coupling, or making sequencing explicit in fixtures.
+- **Redundant coverage**: multiple tests assert the same behavior through slightly different setup. Merge or drop the duplicate once one clear assertion path remains.
+- **Slow default-suite tests**: nested subprocesses, real sleeps, or large end-to-end flows in agent-runnable files. Move irreducible OS coverage to `*.sandbox-unrunnable.test.ts`; otherwise replace the cost with a seam.
+
+Use this review question set:
+
+- Is a real subprocess required for the behavior being asserted, or is it just a transport detail?
+- Could the same assertion be expressed against an injected clock, poller, process table, or runner?
+- Does the assertion still pass if the machine is slow, highly parallel, or under scheduler pressure?
+- Is another test already proving the same behavior more directly?
+- Is the runtime cost justified for the default parallel suite?
 
 ## Worked example: DescendantTracker injection pattern
 
@@ -56,4 +74,4 @@ The behavior under test (capture descendants, kill survivors by PID+identity, pr
 ## Out of scope
 
 - **Automated enforcement** — linting or review automation to catch violations is deferred to a future enforcement spec. The convention rests on authors reading this document and choosing DI seams in advance.
-- **Converting existing tests** — this convention applies to new tests. Incremental conversion of existing process-spawning tests that can't run in the sandbox inherits the `DescendantTracker` pattern as separate effort.
+- **One-size-fits-all rewrites** — do not mechanically convert every primitive match. First classify it: `already-deterministic`, `refactor`, or `marked-exception`.

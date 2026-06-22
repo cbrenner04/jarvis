@@ -1,3 +1,6 @@
+// Requires real OS process spawning to verify child PWD normalization, OLDPWD stripping, and process group reaping behavior.
+// These assertions are about the actual subprocess lifecycle and cannot be reproduced with an injected spawn mock.
+
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

@@ -1,3 +1,4 @@
+// This test requires real git remote/branch state for intent command commit-mode behavior and cannot run in sandbox mode.
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import {

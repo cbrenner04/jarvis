@@ -1,3 +1,4 @@
+// This test requires real git history rewriting / branch movement semantics.
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -15,7 +16,7 @@ import {
   snapshotAllAcceptanceCriteria,
 } from "../../../src/modes/patch/shrink.ts";
 import type { AcceptanceCriterion } from "../../../src/modes/patch/subspec.ts";
-import { stripDelimitedBlocks } from "./review.test.ts";
+import { stripDelimitedBlocks } from "./review.sandbox-unrunnable.test.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
 

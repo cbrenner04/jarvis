@@ -89,8 +89,8 @@ describe("Test slice boundaries", () => {
         .join(":"),
     };
 
-    execSync("bun test ./v2/src/preload.test.ts", { env, stdio: "pipe" });
-    execSync("bun test ./shared/preload.test.ts", { env, stdio: "pipe" });
+    execSync("bun test ./v2/src/preload.sandbox-unrunnable.test.ts", { env, stdio: "pipe" });
+    execSync("bun test ./shared/preload.sandbox-unrunnable.test.ts", { env, stdio: "pipe" });
   }, 20_000);
 
   it("ready script uses aggregate test command", async () => {

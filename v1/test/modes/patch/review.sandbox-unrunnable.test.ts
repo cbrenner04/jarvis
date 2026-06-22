@@ -1,3 +1,4 @@
+// This test requires real repo / branch / remote state for review-flow integration behavior.
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

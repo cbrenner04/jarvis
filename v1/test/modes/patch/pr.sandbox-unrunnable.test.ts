@@ -1,3 +1,4 @@
+// This test requires real git history / branch state for PR body and draft/ready semantics.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -162,13 +163,13 @@ describe("updatePrBody", () => {
       writePrBody: (_branch, body) => {
         writtenBody = body;
       },
-      renderFooter: () => "- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.",
+      renderFooter: () => "- abc Foo — Agent X\n\nWritten by Agent X through Jarvis.",
     });
 
     expect(writtenBody).toContain("# Spec");
     // In template mode with human-edited narrative, it's preserved (hash is broken)
     expect(writtenBody).toContain(`${NARRATIVE_START_MARKER}\n${humanEditedNarrative}\n${NARRATIVE_END_MARKER}`);
-    expect(writtenBody).toContain("\n\n---\n\n- abc Foo \u2014 Agent X\n\nWritten by Agent X through Jarvis.");
+    expect(writtenBody).toContain("\n\n---\n\n- abc Foo — Agent X\n\nWritten by Agent X through Jarvis.");
   });
 
   test("uses compact attribution by default", async () => {

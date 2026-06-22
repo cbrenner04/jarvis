@@ -2,6 +2,7 @@
 // Permission handling: configured in ~/.config/opencode/opencode.json (see
 // spec/2026-05-11-opencode-as-agent/04-opencode-permission-stanza.md). Jarvis does not
 // pass --dangerously-skip-permissions.
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { runAgent } from "./spawn.ts";
 import { type EstimatedTokenUsage, estimateTokenUsage } from "./token-estimation.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "./types.ts";
@@ -24,6 +25,7 @@ export type OpencodeAgentOptions = {
   binary?: string;
   model: string;
   estimateUsage?: (args: { prompt: string; stdout: string }) => EstimatedTokenUsage | null;
+  spawn?: (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess;
 };
 
 const OPENCODE_MODEL_LABELS: Record<string, string> = {};
@@ -161,28 +163,30 @@ export class OpencodeAgent implements Agent {
   readonly #binary: string;
   readonly #model: string;
   readonly #estimateUsage: (args: { prompt: string; stdout: string }) => EstimatedTokenUsage | null;
+  readonly #spawn: ((binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess) | undefined;
 
   constructor(opts: OpencodeAgentOptions) {
     this.#binary = opts.binary ?? "opencode";
     this.#model = opts.model;
     this.#estimateUsage = opts.estimateUsage ?? estimateTokenUsage;
+    this.#spawn = opts.spawn;
   }
 
   async run(prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
-    const result = await runAgent(
-      {
-        name: this.name,
-        binary: this.#binary,
-        cwd: opts.cwd,
-        buildArgv: (prompt, buildOpts) => {
-          return ["run", "--dir", buildOpts.cwd, "--model", this.#model, "--format", "json", prompt];
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-        streamErrorPrefix: "opencode:",
+    const config: Parameters<typeof runAgent>[0] = {
+      name: this.name,
+      binary: this.#binary,
+      cwd: opts.cwd,
+      buildArgv: (prompt, buildOpts) => {
+        return ["run", "--dir", buildOpts.cwd, "--model", this.#model, "--format", "json", prompt];
       },
-      prompt,
-      opts,
-    );
+      stdio: ["ignore", "pipe", "pipe"],
+      streamErrorPrefix: "opencode:",
+    };
+    if (this.#spawn !== undefined) {
+      config.spawn = this.#spawn;
+    }
+    const result = await runAgent(config, prompt, opts);
 
     if (result.kind !== "ok") {
       return result;

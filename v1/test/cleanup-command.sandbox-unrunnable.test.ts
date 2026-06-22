@@ -1,3 +1,4 @@
+// This test requires real git branch/worktree/remote behavior for cleanup semantics and cannot run in sandbox mode.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

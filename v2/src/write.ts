@@ -1,7 +1,11 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { InvocationBinding } from "../../shared/invocation/execute.ts";
-import { type ExternalWorktreeInput, type LockStatus, withExternalWorktree } from "./external-worktree.ts";
+import {
+  type ExternalWorktreeInput,
+  type LockStatus,
+  withExternalWorktree as realWithExternalWorktree,
+} from "./external-worktree.ts";
 import { runStep, type StepRunResult } from "./step-runner.ts";
 import { renderWriteExecutePrompt } from "./write-prompt.ts";
 
@@ -13,6 +17,7 @@ export type WriteExecuteInput = {
   expectedArtifactPath: string;
   bindings: readonly InvocationBinding[];
   signal?: AbortSignal;
+  withExternalWorktree?: typeof realWithExternalWorktree;
 };
 
 /** Result surface for one write behavior execution. */
@@ -25,6 +30,7 @@ export type WriteExecuteResult = {
 
 /** Run one write behavior execution over shared invocation, runner, and worktree seams. */
 export async function executeWrite(args: WriteExecuteInput): Promise<WriteExecuteResult> {
+  const withExternalWorktree = args.withExternalWorktree ?? realWithExternalWorktree;
   const wrapped = await withExternalWorktree(args.worktree, async (worktree) => {
     const specPath = resolveInWorktree(worktree.path, args.specPath);
     const expectedArtifactPath = resolveInWorktree(worktree.path, args.expectedArtifactPath);

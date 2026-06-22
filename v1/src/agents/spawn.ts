@@ -1,8 +1,8 @@
 // Shared spawn loop for CLI agents: handles process lifecycle (spawn, stream buffering,
 // settling, error classification) with agent-specific argv building and stdio control.
 
-import type { StdioOptions } from "node:child_process";
-import { spawn } from "node:child_process";
+import type { ChildProcess, SpawnOptions, StdioOptions } from "node:child_process";
+import { spawn as realSpawn } from "node:child_process";
 import { isModelConfigurationSignal, isQuotaSignal, isTransientSignal } from "./quota.ts";
 import type { AgentName, AgentResult, AgentRunOptions } from "./types.ts";
 
@@ -15,6 +15,7 @@ export interface SpawnConfig {
   writeStdin?: (stdin: NodeJS.WritableStream, prompt: string) => void;
   streamErrorPrefix: string;
   env?: Record<string, string>;
+  spawn?: (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess;
 }
 
 function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
@@ -22,6 +23,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     const argv = config.buildArgv(prompt, opts);
     const env = { ...process.env, PWD: config.cwd, ...config.env } as Record<string, string>;
     delete env.OLDPWD;
+    const spawn = config.spawn ?? realSpawn;
     const child = spawn(config.binary, argv, {
       cwd: config.cwd,
       env,

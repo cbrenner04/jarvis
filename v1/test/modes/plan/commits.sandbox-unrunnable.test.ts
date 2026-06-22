@@ -1,3 +1,4 @@
+// This test requires real git worktree / commit / trailer behavior.
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";

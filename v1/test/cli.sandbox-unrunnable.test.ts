@@ -1,3 +1,4 @@
+// This test requires real OS exec through the `bin/jarvis1` symlink path and cannot run in sandbox mode.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

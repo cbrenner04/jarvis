@@ -1,3 +1,4 @@
+// This test requires real git commit-message history for subspec attribution / parsing behavior.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

@@ -1,3 +1,5 @@
+// Marked as .sandbox-unrunnable: requires real `git` CLI for branch-lookup and remote-tracking-ref semantics.
+
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";

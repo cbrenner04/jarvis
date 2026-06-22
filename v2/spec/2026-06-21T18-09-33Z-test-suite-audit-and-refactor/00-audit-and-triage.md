@@ -41,12 +41,12 @@ are refactored here.
 
 ## Acceptance criteria
 
-- [ ] `findings.md` exists and assigns every primitive-matching `*.test.ts` file under `v1`/`v2`/`shared`/`test` exactly one verdict (`already-deterministic`/`refactor`/`marked-exception`), with the reproducible scan command recorded; the file count comes from the scan, not a pre-stated guess.
-- [ ] Each `refactor`-verdict file names its target cluster subspec (01–05) and the DI seam or injected clock to apply; each `marked-exception` names the OS/git seam it requires. A deterministic real-process/git test is recorded `marked-exception` (kept, not mocked), never `already-deterministic`. An `already-deterministic` file needs no cluster.
-- [ ] `findings.md` records the green basis (suite measured sandbox-off; marked-exception files run, not excluded) and a per-target assertion inventory (+ coverage numbers if emitted) as the baseline 05 checks for no-net-coverage-loss.
-- [ ] `findings.md` lists any redundant or slow tests flagged for merge/drop, or states none found.
-- [ ] `v2/docs/test-writing.md` contains a determinism smell checklist covering real process spawn, wall-clock/timing dependence, ordering/parallelism sensitivity, redundancy, and slow tests; and its "Out of scope" section no longer disavows converting existing tests.
-- [ ] No `*.test.ts` source file is modified by this subspec; `bun run test` and `bun run typecheck` pass.
+- [x] `findings.md` exists and assigns every primitive-matching `*.test.ts` file under `v1`/`v2`/`shared`/`test` exactly one verdict (`already-deterministic`/`refactor`/`marked-exception`), with the reproducible scan command recorded; the file count comes from the scan, not a pre-stated guess.
+- [x] Each `refactor`-verdict file names its target cluster subspec (01–05) and the DI seam or injected clock to apply; each `marked-exception` names the OS/git seam it requires. A deterministic real-process/git test is recorded `marked-exception` (kept, not mocked), never `already-deterministic`. An `already-deterministic` file needs no cluster.
+- [x] `findings.md` records the green basis (suite measured sandbox-off; marked-exception files run, not excluded) and a per-target assertion inventory (+ coverage numbers if emitted) as the baseline 05 checks for no-net-coverage-loss.
+- [x] `findings.md` lists any redundant or slow tests flagged for merge/drop, or states none found.
+- [x] `v2/docs/test-writing.md` contains a determinism smell checklist covering real process spawn, wall-clock/timing dependence, ordering/parallelism sensitivity, redundancy, and slow tests; and its "Out of scope" section no longer disavows converting existing tests.
+- [x] No `*.test.ts` source file is modified by this subspec; `bun run test` and `bun run typecheck` pass.
 
 ## Documentation updates
 

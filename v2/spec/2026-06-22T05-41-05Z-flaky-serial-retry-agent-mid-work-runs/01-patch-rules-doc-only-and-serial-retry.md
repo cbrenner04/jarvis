@@ -8,19 +8,28 @@ ran the full suite, hit the parallel-load flaky `watchdog_descendants_alive`
 (`v1/test/run.test.ts`), appended a blocker, and stopped (exit 7) before reaching
 the gate. Two gaps in `prompts/patch/rules.md` (`patch.rules`):
 
-- A docs-only subspec has no behavior to test, so a full `bun run test` is pure
-  flake exposure with zero signal — but the rules tell the agent to run tests
-  before ticking.
+- A subspec that touches only human-facing prose has nothing the suite
+  exercises, so a full `bun run test` is pure flake exposure with zero signal —
+  but the rules tell the agent to run tests before ticking.
 - For suite runs the agent does make, nothing mirrors the operator/gate recovery
   (re-run serially before believing red), so a single parallel-load flake
   false-blocks the run.
 
+This is the only path that touches the observed incident, and it is
+**best-effort**: `patch.rules` is prompt guidance the agent may not honor, not a
+harness guarantee. The harness cannot wrap the agent's own `bun run test`
+invocation, so a false-block on a mid-work flake remains possible after this
+change.
+
 ## Decisions
 
-- Add doc-only guidance to `patch.rules`: when the active subspec changes only
-  documentation/prose (no code or test behavior), skip `bun run test`; run
-  typecheck only if any typed source changed — rules out a blanket "always run
-  the suite" that exposes docs-only iterations to flakes for no signal.
+- Add doc-only guidance to `patch.rules` keyed to **what the suite exercises**,
+  not file extension: skip `bun run test` only when the iteration changed nothing
+  under a tested path — no source, test, prompt fragment, or fixture, i.e. only
+  human-facing prose; run typecheck only if any typed source changed — rules out
+  a blanket "always run the suite" that flakes docs-only iterations for no signal,
+  and rules out an extension-based `.md` trigger that would wrongly skip on a
+  behavior-bearing prompt-fragment or fixture change (e.g. this very subspec).
 - Add serial-retry guidance to `patch.rules`: if `bun run test` fails, re-run
   once as `bun test` (without `--parallel`, no path/filter args) before treating
   the failure as real; only a failure that reproduces serially is real and may
@@ -50,8 +59,9 @@ the gate. Two gaps in `prompts/patch/rules.md` (`patch.rules`):
 ## Acceptance criteria
 
 - [ ] `prompts/patch/rules.md` (`patch.rules`) instructs the agent to skip
-      `bun run test` on a documentation-only subspec (no code/test behavior
-      changed).
+      `bun run test` only when the iteration changed nothing under a tested path
+      (no source, test, prompt fragment, or fixture — only human-facing prose),
+      defined by coverage and not by file extension.
 - [ ] `prompts/patch/rules.md` instructs the agent, on a `bun run test` failure,
       to re-run once serially (`bun test` without `--parallel`) before treating
       the failure as real or grounding a blocker, and to treat only a

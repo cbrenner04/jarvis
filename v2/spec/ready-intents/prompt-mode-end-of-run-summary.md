@@ -46,3 +46,10 @@ need sequencing (the summary must read the enriched values).
 
 - `run` / `plan` summaries — unchanged.
 - Error-exit paths (quota/agent-error/timeout, commit/push/PR failures) — unchanged.
+
+## Prerequisites
+
+- `v1/src/run-summary.ts` provides the shared summary surface
+  (`renderSummaryFromRecords` / `runSummary` / `planSummary`) to reuse — exists. The
+  telemetry enrichment and `recordMatchesMode` change the summary depends on are
+  in-scope here (see Direction), not preconditions.

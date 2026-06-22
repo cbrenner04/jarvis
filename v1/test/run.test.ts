@@ -570,33 +570,49 @@ describe("runCommand", () => {
     expect(cfg.projects.project).toEqual({ root: projectRoot });
   });
 
-  test("exits 6 when checklists are complete but the git worktree is dirty", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
-    const cap = captureIo();
-    const claude = new FakeAgent("claude", () => {
-      writeFileSync(spec, "- [x] todo\n");
-      writeFileSync(join(projectRoot, "extra.txt"), "x");
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+  test("commits and completes when checklists are complete but the git worktree is dirty", async () => {
+    // Set up a bare remote repo and a local clone
+    const remoteRepo = mkdtempSync(join(tmpdir(), "remote-"));
+    try {
+      execSync("git init --bare", { cwd: remoteRepo });
 
-    const code = await runWithDefaults({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      handleSignals: false,
-    });
+      execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', {
+        cwd: projectRoot,
+      });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      execSync(`git remote add origin ${remoteRepo}`, { cwd: projectRoot });
 
-    expect(code).toBe(6);
-    expect(cap.err()).toContain("not clean");
-    expect(cap.err()).toContain("jarvis1 triage");
-    expect(cap.out()).not.toContain("spec complete");
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      execSync("git push -u origin jarvis-e2e", { cwd: projectRoot });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        writeFileSync(spec, "- [x] todo\n");
+        writeFileSync(join(projectRoot, "extra.txt"), "x");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+      // Verify harness commit was made
+      const commitLog = execSync("git log --format=%B -1", { cwd: projectRoot, encoding: "utf8" });
+      expect(commitLog).toContain("complete-but-dirty");
+      expect(commitLog).toContain("Jarvis-Agent: completion-ready");
+      // Verify no acceptance criterion was auto-ticked
+      const specContent = readFileSync(spec, "utf8");
+      expect(specContent).toBe("- [x] todo\n");
+    } finally {
+      rmSync(remoteRepo, { recursive: true, force: true });
+    }
   });
 
   test("exits 0 when the worktree is git-clean after a completing iteration", async () => {

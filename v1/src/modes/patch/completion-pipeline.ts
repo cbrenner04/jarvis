@@ -3,12 +3,13 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent } from "../../agents/types.ts";
+import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { resolveReviewPasses } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import { checkPrExists, readBranchCommits } from "../../pr.ts";
 import { generateTemplateNarrative } from "../../pr-shared.ts";
 import { runReadyAndCommit } from "../../ready-gate.ts";
-import { worktreeCompletionBlocker } from "../../worktree.ts";
+import { pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
 import { countUnchecked, findBlockerInLinkedSubspecs } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { runPatchReviewPhase } from "./review.ts";
@@ -142,6 +143,35 @@ async function generatePrBody(
   });
 }
 
+/**
+ * Commit and push a complete-but-dirty worktree.
+ * Returns true if successfully committed and pushed with a clean worktree.
+ * Returns false if the worktree is still dirty after the commit (unexpected state).
+ */
+function commitAndPushCompleteDirtyWorktree(cwd: string): boolean {
+  execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+  const commitMessage = appendAgentTrailer("chore: complete-but-dirty commit", "completion-ready");
+  execFileSync("git", ["commit", "-F", "-"], {
+    cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    input: commitMessage,
+  });
+
+  const porcelain = execFileSync("git", ["status", "--porcelain"], {
+    cwd,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+
+  if (porcelain !== "") {
+    return false;
+  }
+
+  pushCurrent({ cwd, firstPush: false });
+  return true;
+}
+
 async function runCompletionReadyGate(ctx: IterationContext): Promise<CompletionReadyGateResult> {
   const { preflight, logging, opts } = ctx;
   logging.fanout("harness", "completion: running ready gate\n", "stdout");
@@ -176,13 +206,31 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   if (preflight.gitEnabled) {
     const blocker = worktreeCompletionBlocker(preflight.agentWorkingDir);
     if (blocker !== undefined) {
-      const worktreeName = basename(preflight.agentWorkingDir);
-      logging.fanout(
-        "harness",
-        `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
-        "stderr",
-      );
-      return 6;
+      // Try to commit and push the complete-but-dirty worktree
+      try {
+        const committed = commitAndPushCompleteDirtyWorktree(preflight.agentWorkingDir);
+        if (!committed) {
+          // Worktree still dirty after commit (unexpected)
+          const worktreeName = basename(preflight.agentWorkingDir);
+          logging.fanout(
+            "harness",
+            `spec checklists are complete, but ${blocker}\n\nCommit and push from the worktree so the PR updates. Worktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+            "stderr",
+          );
+          return 6;
+        }
+        // Successfully committed and pushed; fall through to normal completion
+      } catch (err) {
+        // Commit/push failed
+        const worktreeName = basename(preflight.agentWorkingDir);
+        const message = err instanceof Error ? err.message : String(err);
+        logging.fanout(
+          "harness",
+          `spec checklists are complete, but failed to commit and push: ${message}\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          "stderr",
+        );
+        return 6;
+      }
     }
   }
   logging.fanout("harness", "spec complete\n", "stdout");

@@ -26,12 +26,12 @@ Deferred to first consumer: which existing helper (`commitSubspec` vs the ready-
 
 ## Acceptance criteria
 
-- [ ] A run whose checklists are all complete but whose worktree has uncommitted changes is committed by the harness and proceeds through the completion gate to success, without spending an agent turn.
-- [ ] The harness-made commit carries the `Jarvis-Agent` attribution trailer and is pushed.
-- [ ] No acceptance criterion is ticked by this path — only already-present changes are committed.
-- [ ] When the harness commits the complete-but-dirty worktree and the ready gate then fails, the PR is left draft and the run's exit reflects the gate failure, not success (commit-then-gate ordering).
-- [ ] A run that is dirty but still has unchecked criteria is unaffected and still exits 6 (`run.test.ts:2065` stays green).
-- [ ] If the worktree is still dirty after the harness commit, the run exits 6 with the existing guidance message.
+- [x] A run whose checklists are all complete but whose worktree has uncommitted changes is committed by the harness and proceeds through the completion gate to success, without spending an agent turn.
+- [x] The harness-made commit carries the `Jarvis-Agent` attribution trailer and is pushed.
+- [x] No acceptance criterion is ticked by this path — only already-present changes are committed.
+- [x] When the harness commits the complete-but-dirty worktree and the ready gate then fails, the PR is left draft and the run's exit reflects the gate failure, not success (commit-then-gate ordering).
+- [x] A run that is dirty but still has unchecked criteria is unaffected and still exits 6 (`run.test.ts:2065` stays green).
+- [x] If the worktree is still dirty after the harness commit, the run exits 6 with the existing guidance message.
 
 ## Documentation updates
 

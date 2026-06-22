@@ -182,11 +182,18 @@ GitHub-style task list items. An unchecked item is a line matching
 `^\s*- \[ \]\s`; checked items use `- [x]` or `- [X]`.
 
 When effective `git` is `true` and the agent `cwd` is a git checkout (normal
-runs that use a worktree), Jarvis also requires a clean `git status` before
-printing **spec complete**. That way checkbox completion cannot succeed while
-changes are still only on disk. When effective `git` is `false`, the
-clean-tree check is skipped: completion is purely "zero unchecked boxes",
-regardless of dirty or untracked files in the agent's working directory.
+runs that use a worktree), the run can proceed to completion phases when all
+checkboxes are checked. If the worktree has uncommitted changes, Jarvis
+auto-commits them with `git add -A` and message "chore: complete-but-dirty
+commit" (with `Jarvis-Agent: completion-ready` trailer), then pushes and
+proceeds through the normal completion path (ready gate, shrink, review,
+PR ready). The complete-but-dirty commit happens before the ready gate runs,
+so a subsequent ready gate failure leaves the PR in draft state and the run
+reflects the gate failure, not completion success. If the worktree remains
+dirty after the auto-commit (unexpected state), the run exits with guidance
+(`exit 6`). When effective `git` is `false`, the clean-tree check is skipped:
+completion is purely "zero unchecked boxes", regardless of dirty or untracked
+files in the agent's working directory.
 
 A spec with no task list checkboxes is malformed. Jarvis fails fast instead of
 treating it as complete.

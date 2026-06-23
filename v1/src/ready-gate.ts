@@ -64,6 +64,27 @@ export type RunReadyAndCommitOpts = {
   commitCheckFix?: (cwd: string, agentLabel: string) => void;
 };
 
+export class ReadyCommandError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReadyCommandError";
+  }
+}
+
+export class ReadyCheckFixCommitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReadyCheckFixCommitError";
+  }
+}
+
+export class ReadyCheckFixPushError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReadyCheckFixPushError";
+  }
+}
+
 /** Run `bun run ready` (or the configured `readyCommand`) at `tier` and, on `full` only, commit/push any `check:fix` output. */
 export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
   const tier = opts.tier ?? "full";
@@ -84,19 +105,28 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
         stderr?: Buffer;
       };
       const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-      throw new Error(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
+      throw new ReadyCommandError(captured ? `${displayCmd} failed:\n${captured}` : `${displayCmd} failed`);
     }
   };
 
   const realCommitCheckFix = (cwd: string, agentLabel: string) => {
     execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
     const commitMessage = appendAgentTrailer("chore: apply pre-ready check:fix", agentLabel);
-    execFileSync("git", ["commit", "-F", "-"], {
-      cwd,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      input: commitMessage,
-    });
+    try {
+      execFileSync("git", ["commit", "-F", "-"], {
+        cwd,
+        env: process.env,
+        stdio: ["pipe", "pipe", "pipe"],
+        input: commitMessage,
+      });
+    } catch (err) {
+      const out = err as NodeJS.ErrnoException & {
+        stdout?: Buffer;
+        stderr?: Buffer;
+      };
+      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+      throw new ReadyCheckFixCommitError(captured ? captured : "git commit failed");
+    }
 
     const porcelain = execFileSync("git", ["status", "--porcelain"], {
       cwd,
@@ -105,12 +135,17 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     }).trim();
     if (porcelain !== "") {
       const dirtyBranch = getCurrentBranch(cwd);
-      throw new Error(
+      throw new ReadyCheckFixCommitError(
         `pre-ready check:fix commit succeeded but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
       );
     }
 
-    pushCurrent({ cwd, firstPush: false });
+    try {
+      pushCurrent({ cwd, firstPush: false });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new ReadyCheckFixPushError(message);
+    }
   };
 
   const runReadyFn = opts.runReady ?? realBunRunReady;

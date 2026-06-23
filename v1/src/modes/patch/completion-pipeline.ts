@@ -8,7 +8,12 @@ import { resolveReviewPasses } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import { checkPrExists, readBranchCommits } from "../../pr.ts";
 import { generateTemplateNarrative } from "../../pr-shared.ts";
-import { runReadyAndCommit } from "../../ready-gate.ts";
+import {
+  ReadyCheckFixCommitError,
+  ReadyCheckFixPushError,
+  ReadyCommandError,
+  runReadyAndCommit,
+} from "../../ready-gate.ts";
 import { pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
 import { countUnchecked, findBlockerInLinkedSubspecs } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
@@ -16,6 +21,9 @@ import { runPatchReviewPhase } from "./review.ts";
 import type { CompletionReadyGateResult, IterationContext } from "./run.ts";
 import { runPatchShrinkPhase } from "./shrink.ts";
 import type { AcceptanceCriterion } from "./subspec.ts";
+
+const COMPLETION_READY_GATE_RETRY_BOUND = 2;
+const COMPLETION_READY_GATE_TOTAL_ATTEMPTS = COMPLETION_READY_GATE_RETRY_BOUND + 1;
 
 type CompletionLoopbackSignal = {
   failureText: string;
@@ -179,27 +187,57 @@ async function runCompletionReadyGate(
   const { preflight, logging, opts } = ctx;
   logging.fanout("harness", "completion: running ready gate\n", "stdout");
 
-  if (opts.runCompletionReadyGate !== undefined) {
-    const result = opts.runCompletionReadyGate(preflight.agentWorkingDir);
-    if (result.kind === "red") {
-      logging.fanout("harness", `completion: ready gate failed: ${result.failureText}\n`, "stderr");
+  let lastFailureText = "ready gate failed";
+
+  for (let attempt = 1; attempt <= COMPLETION_READY_GATE_TOTAL_ATTEMPTS; attempt++) {
+    let result: CompletionReadyGateResult;
+
+    if (opts.runCompletionReadyGate !== undefined) {
+      result = opts.runCompletionReadyGate(preflight.agentWorkingDir);
+    } else {
+      try {
+        runReadyAndCommit({
+          cwd: preflight.agentWorkingDir,
+          agentLabel: "completion-ready",
+          tier: "full",
+          ...(readyCommand !== undefined ? { readyCommand } : {}),
+        });
+        result = { kind: "green" };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (err instanceof ReadyCommandError) {
+          result = { kind: "red", failureText: message, retryable: true };
+        } else if (err instanceof ReadyCheckFixCommitError || err instanceof ReadyCheckFixPushError) {
+          result = { kind: "red", failureText: message, retryable: false };
+        } else {
+          result = { kind: "red", failureText: message, retryable: false };
+        }
+      }
     }
-    return result;
+
+    if (result.kind === "green") {
+      if (attempt > 1) {
+        logging.fanout("harness", `completion: ready gate passed on retry (attempt ${attempt})\n`, "stdout");
+      }
+      return result;
+    }
+
+    lastFailureText = result.failureText;
+    if (result.retryable === false) {
+      logging.fanout("harness", `completion: ready gate failed: ${lastFailureText}\n`, "stderr");
+      return result;
+    }
+    if (attempt < COMPLETION_READY_GATE_TOTAL_ATTEMPTS) {
+      logging.fanout(
+        "harness",
+        `completion: ready gate failed (attempt ${attempt}/${COMPLETION_READY_GATE_TOTAL_ATTEMPTS}), retrying\n`,
+        "stderr",
+      );
+    }
   }
 
-  try {
-    runReadyAndCommit({
-      cwd: preflight.agentWorkingDir,
-      agentLabel: "completion-ready",
-      tier: "full",
-      ...(readyCommand !== undefined ? { readyCommand } : {}),
-    });
-    return { kind: "green" };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logging.fanout("harness", `completion: ready gate failed: ${message}\n`, "stderr");
-    return { kind: "red", failureText: message };
-  }
+  logging.fanout("harness", `completion: ready gate failed: ${lastFailureText}\n`, "stderr");
+  return { kind: "red", failureText: lastFailureText };
 }
 
 async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null> {
@@ -253,6 +291,15 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   if (shouldRunCompletionReadyGate) {
     const gateResult = await runCompletionReadyGate(ctx, readyCommand);
     if (gateResult.kind === "red") {
+      if (gateResult.retryable === false) {
+        const worktreeName = basename(preflight.agentWorkingDir);
+        logging.fanout(
+          "harness",
+          `${gateResult.failureText}\n\nThe completion ready gate failed after readiness passed, so Jarvis did not retry or enter fix-up. Sync the branch state, then rerun.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          "stderr",
+        );
+        return 6;
+      }
       // Red completion ready gate.
       // Check if this is a stuck-red stop: failure unchanged and no new checkbox/blocker
       const hasNewBlocker = findBlockerInLinkedSubspecs(preflight.specPath) !== undefined;

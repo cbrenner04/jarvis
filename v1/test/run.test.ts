@@ -126,6 +126,31 @@ async function runWithDefaults(opts: RunCommandOptions): Promise<number> {
   });
 }
 
+function initCompletionGateRepo(specContents = "- [ ] todo\n"): string {
+  execSync("git init -b jarvis-e2e", { cwd: projectRoot });
+  execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+  execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+  const spec = writeSpec(specContents);
+  execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+  return spec;
+}
+
+function createCompletionAgent(spec: string, onFixup?: (callCount: number) => void): FakeAgent {
+  return new FakeAgent("claude", (callCount) => {
+    if (callCount === 1) {
+      writeFileSync(spec, readFileSync(spec, "utf8").replace("- [ ]", "- [x]"));
+      execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+    } else {
+      onFixup?.(callCount);
+    }
+    return { kind: "ok", stdout: "", stderr: "" };
+  });
+}
+
+function repeatFailureText(failureText: string, count: number): string[] {
+  return Array.from({ length: count }, () => failureText);
+}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "jarvis-run-"));
   projectRoot = join(dir, "project");
@@ -713,29 +738,13 @@ describe("runCommand", () => {
     expect(claude.calls).toHaveLength(1);
   });
 
-  test("completion ready gate: red gate loops back into one fix-up iteration, then completes", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+  test("completion ready gate: red-then-green seam yields green completion, no fix-up iteration", async () => {
+    const spec = initCompletionGateRepo();
 
     const cap = captureIo();
-    const prompts: string[] = [];
-    const claude = new FakeAgent("claude", (callCount, prompt) => {
-      prompts.push(prompt);
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      // The fix-up iteration (call 2) makes no checkbox change; progress is the
-      // completion gate going red -> green.
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = createCompletionAgent(spec);
 
-    // Red on the first gate check (drives the loop-back), green afterwards.
+    // Red on the first gate attempt (within runCompletionReadyGate), green on retry.
     let gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
@@ -751,35 +760,22 @@ describe("runCommand", () => {
     });
 
     expect(code).toBe(0);
-    expect(cap.err()).toContain("completion: ready gate failed");
-    expect(cap.out()).toContain("fix-up: ready failure");
+    expect(cap.err()).toContain("completion: ready gate failed (attempt 1");
+    expect(cap.out()).toContain("completion: ready gate passed on retry");
     expect(cap.out()).toContain("spec complete");
-    // One normal iteration plus one fix-up iteration.
-    expect(claude.calls).toHaveLength(2);
-    // The fix-up prompt carries the captured ready failure text.
-    expect(prompts[1]).toContain("bun run ready failed:");
-    // The fix-up iteration must not trip the checkbox no-progress stop.
-    expect(cap.err()).not.toContain("made no progress");
+    // Only the initial iteration; no fix-up iteration because gate passes on retry.
+    expect(claude.calls).toHaveLength(1);
+    // Gate is called twice within the same runCompletionReadyGate invocation.
+    expect(gateCalls).toBe(2);
+    // No fix-up iteration should be triggered.
+    expect(cap.out()).not.toContain("fix-up:");
   });
 
   test("completion: fix-up iteration counts against maxIterations; exhausted budget stops with exit 5", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const spec = initCompletionGateRepo();
 
     const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      // The fix-up iteration makes no more progress; gate stays red.
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = createCompletionAgent(spec);
 
     // Each fix-up gate check reports a *changed* failure, so every loop counts
     // as progress and keeps looping (rather than tripping the stuck-red stop)
@@ -844,7 +840,7 @@ describe("runCommand", () => {
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    // Red on the first gate check (drives the loop-back), green on the second gate.
+    // Red on all attempts in first completion check (drives fix-up), green in second.
     let gateCalls = 0;
     const code = await runWithDefaults({
       specPath: indexPath,
@@ -855,7 +851,8 @@ describe("runCommand", () => {
       reviewPasses: 0,
       runCompletionReadyGate: () => {
         gateCalls += 1;
-        return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\nboom" } : { kind: "green" };
+        // Calls 1-3: first completion, red; calls 4+: second completion, green
+        return gateCalls <= 3 ? { kind: "red", failureText: "bun run ready failed:\nboom" } : { kind: "green" };
       },
     });
 
@@ -864,26 +861,45 @@ describe("runCommand", () => {
     expect(cap.err()).toContain("Something blocked");
   });
 
-  test("completion: stuck-red stop (exit 10) when failure unchanged after fix-up iteration", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+  test("completion: all-red seam retries to the bound, then stops on unchanged failure", async () => {
+    const spec = initCompletionGateRepo();
 
     const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      // The fix-up iteration makes no progress; gate stays red with same failure.
-      return { kind: "ok", stdout: "", stderr: "" };
+    const claude = createCompletionAgent(spec);
+
+    // Always red: all attempts return red.
+    let gateCalls = 0;
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir, maxIterations: 3 },
+      agents: { claude },
+      handleSignals: false,
+      reviewPasses: 0,
+      runCompletionReadyGate: () => {
+        gateCalls += 1;
+        return { kind: "red", failureText: "bun run ready failed:\nalways red" };
+      },
     });
 
-    // Red on both gate checks; the failure text is identical (unchanged).
+    // First completion check retries to the bound, then loops back once. The
+    // second completion check also stays red and trips the unchanged-failure
+    // stuck-red stop.
+    expect(code).toBe(10);
+    expect(cap.err()).toContain("The failure is unchanged after fix-up iteration");
+    // Seam called 6 times (3 per completion check, 2 checks).
+    expect(gateCalls).toBe(6);
+    // Agent called once normally, once for fix-up.
+    expect(claude.calls).toHaveLength(2);
+  });
+
+  test("completion: stuck-red stop (exit 10) when failure unchanged after fix-up iteration", async () => {
+    const spec = initCompletionGateRepo();
+
+    const cap = captureIo();
+    const claude = createCompletionAgent(spec);
+
+    // Red on all gate attempts; the failure text is identical (unchanged).
     const failureText = "bun run ready failed:\nERROR: test failed";
     let gateCalls = 0;
     const code = await runWithDefaults({
@@ -904,33 +920,20 @@ describe("runCommand", () => {
     expect(cap.err()).toContain("bun run ready failed:");
     expect(cap.err()).toContain("ERROR: test failed");
     expect(cap.err()).toContain("jarvis1 triage");
-    // Gate runs twice: once on initial completion, once after the fix-up iteration.
-    expect(gateCalls).toBe(2);
+    // Gate is retried up to 3 times per completion invocation (bound=2 + initial).
+    // Two completion checks (initial + after fix-up) = 6 total seam calls.
+    expect(gateCalls).toBe(6);
     // Agent called once normally, once for fix-up.
     expect(claude.calls).toHaveLength(2);
   });
 
   test("completion: changed failure loops back instead of stopping with exit 10", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const spec = initCompletionGateRepo();
 
     const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      // The fix-up iteration (call 2) makes no checkbox change but the failure has changed.
-      // In call 3, we reach exhausted budget, so exit 5.
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = createCompletionAgent(spec);
 
-    // Red on first two gate checks; the failure text changes (different error).
+    // Red on all gate attempts; the failure text changes on second completion check.
     let gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
@@ -942,7 +945,9 @@ describe("runCommand", () => {
       runCompletionReadyGate: () => {
         gateCalls += 1;
         // Return red with different failures to indicate progress
-        if (gateCalls === 1) {
+        // Calls 1-3: first completion check, all return ERROR 1
+        // Calls 4-6: second completion check, all return ERROR 2
+        if (gateCalls <= 3) {
           return { kind: "red", failureText: "bun run ready failed:\nERROR 1" };
         } else {
           return { kind: "red", failureText: "bun run ready failed:\nERROR 2: different" };
@@ -951,36 +956,24 @@ describe("runCommand", () => {
     });
 
     // With maxIterations 2:
-    // iteration 1: spec completes, gate red (ERROR 1) -> drives fix-up
-    // iteration 2: fix-up runs, gate red (ERROR 2, different) -> failure changed, would loop but iteration 2 is at limit
+    // iteration 1: spec completes, gate red (ERROR 1 from retries) -> drives fix-up
+    // iteration 2: fix-up runs, gate red (ERROR 2 from retries, different) -> failure changed, would loop but iteration 2 is at limit
     // iteration 3 exceeds maxIterations, so exit 5.
     expect(code).toBe(5);
     expect(cap.err()).toContain("max iterations");
     // Agent called once for normal iteration, once for fix-up.
     expect(claude.calls).toHaveLength(2);
-    // Gate called twice: once on completion, once after fix-up.
-    expect(gateCalls).toBe(2);
+    // Gate is retried 3 times per completion check, twice total = 6 calls.
+    expect(gateCalls).toBe(6);
   });
 
   test("completion: noise-only differences (timings/paths) are treated as unchanged", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const spec = initCompletionGateRepo();
 
     const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = createCompletionAgent(spec);
 
-    // Red on both gate checks; the failure text differs only in noise (timing, path).
+    // Red on all gate attempts; the failure text differs only in noise (timing, path, date).
     let gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
@@ -992,7 +985,8 @@ describe("runCommand", () => {
       runCompletionReadyGate: () => {
         gateCalls += 1;
         // Same error but with different timings and a date.
-        if (gateCalls === 1) {
+        // Calls 1-3: first completion, calls 4-6: second completion
+        if (gateCalls <= 3) {
           return {
             kind: "red",
             failureText: `bun run ready failed:
@@ -1015,26 +1009,15 @@ Date: 2026-06-18`,
     // Exit 10 because failures are treated as unchanged after normalization.
     expect(code).toBe(10);
     expect(cap.err()).toContain("bun run ready failed:");
-    expect(gateCalls).toBe(2);
+    // Gate is retried 3 times per completion check, 2 checks total = 6 calls.
+    expect(gateCalls).toBe(6);
   });
 
   test("completion: telemetry includes ready-stuck-red exit reason", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const spec = initCompletionGateRepo();
 
     const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = createCompletionAgent(spec);
 
     const failureText = "bun run ready failed:\nERROR: test failed";
     const code = await runWithDefaults({
@@ -1061,25 +1044,12 @@ Date: 2026-06-18`,
   });
 
   test("completion: changing-failure bound stops at N consecutive red fix-up iterations with no AC progress", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const spec = initCompletionGateRepo();
 
     const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      // Fix-up iterations (calls 2, 3, 4, ...) make no progress and no new checkboxes.
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = createCompletionAgent(spec);
 
-    // Red on each gate with *different* failure text (changing).
+    // Each completion check ends on a different failure text.
     let gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
@@ -1090,13 +1060,11 @@ Date: 2026-06-18`,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
         gateCalls += 1;
-        // Different error each time to simulate changing failure.
         const errors = [
-          "bun run ready failed:\nERROR: unsafe-lint test-1 failed",
-          "bun run ready failed:\nERROR: unsafe-lint test-2 failed",
-          "bun run ready failed:\nERROR: unsafe-lint test-3 failed",
-          "bun run ready failed:\nERROR: unsafe-lint test-4 failed",
-        ] as const;
+          ...repeatFailureText("bun run ready failed:\nERROR: unsafe-lint test-1 failed", 3),
+          ...repeatFailureText("bun run ready failed:\nERROR: unsafe-lint test-2 failed", 3),
+          ...repeatFailureText("bun run ready failed:\nERROR: unsafe-lint test-3 failed", 3),
+        ];
         const failureText =
           errors[Math.min(gateCalls - 1, errors.length - 1)] ?? "bun run ready failed:\nERROR: unsafe-lint";
         return { kind: "red", failureText };
@@ -1104,38 +1072,26 @@ Date: 2026-06-18`,
     });
 
     // With N = 3 (from CONSECUTIVE_RED_FIXUP_BOUND):
-    // gate 1 red (call 1) -> count=1 -> fix-up
-    // gate 2 red (call 2) -> count=2 -> fix-up
-    // gate 3 red (call 3) -> count=3 (>=N) -> exit 10
+    // completion 1 final red -> count=1 -> fix-up
+    // completion 2 final red differs -> count=2 -> fix-up
+    // completion 3 final red differs -> count=3 (>=N) -> exit 10
     expect(code).toBe(10);
     expect(cap.err()).toContain("ready gate stayed red");
     expect(cap.err()).toContain("3 consecutive fix-up iterations");
     expect(cap.err()).toContain("no acceptance criteria progress");
     expect(cap.err()).toContain("jarvis1 triage");
-    // Gate called 3 times; agent called once normally, twice for fix-ups.
-    expect(gateCalls).toBe(3);
+    // Gate called 9 times (3 attempts per completion check, 3 checks total).
+    expect(gateCalls).toBe(9);
     expect(claude.calls).toHaveLength(3);
   });
 
   test("completion: changing-failure message is distinct from identical-failure message", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+    const spec = initCompletionGateRepo();
 
     const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
+    const claude = createCompletionAgent(spec);
 
-    // Red with changing failure text.
+    // Each completion check ends on a different failure text.
     let gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
@@ -1146,10 +1102,9 @@ Date: 2026-06-18`,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
         gateCalls += 1;
-        // Different error each time.
-        if (gateCalls === 1) {
+        if (gateCalls <= 3) {
           return { kind: "red", failureText: "bun run ready failed:\nERROR: test-1" };
-        } else if (gateCalls === 2) {
+        } else if (gateCalls <= 6) {
           return { kind: "red", failureText: "bun run ready failed:\nERROR: test-2 (different)" };
         } else {
           return { kind: "red", failureText: "bun run ready failed:\nERROR: test-3 (yet another)" };
@@ -1164,151 +1119,6 @@ Date: 2026-06-18`,
     // Should mention the bound and consecutive iterations
     expect(errorOutput).toContain("stayed red");
     expect(errorOutput).toContain("consecutive fix-up iterations");
-  });
-
-  test("completion: red once then green completes normally", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
-
-    const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      // Fix-up iteration makes some progress or fixes the issue.
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
-
-    // Red once, then green.
-    let gateCalls = 0;
-    const code = await runWithDefaults({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir },
-      agents: { claude },
-      handleSignals: false,
-      reviewPasses: 0,
-      runCompletionReadyGate: () => {
-        gateCalls += 1;
-        if (gateCalls === 1) {
-          return { kind: "red", failureText: "bun run ready failed:\nERROR: test failed" };
-        } else {
-          return { kind: "green" };
-        }
-      },
-    });
-
-    // Completes successfully (exit 0).
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("spec complete");
-    // Gate called twice: once red, once green.
-    expect(gateCalls).toBe(2);
-    // Agent called once normally, once for fix-up.
-    expect(claude.calls).toHaveLength(2);
-  });
-
-  test("completion: green gate resets consecutive red count", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
-
-    const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        // Complete the spec normally
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      // All fix-up iterations make no progress
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
-
-    // Red, Red, Green (resets count to 0, completes normally).
-    let gateCalls = 0;
-    const code = await runWithDefaults({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir, maxIterations: 10 },
-      agents: { claude },
-      handleSignals: false,
-      reviewPasses: 0,
-      runCompletionReadyGate: () => {
-        gateCalls += 1;
-        // First two gates: red (count increments to 1, then 2)
-        // Third gate: green (count resets to 0, completion proceeds)
-        if (gateCalls <= 2) {
-          return {
-            kind: "red",
-            failureText: `bun run ready failed:\nERROR: test-${gateCalls}`,
-          };
-        } else {
-          return { kind: "green" };
-        }
-      },
-    });
-
-    // Completes successfully because green gate resets the count and proceeds.
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("spec complete");
-    // Gate called 3 times: red, red, green.
-    expect(gateCalls).toBe(3);
-    // Agent called once normally, twice for fix-ups.
-    expect(claude.calls).toHaveLength(3);
-  });
-
-  test("completion: red, green, red sequence shows counter reset by green gate", async () => {
-    execSync("git init -b jarvis-e2e", { cwd: projectRoot });
-    execSync('git config user.email "jarvis-test@example.com"', {
-      cwd: projectRoot,
-    });
-    execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
-    const spec = writeSpec("- [ ] todo\n");
-    execSync("git add index.md && git commit -m init", { cwd: projectRoot });
-
-    const cap = captureIo();
-    const claude = new FakeAgent("claude", (callCount) => {
-      if (callCount === 1) {
-        writeFileSync(spec, "- [x] todo\n");
-        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
-      }
-      return { kind: "ok", stdout: "", stderr: "" };
-    });
-
-    // Gate sequence: red, green. The green gate resets the counter to 0.
-    // This demonstrates that the counter is properly managed across gate states.
-    let gateCalls = 0;
-    const code = await runWithDefaults({
-      specPath: spec,
-      io: cap.io,
-      config: { dir: cfgDir, maxIterations: 10 },
-      agents: { claude },
-      handleSignals: false,
-      reviewPasses: 0,
-      runCompletionReadyGate: () => {
-        gateCalls += 1;
-        if (gateCalls === 1) {
-          return { kind: "red", failureText: "bun run ready failed:\nERROR: first red" };
-        } else {
-          return { kind: "green" };
-        }
-      },
-    });
-
-    // Green gate proceeds to completion (exit 0).
-    expect(code).toBe(0);
-    expect(cap.out()).toContain("spec complete");
-    // Gate called twice: red, then green.
-    expect(gateCalls).toBe(2);
   });
 
   describe("completion-transition ready gate", () => {
@@ -1454,6 +1264,157 @@ Date: 2026-06-18`,
         expect(existsSync(sentinel)).toBe(true);
       } finally {
         rmSync(sentinelDir, { recursive: true, force: true });
+      }
+    });
+
+    test("real path: red-then-green completion readyCommand leaves a clean HEAD-recordable tree", async () => {
+      execSync("git init -b project", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-ready-retry-remote-"));
+      execSync("git init --bare -b project", { cwd: remoteDir });
+      execSync(`git remote add origin ${remoteDir}`, { cwd: projectRoot });
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      execSync("git push -u origin project", { cwd: projectRoot });
+
+      const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-ready-retry-"));
+      try {
+        const attemptsFile = join(sentinelDir, "attempts.txt");
+        const script = join(sentinelDir, "ready.sh");
+        writeFileSync(
+          script,
+          `#!/bin/sh
+set -eu
+count=0
+if [ -f "${attemptsFile}" ]; then
+  count="$(cat "${attemptsFile}")"
+fi
+count=$((count + 1))
+printf '%s' "$count" > "${attemptsFile}"
+if [ "$count" -eq 1 ]; then
+  printf 'normalized\n' >> "${projectRoot}/seed.txt"
+  printf 'flake on first full run\n' 1>&2
+  exit 1
+fi
+exit 0
+`,
+        );
+        chmodSync(script, 0o755);
+
+        const cfg = loadConfig({ dir: cfgDir });
+        if (cfg.projects.project === undefined) {
+          cfg.projects.project = { root: projectRoot };
+        }
+        cfg.projects.project.readyCommand = script;
+        writeConfig(cfg, { dir: cfgDir });
+
+        const cap = captureIo();
+        const claude = new FakeAgent("claude", () => {
+          writeFileSync(spec, "- [x] todo\n");
+          execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+          return { kind: "ok", stdout: "", stderr: "" };
+        });
+
+        const code = await runCommand({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+          skipGhCheck: true,
+          reviewPasses: 0,
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+        });
+
+        expect(code).toBe(0);
+        expect(Number(readFileSync(attemptsFile, "utf8"))).toBeGreaterThanOrEqual(2);
+        expect(cap.err()).toContain("completion: ready gate failed (attempt 1/3), retrying");
+        expect(cap.out()).toContain("completion: ready gate passed on retry");
+        expect(execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe("");
+        expect(execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim()).toMatch(/^[0-9a-f]{40}$/);
+        expect(execSync("git log -1 --pretty=%s", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe(
+          "chore: apply pre-ready check:fix",
+        );
+      } finally {
+        rmSync(sentinelDir, { recursive: true, force: true });
+        rmSync(remoteDir, { recursive: true, force: true });
+      }
+    });
+
+    test("real path: check:fix push failure does not retry into green completion", async () => {
+      execSync("git init -b project", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+
+      const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-ready-push-remote-"));
+      const missingRemote = join(remoteDir, "missing-origin.git");
+      execSync("git init --bare -b project", { cwd: remoteDir });
+      execSync(`git remote add origin ${remoteDir}`, { cwd: projectRoot });
+
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      execSync("git push -u origin project", { cwd: projectRoot });
+
+      const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-ready-push-fail-"));
+      try {
+        const attemptsFile = join(sentinelDir, "attempts.txt");
+        const script = join(sentinelDir, "ready.sh");
+        writeFileSync(
+          script,
+          `#!/bin/sh
+set -eu
+count=0
+if [ -f "${attemptsFile}" ]; then
+  count="$(cat "${attemptsFile}")"
+fi
+count=$((count + 1))
+printf '%s' "$count" > "${attemptsFile}"
+if [ "$count" -eq 1 ]; then
+  printf 'normalized\n' >> "$PWD/seed.txt"
+  git remote set-url origin "${missingRemote}"
+fi
+exit 0
+`,
+        );
+        chmodSync(script, 0o755);
+
+        const cfg = loadConfig({ dir: cfgDir });
+        if (cfg.projects.project === undefined) {
+          cfg.projects.project = { root: projectRoot };
+        }
+        cfg.projects.project.readyCommand = script;
+        writeConfig(cfg, { dir: cfgDir });
+
+        const cap = captureIo();
+        const claude = new FakeAgent("claude", () => {
+          writeFileSync(spec, "- [x] todo\n");
+          execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+          return { kind: "ok", stdout: "", stderr: "" };
+        });
+
+        const code = await runCommand({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+          skipGhCheck: true,
+          reviewPasses: 0,
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+        });
+
+        expect(code).toBe(6);
+        expect(readFileSync(attemptsFile, "utf8")).toBe("1");
+        expect(cap.out()).not.toContain("completion: ready gate passed on retry");
+        expect(cap.err()).not.toContain("retrying");
+        expect(cap.err()).toContain("did not retry or enter fix-up");
+        expect(
+          Number(execSync("git rev-list --count origin/project..HEAD", { cwd: projectRoot, encoding: "utf8" })),
+        ).toBeGreaterThan(0);
+      } finally {
+        rmSync(sentinelDir, { recursive: true, force: true });
+        rmSync(remoteDir, { recursive: true, force: true });
       }
     });
   });

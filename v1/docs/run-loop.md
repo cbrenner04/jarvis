@@ -211,6 +211,15 @@ set in the environment.
 This completion-transition gate always runs the **`full`** tier through
 `runReadyAndCommit` and consumes zero agent tokens.
 
+If the ready command itself fails, the harness re-runs the same whole
+completion gate unchanged up to a fixed bound of 2 retries (3 total attempts).
+No agent runs between attempts. If an earlier red left uncommitted
+`check:fix:unsafe` output, retries reuse that already-normalized dirty tree.
+If any retry turns green, the gate records the same green result as a first-try
+pass. Commit/push failures after a green ready command are not retried: the run
+stays non-green and stops for operator intervention instead of entering fix-up
+or reaching PR readiness with the remote behind HEAD.
+
 On success, the harness records a green result keyed to:
 - **HEAD sha**: Read via a separate `git rev-parse HEAD` *after*
   `runReadyAndCommit` returns, capturing the post-commit state if
@@ -353,8 +362,22 @@ The completion gate:
    checkbox-only completion).
 2. On green: commits any `check:fix` output and proceeds to shrink → review 
    → `maybeMarkReady` (if configured).
-3. On red: captures the failure text and handles it per the loop-back 
-   completion behavior (specs `01-red-loopback-iteration.md` and 
+3. On red: re-runs the same whole gate unchanged up to a fixed bound of 2
+   retries (3 total attempts). No agent runs between attempts. Each retry
+   reuses the same dirty tree left by any prior red attempt's uncommitted
+   `check:fix:unsafe` output.
+4. If any retry turns green: commits any accumulated `check:fix` output,
+   records the same completion-transition green result keyed to post-gate HEAD
+   + clean worktree, and proceeds to shrink → review → `maybeMarkReady` exactly
+   like a first-try green. The operator log distinguishes this from a first-try
+   pass with `completion: ready gate passed on retry (attempt N)`.
+5. Only ready-command failures are retried. If committing `check:fix` output
+   or pushing fails after the ready command passed, the harness stops
+   non-green for operator intervention; it does not retry, enter fix-up, or
+   mark the PR ready.
+6. Only when the initial run and every ready-command retry stay red does the
+   harness capture the final attempt's failure text and hand off to the
+   loop-back completion behavior (specs `01-red-loopback-iteration.md` and
    `02-stuck-red-stop.md`). The shrink and review phases do not run on red.
 
 The pre-shrink gate, review baseline gate, and `maybeMarkReady` `ready` 
@@ -363,15 +386,16 @@ completion gate.
 
 ### Fix-up iterations (red→green loop-back)
 
-When the completion `ready` gate fails (turns red), the harness launches a **fix-up iteration**: 
-one agent invocation that receives the captured `ready` failure text prepended to the normal 
-patch prompt. The agent can inspect both the failed `ready` output and the completed spec, 
-then attempt fixes.
+When the completion `ready` gate stays red across its bounded retries, the
+harness launches a **fix-up iteration**: one agent invocation that receives the
+captured final-attempt `ready` failure text prepended to the normal patch
+prompt. The agent can inspect both the failed `ready` output and the completed
+spec, then attempt fixes.
 
 Fix-up iteration flow:
 
-1. **Trigger**: completion gate returns red; `CompletionLoopbackSignal` is set with the 
-   captured failure text.
+1. **Trigger**: completion gate returns red on the initial run and every retry;
+   `CompletionLoopbackSignal` is set with the final attempt's failure text.
 2. **Agent invocation**: runs with the combined prompt `buildFixupPrompt()` + normal patch 
    rules. The agent sees the `ready` failure and can attempt to fix root-cause issues 
    (type errors, test failures, linting, formatting, etc.).

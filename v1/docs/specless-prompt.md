@@ -44,8 +44,8 @@ Prompt mode is strictly single-pass: it invokes agents from `modes.prompt.agentO
 1. Load the prompt using the shared template system.
 2. Try agents in configured order. Fallback-eligible outcomes (`quota`, `model_config`) advance to the next agent; generic `error` (exit 3) and iteration timeout (exit 8) halt immediately on the failing agent.
 3. On successful run, check for git diffs:
-   - **No diffs**: print the agent's output to stdout and exit 0 (no commit or PR).
-   - **Diffs present**: commit all changes, push, and open a draft PR, then exit 0.
+   - **No diffs**: print the agent's output to stdout, then emit a summary block and outcome line, and exit 0 (no commit or PR).
+   - **Diffs present**: commit all changes, push, and open a draft PR; emit a summary block and PR URL outcome line, then exit 0.
 4. When no agent succeeds:
    - Exit 2 only when every attempted agent returned `quota` (all-agents quota exhaustion).
    - Exit 3 when a non-quota fallthrough (`model_config`) ended the chain, or when the final agent failed without all-quota exhaustion.
@@ -54,7 +54,14 @@ Prompt mode is strictly single-pass: it invokes agents from `modes.prompt.agentO
 
 ### No diffs
 
-If the agent succeeds but makes no changes to the repository, the agent's stdout output is printed and no git operations occur. This is useful for read-only queries or when the agent output is the primary deliverable.
+If the agent succeeds but makes no changes to the repository:
+
+1. The agent's stdout output is printed first.
+2. A summary block is emitted, showing usage/cost and duration.
+3. An outcome line is printed stating "No changes were made."
+4. Exit code is 0 and no git operations occur.
+
+This is useful for read-only queries or when the agent output is the primary deliverable.
 
 ### Diffs present
 
@@ -71,6 +78,8 @@ If git reports any modified or new files after the agent run:
    - Base: detected default branch (`main`, `master`, etc.).
    - Head: the temporary prompt branch.
    - Body: full prompt text + attribution footer.
+
+4. **Summary and outcome**: A summary block is emitted showing usage/cost and duration. An outcome line is printed with the created PR URL.
 
 ## Harness-owned commit and PR shape
 

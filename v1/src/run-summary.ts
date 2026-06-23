@@ -22,7 +22,15 @@ export type PlanSummaryArgs = {
   specPath: string;
 };
 
-type TelemetrySummaryMode = "patch" | "plan";
+export type PromptSummaryArgs = {
+  telemetryPath: string | null;
+  namespace: string;
+  startTs: string;
+  exitReason: string;
+  durationMs: number;
+};
+
+type TelemetrySummaryMode = "patch" | "plan" | "prompt";
 
 type AgentAggregate = {
   cliName: string;
@@ -100,7 +108,10 @@ function isReviewAttempt(record: TelemetryRecord): boolean {
 
 function recordMatchesMode(record: TelemetryRecord, mode: TelemetrySummaryMode): boolean {
   if (mode === "patch") {
-    return record.mode !== "plan";
+    return record.mode !== "plan" && record.mode !== "prompt";
+  }
+  if (mode === "prompt") {
+    return record.mode === "prompt";
   }
   return record.mode === "plan";
 }
@@ -223,7 +234,7 @@ function renderSummaryFromRecords(args: {
   runRecords: TelemetryRecord[];
   exitReason: string;
   durationMs: number;
-  specPath: string;
+  specPath?: string;
   labels: RenderLabels;
   /** Patch-only: implementation iterations completed (harness counter).*/
   patchIterations?: number;
@@ -232,7 +243,9 @@ function renderSummaryFromRecords(args: {
 }): string {
   const lines: string[] = [];
   lines.push(`─── ${args.labels.title} ───`);
-  lines.push(`spec: ${args.specPath}`);
+  if (args.specPath !== undefined) {
+    lines.push(`spec: ${args.specPath}`);
+  }
   lines.push(`exit reason: ${args.exitReason}`);
 
   const invocationAttempts = args.runRecords.filter(attemptLine).length;
@@ -544,5 +557,39 @@ export function planSummary(args: PlanSummaryArgs): string {
       noteUnitNoun: "attempt",
     },
     planStyleHeaders: true,
+  });
+}
+
+/** Prompt-mode usage summary: single-pass with attempt labels and no spec path.*/
+export function promptSummary(args: PromptSummaryArgs): string {
+  if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {
+    const lines = [
+      "─── prompt summary ───",
+      `exit reason: ${args.exitReason}`,
+      `duration: ${formatDuration(args.durationMs)}`,
+      "",
+      "(no telemetry records found for this run)",
+      "",
+      `Hit a harness gap? ${INTAKE_SUGGESTION_URL}`,
+    ];
+    return lines.join("\n");
+  }
+
+  const runRecords = loadFilteredRecords({
+    telemetryPath: args.telemetryPath,
+    namespace: args.namespace,
+    startTs: args.startTs,
+    mode: "prompt",
+  });
+
+  return renderSummaryFromRecords({
+    runRecords,
+    exitReason: args.exitReason,
+    durationMs: args.durationMs,
+    labels: {
+      title: "prompt summary",
+      rowCountNoun: "attempt",
+      noteUnitNoun: "attempt",
+    },
   });
 }

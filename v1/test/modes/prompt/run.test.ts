@@ -140,6 +140,7 @@ if [[ "$1 $2" == "pr create" ]]; then
     esac
     shift
   done
+  printf 'https://github.com/test/repo/pull/123\\n'
   exit 0
 fi
 exit 1
@@ -208,7 +209,10 @@ describe("promptCommand", () => {
     expect(code).toBe(0);
     expect(claude.calls).toHaveLength(1);
     expect(codex.calls).toHaveLength(1);
-    expect(cap.out()).toBe("codex answer\n");
+    const out = cap.out();
+    expect(out).toContain("codex answer");
+    expect(out).toContain("─── prompt summary ───");
+    expect(out).toContain("No changes were made.");
     expect(cap.err()).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
     expect(cap.err()).toContain("limit");
     expect(cap.err()).not.toContain(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
@@ -265,7 +269,10 @@ describe("promptCommand", () => {
     const code = await runPrompt({ claude }, cap);
 
     expect(code).toBe(0);
-    expect(cap.out()).toBe("read-only answer\n");
+    const out = cap.out();
+    expect(out).toContain("read-only answer");
+    expect(out).toContain("─── prompt summary ───");
+    expect(out).toContain("No changes were made.");
     expect(claude.calls).toHaveLength(1);
   });
 
@@ -286,6 +293,9 @@ describe("promptCommand", () => {
     expect(readFileSync(env.prLog, "utf8")).toContain("create");
     expect(readFileSync(env.pushLog, "utf8")).toContain("push");
     expect(readFileSync(env.prTitle, "utf8")).toBe("add a file");
+    const out = cap.out();
+    expect(out).toContain("─── prompt summary ───");
+    expect(out).toContain("PR created: https://github.com/test/repo/pull/123");
   });
 
   test("successful fallback agent drives the diff flow identically", async () => {
@@ -305,6 +315,9 @@ describe("promptCommand", () => {
     expect(readFileSync(env.prLog, "utf8")).toContain("create");
     expect(readFileSync(env.pushLog, "utf8")).toContain("push");
     expect(readFileSync(env.prTitle, "utf8")).toBe("add a file");
+    const out = cap.out();
+    expect(out).toContain("─── prompt summary ───");
+    expect(out).toContain("PR created: https://github.com/test/repo/pull/123");
   });
 
   test("polls on spawn and interval then reaps once per successful attempt", async () => {

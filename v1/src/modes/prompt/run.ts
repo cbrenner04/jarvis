@@ -18,7 +18,9 @@ import {
   HARNESS_QUOTA_FALLBACK_STRICT,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
+import { promptSummary } from "../../run-summary.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
+import { extractUsageAndCost, type UsageCostFields } from "../../telemetry-enrichment.ts";
 import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "../patch/reap.ts";
@@ -165,6 +167,8 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
 
   const runStartedAt = new Date();
   const runStartedMs = Date.now();
+  const telemetryPath = cfg.telemetryPath ?? null;
+  const namespace = `${project.key}:prompt`;
   let exitCode = 0;
   let exitReason = "success";
   let telemetryKind: TelemetryKind = "ok";
@@ -172,6 +176,8 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
   let configuredModel: string | undefined;
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
+  let usageAndCost: UsageCostFields = {};
+  let telemetryWritten = false;
 
   try {
     const basePrompt = buildPrompt(opts.promptText);
@@ -317,6 +323,7 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
           agentOutput = result.stdout;
           agentSuccess = true;
           telemetryKind = "ok";
+          usageAndCost = extractUsageAndCost(result, agent.name, configuredModel);
           break;
         }
 
@@ -376,8 +383,37 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
     const hasDiffs = statusOutput.length > 0;
 
     if (!hasDiffs) {
-      // No-diff case: print response and exit
+      // No-diff case: print response, telemetry, and summary
       opts.io.stdout(agentOutput);
+
+      // Write enriched telemetry before summary reads it
+      const durationMs = Date.now() - runStartedMs;
+
+      appendTelemetryLine(telemetryPath, {
+        ts: runStartedAt.toISOString(),
+        namespace,
+        agent: agentUsed.name,
+        iteration: 1,
+        duration_ms: durationMs,
+        kind: telemetryKind,
+        exit_reason: exitReason,
+        mode: "prompt",
+        ...(configuredModel !== undefined ? { configured_model: configuredModel } : {}),
+        ...usageAndCost,
+      });
+      telemetryWritten = true;
+
+      // Emit summary and outcome
+      const summary = promptSummary({
+        telemetryPath,
+        namespace,
+        startTs: runStartedAt.toISOString(),
+        exitReason,
+        durationMs,
+      });
+      opts.io.stdout(summary);
+      opts.io.stdout("No changes were made.\n");
+
       return 0;
     }
 
@@ -414,8 +450,9 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
 
     const prBody = `${opts.promptText}\n\n---\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)`;
 
+    let prUrl: string | undefined;
     try {
-      execFileSync(
+      const ghOutput = execFileSync(
         "gh",
         [
           "pr",
@@ -433,11 +470,44 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
         {
           cwd: worktreePath,
           stdio: "pipe",
+          encoding: "utf8",
         },
-      );
+      ).trim();
+      prUrl = ghOutput;
     } catch (err) {
       opts.io.stderr(`gh pr create failed: ${(err as Error).message}\n`);
       return 1;
+    }
+
+    // Capture duration after PR creation
+    const durationMs = Date.now() - runStartedMs;
+
+    // Write enriched telemetry before summary reads it
+    appendTelemetryLine(telemetryPath, {
+      ts: runStartedAt.toISOString(),
+      namespace,
+      agent: agentUsed.name,
+      iteration: 1,
+      duration_ms: durationMs,
+      kind: telemetryKind,
+      exit_reason: exitReason,
+      mode: "prompt",
+      ...(configuredModel !== undefined ? { configured_model: configuredModel } : {}),
+      ...usageAndCost,
+    });
+    telemetryWritten = true;
+
+    // Emit summary and outcome with PR URL
+    const summary = promptSummary({
+      telemetryPath,
+      namespace,
+      startTs: runStartedAt.toISOString(),
+      exitReason,
+      durationMs,
+    });
+    opts.io.stdout(summary);
+    if (prUrl) {
+      opts.io.stdout(`PR created: ${prUrl}\n`);
     }
 
     return 0;
@@ -448,21 +518,21 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
       opts.io.stderr(`warning: failed to release lock: ${(err as Error).message}\n`);
     }
 
-    // Write telemetry
-    const durationMs = Date.now() - runStartedMs;
-    const telemetryPath = cfg.telemetryPath ?? null;
-    const namespace = `${project.key}:prompt`;
+    // Write telemetry only if success termini didn't already write it
+    if (!telemetryWritten) {
+      const durationMs = Date.now() - runStartedMs;
 
-    appendTelemetryLine(telemetryPath, {
-      ts: runStartedAt.toISOString(),
-      namespace,
-      agent: agentUsed?.name ?? "unknown",
-      iteration: 1,
-      duration_ms: durationMs,
-      kind: telemetryKind,
-      exit_reason: exitReason,
-      mode: "prompt",
-      ...(configuredModel !== undefined ? { configured_model: configuredModel } : {}),
-    });
+      appendTelemetryLine(telemetryPath, {
+        ts: runStartedAt.toISOString(),
+        namespace,
+        agent: agentUsed?.name ?? "unknown",
+        iteration: 1,
+        duration_ms: durationMs,
+        kind: telemetryKind,
+        exit_reason: exitReason,
+        mode: "prompt",
+        ...(configuredModel !== undefined ? { configured_model: configuredModel } : {}),
+      });
+    }
   }
 }

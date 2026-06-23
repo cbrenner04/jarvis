@@ -48,19 +48,19 @@ subspec adds that rendering surface; the prompt-mode call site is wired in `01`.
 
 ## Acceptance criteria
 
-- [ ] `recordMatchesMode` with mode `"prompt"` matches a `mode: "prompt"` record
+- [x] `recordMatchesMode` with mode `"prompt"` matches a `mode: "prompt"` record
   and rejects `patch`/`plan` records; mode `"patch"` no longer matches a
   `mode: "prompt"` record.
-- [ ] `promptSummary` renders a `─── prompt summary ───` block carrying the
+- [x] `promptSummary` renders a `─── prompt summary ───` block carrying the
   per-agent cost table (agent+model, tokens, cost, source), `duration:`, and
   `exit reason:` for a synthetic `mode: "prompt"` ok record with usage/cost.
-- [ ] The populated `promptSummary` block emits no `spec:` line, no `iterations:`
+- [x] The populated `promptSummary` block emits no `spec:` line, no `iterations:`
   line, and no `phase attempts:` line.
-- [ ] `promptSummary` returns the no-telemetry fallback block when
+- [x] `promptSummary` returns the no-telemetry fallback block when
   `telemetryPath` is null or the file is absent; the fallback emits title,
   `exit reason:`, `duration:`, and the `(no telemetry records found for this run)`
   text, and emits no `spec:`/`phase attempts:`/`iterations:` line.
-- [ ] Existing `runSummary`/`planSummary` tests in `v1/test/run-summary.test.ts`
+- [x] Existing `runSummary`/`planSummary` tests in `v1/test/run-summary.test.ts`
   stay green (rendering for patch/plan unchanged by the three-way match).
 
 ## Documentation updates

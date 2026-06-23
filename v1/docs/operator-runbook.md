@@ -25,12 +25,14 @@ An observer session is not done when the PRs merge — it's done when the findin
 
 ## Cost reporting standard
 
-Every session's cost breakdown uses fixed schemas so the data stays aggregatable across reports. Two cumulative CSVs, kept separate because spec work and the observer's own session have different shapes:
+Every session closes four cumulative CSVs: two cost sheets plus two additive outcome sheets. Keep spec rows separate from observer rows; their shapes and reconciliation rules differ.
 
 - **`reports/session-costs.csv`** — one row per Jarvis spec/intent (plan + run phases).
 - **`reports/overlord-costs.csv`** — one row per observer/overlord session.
+- **`reports/session-outcomes.csv`** — one row per session cost row after outcome reconciliation.
+- **`reports/overlord-outcomes.csv`** — one row per overlord cost row after outcome reconciliation.
 
-The per-report markdown cost section mirrors **the same fields as tables** (a spec table, plus the session's own overlord line).
+The per-report markdown cost section mirrors the cost-sheet fields as tables. Outcome sheets stay cumulative CSVs only.
 
 **`session-costs.csv` columns:**
 
@@ -40,16 +42,65 @@ The per-report markdown cost section mirrors **the same fields as tables** (a sp
 
 `report, session, session_count, model, total_cost, avg_cost_per_spec, api_time, tokens_in, tokens_out, cache_read, cache_write, notes`
 
-(`session_count` = the number of `session-costs.csv` spec rows sharing this `report` — the spec count the overlord drove that session. `avg_cost_per_spec` = `total_cost / session_count` — the observer's own cost per spec driven.)
+**`session-outcomes.csv` columns:**
 
-Rules:
+`report, session_id, report_date, completed_work_units, success_status, failure_reason, session_type, agent_count, duration_minutes, files_touched, notes`
+
+**`overlord-outcomes.csv` columns:**
+
+`report, session_id, report_date, specs_driven, overall_success, failure_reason, session_type, duration_minutes, files_touched, notes`
+
+Cost-row identities:
+
+- Session cost rows are identified by **`(report, name)`**. `name` is not globally unique.
+- Overlord cost rows are identified by **`(report, session)`**. `session` is not globally unique.
+- Session outcome rows join to session cost rows on **`(report, session_id) -> (report, name)`**.
+- Overlord outcome rows join to overlord cost rows on **`(report, session_id) -> (report, session)`**.
+- Before writing or amending an outcome row, confirm the matching cost-sheet composite identity is unique. Duplicate cost identities are blocking; do not pick one silently.
+
+Cost-sheet rules:
 
 - **Spec rows:** plan + run phases on one row; `total_cost` = plan + run.
-- **One overlord row per session.** `total_cost` = the observer's own `/cost` total. If a session spans a compaction boundary (multiple reports, same operator `/cost`), combine into a single row — the operator cost covers all of it; don't double-count.
-- **Dedupe repeated specs across combined reports.** When one session's work is split across reports and a spec appears in more than one, keep a single row with the completed figures; note the alternate accounting rather than emitting two rows.
-- **Blank where it doesn't apply** — a plan-only or blocked-run spec leaves the run columns empty; a report that didn't break plan/run apart leaves the phase-cost columns empty and fills only `total_cost`.
-- **Token columns are raw integers** — expand the phase summary's `k`/`M` shorthand (`13k`→`13000`, `16.7M`→`16700000`) so the data is analyzable. Costs are plain dollars; times are `HH:MM:SS`.
-- Each session **appends its rows** to both CSVs and mirrors them as tables in its own markdown report.
+- **One overlord row per session.** `total_cost` = the observer's own `/cost` total. If a session spans a compaction boundary (multiple reports, same operator `/cost`), combine into a single row.
+- **Dedupe repeated specs across combined reports.** Keep one completed row and note alternate accounting.
+- **Blank where it doesn't apply.** Plan-only or blocked-run specs leave run columns empty; reports without a phase split fill only `total_cost`.
+- **Token columns are raw integers.** Expand `k`/`M` shorthand. Costs are dollars; times are `HH:MM:SS`.
+- Each session appends its cost rows to both cost CSVs and mirrors them in the markdown report.
+
+Outcome reconciliation:
+
+- Run **outcome reconciliation after final cost-row reconciliation and before closing the session report**.
+- Reconciliation writes or amends **exactly one** outcome row for each uniquely identified cost row.
+- On rerun or correction, amend the matching outcome row after rechecking the cost identity; do not append another row for the same cost row.
+- If matching outcome rows are already duplicated, reconcile them back to one row when attribution is certain. If attribution is not certain, leave the conflict unresolved and explain it in `notes`.
+
+Shared outcome-field semantics:
+
+- `report_date`, `session_type`, `failure_reason`, `duration_minutes`, `files_touched`, and `notes` mean the same thing on both outcome sheets so the rows can be unioned later.
+- `duration_minutes` is total plan-plus-run execution time in decimal minutes rounded to two decimals. Do not substitute overlord `api_time`; it is a different measure.
+- `files_touched` is a non-negative count of distinct changed paths. Overlord rows use the distinct-path union for the whole session, not per-spec duplicates.
+- Overlord `session_type` is always `orchestration`.
+
+Outcome status semantics:
+
+- `success_status` and `overall_success` use the same observer-judged values: `completed`, `partial`, `blocked`, `canceled`, `failed`, or blank when unknown.
+- `plan-only` is a session shape, not a separate status spelling. Record it through the cost-row shape, `session_type`, `completed_work_units`, and `notes`; do not fabricate a terminal success/failure value just to label it.
+- Exit-derived status or failure hints are inputs to judgment, not overrides. When judgment differs from the hint, record the basis in `notes`.
+- `completed_work_units` counts delivered scoped units: completed rows count all delivered units; partial rows count only delivered units; blocked/canceled/failed rows still count units completed before the terminal state; plan-only rows count `1` only for a finalized plan/spec. If the count is unknown, leave it blank and explain in `notes`.
+- Leave unrecoverable judgment or derived values blank with an explanatory note. Blank and failure are distinct.
+
+Source-or-blank derivation policy:
+
+- Use the primary source documented in [v2/docs/outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) first.
+- Use a fallback only when it is attributable to the exact composite identity being reconciled. Otherwise leave the field blank and explain the missing attribution in `notes`.
+- Patch `report_date`: derive from the matching JSONL run start. Fallbacks are an identity-bound CSV date or JSONL timestamp span only when the primary source is absent.
+- Patch `duration_minutes`: derive from the matching cost row's `plan_time + run_time`.
+- Patch `session_type` and `agent_count`: derive from identity-bound JSONL (`mode`, distinct real agents). If plan phases are involved, supply observer-backed values from a contemporaneous record or leave blank with a note; plan phases lack equivalent telemetry.
+- Patch `files_touched`: derive from the identity-bound run-base git diff. A weaker git fallback is allowed only when every included commit is uniquely attributable to the same cost identity.
+- Overlord `report_date`: derive from the earliest matched session outcome date. If no matched session has a date, leave it blank with a note.
+- Overlord `specs_driven`: copy from the matching overlord cost row's `session_count`.
+- Overlord `duration_minutes`: derive from the uniquely matched session-cost rows for that overlord session.
+- Overlord `files_touched`: derive from the distinct-path union across the identity-bound session set.
 
 ## Experimentation — encouraged, but bounded
 

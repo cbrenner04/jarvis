@@ -1,0 +1,7 @@
+- Resolve tier authoring scope: either include plan/intent stamping as an independently testable prerequisite or retain tierless newly authored specs until that work lands; do not require new specs to record a tier while deferring the producer.
+- Define valid index metadata unambiguously: top-level placement, one nonblank `tier:` value, accepted values, and duplicate handling; deterministic durable metadata requires one parse result.
+- Use the actual v1 operator surface, `jarvis1 run --tier <tier>`, in specs and docs.
+- Preserve existing terminal precedence: iteration-budget exhaustion remains distinct from final-rung no-progress (`4`); model/config and generic failures remain `3`, timeouts `8`, and quota exhaustion across all selected rungs `2`.
+- Require terminal behavior and telemetry/model attribution to reflect the selected ladder entry, not an earlier skipped rung; tier selection must only alter the initial rung and preserve ordinary recovery semantics.
+- Name the exact durable documentation homes selected by `v2/docs/documentation-standard.md`, including a specific v1 patch-ladder cross-link location; `v2/docs/` alone is not a durable-home decision.
+- Keep coverage focused on duplicate-free configured ladders; current validation already rejects duplicate agent entries, so duplicate-rung behavior is not required by this change.

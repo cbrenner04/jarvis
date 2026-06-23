@@ -1,0 +1,157 @@
+# Outcome-data source audit: recorded vs. derivable vs. missing
+
+## Purpose
+
+Before the outcome sheets are implemented, classify which proposed outcome columns the harness already records, which are derivable from existing telemetry, and which genuinely require observer input. This classification drives the outcome schema design and clarifies the contract between harness and observer.
+
+## Recorded telemetry inventory
+
+### Patch telemetry JSONL (`~/.jarvis/runs.jsonl`)
+
+Documented in [v1/docs/run-loop.md](../../../v1/docs/run-loop.md) § Run telemetry file and [v1/docs/quota-signals.md](../../../v1/docs/quota-signals.md) § Patch telemetry.
+
+Per-invocation record fields (append-only, patch mode only):
+
+- `ts`: Unix timestamp in milliseconds of the invocation.
+- `run_start_ts`: Unix timestamp in milliseconds at the start of the run (constant across all rows for one spec execution).
+- `agent`: The agent CLI name (`claude`, `codex`, `cursor`, etc.).
+- `configured_model`: Model string from `modes.patch.agentOrder` entry at invocation time (optional).
+- `kind`: Classification of the outcome (`ok`, `quota`, `error`, `timeout`, `model_config`).
+- `exitReason`: Semantic category of the outcome (e.g., `quota-exhausted`, `no-progress-fallback`, `agent-error`, `watchdog-iteration-timeout`).
+- `mode`: Always `"patch"` (included for Jarvis spec execution context).
+- `patch_phase`: Phase name, if available.
+- `namespace`: Agent invocation context identifier.
+- `usage`: Object with token counts (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`; each `number | null`).
+- `usage_source`: One of `"agent"`, `"estimated"`, `"unavailable"`, or `null`.
+- `cost_usd`: Estimated cost (`number | null`).
+- `cost_source`: One of `"computed"`, `"estimated"`, `"unavailable"`, or `null`.
+- `record_role`: Optional; `"run_terminal"` marks end-of-run summary rows that mirror `completed-spec` and must not be double-summed.
+
+Watchdog-triggered timeouts may additionally include:
+
+- `watchdog_pgid`: The killed process-group ID.
+- `last_output_age_ms`: Milliseconds since the last stdout/stderr chunk at watchdog fire (null if no output arrived).
+- `watchdog_descendants_alive`: Boolean indicating whether ≥1 descendant of the agent root pid was live at snapshot (omitted when pgid unavailable).
+
+**Patch telemetry scope:** Only `jarvis1 run` (patch mode) emits JSONL rows. Plan phases (`intent`, `refine`, `name-only`, `draft`, `review`) do not emit matching per-phase outcome records; plan mode has limited telemetry coverage.
+
+### Cost CSV headers
+
+Documented in [v1/docs/operator-runbook.md](../../../v1/docs/operator-runbook.md) § Cost reporting standard.
+
+**`reports/session-costs.csv` columns:**
+
+`report, name, plan_model, plan_cost, plan_time, plan_tokens_in, plan_tokens_out, run_model, run_cost, run_time, run_tokens_in, run_tokens_out, total_cost, notes`
+
+**`reports/overlord-costs.csv` columns:**
+
+`report, session, session_count, model, total_cost, avg_cost_per_spec, api_time, tokens_in, tokens_out, cache_read, cache_write, notes`
+
+Key columns: `session_count` is the number of `session-costs.csv` rows (spec count); `api_time` is total API runtime.
+
+## Classification table
+
+Each proposed outcome column is classified as one of:
+
+- **Already-logged**: The harness records this field directly in JSONL or CSV.
+- **Derivable**: The harness records sufficient source data; a deterministic derivation computes the outcome.
+- **Pinned constant**: The value is a fixed constant (not variable per run/spec) and derives from context rather than recorded data.
+- **Not-captured**: The harness does not record this data; observer input or best-effort fallback required.
+- **Derived-hint + observer-override**: Hybrid status fields where the harness provides a derived hint (e.g., `exitReason`-based success probability) but the observer can override with judgment.
+
+### Session-sheet proposed columns
+
+| Column | Classification | Source / Derivation | Notes |
+|--------|----------------|---------------------|-------|
+| `session_id` | Join key (cost CSV) | From `reports/session-costs.csv` `name` field | Not an outcome; matches spec identifier in cost CSV |
+| `report_date` | Derivable | From `run_start_ts` (first JSONL row `ts`); convert to date | Primary source; cost CSV `report` field may also be present but matches `run_start_ts` derivation |
+| `completed_work_units` | Not-captured | Observer judgment | Count of checked acceptance criteria at session end; harness does not track intent of checklist items |
+| `success_status` | Derived-hint + observer-override | Hint from final `exitReason` (`ok` → successful, `error`/`quota`/`timeout` → failure); observer overrides | Harness emits `exitReason` (quota-exhausted, agent-error, watchdog-iteration-timeout, etc.); observer records actual outcome intent (e.g., partial progress) |
+| `failure_reason` | Derived-hint + observer-override | Hint from `exitReason` and `kind`; observer records if not captured | If `success_status` is failure, harness provides signal (quota, agent-error, timeout, model-config); observer may clarify |
+| `session_type` | Already-logged | From `mode` field in JSONL (always `"patch"` for patch runs) | For plan/intent runs, recorded by observer; for patch, always `"patch"` |
+| `agent_count` | Derivable | Distinct agent names in JSONL, excluding `record_role: "run_terminal"` rows and synthetic `agent: "harness"` rows | Filter: count unique `agent` values where `record_role ≠ "run_terminal"` and `agent ≠ "harness"` |
+| `duration_minutes` | Derivable | From `reports/session-costs.csv` `plan_time` and `run_time` fields (in seconds, already-logged); sum and convert to minutes. If CSV unavailable, fallback to `(max(ts) - min(ts)) / 1000 / 60` from JSONL (timestamps in milliseconds) | CSV source preferred: cost standard already records duration per phase |
+| `files_touched` | Derivable | From run git diff (paths of added/modified/deleted files); count or list | Run-end git diff is reliably persisted post-run; if diff is deleted, recompute from git history (e.g., `git diff HEAD~1` if the spec commit is known). Reliability: stable once committed |
+| `notes` | Not-captured | Observer recorded | Free-form context; harness does not record per-spec notes |
+
+### Overlord-sheet proposed roll-up columns
+
+| Column | Classification | Source / Derivation | Notes |
+|--------|----------------|---------------------|-------|
+| `specs_driven` | Already-logged | From `reports/overlord-costs.csv` `session_count` field | Number of `session-costs.csv` rows in this overlord session; cost CSV already records it |
+| `overall_success` | Derived-hint + observer-override | Hint: aggregate per-session `success_status` (derived hints from `exitReason`); observer overrides if needed | Harness derives per-session success hints from JSONL `exitReason` and aggregates across the session; observer may record aggregate judgment (e.g., "partial success") |
+| `session_type` | Pinned constant | Value is always `"orchestration"` for overlord sheets (not recorded in CSV, derived from sheet context) | Not per-spec; marks the row as overlord-generated |
+| `total_duration` | Already-logged | From `reports/overlord-costs.csv` `api_time` field (total API runtime); or sum of `plan_time + run_time` across all rows in the session | API time is already recorded; alternative: aggregate per-spec durations |
+| `aggregate_files_touched` | Derivable (with caveat) | Union of `files_touched` across all specs in the session; derives from git history (diff against main branch at session start) — independent of JSONL telemetry coverage | Plan phases do not emit per-phase JSONL rows, but files are captured in git history. Derivable from post-run diff even for mixed plan+patch sessions; use session-start baseline (e.g., `git diff <session-start-commit> HEAD --name-only`). |
+
+## Derivation details
+
+### `agent_count`
+
+Filter patch JSONL rows by:
+1. Exclude `record_role: "run_terminal"` (end-of-run summaries that duplicate `completed-spec`).
+2. Exclude synthetic `agent: "harness"` rows (bookkeeping entries).
+3. Count distinct `agent` values in the remaining set.
+
+Example (pseudo-SQL): `SELECT COUNT(DISTINCT agent) FROM runs WHERE ts BETWEEN start AND end AND record_role != "run_terminal" AND agent != "harness"`
+
+A naive row count is incorrect if an iteration produced both a real invocation and a terminal duplicate.
+
+### `duration_minutes`
+
+**Primary source:** From `reports/session-costs.csv`, sum `plan_time + run_time` (both in seconds) and convert to minutes by dividing by 60.
+
+**Fallback (if CSV unavailable):** From JSONL, compute `(max(ts) - min(ts)) / 1000 / 60` (from milliseconds to seconds to minutes).
+
+The cost CSV is the authoritative source because it already records per-phase durations independently. Fallback to JSONL only if the CSV row is missing.
+
+### `files_touched`
+
+**Source:** Run git diff. At the end of a `jarvis1 run`, the worktree contains a checked-in commit with all changes. Since Jarvis commits per iteration, the correct diff is against the run base (spec start), not just the final commit. Extract files:
+
+**Primary:**
+```bash
+git diff <spec-base> --name-only
+```
+(where `<spec-base>` is the commit at which the spec started; typically recorded in the spec or run metadata)
+
+**Fallback (if spec base unknown):**
+```bash
+git diff HEAD~1 --name-only
+```
+(captures only the final iteration; use only if spec base is unavailable)
+
+Count distinct file paths or store as a list (format per schema design).
+
+**Persistence:** The run diff is committed to git and persists post-run, so it is reliably available for later audit (e.g., from `reports/` after the run completes). If the worktree is deleted without committing, the diff is lost; recovery requires `git log` on the target repo.
+
+## Scope constraints and follow-ups
+
+### Plan-phase telemetry gap
+
+Plan mode (spec drafting) does not emit per-phase JSONL outcome rows. Only the final plan invocation result is recorded. This affects:
+
+- **`agent_count` for plan phases:** Harness does not count individual agent invocations during refine/draft phases.
+
+**Follow-up:** Plan-phase `agent_count` requires observer input or derivation from git history when plan phases are involved. A future telemetry extension may emit per-plan-phase rows, but that is out of scope here.
+
+Note: **`aggregate_files_touched` is derivable from git history** despite the plan-phase telemetry gap, since files touched during any phase (plan or patch) are captured in the run's git diff.
+
+### Not-captured columns requiring observer input
+
+- **`completed_work_units`:** The checklist is visible only to the observer; the harness does not parse acceptance-criteria intent.
+- **`notes`:** Observer-recorded free-form context.
+- **`failure_reason` (when not captured by `exitReason`):** If a run exits 0 but the observer notes "spec refined to avoid implementation" or similar, the harness has no signal.
+
+Judgment columns (`overall_success` for overlord, `success_status` and `failure_reason` overrides for session) are hybrid: the harness provides derived hints, and the observer may override with judgment post-session.
+
+### No harness behavior change
+
+This audit is a **classification only**. It documents what is already recorded and what is derivable; it makes no changes to:
+
+- Telemetry JSONL schema or emission.
+- Cost CSV columns or values.
+- Run git diff persistence.
+
+The harness continues to emit the same telemetry fields. Outcome sheet implementation consumes these fields and combines them with observer input per this classification.
+

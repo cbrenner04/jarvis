@@ -175,52 +175,36 @@ function classifyWorktree(
   // Check PR state
   const prStateResult = ghRunner.getPrState(worktreeName);
   if (!prStateResult || prStateResult.state !== "MERGED") {
-    const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = {
-      isLanded: false,
-    };
-    if (prStateResult?.isDraft !== undefined) {
-      result.isDraft = prStateResult.isDraft;
-    }
-    if (prStateResult?.state !== undefined) {
-      result.prStateRaw = prStateResult.state.toLowerCase();
-    }
-    return result;
+    return buildClassifyResult(false, prStateResult);
   }
 
   // Check if tree is clean
   const dirtyKind = computeDirtyKind(worktreePath);
   if (dirtyKind !== "clean") {
-    const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = {
-      isLanded: false,
-    };
-    if (prStateResult.isDraft !== undefined) {
-      result.isDraft = prStateResult.isDraft;
-    }
-    result.prStateRaw = prStateResult.state.toLowerCase();
-    return result;
+    return buildClassifyResult(false, prStateResult);
   }
 
   // Check if there are unpushed commits
   const unpushed = computeUnpushed(worktreePath);
   if (unpushed > 0) {
-    const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = {
-      isLanded: false,
-    };
-    if (prStateResult.isDraft !== undefined) {
-      result.isDraft = prStateResult.isDraft;
-    }
-    result.prStateRaw = prStateResult.state.toLowerCase();
-    return result;
+    return buildClassifyResult(false, prStateResult);
   }
 
   // All conditions met: PR is merged, tree is clean, no unpushed commits
-  const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = {
-    isLanded: true,
-  };
-  if (prStateResult.isDraft !== undefined) {
+  return buildClassifyResult(true, prStateResult);
+}
+
+function buildClassifyResult(
+  isLanded: boolean,
+  prStateResult: { state: string; isDraft: boolean } | null,
+): { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } {
+  const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = { isLanded };
+  if (prStateResult?.isDraft !== undefined) {
     result.isDraft = prStateResult.isDraft;
   }
-  result.prStateRaw = prStateResult.state.toLowerCase();
+  if (prStateResult?.state !== undefined) {
+    result.prStateRaw = prStateResult.state.toLowerCase();
+  }
   return result;
 }
 

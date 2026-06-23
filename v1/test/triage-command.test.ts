@@ -23,6 +23,17 @@ function captureIo(): { io: TriageIo; out: () => string; err: () => string } {
   };
 }
 
+function setupWorktree(worktreePath: string, makeDirty = false): void {
+  mkdirSync(worktreePath, { recursive: true });
+  execSync("git init", { cwd: worktreePath });
+  execSync("git config user.email test@example.com", { cwd: worktreePath });
+  execSync("git config user.name Test", { cwd: worktreePath });
+  execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+  if (makeDirty) {
+    writeFileSync(join(worktreePath, "test.txt"), "dirty");
+  }
+}
+
 let root: string;
 let projectRoot: string;
 let worktreeDir: string;
@@ -475,13 +486,7 @@ describe("triage verdict", () => {
   test("all-landed verdict when all worktrees are merged, clean, and no unpushed", () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    setupWorktree(worktreePath);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({
@@ -505,14 +510,7 @@ describe("triage verdict", () => {
   test("outstanding verdict lists worktrees with draft PRs", () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo with dirty state
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
-    writeFileSync(join(worktreePath, "test.txt"), "dirty");
+    setupWorktree(worktreePath, true);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({
@@ -539,13 +537,7 @@ describe("triage verdict", () => {
   test("outstanding verdict lists worktrees with ready (non-draft) PRs", () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    setupWorktree(worktreePath);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({
@@ -572,14 +564,7 @@ describe("triage verdict", () => {
   test("merged dirty worktree is outstanding", () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo with dirty state
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
-    writeFileSync(join(worktreePath, "test.txt"), "dirty");
+    setupWorktree(worktreePath, true);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({
@@ -605,13 +590,7 @@ describe("triage verdict", () => {
   test("plan worktree is classified as outstanding", () => {
     const worktreeName = "plan-new-feature";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo (clean)
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    setupWorktree(worktreePath);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({
@@ -636,13 +615,7 @@ describe("triage verdict", () => {
   test("no PR state is classified as outstanding", () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    setupWorktree(worktreePath);
 
     const ghRunner: TriageGhRunner = {
       getPrState: () => null,
@@ -665,20 +638,12 @@ describe("triage verdict", () => {
     // Create first worktree (landed)
     const landed = "branch-landed";
     const landedPath = join(worktreeDir, landed);
-    mkdirSync(landedPath, { recursive: true });
-    execSync("git init", { cwd: landedPath });
-    execSync("git config user.email test@example.com", { cwd: landedPath });
-    execSync("git config user.name Test", { cwd: landedPath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: landedPath });
+    setupWorktree(landedPath);
 
     // Create second worktree (outstanding - open PR)
     const outstanding = "branch-unpushed";
     const outstandingPath = join(worktreeDir, outstanding);
-    mkdirSync(outstandingPath, { recursive: true });
-    execSync("git init", { cwd: outstandingPath });
-    execSync("git config user.email test@example.com", { cwd: outstandingPath });
-    execSync("git config user.name Test", { cwd: outstandingPath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: outstandingPath });
+    setupWorktree(outstandingPath);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (branch) => {
@@ -708,13 +673,7 @@ describe("triage verdict", () => {
   test("gate state shows as blocked when merge is blocked", () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    setupWorktree(worktreePath);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({
@@ -743,13 +702,7 @@ describe("triage verdict", () => {
   test("gate state shows as clean when merge is permitted", () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    setupWorktree(worktreePath);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({
@@ -778,13 +731,7 @@ describe("triage verdict", () => {
   test("gate state shows as unavailable when getMergeGateState returns null", () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    setupWorktree(worktreePath);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({
@@ -811,13 +758,7 @@ describe("triage verdict", () => {
   test("gate state is not shown for landed worktrees", () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
-    mkdirSync(worktreePath, { recursive: true });
-
-    // Initialize git repo
-    execSync("git init", { cwd: worktreePath });
-    execSync("git config user.email test@example.com", { cwd: worktreePath });
-    execSync("git config user.name Test", { cwd: worktreePath });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    setupWorktree(worktreePath);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({
@@ -847,20 +788,12 @@ describe("triage verdict", () => {
     // Create first worktree (outstanding, gate state query fails)
     const outstanding1 = "branch-1";
     const outstanding1Path = join(worktreeDir, outstanding1);
-    mkdirSync(outstanding1Path, { recursive: true });
-    execSync("git init", { cwd: outstanding1Path });
-    execSync("git config user.email test@example.com", { cwd: outstanding1Path });
-    execSync("git config user.name Test", { cwd: outstanding1Path });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: outstanding1Path });
+    setupWorktree(outstanding1Path);
 
     // Create second worktree (outstanding, gate state query succeeds)
     const outstanding2 = "branch-2";
     const outstanding2Path = join(worktreeDir, outstanding2);
-    mkdirSync(outstanding2Path, { recursive: true });
-    execSync("git init", { cwd: outstanding2Path });
-    execSync("git config user.email test@example.com", { cwd: outstanding2Path });
-    execSync("git config user.name Test", { cwd: outstanding2Path });
-    execSync("git commit --allow-empty -m 'initial'", { cwd: outstanding2Path });
+    setupWorktree(outstanding2Path);
 
     const ghRunner: TriageGhRunner = {
       getPrState: (_branch) => ({

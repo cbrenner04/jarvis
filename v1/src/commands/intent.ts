@@ -589,8 +589,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
 
   const project = entry.resolution.resolved.project;
   const fullProject = cfg.projects[project.key];
-  const { commit } = resolvePlanFlags(cfg, fullProject);
-  const resolvedTargetDir = resolvePlanFlags(cfg, fullProject).targetDir;
+  const { commit, targetDir: resolvedTargetDir } = resolvePlanFlags(cfg, fullProject);
   const targetDir = inv.targetDir ?? resolvedTargetDir;
 
   const planLogClient = entry.logClient;

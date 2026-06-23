@@ -436,9 +436,14 @@ Exit code `10` (`ready-stuck-red`) fires in two scenarios:
 2. The failure text differs between iterations (changing, not identical).
 3. N = 3, allowing two genuine fix-up attempts before the bound.
 
-Both indicate the issue persists and manual intervention is likely needed. The harness outputs:
+Both indicate the issue persists and manual intervention is likely needed. Before returning to the operator, the harness:
+1. Discards the fix-up commits (resets the PR branch to the original completed work via `git reset --hard` and `git push --force-with-lease`).
+2. Outputs messages and state for diagnosis.
+
+The harness outputs:
 - For identical-failure stop: The captured `bun run ready failed:` text that failed before and fails after, noting it is "unchanged."
 - For changing-failure bound: The captured `bun run ready failed:` text and a note that the gate stayed red for N consecutive fix-up iterations with no acceptance-criteria progress and the failure differed each pass.
+- A note that the fix-up edits have been discarded, the PR is at the original completed work, and the discarded commits are recoverable via `git reflog`.
 - A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves.
 - A telemetry record with exit reason `ready-stuck-red` for observability.
 
@@ -767,7 +772,7 @@ jarvis1 log-server
 | `7` | `blocked` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | `timeout` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | `worktree-locked` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |
-| `10` | `ready-stuck-red` | The run is stuck on a red `bun run ready` failure after fix-up iteration(s). Two scenarios: (1) **identical-failure stop**: The captured failure text is unchanged after normalization (for noise like timings and paths), and no new work was ticked and no new blocker was added. (2) **changing-failure bound**: The ready gate has returned red for N (3) consecutive fix-up iterations with no acceptance-criteria progress, and the failure text differs between iterations. Both are recoverable stops: the issue persists and manual intervention may be needed. The error message includes the captured failure text and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import, a flaky or non-deterministic failure) and rerun to retry the fix-up iteration. |
+| `10` | `ready-stuck-red` | The run is stuck on a red `bun run ready` failure after fix-up iteration(s). Two scenarios: (1) **identical-failure stop**: The captured failure text is unchanged after normalization (for noise like timings and paths), and no new work was ticked and no new blocker was added. (2) **changing-failure bound**: The ready gate has returned red for N (3) consecutive fix-up iterations with no acceptance-criteria progress, and the failure text differs between iterations. Both are recoverable stops: the issue persists and manual intervention may be needed. Before exiting, the harness discards the fix-up commits (resets the PR branch to the original work via `git reset --hard` and force-pushes if upstream exists), leaving the PR diff at the original completed spec work. The discarded commits are recoverable via `git reflog`. The error message includes the captured failure text, the discard action, and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import, a flaky or non-deterministic failure) and rerun to retry the fix-up iteration. |
 | `130` | `sigint` | Interrupted with Ctrl-C. |
 
 On exit `4`, `5`, and `10`, the bounded tail of recent agent output is printed to the

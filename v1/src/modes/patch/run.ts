@@ -104,6 +104,7 @@ export type IterationContext = {
     currentController: AbortController | null;
     completionLoopbackSignal: { failureText: string } | null;
     previousCompletionFailureText: string | null;
+    firstRedBaselineSha: string | null;
     consecutiveRedFixups: number;
     acProgressSinceLastGate: boolean;
     completionTransitionReadyResult?: {
@@ -264,6 +265,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     currentController: null,
     completionLoopbackSignal: null,
     previousCompletionFailureText: null,
+    firstRedBaselineSha: null,
     consecutiveRedFixups: 0,
     acProgressSinceLastGate: false,
     consecutiveEditedUnticked: 0,

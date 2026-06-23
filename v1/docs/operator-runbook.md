@@ -215,6 +215,7 @@ Common cases:
 - **Complete-but-dirty run.** Spec checklists all ticked but the worktree has uncommitted work the agent didn't commit before exiting — commit it and finalize (never auto-tick criteria).
 - **Transient-killed plan.** A plan that died on a transient agent-error leaves a dirty plan worktree. If the review actuator had already finished (verdict file written, subspec edits applied) and only the commit/index-reconcile was lost, **reconcile the `index.md` to match the subspecs the actuator created, then commit** — cheaper and more deterministic than re-running the review pass. If the edits look truncated, discard and re-resume instead.
 - **Flaky parallel-load failure.** Tests that pass serially/in-isolation but fail under `--parallel` are load flakes — re-run the failing test(s) in isolation; if green, finalize.
+- **Stuck-red stop (exit 10).** When the completion gate stays red after fix-up iteration(s), the harness discards the fix-up chase edits and exits `10`. The PR branch is reset to the original completed spec work via `git reset --hard` and force-pushed, so the remote PR no longer contains the chase commits. The discarded commits are recoverable via `git reflog` if needed, but finalize-by-hand starts from the original clean diff. Fix the underlying ready-gate issue (e.g., linting rule, missing import, flaky failure) and re-run to retry fix-up, or finalize and merge the original work as-is.
 
 Admin-merge skips approval and CI gating but **not** local verification — always run `bun run ready` before merging.
 

@@ -14,7 +14,7 @@ import {
   ReadyCommandError,
   runReadyAndCommit,
 } from "../../ready-gate.ts";
-import { pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
+import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
 import { countUnchecked, findBlockerInLinkedSubspecs } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { runPatchReviewPhase } from "./review.ts";
@@ -180,6 +180,32 @@ function commitAndPushCompleteDirtyWorktree(cwd: string): boolean {
   return true;
 }
 
+function discardFixupEdits(baselineSha: string, cwd: string, skipGhCheck: boolean): void {
+  try {
+    execFileSync("git", ["reset", "--hard", baselineSha], {
+      cwd,
+      stdio: "pipe",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`git reset failed: ${message}`);
+  }
+
+  // Force-push only if upstream exists and skipGhCheck is not set
+  if (!skipGhCheck && hasUpstream(cwd)) {
+    try {
+      execFileSync("git", ["push", "--force-with-lease"], {
+        cwd,
+        env: process.env,
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`git push --force-with-lease failed: ${message}`);
+    }
+  }
+}
+
 async function runCompletionReadyGate(
   ctx: IterationContext,
   readyCommand?: string,
@@ -301,6 +327,20 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         return 6;
       }
       // Red completion ready gate.
+      // Capture the first-red baseline on the first red (used later for discard)
+      if (ctx.state.firstRedBaselineSha === null && preflight.gitEnabled && existsSync(join(preflight.agentWorkingDir, ".git"))) {
+        try {
+          const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+            cwd: preflight.agentWorkingDir,
+            encoding: "utf8",
+            stdio: "pipe",
+          }).trim();
+          ctx.state.firstRedBaselineSha = headSha;
+        } catch {
+          // No HEAD sha available: skip baseline capture
+        }
+      }
+
       // Check if this is a stuck-red stop: failure unchanged and no new checkbox/blocker
       const hasNewBlocker = findBlockerInLinkedSubspecs(preflight.specPath) !== undefined;
       const isStuckRed =
@@ -312,9 +352,20 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
       if (isStuckRed) {
         // Stuck-red stop: the failure is unchanged, no new checkbox, no new blocker
         const worktreeName = basename(preflight.agentWorkingDir);
+
+        // Discard fix-up edits: reset to baseline and force-push if upstream exists
+        if (ctx.state.firstRedBaselineSha !== null) {
+          try {
+            discardFixupEdits(ctx.state.firstRedBaselineSha, preflight.agentWorkingDir, ctx.opts.skipGhCheck ?? false);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            logging.fanout("harness", `warning: failed to discard fix-up edits: ${message}\n`, "stderr");
+          }
+        }
+
         logging.fanout(
           "harness",
-          `${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          `${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nThe fix-up edits have been discarded (reset to the original work); the PR is at the completed spec as it stood before fix-up attempts. Recover the discarded edits via git reflog.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
           "stderr",
         );
         logging.writeTelemetry({
@@ -345,9 +396,20 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
       if (ctx.state.consecutiveRedFixups >= CONSECUTIVE_RED_FIXUP_BOUND) {
         // Changing-failure bound: failure text differs each iteration but no AC progress
         const worktreeName = basename(preflight.agentWorkingDir);
+
+        // Discard fix-up edits: reset to baseline and force-push if upstream exists
+        if (ctx.state.firstRedBaselineSha !== null) {
+          try {
+            discardFixupEdits(ctx.state.firstRedBaselineSha, preflight.agentWorkingDir, ctx.opts.skipGhCheck ?? false);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            logging.fanout("harness", `warning: failed to discard fix-up edits: ${message}\n`, "stderr");
+          }
+        }
+
         logging.fanout(
           "harness",
-          `${gateResult.failureText}\n\nThe ready gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations with no acceptance criteria progress and the failure differed each pass. The issue persists without convergence.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          `${gateResult.failureText}\n\nThe ready gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations with no acceptance criteria progress and the failure differed each pass. The issue persists without convergence.\n\nThe fix-up edits have been discarded (reset to the original work); the PR is at the completed spec as it stood before fix-up attempts. Recover the discarded edits via git reflog.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
           "stderr",
         );
         logging.writeTelemetry({
@@ -372,6 +434,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     // so the caller finalizes completion instead of looping again.
     ctx.state.completionLoopbackSignal = null;
     ctx.state.previousCompletionFailureText = null;
+    ctx.state.firstRedBaselineSha = null;
     ctx.state.consecutiveRedFixups = 0;
     // This single completion gate doubles as the completion-transition ready
     // gate: on green, record the result keyed to HEAD sha + clean worktree so

@@ -57,6 +57,8 @@ Cost-row identities:
 - Session outcome rows join to session cost rows on **`(report, session_id) -> (report, name)`**.
 - Overlord outcome rows join to overlord cost rows on **`(report, session_id) -> (report, session)`**.
 - Before writing or amending an outcome row, confirm the matching cost-sheet composite identity is unique. Duplicate cost identities are blocking; do not pick one silently.
+- JSONL-derived patch fields additionally require a durable binding from the session cost identity to one JSONL namespace, one run window, and one run base. Record that binding in the matching `session-costs.csv` `notes` and mirror it in the markdown report.
+- Overlord derived fields additionally require a durable binding from the overlord cost identity to its exact member session-cost identities and shared session base. Record that binding in the matching `overlord-costs.csv` `notes` and mirror it in the markdown report.
 
 Cost-sheet rules:
 
@@ -66,6 +68,8 @@ Cost-sheet rules:
 - **Blank where it doesn't apply.** Plan-only or blocked-run specs leave run columns empty; reports without a phase split fill only `total_cost`.
 - **Token columns are raw integers.** Expand `k`/`M` shorthand. Costs are dollars; times are `HH:MM:SS`.
 - Each session appends its cost rows to both cost CSVs and mirrors them in the markdown report.
+- For a patch session row, `notes` must bind `(report, name)` to `namespace`, `run_start_ts`, `run_end_ts`, and `run_base`.
+- For an overlord row, `notes` must bind `(report, session)` to the exact member `(report, name)` set and the shared `session_base`.
 
 Outcome reconciliation:
 
@@ -93,10 +97,12 @@ Source-or-blank derivation policy:
 
 - Use the primary source documented in [v2/docs/outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) first.
 - Use a fallback only when it is attributable to the exact composite identity being reconciled; otherwise leave the field blank and explain it in `notes`.
-- Patch `report_date`: matching JSONL run start; fallback to an identity-bound CSV date or JSONL timestamp span only when the primary source is absent.
+- Patch JSONL-derived fields (`report_date`, `session_type`, `agent_count`, exit-derived status hints, exit-derived failure hints): require the durable `(report, name) -> namespace + run window` binding first. Without that binding, leave them blank and explain it in `notes`.
+- Patch `report_date`: matching JSONL run start. If that row is unavailable, leave blank with a note; do not infer a date from the cost CSV `report` label.
 - Patch `duration_minutes`: matching cost row `plan_time + run_time`.
 - Patch `session_type` and `agent_count`: identity-bound JSONL (`mode`, distinct real agents). If plan phases are involved, use a contemporaneous observer record or leave blank with a note.
 - Patch `files_touched`: identity-bound run-base git diff. Use a weaker git fallback only when every included commit is uniquely attributable to the same cost identity.
+- Overlord derived fields (`report_date`, `duration_minutes`, `files_touched`): require the durable `(report, session) -> member session identities + session base` binding first. `session_count` and a shared report label are not enough. Without that binding, leave the derived fields blank and explain it in `notes`.
 - Overlord `report_date`: earliest matched session outcome date; blank with a note when none exists.
 - Overlord `specs_driven`: matching overlord cost row `session_count`.
 - Overlord `duration_minutes`: uniquely matched session-cost rows for that overlord session.

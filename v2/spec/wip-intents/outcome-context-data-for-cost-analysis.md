@@ -14,9 +14,26 @@ outcome." Token volume ≠ value delivered.
 ## Direction (keep broad)
 
 Add a **small amount** of outcome/context data alongside the cost CSVs so cost can be joined to
-useful work. This may be **broader than the operator report** — it could cover any Jarvis session
-(plan/run/review/orchestration), not just the overlord's own session. Plan decides the exact surface,
-but the goal is minimal additive context, not a heavy analytics layer.
+useful work. The goal is minimal additive context, not a heavy analytics layer.
+
+**Two sheets, mirroring the existing cost-CSV split.** Just as cost data splits into
+`session-costs.csv` (per spec) and `overlord-costs.csv` (per overlord session), outcome data gets two
+parallel sheets that join 1:1 to those:
+
+- **Session-outcome sheet** — one row per Jarvis spec/run, joining to `session-costs.csv`. Uses the
+  suggested schema below (work units, success status, session type, duration, files touched, …).
+- **Overlord-outcome sheet** — one row per overlord session, joining to `overlord-costs.csv`. Same
+  spirit, rolled up to the session (e.g. specs driven, overall success, session type =
+  orchestration, total duration, aggregate files touched).
+
+Keep the column vocabulary shared between the two where it makes sense so the sheets stay
+aggregatable, the same way the two cost CSVs share fields.
+
+**Backfill the existing rows.** Populate the new outcome sheets retroactively for every row already
+in `session-costs.csv` and `overlord-costs.csv`, deriving values from the historical reports under
+`reports/` (and `~/.jarvis/runs.jsonl` where it reaches back far enough) so the outcome data lines up
+1:1 with the cost data from day one rather than starting empty. Judgment fields that can't be
+recovered get a best-effort value or a blank with a note — don't fabricate.
 
 **Lead with a data audit — the real question is "log, or just schema?"** Before adding any logging,
 inventory what's *already* captured (`~/.jarvis/runs.jsonl` and the telemetry JSONL already record
@@ -54,13 +71,14 @@ Column definitions:
 
 ## Open questions (for plan)
 
-- **Scope:** per-overlord-session only, or per-Jarvis-run too? (The CSV joins to `session-costs.csv`,
-  which is per-spec — reconcile the grain.)
 - **Who populates it:** automatic (harness emits from run metadata — `runs.jsonl` already has agent
   count, duration, exit reason) vs. hand-filled by the observer in the report. Lean automatic for the
   fields the harness already knows; hand-fill only the judgment fields (`completed_work_units`,
   `success_status`, `notes`).
-- **Where it lives:** a third cumulative CSV under `reports/`, or columns folded into existing CSVs?
+- **Where it lives:** two new cumulative CSVs under `reports/` (e.g. `session-outcomes.csv` +
+  `overlord-outcomes.csv`) paralleling the cost pair, or outcome columns folded into the existing two
+  cost CSVs? (Resolved that it's **two sheets** either way — the question is separate files vs. added
+  columns.)
 - **Determinism:** `completed_work_units` / `success_status` are judgments — record-once like other
   declared signals, don't infer per-run.
 - Reconcile with the existing cost-reporting standard (`v1/docs/operator-runbook.md` § Cost reporting

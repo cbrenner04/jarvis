@@ -12,8 +12,8 @@ Documented in [v1/docs/run-loop.md](../../../v1/docs/run-loop.md) § Run telemet
 
 Per-invocation record fields (append-only, patch mode only):
 
-- `ts`: Unix timestamp of the invocation.
-- `run_start_ts`: Unix timestamp at the start of the run (constant across all rows for one spec execution).
+- `ts`: Unix timestamp in milliseconds of the invocation.
+- `run_start_ts`: Unix timestamp in milliseconds at the start of the run (constant across all rows for one spec execution).
 - `agent`: The agent CLI name (`claude`, `codex`, `cursor`, etc.).
 - `configured_model`: Model string from `modes.patch.agentOrder` entry at invocation time (optional).
 - `kind`: Classification of the outcome (`ok`, `quota`, `error`, `timeout`, `model_config`).
@@ -55,6 +55,7 @@ Each proposed outcome column is classified as one of:
 
 - **Already-logged**: The harness records this field directly in JSONL or CSV.
 - **Derivable**: The harness records sufficient source data; a deterministic derivation computes the outcome.
+- **Pinned constant**: The value is a fixed constant (not variable per run/spec) and derives from context rather than recorded data.
 - **Not-captured**: The harness does not record this data; observer input or best-effort fallback required.
 - **Derived-hint + observer-override**: Hybrid status fields where the harness provides a derived hint (e.g., `exitReason`-based success probability) but the observer can override with judgment.
 
@@ -63,13 +64,13 @@ Each proposed outcome column is classified as one of:
 | Column | Classification | Source / Derivation | Notes |
 |--------|----------------|---------------------|-------|
 | `session_id` | Join key (cost CSV) | From `reports/session-costs.csv` `name` field | Not an outcome; matches spec identifier in cost CSV |
-| `report_date` | Derivable | From `run_start_ts` (first JSONL row `ts`); convert to date | Or from `report` field in cost CSVs if present |
+| `report_date` | Derivable | From `run_start_ts` (first JSONL row `ts`); convert to date | Primary source; cost CSV `report` field may also be present but matches `run_start_ts` derivation |
 | `completed_work_units` | Not-captured | Observer judgment | Count of checked acceptance criteria at session end; harness does not track intent of checklist items |
 | `success_status` | Derived-hint + observer-override | Hint from final `exitReason` (`ok` → successful, `error`/`quota`/`timeout` → failure); observer overrides | Harness emits `exitReason` (quota-exhausted, agent-error, watchdog-iteration-timeout, etc.); observer records actual outcome intent (e.g., partial progress) |
 | `failure_reason` | Derived-hint + observer-override | Hint from `exitReason` and `kind`; observer records if not captured | If `success_status` is failure, harness provides signal (quota, agent-error, timeout, model-config); observer may clarify |
 | `session_type` | Already-logged | From `mode` field in JSONL (always `"patch"` for patch runs) | For plan/intent runs, recorded by observer; for patch, always `"patch"` |
 | `agent_count` | Derivable | Distinct agent names in JSONL, excluding `record_role: "run_terminal"` rows and synthetic `agent: "harness"` rows | Filter: count unique `agent` values where `record_role ≠ "run_terminal"` and `agent ≠ "harness"` |
-| `duration_minutes` | Derivable | From `reports/session-costs.csv` `plan_time` and `run_time` fields (already-logged); convert to minutes. If CSV unavailable, fallback to `max(ts) - min(ts)` from JSONL and convert ms to minutes | CSV source preferred: cost standard already records duration per phase |
+| `duration_minutes` | Derivable | From `reports/session-costs.csv` `plan_time` and `run_time` fields (in seconds, already-logged); sum and convert to minutes. If CSV unavailable, fallback to `(max(ts) - min(ts)) / 1000 / 60` from JSONL (timestamps in milliseconds) | CSV source preferred: cost standard already records duration per phase |
 | `files_touched` | Derivable | From run git diff (paths of added/modified/deleted files); count or list | Run-end git diff is reliably persisted post-run; if diff is deleted, recompute from git history (e.g., `git diff HEAD~1` if the spec commit is known). Reliability: stable once committed |
 | `notes` | Not-captured | Observer recorded | Free-form context; harness does not record per-spec notes |
 
@@ -78,10 +79,10 @@ Each proposed outcome column is classified as one of:
 | Column | Classification | Source / Derivation | Notes |
 |--------|----------------|---------------------|-------|
 | `specs_driven` | Already-logged | From `reports/overlord-costs.csv` `session_count` field | Number of `session-costs.csv` rows in this overlord session; cost CSV already records it |
-| `overall_success` | Derived-hint + observer-override | Hint: count session-sheet `success_status` outcomes; observer overrides if needed | Harness can count successful sessions from JSONL; observer may record aggregate judgment (e.g., "partial success") |
-| `session_type` | Already-logged | From `reports/overlord-costs.csv` implicit context; overlord sessions have `session_type = "orchestration"` | Not per-spec; marks the row as overlord-generated (value always `"orchestration"`) |
+| `overall_success` | Derived-hint + observer-override | Hint: aggregate per-session `success_status` (derived hints from `exitReason`); observer overrides if needed | Harness derives per-session success hints from JSONL `exitReason` and aggregates across the session; observer may record aggregate judgment (e.g., "partial success") |
+| `session_type` | Pinned constant | Value is always `"orchestration"` for overlord sheets (not recorded in CSV, derived from sheet context) | Not per-spec; marks the row as overlord-generated |
 | `total_duration` | Already-logged | From `reports/overlord-costs.csv` `api_time` field (total API runtime); or sum of `plan_time + run_time` across all rows in the session | API time is already recorded; alternative: aggregate per-spec durations |
-| `aggregate_files_touched` | Not-captured (with caveat) | Candidate: union of all `files_touched` across specs in the session; limited by patch-only telemetry | **Blocker:** Plan phases do not emit per-phase telemetry rows, so plan-driven specs contribute no file activity to JSONL. Harness cannot reliably derive aggregate files for mixed plan+patch sessions. Follow-up: observer records or derives from post-run git history (e.g., diff against main branch at session start). |
+| `aggregate_files_touched` | Derivable (with caveat) | Union of `files_touched` across all specs in the session; derives from git history (diff against main branch at session start) — independent of JSONL telemetry coverage | Plan phases do not emit per-phase JSONL rows, but files are captured in git history. Derivable from post-run diff even for mixed plan+patch sessions; use session-start baseline (e.g., `git diff <session-start-commit> HEAD --name-only`). |
 
 ## Derivation details
 
@@ -98,24 +99,27 @@ A naive row count is incorrect if an iteration produced both a real invocation a
 
 ### `duration_minutes`
 
-**Primary source:** From `reports/session-costs.csv`, sum `plan_time + run_time` and convert to minutes.
+**Primary source:** From `reports/session-costs.csv`, sum `plan_time + run_time` (both in seconds) and convert to minutes by dividing by 60.
 
-**Fallback (if CSV unavailable):** From JSONL, compute `(max(ts) - min(ts)) / 1000 / 60` (milliseconds to minutes).
+**Fallback (if CSV unavailable):** From JSONL, compute `(max(ts) - min(ts)) / 1000 / 60` (from milliseconds to seconds to minutes).
 
 The cost CSV is the authoritative source because it already records per-phase durations independently. Fallback to JSONL only if the CSV row is missing.
 
 ### `files_touched`
 
-**Source:** Run git diff. At the end of a `jarvis1 run`, the worktree contains a checked-in commit with all changes. Extract files:
+**Source:** Run git diff. At the end of a `jarvis1 run`, the worktree contains a checked-in commit with all changes. Since Jarvis commits per iteration, the correct diff is against the run base (spec start), not just the final commit. Extract files:
 
-```bash
-git diff HEAD~1 --name-only
-```
-
-Or, if the spec base is known:
+**Primary:**
 ```bash
 git diff <spec-base> --name-only
 ```
+(where `<spec-base>` is the commit at which the spec started; typically recorded in the spec or run metadata)
+
+**Fallback (if spec base unknown):**
+```bash
+git diff HEAD~1 --name-only
+```
+(captures only the final iteration; use only if spec base is unavailable)
 
 Count distinct file paths or store as a list (format per schema design).
 
@@ -128,18 +132,18 @@ Count distinct file paths or store as a list (format per schema design).
 Plan mode (spec drafting) does not emit per-phase JSONL outcome rows. Only the final plan invocation result is recorded. This affects:
 
 - **`agent_count` for plan phases:** Harness does not count individual agent invocations during refine/draft phases.
-- **`aggregate_files_touched` (overlord sessions with plan):** Plan-driven specs do not contribute file activity to JSONL; files touched during plan phases cannot be derived from patch JSONL alone.
 
-**Follow-up:** These fields require observer input or derivation from git history when plan phases are involved. A future telemetry extension may emit per-plan-phase rows, but that is out of scope here.
+**Follow-up:** Plan-phase `agent_count` requires observer input or derivation from git history when plan phases are involved. A future telemetry extension may emit per-plan-phase rows, but that is out of scope here.
+
+Note: **`aggregate_files_touched` is derivable from git history** despite the plan-phase telemetry gap, since files touched during any phase (plan or patch) are captured in the run's git diff.
 
 ### Not-captured columns requiring observer input
 
 - **`completed_work_units`:** The checklist is visible only to the observer; the harness does not parse acceptance-criteria intent.
 - **`notes`:** Observer-recorded free-form context.
 - **`failure_reason` (when not captured by `exitReason`):** If a run exits 0 but the observer notes "spec refined to avoid implementation" or similar, the harness has no signal.
-- **`overall_success` (overlord):** Aggregate judgment by the observer.
 
-These are recorded once by the observer post-session, not derived per iteration.
+Judgment columns (`overall_success` for overlord, `success_status` and `failure_reason` overrides for session) are hybrid: the harness provides derived hints, and the observer may override with judgment post-session.
 
 ### No harness behavior change
 

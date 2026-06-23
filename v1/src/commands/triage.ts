@@ -92,12 +92,13 @@ function triageListWorktrees(worktreeDir: string, io: TriageIo, ghRunner: Triage
     const worktreePath = join(worktreeDir, worktreeName);
     const dirtyStatus = getDirtyStatusSummary(worktreePath);
     const aheadBehind = getAheadBehind(worktreePath);
-    const prState = getPrState(worktreeName);
+    const prStateResult = ghRunner.getPrState(worktreeName);
+    const prState = formatPrStateForDisplay(prStateResult);
     const specProgress = getSpecProgress(worktreePath);
 
     io.stdout(`${worktreeName}\t\t${dirtyStatus}\t\t${aheadBehind}\t\t${prState}\t\t${specProgress}\n`);
 
-    const { isLanded, isDraft, prStateRaw } = classifyWorktree(worktreePath, worktreeName, ghRunner);
+    const { isLanded, isDraft, prStateRaw } = classifyWorktree(worktreePath, worktreeName, ghRunner, prStateResult);
     const status: WorktreeStatus = {
       name: worktreeName,
       dirtyStatus,
@@ -166,32 +167,33 @@ function classifyWorktree(
   worktreePath: string,
   worktreeName: string,
   ghRunner: TriageGhRunner,
+  prStateResult?: { state: string; isDraft: boolean } | null,
 ): { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } {
   // Plan worktrees are never landed
   if (worktreeName.startsWith("plan-")) {
     return { isLanded: false };
   }
 
-  // Check PR state
-  const prStateResult = ghRunner.getPrState(worktreeName);
-  if (!prStateResult || prStateResult.state !== "MERGED") {
-    return buildClassifyResult(false, prStateResult);
+  // Use provided prStateResult or fetch it
+  const prState = prStateResult !== undefined ? prStateResult : ghRunner.getPrState(worktreeName);
+  if (!prState || prState.state !== "MERGED") {
+    return buildClassifyResult(false, prState);
   }
 
   // Check if tree is clean
   const dirtyKind = computeDirtyKind(worktreePath);
   if (dirtyKind !== "clean") {
-    return buildClassifyResult(false, prStateResult);
+    return buildClassifyResult(false, prState);
   }
 
   // Check if there are unpushed commits
   const unpushed = computeUnpushed(worktreePath);
   if (unpushed > 0) {
-    return buildClassifyResult(false, prStateResult);
+    return buildClassifyResult(false, prState);
   }
 
   // All conditions met: PR is merged, tree is clean, no unpushed commits
-  return buildClassifyResult(true, prStateResult);
+  return buildClassifyResult(true, prState);
 }
 
 function buildClassifyResult(
@@ -206,6 +208,13 @@ function buildClassifyResult(
     result.prStateRaw = prStateResult.state.toLowerCase();
   }
   return result;
+}
+
+function formatPrStateForDisplay(prStateResult: { state: string; isDraft: boolean } | null): string {
+  if (!prStateResult) {
+    return "no PR";
+  }
+  return prStateResult.state.toLowerCase();
 }
 
 function emitVerdict(io: TriageIo, statuses: WorktreeStatus[]): void {
@@ -873,18 +882,6 @@ function getAheadBehind(worktreePath: string): string {
     return `${ahead}/${behind}`;
   } catch {
     return "-";
-  }
-}
-
-function getPrState(branch: string): string {
-  try {
-    const output = execSync(`gh pr view "${branch}" --json state -q .state`, {
-      stdio: "pipe",
-      encoding: "utf8",
-    });
-    return output.trim().toLowerCase();
-  } catch {
-    return "no PR";
   }
 }
 

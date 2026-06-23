@@ -1,0 +1,31 @@
+report,name,plan_model,plan_cost,plan_time,plan_tokens_in,plan_tokens_out,run_model,run_cost,run_time,run_tokens_in,run_tokens_out,total_cost,notes
+2026-06-21,transient-agent-error-retry,opus,5.45,00:17:00,13000,52000,haiku,1.69,01:01:00,1100,64000,7.14,
+2026-06-21,validate-blocker-base-ref (2.1),opus,3.73,00:14:00,13000,36000,haiku,5.56,01:03:00,10000,136000,9.29,
+2026-06-21,snapshot-gate (deferred plan),opus,3.51,00:14:00,13000,38000,,,,,,3.51,deferred plan closed; no run
+2026-06-21,snapshot-gate (2.2),opus,3.72,00:14:00,13000,41000,haiku,0.40,00:14:00,200,11000,4.12,run hung pre-commit; partial iteration only; hand-finalized
+2026-06-21,patch-rules-mid-edit (2.3),sonnet,1.67,00:07:00,7000,13000,haiku,0.13,00:08:00,100,6000,1.80,run hung pre-commit; partial; hand-finalized
+2026-06-21,plan-pr-auto-ready (blocked no-op),opus,1.08,00:02:00,2600,5600,,,,,,1.08,blocked no-op; no run
+2026-06-21,flaky-serial-retry (3),opus,3.09,00:10:00,15000,28000,haiku,2.59,00:27:00,9000,49000,5.68,
+2026-06-21,completion-gate-unsafe (4),opus,2.79,00:09:00,12000,25000,haiku,2.30,00:22:00,8000,32000,5.09,
+2026-06-21,intent-no-commit (8),opus,3.92,00:11:00,13000,36000,haiku,2.60,00:27:00,11000,55000,6.52,
+2026-06-21,run-cli-papercuts (6),opus,4.99,00:17:00,15000,47000,haiku,4.56,00:42:00,9000,103000,9.55,
+2026-06-21,operator-runbook (9),sonnet,1.56,00:05:00,8500,11000,haiku,1.77,00:18:00,8000,35000,3.33,
+2026-06-21,plan-git-false (11),opus,4.22,00:13:00,13000,40000,codex (gpt-5.4/5.5),7.17,00:41:00,516801,64865,11.39,run cost/tokens cache-credited; codex/cursor path billed 16.2M cache reads as fresh input — raw agent-reported run was $50.37 / 16.73M in / total $54.59 (the codex-path-cache-inefficiency #393 artifact); corrected to post-fix accounting
+2026-06-21,test-audit (10),opus,5.37,00:22:00,13000,61000,codex,,,,,5.37,plan only; run blocked (codex hit flaky test)
+2026-06-22,test-suite-audit,,,,,,haiku/opus/gpt-5.4,7.95,02:00:43,13979,202705,7.95,run-only (plan was the prior 6/21 session — see test-audit (10)); actuator escalated haiku→opus→gpt-5.4; filled from runs.jsonl
+2026-06-22,harness-transient,opus,4.23,00:11:41,12930,44670,haiku,4.89,01:22:28,10458,109839,9.12,run time includes a ~23-min review-actuator stall (rode the 30-min wall timeout); models/times/tokens filled from runs.jsonl
+2026-06-22,deflake,opus,3.38,00:08:47,14980,36298,haiku,2.24,00:42:03,9869,40371,5.62,models/times/tokens filled from runs.jsonl
+2026-06-22,codex-path-cache,opus,3.84,00:12:23,13917,34264,haiku,2.14,00:35:40,8908,42864,5.98,models/times/tokens filled from runs.jsonl
+2026-06-22,correct-agent-default-models,opus,2.47,00:07:00,13000,20000,haiku,2.27,00:22:00,8000,31000,4.74,also appeared plan-only ($2.47) in the interim overlord report before its run completed
+2026-06-22,agent-transient-retry-backoff,opus,2.72,00:07:00,13000,23000,haiku,2.46,00:28:00,8000,51000,5.18,
+2026-06-22,flaky-serial-retry-mid-work,opus,4.76,00:13:00,13000,42000,haiku,3.99,00:46:00,9000,89000,8.75,run includes ~23-min review-actuator stall (no idle watchdog)
+2026-06-22,intent-split-emit-contract,opus,3.03,00:08:00,13000,27000,haiku,3.34,00:36:00,8000,85000,6.37,run first errored on check:fix:unsafe typecheck; operator fix + re-run
+2026-06-22,intent-pr-auto-ready,opus,2.78,00:07:00,16000,17000,haiku,3.64,00:36:00,6000,81000,6.42,run includes ~23-min review-actuator stall
+2026-06-22,harness-suggestion-intake,opus,2.17,00:07:00,12000,19000,haiku,1.46,00:16:00,8000,23000,3.63,
+2026-06-22,finalize-complete-but-dirty (#390),opus,4.05,00:28:07,17328,35836,haiku,6.75,01:37:45,3150,216811,10.80,plan $4.05 exited agent-error; run $6.75 = patch namespace across re-drives + hand-debug; an interim report listed run as $5.83 / total $9.88; filled from runs.jsonl
+2026-06-23-wrapup,ready-gate-no-nonnull-autofix (gate bug),opus,2.45,00:07:00,12500,20000,sonnet,2.45,00:17:00,7700,22000,4.90,
+2026-06-23-wrapup,escalate-actuator-on-no-progress,opus,3.39,00:13:00,13200,27000,sonnet,5.74,00:39:00,7900,59000,9.13,
+2026-06-23-wrapup,intake-url-on-operator-read-surfaces (doc surfaces),opus,1.92,00:05:00,13100,15000,haiku,1.12,00:11:00,7600,14400,3.04,
+2026-06-23-wrapup,intake-nudge-on-cli-run-completion (CLI nudge),opus,2.76,00:09:00,20700,23300,haiku,2.72,00:24:00,9600,52400,5.48,
+2026-06-23-wrapup,custom-ready-gate-command,opus,3.26,00:12:00,15000,27000,sonnet,9.98,00:49:00,22000,99500,13.24,priciest single phase (run 49m heavy review)
+2026-06-23-wrapup,prompt-mode-end-of-run-summary,opus,4.10,00:11:00,15900,33000,haiku→codex,4.18,00:28:00,27600,70600,8.28,run errored at codex review-actuator after criteria complete + gate green (haiku quota → codex fallback); manual-finalized

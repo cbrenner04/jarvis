@@ -1,0 +1,4 @@
+report,session,session_count,model,total_cost,avg_cost_per_spec,api_time,tokens_in,tokens_out,cache_read,cache_write,notes
+2026-06-21,2026-06-21 overlord session,13,opus 4.8,126.97,9.77,02:10:31,44000,481500,182300000,2400000,
+2026-06-22,2026-06-22 overlord session (batch + overlord combined),11,opus 4.8,97.88,8.90,02:27:08,67700,586500,138200000,1400000,combined 6/22 sessions; operator cost covers both
+2026-06-23-wrapup,2026-06-23 wrap-up overlord session,6,opus 4.8,51.71,8.62,01:01:29,34700,222100,73800000,908500,

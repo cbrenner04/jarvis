@@ -19,9 +19,37 @@ An observer session is not done when the PRs merge — it's done when the findin
 1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive (see [Merging](#merging)). Keep stuck work moving (diagnose, finalize, or re-queue).
 2. **Create wip-intents** in `v2/spec/wip-intents/` for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
 3. **Triage incoming harness suggestions** from other-repo observers (see below) into wip-intents.
-4. **Write a final report** committed under `reports/` with a precise UTC-timestamp filename (e.g. `reports/2026-06-23T00-52-38Z-overlord.md`) — date-only names collide when there are multiple sessions a day. Cover: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost.
+4. **Write a final report** committed under `reports/` with a precise UTC-timestamp filename (e.g. `reports/2026-06-23T00-52-38Z-overlord.md`) — date-only names collide when there are multiple sessions a day. Cover: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost, in the [standard cost schema](#cost-reporting-standard).
 5. **Maintain this runbook** directly (branch → PR → admin-merge — lighter than the full intent→plan→run pipeline). Keep it current; batch edits rather than one PR per thought.
 6. **Run end-of-session cleanup** ([below](#end-of-session-cleanup)) — `jarvis1 cleanup` to retire merged worktrees and archive specs, then relocate any v1-work specs it parked under `v2/spec/completed/` into `v1/spec/completed/`.
+
+## Cost reporting standard
+
+Every session's cost breakdown uses fixed schemas so the data stays aggregatable across reports. Two cumulative CSVs, kept separate because spec work and the observer's own session have different shapes:
+
+- **`reports/session-costs.csv`** — one row per Jarvis spec/intent (plan + run phases).
+- **`reports/overlord-costs.csv`** — one row per observer/overlord session.
+
+The per-report markdown cost section mirrors **the same fields as tables** (a spec table, plus the session's own overlord line).
+
+**`session-costs.csv` columns:**
+
+`report, name, plan_model, plan_cost, plan_time, plan_tokens_in, plan_tokens_out, run_model, run_cost, run_time, run_tokens_in, run_tokens_out, total_cost, notes`
+
+**`overlord-costs.csv` columns:**
+
+`report, session, session_count, model, total_cost, avg_cost_per_spec, api_time, tokens_in, tokens_out, cache_read, cache_write, notes`
+
+(`session_count` = the number of `session-costs.csv` spec rows sharing this `report` — the spec count the overlord drove that session. `avg_cost_per_spec` = `total_cost / session_count` — the observer's own cost per spec driven.)
+
+Rules:
+
+- **Spec rows:** plan + run phases on one row; `total_cost` = plan + run.
+- **One overlord row per session.** `total_cost` = the observer's own `/cost` total. If a session spans a compaction boundary (multiple reports, same operator `/cost`), combine into a single row — the operator cost covers all of it; don't double-count.
+- **Dedupe repeated specs across combined reports.** When one session's work is split across reports and a spec appears in more than one, keep a single row with the completed figures; note the alternate accounting rather than emitting two rows.
+- **Blank where it doesn't apply** — a plan-only or blocked-run spec leaves the run columns empty; a report that didn't break plan/run apart leaves the phase-cost columns empty and fills only `total_cost`.
+- **Token columns are raw integers** — expand the phase summary's `k`/`M` shorthand (`13k`→`13000`, `16.7M`→`16700000`) so the data is analyzable. Costs are plain dollars; times are `HH:MM:SS`.
+- Each session **appends its rows** to both CSVs and mirrors them as tables in its own markdown report.
 
 ## Experimentation — encouraged, but bounded
 
@@ -76,6 +104,7 @@ For each suggestion:
 2. **Create a wip-intent** in `v2/spec/wip-intents/` capturing the suggestion. Use the issue content to seed the intent's problem statement and decisions.
 3. **Close the issue** with a comment referencing the seeded intent (e.g., "Seeded as v2/spec/wip-intents/2026-06-22-example-intent.md").
 4. **Allow closing without a seed** if the suggestion isn't actionable or doesn't warrant an intent — rare, but OK (e.g., duplicate of an existing issue, or out-of-scope for Jarvis's design).
+5. **Operator-error / project-setup, not a harness gap.** If the issue is really an operator mistake or a problem with the *target project's* setup (misconfiguration, missing dependency, environment) rather than something Jarvis itself should change, **respond on the issue** explaining the cause/fix but **do not seed a wip-intent or change the harness** — and **flag it to the operator** so they're aware it surfaced. Don't bake a workaround into Jarvis for what is really a setup fix on the operator's side.
 
 ## Background-run-and-poll pattern
 

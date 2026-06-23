@@ -129,6 +129,34 @@ Automatic derivation is only executable after the observer records two durable b
 
 Use the session binding for initial reconciliation, reruns, and corrections. On amendment, keep the same cost identity and update the binding in place to the corrected window/base. Use the overlord binding the same way for aggregate fields. Without these bindings, JSONL-derived session fields and aggregate overlord date/duration/file fields remain blank with a note.
 
+## Historical backfill procedure
+
+Use this only for the legacy header-only outcome sheets.
+
+1. Inventory `reports/session-costs.csv` on `(report, name)` and `reports/overlord-costs.csv` on `(report, session)`. Stop on duplicate cost identities.
+2. Bind each historical session cost row before deriving JSONL- or git-backed fields:
+   - Primary binding: exact `plan`/`patch` namespace windows plus the original `run_base`.
+   - Git fallback: if `run_base` was not preserved, use an exactly attributable merged squash diff `(<parent>..<commit>)` for that same cost identity. Otherwise leave git-backed fields blank.
+3. Record recovered session bindings in `reports/session-costs.csv` `notes`, and recovered overlord member sets plus `session_base` in `reports/overlord-costs.csv` `notes`. Historical markdown reports may stay unchanged.
+4. Reconcile `reports/session-outcomes.csv` one row per unique session cost identity. Derive:
+   - `report_date` from the bound patch namespace start, or the bound plan namespace start for plan-only rows.
+   - `agent_count` only from bound patch telemetry; leave plan-only counts blank unless exact observer evidence survives.
+   - `duration_minutes` only from that cost row's `plan_time + run_time`.
+   - `files_touched` only from the bound run diff or exact merged-squash fallback.
+   - `success_status`, `failure_reason`, and `completed_work_units` from runbook judgment semantics; leave unknown judgment blank with a note.
+5. Reconcile `reports/overlord-outcomes.csv` one row per unique overlord cost identity only after recording the exact member session set and shared `session_base`. Derive:
+   - `report_date` from the earliest matched member outcome date.
+   - `duration_minutes` from the sum of exact member session-cost durations.
+   - `files_touched` from the distinct-path union across exact member session diffs.
+6. Every non-blank historical field must cite its exact binding or fallback provenance in `notes`. Report/date/name similarity is never enough.
+
+## Historical evidence limits
+
+- Historical patch rows without an exact namespace binding cannot populate JSONL-derived fields.
+- Historical git-backed fields stay blank when no exact run diff or exact merged-squash fallback survives.
+- Historical overlord rows stay blank for derived date, duration, and files when the exact member set or shared `session_base` is missing.
+- Historical plan-only rows may record `report_date`, `duration_minutes`, and observer judgment from the exact plan namespace, but `agent_count` stays blank unless exact observer evidence survives.
+
 ## Scope constraints and follow-ups
 
 ### Plan-phase telemetry gap
@@ -149,7 +177,7 @@ Judgment columns (`overall_success` for overlord, `success_status` and `failure_
 
 ### No harness behavior change
 
-This audit is a **classification only**. It documents what is already recorded and what is derivable; it makes no changes to:
+This audit and backfill contract document existing evidence only. They make no changes to:
 
 - Telemetry JSONL schema or emission.
 - Cost CSV columns or values.

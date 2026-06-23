@@ -20,7 +20,7 @@ import {
 } from "../../quota-harness-messages.ts";
 import { promptSummary } from "../../run-summary.ts";
 import { appendTelemetryLine, type TelemetryKind } from "../../telemetry.ts";
-import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
+import { extractUsageAndCost, type UsageCostFields } from "../../telemetry-enrichment.ts";
 import { createPromptWorktree, pushCurrent } from "../../worktree.ts";
 import { acquireWorktreeLock, releaseWorktreeLock } from "../../worktree-lock.ts";
 import { DESCENDANT_POLL_INTERVAL_MS, DescendantTracker } from "../patch/reap.ts";
@@ -176,7 +176,7 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
   let configuredModel: string | undefined;
   let watchdogPgid: number | null = null;
   let watchdogFired = false;
-  let usageAndCost: Record<string, any> = {};
+  let usageAndCost: UsageCostFields = {};
   let telemetryWritten = false;
 
   try {

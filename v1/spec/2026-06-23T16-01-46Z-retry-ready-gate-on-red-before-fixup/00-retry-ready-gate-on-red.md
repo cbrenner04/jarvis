@@ -93,26 +93,26 @@ contaminating fix-up edit.
 
 ## Acceptance criteria
 
-- [ ] On a red completion ready gate, the harness re-runs the same gate unchanged,
+- [x] On a red completion ready gate, the harness re-runs the same gate unchanged,
   with no agent invocation between runs, up to a fixed bound before treating it as
   red.
-- [ ] If any re-run of the completion gate passes, the run finalizes completion
+- [x] If any re-run of the completion gate passes, the run finalizes completion
   normally (records the green completion-transition result, then
   shrink/review/`maybeMarkReady`) and no fix-up iteration is launched.
-- [ ] Fix-up handling is entered only when the completion gate fails on the initial
+- [x] Fix-up handling is entered only when the completion gate fails on the initial
   run and every retry; the caller's stuck-red and loop-back behavior is otherwise
   unchanged.
-- [ ] A test injecting a completion gate (`opts.runCompletionReadyGate`) that
+- [x] A test injecting a completion gate (`opts.runCompletionReadyGate`) that
   returns red then green yields a green completion with no fix-up iteration.
-- [ ] A test injecting an always-red completion gate on first invocation yields
+- [x] A test injecting an always-red completion gate on first invocation yields
   loop-back (return null) — the seam is invoked up to the bound, then the existing
   red handling returns null (no prior failure text → not stuck-red exit 10).
-- [ ] A green-after-red `runReadyAndCommit` run leaves a clean, HEAD-recordable
+- [x] A green-after-red `runReadyAndCommit` run leaves a clean, HEAD-recordable
   worktree (real-path coverage), or the test plan states this path is uncovered and
   why; the seam tests do not imply they cover it.
-- [ ] Operator-visible log output distinguishes a gate that passed on a retry from
+- [x] Operator-visible log output distinguishes a gate that passed on a retry from
   a first-try green; no new structured telemetry marker is added.
-- [ ] The retry bound is a fixed harness constant with no per-project config knob.
+- [x] The retry bound is a fixed harness constant with no per-project config knob.
 
 ## Documentation updates
 

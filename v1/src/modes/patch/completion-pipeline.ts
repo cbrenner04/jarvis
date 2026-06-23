@@ -17,6 +17,8 @@ import type { CompletionReadyGateResult, IterationContext } from "./run.ts";
 import { runPatchShrinkPhase } from "./shrink.ts";
 import type { AcceptanceCriterion } from "./subspec.ts";
 
+const COMPLETION_READY_GATE_RETRY_BOUND = 2;
+
 type CompletionLoopbackSignal = {
   failureText: string;
 };
@@ -179,27 +181,43 @@ async function runCompletionReadyGate(
   const { preflight, logging, opts } = ctx;
   logging.fanout("harness", "completion: running ready gate\n", "stdout");
 
-  if (opts.runCompletionReadyGate !== undefined) {
-    const result = opts.runCompletionReadyGate(preflight.agentWorkingDir);
-    if (result.kind === "red") {
-      logging.fanout("harness", `completion: ready gate failed: ${result.failureText}\n`, "stderr");
+  let lastFailureText: string | null = null;
+
+  for (let attempt = 1; attempt <= COMPLETION_READY_GATE_RETRY_BOUND + 1; attempt++) {
+    let result: CompletionReadyGateResult;
+
+    if (opts.runCompletionReadyGate !== undefined) {
+      result = opts.runCompletionReadyGate(preflight.agentWorkingDir);
+    } else {
+      try {
+        runReadyAndCommit({
+          cwd: preflight.agentWorkingDir,
+          agentLabel: "completion-ready",
+          tier: "full",
+          ...(readyCommand !== undefined ? { readyCommand } : {}),
+        });
+        result = { kind: "green" };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        result = { kind: "red", failureText: message };
+      }
     }
-    return result;
+
+    if (result.kind === "green") {
+      if (attempt > 1) {
+        logging.fanout("harness", `completion: ready gate passed on retry (attempt ${attempt})\n`, "stdout");
+      }
+      return result;
+    }
+
+    lastFailureText = result.failureText;
+    if (attempt <= COMPLETION_READY_GATE_RETRY_BOUND) {
+      logging.fanout("harness", `completion: ready gate failed (attempt ${attempt}/${COMPLETION_READY_GATE_RETRY_BOUND + 1}), retrying\n`, "stderr");
+    }
   }
 
-  try {
-    runReadyAndCommit({
-      cwd: preflight.agentWorkingDir,
-      agentLabel: "completion-ready",
-      tier: "full",
-      ...(readyCommand !== undefined ? { readyCommand } : {}),
-    });
-    return { kind: "green" };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    logging.fanout("harness", `completion: ready gate failed: ${message}\n`, "stderr");
-    return { kind: "red", failureText: message };
-  }
+  logging.fanout("harness", `completion: ready gate failed: ${lastFailureText}\n`, "stderr");
+  return { kind: "red", failureText: lastFailureText ?? "ready gate failed" };
 }
 
 async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null> {

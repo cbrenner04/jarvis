@@ -353,8 +353,18 @@ The completion gate:
    checkbox-only completion).
 2. On green: commits any `check:fix` output and proceeds to shrink → review 
    → `maybeMarkReady` (if configured).
-3. On red: captures the failure text and handles it per the loop-back 
-   completion behavior (specs `01-red-loopback-iteration.md` and 
+3. On red: re-runs the same whole gate unchanged up to a fixed bound of 2
+   retries (3 total attempts). No agent runs between attempts. Each retry
+   reuses the same dirty tree left by any prior red attempt's uncommitted
+   `check:fix:unsafe` output.
+4. If any retry turns green: commits any accumulated `check:fix` output,
+   records the same completion-transition green result keyed to post-gate HEAD
+   + clean worktree, and proceeds to shrink → review → `maybeMarkReady` exactly
+   like a first-try green. The operator log distinguishes this from a first-try
+   pass with `completion: ready gate passed on retry (attempt N)`.
+5. Only when the initial run and every retry stay red does the harness capture
+   the final attempt's failure text and hand off to the loop-back completion
+   behavior (specs `01-red-loopback-iteration.md` and
    `02-stuck-red-stop.md`). The shrink and review phases do not run on red.
 
 The pre-shrink gate, review baseline gate, and `maybeMarkReady` `ready` 
@@ -363,15 +373,16 @@ completion gate.
 
 ### Fix-up iterations (red→green loop-back)
 
-When the completion `ready` gate fails (turns red), the harness launches a **fix-up iteration**: 
-one agent invocation that receives the captured `ready` failure text prepended to the normal 
-patch prompt. The agent can inspect both the failed `ready` output and the completed spec, 
-then attempt fixes.
+When the completion `ready` gate stays red across its bounded retries, the
+harness launches a **fix-up iteration**: one agent invocation that receives the
+captured final-attempt `ready` failure text prepended to the normal patch
+prompt. The agent can inspect both the failed `ready` output and the completed
+spec, then attempt fixes.
 
 Fix-up iteration flow:
 
-1. **Trigger**: completion gate returns red; `CompletionLoopbackSignal` is set with the 
-   captured failure text.
+1. **Trigger**: completion gate returns red on the initial run and every retry;
+   `CompletionLoopbackSignal` is set with the final attempt's failure text.
 2. **Agent invocation**: runs with the combined prompt `buildFixupPrompt()` + normal patch 
    rules. The agent sees the `ready` failure and can attempt to fix root-cause issues 
    (type errors, test failures, linting, formatting, etc.).

@@ -448,6 +448,14 @@ describe("planCommand", () => {
     try {
       configureGitDisabledPlanProject(cfgDir, 0);
 
+      // Pre-populate external spec root with pre-existing siblings
+      const extSpecRoot = join(cfgDir, "specs", "project");
+      mkdirSync(extSpecRoot, { recursive: true });
+      mkdirSync(join(extSpecRoot, "ready-intents"), { recursive: true });
+      writeFileSync(join(extSpecRoot, "ready-intents", "old-intent.md"), "# Old\n");
+      mkdirSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec"), { recursive: true });
+      writeFileSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec", "intent.md"), "# Prior\n");
+
       const intentPath = writeReadyIntent(project, "git-false-boundary");
       const cap = captureIo();
       const code = await planCommand({
@@ -473,6 +481,9 @@ describe("planCommand", () => {
       expect(cap.err()).toContain("plan: boundary violation detected before draft commit");
       expect(cap.err()).toContain("escaped-spec");
       expect(cap.err()).not.toContain("(git status failed)");
+      // Verify pre-existing siblings are not flagged
+      expect(existsSync(join(extSpecRoot, "ready-intents", "old-intent.md"))).toBe(true);
+      expect(existsSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec", "intent.md"))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

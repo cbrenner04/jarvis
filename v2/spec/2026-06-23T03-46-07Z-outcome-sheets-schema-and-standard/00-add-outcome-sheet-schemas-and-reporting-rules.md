@@ -42,12 +42,12 @@ and an observer reconciliation workflow without telemetry changes or backfill.
 
 ## Acceptance criteria
 
-- [ ] Each header-only outcome sheet exposes a composite identity that joins exactly one current cost row and permits no historical rows.
-- [ ] The cost reporting standard makes duplicate cost identities blocking, reconciles reruns by amendment, and leaves one outcome row per cost row after reconciliation.
-- [ ] The operator can perform outcome reconciliation at session close, distinguish observer judgment from exit-derived hints, and record completed, partial, blocked, canceled, failed, plan-only, and unknown outcomes without fabrication.
-- [ ] The operator-facing source-or-blank policy uses the audit’s primary sources, permits only identity-bound CSV/JSONL/git fallbacks, covers plan-involved `agent_count`, and records unreliable attribution as blank plus a note.
-- [ ] The cost reporting standard defines comparable duration and file-count measures, including overlord sum/union semantics, rather than substituting API runtime or duplicate file counts.
-- [ ] `v2/docs/v1-behaviors.md` records the outcome-reporting behavior with source citations.
+- [x] Each header-only outcome sheet exposes a composite identity that joins exactly one current cost row and permits no historical rows.
+- [x] The cost reporting standard makes duplicate cost identities blocking, reconciles reruns by amendment, and leaves one outcome row per cost row after reconciliation.
+- [x] The operator can perform outcome reconciliation at session close, distinguish observer judgment from exit-derived hints, and record completed, partial, blocked, canceled, failed, plan-only, and unknown outcomes without fabrication.
+- [x] The operator-facing source-or-blank policy uses the audit’s primary sources, permits only identity-bound CSV/JSONL/git fallbacks, covers plan-involved `agent_count`, and records unreliable attribution as blank plus a note.
+- [x] The cost reporting standard defines comparable duration and file-count measures, including overlord sum/union semantics, rather than substituting API runtime or duplicate file counts.
+- [x] `v2/docs/v1-behaviors.md` records the outcome-reporting behavior with source citations.
 
 ## Documentation updates
 

@@ -21,7 +21,7 @@ v1/                   # engine v1 (own tsconfig project)
   docs/
 v2/                   # engine v2 (own tsconfig project)
   src/                # source and co-located *.test.ts files
-  spec/               # v2 specs + work-seed intents (wip-intents/)
+  spec/               # v2 specs + work-seed intents (seeds/)
   docs/               # long-lived v2 reference docs (vision, architecture, ...)
 ```
 

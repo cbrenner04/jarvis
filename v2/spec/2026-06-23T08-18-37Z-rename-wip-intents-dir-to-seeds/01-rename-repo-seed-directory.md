@@ -37,11 +37,11 @@ no code change.
 
 ## Acceptance criteria
 
-- [ ] `v2/spec/wip-intents/` no longer exists; its files are present under `v2/spec/seeds/`.
-- [ ] `v1/docs/operator-runbook.md`, `v2/docs/v2-vision.md`, and `v2/spec/v2-meta-index.md` name `v2/spec/seeds/`, not `wip-intents/`.
-- [ ] No `wip-intents` reference remains in `v1/docs/operator-runbook.md`, `v2/docs/v2-vision.md`, or `v2/spec/v2-meta-index.md`.
-- [ ] No `wip-intents` *path/cross-link* reference remains in files under `v2/spec/seeds/`; the `rename-wip-intents-dir-to-seeds.md` seed's filename, frontmatter, title, problem prose, and `[[rename-wip-intents-dir-to-seeds]]` wikilink are kept verbatim as evidence.
-- [ ] Files under `v2/spec/completed/`, `reports/`, and the in-flight sibling `v2/spec/2026-06-23T06-01-15Z-route-spec-authoring-by-target/` are unchanged.
+- [x] `v2/spec/wip-intents/` no longer exists; its files are present under `v2/spec/seeds/`.
+- [x] `v1/docs/operator-runbook.md`, `v2/docs/v2-vision.md`, and `v2/spec/v2-meta-index.md` name `v2/spec/seeds/`, not `wip-intents/`.
+- [x] No `wip-intents` reference remains in `v1/docs/operator-runbook.md`, `v2/docs/v2-vision.md`, or `v2/spec/v2-meta-index.md`.
+- [x] No `wip-intents` *path/cross-link* reference remains in files under `v2/spec/seeds/`; the `rename-wip-intents-dir-to-seeds.md` seed's filename, frontmatter, title, problem prose, and `[[rename-wip-intents-dir-to-seeds]]` wikilink are kept verbatim as evidence.
+- [x] Files under `v2/spec/completed/`, `reports/`, and the in-flight sibling `v2/spec/2026-06-23T06-01-15Z-route-spec-authoring-by-target/` are unchanged.
 
 ## Documentation updates
 

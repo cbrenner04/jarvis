@@ -38,7 +38,9 @@ export type PreflightOk = {
   patchTier: PatchTier;
 };
 
-export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string };
+export type CompletionReadyGateResult =
+  | { kind: "green" }
+  | { kind: "red"; failureText: string; retryable?: boolean };
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;

@@ -1,0 +1,3 @@
+- Completion retries must not mask commit or push failures. A recovered retry may finalize only when prior failed attempts were ready-command failures; if committing `check:fix` output or pushing fails, completion must remain non-green and must not reach readiness with the remote branch behind HEAD. The retry behavior is intended for flaky readiness execution, not transport or repository-state failures.
+
+- Align `v1/docs/run-loop.md`’s earlier “Completion-transition ready gate” section with the bounded three-attempt behavior. It currently says the gate runs once and describes immediate red handling, conflicting with the later retry section. Durable operator documentation must state one consistent completion-gate contract.

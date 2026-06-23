@@ -1268,9 +1268,15 @@ Date: 2026-06-18`,
     });
 
     test("real path: red-then-green completion readyCommand leaves a clean HEAD-recordable tree", async () => {
-      setupGit();
+      execSync("git init -b project", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+      const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-ready-retry-remote-"));
+      execSync("git init --bare -b project", { cwd: remoteDir });
+      execSync(`git remote add origin ${remoteDir}`, { cwd: projectRoot });
       const spec = writeSpec("- [ ] todo\n");
       execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      execSync("git push -u origin project", { cwd: projectRoot });
 
       const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-ready-retry-"));
       try {
@@ -1332,6 +1338,83 @@ exit 0
         );
       } finally {
         rmSync(sentinelDir, { recursive: true, force: true });
+        rmSync(remoteDir, { recursive: true, force: true });
+      }
+    });
+
+    test("real path: check:fix push failure does not retry into green completion", async () => {
+      execSync("git init -b project", { cwd: projectRoot });
+      execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+      execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+
+      const remoteDir = mkdtempSync(join(tmpdir(), "jarvis-ready-push-remote-"));
+      const missingRemote = join(remoteDir, "missing-origin.git");
+      execSync("git init --bare -b project", { cwd: remoteDir });
+      execSync(`git remote add origin ${remoteDir}`, { cwd: projectRoot });
+
+      const spec = writeSpec("- [ ] todo\n");
+      execSync("git add index.md && git commit -m init", { cwd: projectRoot });
+      execSync("git push -u origin project", { cwd: projectRoot });
+
+      const sentinelDir = mkdtempSync(join(tmpdir(), "jarvis-ready-push-fail-"));
+      try {
+        const attemptsFile = join(sentinelDir, "attempts.txt");
+        const script = join(sentinelDir, "ready.sh");
+        writeFileSync(
+          script,
+          `#!/bin/sh
+set -eu
+count=0
+if [ -f "${attemptsFile}" ]; then
+  count="$(cat "${attemptsFile}")"
+fi
+count=$((count + 1))
+printf '%s' "$count" > "${attemptsFile}"
+if [ "$count" -eq 1 ]; then
+  printf 'normalized\n' >> "$PWD/seed.txt"
+  git remote set-url origin "${missingRemote}"
+fi
+exit 0
+`,
+        );
+        chmodSync(script, 0o755);
+
+        const cfg = loadConfig({ dir: cfgDir });
+        if (cfg.projects.project === undefined) {
+          cfg.projects.project = { root: projectRoot };
+        }
+        cfg.projects.project.readyCommand = script;
+        writeConfig(cfg, { dir: cfgDir });
+
+        const cap = captureIo();
+        const claude = new FakeAgent("claude", () => {
+          writeFileSync(spec, "- [x] todo\n");
+          execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+          return { kind: "ok", stdout: "", stderr: "" };
+        });
+
+        const code = await runCommand({
+          specPath: spec,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          handleSignals: false,
+          skipGhCheck: true,
+          reviewPasses: 0,
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+        });
+
+        expect(code).toBe(6);
+        expect(readFileSync(attemptsFile, "utf8")).toBe("1");
+        expect(cap.out()).not.toContain("completion: ready gate passed on retry");
+        expect(cap.err()).not.toContain("retrying");
+        expect(cap.err()).toContain("did not retry or enter fix-up");
+        expect(Number(execSync("git rev-list --count origin/project..HEAD", { cwd: projectRoot, encoding: "utf8" }))).toBeGreaterThan(
+          0,
+        );
+      } finally {
+        rmSync(sentinelDir, { recursive: true, force: true });
+        rmSync(remoteDir, { recursive: true, force: true });
       }
     });
   });

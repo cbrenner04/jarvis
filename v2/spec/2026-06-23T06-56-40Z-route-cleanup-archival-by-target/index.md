@@ -9,4 +9,4 @@ uses: a spec living under `v1/spec/` archives to `v1/spec/completed/`, under `v2
 `v2/spec/completed/`. Mixed v1/v2 is satisfied transitively (route-by-target authored it under `v1/spec/`).
 Drop the manual relocation from `operator-runbook.md`.
 
-- [ ] [00 - Archive by authored home](./00-archive-by-authored-home.md)
+- [x] [00 - Archive by authored home](./00-archive-by-authored-home.md)

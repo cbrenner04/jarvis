@@ -19,16 +19,16 @@
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 intent --target-dir <dir> <seed>` is accepted; an invalid value (absolute, `..` traversal, or empty) fails with an `intent:` error before any seed/worktree work, matching `jarvis1 plan --target-dir` validation.
-- [ ] With `--target-dir <dir>`, a file seed must live under `<dir>/wip-intents/` (rejection message names the overridden `<dir>`), and committed authored intents are written under `<dir>/ready-intents/` — the override, not project/global `plan.targetDir`, governs both.
-- [ ] The printed next-steps `jarvis1 plan ...` path references the overridden `<dir>/ready-intents/<name>.md`, matching where files were written.
-- [ ] Without the flag, target-dir resolution is unchanged (project `plan.targetDir` → global → `"spec"`): `intent-command.test.ts` stays green.
-- [ ] `--target-dir` appears in `jarvis1 intent` usage/help output.
-- [ ] In `commit:false`, `--target-dir <dir>` shifts only the seed-input check to `<dir>/wip-intents/`; external ready-intents are still written flat at `~/.jarvis/specs/<id>/ready-intents/`, not nested under `<dir>`.
-- [ ] A new test covers the `--target-dir` override routing seed-input and committed ready-intent output to the overridden tree.
+- [x] `jarvis1 intent --target-dir <dir> <seed>` is accepted; an invalid value (absolute, `..` traversal, or empty) fails with an `intent:` error before any seed/worktree work, matching `jarvis1 plan --target-dir` validation.
+- [x] With `--target-dir <dir>`, a file seed must live under `<dir>/wip-intents/` (rejection message names the overridden `<dir>`), and committed authored intents are written under `<dir>/ready-intents/` — the override, not project/global `plan.targetDir`, governs both.
+- [x] The printed next-steps `jarvis1 plan ...` path references the overridden `<dir>/ready-intents/<name>.md`, matching where files were written.
+- [x] Without the flag, target-dir resolution is unchanged (project `plan.targetDir` → global → `"spec"`): `intent-command.test.ts` stays green.
+- [x] `--target-dir` appears in `jarvis1 intent` usage/help output.
+- [x] In `commit:false`, `--target-dir <dir>` shifts only the seed-input check to `<dir>/wip-intents/`; external ready-intents are still written flat at `~/.jarvis/specs/<id>/ready-intents/`, not nested under `<dir>`.
+- [x] A new test covers the `--target-dir` override routing seed-input and committed ready-intent output to the overridden tree.
 
 ## Documentation updates
 
-- [ ] `v1/docs/intent-mode.md`: document `--target-dir` (precedence + validation, parity with plan).
-- [ ] `v1/docs/config.md`: note `--target-dir` is honored by `jarvis intent` as well as `jarvis plan`.
-- [ ] `v2/docs/v1-behaviors.md`: record that intent now accepts a per-run `--target-dir` override (flag-surface and target-dir routing).
+- [x] `v1/docs/intent-mode.md`: document `--target-dir` (precedence + validation, parity with plan).
+- [x] `v1/docs/config.md`: note `--target-dir` is honored by `jarvis intent` as well as `jarvis plan`.
+- [x] `v2/docs/v1-behaviors.md`: record that intent now accepts a per-run `--target-dir` override (flag-surface and target-dir routing).

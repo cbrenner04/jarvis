@@ -47,10 +47,7 @@ Documented in [v1/docs/operator-runbook.md](../../../v1/docs/operator-runbook.md
 
 `report, session, session_count, model, total_cost, avg_cost_per_spec, api_time, tokens_in, tokens_out, cache_read, cache_write, notes`
 
-Semantics:
-- `session_count`: Number of `session-costs.csv` rows (spec count) in this session.
-- `avg_cost_per_spec`: `total_cost / session_count` (observer's own cost per spec driven).
-- `api_time`: Total API runtime for the session.
+Key columns: `session_count` is the number of `session-costs.csv` rows (spec count); `api_time` is total API runtime.
 
 ## Classification table
 
@@ -124,26 +121,6 @@ Count distinct file paths or store as a list (format per schema design).
 
 **Persistence:** The run diff is committed to git and persists post-run, so it is reliably available for later audit (e.g., from `reports/` after the run completes). If the worktree is deleted without committing, the diff is lost; recovery requires `git log` on the target repo.
 
-### `success_status` (hybrid derived-hint + observer-override)
-
-**Harness-provided hint:** The final `exitReason` in the JSONL:
-
-- `exitReason: "ok"` or `"no-progress-fallback"` with `kind: "ok"` → hint: successful / partial progress.
-- `exitReason: "quota-exhausted"`, `"agent-error"`, `"watchdog-iteration-timeout"`, `"model-config"` → hint: failure.
-
-**Operator override:** The observer records the actual outcome intent (e.g., "partial progress" even if an iteration returned `error`, or "blocker added" even if the run exited 0).
-
-### `failure_reason` (hybrid derived-hint + observer-override)
-
-**Harness-provided hint:** If `success_status` is failure, the `kind` and `exitReason` fields indicate the signal:
-
-- `kind: "quota"` with `exitReason: "quota-exhausted"` → hint: "quota exhausted; all fallback agents exhausted".
-- `kind: "error"` with `exitReason: "agent-error"` → hint: "agent returned non-zero exit".
-- `kind: "timeout"` → hint: "iteration or run timeout".
-- `kind: "model_config"` → hint: "model configuration error".
-
-**Operator override:** If not captured by `exitReason`, the observer notes the actual reason (e.g., "intentional blocker added", "plan phase diverged").
-
 ## Scope constraints and follow-ups
 
 ### Plan-phase telemetry gap
@@ -174,14 +151,3 @@ This audit is a **classification only**. It documents what is already recorded a
 
 The harness continues to emit the same telemetry fields. Outcome sheet implementation consumes these fields and combines them with observer input per this classification.
 
-## Acceptance: no captured-column misclassification
-
-For completeness, verify that no proposed column is classified not-captured when a derivation from a documented telemetry field or cost-CSV header exists:
-
-- ✓ `session_id`, `report_date`, `session_type`, `duration_minutes`, `files_touched`: All traceable to JSONL or cost CSV.
-- ✓ `agent_count`: Derived from distinct `agent` in JSONL; filter defined.
-- ✓ `success_status`, `failure_reason`: Hybrid derived-hint + override; hint sourced from `exitReason`/`kind`.
-- ✓ `specs_driven`, `overall_success` (partial), `total_duration`: Already-logged or derivable from cost CSV.
-- ✗ `completed_work_units`, `notes`, `aggregate_files_touched` (plan caveat): Correctly classified not-captured or caveated.
-
-All derivations trace to committed documentation (`v1/docs/run-loop.md`, `v1/docs/quota-signals.md`, `v1/docs/operator-runbook.md`).

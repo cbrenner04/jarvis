@@ -84,3 +84,7 @@ un-normalized corpus is acceptable.
   scope and `**/completed/**` exemption.
 - `v2/docs/v1-behaviors.md`: not required — net-new dev tooling, no existing
   behavior changed.
+
+## Blocker
+
+`bun install` fails with EPERM on existing dependencies (@biomejs/biome, typescript). The lockfile has pre-existing permission issues that prevent resolving new dependencies. Configuration and script added to `package.json` and `.markdownlint-cli2.jsonc` created, but cannot verify Bun compatibility without resolving permission issues in the parent repository.

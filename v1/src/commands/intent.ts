@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
-import { CONFIG_DIR, loadConfig, resolvePlanFlags } from "../config.ts";
+import { CONFIG_DIR, loadConfig, resolvePlanFlags, validateTargetDir } from "../config.ts";
 import type { LogClient } from "../logging.ts";
 import { enterMode } from "../mode-entry.ts";
 import { listStageMarkdownFiles, runIntentSplitTurn } from "../modes/plan/intent-split.ts";
@@ -29,6 +29,7 @@ export type IntentCommandOptions = {
 
 type IntentInvocationCommon = {
   repo?: string;
+  targetDir?: string;
   cwd: string;
 };
 
@@ -40,9 +41,9 @@ export type IntentParseResult =
   | { ok: true; invocation: IntentInvocation }
   | { ok: false; exitCode: number; message: string };
 
-const FLAGS_WITH_VALUE = new Set(["--repo", "--cwd"]);
+const FLAGS_WITH_VALUE = new Set(["--repo", "--cwd", "--target-dir"]);
 
-export const INTENT_USAGE = `Usage: jarvis1 intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">
+export const INTENT_USAGE = `Usage: jarvis1 intent [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] <raw-seed-file|"inline text">
                              Split one seed into authored intents under ready-intents/ and open a draft PR.
 `;
 
@@ -77,6 +78,7 @@ function isExistingFile(path: string): boolean {
 export function parseIntentArgs(argv: readonly string[], processCwd: string): IntentParseResult {
   let repo: string | undefined;
   let cwdFlag: string | undefined;
+  let targetDir: string | undefined;
   const positional: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -93,8 +95,20 @@ export function parseIntentArgs(argv: readonly string[], processCwd: string): In
       i += 1;
       if (arg === "--repo") {
         repo = value;
-      } else {
+      } else if (arg === "--cwd") {
         cwdFlag = value;
+      } else if (arg === "--target-dir") {
+        try {
+          targetDir = validateTargetDir(value, "--target-dir", (message): never => {
+            throw new Error(message);
+          });
+        } catch (err) {
+          return {
+            ok: false,
+            exitCode: 1,
+            message: `intent: ${(err as Error).message}`,
+          };
+        }
       }
       continue;
     }
@@ -131,6 +145,9 @@ export function parseIntentArgs(argv: readonly string[], processCwd: string): In
     : { mode: "inline", seedText: arg, cwd };
   if (repo !== undefined) {
     invocation.repo = repo;
+  }
+  if (targetDir !== undefined) {
+    invocation.targetDir = targetDir;
   }
   return { ok: true, invocation };
 }
@@ -572,7 +589,9 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
 
   const project = entry.resolution.resolved.project;
   const fullProject = cfg.projects[project.key];
-  const { commit, targetDir } = resolvePlanFlags(cfg, fullProject);
+  const { commit } = resolvePlanFlags(cfg, fullProject);
+  const resolvedTargetDir = resolvePlanFlags(cfg, fullProject).targetDir;
+  const targetDir = inv.targetDir ?? resolvedTargetDir;
 
   const planLogClient = entry.logClient;
   planHarnessLog(planLogClient, `intent: target project=${project.key} root=${project.root}`);

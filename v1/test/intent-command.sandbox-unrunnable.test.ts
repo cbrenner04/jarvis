@@ -464,6 +464,62 @@ describe("parseIntentArgs", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  test("--target-dir flag is accepted and stored", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-intent-parse-"));
+    try {
+      const result = parseIntentArgs(["--target-dir", "v2/spec", "inline seed"], dir);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.invocation.targetDir).toBe("v2/spec");
+        expect(result.invocation.mode).toBe("inline");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--target-dir rejects absolute paths", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-intent-parse-"));
+    try {
+      const result = parseIntentArgs(["--target-dir", "/absolute/path", "inline seed"], dir);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).toContain("intent:");
+        expect(result.message).toContain("relative path");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--target-dir rejects .. traversal", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-intent-parse-"));
+    try {
+      const result = parseIntentArgs(["--target-dir", "../escape", "inline seed"], dir);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).toContain("intent:");
+        expect(result.message).toContain("..");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("--target-dir rejects empty string", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-intent-parse-"));
+    try {
+      const result = parseIntentArgs(["--target-dir", "", "inline seed"], dir);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.message).toContain("intent:");
+        expect(result.message).toContain("non-empty");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("intentCommand", () => {

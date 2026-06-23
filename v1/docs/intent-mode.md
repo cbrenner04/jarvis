@@ -36,9 +36,17 @@ Existing files are treated as file seeds only when they exist on disk. File
 seeds must live under `<targetDir>/wip-intents/`. The raw seed is read but left
 in place after fan-out.
 
-`<targetDir>` resolves the same way plan mode does: per-run override is not
-supported here, so intent mode uses the configured committed plan root
-(`projects.<key>.plan.targetDir`, then `modes.plan.targetDir`, then `spec`).
+`<targetDir>` resolves with per-run override: `--target-dir <dir>` (if provided)
+takes precedence over project-level `plan.targetDir`, then global `modes.plan.targetDir`,
+then the default `spec`. Validation mirrors `jarvis1 plan --target-dir`: relative
+paths only, no absolute paths, no `..` traversal.
+
+Command-line usage:
+```text
+jarvis1 intent "seed text"
+jarvis1 intent --target-dir v2/spec <targetDir>/wip-intents/seed.md
+jarvis1 intent --repo <name> --target-dir <dir> <seed>
+```
 
 ## Output
 

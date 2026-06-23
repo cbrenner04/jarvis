@@ -42,7 +42,7 @@ type ModeConfig = {
   prNarrative?: "template" | "agent"; // PR narrative mode: default "template"
   shrink?: "off" | "agent"; // patch mode only: whether to run shrink phase (default "agent")
   commit?: boolean; // plan mode only: whether to commit specs to the target repo (default true)
-  targetDir?: string; // plan mode only: relative path where committed specs are routed (default "spec")
+  targetDir?: string; // plan and intent modes: relative path where committed specs are routed (default "spec")
 };
 
 // For modes.prompt specifically, only agentOrder is used. The commit and targetDir fields have no effect.

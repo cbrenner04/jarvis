@@ -6,5 +6,5 @@ Author seeds and specs in their target-version home from the start: v1 work unde
 
 Operator rollout (not in repo, not an AC): the live `plan.targetDir` is `v2/spec` today, so the conventions in subspec 01 are honest-but-pending until flipped. Flip it to `v1/spec` via `jarvis config` immediately on merge so the merged docs do not assert config that is not yet true.
 
-- [ ] [00 - intent --target-dir override](./00-intent-target-dir-override.md)
+- [x] [00 - intent --target-dir override](./00-intent-target-dir-override.md)
 - [ ] [01 - reconcile route-by-target conventions](./01-reconcile-route-by-target-conventions.md)

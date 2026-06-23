@@ -192,6 +192,31 @@ describe("cleanupCommand", () => {
     expect(existsSync(destination)).toBe(true);
   });
 
+  test("archives timestamped v2 spec to v2/spec/completed while targetDir is v1/spec", () => {
+    const { io } = captureIo(["yes"]);
+
+    const name = "route-cleanup-archival-by-target";
+    const timestampedName = `2026-06-23T06-56-40Z-${name}`;
+    const worktreePath = createTrackedPlanWorktree(name);
+    const source = join(projectRoot, "v2", "spec", timestampedName);
+    const destination = join(projectRoot, "v2", "spec", "completed", timestampedName);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# v2 spec\n");
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      targetDir: "v1/spec",
+      isMergedPr: () => true,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# v2 spec\n");
+  });
+
   test("dry-run does not mutate worktrees or spec directories", () => {
     const { io } = captureIo();
 
@@ -390,5 +415,27 @@ describe("cleanupCommand", () => {
     });
     expect(status).toContain(" M README.md");
     expect(status).toContain("?? scratch.txt");
+  });
+
+  test("default-spec project with coincidental v1/spec dir archives to spec/completed, not v1/spec/completed", () => {
+    const { io } = captureIo(["yes"]);
+
+    const specName = "default-spec-test";
+    const worktreePath = createTrackedWorktree(specName);
+    const source = join(projectRoot, "spec", specName);
+    const destination = join(projectRoot, "spec", "completed", specName);
+    const coincidentalV1 = join(projectRoot, "v1", "spec");
+    mkdirSync(source, { recursive: true });
+    mkdirSync(coincidentalV1, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# default spec\n");
+
+    const code = cleanupCommand({ projectRoot, io, isMergedPr: () => true });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(existsSync(join(projectRoot, "v1", "spec", "completed", specName))).toBe(false);
+    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# default spec\n");
   });
 });

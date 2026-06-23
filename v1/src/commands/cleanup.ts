@@ -18,6 +18,7 @@ export type CleanupCommandOptions = {
   targetDir?: string;
   isMergedPr?: (branch: string) => boolean;
   removeItem?: (item: { path: string; branch: string; dir: string }) => void;
+  candidateHomes?: string[];
 };
 
 function branchForWorktree(worktreePath: string): string {
@@ -43,29 +44,39 @@ function resolveSpecArchiveSource(
   projectRoot: string,
   targetDir: string,
   branch: string,
-): { source: string; specName: string; missingSource: string } {
+  candidateHomes: string[] = [targetDir, "v1/spec", "v2/spec"],
+): { source: string; specName: string; missingSource: string; sourceHome: string } {
   const specName = specNameForBranch(branch);
-  const specRoot = join(projectRoot, targetDir);
-  const exactSource = join(specRoot, specName);
-  if (existsSync(exactSource)) {
-    return { source: exactSource, specName, missingSource: exactSource };
-  }
 
-  if (isPlanBranch(branch) && existsSync(specRoot)) {
-    const timestampedMatch = readdirSync(specRoot)
-      .filter((entry) => entry !== "completed")
-      .filter((entry) => stripPlanSpecTimestampPrefix(entry) === specName)
-      .sort()[0];
-    if (timestampedMatch !== undefined) {
-      return {
-        source: join(specRoot, timestampedMatch),
-        specName: timestampedMatch,
-        missingSource: exactSource,
-      };
+  for (const homeDir of candidateHomes) {
+    const specRoot = join(projectRoot, homeDir);
+    const exactSource = join(specRoot, specName);
+    if (existsSync(exactSource)) {
+      return { source: exactSource, specName, missingSource: exactSource, sourceHome: homeDir };
+    }
+
+    if (isPlanBranch(branch) && existsSync(specRoot)) {
+      const timestampedMatch = readdirSync(specRoot)
+        .filter((entry) => entry !== "completed")
+        .filter((entry) => stripPlanSpecTimestampPrefix(entry) === specName)
+        .sort()[0];
+      if (timestampedMatch !== undefined) {
+        return {
+          source: join(specRoot, timestampedMatch),
+          specName: timestampedMatch,
+          missingSource: exactSource,
+          sourceHome: homeDir,
+        };
+      }
     }
   }
 
-  return { source: exactSource, specName, missingSource: exactSource };
+  return {
+    source: join(projectRoot, targetDir, specName),
+    specName,
+    missingSource: join(projectRoot, targetDir, specName),
+    sourceHome: targetDir,
+  };
 }
 
 function deleteMergedBranch(projectRoot: string, branch: string): void {
@@ -125,6 +136,7 @@ function commitArchivedSpecMove(projectRoot: string, source: string, destination
 export function cleanupCommand(opts: CleanupCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
   const targetDir = opts.targetDir ?? "spec";
+  const candidateHomes = opts.candidateHomes ?? [targetDir, "v1/spec", "v2/spec"];
   const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
 
   const toRemove: Array<{ path: string; branch: string; dir: string }> = [];
@@ -187,14 +199,19 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
 
-      const { source, specName, missingSource } = resolveSpecArchiveSource(opts.projectRoot, targetDir, item.branch);
+      const { source, specName, missingSource, sourceHome } = resolveSpecArchiveSource(
+        opts.projectRoot,
+        targetDir,
+        item.branch,
+        candidateHomes,
+      );
       if (specName === "completed") {
         opts.io.stderr(`unsafe spec archive mapping for "${item.dir}": refusing to move ${targetDir}/completed/\n`);
         hadFailures = true;
         continue;
       }
 
-      const completedRoot = join(opts.projectRoot, targetDir, "completed");
+      const completedRoot = join(opts.projectRoot, sourceHome, "completed");
       const destination = join(completedRoot, specName);
 
       if (!existsSync(source)) {

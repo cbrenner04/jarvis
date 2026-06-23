@@ -18,7 +18,7 @@ This document inventories user-observable v1 behavior so v2 can explicitly prese
 - Unknown subcommands exit non-zero and print usage, while parse-time argument errors also print usage with a command-specific error prefix. Sources: `v1/src/cli.ts`
 - `review-feedback` requires a non-empty `<worktree-name>` and exits with usage when omitted, while `triage` accepts an optional worktree argument and otherwise runs a no-arg listing mode. Sources: `v1/src/cli.ts`, `v1/src/commands/triage.ts`
 - `prices` is a two-operation command surface (`show` and `edit`) rather than one flat action, and missing/unknown prices subcommands print command-specific usage. Sources: `v1/src/commands/prices.ts`, `v1/src/commands/prices-show.ts`, `v1/src/commands/prices-edit.ts`
-- `cleanup` exposes a `--dry-run` mode and requires execution from inside a registered project or it exits with a targeted registration error. Sources: `v1/src/cli.ts`, `v1/src/commands/cleanup.ts`
+- `cleanup` exposes a `--dry-run` mode and requires execution from inside a registered project or it exits with a targeted registration error. When archiving completed specs, `cleanup` directs each spec to the `completed/` directory of the spec's located home (`v1/spec`, `v2/spec`, or the configured `targetDir`), rather than always to the configured `targetDir`. When no home resolves the spec, the missing-source error names the configured `targetDir` path. Sources: `v1/src/cli.ts`, `v1/src/commands/cleanup.ts`
 
 ### Patch-mode run workflow
 

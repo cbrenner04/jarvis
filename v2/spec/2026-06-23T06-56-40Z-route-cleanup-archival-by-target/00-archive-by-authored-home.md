@@ -27,16 +27,16 @@ the spec's authored home instead.
 
 ## Acceptance criteria
 
-- [ ] A completed spec located under `v1/spec/<name>` archives to `v1/spec/completed/<name>`.
-- [ ] A completed spec located under `v2/spec/<name>` archives to `v2/spec/completed/<name>`, even when the configured `targetDir` is `v1/spec`.
-- [ ] A new `cleanup-command.sandbox-unrunnable.test.ts` case pinning a **timestamped** v2 spec (`v2/spec/<timestamp>-<name>/`) archiving to `v2/spec/completed/<name>` while configured `targetDir` is `v1/spec` passes (the real archival path resolves via timestamp-prefix scan, not exact-name match).
-- [ ] The archive destination is derived from the home where the source spec is located, not from the configured `targetDir`.
-- [ ] In a project whose `targetDir` is the default `spec` (no `v1/spec`/`v2/spec` present), archival still targets `spec/completed/<name>` — existing `cleanup-command.sandbox-unrunnable.test.ts` archival tests stay green (behavior unchanged for that layout).
-- [ ] A default-`spec` project with a coincidental `v1/spec/` directory holding a name-matching spec dir is not mis-routed into `v1/spec/completed/` — its spec archives under the configured `targetDir`.
-- [ ] When no candidate home resolves the spec, the missing-source error fires naming the configured-`targetDir` path (no new error shape) — the relevant `cleanup-command.sandbox-unrunnable.test.ts` guard stays green.
-- [ ] The reserved-`completed` and destination-collision guards in `cleanup-command.sandbox-unrunnable.test.ts` stay green (behavior preserved).
-- [ ] `operator-runbook.md` no longer instructs the operator to hand-relocate v1-work specs out of `v2/spec/completed/`.
-- [ ] `v2/docs/v1-behaviors.md` records that `cleanup` archives a completed spec into the `completed/` directory of the spec's own home.
+- [x] A completed spec located under `v1/spec/<name>` archives to `v1/spec/completed/<name>`.
+- [x] A completed spec located under `v2/spec/<name>` archives to `v2/spec/completed/<name>`, even when the configured `targetDir` is `v1/spec`.
+- [x] A new `cleanup-command.sandbox-unrunnable.test.ts` case pinning a **timestamped** v2 spec (`v2/spec/<timestamp>-<name>/`) archiving to `v2/spec/completed/<name>` while configured `targetDir` is `v1/spec` passes (the real archival path resolves via timestamp-prefix scan, not exact-name match).
+- [x] The archive destination is derived from the home where the source spec is located, not from the configured `targetDir`.
+- [x] In a project whose `targetDir` is the default `spec` (no `v1/spec`/`v2/spec` present), archival still targets `spec/completed/<name>` — existing `cleanup-command.sandbox-unrunnable.test.ts` archival tests stay green (behavior unchanged for that layout).
+- [x] A default-`spec` project with a coincidental `v1/spec/` directory holding a name-matching spec dir is not mis-routed into `v1/spec/completed/` — its spec archives under the configured `targetDir`.
+- [x] When no candidate home resolves the spec, the missing-source error fires naming the configured-`targetDir` path (no new error shape) — the relevant `cleanup-command.sandbox-unrunnable.test.ts` guard stays green.
+- [x] The reserved-`completed` and destination-collision guards in `cleanup-command.sandbox-unrunnable.test.ts` stay green (behavior preserved).
+- [x] `operator-runbook.md` no longer instructs the operator to hand-relocate v1-work specs out of `v2/spec/completed/`.
+- [x] `v2/docs/v1-behaviors.md` records that `cleanup` archives a completed spec into the `completed/` directory of the spec's own home.
 
 ## Documentation updates
 

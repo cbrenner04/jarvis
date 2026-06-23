@@ -7,7 +7,7 @@ Each outstanding entry in the no-arg `jarvis1 triage` session-end verdict report
 ## Decisions
 
 - Enrich only outstanding entries with gate state — landed worktrees need no action, so rules out an extra gh query per landed worktree.
-- Source the gate state from GitHub's merge-state fields (e.g. `mergeStateStatus`/`statusCheckRollup` on `gh pr view`); the implementer picks the field that reflects merge-blocking, surfaced verbatim — rules out triage inventing its own pass/fail rollup from raw check rows.
+- Surface GitHub's single merge-state enum (`mergeStateStatus` on `gh pr view`) verbatim as the gate state; `statusCheckRollup` (an array of raw check rows) is context only, never the surfaced value — rules out triage inventing its own pass/fail rollup from raw check rows. The implementer may substitute another single merge-state field if it better reflects merge-blocking, surfaced verbatim the same way.
 - A missing or failed gate query degrades to an "unavailable" marker and never aborts the sweep — rules out one unreachable PR blanking the verdict for the rest.
 
 ## Task checklist

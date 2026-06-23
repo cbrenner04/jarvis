@@ -12,22 +12,26 @@ reference rename — no pipeline or semantic change.
 
 - Rename `wip-intents/` → `seeds/` as the file-seed input directory; rejection
   message names `<targetDir>/seeds/`. Rules out keeping the old name aliased.
+- Rename the `wipDir`/`wipDirRel` identifiers in `intent.ts` to `seedDir`/`seedDirRel`.
+  Rules out leaving code that reads `seeds/` through a variable named for the old
+  directory — the rename's premise is that "wip" misleads.
 - `ready-intents/` is untouched (out of scope).
 - Behavior is otherwise unchanged; the existing test is the pin, retargeted to
   `seeds/`.
 
 ## Task checklist
 
-- [ ] `v1/src/commands/intent.ts`: seed-input path + rejection message use `seeds`.
+- [ ] `v1/src/commands/intent.ts`: seed-input path + rejection message use `seeds`; rename `wipDir`/`wipDirRel` → `seedDir`/`seedDirRel`.
 - [ ] `v1/test/intent-command.sandbox-unrunnable.test.ts`: retarget the seed dir and assertions to `seeds/`.
 - [ ] Update `v1/docs/intent-mode.md`, `v1/docs/plan-mode.md`, `v1/docs/spec-guidance.md`, `v1/docs/workflows.md`.
-- [ ] Update the `wip-intents/` catalog entries in `v2/docs/v1-behaviors.md`.
+- [ ] Update the `wip-intents/` catalog entries in `v2/docs/v1-behaviors.md`, including correcting the `:132` citation from `intent-command.test.ts` to `intent-command.sandbox-unrunnable.test.ts`.
 
 ## Acceptance criteria
 
 - [ ] `jarvis1 intent` resolves file seeds from `<targetDir>/seeds/`; a seed outside it is rejected with a message naming `<targetDir>/seeds/`.
 - [ ] `intent-command.sandbox-unrunnable.test.ts` is retargeted to `seeds/` and stays green (behavior unchanged by the rename).
-- [ ] No `wip-intents` reference remains in `v1/src/commands/intent.ts`, `v1/test/intent-command.sandbox-unrunnable.test.ts`, `v1/docs/intent-mode.md`, `v1/docs/plan-mode.md`, `v1/docs/spec-guidance.md`, or `v1/docs/workflows.md`.
+- [ ] No `wip-intents` literal and no `wipDir`/`wipDirRel` identifier remains in `v1/src/commands/intent.ts`.
+- [ ] No `wip-intents` reference remains in `v1/test/intent-command.sandbox-unrunnable.test.ts`, `v1/docs/intent-mode.md`, `v1/docs/plan-mode.md`, `v1/docs/spec-guidance.md`, `v1/docs/workflows.md`, or the `wip-intents/` catalog entries in `v2/docs/v1-behaviors.md`.
 
 ## Documentation updates
 

@@ -11,11 +11,17 @@ export type TriageIo = {
   stderr: (s: string) => void;
 };
 
+export type TriageGhRunner = {
+  getPrState: (branch: string) => { state: string; isDraft: boolean } | null;
+  getMergeGateState?: (branch: string) => { mergeStateStatus: string } | null;
+};
+
 export type TriageCommandOptions = {
   projectRoot: string;
   io: TriageIo;
   config?: ConfigOptions;
   worktreeName?: string;
+  ghRunner?: TriageGhRunner;
 };
 
 export type DirtyKind = "clean" | "untracked-only" | "modified" | "mixed";
@@ -48,10 +54,23 @@ export function triageCommand(opts: TriageCommandOptions): number {
   }
 
   // No-arg form: list all worktrees with summary
-  return triageListWorktrees(worktreeDir, opts.io);
+  const ghRunner = opts.ghRunner || createDefaultGhRunner();
+  return triageListWorktrees(worktreeDir, opts.io, ghRunner);
 }
 
-function triageListWorktrees(worktreeDir: string, io: TriageIo): number {
+type WorktreeStatus = {
+  name: string;
+  dirtyStatus: string;
+  aheadBehind: string;
+  prState: string;
+  specProgress: string;
+  isLanded: boolean;
+  isDraft?: boolean;
+  prStateRaw?: string;
+  gateState?: string;
+};
+
+function triageListWorktrees(worktreeDir: string, io: TriageIo, ghRunner: TriageGhRunner): number {
   let worktrees: string[];
   try {
     worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
@@ -67,17 +86,151 @@ function triageListWorktrees(worktreeDir: string, io: TriageIo): number {
 
   io.stdout("NAME\t\tDIRTY\t\tAHEAD/BEHIND\tPR\t\tSPEC\n");
 
+  const statuses: WorktreeStatus[] = [];
+
   for (const worktreeName of worktrees) {
     const worktreePath = join(worktreeDir, worktreeName);
     const dirtyStatus = getDirtyStatusSummary(worktreePath);
     const aheadBehind = getAheadBehind(worktreePath);
-    const prState = getPrState(worktreeName);
+    const prStateResult = ghRunner.getPrState(worktreeName);
+    const prState = formatPrStateForDisplay(prStateResult);
     const specProgress = getSpecProgress(worktreePath);
 
     io.stdout(`${worktreeName}\t\t${dirtyStatus}\t\t${aheadBehind}\t\t${prState}\t\t${specProgress}\n`);
+
+    const { isLanded, isDraft, prStateRaw } = classifyWorktree(worktreePath, worktreeName, ghRunner, prStateResult);
+    const status: WorktreeStatus = {
+      name: worktreeName,
+      dirtyStatus,
+      aheadBehind,
+      prState,
+      specProgress,
+      isLanded,
+    };
+    if (isDraft !== undefined) {
+      status.isDraft = isDraft;
+    }
+    if (prStateRaw !== undefined) {
+      status.prStateRaw = prStateRaw;
+    }
+
+    // Fetch merge gate state for outstanding entries
+    if (!isLanded && ghRunner.getMergeGateState) {
+      const gateStateResult = ghRunner.getMergeGateState(worktreeName);
+      status.gateState = gateStateResult?.mergeStateStatus || "unavailable";
+    }
+
+    statuses.push(status);
   }
 
+  // Emit session-end verdict
+  emitVerdict(io, statuses);
+
   return 0;
+}
+
+function createDefaultGhRunner(): TriageGhRunner {
+  return {
+    getPrState: (branch: string) => {
+      try {
+        const fullOutput = execSync(`gh pr view "${branch}" --json state,isDraft`, {
+          stdio: "pipe",
+          encoding: "utf8",
+        });
+        const prData = JSON.parse(fullOutput);
+        return {
+          state: prData.state || "unknown",
+          isDraft: prData.isDraft ?? false,
+        };
+      } catch {
+        return null;
+      }
+    },
+    getMergeGateState: (branch: string) => {
+      try {
+        const fullOutput = execSync(`gh pr view "${branch}" --json mergeStateStatus`, {
+          stdio: "pipe",
+          encoding: "utf8",
+        });
+        const prData = JSON.parse(fullOutput);
+        return {
+          mergeStateStatus: prData.mergeStateStatus || "unavailable",
+        };
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+function classifyWorktree(
+  worktreePath: string,
+  worktreeName: string,
+  ghRunner: TriageGhRunner,
+  prStateResult?: { state: string; isDraft: boolean } | null,
+): { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } {
+  // Plan worktrees are never landed
+  if (worktreeName.startsWith("plan-")) {
+    return { isLanded: false };
+  }
+
+  // Use provided prStateResult or fetch it
+  const prState = prStateResult !== undefined ? prStateResult : ghRunner.getPrState(worktreeName);
+  if (!prState || prState.state !== "MERGED") {
+    return buildClassifyResult(false, prState);
+  }
+
+  // Check if tree is clean
+  const dirtyKind = computeDirtyKind(worktreePath);
+  if (dirtyKind !== "clean") {
+    return buildClassifyResult(false, prState);
+  }
+
+  // Check if there are unpushed commits
+  const unpushed = computeUnpushed(worktreePath);
+  if (unpushed > 0) {
+    return buildClassifyResult(false, prState);
+  }
+
+  // All conditions met: PR is merged, tree is clean, no unpushed commits
+  return buildClassifyResult(true, prState);
+}
+
+function buildClassifyResult(
+  isLanded: boolean,
+  prStateResult: { state: string; isDraft: boolean } | null,
+): { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } {
+  const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = { isLanded };
+  if (prStateResult?.isDraft !== undefined) {
+    result.isDraft = prStateResult.isDraft;
+  }
+  if (prStateResult?.state !== undefined) {
+    result.prStateRaw = prStateResult.state.toLowerCase();
+  }
+  return result;
+}
+
+function formatPrStateForDisplay(prStateResult: { state: string; isDraft: boolean } | null): string {
+  if (!prStateResult) {
+    return "no PR";
+  }
+  return prStateResult.state.toLowerCase();
+}
+
+function emitVerdict(io: TriageIo, statuses: WorktreeStatus[]): void {
+  const outstanding = statuses.filter((s) => !s.isLanded);
+
+  if (outstanding.length === 0) {
+    io.stdout("\nSession-end verdict: all work landed\n");
+  } else {
+    io.stdout("\nSession-end verdict: outstanding work\n");
+    for (const status of outstanding) {
+      const draftMarker = status.isDraft ? " (draft)" : "";
+      const reportedState = status.prStateRaw || "no PR";
+      const gateStateMarker = status.gateState ? ` [${status.gateState}]` : "";
+      io.stdout(`  ${status.name}\t${reportedState}${draftMarker}${gateStateMarker}\n`);
+    }
+  }
 }
 
 function triageDrillDown(worktreeDir: string, worktreeName: string, io: TriageIo): number {
@@ -729,18 +882,6 @@ function getAheadBehind(worktreePath: string): string {
     return `${ahead}/${behind}`;
   } catch {
     return "-";
-  }
-}
-
-function getPrState(branch: string): string {
-  try {
-    const output = execSync(`gh pr view "${branch}" --json state -q .state`, {
-      stdio: "pipe",
-      encoding: "utf8",
-    });
-    return output.trim().toLowerCase();
-  } catch {
-    return "no PR";
   }
 }
 

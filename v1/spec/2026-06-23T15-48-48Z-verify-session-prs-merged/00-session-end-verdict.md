@@ -25,15 +25,15 @@ No-argument `jarvis1 triage` ends with one session-end verdict over the current 
 
 ## Acceptance criteria
 
-- [ ] No-arg `jarvis1 triage` with every worktree MERGED, clean, and fully pushed prints a single verdict stating all work landed.
-- [ ] No-arg `jarvis1 triage` with at least one non-landed worktree prints a verdict listing each outstanding worktree by name; no landed worktree appears in the outstanding list.
-- [ ] A MERGED worktree with a dirty tree or unpushed commits is reported as outstanding, not landed.
-- [ ] Each outstanding entry reports its PR state and distinguishes a draft PR (GitHub `isDraft` true) from a ready (OPEN, non-draft) PR.
-- [ ] A worktree whose PR-state query fails is classified outstanding, never landed.
-- [ ] A plan worktree (`.worktree/plan-*`) is classified outstanding.
-- [ ] The verdict is additive: the existing `NAME/DIRTY/PR/SPEC` summary rows still print unchanged, with the verdict appended below; the rescoped `v1/test/triage-command.test.ts` no-arg listing test asserts the table rows and stays green.
-- [ ] No-arg triage performs no merge and issues no `gh pr merge`.
-- [ ] `v2/docs/v1-behaviors.md` describes the no-arg triage session-end verdict and the landed-vs-outstanding classification.
+- [x] No-arg `jarvis1 triage` with every worktree MERGED, clean, and fully pushed prints a single verdict stating all work landed.
+- [x] No-arg `jarvis1 triage` with at least one non-landed worktree prints a verdict listing each outstanding worktree by name; no landed worktree appears in the outstanding list.
+- [x] A MERGED worktree with a dirty tree or unpushed commits is reported as outstanding, not landed.
+- [x] Each outstanding entry reports its PR state and distinguishes a draft PR (GitHub `isDraft` true) from a ready (OPEN, non-draft) PR.
+- [x] A worktree whose PR-state query fails is classified outstanding, never landed.
+- [x] A plan worktree (`.worktree/plan-*`) is classified outstanding.
+- [x] The verdict is additive: the existing `NAME/DIRTY/PR/SPEC` summary rows still print unchanged, with the verdict appended below; the rescoped `v1/test/triage-command.test.ts` no-arg listing test asserts the table rows and stays green.
+- [x] No-arg triage performs no merge and issues no `gh pr merge`.
+- [x] `v2/docs/v1-behaviors.md` describes the no-arg triage session-end verdict and the landed-vs-outstanding classification.
 
 ## Documentation updates
 

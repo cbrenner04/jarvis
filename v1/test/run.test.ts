@@ -1561,9 +1561,7 @@ exit 0
         expect(cap.err()).toContain("completion: ready gate failed (attempt 1/3), retrying");
         expect(cap.out()).toContain("completion: ready gate passed on retry");
         expect(execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe("");
-        expect(execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim()).toMatch(
-          /^[0-9a-f]{40}$/,
-        );
+        expect(execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim()).toMatch(/^[0-9a-f]{40}$/);
         expect(execSync("git log -1 --pretty=%s", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe(
           "chore: apply pre-ready check:fix",
         );

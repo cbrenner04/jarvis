@@ -212,7 +212,11 @@ async function runCompletionReadyGate(
 
     lastFailureText = result.failureText;
     if (attempt <= COMPLETION_READY_GATE_RETRY_BOUND) {
-      logging.fanout("harness", `completion: ready gate failed (attempt ${attempt}/${COMPLETION_READY_GATE_RETRY_BOUND + 1}), retrying\n`, "stderr");
+      logging.fanout(
+        "harness",
+        `completion: ready gate failed (attempt ${attempt}/${COMPLETION_READY_GATE_RETRY_BOUND + 1}), retrying\n`,
+        "stderr",
+      );
     }
   }
 

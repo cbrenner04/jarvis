@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SuggestedMovesInput, TriageIo, TriageGhRunner } from "../src/commands/triage.ts";
+import type { SuggestedMovesInput, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
 
 function captureIo(): { io: TriageIo; out: () => string; err: () => string } {
@@ -484,7 +484,7 @@ describe("triage verdict", () => {
     execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "MERGED",
         isDraft: false,
       }),
@@ -515,7 +515,7 @@ describe("triage verdict", () => {
     writeFileSync(join(worktreePath, "test.txt"), "dirty");
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "OPEN",
         isDraft: true,
       }),
@@ -548,7 +548,7 @@ describe("triage verdict", () => {
     execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "OPEN",
         isDraft: false,
       }),
@@ -582,7 +582,7 @@ describe("triage verdict", () => {
     writeFileSync(join(worktreePath, "test.txt"), "dirty");
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "MERGED",
         isDraft: false,
       }),
@@ -614,7 +614,7 @@ describe("triage verdict", () => {
     execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "MERGED",
         isDraft: false,
       }),
@@ -717,11 +717,11 @@ describe("triage verdict", () => {
     execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "OPEN",
         isDraft: false,
       }),
-      getMergeGateState: (branch) => ({
+      getMergeGateState: (_branch) => ({
         mergeStateStatus: "BLOCKED",
       }),
     };
@@ -752,11 +752,11 @@ describe("triage verdict", () => {
     execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "OPEN",
         isDraft: false,
       }),
-      getMergeGateState: (branch) => ({
+      getMergeGateState: (_branch) => ({
         mergeStateStatus: "CLEAN",
       }),
     };
@@ -787,11 +787,11 @@ describe("triage verdict", () => {
     execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "OPEN",
         isDraft: false,
       }),
-      getMergeGateState: (branch) => null,
+      getMergeGateState: (_branch) => null,
     };
 
     const { io, out } = captureIo();
@@ -820,11 +820,11 @@ describe("triage verdict", () => {
     execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "MERGED",
         isDraft: false,
       }),
-      getMergeGateState: (branch) => ({
+      getMergeGateState: (_branch) => ({
         mergeStateStatus: "CLEAN",
       }),
     };
@@ -863,7 +863,7 @@ describe("triage verdict", () => {
     execSync("git commit --allow-empty -m 'initial'", { cwd: outstanding2Path });
 
     const ghRunner: TriageGhRunner = {
-      getPrState: (branch) => ({
+      getPrState: (_branch) => ({
         state: "OPEN",
         isDraft: false,
       }),

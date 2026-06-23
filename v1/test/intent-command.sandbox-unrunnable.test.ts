@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
-import { intentCommand, parseIntentArgs } from "../src/commands/intent.ts";
+import { INTENT_USAGE, intentCommand, parseIntentArgs } from "../src/commands/intent.ts";
 import { loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import { buildIntentSplitPrompt } from "../src/modes/plan/intent-split.ts";
@@ -1280,5 +1280,165 @@ describe("intentCommand", () => {
     } finally {
       env.cleanup();
     }
+  });
+
+  test("--target-dir flag routes committed ready-intents to the overridden directory", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: ["--target-dir", "v1/spec", TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-two" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("intent: split commit pushed");
+      expect(cap.err()).toContain("intent: draft PR #1 opened");
+      expect(cap.out()).toContain("https://example.com/pull/1");
+      // Verify next-steps reference the overridden directory
+      expect(cap.out()).toContain("jarvis1 plan v1/spec/ready-intents/slice-one.md");
+      expect(cap.out()).toContain("jarvis1 plan v1/spec/ready-intents/slice-two.md");
+
+      const worktree = findIntentWorktree(env.projectRoot);
+      // Verify files are written under v1/spec/, not spec/
+      expect(readFileSync(join(worktree, "v1/spec", "ready-intents", "slice-one.md"), "utf8")).toContain(
+        "## Prerequisites",
+      );
+      expect(readFileSync(join(worktree, "v1/spec", "ready-intents", "slice-two.md"), "utf8")).toContain(
+        "name: slice-two",
+      );
+      expect(existsSync(join(worktree, "spec", "ready-intents"))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("--target-dir flag rejects file seed outside the overridden directory", async () => {
+    const env = setupEnv();
+    try {
+      // Create a seed file in spec/wip-intents/ (not v1/spec/wip-intents/)
+      const wipDir = join(env.projectRoot, "spec", "wip-intents");
+      mkdirSync(wipDir, { recursive: true });
+      const seedPath = join(wipDir, "raw-seed.md");
+      writeFileSync(seedPath, "# Seed\n");
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: ["--target-dir", "v1/spec", seedPath],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-one" }),
+      });
+      expect(code).toBe(1);
+      // Rejection message should name the overridden directory
+      expect(cap.err()).toContain("intent: raw seed files must live under v1/spec/wip-intents/");
+      expect(existsSync(env.prState)).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("--target-dir flag accepts file seed under the overridden directory", async () => {
+    const env = setupEnv();
+    try {
+      // Create a seed file in v1/spec/wip-intents/
+      const wipDir = join(env.projectRoot, "v1/spec", "wip-intents");
+      mkdirSync(wipDir, { recursive: true });
+      const seedPath = join(wipDir, "raw-seed.md");
+      writeFileSync(seedPath, "# Seed\n");
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: ["--target-dir", "v1/spec", seedPath],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-one" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("intent: split commit pushed");
+      const worktree = findIntentWorktree(env.projectRoot);
+      expect(readFileSync(join(worktree, "v1/spec", "ready-intents", "single-behavior.md"), "utf8")).toContain(
+        "name: single-behavior",
+      );
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("--target-dir in no-commit mode shifts seed-input check but keeps external ready-intents flat", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: ["--target-dir", "v1/spec", TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-two" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("2 intents written to");
+      expect(cap.out()).toContain("jarvis1 plan --repo project");
+      expect(cap.out()).toContain("ready-intents/slice-one.md");
+      expect(cap.out()).toContain("ready-intents/slice-two.md");
+      expect(existsSync(env.prState)).toBe(false);
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      // External ready-intents must be FLAT, not nested under v1/spec/
+      expect(readFileSync(join(externalRoot, "ready-intents", "slice-one.md"), "utf8")).toContain("## Prerequisites");
+      expect(readFileSync(join(externalRoot, "ready-intents", "slice-two.md"), "utf8")).toContain("name: slice-two");
+      // Nested path should NOT exist
+      expect(existsSync(join(externalRoot, "v1/spec", "ready-intents"))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("--target-dir in no-commit mode rejects file seed outside the overridden directory", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      // Create a seed file in spec/wip-intents/ (not v1/spec/wip-intents/)
+      const wipDir = join(env.projectRoot, "spec", "wip-intents");
+      mkdirSync(wipDir, { recursive: true });
+      const seedPath = join(wipDir, "raw-seed.md");
+      writeFileSync(seedPath, "# Seed\n");
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: ["--target-dir", "v1/spec", seedPath],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-one" }),
+      });
+      expect(code).toBe(1);
+      // Rejection message should name the overridden directory
+      expect(cap.err()).toContain("intent: raw seed files must live under v1/spec/wip-intents/");
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      expect(existsSync(join(externalRoot, "ready-intents"))).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("--target-dir flag appears in usage output", () => {
+    expect(INTENT_USAGE).toContain("--target-dir");
   });
 });

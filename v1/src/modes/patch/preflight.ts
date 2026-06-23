@@ -1,8 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { PATCH_TIERS, parseRunnableIndexTier, type PatchTier } from "../../../../shared/spec-parser.ts";
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
+import { type PatchTier, parseRunnableIndexTier } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent } from "../../agents/types.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
@@ -36,7 +36,10 @@ function resolvePatchTierStartIndex(tier: PatchTier, ladderLength: number): numb
   }
 }
 
-function resolvePatchTier(specPath: string, tierOverride: PatchTier | undefined): { tier: PatchTier } | { error: string } {
+function resolvePatchTier(
+  specPath: string,
+  tierOverride: PatchTier | undefined,
+): { tier: PatchTier } | { error: string } {
   if (tierOverride !== undefined) {
     return { tier: tierOverride };
   }

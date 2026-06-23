@@ -484,7 +484,7 @@ Plan mode enforces a strict write boundary: agents may only modify files within 
 
 This behavior applies at the draft phase and after each review pass. The boundary check uses the path as reported by `git status`, so symlinks that point outside `<targetDir>/<spec-dir>/` are detected and reverted.
 
-For `commit: false`, jarvis still enforces the external spec-root boundary (`~/.jarvis/specs/<project-safe-id>/<spec-dir>/`). When effective `git` is `true`, it also checks the target checkout for stray `spec/` edits. When effective `git` is `false`, that target-repo `git status` check is skipped entirely; there is no `git checkout --`, push, or plan worktree cleanup path in draft or review.
+For `commit: false`, jarvis still enforces the external spec-root boundary (`~/.jarvis/specs/<project-safe-id>/`). The check is run-scoped: it allows top-level entries that existed before the run (such as `ready-intents/` and prior spec directories) and flags only entries created during this run. This permits the documented `intent → plan` pipeline where multiple plan runs coexist under a single project root. When effective `git` is `true`, it also checks the target checkout for stray `spec/` edits. When effective `git` is `false`, that target-repo `git status` check is skipped entirely; there is no `git checkout --`, push, or plan worktree cleanup path in draft or review.
 
 The intent of this enforcement is to prevent accidental or malicious modifications to files outside the spec directory, ensuring that all plan-mode work is isolated and reviewable within the spec tree.
 

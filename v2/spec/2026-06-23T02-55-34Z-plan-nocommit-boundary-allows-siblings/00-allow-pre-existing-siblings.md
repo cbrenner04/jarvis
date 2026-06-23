@@ -36,12 +36,12 @@ shared root.
 
 ## Acceptance criteria
 
-- [ ] `assertNoCommitExternalSpecBoundary` returns `{ ok: true }` when the external spec root contains `ready-intents/` and a prior spec dir that existed before the run, alongside the active spec dir (new unit test in `v1/test/modes/plan/boundary.sandbox-unrunnable.test.ts`).
-- [ ] `assertNoCommitExternalSpecBoundary` returns `{ ok: false }` with the offending path when a top-level entry that is neither the active spec dir nor pre-existing is present (new unit test).
-- [ ] A `commit:false` plan run whose external spec root already holds `ready-intents/` and a sibling spec dir completes without printing `boundary violation`, appends no boundary `## Blocker` to `intent.md`, and proceeds to the review phase (new/extended integration test in `v1/test/plan-command.sandbox-unrunnable.test.ts`).
-- [ ] `git: false keeps external-spec boundary enforcement active` (`v1/test/plan-command.sandbox-unrunnable.test.ts`) stays green — a sibling created *during* the run is still flagged and the run exits `1` (genuine escape preserved).
-- [ ] `assertTargetRepoPlanBoundary` tests in `boundary.sandbox-unrunnable.test.ts` stay green (target-repo `spec/` escape detection unchanged).
-- [ ] `v1/docs/plan-mode.md` "Write boundary" section states the no-commit external check allows pre-existing siblings (`ready-intents/`, prior spec dirs) and flags only top-level entries created during the run.
+- [x] `assertNoCommitExternalSpecBoundary` returns `{ ok: true }` when the external spec root contains `ready-intents/` and a prior spec dir that existed before the run, alongside the active spec dir (new unit test in `v1/test/modes/plan/boundary.sandbox-unrunnable.test.ts`).
+- [x] `assertNoCommitExternalSpecBoundary` returns `{ ok: false }` with the offending path when a top-level entry that is neither the active spec dir nor pre-existing is present (new unit test).
+- [x] A `commit:false` plan run whose external spec root already holds `ready-intents/` and a sibling spec dir completes without printing `boundary violation`, appends no boundary `## Blocker` to `intent.md`, and proceeds to the review phase (new/extended integration test in `v1/test/plan-command.sandbox-unrunnable.test.ts`).
+- [x] `git: false keeps external-spec boundary enforcement active` (`v1/test/plan-command.sandbox-unrunnable.test.ts`) stays green — a sibling created *during* the run is still flagged and the run exits `1` (genuine escape preserved).
+- [x] `assertTargetRepoPlanBoundary` tests in `boundary.sandbox-unrunnable.test.ts` stay green (target-repo `spec/` escape detection unchanged).
+- [x] `v1/docs/plan-mode.md` "Write boundary" section states the no-commit external check allows pre-existing siblings (`ready-intents/`, prior spec dirs) and flags only top-level entries created during the run.
 
 ## Documentation updates
 

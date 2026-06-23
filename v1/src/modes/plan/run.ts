@@ -41,7 +41,7 @@ import { commitPlanBlocker, commitPlanDraft } from "./commits.ts";
 import { runDraftPhase, validateDraftOutput } from "./draft.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "./pr.ts";
-import { runPlanReviewPhase } from "./review.ts";
+import { type PlanReviewPhaseOptions, runPlanReviewPhase } from "./review.ts";
 import {
   computeNoCommitSpecRoot,
   computeProjectSafeId,
@@ -799,9 +799,17 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
     // For no-commit runs, create the external spec root directory early
     let externalSpecRoot: string | undefined;
+    let preExistingSiblings: Set<string> | undefined;
     if (commit === false) {
       externalSpecRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
       mkdirSync(externalSpecRoot, { recursive: true });
+      // Capture snapshot of pre-existing entries before the spec dir is created
+      try {
+        preExistingSiblings = new Set(readdirSync(externalSpecRoot));
+      } catch {
+        // If we can't read the dir, proceed without the snapshot (will catch at boundary check)
+        preExistingSiblings = undefined;
+      }
     }
 
     // Check for collision and determine final plan name
@@ -1043,7 +1051,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       // For no-commit runs, also check the external spec directory
       const externalBoundaryCheck: BoundaryCheckResult =
         !commit && externalSpecRoot
-          ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename)
+          ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename, preExistingSiblings)
           : { ok: true };
 
       const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
@@ -1225,7 +1233,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       // Self-review phase
       const reviewPasses = resolveReviewPasses(cfg, inv.reviewPasses);
       if (reviewPasses > 0) {
-        const reviewResult = await runPlanReviewPhase({
+        const reviewOpts: PlanReviewPhaseOptions = {
           onOutboundPrompt: logOutboundPrompt,
           worktreePath,
           name: specDirBasename,
@@ -1241,10 +1249,18 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           checkBoundary: true,
           logNoChangeSkip: true,
           createAgent: resolveAgent,
-          ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
           projectRoot: project.root,
           planWorktreeDir: worktreePath,
           idleOutputTimeoutMs: cfg.idleOutputTimeoutMs,
+        };
+        if (externalSpecRoot !== undefined) {
+          reviewOpts.externalSpecRoot = externalSpecRoot;
+          if (preExistingSiblings !== undefined) {
+            reviewOpts.preExistingSiblings = preExistingSiblings;
+          }
+        }
+        const reviewResult = await runPlanReviewPhase({
+          ...reviewOpts,
           ...(commit
             ? {
                 updatePrBody: async () => {

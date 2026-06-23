@@ -448,6 +448,14 @@ describe("planCommand", () => {
     try {
       configureGitDisabledPlanProject(cfgDir, 0);
 
+      // Pre-populate external spec root with pre-existing siblings
+      const extSpecRoot = join(cfgDir, "specs", "project");
+      mkdirSync(extSpecRoot, { recursive: true });
+      mkdirSync(join(extSpecRoot, "ready-intents"), { recursive: true });
+      writeFileSync(join(extSpecRoot, "ready-intents", "old-intent.md"), "# Old\n");
+      mkdirSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec"), { recursive: true });
+      writeFileSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec", "intent.md"), "# Prior\n");
+
       const intentPath = writeReadyIntent(project, "git-false-boundary");
       const cap = captureIo();
       const code = await planCommand({
@@ -473,6 +481,72 @@ describe("planCommand", () => {
       expect(cap.err()).toContain("plan: boundary violation detected before draft commit");
       expect(cap.err()).toContain("escaped-spec");
       expect(cap.err()).not.toContain("(git status failed)");
+      // Verify pre-existing siblings are not flagged
+      expect(existsSync(join(extSpecRoot, "ready-intents", "old-intent.md"))).toBe(true);
+      expect(existsSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec", "intent.md"))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("commit: false with pre-existing siblings (ready-intents/ and prior spec dir) allows clean run", async () => {
+    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
+    try {
+      // Configure project with commit: false
+      const cfg = loadConfig({ dir: cfgDir });
+      const projectConfig = cfg.projects.project;
+      if (!projectConfig) {
+        throw new Error("expected registered project");
+      }
+      projectConfig.plan = { commit: false };
+      projectConfig.git = false;
+      cfg.modes.review.passes = 1;
+      writeConfig(cfg, { dir: cfgDir });
+
+      // Pre-populate external spec root with siblings
+      const extSpecRoot = join(cfgDir, "specs", "project");
+      mkdirSync(extSpecRoot, { recursive: true });
+      mkdirSync(join(extSpecRoot, "ready-intents"), { recursive: true });
+      writeFileSync(join(extSpecRoot, "ready-intents", "old-intent.md"), "# Old\n");
+      mkdirSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec"), { recursive: true });
+      writeFileSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec", "intent.md"), "# Prior\n");
+
+      let callCount = 0;
+      const intentPath = writeReadyIntent(project, "sibling-test");
+      const cap = captureIo();
+      const code = await planCommand({
+        io: cap.io,
+        args: [intentPath],
+        cwd: project,
+        config: { dir: cfgDir },
+        logClient: okLogClient,
+        skipGhCheck: true,
+        createAgent: () =>
+          new FakeAgent("claude", (prompt, opts) => {
+            callCount += 1;
+            const specDir = opts.additionalReadDirs?.[0];
+            if (!specDir) {
+              throw new Error("expected external spec dir");
+            }
+            if (callCount === 1) {
+              writeDraftSpec(specDir);
+              return { kind: "ok", stdout: "", stderr: "" };
+            }
+            if (prompt.includes("Review Verdict")) {
+              writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] reviewed\n", "utf8");
+              return { kind: "ok", stdout: "", stderr: "" };
+            }
+            return { kind: "ok", stdout: "", stderr: "" };
+          }),
+      });
+
+      expect(code).toBe(0);
+      expect(cap.err()).not.toContain("boundary violation");
+      expect(cap.err()).not.toContain("## Blocker");
+      expect(cap.err()).toContain("plan: review pass");
+      // Verify the pre-existing siblings still exist
+      expect(existsSync(join(extSpecRoot, "ready-intents", "old-intent.md"))).toBe(true);
+      expect(existsSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec", "intent.md"))).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

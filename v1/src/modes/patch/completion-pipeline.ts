@@ -18,6 +18,7 @@ import { runPatchShrinkPhase } from "./shrink.ts";
 import type { AcceptanceCriterion } from "./subspec.ts";
 
 const COMPLETION_READY_GATE_RETRY_BOUND = 2;
+const COMPLETION_READY_GATE_TOTAL_ATTEMPTS = COMPLETION_READY_GATE_RETRY_BOUND + 1;
 
 type CompletionLoopbackSignal = {
   failureText: string;
@@ -181,9 +182,9 @@ async function runCompletionReadyGate(
   const { preflight, logging, opts } = ctx;
   logging.fanout("harness", "completion: running ready gate\n", "stdout");
 
-  let lastFailureText: string | null = null;
+  let lastFailureText = "ready gate failed";
 
-  for (let attempt = 1; attempt <= COMPLETION_READY_GATE_RETRY_BOUND + 1; attempt++) {
+  for (let attempt = 1; attempt <= COMPLETION_READY_GATE_TOTAL_ATTEMPTS; attempt++) {
     let result: CompletionReadyGateResult;
 
     if (opts.runCompletionReadyGate !== undefined) {
@@ -211,17 +212,17 @@ async function runCompletionReadyGate(
     }
 
     lastFailureText = result.failureText;
-    if (attempt <= COMPLETION_READY_GATE_RETRY_BOUND) {
+    if (attempt < COMPLETION_READY_GATE_TOTAL_ATTEMPTS) {
       logging.fanout(
         "harness",
-        `completion: ready gate failed (attempt ${attempt}/${COMPLETION_READY_GATE_RETRY_BOUND + 1}), retrying\n`,
+        `completion: ready gate failed (attempt ${attempt}/${COMPLETION_READY_GATE_TOTAL_ATTEMPTS}), retrying\n`,
         "stderr",
       );
     }
   }
 
   logging.fanout("harness", `completion: ready gate failed: ${lastFailureText}\n`, "stderr");
-  return { kind: "red", failureText: lastFailureText ?? "ready gate failed" };
+  return { kind: "red", failureText: lastFailureText };
 }
 
 async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null> {

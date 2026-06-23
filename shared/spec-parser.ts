@@ -33,9 +33,77 @@ export type ParsedSpec = {
   warnings: ParsedSpecWarning[];
 };
 
+export const PATCH_TIERS = ["trivial", "standard", "hard"] as const;
+
+export type PatchTier = (typeof PATCH_TIERS)[number];
+
 const taskPattern = /^\s*-\s\[([ xX])\]\s+(.*)$/;
 const h1Pattern = /^#\s+(.+)$/;
 const headingPattern = /^(#{1,6})\s+(.+)$/;
+
+function isPatchTier(value: string): value is PatchTier {
+  return (PATCH_TIERS as readonly string[]).includes(value);
+}
+
+function patchTierGuidance(): string {
+  return `accepted values: ${PATCH_TIERS.join(", ")}`;
+}
+
+export function parseRunnableIndexTier(content: string): { tier: PatchTier | undefined; error: string | undefined } {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  let inFence = false;
+  let sawChecklist = false;
+  let tier: PatchTier | undefined;
+  let tierLineNumber: number | undefined;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? "";
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) {
+      continue;
+    }
+
+    if (taskPattern.test(line)) {
+      sawChecklist = true;
+    }
+
+    const match = line.match(/^tier:\s*(.*?)\s*$/);
+    if (!match) {
+      continue;
+    }
+
+    const lineNumber = i + 1;
+    if (sawChecklist) {
+      return {
+        tier: undefined,
+        error: `invalid \`tier:\` metadata on line ${lineNumber}: \`tier:\` must appear before the first checklist item; ${patchTierGuidance()}`,
+      };
+    }
+
+    if (tierLineNumber !== undefined) {
+      return {
+        tier: undefined,
+        error: `invalid \`tier:\` metadata on line ${lineNumber}: duplicate \`tier:\` line (first seen on line ${tierLineNumber}); ${patchTierGuidance()}`,
+      };
+    }
+
+    const value = match[1] ?? "";
+    if (!isPatchTier(value)) {
+      return {
+        tier: undefined,
+        error: `invalid \`tier:\` metadata on line ${lineNumber}: expected one of ${PATCH_TIERS.join(", ")}`,
+      };
+    }
+
+    tier = value;
+    tierLineNumber = lineNumber;
+  }
+
+  return { tier, error: undefined };
+}
 
 /** Extract blocker body from content, returning undefined if empty or absent. */
 function extractBlockerBody(content: string): { index: number; body: string | undefined } | undefined {

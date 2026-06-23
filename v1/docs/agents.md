@@ -37,6 +37,8 @@ signals; see [quota-signals.md](./quota-signals.md).
 
 Each `agentOrder` entry couples an **agent CLI** with a **model**; advancing the ladder changes both simultaneously.
 
+Patch runs can also start partway up this ladder via runnable-spec `tier:` metadata or `jarvis1 run --tier ...`; the durable patch-only mapping rules live in [v2/docs/v1-behaviors.md#patch-mode-run-workflow](../v2/docs/v1-behaviors.md#patch-mode-run-workflow).
+
 Jarvis normalizes the `PWD` environment variable for every spawned agent so
 that agents that read `PWD` (e.g., opencode) operate on the working directory
 (worktree or project root) rather than inheriting the harness's `PWD`.

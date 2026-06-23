@@ -1,0 +1,7 @@
+No valid issues require actuator action.
+
+The one substantive finding — that AC #4's literal wording ("No file in the repo references…the old paths") is unsatisfiable because the spec file naming the criterion necessarily contains those path strings — is a genuine but cosmetic wording imprecision. The criterion's actual property (no stale *live* reference to the old paths survives in any file outside the spec that defines the migration) is fully satisfied: the move is a clean content-preserving rename, both trees landed under `v1/spec/completed/`, the three v2 specs are untouched, and the only grep hit is the AC's own self-reference. This is the standard, unavoidable self-reference exclusion: any spec whose job is "remove references to X" must name X to define done. The `[x]` is honest against the gradeable intent.
+
+The work is correct, irreversibly recorded, and merged. A retroactive one-line AC reword on a completed migration would be docs-grade churn with no behavioral effect and no risk reduction (the lone grep hit is self-explanatory at discovery — it lands on the line that states the criterion and cannot masquerade as a missed cleanup). Proportionate outcome: no re-run, no edit.
+
+Empty verdict — nothing for the actuator to fix.

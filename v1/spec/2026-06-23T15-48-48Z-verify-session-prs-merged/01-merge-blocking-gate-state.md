@@ -19,11 +19,11 @@ Each outstanding entry in the no-arg `jarvis1 triage` session-end verdict report
 
 ## Acceptance criteria
 
-- [ ] An outstanding entry whose PR GitHub reports as merge-blocked shows a gate state distinct from one GitHub reports as clear.
-- [ ] An outstanding entry with no PR, a failed gate query, or no reported checks shows an explicit "unavailable" gate state.
-- [ ] A gate-state query failure on one outstanding worktree does not abort the sweep; remaining worktrees still appear in the verdict.
-- [ ] The all-landed verdict and the existing summary table are unchanged by gate-state reporting; pre-existing `v1/test/triage-command.test.ts` tests stay green.
-- [ ] `v2/docs/v1-behaviors.md` describes the merge-blocking gate state reported on outstanding entries and the unavailable fallback.
+- [x] An outstanding entry whose PR GitHub reports as merge-blocked shows a gate state distinct from one GitHub reports as clear.
+- [x] An outstanding entry with no PR, a failed gate query, or no reported checks shows an explicit "unavailable" gate state.
+- [x] A gate-state query failure on one outstanding worktree does not abort the sweep; remaining worktrees still appear in the verdict.
+- [x] The all-landed verdict and the existing summary table are unchanged by gate-state reporting; pre-existing `v1/test/triage-command.test.ts` tests stay green.
+- [x] `v2/docs/v1-behaviors.md` describes the merge-blocking gate state reported on outstanding entries and the unavailable fallback.
 
 ## Documentation updates
 

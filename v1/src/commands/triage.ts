@@ -13,6 +13,7 @@ export type TriageIo = {
 
 export type TriageGhRunner = {
   getPrState: (branch: string) => { state: string; isDraft: boolean } | null;
+  getMergeGateState?: (branch: string) => { mergeStateStatus: string } | null;
 };
 
 export type TriageCommandOptions = {
@@ -66,6 +67,7 @@ type WorktreeStatus = {
   isLanded: boolean;
   isDraft?: boolean;
   prStateRaw?: string;
+  gateState?: string;
 };
 
 function triageListWorktrees(worktreeDir: string, io: TriageIo, ghRunner: TriageGhRunner): number {
@@ -110,6 +112,13 @@ function triageListWorktrees(worktreeDir: string, io: TriageIo, ghRunner: Triage
     if (prStateRaw !== undefined) {
       status.prStateRaw = prStateRaw;
     }
+
+    // Fetch merge gate state for outstanding entries
+    if (!isLanded && ghRunner.getMergeGateState) {
+      const gateStateResult = ghRunner.getMergeGateState(worktreeName);
+      status.gateState = gateStateResult?.mergeStateStatus || "unavailable";
+    }
+
     statuses.push(status);
   }
 
@@ -131,6 +140,20 @@ function createDefaultGhRunner(): TriageGhRunner {
         return {
           state: prData.state || "unknown",
           isDraft: prData.isDraft ?? false,
+        };
+      } catch {
+        return null;
+      }
+    },
+    getMergeGateState: (branch: string) => {
+      try {
+        const fullOutput = execSync(`gh pr view "${branch}" --json mergeStateStatus`, {
+          stdio: "pipe",
+          encoding: "utf8",
+        });
+        const prData = JSON.parse(fullOutput);
+        return {
+          mergeStateStatus: prData.mergeStateStatus || "unavailable",
         };
       } catch {
         return null;
@@ -211,7 +234,8 @@ function emitVerdict(io: TriageIo, statuses: WorktreeStatus[]): void {
     for (const status of outstanding) {
       const draftMarker = status.isDraft ? " (draft)" : "";
       const reportedState = status.prStateRaw || "no PR";
-      io.stdout(`  ${status.name}\t${reportedState}${draftMarker}\n`);
+      const gateStateMarker = status.gateState ? ` [${status.gateState}]` : "";
+      io.stdout(`  ${status.name}\t${reportedState}${draftMarker}${gateStateMarker}\n`);
     }
   }
 }

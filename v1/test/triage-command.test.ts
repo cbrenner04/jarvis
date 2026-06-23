@@ -704,4 +704,192 @@ describe("triage verdict", () => {
     const verdictSection = output.split("Session-end verdict:")[1];
     expect(verdictSection).not.toContain(landed);
   });
+
+  test("gate state shows as blocked when merge is blocked", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "OPEN",
+        isDraft: false,
+      }),
+      getMergeGateState: (branch) => ({
+        mergeStateStatus: "BLOCKED",
+      }),
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    expect(output).toContain(worktreeName);
+    expect(output).toContain("[BLOCKED]");
+  });
+
+  test("gate state shows as clean when merge is permitted", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "OPEN",
+        isDraft: false,
+      }),
+      getMergeGateState: (branch) => ({
+        mergeStateStatus: "CLEAN",
+      }),
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    expect(output).toContain(worktreeName);
+    expect(output).toContain("[CLEAN]");
+  });
+
+  test("gate state shows as unavailable when getMergeGateState returns null", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "OPEN",
+        isDraft: false,
+      }),
+      getMergeGateState: (branch) => null,
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    expect(output).toContain(worktreeName);
+    expect(output).toContain("[unavailable]");
+  });
+
+  test("gate state is not shown for landed worktrees", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "MERGED",
+        isDraft: false,
+      }),
+      getMergeGateState: (branch) => ({
+        mergeStateStatus: "CLEAN",
+      }),
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("all work landed");
+    // Gate state should not appear in output since the worktree is landed
+    expect(output).not.toContain("[CLEAN]");
+  });
+
+  test("gate state query failure does not abort sweep", () => {
+    // Create first worktree (outstanding, gate state query fails)
+    const outstanding1 = "branch-1";
+    const outstanding1Path = join(worktreeDir, outstanding1);
+    mkdirSync(outstanding1Path, { recursive: true });
+    execSync("git init", { cwd: outstanding1Path });
+    execSync("git config user.email test@example.com", { cwd: outstanding1Path });
+    execSync("git config user.name Test", { cwd: outstanding1Path });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: outstanding1Path });
+
+    // Create second worktree (outstanding, gate state query succeeds)
+    const outstanding2 = "branch-2";
+    const outstanding2Path = join(worktreeDir, outstanding2);
+    mkdirSync(outstanding2Path, { recursive: true });
+    execSync("git init", { cwd: outstanding2Path });
+    execSync("git config user.email test@example.com", { cwd: outstanding2Path });
+    execSync("git config user.name Test", { cwd: outstanding2Path });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: outstanding2Path });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "OPEN",
+        isDraft: false,
+      }),
+      getMergeGateState: (branch) => {
+        if (branch === outstanding1) {
+          return null; // Query fails for first worktree
+        }
+        return { mergeStateStatus: "CLEAN" };
+      },
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    // Both worktrees should appear in the verdict despite gate state query failure on one
+    expect(output).toContain(outstanding1);
+    expect(output).toContain(outstanding2);
+    // First should show unavailable, second should show CLEAN
+    expect(output).toContain("[unavailable]");
+    expect(output).toContain("[CLEAN]");
+  });
 });

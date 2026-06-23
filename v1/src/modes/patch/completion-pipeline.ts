@@ -218,11 +218,7 @@ function discardFixupEdits(baselineSha: string, cwd: string, skipGhCheck: boolea
   }
 }
 
-function exitStuckRed(
-  ctx: IterationContext,
-  failureText: string,
-  summary: string,
-): 10 {
+function exitStuckRed(ctx: IterationContext, failureText: string, summary: string): 10 {
   const { preflight, logging } = ctx;
   const worktreeName = basename(preflight.agentWorkingDir);
 

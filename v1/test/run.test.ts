@@ -1409,9 +1409,9 @@ exit 0
         expect(cap.out()).not.toContain("completion: ready gate passed on retry");
         expect(cap.err()).not.toContain("retrying");
         expect(cap.err()).toContain("did not retry or enter fix-up");
-        expect(Number(execSync("git rev-list --count origin/project..HEAD", { cwd: projectRoot, encoding: "utf8" }))).toBeGreaterThan(
-          0,
-        );
+        expect(
+          Number(execSync("git rev-list --count origin/project..HEAD", { cwd: projectRoot, encoding: "utf8" })),
+        ).toBeGreaterThan(0);
       } finally {
         rmSync(sentinelDir, { recursive: true, force: true });
         rmSync(remoteDir, { recursive: true, force: true });

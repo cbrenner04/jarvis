@@ -12,7 +12,7 @@ spec should still map to one PR.
 Flow:
 
 ```text
-jarvis1 intent "<prompt>"        (or <targetDir>/wip-intents/<seed>.md)
+jarvis1 intent "<prompt>"        (or <targetDir>/seeds/<seed>.md)
   → split into N behavior-level intents
   → write N files to <targetDir>/ready-intents/
   → commit
@@ -30,10 +30,10 @@ intent at a time.
 Fresh intent runs require one seed:
 
 - Inline text: `jarvis1 intent "Split the reporting overhaul into reviewable behaviors"`
-- Raw-seed file: `jarvis1 intent <targetDir>/wip-intents/reporting-overhaul.md`
+- Raw-seed file: `jarvis1 intent <targetDir>/seeds/reporting-overhaul.md`
 
 Existing files are treated as file seeds only when they exist on disk. File
-seeds must live under `<targetDir>/wip-intents/`. The raw seed is read but left
+seeds must live under `<targetDir>/seeds/`. The raw seed is read but left
 in place after fan-out.
 
 `<targetDir>` resolves with per-run override: `--target-dir <dir>` (if provided)
@@ -44,7 +44,7 @@ paths only, no absolute paths, no `..` traversal.
 Command-line usage:
 ```text
 jarvis1 intent "seed text"
-jarvis1 intent --target-dir v2/spec <targetDir>/wip-intents/seed.md
+jarvis1 intent --target-dir v2/spec <targetDir>/seeds/seed.md
 jarvis1 intent --repo <name> --target-dir <dir> <seed>
 ```
 

@@ -28,10 +28,10 @@ reference rename — no pipeline or semantic change.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 intent` resolves file seeds from `<targetDir>/seeds/`; a seed outside it is rejected with a message naming `<targetDir>/seeds/`.
-- [ ] `intent-command.sandbox-unrunnable.test.ts` is retargeted to `seeds/` and stays green (behavior unchanged by the rename).
-- [ ] No `wip-intents` literal and no `wipDir`/`wipDirRel` identifier remains in `v1/src/commands/intent.ts`.
-- [ ] No `wip-intents` reference remains in `v1/test/intent-command.sandbox-unrunnable.test.ts`, `v1/docs/intent-mode.md`, `v1/docs/plan-mode.md`, `v1/docs/spec-guidance.md`, `v1/docs/workflows.md`, or the `wip-intents/` catalog entries in `v2/docs/v1-behaviors.md`.
+- [x] `jarvis1 intent` resolves file seeds from `<targetDir>/seeds/`; a seed outside it is rejected with a message naming `<targetDir>/seeds/`.
+- [x] `intent-command.sandbox-unrunnable.test.ts` is retargeted to `seeds/` and stays green (behavior unchanged by the rename).
+- [x] No `wip-intents` literal and no `wipDir`/`wipDirRel` identifier remains in `v1/src/commands/intent.ts`.
+- [x] No `wip-intents` reference remains in `v1/test/intent-command.sandbox-unrunnable.test.ts`, `v1/docs/intent-mode.md`, `v1/docs/plan-mode.md`, `v1/docs/spec-guidance.md`, `v1/docs/workflows.md`, or the `wip-intents/` catalog entries in `v2/docs/v1-behaviors.md`.
 
 ## Documentation updates
 

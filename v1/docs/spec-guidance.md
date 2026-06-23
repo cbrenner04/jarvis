@@ -147,7 +147,7 @@ Treat reviewability as a warning, not a hard cap: if one spec looks likely to
 land around ~1000 changed lines including tests and docs, split earlier into
 multiple behavior-sized intents/specs rather than stretching one PR.
 
-For intent files, `wip-intents/` is raw-seed input and `ready-intents/` is
+For intent files, `seeds/` is raw-seed input and `ready-intents/` is
 authored-intent output. Fan-out writes reviewed, behavior-level intents to
 `ready-intents/`; later `jarvis1 plan` runs consume those intents one at a
 time.

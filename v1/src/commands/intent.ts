@@ -596,9 +596,9 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
   planHarnessLog(planLogClient, `intent: target project=${project.key} root=${project.root}`);
   planHarnessLog(planLogClient, `intent: resolved flags commit=${commit} targetDir=${targetDir}`);
 
-  const wipDir = join(project.root, targetDir, "wip-intents");
-  if (inv.mode === "file" && !isPathInside(wipDir, inv.seedPath)) {
-    opts.io.stderr(`intent: raw seed files must live under ${targetDir}/wip-intents/\n`);
+  const seedDir = join(project.root, targetDir, "seeds");
+  if (inv.mode === "file" && !isPathInside(seedDir, inv.seedPath)) {
+    opts.io.stderr(`intent: raw seed files must live under ${targetDir}/seeds/\n`);
     return 1;
   }
 

@@ -116,7 +116,7 @@ deferred to the detailed diagrams below.
 ## Intent mode
 
 `jarvis1 intent` is a **single agent call** that sizes work before planning: one
-seed (inline text or a `wip-intents/<seed>.md` file) fans out into N
+seed (inline text or a `seeds/<seed>.md` file) fans out into N
 behavior-level ready-intents, each of which later drafts into one spec / one PR.
 It does not refine, draft spec directories, or write `index.md`.
 
@@ -125,7 +125,7 @@ flowchart TD
   start([jarvis1 intent ...]):::neutral
 
   start --> pf["Preflight: resolve repo,<br/>worktree + branch intent/&lt;name&gt;"]:::det
-  pf --> seed["Resolve seed<br/>(inline text or wip-intents/&lt;seed&gt;.md)"]:::det
+  pf --> seed["Resolve seed<br/>(inline text or seeds/&lt;seed&gt;.md)"]:::det
   seed --> splitCall(["Agent: split seed into N<br/>behavior-level intents"]):::llm
   splitCall --> stage["Stage + validate output<br/>(frontmatter name:, ## Prerequisites)"]:::det
   stage --> valid{"Valid + no name collision?"}:::dec

@@ -7,11 +7,13 @@ Jarvis specs.
 
 ### In-repo specs (committed)
 
-Specs authored with `jarvis1 plan` under `modes.plan.commit: true` (the default) live inside the target repository under a configured **root directory** (default `spec`) with directories whose **basename** includes a filesystem-safe UTC timestamp prefix and a descriptive slug:
+Specs authored with `jarvis1 plan` or `jarvis1 intent` under `modes.plan.commit: true` (the default) live inside the target repository under a configured **root directory** with directories whose **basename** includes a filesystem-safe UTC timestamp prefix and a descriptive slug:
 
 `<targetDir>/YYYY-MM-DDTHH-mm-ssZ-<slug>/`
 
-where `<targetDir>` defaults to `spec` (canonical layout: `spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/`). Repositories can override the root with a per-project `plan.targetDir` setting (see [config.md](./config.md#targetdir-plan-mode-committrue-only) for details). For example, a repository might use `v1/spec/YYYY-MM-DDTHH-mm-ssZ-<slug>/` if configured with `plan.targetDir = "v1/spec"`. You can also override per run with `jarvis1 plan --target-dir <dir> ...` (same validation and highest precedence for that run).
+**Route by target:** v1 work (seeds and committed specs) lives under `v1/spec/`; genuine v2 planning under `v2/spec/`; a spec touching both surfaces routes to `v1/spec` (shipping surface wins). The default `plan.targetDir` for the jarvis project is `v1/spec`; v2 planning is authored with explicit `--target-dir v2/spec` override (available on both `jarvis1 plan --target-dir <dir>` and `jarvis1 intent --target-dir <dir>`).
+
+For repositories using the route-by-target pattern, `<targetDir>` is either `v1/spec` (the default for v1 work) or `v2/spec` (for v2-only planning with the explicit override). Repositories can also override the root with a per-project `plan.targetDir` setting (see [config.md](./config.md#targetdir-plan-mode-committrue-only) for details); per-run `--target-dir` has highest precedence.
 
 The prefix converts `Date.prototype.toISOString()` (`:` → `-`, no milliseconds): for
 example `2026-05-17T22-14-03Z-my-feature`. Omitting the timestamp matches older
@@ -118,9 +120,11 @@ Do not bundle spec authoring and implementation in the same PR.
 `jarvis1 plan` is one way to author specs; the merge-first
 rule applies to plan-generated specs the same as hand-written ones.
 
-## Authoring with `jarvis1 plan`
+## Authoring with `jarvis1 plan` or `jarvis1 intent`
 
-When using `jarvis1 plan <intent-file|"inline text">` to generate a spec, plan mode produces specs that conform to the conventions documented in this file: an `index.md` file with an H1 title and a GitHub-style task list of links to atomic subspecs, plus numbered subspec files (`00-*.md`, `01-*.md`, etc.) each with an exact `## Acceptance criteria` section containing checkboxes.
+When using `jarvis1 plan <intent-file|"inline text">` or `jarvis1 intent <intent-text>` to generate a spec, both tools produce specs that conform to the conventions documented in this file: an `index.md` file with an H1 title and a GitHub-style task list of links to atomic subspecs, plus numbered subspec files (`00-*.md`, `01-*.md`, etc.) each with an exact `## Acceptance criteria` section containing checkboxes.
+
+Both `jarvis1 plan` and `jarvis1 intent` accept the `--target-dir <dir>` override to route specs to a target directory (e.g., `--target-dir v2/spec` for v2-only planning, per the route-by-target pattern documented above).
 
 The generated spec tree is opened as a draft PR for review and editing. After you review the generated index and subspecs on the PR, you can edit the files directly (plan mode preserves manual edits across review passes) and merge the PR to `main`. Once merged, the spec becomes available to `jarvis1 run` for implementation work.
 

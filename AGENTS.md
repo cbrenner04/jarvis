@@ -27,9 +27,9 @@ Each iteration the agent is told to inspect the target repo for guidance, read t
 
 ## Specs in this repo
 
-V1 specs live in `v1/spec/`; v2 specs and work-seed intents in `v2/spec/` (intents under `v2/spec/wip-intents/`). Long-lived v2 reference docs live in `v2/docs/`. The `plan.targetDir = "v1/spec"` config entry routes new plan-mode specs there.
+**Route by target:** v1 work (seeds and committed specs) lives under `v1/spec/`; genuine v2 planning under `v2/spec/`; a spec touching both surfaces routes to `v1/spec` (shipping surface wins). The jarvis project default `plan.targetDir` is `v1/spec` — v2 planning is authored with explicit `--target-dir v2/spec` override (both `jarvis plan` and `jarvis intent`). Note: this default takes effect only after the operator flips the live `~/.jarvis/config.json` from `v2/spec` to `v1/spec`.
 
-Multi-file specs go in `v1/spec/<UTC-timestamp>-<name>/` with an `index.md`. The index is the routing file: a checklist of subspec pointers, each checked when done. Each subspec is **atomic, independently testable**, and carries a **Documentation updates** section (docs are part of the work). Create/resume with `jarvis1 plan` / `jarvis1 plan --resume <index.md>` from any directory. Full conventions: [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
+Long-lived v2 reference docs live in `v2/docs/`. Multi-file specs go in `<targetDir>/<UTC-timestamp>-<name>/` with an `index.md`. The index is the routing file: a checklist of subspec pointers, each checked when done. Each subspec is **atomic, independently testable**, and carries a **Documentation updates** section (docs are part of the work). Create/resume with `jarvis1 plan` / `jarvis1 plan --resume <index.md>` from any directory. Full conventions: [v1/docs/spec-guidance.md](v1/docs/spec-guidance.md).
 
 ## Working rules for agents
 

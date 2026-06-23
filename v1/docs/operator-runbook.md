@@ -104,6 +104,7 @@ For each suggestion:
 2. **Create a wip-intent** in `v2/spec/wip-intents/` capturing the suggestion. Use the issue content to seed the intent's problem statement and decisions.
 3. **Close the issue** with a comment referencing the seeded intent (e.g., "Seeded as v2/spec/wip-intents/2026-06-22-example-intent.md").
 4. **Allow closing without a seed** if the suggestion isn't actionable or doesn't warrant an intent — rare, but OK (e.g., duplicate of an existing issue, or out-of-scope for Jarvis's design).
+5. **Operator-error / project-setup, not a harness gap.** If the issue is really an operator mistake or a problem with the *target project's* setup (misconfiguration, missing dependency, environment) rather than something Jarvis itself should change, **respond on the issue** explaining the cause/fix but **do not seed a wip-intent or change the harness** — and **flag it to the operator** so they're aware it surfaced. Don't bake a workaround into Jarvis for what is really a setup fix on the operator's side.
 
 ## Background-run-and-poll pattern
 

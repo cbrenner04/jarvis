@@ -570,12 +570,12 @@ describe("intentCommand", () => {
     }
   });
 
-  test("file seed from wip-intents writes one intent and leaves the raw seed in place", async () => {
+  test("file seed from seeds writes one intent and leaves the raw seed in place", async () => {
     const env = setupEnv();
     try {
-      const wipDir = join(env.projectRoot, "spec", "wip-intents");
-      mkdirSync(wipDir, { recursive: true });
-      const seedPath = join(wipDir, "raw-seed.md");
+      const seedDir = join(env.projectRoot, "spec", "seeds");
+      mkdirSync(seedDir, { recursive: true });
+      const seedPath = join(seedDir, "raw-seed.md");
       writeFileSync(seedPath, "# Seed\n");
 
       const cap = captureIo();
@@ -844,12 +844,12 @@ describe("intentCommand", () => {
       cfg.modes.plan.commit = false;
       writeConfig(cfg, { dir: env.cfgDir });
 
-      const wipDir = join(env.projectRoot, "spec", "wip-intents");
-      mkdirSync(wipDir, { recursive: true });
-      const seedPath = join(wipDir, "raw-seed.md");
+      const seedDir = join(env.projectRoot, "spec", "seeds");
+      mkdirSync(seedDir, { recursive: true });
+      const seedPath = join(seedDir, "raw-seed.md");
       writeFileSync(seedPath, "# Seed\n");
       execSync("git add spec/", { cwd: env.projectRoot });
-      execSync("git commit -m 'add wip-intents'", { cwd: env.projectRoot });
+      execSync("git commit -m 'add seeds'", { cwd: env.projectRoot });
       execSync("git push", { cwd: env.projectRoot });
 
       const cap = captureIo();
@@ -1319,10 +1319,10 @@ describe("intentCommand", () => {
   test("--target-dir flag rejects file seed outside the overridden directory", async () => {
     const env = setupEnv();
     try {
-      // Create a seed file in spec/wip-intents/ (not v1/spec/wip-intents/)
-      const wipDir = join(env.projectRoot, "spec", "wip-intents");
-      mkdirSync(wipDir, { recursive: true });
-      const seedPath = join(wipDir, "raw-seed.md");
+      // Create a seed file in spec/seeds/ (not v1/spec/seeds/)
+      const seedDir = join(env.projectRoot, "spec", "seeds");
+      mkdirSync(seedDir, { recursive: true });
+      const seedPath = join(seedDir, "raw-seed.md");
       writeFileSync(seedPath, "# Seed\n");
 
       const cap = captureIo();
@@ -1336,7 +1336,7 @@ describe("intentCommand", () => {
       });
       expect(code).toBe(1);
       // Rejection message should name the overridden directory
-      expect(cap.err()).toContain("intent: raw seed files must live under v1/spec/wip-intents/");
+      expect(cap.err()).toContain("intent: raw seed files must live under v1/spec/seeds/");
       expect(existsSync(env.prState)).toBe(false);
     } finally {
       env.cleanup();
@@ -1346,10 +1346,10 @@ describe("intentCommand", () => {
   test("--target-dir flag accepts file seed under the overridden directory", async () => {
     const env = setupEnv();
     try {
-      // Create a seed file in v1/spec/wip-intents/
-      const wipDir = join(env.projectRoot, "v1/spec", "wip-intents");
-      mkdirSync(wipDir, { recursive: true });
-      const seedPath = join(wipDir, "raw-seed.md");
+      // Create a seed file in v1/spec/seeds/
+      const seedDir = join(env.projectRoot, "v1/spec", "seeds");
+      mkdirSync(seedDir, { recursive: true });
+      const seedPath = join(seedDir, "raw-seed.md");
       writeFileSync(seedPath, "# Seed\n");
 
       const cap = captureIo();
@@ -1413,10 +1413,10 @@ describe("intentCommand", () => {
       cfg.modes.plan.commit = false;
       writeConfig(cfg, { dir: env.cfgDir });
 
-      // Create a seed file in spec/wip-intents/ (not v1/spec/wip-intents/)
-      const wipDir = join(env.projectRoot, "spec", "wip-intents");
-      mkdirSync(wipDir, { recursive: true });
-      const seedPath = join(wipDir, "raw-seed.md");
+      // Create a seed file in spec/seeds/ (not v1/spec/seeds/)
+      const seedDir = join(env.projectRoot, "spec", "seeds");
+      mkdirSync(seedDir, { recursive: true });
+      const seedPath = join(seedDir, "raw-seed.md");
       writeFileSync(seedPath, "# Seed\n");
 
       const cap = captureIo();
@@ -1430,7 +1430,7 @@ describe("intentCommand", () => {
       });
       expect(code).toBe(1);
       // Rejection message should name the overridden directory
-      expect(cap.err()).toContain("intent: raw seed files must live under v1/spec/wip-intents/");
+      expect(cap.err()).toContain("intent: raw seed files must live under v1/spec/seeds/");
       const externalRoot = join(env.cfgDir, "specs", "project");
       expect(existsSync(join(externalRoot, "ready-intents"))).toBe(false);
     } finally {

@@ -96,7 +96,7 @@ The ready-intent must:
 - carry frontmatter with a `name:` field that matches the filename (`name: my-feature` ⇔ `my-feature.md`), and
 - contain a `## Prerequisites` section.
 
-Validation runs **before** any branch, worktree, or spec directory is created; invalid input fails with operator guidance to author a ready-intent with `jarvis1 intent` first. Prerequisites are copied into the spec as prompt context but are **validated and enforced in the draft phase**, not at plan entry (entry validation only checks the `## Prerequisites` section is present). Plan mode does not require running from any specific directory — the path is resolved from the current working directory. Arbitrary markdown, `wip-intents/*.md`, an old generated `intent.md`, inline text, and non-existent paths are all rejected.
+Validation runs **before** any branch, worktree, or spec directory is created; invalid input fails with operator guidance to author a ready-intent with `jarvis1 intent` first. Prerequisites are copied into the spec as prompt context but are **validated and enforced in the draft phase**, not at plan entry (entry validation only checks the `## Prerequisites` section is present). Plan mode does not require running from any specific directory — the path is resolved from the current working directory. Arbitrary markdown, `seeds/*.md`, an old generated `intent.md`, inline text, and non-existent paths are all rejected.
 
 ## Phases
 

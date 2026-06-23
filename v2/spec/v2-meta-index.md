@@ -9,7 +9,7 @@ Phase-start workflow:
 3. Run `jarvis1 plan "<build brief>"` to draft execution intent artifacts.
 4. Run `jarvis1 run ...` to implement and merge the code.
 
-`v2/spec/wip-intents/*.md` and dated intent/spec trees are generated execution evidence. They are not the durable done condition for a phase.
+`v2/spec/seeds/*.md` and dated intent/spec trees are generated execution evidence. They are not the durable done condition for a phase.
 
 - [x] Phase 0 — v2 project scaffold: tsconfig project, CLI entry, bin shim, cross-tree import boundaries
 - [x] Phase 1 — First write step, end-to-end: one `write` step run once from the CLI (render → invoke → outcome → output contract → worktree), host-agnostic core behind a thin CLI host, quota fallback

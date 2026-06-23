@@ -17,8 +17,8 @@ The measure of progress is the **shrinking count of manual interventions per ses
 An observer session is not done when the PRs merge — it's done when the findings and tooling persist. Every session owes:
 
 1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive (see [Merging](#merging)). Keep stuck work moving (diagnose, finalize, or re-queue).
-2. **Create wip-intents** in `v2/spec/wip-intents/` for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
-3. **Triage incoming harness suggestions** from other-repo observers (see below) into wip-intents.
+2. **Create seeds** in `v2/spec/seeds/` for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
+3. **Triage incoming harness suggestions** from other-repo observers (see below) into seeds.
 4. **Write a final report** committed under `reports/` with a precise UTC-timestamp filename (e.g. `reports/2026-06-23T00-52-38Z-overlord.md`) — date-only names collide when there are multiple sessions a day. Cover: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost, in the [standard cost schema](#cost-reporting-standard).
 5. **Maintain this runbook** directly (branch → PR → admin-merge — lighter than the full intent→plan→run pipeline). Keep it current; batch edits rather than one PR per thought.
 6. **Run end-of-session cleanup** ([below](#end-of-session-cleanup)) — `jarvis1 cleanup` to retire merged worktrees and archive specs into their home directories.
@@ -121,7 +121,7 @@ Improving the harness means experimenting: cheaper agents, model tiering, cost/s
 
 **Dual audience:** submit path (other-repo observer) and triage path (Jarvis-on-Jarvis observer) below.
 
-An observer on a non-Jarvis target repo can't create wip-intents (they're not in this repo). They submit harness suggestions through the GitHub intake channel; the Jarvis-on-Jarvis observer triages each into a wip-intent.
+An observer on a non-Jarvis target repo can't create seeds (they're not in this repo). They submit harness suggestions through the GitHub intake channel; the Jarvis-on-Jarvis observer triages each into a seed.
 
 ### Submit (other-repo observer)
 
@@ -157,11 +157,11 @@ If the label is absent or you're filtering without it, fall back to searching th
 
 For each suggestion:
 
-1. **Review** the issue and assess whether it's worth a wip-intent.
-2. **Create a wip-intent** in `v2/spec/wip-intents/` capturing the suggestion. Use the issue content to seed the intent's problem statement and decisions.
-3. **Close the issue** with a comment referencing the seeded intent (e.g., "Seeded as v2/spec/wip-intents/2026-06-22-example-intent.md").
+1. **Review** the issue and assess whether it's worth a seed.
+2. **Create a seed** in `v2/spec/seeds/` capturing the suggestion. Use the issue content to seed the intent's problem statement and decisions.
+3. **Close the issue** with a comment referencing the seeded intent (e.g., "Seeded as v2/spec/seeds/2026-06-22-example-intent.md").
 4. **Allow closing without a seed** if the suggestion isn't actionable or doesn't warrant an intent — rare, but OK (e.g., duplicate of an existing issue, or out-of-scope for Jarvis's design).
-5. **Operator-error / project-setup, not a harness gap.** If the issue is really an operator mistake or a problem with the *target project's* setup (misconfiguration, missing dependency, environment) rather than something Jarvis itself should change, **respond on the issue** explaining the cause/fix but **do not seed a wip-intent or change the harness** — and **flag it to the operator** so they're aware it surfaced. Don't bake a workaround into Jarvis for what is really a setup fix on the operator's side.
+5. **Operator-error / project-setup, not a harness gap.** If the issue is really an operator mistake or a problem with the *target project's* setup (misconfiguration, missing dependency, environment) rather than something Jarvis itself should change, **respond on the issue** explaining the cause/fix but **do not seed or change the harness** — and **flag it to the operator** so they're aware it surfaced. Don't bake a workaround into Jarvis for what is really a setup fix on the operator's side.
 
 ## Background-run-and-poll pattern
 
@@ -258,7 +258,7 @@ Run before wrapping a session:
    where the spec is located). It prompts `[y/N]`; pipe `echo y | jarvis1 cleanup` in a non-interactive
    shell. (`--dry-run` to preview.) Each v1-authored spec archives to `v1/spec/completed/` and each
    v2-authored spec archives to `v2/spec/completed/`.
-2. **Prune consumed seeds.** Delete `v2/spec/wip-intents/*` whose work shipped this session, and any
+2. **Prune consumed seeds.** Delete `v2/spec/seeds/*` whose work shipped this session, and any
    `v2/spec/ready-intents/*` left over from a plan that didn't consume them.
 
 ## Branch-before-edit discipline

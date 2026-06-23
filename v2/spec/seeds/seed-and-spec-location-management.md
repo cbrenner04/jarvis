@@ -7,11 +7,11 @@ name: seed-and-spec-location-management
 ## Problem
 
 The repo splits planning artifacts across `v1/spec/` (shipping implementation) and `v2/spec/`
-(planning + work-seeds under `wip-intents/`, plus `ready-intents/` and `completed/`). That split
+(planning + work-seeds under `seeds/`, plus `ready-intents/` and `completed/`). That split
 assumed v2 would arrive soon and absorb the work. **v2 completion is a long way off**, so in
 practice almost everything the observer drives is *v1* work routed through *v2* directories:
 
-- Work-seeds for v1 changes are authored under `v2/spec/wip-intents/` and `v2/spec/ready-intents/`.
+- Work-seeds for v1 changes are authored under `v2/spec/seeds/` and `v2/spec/ready-intents/`.
 - Specs that implement v1 changes (touching `v1/`, `shared/`, root config like `biome.json`) get
   drafted under `v2/spec/<ts>/` and archived by `jarvis cleanup` into `v2/spec/completed/`, then
   must be **hand-moved** to `v1/spec/completed/` (see `v1/docs/operator-runbook.md` § End-of-session
@@ -43,7 +43,7 @@ move), and `jarvis plan`/`intent` must author in the right place from the start.
 - Mixed specs touching both `v1/` and `v2/`: which home wins? (Likely v1, the shipping surface.)
 - Migration of the existing `v2/spec/completed/` v1-work specs already accumulated.
 - Interaction with `plan.targetDir` config (currently `v1/spec`) — reconcile with wherever this lands.
-- Coordinate with the `wip-intents/` → `seeds/` rename ([[rename-wip-intents-dir-to-seeds]]).
+- Coordinate with the `seeds/` rename ([[rename-wip-intents-dir-to-seeds]]).
 
 ## Out of scope
 

@@ -38,7 +38,9 @@ The per-report markdown cost section mirrors **the same fields as tables** (a sp
 
 **`overlord-costs.csv` columns:**
 
-`report, session, model, total_cost, api_time, tokens_in, tokens_out, cache_read, cache_write, notes`
+`report, session, session_count, model, total_cost, avg_cost_per_spec, api_time, tokens_in, tokens_out, cache_read, cache_write, notes`
+
+(`session_count` = the number of `session-costs.csv` spec rows sharing this `report` — the spec count the overlord drove that session. `avg_cost_per_spec` = `total_cost / session_count` — the observer's own cost per spec driven.)
 
 Rules:
 

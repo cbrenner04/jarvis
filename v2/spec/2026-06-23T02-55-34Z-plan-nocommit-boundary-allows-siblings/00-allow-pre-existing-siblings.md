@@ -19,14 +19,17 @@ shared root.
 ## Decisions
 
 - Separate legitimate siblings from escapes by a directory-entry snapshot taken before this run's first write, not a name allowlist — legacy untimestamped prior spec dirs are name-indistinguishable from a rogue dir, so only "existed before this run" reliably separates them.
-- Capture the snapshot once (right after the external spec root exists, before the active spec dir or any new sibling is created) and thread the same set into both the draft-phase and review-phase boundary checks — a fresh `readdir` at review time cannot tell a new escape from a sibling this run already created.
-- An entry is offending only when it is neither `<specDirBasename>` nor in the snapshot; the active spec dir stays excluded by name on both fresh and resume runs.
-- Granularity stays top-level-entry, unchanged from today. Deferred to first consumer: detecting in-place edits to files inside a pre-existing sibling — pin when a caller needs it (external root is not git, no cheap signal).
+- Capture the snapshot once (right after the external spec root exists, before the active spec dir or any new sibling is created) and thread the same set into both no-commit external check sites — the pre-commit draft check (`run.ts:1044`) and the fresh review phase (`run.ts:~1241`). A fresh `readdir` at review time cannot tell a new escape from a sibling this run already created.
+- Both check sites are on the **fresh** path. The resume review phase runs with `checkBoundary: false` (`run.ts:710`) and passes no `externalSpecRoot`, so no external check runs on resume and there is no capture site there — resume is unaffected by this change. Enabling the external check on resume is out of scope.
+- An entry is offending only when it is neither `<specDirBasename>` nor in the snapshot; the active spec dir stays excluded by name.
+- A flagged no-commit escape is **not** reverted: `revertPaths` is gated on `commit` (`run.ts:1055`), so in no-commit mode the escape is flagged and blockered but left on disk. The next run's pre-write snapshot then captures it as pre-existing and whitelists it. Disposition: the operator must remove the flagged dir after resolving the blocker; auto-reverting in no-commit mode is out of scope.
+- Granularity stays top-level-entry, unchanged from today. Deferred to first consumer: detecting in-place edits to files inside a pre-existing sibling — pin when a caller needs it (external root is not git, no cheap signal). The deferred surface includes `ready-intents/`, a legitimate sibling that is also a consumed `plan` input; undetected edits there could corrupt later `plan` runs.
+- Assumes no concurrent `plan` runs over one project root (consistent with the single-operator constraint) — a concurrent run's later-created spec dir would not be in this run's snapshot and would be flagged.
 
 ## Task checklist
 
 - [ ] Add a pre-existing-siblings parameter to `assertNoCommitExternalSpecBoundary`; flag an entry only when it is neither the active spec dir nor in that set.
-- [ ] Capture the snapshot in `v1/src/modes/plan/run.ts` before the active spec dir is created and thread it into the draft boundary check and the review-phase opts (`v1/src/modes/plan/review.ts`), covering fresh and resume flows.
+- [ ] Capture the snapshot in `v1/src/modes/plan/run.ts` before the active spec dir is created and thread it into both fresh-path check sites: the pre-commit draft boundary check and the fresh review phase. Resume runs no external check and is untouched.
 - [ ] Add unit tests for the new sibling-allowing behavior in `boundary.sandbox-unrunnable.test.ts`.
 - [ ] Add/extend an integration test proving a `commit:false` run over a populated external root drafts and reviews cleanly.
 - [ ] Update `v1/docs/plan-mode.md` and `v2/docs/v1-behaviors.md`.

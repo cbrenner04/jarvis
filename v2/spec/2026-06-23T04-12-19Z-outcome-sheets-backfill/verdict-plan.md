@@ -1,0 +1,9 @@
+- Require durable exact-identity bindings before JSONL or git-derived fields; report/date/name similarity must not substitute for a session binding.
+- Define report-artifact attribution as a positive mapping to `(report, name)` or `(report, session)` with recorded source provenance; otherwise use blank-with-note.
+- Require an exact overlord member set and shared base before deriving overlord date, duration, or file union; `session_count` and report grouping are insufficient.
+- Require session `duration_minutes` from its cost row’s `plan_time + run_time`, rounded to two decimals; historical-report availability must not make this automatic derivation conditional.
+- Apply the runbook’s status, failure, and completed-work-unit semantics to recovered evidence; “best effort” alone permits incompatible judgments.
+- Require notes to identify the exact binding/source, observer judgment basis, or unrecoverable reason; generic notes do not make values auditable.
+- State the snapshot audit expectations of 30 session and 3 overlord identities, plus bidirectional joins; this makes complete coverage reviewable without prescribing tooling.
+- Place the durable backfill procedure and evidence limits in `v2/docs/` per the documentation standard, with the runbook cross-linking it; the current draft assigns durable authority to the wrong home.
+- Constrain the behavior-catalog update to exact-identity, source-or-blank coverage; do not imply all historical outcome fields are recoverable.

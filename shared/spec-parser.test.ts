@@ -5,6 +5,7 @@ import {
   hasPathLikeAnchor,
   isBehavioralPreservationAc,
   isStructuralAc,
+  parseRunnableIndexTier,
   parseSpec,
   stripBlockerSection,
 } from "./spec-parser.ts";
@@ -297,6 +298,53 @@ describe("behavioral/preservation AC detection", () => {
     // "stopping" should not match "stops"
     const notMatch = { checked: false, text: "stopping the process continues smoothly" };
     expect(isBehavioralPreservationAc(notMatch)).toBe(true); // Still true because "continues" is present
+  });
+});
+
+describe("parseRunnableIndexTier", () => {
+  test("accepts one early tier line", () => {
+    expect(parseRunnableIndexTier("# Spec\nrepo: owner/repo\ntier: standard\n\n- [ ] task\n")).toEqual({
+      tier: "standard",
+      error: undefined,
+    });
+  });
+
+  test("defaults to undefined when no tier line exists", () => {
+    expect(parseRunnableIndexTier("# Spec\n- [ ] task\n")).toEqual({
+      tier: undefined,
+      error: undefined,
+    });
+  });
+
+  test("rejects blank tier values", () => {
+    expect(parseRunnableIndexTier("# Spec\ntier: \n- [ ] task\n").error).toContain(
+      "expected one of trivial, standard, hard",
+    );
+  });
+
+  test("rejects unknown tier values", () => {
+    expect(parseRunnableIndexTier("# Spec\ntier: Hard\n- [ ] task\n").error).toContain(
+      "expected one of trivial, standard, hard",
+    );
+  });
+
+  test("rejects duplicate tier lines", () => {
+    expect(parseRunnableIndexTier("# Spec\ntier: trivial\ntier: hard\n- [ ] task\n").error).toContain(
+      "duplicate `tier:` line",
+    );
+  });
+
+  test("rejects later tier lines", () => {
+    expect(parseRunnableIndexTier("# Spec\n- [ ] task\ntier: hard\n").error).toContain(
+      "`tier:` must appear before the first checklist item",
+    );
+  });
+
+  test("ignores indented tier-like lines", () => {
+    expect(parseRunnableIndexTier("# Spec\n  tier: hard\n- [ ] task\n")).toEqual({
+      tier: undefined,
+      error: undefined,
+    });
   });
 });
 

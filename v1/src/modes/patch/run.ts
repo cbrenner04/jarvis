@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import type { PatchTier } from "../../../../shared/spec-parser.ts";
 import type { Agent } from "../../agents/types.ts";
 import type { Io } from "../../cli.ts";
 import type { AgentName, Config, ConfigOptions, ProjectMatch } from "../../config.ts";
@@ -34,6 +35,7 @@ export type PreflightOk = {
   stalepidRecovered: number | undefined;
   specPath: string;
   additionalReadDirs: string[] | undefined;
+  patchTier: PatchTier;
 };
 
 export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string };
@@ -146,6 +148,8 @@ export type RunCommandOptions = {
   reviewPasses?: number;
   /** True if `--resume-review` was passed; runs review on an already-complete spec. */
   resumeReview?: boolean;
+  /** One-run patch ladder override from `jarvis1 run --tier`. */
+  tierOverride?: PatchTier;
   /**
    * Test seam for the completion `ready` gate. Replaces the real `bun run
    * ready` + `check:fix` commit run in `runCompletionReadyGate`. Return
@@ -239,7 +243,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return preflight.exitCode;
   }
 
-  const activeAgents = buildActiveAgents(opts, preflight.cfg);
+  const activeAgents = buildActiveAgents(opts, preflight.cfg, preflight.patchTier);
 
   const loggingSetup = setupLogging(opts, preflight, sharedPreflight.logClient);
   const logging = loggingSetup;

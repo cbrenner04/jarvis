@@ -2013,6 +2013,274 @@ Date: 2026-06-18`,
     expect(cap.err()).not.toContain("iteration 1 made no progress; stopping");
   });
 
+  test("selected standard tier no-progresses through only the remaining ladder suffix", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("# Spec\ntier: standard\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("claude should be skipped");
+    });
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    const cursor = new FakeAgent("cursor", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex, cursor },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(4);
+    expect(claude.calls).toHaveLength(0);
+    expect(codex.calls).toHaveLength(1);
+    expect(cursor.calls).toHaveLength(1);
+    expect(cap.err()).toContain("codex: no progress; escalating to next agent");
+    expect(cap.err()).toContain("iteration 2 made no progress; stopping");
+  });
+
+  test("selected standard tier still preserves max-iterations exit 5", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.maxIterations = 1;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("# Spec\ntier: standard\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("claude should be skipped");
+    });
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "", stderr: "" }));
+    const cursor = new FakeAgent("cursor", () => ({ kind: "ok", stdout: "", stderr: "" }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex, cursor },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(5);
+    expect(claude.calls).toHaveLength(0);
+    expect(codex.calls).toHaveLength(1);
+    expect(cursor.calls).toHaveLength(0);
+    expect(cap.err()).toContain("codex: no progress; escalating to next agent");
+    expect(cap.err()).toContain("max iterations (1) reached; stopping");
+  });
+
+  test("tierless specs retain first-rung behavior and do not gain recorded tier metadata", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("# Spec\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      writeFileSync(spec, "# Spec\n- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    const codex = new FakeAgent("codex", () => {
+      throw new Error("codex should not run");
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(0);
+    expect(readFileSync(spec, "utf8")).not.toContain("tier:");
+  });
+
+  test("recorded standard tier starts patch escalation at the second rung and reports the selected agent", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("# Spec\ntier: standard\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("claude should be skipped by tier selection");
+    });
+    const codex = new FakeAgent("codex", () => {
+      writeFileSync(spec, "# Spec\ntier: standard\n- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    const cursor = new FakeAgent("cursor", () => {
+      throw new Error("cursor should not run");
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex, cursor },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(claude.calls).toHaveLength(0);
+    expect(codex.calls).toHaveLength(1);
+    expect(cursor.calls).toHaveLength(0);
+    expect(cap.out()).toContain("agent: codex");
+
+    const telemetryRows = readFileSync(join(cfgDir, "runs.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(telemetryRows.some((row) => row.agent === "claude")).toBe(false);
+    expect(telemetryRows.some((row) => row.agent === "codex")).toBe(true);
+  });
+
+  test("run --tier overrides recorded metadata for one patch run without rewriting the spec", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("# Spec\ntier: trivial\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("claude should be skipped by --tier hard");
+    });
+    const codex = new FakeAgent("codex", () => {
+      throw new Error("codex should be skipped by --tier hard");
+    });
+    const cursor = new FakeAgent("cursor", () => {
+      writeFileSync(spec, "# Spec\ntier: trivial\n- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex, cursor },
+      handleSignals: false,
+      tierOverride: "hard",
+    });
+
+    expect(code).toBe(0);
+    expect(claude.calls).toHaveLength(0);
+    expect(codex.calls).toHaveLength(0);
+    expect(cursor.calls).toHaveLength(1);
+    expect(readFileSync(spec, "utf8")).toContain("tier: trivial");
+    expect(cap.out()).toContain("agent: cursor");
+  });
+
+  test.each([
+    {
+      name: "one-rung ladder maps every tier to the only entry",
+      agentOrder: [CLAUDE_ENTRY],
+      tier: "hard" as const,
+      expectedAgent: "claude" as const,
+    },
+    {
+      name: "two-rung ladder maps standard to the final entry",
+      agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+      tier: "standard" as const,
+      expectedAgent: "codex" as const,
+    },
+    {
+      name: "two-rung ladder maps hard to the final entry",
+      agentOrder: [CLAUDE_ENTRY, CODEX_ENTRY],
+      tier: "hard" as const,
+      expectedAgent: "codex" as const,
+    },
+  ])("$name", async ({ agentOrder, tier, expectedAgent }) => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [...agentOrder];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec(`# Spec\ntier: ${tier}\n- [ ] todo\n`);
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      if (expectedAgent !== "claude") {
+        throw new Error("claude should not run");
+      }
+      writeFileSync(spec, `# Spec\ntier: ${tier}\n- [x] todo\n`);
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+    const codex = new FakeAgent("codex", () => {
+      if (expectedAgent !== "codex") {
+        throw new Error("codex should not run");
+      }
+      writeFileSync(spec, `# Spec\ntier: ${tier}\n- [x] todo\n`);
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out()).toContain(`agent: ${expectedAgent}`);
+  });
+
+  test.each([
+    {
+      name: "unknown value",
+      spec: "# Spec\ntier: expert\n- [ ] todo\n",
+      expected: "expected one of trivial, standard, hard",
+    },
+    {
+      name: "blank value",
+      spec: "# Spec\ntier: \n- [ ] todo\n",
+      expected: "expected one of trivial, standard, hard",
+    },
+    {
+      name: "duplicate lines",
+      spec: "# Spec\ntier: trivial\ntier: hard\n- [ ] todo\n",
+      expected: "duplicate `tier:` line",
+    },
+    {
+      name: "later line",
+      spec: "# Spec\n- [ ] todo\ntier: hard\n",
+      expected: "`tier:` must appear before the first checklist item",
+    },
+  ])("invalid recorded tier metadata: $name", async ({ spec: specBody, expected }) => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec(specBody);
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("agent should not run for invalid metadata");
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain(expected);
+    expect(claude.calls).toHaveLength(0);
+  });
+
   test("no-progress escalation re-selects the same active subspec after advancing", async () => {
     const cfg = loadConfig({ dir: cfgDir });
     cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY];
@@ -3149,6 +3417,37 @@ exit 0
     expect(codex.calls).toHaveLength(1);
   });
 
+  test("selected hard tier preserves quota exhaustion across the remaining ladder suffix", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("# Spec\ntier: hard\n- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => {
+      throw new Error("claude should not run");
+    });
+    const codex = new FakeAgent("codex", () => {
+      throw new Error("codex should not run");
+    });
+    const cursor = new FakeAgent("cursor", () => ({ kind: "quota", stderr: "limit" }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex, cursor },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(2);
+    expect(cap.err()).toContain(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+    expect(claude.calls).toHaveLength(0);
+    expect(codex.calls).toHaveLength(0);
+    expect(cursor.calls).toHaveLength(1);
+  });
+
   test("falls through claude to codex on zero-exit monthly-spend-limit JSON envelope", async () => {
     const spec = writeSpec("- [ ] todo\n");
     const cap = captureIo();
@@ -3215,6 +3514,86 @@ exit 0
 
     expect(code).toBe(2);
     expect(cap.err()).toContain(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+  });
+
+  test("selected hard tier preserves model-config exit 3", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("# Spec\ntier: hard\n- [ ] todo\n");
+    const cap = captureIo();
+    const cursor = new FakeAgent("cursor", () => ({
+      kind: "model_config",
+      stderr: "unsupported model",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { cursor },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(cap.err()).toContain("cursor: configured patch model");
+    expect(cap.out()).toContain("agent: cursor");
+  });
+
+  test("selected hard tier preserves generic error exit 3", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("# Spec\ntier: hard\n- [ ] todo\n");
+    const cap = captureIo();
+    const cursor = new FakeAgent("cursor", () => ({
+      kind: "error",
+      exitCode: 17,
+      stderr: "boom",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { cursor },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(3);
+    expect(cap.err()).toContain("boom");
+    expect(cap.out()).toContain("agent: cursor");
+  });
+
+  test("selected hard tier preserves timeout exit 8", async () => {
+    const cfg = loadConfig({ dir: cfgDir });
+    cfg.git = false;
+    cfg.modes.patch.agentOrder = [CLAUDE_ENTRY, CODEX_ENTRY, CURSOR_ENTRY];
+    writeConfig(cfg, { dir: cfgDir });
+
+    const spec = writeSpec("# Spec\ntier: hard\n- [ ] todo\n");
+    const cap = captureIo();
+    const cursor = new FakeAgent("cursor", () => ({
+      kind: "error",
+      exitCode: 1,
+      stderr: "aborted: iteration-timeout",
+    }));
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { cursor },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(8);
+    expect(cap.err()).toContain("iteration 1 exceeded timeout");
+    expect(cap.out()).toContain("agent: cursor");
   });
 
   test("quota fallback iterations count toward the cap", async () => {

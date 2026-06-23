@@ -111,6 +111,22 @@ describe("parseArgs", () => {
     });
   });
 
+  test("run with --tier flag", () => {
+    expect(parseArgs(["run", "--tier", "hard", "./spec.md"])).toEqual({
+      kind: "run",
+      specPath: "./spec.md",
+      tier: "hard",
+    });
+  });
+
+  test("run without --tier value → error", () => {
+    const parsed = parseArgs(["run", "--tier"]);
+    expect(parsed.kind).toBe("error");
+    if (parsed.kind === "error") {
+      expect(parsed.message).toContain("--tier");
+    }
+  });
+
   test("run without --review-passes value → error", () => {
     const parsed = parseArgs(["run", "--review-passes"]);
     expect(parsed.kind).toBe("error");
@@ -277,7 +293,7 @@ describe("run", () => {
     expect(code).toBe(0);
     const out = cap.out();
     expect(out).toContain(
-      "run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>",
+      "run [--max-iterations <n>] [--review-passes <n>] [--tier <tier>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>",
     );
     expect(out).toContain("init");
     expect(out).toContain("config");
@@ -323,6 +339,19 @@ describe("run", () => {
 
     expect(code).toBe(1);
     expect(cap.err()).toContain("--review-passes must be a non-negative integer");
+    expect(cap.err()).not.toContain("spec path does not exist");
+  });
+
+  test.each(["Hard", ""])("invalid --tier %p exits before the loop", async (value) => {
+    const cap = captureIo();
+    const code = await run(["run", "--tier", value, "./somewhere.md"], {
+      io: cap.io,
+      config: { dir: cfgDir },
+      run: { agents: {}, handleSignals: false },
+    });
+
+    expect(code).toBe(1);
+    expect(cap.err()).toContain("--tier must be one of trivial, standard, hard");
     expect(cap.err()).not.toContain("spec path does not exist");
   });
 
@@ -542,7 +571,7 @@ describe("run", () => {
   });
 
   test.each([
-    ["run", ["--max-iterations", "--review-passes"]],
+    ["run", ["--max-iterations", "--review-passes", "--tier"]],
     ["init", ["Register the current target repo"]],
     ["config", ["View or edit"]],
     ["log-server", ["log aggregation server"]],

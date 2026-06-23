@@ -1,7 +1,8 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
+import { type PatchTier, parseRunnableIndexTier } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent } from "../../agents/types.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
@@ -20,6 +21,46 @@ import { countUnchecked } from "./completion.ts";
 import type { PreflightOk, RunCommandOptions, RunIo } from "./run.ts";
 
 type PreflightResult = PreflightOk | { kind: "error"; exitCode: number } | { kind: "exit"; exitCode: number };
+
+function resolvePatchTierStartIndex(tier: PatchTier, ladderLength: number): number {
+  if (ladderLength <= 1) {
+    return 0;
+  }
+  switch (tier) {
+    case "trivial":
+      return 0;
+    case "standard":
+      return Math.min(1, ladderLength - 1);
+    case "hard":
+      return ladderLength - 1;
+  }
+}
+
+function resolvePatchTier(
+  specPath: string,
+  tierOverride: PatchTier | undefined,
+): { tier: PatchTier } | { error: string } {
+  if (tierOverride !== undefined) {
+    return { tier: tierOverride };
+  }
+  const content = existsSync(specPath) ? readSpecFile(specPath) : undefined;
+  if (content === undefined) {
+    return { tier: "trivial" };
+  }
+  const parsed = parseRunnableIndexTier(content);
+  if (parsed.error !== undefined) {
+    return { error: `error: ${parsed.error}` };
+  }
+  return { tier: parsed.tier ?? "trivial" };
+}
+
+function readSpecFile(specPath: string): string | undefined {
+  try {
+    return readFileSync(specPath, "utf8");
+  } catch {
+    return undefined;
+  }
+}
 
 export async function resolveModeSpecificPreflight(
   opts: RunCommandOptions,
@@ -187,6 +228,12 @@ export async function resolveModeSpecificPreflight(
     gitEnabled,
   });
 
+  const resolvedPatchTier = resolvePatchTier(specPath, opts.tierOverride);
+  if ("error" in resolvedPatchTier) {
+    opts.io.stderr(`${resolvedPatchTier.error}\n`);
+    return { kind: "error", exitCode: 1 };
+  }
+
   return {
     kind: "ok",
     project,
@@ -198,6 +245,7 @@ export async function resolveModeSpecificPreflight(
     stalepidRecovered,
     specPath,
     additionalReadDirs,
+    patchTier: resolvedPatchTier.tier,
   };
 }
 
@@ -286,10 +334,11 @@ export function maybeWarnAboutUnmergedPlanBranch(args: {
   );
 }
 
-export function buildActiveAgents(opts: RunCommandOptions, cfg: Config): Agent[] {
+export function buildActiveAgents(opts: RunCommandOptions, cfg: Config, patchTier: PatchTier): Agent[] {
   const overrides = opts.agents;
   const agents: Agent[] = [];
-  for (const entry of cfg.modes.patch.agentOrder) {
+  const startIndex = resolvePatchTierStartIndex(patchTier, cfg.modes.patch.agentOrder.length);
+  for (const entry of cfg.modes.patch.agentOrder.slice(startIndex)) {
     const override = overrides?.[entry.agent];
     if (override !== undefined) {
       agents.push(override);

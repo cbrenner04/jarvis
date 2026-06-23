@@ -34,13 +34,13 @@ Known-hard specs should skip an unproductive cheap attempt without adding nondet
 
 ## Acceptance criteria
 
-- [ ] A patch run with recorded `tier: trivial`, `standard`, or `hard` starts respectively at the first, second-or-final, or final configured `modes.patch.agentOrder` rung.
-- [ ] `jarvis1 run --tier <tier>` selects that start rung for one patch run without changing the spec's recorded metadata.
-- [ ] A tier is optional index metadata: one unindented `tier: trivial|standard|hard` line before the first checklist item is accepted; blank, unknown, duplicate, or later `tier:` lines fail before an agent invocation with accepted-value guidance.
-- [ ] An invalid `jarvis1 run --tier <tier>` value fails before an agent invocation with accepted-value guidance.
-- [ ] From a selected start rung, quota and no-progress results continue through only later configured rungs; final-rung no-progress exits `4`, while iteration-budget exhaustion remains exit `5`.
-- [ ] A one-rung or two-rung agent order resolves every valid tier deterministically without an out-of-range attempt.
-- [ ] Model-config and generic failures exit `3`, timeouts exit `8`, and quota exhaustion across every remaining selected rung exits `2`.
-- [ ] Iteration banners, telemetry, summaries, and terminal diagnostics identify the agent/model actually selected by tier, never a skipped rung.
-- [ ] A tierless legacy or newly authored spec retains first-rung behavior, and execution never infers or writes a tier from run results.
-- [ ] `v2/docs/v1-behaviors.md` records the syntax, override, mapping, patch-only scope, tierless default, and deterministic boundary; `v1/docs/agents.md#agentorder-as-an-escalation-ladder` cross-links without duplicating it.
+- [x] A patch run with recorded `tier: trivial`, `standard`, or `hard` starts respectively at the first, second-or-final, or final configured `modes.patch.agentOrder` rung.
+- [x] `jarvis1 run --tier <tier>` selects that start rung for one patch run without changing the spec's recorded metadata.
+- [x] A tier is optional index metadata: one unindented `tier: trivial|standard|hard` line before the first checklist item is accepted; blank, unknown, duplicate, or later `tier:` lines fail before an agent invocation with accepted-value guidance.
+- [x] An invalid `jarvis1 run --tier <tier>` value fails before an agent invocation with accepted-value guidance.
+- [x] From a selected start rung, quota and no-progress results continue through only later configured rungs; final-rung no-progress exits `4`, while iteration-budget exhaustion remains exit `5`.
+- [x] A one-rung or two-rung agent order resolves every valid tier deterministically without an out-of-range attempt.
+- [x] Model-config and generic failures exit `3`, timeouts exit `8`, and quota exhaustion across every remaining selected rung exits `2`.
+- [x] Iteration banners, telemetry, summaries, and terminal diagnostics identify the agent/model actually selected by tier, never a skipped rung.
+- [x] A tierless legacy or newly authored spec retains first-rung behavior, and execution never infers or writes a tier from run results.
+- [x] `v2/docs/v1-behaviors.md` records the syntax, override, mapping, patch-only scope, tierless default, and deterministic boundary; `v1/docs/agents.md#agentorder-as-an-escalation-ladder` cross-links without duplicating it.

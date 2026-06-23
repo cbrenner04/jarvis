@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from "node:path";
+import { PATCH_TIERS, type PatchTier } from "../../shared/spec-parser.ts";
 import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
@@ -42,6 +43,7 @@ export type ParsedArgs =
       specPath: string;
       maxIterations?: string;
       reviewPasses?: string;
+      tier?: string;
       repo?: string;
       cwd?: string;
       resumeReview?: boolean;
@@ -71,7 +73,7 @@ export type Io = {
 const USAGE = `Usage: jarvis1 <command> [args]
 
 Commands:
-  run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
+  run [--max-iterations <n>] [--review-passes <n>] [--tier <tier>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
                     Run the loop against a spec file in a registered project.
                     Use --resume-review to run the post-completion review phase on an already-complete spec.
   init              Register the current target repo.
@@ -94,7 +96,7 @@ Commands:
 `;
 
 const COMMAND_USAGE: Record<string, string> = {
-  run: `Usage: jarvis1 run [--max-iterations <n>] [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
+  run: `Usage: jarvis1 run [--max-iterations <n>] [--review-passes <n>] [--tier <tier>] [--repo <name|path|url>] [--cwd <dir>] [--resume-review] <spec-path>
 
   Run the loop against a spec file in a registered project.
   Use --resume-review to run the post-completion review phase on an already-complete spec.
@@ -102,6 +104,7 @@ const COMMAND_USAGE: Record<string, string> = {
 Flags:
   --max-iterations <n>        Maximum number of patch iterations (default: 10).
   --review-passes <n>         Number of review cycles after completion (default: 1).
+  --tier <tier>               Patch ladder start tier: trivial, standard, or hard.
   --repo <name|path|url>      Override project resolution via name, path, or URL.
   --cwd <dir>                 Working directory (only with git: false).
   --resume-review             Re-enter the review phase on a completed spec.
@@ -158,6 +161,7 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       let maxIterations: string | undefined;
       let reviewPasses: string | undefined;
+      let tier: string | undefined;
       let repo: string | undefined;
       let cwd: string | undefined;
       let resumeReview = false;
@@ -185,6 +189,19 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
             };
           }
           reviewPasses = value;
+          args.splice(i, 2);
+          i -= 1;
+          continue;
+        }
+        if (args[i] === "--tier") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "run: missing value for --tier",
+            };
+          }
+          tier = value;
           args.splice(i, 2);
           i -= 1;
           continue;
@@ -231,6 +248,9 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       }
       if (reviewPasses !== undefined) {
         parsed.reviewPasses = reviewPasses;
+      }
+      if (tier !== undefined) {
+        parsed.tier = tier;
       }
       if (repo !== undefined) {
         parsed.repo = repo;
@@ -355,6 +375,13 @@ export type RunOptions = {
   run?: Partial<Pick<RunCommandOptions, "agents" | "handleSignals">>;
 };
 
+function parsePatchTier(value: string, flagName: string): PatchTier {
+  if ((PATCH_TIERS as readonly string[]).includes(value)) {
+    return value as PatchTier;
+  }
+  throw new Error(`${flagName} must be one of ${PATCH_TIERS.join(", ")}`);
+}
+
 export function run(argv: readonly string[], opts: RunOptions = {}): number | Promise<number> {
   const io: Io = opts.io ?? {
     stdout: (s) => process.stdout.write(s),
@@ -394,6 +421,15 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
           return 1;
         }
       }
+      let tierOverride: PatchTier | undefined;
+      if (parsed.tier !== undefined) {
+        try {
+          tierOverride = parsePatchTier(parsed.tier, "--tier");
+        } catch (err) {
+          io.stderr(`jarvis1: ${(err as Error).message}\n`);
+          return 1;
+        }
+      }
       const runOpts: RunCommandOptions = {
         specPath: parsed.specPath,
         io,
@@ -406,6 +442,9 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
       }
       if (reviewPasses !== undefined) {
         runOpts.reviewPasses = reviewPasses;
+      }
+      if (tierOverride !== undefined) {
+        runOpts.tierOverride = tierOverride;
       }
       if (parsed.repo !== undefined) {
         runOpts.repoFlag = parsed.repo;

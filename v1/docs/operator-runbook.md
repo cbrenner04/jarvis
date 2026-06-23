@@ -25,14 +25,14 @@ An observer session is not done when the PRs merge — it's done when the findin
 
 ## Cost reporting standard
 
-Every session closes four cumulative CSVs: two cost sheets plus two additive outcome sheets. Keep spec rows separate from observer rows; their shapes and reconciliation rules differ.
+Every session closes four cumulative CSVs. Keep spec rows separate from observer rows.
 
 - **`reports/session-costs.csv`** — one row per Jarvis spec/intent (plan + run phases).
 - **`reports/overlord-costs.csv`** — one row per observer/overlord session.
 - **`reports/session-outcomes.csv`** — one row per session cost row after outcome reconciliation.
 - **`reports/overlord-outcomes.csv`** — one row per overlord cost row after outcome reconciliation.
 
-The per-report markdown cost section mirrors the cost-sheet fields as tables. Outcome sheets stay cumulative CSVs only.
+The per-report markdown section mirrors only the cost-sheet fields. Outcome sheets stay CSV-only.
 
 **`session-costs.csv` columns:**
 
@@ -76,7 +76,7 @@ Outcome reconciliation:
 
 Shared outcome-field semantics:
 
-- `report_date`, `session_type`, `failure_reason`, `duration_minutes`, `files_touched`, and `notes` mean the same thing on both outcome sheets so the rows can be unioned later.
+- `report_date`, `session_type`, `failure_reason`, `duration_minutes`, `files_touched`, and `notes` mean the same thing on both sheets so rows can be unioned later.
 - `duration_minutes` is total plan-plus-run execution time in decimal minutes rounded to two decimals. Do not substitute overlord `api_time`; it is a different measure.
 - `files_touched` is a non-negative count of distinct changed paths. Overlord rows use the distinct-path union for the whole session, not per-spec duplicates.
 - Overlord `session_type` is always `orchestration`.
@@ -84,7 +84,7 @@ Shared outcome-field semantics:
 Outcome status semantics:
 
 - `success_status` and `overall_success` use the same observer-judged values: `completed`, `partial`, `blocked`, `canceled`, `failed`, or blank when unknown.
-- `plan-only` is a session shape, not a separate status spelling. Record it through the cost-row shape, `session_type`, `completed_work_units`, and `notes`; do not fabricate a terminal success/failure value just to label it.
+- `plan-only` is a session shape, not a status value. Record it through the cost-row shape, `session_type`, `completed_work_units`, and `notes`; do not invent a terminal success/failure just to label it.
 - Exit-derived status or failure hints are inputs to judgment, not overrides. When judgment differs from the hint, record the basis in `notes`.
 - `completed_work_units` counts delivered scoped units: completed rows count all delivered units; partial rows count only delivered units; blocked/canceled/failed rows still count units completed before the terminal state; plan-only rows count `1` only for a finalized plan/spec. If the count is unknown, leave it blank and explain in `notes`.
 - Leave unrecoverable judgment or derived values blank with an explanatory note. Blank and failure are distinct.
@@ -92,15 +92,15 @@ Outcome status semantics:
 Source-or-blank derivation policy:
 
 - Use the primary source documented in [v2/docs/outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) first.
-- Use a fallback only when it is attributable to the exact composite identity being reconciled. Otherwise leave the field blank and explain the missing attribution in `notes`.
-- Patch `report_date`: derive from the matching JSONL run start. Fallbacks are an identity-bound CSV date or JSONL timestamp span only when the primary source is absent.
-- Patch `duration_minutes`: derive from the matching cost row's `plan_time + run_time`.
-- Patch `session_type` and `agent_count`: derive from identity-bound JSONL (`mode`, distinct real agents). If plan phases are involved, supply observer-backed values from a contemporaneous record or leave blank with a note; plan phases lack equivalent telemetry.
-- Patch `files_touched`: derive from the identity-bound run-base git diff. A weaker git fallback is allowed only when every included commit is uniquely attributable to the same cost identity.
-- Overlord `report_date`: derive from the earliest matched session outcome date. If no matched session has a date, leave it blank with a note.
-- Overlord `specs_driven`: copy from the matching overlord cost row's `session_count`.
-- Overlord `duration_minutes`: derive from the uniquely matched session-cost rows for that overlord session.
-- Overlord `files_touched`: derive from the distinct-path union across the identity-bound session set.
+- Use a fallback only when it is attributable to the exact composite identity being reconciled; otherwise leave the field blank and explain it in `notes`.
+- Patch `report_date`: matching JSONL run start; fallback to an identity-bound CSV date or JSONL timestamp span only when the primary source is absent.
+- Patch `duration_minutes`: matching cost row `plan_time + run_time`.
+- Patch `session_type` and `agent_count`: identity-bound JSONL (`mode`, distinct real agents). If plan phases are involved, use a contemporaneous observer record or leave blank with a note.
+- Patch `files_touched`: identity-bound run-base git diff. Use a weaker git fallback only when every included commit is uniquely attributable to the same cost identity.
+- Overlord `report_date`: earliest matched session outcome date; blank with a note when none exists.
+- Overlord `specs_driven`: matching overlord cost row `session_count`.
+- Overlord `duration_minutes`: uniquely matched session-cost rows for that overlord session.
+- Overlord `files_touched`: distinct-path union across the identity-bound session set.
 
 ## Experimentation — encouraged, but bounded
 

@@ -13,12 +13,16 @@ work, so the v1/v2 split misroutes from creation and forces later hand-relocatio
 
 ## Direction
 
-Settle where seeds/specs live given v2 is distant (route-by-target, single decoupled
-location, or collapse-the-split — plan decides), then make authoring write each new artifact
-to the correct home from the start with no later manual move. Reconcile `plan.targetDir` with
-the chosen layout. For specs touching both v1 and v2 surfaces, v1 (the shipping surface) wins.
-Update the conventions that describe the layout (`CLAUDE.md` § "Specs in this repo",
-`spec-guidance.md`).
+**Decided layout: route by target.** A seed/spec for v1 work lives under `v1/spec/` from the
+start (seeds and committed specs alike); only genuine v2 planning lives under `v2/spec/`. This is
+the operator's chosen shape — do not re-litigate single-decoupled-location or collapse-the-split.
+
+Make authoring write each new artifact to its target-version home from the start with no later
+manual move: `jarvis intent` writes seeds/ready-intents under the target's tree, and `jarvis plan`
+drafts committed specs there too. Reconcile `plan.targetDir` with this layout (a v1-target project
+routes to `v1/spec`; v2 planning to `v2/spec`). For specs touching both v1 and v2 surfaces, v1 (the
+shipping surface) wins. Update the conventions that describe the layout (`CLAUDE.md` § "Specs in
+this repo", `spec-guidance.md`).
 
 ## Out of scope
 

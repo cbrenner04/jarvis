@@ -14,9 +14,11 @@ so v1-work specs land in the wrong tree and the operator must hand-move them int
 
 Make `jarvis cleanup` archive a completed spec to the correct `completed/` home by what it
 changed (changed files / declared target), eliminating the manual relocation. Drop the manual
-stopgap from `operator-runbook.md`. The authoring and archival routing signals may be the same
-mechanism or two — plan decides, but the archival destination must agree with the settled
-layout. Mixed v1/v2 specs archive to the v1 home.
+stopgap from `operator-runbook.md`. The archival destination must agree with the **route-by-target**
+layout settled by [[route-spec-authoring-by-target]]: a v1-work spec archives to `v1/spec/completed/`,
+genuine v2 planning to `v2/spec/completed/`. The authoring and archival routing signals may be the
+same mechanism or two — plan decides that — but both resolve to the same target-version home. Mixed
+v1/v2 specs archive to the v1 home.
 
 ## Out of scope
 

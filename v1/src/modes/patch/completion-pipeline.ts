@@ -328,7 +328,11 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
       }
       // Red completion ready gate.
       // Capture the first-red baseline on the first red (used later for discard)
-      if (ctx.state.firstRedBaselineSha === null && preflight.gitEnabled && existsSync(join(preflight.agentWorkingDir, ".git"))) {
+      if (
+        ctx.state.firstRedBaselineSha === null &&
+        preflight.gitEnabled &&
+        existsSync(join(preflight.agentWorkingDir, ".git"))
+      ) {
         try {
           const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
             cwd: preflight.agentWorkingDir,

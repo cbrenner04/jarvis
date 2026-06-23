@@ -16,32 +16,36 @@ branch carrying every fix-up commit.
 
 ## Decisions
 
-- Green-completion baseline = the PR branch HEAD captured the first time the completion gate goes red (i.e. before the first fix-up iteration runs); rules out resetting to the PR base merge-base, which would discard the correct spec work too.
-- Discard = `git reset --hard <baseline>` plus a force-push of the branch; local reset alone is rejected because the fix-up commits were already pushed, so the remote PR would still show the chase edits.
+- First-red baseline = the PR branch HEAD at the first red completion gate, captured before the first fix-up loopback; held in a new `ctx.state` field (e.g. `firstRedBaselineSha`) parallel to `consecutiveRedFixups` / `completionTransitionReadyResult`, written once on first red and never overwritten. Rules out a "green result sha" — on a stuck-red run the gate never goes green, so no green-path sha is ever recorded. Capture is guarded by `gitEnabled` + a real `.git` present, the same guards the green-path `completionTransitionReadyResult` capture uses.
+- Resetting to the first-red baseline (not the PR base merge-base) is what preserves the correct spec work: merge-base reset would discard it too.
+- Discard = `git reset --hard <baseline>` plus a force-push; local reset alone is rejected because the fix-up commits were already pushed, so the remote PR would still show the chase edits.
+- Force-push command is `git push --force-with-lease` (the local reset leaves the remote-tracking ref intact, so the lease holds). Rules out a bare `git push --force`.
+- Discard reuses the existing fix-up push seam: the `hasUpstream(cwd)` upstream-existence check and the `skipGhCheck` flag (see `iteration.ts`). When there is no upstream / `skipGhCheck` is set, skip the force-push rather than erroring — keeps no-git and PR-less runs working.
 - Discard fires at both exit-10 sites (identical-failure stop and changing-failure bound) — both terminate still-red with the same contamination.
-- Discarding is sound because both stop conditions already guarantee no acceptance-criteria progress and no new blocker during the fix-up iterations, so nothing the operator wants is reset away.
-- Guard discard on `gitEnabled`, a captured baseline, and the baseline differing from HEAD; skip the force-push when no PR/remote branch exists rather than erroring — keeps no-git and PR-less runs working.
-- Force-push uses lease-style safety where available; a failed force-push is logged as a warning and does not change the exit-10 outcome.
-- Extend the two existing stuck-red operator messages rather than adding a third terminal path: each now states the chase edits were discarded and the PR is left at the original completed work, and names the flaky-or-real ambiguity (gate red after N tries, finalize by hand). Exit code (10) and telemetry (`ready-stuck-red`) are unchanged.
+- Discarding is sound by mechanism, not by a "no progress in last N iterations" argument: fix-up iterations run with **no active linked subspec**, so they cannot commit an acceptance-criteria tick or re-tick. A blocker exits 7 (and stuck-red requires no new blocker), so the only commits a fix-up iteration produces are discardable chase edits — nothing the operator wants is reset away.
+- Discarded tip preservation: rely on git reflog only; do not create a recovery tag/branch. The reset commit stays reachable via reflog in the worktree, and the operator message names where the chase edits went. Rules out a named recovery ref as unneeded ceremony for a single-operator harness.
+- Order of operations at each exit-10 site: reset → force-push → operator message → telemetry → return 10. A thrown reset or a failed force-push is caught and logged as a warning; telemetry (`ready-stuck-red`) is still written and the site still returns 10. The exit code and telemetry contract is invariant under git failure.
+- Extend the two existing stuck-red operator messages rather than adding a third terminal path: each now states the chase edits were discarded (recoverable via reflog) and the PR is left at the original completed work, and names the flaky-or-real ambiguity (gate red after N tries, finalize by hand). Identical-failure and changing-failure messages stay distinct from each other and from normal completion.
 
 ## Task checklist
 
-- [ ] Capture the green-completion baseline SHA on first red gate, before the first fix-up loopback.
-- [ ] At both exit-10 sites, reset the branch to the baseline and force-push before returning 10.
-- [ ] Update both stuck-red messages to state the discard and name the ambiguity.
+- [ ] Add the `firstRedBaselineSha` run-state field; capture HEAD into it on the first red completion gate, before the first fix-up loopback, guarded by `gitEnabled` + `.git` present.
+- [ ] Add a discard step (reset → `git push --force-with-lease` via the `hasUpstream` / `skipGhCheck` seam) and call it at both exit-10 sites in the order above, before returning 10.
+- [ ] Update both stuck-red messages to state the discard, name reflog recovery, and name the ambiguity.
 - [ ] Update tests and docs.
 
 ## Acceptance criteria
 
-- [ ] On an identical-failure stuck-red stop, the commits added by fix-up iterations after the spec completed are discarded and the PR branch is force-pushed, so the remote PR no longer contains the chase edits — its diff matches the completed spec work as it stood before the first fix-up iteration.
+- [ ] On an identical-failure stuck-red stop, the commits added by fix-up iterations after the spec completed are discarded (reset to the first-red baseline) and the PR branch is force-pushed with `--force-with-lease`, so the remote PR no longer contains the chase edits — its diff matches the completed spec work as it stood before the first fix-up iteration.
 - [ ] On a changing-failure-bound stuck-red stop, the same discard and force-push occur.
 - [ ] When the completion gate goes green (no fix-up, or fix-up converges), no discard or force-push occurs and the existing completion path is unchanged: `run.test.ts` completion-green/draft-PR tests stay green.
 - [ ] The stuck-red stop still exits `10` and writes a `ready-stuck-red` telemetry record at both sites (behavior unchanged): the exit-code and telemetry assertions in `run.test.ts` stuck-red tests stay green.
-- [ ] Both stuck-red operator messages name the flaky-or-real ambiguity (gate red after N tries, finalize by hand) and state that the fix-up edits were discarded and the PR is left with the original correct work; the identical-failure and changing-failure messages remain distinct from each other and from a normal completion.
-- [ ] When git is disabled, or no fix-up commits exist beyond the baseline, the stop still exits `10` with no force-push attempted and no error raised.
+- [ ] A failed force-push (or a thrown reset) at a stuck-red stop is logged as a warning, but telemetry (`ready-stuck-red`) is still written and the site still exits `10` — the exit/telemetry contract holds under git failure.
+- [ ] Both stuck-red operator messages name the flaky-or-real ambiguity (gate red after N tries, finalize by hand), state that the fix-up edits were discarded (recoverable via git reflog), and that the PR is left with the original correct work; the identical-failure and changing-failure messages remain distinct from each other and from a normal completion.
+- [ ] When git is disabled, no upstream exists (`hasUpstream` false / `skipGhCheck` set), or no fix-up commits exist beyond the baseline, the stop still exits `10` with no force-push attempted and no error raised.
 
 ## Documentation updates
 
-- [ ] `v1/docs/run-loop.md` — Stuck-red completion stop (exit 10) section: document that both stop variants discard the fix-up commits (reset to the green-completion baseline) and force-push, leaving the PR at the original work, and update the message descriptions.
+- [ ] `v1/docs/run-loop.md` — Stuck-red completion stop (exit 10) section: document that both stop variants discard the fix-up commits (reset to the first-red baseline) and force-push with `--force-with-lease`, leaving the PR at the original work; that a failed git step still exits 10 with telemetry; and update the message descriptions.
 - [ ] `v2/docs/v1-behaviors.md` — Patch-mode stuck-red completion stop entries: record the new discard + force-push behavior and the updated messages as the v1 parity baseline.
-- [ ] `v1/docs/operator-runbook.md` — note that a stuck-red PR is left at the original completed work (chase edits already discarded), so finalize-by-hand starts from a clean diff.
+- [ ] `v1/docs/operator-runbook.md` — note that a stuck-red PR is left at the original completed work (chase edits discarded, recoverable via git reflog), so finalize-by-hand starts from a clean diff.

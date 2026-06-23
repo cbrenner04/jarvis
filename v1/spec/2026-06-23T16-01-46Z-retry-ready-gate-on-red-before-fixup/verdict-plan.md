@@ -1,0 +1,23 @@
+# Verdict
+
+The design is sound — bounded whole-gate retry-on-red before fix-up is the right behavior. But the spec's framing of the tree state between retries is factually wrong, and several decisions/ACs need precision. The following refinements are required.
+
+## Required refinements
+
+1. **Correct the "unchanged tree between retries" claim (load-bearing, currently false).** The spec's Decision 4 asserts each run's `check:fix:unsafe` commit "is part of that gate run, as today." On the red path there is no commit: the gate's `git add -A`/commit runs only *after* ready succeeds, while `check:fix:unsafe` runs first. So a red leaves auto-fix output **uncommitted**, and the next retry runs against that dirty tree. Replace the decision with an accurate statement: a red run leaves `check:fix:unsafe` output uncommitted; retries re-run against that already-normalized tree; the mutation is idempotent formatting/lint (not source edits), and the eventual green run's existing `git add -A` commit absorbs it. Keep the genuine invariant explicit — the *harness* makes no edits between retries; only the gate's own idempotent auto-fix runs. *Rationale: the decision ledger must not record a falsehood; this is the adversary's strongest point and the core "no contaminating edit" promise depends on stating the real mechanic.*
+
+2. **State the HEAD-recording precondition on a retried pass.** Make explicit that the green attempt's `git add -A` absorbs any prior red attempt's uncommitted auto-fix output and asserts a clean worktree before returning, so HEAD recording on a retried pass operates on a committed-everything clean tree exactly as a first-try pass does. *Folds into #1; closes the implied gap about the recorded-green path on a retry.*
+
+3. **Acknowledge the cost compounding against the existing consecutive-red bound.** Because retries apply to *every* completion-gate invocation (including post-fix-up re-checks), a genuinely deterministic-red spec pays up to (retry bound × consecutive-red-fixup bound) full-tier gate executions before the stuck-red exit. Add a decision noting this multiplier and affirming it as an accepted CPU/wall-clock-only cost (zero agent tokens) on the rare deterministic-failure path. Clarify that "cheap" is relative to the avoided alternative — entering the fix-up loop, which spends agent invocations and edits correct work. *Rationale: no-silent-caps; the worst-case interaction is real and unstated.*
+
+4. **Record the seam-arity change and its test impact.** The `opts.runCompletionReadyGate` seam moves from exactly-once to up-to-N invocations per gate. Add this as a decision and flag in the test task that any existing test asserting always-red seam invocation count must be updated (always-green is unaffected — it short-circuits on attempt 1). *Rationale: changing an established test seam's contract is a behavior change reviewers must see.*
+
+5. **Address real-path (non-seam) coverage honestly.** Both planned tests inject the seam, which never touches the worktree, so the dirty-tree-across-retries mechanic on the real `runReadyAndCommit` path is uncovered by design. Either add a test asserting a green-after-red run yields a clean, HEAD-recordable worktree, or explicitly state the real dirty-tree path is uncovered and why. Do not let the spec imply coverage it lacks. *Rationale: spec guidance forbids ACs that silently overstate verification.*
+
+6. **Add the telemetry decision.** The surrounding code emits structured telemetry at every gate terminal. The spec commits to a log line but is silent on telemetry. Make it an explicit decision even if the answer is "operator log only, no new telemetry marker." *Rationale: matches the codebase pattern; an omitted decision here is a real choice left implicit.*
+
+7. **Disambiguate the all-red AC.** The AC currently reads "launches the fix-up loop / preserves the existing red handling (loop-back, stuck-red exit 10)." For an always-red seam on first invocation the deterministic outcome is **loop-back (return null)**, not exit 10 (no prior failure text → not stuck-red). Name loop-back as the exact expected outcome and drop the slash conflation. *Rationale: ACs must assert one verifiable outcome.*
+
+8. **Add a one-line rationale for using the final attempt's failure text** as the red return value feeding stuck-red comparison — it matches today's single-run semantics (the last thing the gate saw) and the comparison normalizer already strips transient deltas. *Minor; the choice is already pinned, only the why is missing.*
+
+No finding invalidates the design. These are precision fixes to the decision ledger, ACs, and test plan.

@@ -36,13 +36,39 @@ contaminating fix-up edit.
 - The retry re-runs the identical whole gate (`runReadyAndCommit` full tier, or
   the `opts.runCompletionReadyGate` seam) — not just the failing step. Rules out a
   narrower re-run; the inner test-step serial retry composes within each run.
-- Harness makes no edits between retries; each run's own `check:fix:unsafe` commit
-  is part of that gate run, as today. Rules out freezing the tree across retries.
+- Tree state between retries: a red run leaves its `check:fix:unsafe` output
+  **uncommitted** — the gate's `git add -A`/commit runs only after ready succeeds,
+  while `check:fix:unsafe` runs first, so a red never commits. Retries re-run
+  against that already-normalized dirty tree. This is safe because the mutation is
+  idempotent formatting/lint, not source edits; the *harness* makes no edits
+  between retries — only the gate's own idempotent auto-fix runs. The eventual
+  green run's existing `git add -A` commit absorbs the accumulated auto-fix output.
+  Rules out the false claim that each red commits its own fix, and rules out
+  freezing the tree across retries.
 - Retries apply on every completion-gate invocation, including the gate re-check
   after a fix-up iteration. Rules out first-invocation-only retry.
 - A pass on any attempt takes the same green path as a first-try pass (records the
-  HEAD-keyed completion-transition green result). Rules out skipping the
-  recorded-green optimization on a retried pass.
+  HEAD-keyed completion-transition green result). The green attempt's `git add -A`
+  absorbs any prior red attempt's uncommitted auto-fix output and asserts a clean
+  worktree before returning, so HEAD recording on a retried pass operates on a
+  committed-everything clean tree exactly as a first-try pass does. Rules out
+  skipping the recorded-green optimization on a retried pass.
+- Cost compounding: because retries apply to every completion-gate invocation
+  (including post-fix-up re-checks), a deterministically-red spec pays up to
+  (retry bound × consecutive-red-fixup bound) full-tier gate executions before the
+  stuck-red exit. Accepted as a CPU/wall-clock-only cost (zero agent tokens) on the
+  rare deterministic-failure path; "cheap" is relative to the avoided alternative —
+  entering the fix-up loop, which spends agent invocations and edits correct work.
+  Rules out silently absorbing the worst-case multiplier.
+- Seam arity: `opts.runCompletionReadyGate` moves from exactly-once to up-to-N
+  invocations per gate. Rules out leaving the seam-contract change implicit for
+  reviewers and tests.
+- Red return value is the final attempt's failure text feeding stuck-red
+  comparison. Matches today's single-run semantics (the last thing the gate saw)
+  and the comparison normalizer already strips transient deltas.
+- Telemetry: operator log line only, no new structured telemetry marker; the
+  existing gate-terminal telemetry is unchanged. Rules out silently omitting a
+  telemetry decision in code that emits structured telemetry at every gate terminal.
 - The bound is a fixed harness constant, no per-project config (per the intent's
   out-of-scope note).
 
@@ -53,9 +79,16 @@ contaminating fix-up edit.
   completion-transition result.
 - [ ] Return red (with the final attempt's failure text) only after all attempts
   fail; leave the caller's stuck-red / loop-back logic untouched.
-- [ ] Emit an operator-visible log line on each retry and on retry-recovery.
+- [ ] Emit an operator-visible log line on each retry and on retry-recovery
+  (operator log only; no new telemetry marker).
 - [ ] Tests: red-then-green seam → green completion, no fix-up; all-red seam →
-  existing red handling (loop-back).
+  loop-back (return null). Update any existing test asserting always-red seam
+  invocation count (always-green is unaffected — it short-circuits on attempt 1).
+- [ ] Real-path coverage: either add a test asserting a green-after-red
+  `runReadyAndCommit` run yields a clean, HEAD-recordable worktree, or state
+  explicitly in the test plan that the real dirty-tree-across-retries path is
+  uncovered and why (the seam never touches the worktree). Do not imply coverage
+  the seam tests lack.
 - [ ] Update `v1/docs/run-loop.md` and `v2/docs/v1-behaviors.md`.
 
 ## Acceptance criteria
@@ -71,10 +104,14 @@ contaminating fix-up edit.
   unchanged.
 - [ ] A test injecting a completion gate (`opts.runCompletionReadyGate`) that
   returns red then green yields a green completion with no fix-up iteration.
-- [ ] A test injecting an always-red completion gate launches the fix-up loop /
-  preserves the existing red handling (loop-back, stuck-red exit 10).
+- [ ] A test injecting an always-red completion gate on first invocation yields
+  loop-back (return null) — the seam is invoked up to the bound, then the existing
+  red handling returns null (no prior failure text → not stuck-red exit 10).
+- [ ] A green-after-red `runReadyAndCommit` run leaves a clean, HEAD-recordable
+  worktree (real-path coverage), or the test plan states this path is uncovered and
+  why; the seam tests do not imply they cover it.
 - [ ] Operator-visible log output distinguishes a gate that passed on a retry from
-  a first-try green.
+  a first-try green; no new structured telemetry marker is added.
 - [ ] The retry bound is a fixed harness constant with no per-project config knob.
 
 ## Documentation updates

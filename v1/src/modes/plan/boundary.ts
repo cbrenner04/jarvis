@@ -158,12 +158,14 @@ Spec-file write boundary is enforced: only files under \`${targetDir}/${specDirB
  * For no-commit plan runs: check that the agent wrote only under the expected
  * spec directory within the external storage root, not to sibling directories.
  *
- * Verifies that only `<specDirBasename>` exists under `<externalSpecRoot>/`,
- * no other top-level entries were created.
+ * Flags only top-level entries created during this run: those that are neither
+ * the active spec dir nor in the pre-existing set. Allows legitimate siblings
+ * like ready-intents/ and prior spec dirs that existed before this run.
  */
 export function assertNoCommitExternalSpecBoundary(
   externalSpecRoot: string,
   specDirBasename: string,
+  preExistingSiblings?: Set<string>,
 ): BoundaryCheckResult {
   // Check that the directory exists
   if (!existsSync(externalSpecRoot)) {
@@ -182,9 +184,11 @@ export function assertNoCommitExternalSpecBoundary(
 
   const offendingPaths: string[] = [];
   for (const entry of entries) {
-    if (entry !== specDirBasename) {
-      offendingPaths.push(join(externalSpecRoot, entry));
+    // Skip the active spec dir and any pre-existing siblings
+    if (entry === specDirBasename || preExistingSiblings?.has(entry)) {
+      continue;
     }
+    offendingPaths.push(join(externalSpecRoot, entry));
   }
 
   if (offendingPaths.length === 0) {

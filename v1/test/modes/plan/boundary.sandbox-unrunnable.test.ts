@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   appendBoundaryBlocker,
+  assertNoCommitExternalSpecBoundary,
   assertPlanWriteBoundary,
   assertTargetRepoPlanBoundary,
   revertPaths,
@@ -234,5 +235,83 @@ describe("boundary", () => {
     const content = readFileSync(intentPath, "utf8");
     expect(content).not.toContain("Old blocker content");
     expect(content).toContain("Out-of-bounds write detected");
+  });
+
+  test("assertNoCommitExternalSpecBoundary allows pre-existing siblings with ready-intents and prior spec dir", () => {
+    const extSpecRoot = join(tempDir, "ext-specs");
+    mkdirSync(extSpecRoot, { recursive: true });
+
+    // Create pre-existing siblings
+    mkdirSync(join(extSpecRoot, "ready-intents"));
+    writeFileSync(join(extSpecRoot, "ready-intents", "test.md"), "# Intent\n");
+    mkdirSync(join(extSpecRoot, "2026-01-01T00-00-00Z-old-spec"));
+    writeFileSync(join(extSpecRoot, "2026-01-01T00-00-00Z-old-spec", "intent.md"), "# Old\n");
+
+    // Capture pre-existing siblings (as would happen in run.ts)
+    const preExisting = new Set(["ready-intents", "2026-01-01T00-00-00Z-old-spec"]);
+
+    // Create the active spec dir
+    const activeDirName = "2026-06-23T02-55-34Z-test-spec";
+    mkdirSync(join(extSpecRoot, activeDirName));
+    writeFileSync(join(extSpecRoot, activeDirName, "intent.md"), "# New\n");
+
+    const result = assertNoCommitExternalSpecBoundary(extSpecRoot, activeDirName, preExisting);
+    expect(result.ok).toBe(true);
+  });
+
+  test("assertNoCommitExternalSpecBoundary flags non-pre-existing siblings as offending", () => {
+    const extSpecRoot = join(tempDir, "ext-specs");
+    mkdirSync(extSpecRoot, { recursive: true });
+
+    // Create pre-existing siblings
+    const preExisting = new Set(["ready-intents", "2026-01-01T00-00-00Z-old-spec"]);
+    mkdirSync(join(extSpecRoot, "ready-intents"));
+
+    // Create the active spec dir
+    const activeDirName = "2026-06-23T02-55-34Z-test-spec";
+    mkdirSync(join(extSpecRoot, activeDirName));
+
+    // Create an offending directory that was not pre-existing
+    mkdirSync(join(extSpecRoot, "rogue-escape"));
+    writeFileSync(join(extSpecRoot, "rogue-escape", "file.txt"), "bad\n");
+
+    const result = assertNoCommitExternalSpecBoundary(extSpecRoot, activeDirName, preExisting);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.offendingPaths.length).toBe(1);
+      expect(result.offendingPaths[0]).toContain("rogue-escape");
+    }
+  });
+
+  test("assertNoCommitExternalSpecBoundary returns ok without pre-existing set", () => {
+    const extSpecRoot = join(tempDir, "ext-specs");
+    mkdirSync(extSpecRoot, { recursive: true });
+
+    // Create the active spec dir only (no pre-existing snapshot)
+    const activeDirName = "2026-06-23T02-55-34Z-test-spec";
+    mkdirSync(join(extSpecRoot, activeDirName));
+
+    const result = assertNoCommitExternalSpecBoundary(extSpecRoot, activeDirName);
+    expect(result.ok).toBe(true);
+  });
+
+  test("assertNoCommitExternalSpecBoundary flags siblings when pre-existing set is empty", () => {
+    const extSpecRoot = join(tempDir, "ext-specs");
+    mkdirSync(extSpecRoot, { recursive: true });
+
+    // Create the active spec dir
+    const activeDirName = "2026-06-23T02-55-34Z-test-spec";
+    mkdirSync(join(extSpecRoot, activeDirName));
+
+    // Create a sibling created during this run
+    mkdirSync(join(extSpecRoot, "rogue-escape"));
+
+    const preExisting = new Set<string>();
+    const result = assertNoCommitExternalSpecBoundary(extSpecRoot, activeDirName, preExisting);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.offendingPaths.length).toBe(1);
+      expect(result.offendingPaths[0]).toContain("rogue-escape");
+    }
   });
 });

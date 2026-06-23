@@ -27,10 +27,10 @@ v2 planning.
 
 ## Acceptance criteria
 
-- [ ] `v1/spec/completed/2026-05-25T23-55-09Z-v2-meta-intent-loop-rca/` and `v1/spec/completed/2026-05-29T12-56-13Z-first-write-behavior/` exist, and `git log --follow` (or the rename-detection in `git show`/`git diff` for the move commit) records each file as a content-preserving rename with zero content delta.
-- [ ] Neither `2026-05-25T23-55-09Z-v2-meta-intent-loop-rca/` nor `2026-05-29T12-56-13Z-first-write-behavior/` remains under `v2/spec/completed/`.
-- [ ] `v2/spec/completed/` still contains `2026-05-23T23-17-59Z-v2-engine-scaffold/`, `2026-06-09T13-47-28Z-v2-coding-standards/`, and `2026-06-12T00-24-39Z-phase-2-write-loop/`, unchanged.
-- [ ] No file in the repo references `v2/spec/completed/2026-05-25T23-55-09Z-v2-meta-intent-loop-rca` or `v2/spec/completed/2026-05-29T12-56-13Z-first-write-behavior`.
+- [x] `v1/spec/completed/2026-05-25T23-55-09Z-v2-meta-intent-loop-rca/` and `v1/spec/completed/2026-05-29T12-56-13Z-first-write-behavior/` exist, and `git log --follow` (or the rename-detection in `git show`/`git diff` for the move commit) records each file as a content-preserving rename with zero content delta.
+- [x] Neither `2026-05-25T23-55-09Z-v2-meta-intent-loop-rca/` nor `2026-05-29T12-56-13Z-first-write-behavior/` remains under `v2/spec/completed/`.
+- [x] `v2/spec/completed/` still contains `2026-05-23T23-17-59Z-v2-engine-scaffold/`, `2026-06-09T13-47-28Z-v2-coding-standards/`, and `2026-06-12T00-24-39Z-phase-2-write-loop/`, unchanged.
+- [x] No file in the repo references `v2/spec/completed/2026-05-25T23-55-09Z-v2-meta-intent-loop-rca` or `v2/spec/completed/2026-05-29T12-56-13Z-first-write-behavior`.
 
 ## Documentation updates
 

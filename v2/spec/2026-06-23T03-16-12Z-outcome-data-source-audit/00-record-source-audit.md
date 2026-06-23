@@ -72,30 +72,30 @@ The proposed outcome columns to classify, from
 
 ## Acceptance criteria
 
-- [ ] `v2/docs/outcome-data-source-audit.md` exists and inventories the telemetry
+- [x] `v2/docs/outcome-data-source-audit.md` exists and inventories the telemetry
   JSONL and cost-CSV fields the harness already records, citing `v1/docs/run-loop.md`,
   `v1/docs/quota-signals.md`, and `v1/docs/operator-runbook.md`.
-- [ ] The doc classifies every proposed session-sheet column and every enumerated
+- [x] The doc classifies every proposed session-sheet column and every enumerated
   overlord roll-up column (`specs_driven`, `overall_success`, `session_type`,
   `total_duration`, `aggregate_files_touched`) into already-logged, derivable, or
   not-captured — `success_status` may instead carry a compound derived-hint +
   observer-override classification.
-- [ ] No column is classified not-captured when a derivation from a documented
+- [x] No column is classified not-captured when a derivation from a documented
   telemetry field or cost-CSV header exists (the bias-toward-captured check bites on
   misclassification).
-- [ ] Every column classified derivable names the source log field(s) and the
+- [x] Every column classified derivable names the source log field(s) and the
   derivation that produces it, and every named source field is traceable to its cited
   doc.
-- [ ] The `agent_count` derivation states the filter excluding `record_role:
+- [x] The `agent_count` derivation states the filter excluding `record_role:
   "run_terminal"` and synthetic `agent: harness` rows; `duration_minutes` and
   `files_touched` are derived against the docs, not asserted from the seed.
-- [ ] `session_id` is classified the cost-CSV join key and `report_date` derivable
+- [x] `session_id` is classified the cost-CSV join key and `report_date` derivable
   from `ts`; `aggregate_files_touched` is flagged as having no CSV home and hitting the
   patch-only telemetry gap.
-- [ ] Every column classified not-captured is recorded as a scoped follow-up, and the
+- [x] Every column classified not-captured is recorded as a scoped follow-up, and the
   judgment columns (`completed_work_units`, `notes`) are marked observer-recorded
   rather than harness-derivable.
-- [ ] The doc states the audit makes no telemetry or CSV behavior change.
+- [x] The doc states the audit makes no telemetry or CSV behavior change.
 
 ## Documentation updates
 

@@ -41,7 +41,7 @@ import { commitPlanBlocker, commitPlanDraft } from "./commits.ts";
 import { runDraftPhase, validateDraftOutput } from "./draft.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "./pr.ts";
-import { runPlanReviewPhase, type PlanReviewPhaseOptions } from "./review.ts";
+import { type PlanReviewPhaseOptions, runPlanReviewPhase } from "./review.ts";
 import {
   computeNoCommitSpecRoot,
   computeProjectSafeId,

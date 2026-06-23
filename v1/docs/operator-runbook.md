@@ -59,6 +59,7 @@ Cost-row identities:
 - Before writing or amending an outcome row, confirm the matching cost-sheet composite identity is unique. Duplicate cost identities are blocking; do not pick one silently.
 - JSONL-derived patch fields additionally require a durable binding from the session cost identity to one JSONL namespace, one run window, and one run base. Record that binding in the matching `session-costs.csv` `notes` and mirror it in the markdown report.
 - Overlord derived fields additionally require a durable binding from the overlord cost identity to its exact member session-cost identities and shared session base. Record that binding in the matching `overlord-costs.csv` `notes` and mirror it in the markdown report.
+- For the already-written historical header-only outcome sheets, follow the exact historical backfill procedure and evidence limits in [v2/docs/outcome-data-source-audit.md](../../v2/docs/outcome-data-source-audit.md) instead of inventing lookalike bindings after the fact.
 
 Cost-sheet rules:
 

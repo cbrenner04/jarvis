@@ -29,14 +29,14 @@ each existing cost row has one joining outcome row.
 
 ## Acceptance criteria
 
-- [ ] Every unique row in `reports/session-costs.csv` joins to exactly one row in `reports/session-outcomes.csv` on `(report, name) -> (report, session_id)`, and no session outcome lacks a matching cost row.
-- [ ] Every unique row in `reports/overlord-costs.csv` joins to exactly one row in `reports/overlord-outcomes.csv` on `(report, session) -> (report, session_id)`, and no overlord outcome lacks a matching cost row.
-- [ ] The snapshot covers 30 session identities and 3 overlord identities with those bidirectional joins.
-- [ ] Every non-blank historical field has an exact identity binding and recorded primary or fallback provenance; JSONL and git fields have their durable session binding, and report similarity alone never supplies a value.
-- [ ] Each session `duration_minutes` equals its cost row's `(plan_time + run_time) / 60`, rounded to two decimals; overlord date, duration, and distinct-path file union are populated only with an exact member set and shared base.
-- [ ] Recovered statuses, failure reasons, and completed work units follow the runbook semantics; unknown judgment or derivation remains blank with a note naming the evidence, judgment basis, or unrecoverable reason.
-- [ ] `v2/docs/outcome-data-source-audit.md` documents the completed historical procedure and evidence limits, and `v1/docs/operator-runbook.md` cross-links it alongside normal reconciliation.
-- [ ] `v2/docs/v1-behaviors.md` records exact-identity, source-or-blank coverage without claiming every historical field is recoverable.
+- [x] Every unique row in `reports/session-costs.csv` joins to exactly one row in `reports/session-outcomes.csv` on `(report, name) -> (report, session_id)`, and no session outcome lacks a matching cost row.
+- [x] Every unique row in `reports/overlord-costs.csv` joins to exactly one row in `reports/overlord-outcomes.csv` on `(report, session) -> (report, session_id)`, and no overlord outcome lacks a matching cost row.
+- [x] The snapshot covers 30 session identities and 3 overlord identities with those bidirectional joins.
+- [x] Every non-blank historical field has an exact identity binding and recorded primary or fallback provenance; JSONL and git fields have their durable session binding, and report similarity alone never supplies a value.
+- [x] Each session `duration_minutes` equals its cost row's `(plan_time + run_time) / 60`, rounded to two decimals; overlord date, duration, and distinct-path file union are populated only with an exact member set and shared base.
+- [x] Recovered statuses, failure reasons, and completed work units follow the runbook semantics; unknown judgment or derivation remains blank with a note naming the evidence, judgment basis, or unrecoverable reason.
+- [x] `v2/docs/outcome-data-source-audit.md` documents the completed historical procedure and evidence limits, and `v1/docs/operator-runbook.md` cross-links it alongside normal reconciliation.
+- [x] `v2/docs/v1-behaviors.md` records exact-identity, source-or-blank coverage without claiming every historical field is recoverable.
 
 ## Documentation updates
 

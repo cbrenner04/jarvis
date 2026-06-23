@@ -180,6 +180,18 @@ function commitAndPushCompleteDirtyWorktree(cwd: string): boolean {
   return true;
 }
 
+function readHeadSha(cwd: string): string | null {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 function discardFixupEdits(baselineSha: string, cwd: string, skipGhCheck: boolean): void {
   try {
     execFileSync("git", ["reset", "--hard", baselineSha], {
@@ -204,6 +216,40 @@ function discardFixupEdits(baselineSha: string, cwd: string, skipGhCheck: boolea
       throw new Error(`git push --force-with-lease failed: ${message}`);
     }
   }
+}
+
+function exitStuckRed(
+  ctx: IterationContext,
+  failureText: string,
+  summary: string,
+): 10 {
+  const { preflight, logging } = ctx;
+  const worktreeName = basename(preflight.agentWorkingDir);
+
+  if (ctx.state.firstRedBaselineSha !== null) {
+    try {
+      discardFixupEdits(ctx.state.firstRedBaselineSha, preflight.agentWorkingDir, ctx.opts.skipGhCheck ?? false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logging.fanout("harness", `warning: failed to discard fix-up edits: ${message}\n`, "stderr");
+    }
+  }
+
+  logging.fanout(
+    "harness",
+    `${failureText}\n\n${summary}\n\nThe fix-up edits have been discarded (reset to the original work); the PR is at the completed spec as it stood before fix-up attempts. Recover the discarded edits via git reflog.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+    "stderr",
+  );
+  logging.writeTelemetry({
+    agent: "harness",
+    iteration: ctx.state.iteration,
+    durationMs: 0,
+    kind: "ok",
+    exitReason: "ready-stuck-red",
+    record_role: "run_terminal",
+  });
+  ctx.state.completionLoopbackSignal = null;
+  return 10;
 }
 
 async function runCompletionReadyGate(
@@ -327,22 +373,8 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         return 6;
       }
       // Red completion ready gate.
-      // Capture the first-red baseline on the first red (used later for discard)
-      if (
-        ctx.state.firstRedBaselineSha === null &&
-        preflight.gitEnabled &&
-        existsSync(join(preflight.agentWorkingDir, ".git"))
-      ) {
-        try {
-          const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
-            cwd: preflight.agentWorkingDir,
-            encoding: "utf8",
-            stdio: "pipe",
-          }).trim();
-          ctx.state.firstRedBaselineSha = headSha;
-        } catch {
-          // No HEAD sha available: skip baseline capture
-        }
+      if (ctx.state.firstRedBaselineSha === null && existsSync(join(preflight.agentWorkingDir, ".git"))) {
+        ctx.state.firstRedBaselineSha = readHeadSha(preflight.agentWorkingDir);
       }
 
       // Check if this is a stuck-red stop: failure unchanged and no new checkbox/blocker
@@ -354,36 +386,11 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         !hasNewBlocker;
 
       if (isStuckRed) {
-        // Stuck-red stop: the failure is unchanged, no new checkbox, no new blocker
-        const worktreeName = basename(preflight.agentWorkingDir);
-
-        // Discard fix-up edits: reset to baseline and force-push if upstream exists
-        if (ctx.state.firstRedBaselineSha !== null) {
-          try {
-            discardFixupEdits(ctx.state.firstRedBaselineSha, preflight.agentWorkingDir, ctx.opts.skipGhCheck ?? false);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            logging.fanout("harness", `warning: failed to discard fix-up edits: ${message}\n`, "stderr");
-          }
-        }
-
-        logging.fanout(
-          "harness",
-          `${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nThe fix-up edits have been discarded (reset to the original work); the PR is at the completed spec as it stood before fix-up attempts. Recover the discarded edits via git reflog.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
-          "stderr",
+        return exitStuckRed(
+          ctx,
+          gateResult.failureText,
+          "The failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.",
         );
-        logging.writeTelemetry({
-          agent: "harness",
-          iteration: ctx.state.iteration,
-          durationMs: 0,
-          kind: "ok",
-          exitReason: "ready-stuck-red",
-          record_role: "run_terminal",
-        });
-        // Clear the loop-back signal so the caller returns exit 10 instead of
-        // treating the still-set signal as another fix-up loop.
-        ctx.state.completionLoopbackSignal = null;
-        return 10;
       }
 
       // Red but not stuck on identical failure: check for changing-failure bound
@@ -398,35 +405,11 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
       }
 
       if (ctx.state.consecutiveRedFixups >= CONSECUTIVE_RED_FIXUP_BOUND) {
-        // Changing-failure bound: failure text differs each iteration but no AC progress
-        const worktreeName = basename(preflight.agentWorkingDir);
-
-        // Discard fix-up edits: reset to baseline and force-push if upstream exists
-        if (ctx.state.firstRedBaselineSha !== null) {
-          try {
-            discardFixupEdits(ctx.state.firstRedBaselineSha, preflight.agentWorkingDir, ctx.opts.skipGhCheck ?? false);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            logging.fanout("harness", `warning: failed to discard fix-up edits: ${message}\n`, "stderr");
-          }
-        }
-
-        logging.fanout(
-          "harness",
-          `${gateResult.failureText}\n\nThe ready gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations with no acceptance criteria progress and the failure differed each pass. The issue persists without convergence.\n\nThe fix-up edits have been discarded (reset to the original work); the PR is at the completed spec as it stood before fix-up attempts. Recover the discarded edits via git reflog.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
-          "stderr",
+        return exitStuckRed(
+          ctx,
+          gateResult.failureText,
+          `The ready gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations with no acceptance criteria progress and the failure differed each pass. The issue persists without convergence.`,
         );
-        logging.writeTelemetry({
-          agent: "harness",
-          iteration: ctx.state.iteration,
-          durationMs: 0,
-          kind: "ok",
-          exitReason: "ready-stuck-red",
-          record_role: "run_terminal",
-        });
-        // Clear the loop-back signal so the caller returns exit 10
-        ctx.state.completionLoopbackSignal = null;
-        return 10;
       }
 
       // Red but failure changed and haven't hit the bound: loop back for another fix-up iteration
@@ -444,17 +427,10 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     // gate: on green, record the result keyed to HEAD sha + clean worktree so
     // the downstream shrink, review, and maybeMarkReady phases reuse it instead
     // of re-running `bun run ready`.
-    if (preflight.gitEnabled && existsSync(join(preflight.agentWorkingDir, ".git"))) {
-      try {
-        const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
-          cwd: preflight.agentWorkingDir,
-          encoding: "utf8",
-          stdio: "pipe",
-        }).trim();
+    if (existsSync(join(preflight.agentWorkingDir, ".git"))) {
+      const headSha = readHeadSha(preflight.agentWorkingDir);
+      if (headSha !== null) {
         ctx.state.completionTransitionReadyResult = { headSha };
-      } catch {
-        // No HEAD sha available (e.g. not a git worktree in tests): skip
-        // recording; downstream gates fall back to running ready themselves.
       }
     }
   }

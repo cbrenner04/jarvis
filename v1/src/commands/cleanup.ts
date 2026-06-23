@@ -71,7 +71,12 @@ function resolveSpecArchiveSource(
     }
   }
 
-  return { source: join(projectRoot, targetDir, specName), specName, missingSource: join(projectRoot, targetDir, specName), sourceHome: targetDir };
+  return {
+    source: join(projectRoot, targetDir, specName),
+    specName,
+    missingSource: join(projectRoot, targetDir, specName),
+    sourceHome: targetDir,
+  };
 }
 
 function deleteMergedBranch(projectRoot: string, branch: string): void {
@@ -194,7 +199,12 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
 
-      const { source, specName, missingSource, sourceHome } = resolveSpecArchiveSource(opts.projectRoot, targetDir, item.branch, candidateHomes);
+      const { source, specName, missingSource, sourceHome } = resolveSpecArchiveSource(
+        opts.projectRoot,
+        targetDir,
+        item.branch,
+        candidateHomes,
+      );
       if (specName === "completed") {
         opts.io.stderr(`unsafe spec archive mapping for "${item.dir}": refusing to move ${targetDir}/completed/\n`);
         hadFailures = true;

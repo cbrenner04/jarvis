@@ -11,11 +11,16 @@ export type TriageIo = {
   stderr: (s: string) => void;
 };
 
+export type TriageGhRunner = {
+  getPrState: (branch: string) => { state: string; isDraft: boolean } | null;
+};
+
 export type TriageCommandOptions = {
   projectRoot: string;
   io: TriageIo;
   config?: ConfigOptions;
   worktreeName?: string;
+  ghRunner?: TriageGhRunner;
 };
 
 export type DirtyKind = "clean" | "untracked-only" | "modified" | "mixed";
@@ -48,10 +53,22 @@ export function triageCommand(opts: TriageCommandOptions): number {
   }
 
   // No-arg form: list all worktrees with summary
-  return triageListWorktrees(worktreeDir, opts.io);
+  const ghRunner = opts.ghRunner || createDefaultGhRunner();
+  return triageListWorktrees(worktreeDir, opts.io, ghRunner);
 }
 
-function triageListWorktrees(worktreeDir: string, io: TriageIo): number {
+type WorktreeStatus = {
+  name: string;
+  dirtyStatus: string;
+  aheadBehind: string;
+  prState: string;
+  specProgress: string;
+  isLanded: boolean;
+  isDraft?: boolean;
+  prStateRaw?: string;
+};
+
+function triageListWorktrees(worktreeDir: string, io: TriageIo, ghRunner: TriageGhRunner): number {
   let worktrees: string[];
   try {
     worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
@@ -67,6 +84,8 @@ function triageListWorktrees(worktreeDir: string, io: TriageIo): number {
 
   io.stdout("NAME\t\tDIRTY\t\tAHEAD/BEHIND\tPR\t\tSPEC\n");
 
+  const statuses: WorktreeStatus[] = [];
+
   for (const worktreeName of worktrees) {
     const worktreePath = join(worktreeDir, worktreeName);
     const dirtyStatus = getDirtyStatusSummary(worktreePath);
@@ -75,9 +94,126 @@ function triageListWorktrees(worktreeDir: string, io: TriageIo): number {
     const specProgress = getSpecProgress(worktreePath);
 
     io.stdout(`${worktreeName}\t\t${dirtyStatus}\t\t${aheadBehind}\t\t${prState}\t\t${specProgress}\n`);
+
+    const { isLanded, isDraft, prStateRaw } = classifyWorktree(worktreePath, worktreeName, ghRunner);
+    const status: WorktreeStatus = {
+      name: worktreeName,
+      dirtyStatus,
+      aheadBehind,
+      prState,
+      specProgress,
+      isLanded,
+    };
+    if (isDraft !== undefined) {
+      status.isDraft = isDraft;
+    }
+    if (prStateRaw !== undefined) {
+      status.prStateRaw = prStateRaw;
+    }
+    statuses.push(status);
   }
 
+  // Emit session-end verdict
+  emitVerdict(io, statuses);
+
   return 0;
+}
+
+function createDefaultGhRunner(): TriageGhRunner {
+  return {
+    getPrState: (branch: string) => {
+      try {
+        const fullOutput = execSync(`gh pr view "${branch}" --json state,isDraft`, {
+          stdio: "pipe",
+          encoding: "utf8",
+        });
+        const prData = JSON.parse(fullOutput);
+        return {
+          state: prData.state || "unknown",
+          isDraft: prData.isDraft ?? false,
+        };
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+function classifyWorktree(
+  worktreePath: string,
+  worktreeName: string,
+  ghRunner: TriageGhRunner,
+): { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } {
+  // Plan worktrees are never landed
+  if (worktreeName.startsWith("plan-")) {
+    return { isLanded: false };
+  }
+
+  // Check PR state
+  const prStateResult = ghRunner.getPrState(worktreeName);
+  if (!prStateResult || prStateResult.state !== "MERGED") {
+    const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = {
+      isLanded: false,
+    };
+    if (prStateResult?.isDraft !== undefined) {
+      result.isDraft = prStateResult.isDraft;
+    }
+    if (prStateResult?.state !== undefined) {
+      result.prStateRaw = prStateResult.state.toLowerCase();
+    }
+    return result;
+  }
+
+  // Check if tree is clean
+  const dirtyKind = computeDirtyKind(worktreePath);
+  if (dirtyKind !== "clean") {
+    const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = {
+      isLanded: false,
+    };
+    if (prStateResult.isDraft !== undefined) {
+      result.isDraft = prStateResult.isDraft;
+    }
+    result.prStateRaw = prStateResult.state.toLowerCase();
+    return result;
+  }
+
+  // Check if there are unpushed commits
+  const unpushed = computeUnpushed(worktreePath);
+  if (unpushed > 0) {
+    const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = {
+      isLanded: false,
+    };
+    if (prStateResult.isDraft !== undefined) {
+      result.isDraft = prStateResult.isDraft;
+    }
+    result.prStateRaw = prStateResult.state.toLowerCase();
+    return result;
+  }
+
+  // All conditions met: PR is merged, tree is clean, no unpushed commits
+  const result: { isLanded: boolean; isDraft?: boolean; prStateRaw?: string } = {
+    isLanded: true,
+  };
+  if (prStateResult.isDraft !== undefined) {
+    result.isDraft = prStateResult.isDraft;
+  }
+  result.prStateRaw = prStateResult.state.toLowerCase();
+  return result;
+}
+
+function emitVerdict(io: TriageIo, statuses: WorktreeStatus[]): void {
+  const outstanding = statuses.filter((s) => !s.isLanded);
+
+  if (outstanding.length === 0) {
+    io.stdout("\nSession-end verdict: all work landed\n");
+  } else {
+    io.stdout("\nSession-end verdict: outstanding work\n");
+    for (const status of outstanding) {
+      const draftMarker = status.isDraft ? " (draft)" : "";
+      const reportedState = status.prStateRaw || "no PR";
+      io.stdout(`  ${status.name}\t${reportedState}${draftMarker}\n`);
+    }
+  }
 }
 
 function triageDrillDown(worktreeDir: string, worktreeName: string, io: TriageIo): number {

@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SuggestedMovesInput, TriageIo } from "../src/commands/triage.ts";
+import type { SuggestedMovesInput, TriageIo, TriageGhRunner } from "../src/commands/triage.ts";
 import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
 
 function captureIo(): { io: TriageIo; out: () => string; err: () => string } {
@@ -127,18 +127,23 @@ describe("triage command", () => {
     execSync("git config user.email test@example.com", { cwd: worktreePath });
     execSync("git config user.name Test", { cwd: worktreePath });
 
+    const ghRunner: TriageGhRunner = {
+      getPrState: () => null,
+    };
+
     const { io, out } = captureIo();
     const code = triageCommand({
       projectRoot,
       io,
+      ghRunner,
     });
 
     expect(code).toBe(0);
     const output = out();
-    // Should have only one worktree line (besides header)
-    const lines = output.split("\n").filter((l) => l.trim().length > 0);
-    expect(lines.length).toBe(2); // Header + one worktree
+    // .keep should not appear in output
     expect(output).not.toContain(".keep");
+    // Verdict should be present
+    expect(output).toContain("Session-end verdict");
   });
 
   test("drill-down with clean worktree and no marker", () => {
@@ -463,5 +468,240 @@ describe("suggested moves rules", () => {
     const lines = getSuggestedMoves(input);
     // Should fall through to the fallback suggestion
     expect(lines.some((l) => l.includes("Inspect"))).toBe(true);
+  });
+});
+
+describe("triage verdict", () => {
+  test("all-landed verdict when all worktrees are merged, clean, and no unpushed", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "MERGED",
+        isDraft: false,
+      }),
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("all work landed");
+  });
+
+  test("outstanding verdict lists worktrees with draft PRs", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo with dirty state
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    writeFileSync(join(worktreePath, "test.txt"), "dirty");
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "OPEN",
+        isDraft: true,
+      }),
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    expect(output).toContain(worktreeName);
+    expect(output).toContain("open");
+    expect(output).toContain("(draft)");
+  });
+
+  test("outstanding verdict lists worktrees with ready (non-draft) PRs", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "OPEN",
+        isDraft: false,
+      }),
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    expect(output).toContain(worktreeName);
+    expect(output).toContain("open");
+    expect(output).not.toContain("(draft)");
+  });
+
+  test("merged dirty worktree is outstanding", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo with dirty state
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+    writeFileSync(join(worktreePath, "test.txt"), "dirty");
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "MERGED",
+        isDraft: false,
+      }),
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    expect(output).toContain(worktreeName);
+    expect(output).toContain("merged");
+  });
+
+  test("plan worktree is classified as outstanding", () => {
+    const worktreeName = "plan-new-feature";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo (clean)
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => ({
+        state: "MERGED",
+        isDraft: false,
+      }),
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    expect(output).toContain(worktreeName);
+  });
+
+  test("no PR state is classified as outstanding", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    mkdirSync(worktreePath, { recursive: true });
+
+    // Initialize git repo
+    execSync("git init", { cwd: worktreePath });
+    execSync("git config user.email test@example.com", { cwd: worktreePath });
+    execSync("git config user.name Test", { cwd: worktreePath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: worktreePath });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: () => null,
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    expect(output).toContain(worktreeName);
+  });
+
+  test("mixed verdict with both landed and outstanding worktrees", () => {
+    // Create first worktree (landed)
+    const landed = "branch-landed";
+    const landedPath = join(worktreeDir, landed);
+    mkdirSync(landedPath, { recursive: true });
+    execSync("git init", { cwd: landedPath });
+    execSync("git config user.email test@example.com", { cwd: landedPath });
+    execSync("git config user.name Test", { cwd: landedPath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: landedPath });
+
+    // Create second worktree (outstanding - open PR)
+    const outstanding = "branch-unpushed";
+    const outstandingPath = join(worktreeDir, outstanding);
+    mkdirSync(outstandingPath, { recursive: true });
+    execSync("git init", { cwd: outstandingPath });
+    execSync("git config user.email test@example.com", { cwd: outstandingPath });
+    execSync("git config user.name Test", { cwd: outstandingPath });
+    execSync("git commit --allow-empty -m 'initial'", { cwd: outstandingPath });
+
+    const ghRunner: TriageGhRunner = {
+      getPrState: (branch) => {
+        if (branch === landed) {
+          return { state: "MERGED", isDraft: false };
+        }
+        return { state: "OPEN", isDraft: true };
+      },
+    };
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      ghRunner,
+    });
+
+    expect(code).toBe(0);
+    const output = out();
+    expect(output).toContain("outstanding work");
+    expect(output).toContain(outstanding);
+    // Check that landed worktree is not in the outstanding section of the verdict
+    const verdictSection = output.split("Session-end verdict:")[1];
+    expect(verdictSection).not.toContain(landed);
   });
 });

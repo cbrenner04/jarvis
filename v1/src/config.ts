@@ -68,6 +68,7 @@ export type Project = {
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string };
   updateSnapshotsCommand?: string;
   readyCommand?: string;
+  readyGateRetryBound?: number;
 };
 
 export type ProjectMatch = {
@@ -482,6 +483,14 @@ function validateConfig(input: unknown, file: string): Config {
       }
       project.readyCommand = readyCommandRaw;
     }
+    const readyGateRetryBoundRaw = (value as Record<string, unknown>).readyGateRetryBound;
+    if (readyGateRetryBoundRaw !== undefined) {
+      project.readyGateRetryBound = validateNonNegativeInteger(
+        readyGateRetryBoundRaw,
+        `project ${JSON.stringify(name)} readyGateRetryBound`,
+        (message) => fail(file, message),
+      );
+    }
     // Strict keys validation for project object
     const allowedProjectKeys = new Set([
       "root",
@@ -491,6 +500,7 @@ function validateConfig(input: unknown, file: string): Config {
       "plan",
       "updateSnapshotsCommand",
       "readyCommand",
+      "readyGateRetryBound",
     ]);
     const projectObj = value as Record<string, unknown>;
     for (const key of Object.keys(projectObj)) {
@@ -504,7 +514,7 @@ function validateConfig(input: unknown, file: string): Config {
         }
         fail(
           file,
-          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand)`,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, readyGateRetryBound)`,
         );
       }
     }

@@ -364,8 +364,10 @@ The completion gate:
    checkbox-only completion).
 2. On green: commits any `check:fix` output and proceeds to shrink → review 
    → `maybeMarkReady` (if configured).
-3. On red: re-runs the same whole gate unchanged up to a fixed bound of 2
-   retries (3 total attempts). No agent runs between attempts. Each retry
+3. On red: re-runs the same whole gate unchanged up to a per-project retry
+   bound (default 2 retries, 3 total attempts). The bound is configured via
+   the `readyGateRetryBound` knob in `~/.jarvis/config.json`; set it to 0 for
+   fail-fast with no retries. No agent runs between attempts. Each retry
    reuses the same dirty tree left by any prior red attempt's uncommitted
    `check:fix:unsafe` output.
 4. If any retry turns green: commits any accumulated `check:fix` output,

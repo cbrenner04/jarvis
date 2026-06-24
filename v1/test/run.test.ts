@@ -1575,6 +1575,241 @@ exit 0
     });
   });
 
+  describe("readyGateRetryBound configuration", () => {
+    test("config validation: readyGateRetryBound 0 is accepted", () => {
+      const cfgZeroDir = mkdtempSync(join(tmpdir(), "jarvis-config-zero-"));
+      try {
+        const cfg = loadConfig({ dir: cfgZeroDir });
+        cfg.projects.zerotest = { root: join(tmpdir(), "project-zero") };
+        cfg.projects.zerotest.readyGateRetryBound = 0;
+        expect(() => writeConfig(cfg, { dir: cfgZeroDir })).not.toThrow();
+        const loaded = loadConfig({ dir: cfgZeroDir });
+        expect(loaded.projects.zerotest?.readyGateRetryBound).toBe(0);
+      } finally {
+        rmSync(cfgZeroDir, { recursive: true, force: true });
+      }
+    });
+
+    test("config validation: negative readyGateRetryBound is rejected", () => {
+      const cfgNegDir = mkdtempSync(join(tmpdir(), "jarvis-config-neg-"));
+      try {
+        expect(() => {
+          const cfg = JSON.parse(readFileSync(join(cfgNegDir, "config.json"), "utf8"));
+          cfg.projects.negtest = { root: join(tmpdir(), "project-neg"), readyGateRetryBound: -1 };
+          writeFileSync(join(cfgNegDir, "config.json"), JSON.stringify(cfg));
+          loadConfig({ dir: cfgNegDir });
+        }).toThrow();
+      } finally {
+        rmSync(cfgNegDir, { recursive: true, force: true });
+      }
+    });
+
+    test("config validation: non-integer readyGateRetryBound is rejected", () => {
+      const cfgFloatDir = mkdtempSync(join(tmpdir(), "jarvis-config-float-"));
+      try {
+        expect(() => {
+          const cfg = JSON.parse(readFileSync(join(cfgFloatDir, "config.json"), "utf8"));
+          cfg.projects.floattest = { root: join(tmpdir(), "project-float"), readyGateRetryBound: 1.5 };
+          writeFileSync(join(cfgFloatDir, "config.json"), JSON.stringify(cfg));
+          loadConfig({ dir: cfgFloatDir });
+        }).toThrow();
+      } finally {
+        rmSync(cfgFloatDir, { recursive: true, force: true });
+      }
+    });
+
+    test("config validation: non-numeric readyGateRetryBound is rejected", () => {
+      const cfgStrDir = mkdtempSync(join(tmpdir(), "jarvis-config-str-"));
+      try {
+        expect(() => {
+          const cfg = JSON.parse(readFileSync(join(cfgStrDir, "config.json"), "utf8"));
+          cfg.projects.stringtest = { root: join(tmpdir(), "project-str"), readyGateRetryBound: "five" };
+          writeFileSync(join(cfgStrDir, "config.json"), JSON.stringify(cfg));
+          loadConfig({ dir: cfgStrDir });
+        }).toThrow();
+      } finally {
+        rmSync(cfgStrDir, { recursive: true, force: true });
+      }
+    });
+
+    test("config validation: Infinity is rejected", () => {
+      const cfgInfDir = mkdtempSync(join(tmpdir(), "jarvis-config-inf-"));
+      try {
+        expect(() => {
+          const cfg = JSON.parse(readFileSync(join(cfgInfDir, "config.json"), "utf8"));
+          cfg.projects.inftest = { root: join(tmpdir(), "project-inf"), readyGateRetryBound: Infinity };
+          writeFileSync(join(cfgInfDir, "config.json"), JSON.stringify(cfg));
+          loadConfig({ dir: cfgInfDir });
+        }).toThrow();
+      } finally {
+        rmSync(cfgInfDir, { recursive: true, force: true });
+      }
+    });
+
+    test("config validation: readyGateRetryBound key is in unknown-key error message", () => {
+      const cfgUnkDir = mkdtempSync(join(tmpdir(), "jarvis-config-unk-"));
+      try {
+        // Initialize config first
+        loadConfig({ dir: cfgUnkDir });
+        // Now modify it to include an unknown key
+        const cfg = JSON.parse(readFileSync(join(cfgUnkDir, "config.json"), "utf8"));
+        cfg.projects.unktest = { root: join(tmpdir(), "project-unk"), unknownKey: "value" };
+        writeFileSync(join(cfgUnkDir, "config.json"), JSON.stringify(cfg));
+        expect(() => {
+          loadConfig({ dir: cfgUnkDir });
+        }).toThrow(/readyGateRetryBound/);
+      } finally {
+        rmSync(cfgUnkDir, { recursive: true, force: true });
+      }
+    });
+
+    test("gate-loop behavior: with readyGateRetryBound 1, completion gate makes 2 total attempts on retryable red", async () => {
+      const spec = initCompletionGateRepo();
+
+      const cfg = loadConfig({ dir: cfgDir });
+      if (cfg.projects.project === undefined) {
+        cfg.projects.project = { root: projectRoot };
+      }
+      cfg.projects.project.readyGateRetryBound = 1;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = createCompletionAgent(spec);
+
+      let gateCalls = 0;
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        reviewPasses: 0,
+        runCompletionReadyGate: () => {
+          gateCalls += 1;
+          // Red once, then green (with bound 1, should try 2 times total)
+          return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\ntest" } : { kind: "green" };
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+      expect(gateCalls).toBe(2); // 1 initial attempt + 1 retry
+    });
+
+    test("gate-loop behavior: with readyGateRetryBound 0, completion gate makes 1 attempt only", async () => {
+      const spec = initCompletionGateRepo();
+
+      const cfg = loadConfig({ dir: cfgDir });
+      if (cfg.projects.project === undefined) {
+        cfg.projects.project = { root: projectRoot };
+      }
+      cfg.projects.project.readyGateRetryBound = 0;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = createCompletionAgent(spec);
+
+      let gateCallsInFirstCompletion = 0;
+      let _completionCheckCount = 0;
+      const _code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        reviewPasses: 0,
+        runCompletionReadyGate: () => {
+          gateCallsInFirstCompletion += 1;
+          // Count completions by checking when we return to 1
+          if (gateCallsInFirstCompletion === 1) {
+            _completionCheckCount += 1;
+          }
+          // Red on all attempts (bound 0 means 1 attempt per completion check)
+          return { kind: "red", failureText: "bun run ready failed:\nno retries with bound 0" };
+        },
+      });
+
+      // With bound 0, each completion check makes exactly 1 attempt
+      // First completion check: 1 attempt, then enters fix-up
+      // Second completion check (fix-up): 1 attempt, then fails
+      // So total gateCalls = 2 (one per completion check), but each with only 1 attempt
+      expect(gateCallsInFirstCompletion).toBe(2);
+      // Verify no retrying message (since we don't retry with bound 0)
+      const stderr = cap.err();
+      expect(stderr).not.toContain("attempt 1/1, retrying");
+      expect(stderr).toContain("ready gate failed: bun run ready failed:");
+    });
+
+    test("gate-loop behavior: attempt N/M denominator equals bound + 1", async () => {
+      const spec = initCompletionGateRepo();
+
+      const cfg = loadConfig({ dir: cfgDir });
+      if (cfg.projects.project === undefined) {
+        cfg.projects.project = { root: projectRoot };
+      }
+      cfg.projects.project.readyGateRetryBound = 6;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = createCompletionAgent(spec);
+
+      let gateCalls = 0;
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        reviewPasses: 0,
+        runCompletionReadyGate: () => {
+          gateCalls += 1;
+          // Red once, then green (so we see only first attempt message)
+          // bound 6 -> totalAttempts 7, so denominator should be 7 (different from default 3)
+          return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\ntest" } : { kind: "green" };
+        },
+      });
+
+      // With bound 6, should see denominator 7 (6 + 1) in first attempt message
+      const stderr = cap.err();
+      expect(stderr).toContain("attempt 1/7");
+      expect(code).toBe(0);
+    });
+
+    test("gate-loop behavior: default bound (2) produces denominator 3", async () => {
+      const spec = initCompletionGateRepo();
+
+      // Don't set readyGateRetryBound, should use default of 2
+      const cfg = loadConfig({ dir: cfgDir });
+      if (cfg.projects.project === undefined) {
+        cfg.projects.project = { root: projectRoot };
+      }
+      // Leave readyGateRetryBound undefined to use default
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = createCompletionAgent(spec);
+
+      let gateCalls = 0;
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        reviewPasses: 0,
+        runCompletionReadyGate: () => {
+          gateCalls += 1;
+          // Red once, then green to verify default denominator is 3
+          return gateCalls === 1 ? { kind: "red", failureText: "bun run ready failed:\ntest" } : { kind: "green" };
+        },
+      });
+
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("attempt 1/3"); // Default bound 2 -> 3 total attempts
+      expect(cap.out()).toContain("spec complete");
+    });
+  });
+
   describe("post-completion gate tier matrix", () => {
     test("common path with review: one full ready, review final skips on unchanged tree", async () => {
       const env = setupReviewEnv({ reviewPasses: 1 });

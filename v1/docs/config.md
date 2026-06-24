@@ -30,6 +30,8 @@ type Project = {
   siblings?: string[]; // optional array of absolute paths to sibling repositories
   plan?: { specTimestamp?: boolean; commit?: boolean; targetDir?: string }; // optional per-project plan-mode overrides
   updateSnapshotsCommand?: string; // optional update-snapshots command for the snapshot-churn blocker gate
+  readyCommand?: string; // optional per-project ready command override
+  readyGateRetryBound?: number; // optional per-project completion ready-gate retry bound (default 2)
 };
 
 type AgentEntry = {
@@ -75,11 +77,13 @@ type Config = {
 };
 ```
 
-**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `updateSnapshotsCommand`, and `readyCommand` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
+**Project object keys are validated strictly:** only `root`, `origin`, `git`, `siblings`, `plan`, `updateSnapshotsCommand`, `readyCommand`, and `readyGateRetryBound` are allowed. Unknown keys (including a flat `specTimestamp` or `commit` at the project level instead of nested under `plan`) cause `loadConfig` to throw with a descriptive error. This catches misconfigurations early.
 
 **`updateSnapshotsCommand`** (per-project, optional): the command the snapshot-churn blocker gate runs to refresh outdated snapshots before re-testing (e.g. `bun test --update-snapshots`, `vitest -u`, `jest -u`). Takes precedence over auto-detection from the target repo's root `package.json`; if neither is set, the gate fail-safes (the blocker stands). Used only by that gate.
 
 **`readyCommand`** (per-project, optional): overrides `bun run ready` at all patch-mode ready gate sites (completion transition, pre-shrink, review baseline, review final, and `maybeMarkReady`). Value is tokenized on whitespace and run via `execFileSync` (no shell). Must be a non-empty, non-whitespace-only string; rejected at `loadConfig` otherwise. Receives the `JARVIS_READY_TIER` env var (`"fast"` or `"full"`) unchanged. When unset, the gate falls back to `bun run ready`.
+
+**`readyGateRetryBound`** (per-project, optional): sets the completion ready gate's retry bound (number of retries before entering fix-up, not counting the initial attempt). A non-negative integer; default is 2 (meaning 3 total attempts). Value 0 runs once and enters fix-up immediately on retryable red. Applies only to the completion-transition ready gate (the only ready gate with a retry loop); other ready gates always run once. Absent the knob, behavior is unchanged (2 retries).
 
 All reads and writes of `~/.jarvis/` go through `src/config.ts`. Invalid
 configs are rejected with an error that names the offending file.

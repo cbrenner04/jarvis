@@ -345,6 +345,14 @@ The review phase flow is:
    the reuse predicate). When the tree changed or no green was recorded, runs
    **`full`** then `gh pr ready`. Under **`--resume-review`**, always **`full`**
    then `gh pr ready`.
+4. **Review-incomplete exit auto-ready**: if the review phase exits `11` 
+   (review-incomplete), the harness attempts to auto-ready the PR via `maybeMarkReady` 
+   before returning exit code `11`. On an unchanged tree, this runs the `ready` gate 
+   with tier **`fast`** and calls `gh pr ready`. If the tree moved during review 
+   (e.g., actuator commits then push fails), the `ready` gate is re-run with 
+   tier **`full`**; if it passes, the PR is marked ready; if it fails, the PR 
+   stays draft and a warning is logged. Either way, the run still exits `11` with 
+   `exitReason: review-incomplete`.
 
 Telemetry records review pass invocations with `patch_phase: "review"` so they
 are distinguishable from implementation iterations in `~/.jarvis/runs.jsonl`.
@@ -797,7 +805,7 @@ jarvis1 log-server
 | `8` | `timeout` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | `worktree-locked` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |
 | `10` | `ready-stuck-red` | The run is stuck on a red `bun run ready` failure after fix-up iteration(s). Two scenarios: (1) **identical-failure stop**: The captured failure text is unchanged after normalization (for noise like timings and paths), and no new work was ticked and no new blocker was added. (2) **changing-failure bound**: The ready gate has returned red for N (3) consecutive fix-up iterations with no acceptance-criteria progress, and the failure text differs between iterations. Both are recoverable stops: the issue persists and manual intervention may be needed. The fix-up commits (chase edits) are discarded before exit: the PR branch is reset to the first-red baseline (the state before the first fix-up iteration) and force-pushed with `--force-with-lease`, leaving the PR at the original completed work without the chase edits. The discarded commits remain accessible via git reflog. The error message includes the captured failure text and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import, a flaky or non-deterministic failure) and rerun to retry the fix-up iteration. |
-| `11` | `review-incomplete` | The post-completion review phase did not complete. This covers review agents quota-exhausted, review idle-timeout, model configuration error, or review/actuator infrastructure failures (commit push failure, spec/code revert failure, blocker commit failure, actuator unavailability, etc). The draft PR is left draft and implementation commits are intact. Recover with `jarvis1 run --resume-review` to re-enter the review phase, or manually finalize the PR. |
+| `11` | `review-incomplete` | The post-completion review phase did not complete. This covers review agents quota-exhausted, review idle-timeout, model configuration error, or review/actuator infrastructure failures (commit push failure, spec/code revert failure, blocker commit failure, actuator unavailability, etc). Implementation commits are intact. If the tree is unchanged since the completion gate green, the PR is auto-marked ready before exit (the completion `ready` gate passed, so readiness is determined by that gate's result). If the tree moved during review (review made commits, e.g., actuator fixes, then push failed), the `ready` gate is re-run on exit; if it passes, the PR is marked ready; if it fails, the PR is left draft with a warning. Recover with `jarvis1 run --resume-review` to re-enter the review phase, or manually finalize the PR. |
 | `130` | `sigint` | Interrupted with Ctrl-C. |
 
 On exit `4`, `5`, and `10`, the bounded tail of recent agent output is printed to the

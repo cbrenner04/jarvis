@@ -552,10 +552,28 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     }
     if (reviewExitCode !== 0) {
       if (reviewExitCode === 11) {
+        // Auto-ready on review-incomplete if the tree is unchanged since completion gate green
+        try {
+          maybeMarkReady({
+            indexPath: preflight.specPath,
+            cwd: preflight.agentWorkingDir,
+            agentLabel: "review-incomplete",
+            ...(readyCommand !== undefined ? { readyCommand } : {}),
+            ...(ctx.state.completionTransitionReadyResult !== undefined
+              ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
+              : {}),
+            refreshRecordedGreenResult: (headSha: string) => {
+              ctx.state.completionTransitionReadyResult = { headSha };
+            },
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logging.fanout("harness", `warning: failed to mark PR ready: ${message}\n`, "stderr");
+        }
         const worktreeName = basename(preflight.agentWorkingDir);
         logging.fanout(
           "harness",
-          `review did not complete. The PR is left draft. Recover with \`jarvis1 run --resume-review\` or manual finalize.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          `review did not complete. Recover with \`jarvis1 run --resume-review\` or manual finalize.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
           "stderr",
         );
       }

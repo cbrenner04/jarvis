@@ -151,7 +151,11 @@ async function generatePrBody(
   });
 }
 
-type FanoutFn = (tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr", text: string, stream: "stdout" | "stderr" | null) => void;
+type FanoutFn = (
+  tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
+  text: string,
+  stream: "stdout" | "stderr" | null,
+) => void;
 
 function discardFixupCommits(cwd: string, baselineSha: string, fanout: FanoutFn, skipGhCheck?: boolean): void {
   // Reset to baseline
@@ -321,7 +325,11 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     const gateResult = await runCompletionReadyGate(ctx, readyCommand);
     if (gateResult.kind === "red") {
       // Capture the first-red baseline before any fix-up loopback
-      if (ctx.state.firstRedBaselineSha === undefined && preflight.gitEnabled && existsSync(join(preflight.agentWorkingDir, ".git"))) {
+      if (
+        ctx.state.firstRedBaselineSha === undefined &&
+        preflight.gitEnabled &&
+        existsSync(join(preflight.agentWorkingDir, ".git"))
+      ) {
         try {
           ctx.state.firstRedBaselineSha = execFileSync("git", ["rev-parse", "HEAD"], {
             cwd: preflight.agentWorkingDir,
@@ -355,7 +363,12 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         // Stuck-red stop: the failure is unchanged, no new checkbox, no new blocker
         const worktreeName = basename(preflight.agentWorkingDir);
         if (ctx.state.firstRedBaselineSha !== undefined) {
-          discardFixupCommits(preflight.agentWorkingDir, ctx.state.firstRedBaselineSha, logging.fanout, ctx.opts.skipGhCheck);
+          discardFixupCommits(
+            preflight.agentWorkingDir,
+            ctx.state.firstRedBaselineSha,
+            logging.fanout,
+            ctx.opts.skipGhCheck,
+          );
         }
         logging.fanout(
           "harness",
@@ -391,7 +404,12 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         // Changing-failure bound: failure text differs each iteration but no AC progress
         const worktreeName = basename(preflight.agentWorkingDir);
         if (ctx.state.firstRedBaselineSha !== undefined) {
-          discardFixupCommits(preflight.agentWorkingDir, ctx.state.firstRedBaselineSha, logging.fanout, ctx.opts.skipGhCheck);
+          discardFixupCommits(
+            preflight.agentWorkingDir,
+            ctx.state.firstRedBaselineSha,
+            logging.fanout,
+            ctx.opts.skipGhCheck,
+          );
         }
         logging.fanout(
           "harness",

@@ -28,9 +28,12 @@ un-normalized corpus is acceptable.
 - House-style tuning is bound to actual corpus output, not guessed: run the
   linter against the real trees, then triage the rules that actually fire —
   disable pervasive house-style ones, keep rules enforcing genuine conventions.
-  Known-pervasive and to disable: `MD013` (line-length — long lines/tables/URLs)
-  and `MD033` (no-inline-HTML — `<...>` tags across docs). Beyond these, do not
-  pre-enumerate verdicts before the output exists; decide each from what fires.
+  Disabled rules and reasons: `MD009` (unordered/ordered list markers — mixed
+  markers across corpus), `MD013` (line-length — long lines/tables/URLs),
+  `MD031` (code-block spacing — inconsistent blank lines before/after blocks),
+  `MD032` (fenced-code-blocks — varied indentation per-section), `MD033`
+  (no-inline-HTML — `<...>` tags across docs), `MD040` (fenced-code language —
+  many blocks lack language identifier).
 - Script invoked via the explicit installed-binary path
   (`bun node_modules/markdownlint-cli2/...`), matching the existing biome
   scripts — not a bare binary name; also de-risks Bun resolution (ties to the
@@ -52,7 +55,7 @@ un-normalized corpus is acceptable.
   the real-corpus run shows are pervasive house style.
 - Run the linter against the corpus and triage firing rules before finalizing
   `config`.
-- Add `"lint:md": "bun node_modules/markdownlint-cli2/markdownlint-cli2.bin.mjs"`
+- Add `"lint:md": "bun node_modules/markdownlint-cli2/markdownlint-cli2.js"`
   (the installed-binary path, matching the biome scripts) to package.json;
   confirm it runs under Bun.
 - Document `bun run lint:md` and the config scope/exemptions in README

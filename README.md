@@ -435,8 +435,8 @@ Unsafe fix variants are also available as `format:unsafe`,
 `bun run lint:md` lints Markdown files across `v1/spec/`, `v1/docs/`, `reports/`,
 and root docs (`README.md`, `AGENTS.md`). Completed specs under `**/completed/**`
 are exempted. The linter is rules-based and non-mutating; violations report
-genuine deviations from conventions (spacing, headings, code blocks) rather than
-style noise. See `.markdownlint-cli2.jsonc` for the active rule set.
+genuine deviations from conventions (spacing, headings, and list markers)
+rather than style noise. See `.markdownlint-cli2.jsonc` for the active rule set.
 
 ### Per-test timeout
 

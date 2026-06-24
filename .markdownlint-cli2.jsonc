@@ -3,11 +3,17 @@
   "ignores": ["**/completed/**", "**/node_modules/**"],
   "config": {
     "default": true,
+    // Unordered/ordered list markers: inconsistent marker usage across corpus (pervasive house style)
     "MD009": false,
+    // Line length: specs and docs contain long URLs, tables, and code inline; normalizing would require corpus reflow (out of scope)
     "MD013": false,
+    // Code block spacing: blank lines before/after code blocks are inconsistent across corpus
     "MD031": false,
+    // Fenced code blocks: indentation and markers vary per-section; enforcing would require corpus normalization
     "MD032": false,
+    // Inline HTML: docs use inline <...> tags; widespread and intentional
     "MD033": false,
+    // Fenced code block language: many code blocks lack language identifiers; enforcing would require corpus reflow
     "MD040": false
   }
 }

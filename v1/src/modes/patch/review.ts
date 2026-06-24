@@ -737,6 +737,11 @@ function createPatchReviewAdapter(args: {
   };
 }
 
+// Map review exit codes: preserve blocker (7) and interrupt (130), remap others to review-incomplete (11).
+function mapReviewExitCode(exitCode: number): number {
+  return exitCode === 7 || exitCode === 130 ? exitCode : 11;
+}
+
 /** Run patch review passes through the shared review runner. */
 export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promise<number> {
   let idleTimeoutOccurred = false;
@@ -766,11 +771,11 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       opts.fanout("harness", `review baseline gate failed: ${message}\n`, "stderr");
-      // NOTE: On the completion path, the completion `ready` gate (run.ts:1574)
-      // runs before shrink/review and ensures `ready` is green. This exit path
-      // (return 1) is unreachable on the completion path — it is a backstop for
-      // non-completion paths. The completion path's sole response to red `ready`
-      // is the stuck-red stop (exit 10 in run.ts:1601) after fix-up iterations.
+      // NOTE: A red tree is a real error regardless of how review was entered.
+      // This exit path (return 1) is reachable via --resume-review, which can
+      // re-enter against a stale or red baseline tree. The return 1 path is
+      // distinct from the review-execution failures (which return 11), and is
+      // not remapped by mapReviewExitCode.
       return 1;
     }
   }
@@ -1106,21 +1111,21 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     const reviewExitCode = await runReview(runReviewOpts);
 
     if (idleTimeoutOccurred) {
-      return 8;
+      return 11;
     }
 
     if (reviewExitCode !== 0) {
-      return reviewExitCode;
+      return mapReviewExitCode(reviewExitCode);
     }
   } catch (err) {
     // An idle-watchdog abort surfaces as a thrown ReviewTerminalError (exit -1);
-    // the telemetry record already set idleTimeoutOccurred, so map it to 8 here
-    // too (the return-path check above is skipped when the actuator throws).
+    // the telemetry record already set idleTimeoutOccurred, so map it to 11 here
+    // (the return-path check above is skipped when the actuator throws).
     if (idleTimeoutOccurred) {
-      return 8;
+      return 11;
     }
     if (err instanceof ReviewTerminalError) {
-      return err.exitCode;
+      return mapReviewExitCode(err.exitCode);
     }
     throw err;
   }

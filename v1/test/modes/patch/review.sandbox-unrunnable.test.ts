@@ -283,7 +283,7 @@ describe("runPatchReviewPhase", () => {
     }
   });
 
-  test("model_config exits 3 and all-agent quota exits 2", async () => {
+  test("model_config exits 11 and all-agent quota exits 11", async () => {
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {
       const claude = new FakeAgent("claude", () => ({ kind: "model_config", stderr: "bad model" }));
@@ -299,7 +299,7 @@ describe("runPatchReviewPhase", () => {
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
       });
-      expect(modelCode).toBe(3);
+      expect(modelCode).toBe(11);
 
       const quotaCode = await runPatchReviewPhase({
         config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
@@ -313,7 +313,7 @@ describe("runPatchReviewPhase", () => {
         iterationTimeoutMs: 30_000,
         baseBranch: "main",
       });
-      expect(quotaCode).toBe(2);
+      expect(quotaCode).toBe(11);
     } finally {
       cleanup();
     }
@@ -768,7 +768,7 @@ while true; do :; done
       });
       const elapsedMs = Date.now() - startTime;
 
-      expect(code).toBe(8);
+      expect(code).toBe(11);
       expect(elapsedMs).toBeLessThan(5000);
       expect(cap.err).toContain("idle timeout fired after");
     } finally {
@@ -855,7 +855,7 @@ while true; do :; done
       const elapsedMs = Date.now() - startTime;
 
       const hasIdleTimeout = telemetry.some((r) => r.exitReason === "watchdog-idle-timeout");
-      expect(code, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(8);
+      expect(code, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(11);
       expect(elapsedMs).toBeLessThan(5000);
       expect(hasIdleTimeout, `Telemetry: ${JSON.stringify(telemetry)}`).toBe(true);
     } finally {

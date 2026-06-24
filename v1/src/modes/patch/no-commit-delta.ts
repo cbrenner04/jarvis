@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { stripBlockerSection } from "../../../../shared/spec-parser.ts";
 
 // Test seam for overriding the delta state directory
 let testStateDir: string | null = null;
@@ -90,7 +91,14 @@ export function clearDelta(activeSubspecPath: string): void {
 
 // Apply the reset: un-tick the recorded AC and strip the blocker
 export function applyReset(specPath: string, delta: DeltaRecord): void {
-  const content = readFileSync(specPath, "utf8");
+  let content = readFileSync(specPath, "utf8");
+
+  // Strip the blocker section if one was recorded (reuse existing parser helper)
+  if (delta.blockerText !== null) {
+    content = stripBlockerSection(content);
+  }
+
+  // Un-tick recorded AC
   const lines = content.split("\n");
   const output: string[] = [];
   let inAcSection = false;
@@ -105,40 +113,14 @@ export function applyReset(specPath: string, delta: DeltaRecord): void {
       continue;
     }
 
-    // End acceptance criteria section when we hit another heading
-    if (inAcSection && line.startsWith("##")) {
+    // End acceptance criteria section when we hit another level-2 heading
+    if (inAcSection && line.match(/^##\s+/)) {
       inAcSection = false;
-    }
-
-    // Skip blocker section if it matches the recorded blocker
-    if (line === "## Blocker" && delta.blockerText !== null) {
-      // Skip the heading line
-      // Skip the next blank line if it exists
-      if (i + 1 < lines.length && (lines[i + 1] ?? "") === "") {
-        i++;
-      }
-      // Skip blocker content lines
-      i++;
-      while (i < lines.length) {
-        const currentLine = lines[i] ?? "";
-        if (!currentLine || currentLine === "" || currentLine.startsWith("##")) {
-          break;
-        }
-        if (currentLine.trim() === delta.blockerText || currentLine.includes(delta.blockerText)) {
-          // This is part of the blocker content
-          i++;
-        } else {
-          break;
-        }
-      }
-      // Back up one line since the loop will increment at the end
-      i--;
-      continue;
     }
 
     // Un-tick AC that were newly checked in this run
     if (inAcSection && line.startsWith("- [x] ")) {
-      const acText = line.slice(6); // Remove "- [x] " prefix
+      const acText = line.slice(6).trim(); // Remove "- [x] " prefix and trim
       if (delta.newlyCheckedAcKeys.has(acText)) {
         output.push(`- [ ] ${acText}`);
         continue;

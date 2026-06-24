@@ -180,4 +180,34 @@ This is the blocker text
     expect(resetContent).toContain("- [ ] Also newly checked");
     expect(resetContent).toContain("- [ ] Not checked");
   });
+
+  it("strips multi-line blocker from spec on reset", () => {
+    const specContent = `# Spec
+
+## Acceptance criteria
+
+- [ ] First criterion
+
+## Blocker
+
+This is a multi-line blocker.
+It has more than one line.
+And even a third line.
+`;
+    writeFileSync(specPath, specContent, "utf8");
+
+    const delta = createFreshDelta(specPath);
+    delta.blockerText = `This is a multi-line blocker.
+It has more than one line.
+And even a third line.`;
+
+    applyReset(specPath, delta);
+
+    const resetContent = readFileSync(specPath, "utf8");
+    expect(resetContent).not.toContain("## Blocker");
+    expect(resetContent).not.toContain("This is a multi-line blocker");
+    expect(resetContent).not.toContain("It has more than one line");
+    expect(resetContent).not.toContain("And even a third line");
+    expect(resetContent).toContain("## Acceptance criteria");
+  });
 });

@@ -165,7 +165,13 @@ describe("ready tier parsing and step lists", () => {
 
     expect(checkFixIndex).toBe(0);
     expect(installIndex).toBe(-1);
-    expect(commands.map((command) => command.args[1])).toEqual(["check:fix:unsafe", "typecheck", "test", "check", "lint:md"]);
+    expect(commands.map((command) => command.args[1])).toEqual([
+      "check:fix:unsafe",
+      "typecheck",
+      "test",
+      "check",
+      "lint:md",
+    ]);
   });
 
   test("full tier keeps install before check:fix:unsafe when install runs", () => {
@@ -477,7 +483,14 @@ describe("ready serial-retry on test failure", () => {
       }
 
       // Verify execution order: check:fix:unsafe, typecheck, parallel test (fails), serial test (passes), check, lint:md
-      expect(executed).toEqual(["run check:fix:unsafe", "run typecheck", "run test", "test", "run check", "run lint:md"]);
+      expect(executed).toEqual([
+        "run check:fix:unsafe",
+        "run typecheck",
+        "run test",
+        "test",
+        "run check",
+        "run lint:md",
+      ]);
 
       // Verify the recovery signal is logged
       const stderr = stderrLines.join("");

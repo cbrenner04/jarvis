@@ -1145,14 +1145,14 @@ Date: 2026-06-18`,
         baselineSha = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
       } else if (callCount === 2) {
         // Fix-up iteration: add a chase edit commit
-        writeFileSync(spec, readFileSync(spec, "utf8") + "\nfix attempt 1\n");
+        writeFileSync(spec, `${readFileSync(spec, "utf8")}\nfix attempt 1\n`);
         execSync("git add index.md && git commit -m 'fix-up attempt 1'", { cwd: projectRoot });
         fixupSha = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
       }
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    let gateCalls = 0;
+    let _gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
       io: cap.io,
@@ -1161,7 +1161,7 @@ Date: 2026-06-18`,
       handleSignals: false,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
-        gateCalls += 1;
+        _gateCalls += 1;
         return { kind: "red", failureText };
       },
     });
@@ -1203,13 +1203,13 @@ Date: 2026-06-18`,
         execSync("git add index.md && git commit -m done", { cwd: projectRoot });
       } else if (callCount === 2) {
         // Add a fix-up commit
-        writeFileSync(spec, readFileSync(spec, "utf8") + "\nfix attempt\n");
+        writeFileSync(spec, `${readFileSync(spec, "utf8")}\nfix attempt\n`);
         execSync("git add index.md && git commit -m 'fix-up'", { cwd: projectRoot });
       }
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    let gateCalls = 0;
+    let _gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
       io: cap.io,
@@ -1218,7 +1218,7 @@ Date: 2026-06-18`,
       handleSignals: false,
       reviewPasses: 0,
       runCompletionReadyGate: () => {
-        gateCalls += 1;
+        _gateCalls += 1;
         return { kind: "red", failureText };
       },
     });
@@ -1248,13 +1248,13 @@ Date: 2026-06-18`,
         execSync("git add index.md && git commit -m done", { cwd: projectRoot });
       } else if (callCount === 2) {
         // Add a fix-up commit
-        writeFileSync(spec, readFileSync(spec, "utf8") + "\nfix attempt\n");
+        writeFileSync(spec, `${readFileSync(spec, "utf8")}\nfix attempt\n`);
         execSync("git add index.md && git commit -m 'fix-up'", { cwd: projectRoot });
       }
       return { kind: "ok", stdout: "", stderr: "" };
     });
 
-    let gateCalls = 0;
+    let _gateCalls = 0;
     const code = await runWithDefaults({
       specPath: spec,
       io: cap.io,
@@ -1264,7 +1264,7 @@ Date: 2026-06-18`,
       reviewPasses: 0,
       skipGhCheck: true,
       runCompletionReadyGate: () => {
-        gateCalls += 1;
+        _gateCalls += 1;
         return { kind: "red", failureText };
       },
     });

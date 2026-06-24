@@ -22,8 +22,7 @@ import type { CompletionReadyGateResult, IterationContext } from "./run.ts";
 import { runPatchShrinkPhase } from "./shrink.ts";
 import type { AcceptanceCriterion } from "./subspec.ts";
 
-const COMPLETION_READY_GATE_RETRY_BOUND = 2;
-const COMPLETION_READY_GATE_TOTAL_ATTEMPTS = COMPLETION_READY_GATE_RETRY_BOUND + 1;
+const DEFAULT_COMPLETION_READY_GATE_RETRY_BOUND = 2;
 
 type CompletionLoopbackSignal = {
   failureText: string;
@@ -224,13 +223,16 @@ function commitAndPushCompleteDirtyWorktree(cwd: string): boolean {
 async function runCompletionReadyGate(
   ctx: IterationContext,
   readyCommand?: string,
+  readyGateRetryBound?: number,
 ): Promise<CompletionReadyGateResult> {
   const { preflight, logging, opts } = ctx;
   logging.fanout("harness", "completion: running ready gate\n", "stdout");
 
+  const retryBound = readyGateRetryBound ?? DEFAULT_COMPLETION_READY_GATE_RETRY_BOUND;
+  const totalAttempts = retryBound + 1;
   let lastFailureText = "ready gate failed";
 
-  for (let attempt = 1; attempt <= COMPLETION_READY_GATE_TOTAL_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= totalAttempts; attempt++) {
     let result: CompletionReadyGateResult;
 
     if (opts.runCompletionReadyGate !== undefined) {
@@ -268,10 +270,10 @@ async function runCompletionReadyGate(
       logging.fanout("harness", `completion: ready gate failed: ${lastFailureText}\n`, "stderr");
       return result;
     }
-    if (attempt < COMPLETION_READY_GATE_TOTAL_ATTEMPTS) {
+    if (attempt < totalAttempts) {
       logging.fanout(
         "harness",
-        `completion: ready gate failed (attempt ${attempt}/${COMPLETION_READY_GATE_TOTAL_ATTEMPTS}), retrying\n`,
+        `completion: ready gate failed (attempt ${attempt}/${totalAttempts}), retrying\n`,
         "stderr",
       );
     }
@@ -330,7 +332,8 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
 
   // Run completion ready gate before shrink and review
   if (shouldRunCompletionReadyGate) {
-    const gateResult = await runCompletionReadyGate(ctx, readyCommand);
+    const readyGateRetryBound = preflight.cfg.projects[preflight.project.key]?.readyGateRetryBound;
+    const gateResult = await runCompletionReadyGate(ctx, readyCommand, readyGateRetryBound);
     if (gateResult.kind === "red") {
       // Capture the first-red baseline before any fix-up loopback
       if (

@@ -31,14 +31,14 @@ default (2) applies unchanged.
 
 ## Acceptance criteria
 
-- [ ] A per-project `readyGateRetryBound` config key is accepted by `loadConfig` when it is a non-negative integer (including 0).
-- [ ] `loadConfig` rejects `readyGateRetryBound` that is negative, non-integer, or non-numeric, with an error naming the offending project and file.
-- [ ] `readyGateRetryBound` is in the strict project-key allowlist; the unknown-key error message lists it among allowed keys.
-- [ ] Absent the knob, the completion ready gate retries retryable red exactly 2 times (3 total attempts): `run.test.ts` red-then-green seam and always-red completion-gate tests stay green (behavior unchanged).
-- [ ] With `readyGateRetryBound: N`, the completion ready gate re-runs retryable red up to N times (N+1 total attempts) before entering the fix-up loop.
-- [ ] With `readyGateRetryBound: 0`, the completion ready gate runs once and enters the fix-up loop on retryable red without retrying.
-- [ ] The `(attempt N/M)` progress log's denominator `M` equals the resolved bound + 1 (e.g. `readyGateRetryBound: 5` logs `attempt 1/6`, not `1/3`).
-- [ ] A non-retryable red still short-circuits without retry regardless of the knob value.
+- [x] A per-project `readyGateRetryBound` config key is accepted by `loadConfig` when it is a non-negative integer (including 0).
+- [x] `loadConfig` rejects `readyGateRetryBound` that is negative, non-integer, or non-numeric, with an error naming the offending project and file.
+- [x] `readyGateRetryBound` is in the strict project-key allowlist; the unknown-key error message lists it among allowed keys.
+- [x] Absent the knob, the completion ready gate retries retryable red exactly 2 times (3 total attempts): `run.test.ts` red-then-green seam and always-red completion-gate tests stay green (behavior unchanged).
+- [x] With `readyGateRetryBound: N`, the completion ready gate re-runs retryable red up to N times (N+1 total attempts) before entering the fix-up loop.
+- [x] With `readyGateRetryBound: 0`, the completion ready gate runs once and enters the fix-up loop on retryable red without retrying.
+- [x] The `(attempt N/M)` progress log's denominator `M` equals the resolved bound + 1 (e.g. `readyGateRetryBound: 5` logs `attempt 1/6`, not `1/3`).
+- [x] A non-retryable red still short-circuits without retry regardless of the knob value.
 
 ## Documentation updates
 

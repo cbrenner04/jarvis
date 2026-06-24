@@ -6481,7 +6481,7 @@ describe("review phase", () => {
     expect(existsSync(join(env.worktree, ".jarvis-review-blocker"))).toBe(false);
   });
 
-  test("review commit push failure leaves PR draft and exits 11", async () => {
+  test("review commit push failure exits 11 but auto-readies on successful gate re-run", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
     const claude = reviewFakeAgent(
@@ -6511,7 +6511,9 @@ describe("review phase", () => {
 
     expect(code).toBe(11);
     expect(cap.err()).toContain("review: actuator commit failed");
-    expect(existsSync(env.prReadyLog)).toBe(false);
+    // Completion (full) + shrink (fast) + review baseline (fast) + auto-ready with tree moved (full)
+    expect(readFileSync(env.readyLog, "utf8").trim().split("\n")).toEqual(["full", "fast", "fast", "full"]);
+    expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
   });
 
   test("blocker without committable edits still comments and exits 7", async () => {
@@ -6538,7 +6540,7 @@ describe("review phase", () => {
     expect(existsSync(env.prReadyLog)).toBe(false);
   });
 
-  test("review-agent quota exhaustion exits 11 and leaves the PR draft", async () => {
+  test("review-agent quota exhaustion exits 11 but auto-readies PR on unchanged gate-green tree", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
     const claude = reviewFakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }));
@@ -6553,7 +6555,9 @@ describe("review phase", () => {
     });
 
     expect(code).toBe(11);
-    expect(existsSync(env.prReadyLog)).toBe(false);
+    // Completion gate (full) + shrink (fast) + review baseline (fast) + auto-ready (fast)
+    expect(readFileSync(env.readyLog, "utf8").trim().split("\n")).toEqual(["full", "fast", "fast", "fast"]);
+    expect(readFileSync(env.prReadyLog, "utf8").trim().split("\n")).toEqual(["ready"]);
   });
 
   test("review uses the review agent order, not the implementation agents", async () => {

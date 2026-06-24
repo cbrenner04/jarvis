@@ -35,13 +35,13 @@ The `review did not complete … The PR is left draft` message is corrected, sin
 
 ## Acceptance criteria
 
-- [ ] On a criteria-complete, completion-gate-green tree, unchanged since the recorded green sha, where the review phase exits `review-incomplete`, `jarvis1 run` marks the draft PR ready before exiting.
-- [ ] That run still exits `11` with `exitReason` `review-incomplete`.
-- [ ] On a review-incomplete run where review committed fix-ups (tree moved past the recorded green sha): a green re-run of the ready gate readies the PR; a red re-run emits a warning and leaves the PR draft. The PR is never readied on a stale green record.
-- [ ] A review blocker exits `7` and a review interrupt exits `130`, each leaving the PR draft (auto-ready does not fire; codes are returned by `mapReviewExitCode`, not thrown).
-- [ ] When no PR exists for the branch, the review-incomplete run emits a warning and exits `11` without throwing.
-- [ ] When marking the PR ready fails, the run emits a warning and still exits `11`.
-- [ ] The review-success and no-review auto-ready paths stay green — `run.test.ts` review-phase and completion-transition ready-gate tests unchanged (behavior preserved on those paths).
+- [x] On a criteria-complete, completion-gate-green tree, unchanged since the recorded green sha, where the review phase exits `review-incomplete`, `jarvis1 run` marks the draft PR ready before exiting.
+- [x] That run still exits `11` with `exitReason` `review-incomplete`.
+- [x] On a review-incomplete run where review committed fix-ups (tree moved past the recorded green sha): a green re-run of the ready gate readies the PR; a red re-run emits a warning and leaves the PR draft. The PR is never readied on a stale green record.
+- [x] A review blocker exits `7` and a review interrupt exits `130`, each leaving the PR draft (auto-ready does not fire; codes are returned by `mapReviewExitCode`, not thrown).
+- [x] When no PR exists for the branch, the review-incomplete run emits a warning and exits `11` without throwing.
+- [x] When marking the PR ready fails, the run emits a warning and still exits `11`.
+- [x] The review-success and no-review auto-ready paths stay green — `run.test.ts` review-phase and completion-transition ready-gate tests unchanged (behavior preserved on those paths).
 
 ## Documentation updates
 

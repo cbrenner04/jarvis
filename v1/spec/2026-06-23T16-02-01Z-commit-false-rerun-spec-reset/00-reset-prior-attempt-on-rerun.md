@@ -39,17 +39,17 @@ Deferred to first consumer: exact state filename/location under jarvis-owned sto
 
 ## Acceptance criteria
 
-- [ ] A `gitEnabled: false` run that ends incomplete records its run-cumulative source-spec delta — the AC checkboxes it ticked and the `## Blocker` it appended — in jarvis-owned state outside the target repo.
-- [ ] An interrupted (Ctrl-C/killed) `gitEnabled: false` run still leaves the delta recorded for the next run to reset (capture does not require a graceful exit).
-- [ ] On re-run of that incomplete no-commit spec, jarvis reverts exactly those still-ticked AC checkboxes and strips that attempt's `## Blocker` before invoking the agent.
-- [ ] A no-commit re-run whose only stale change is a prior-attempt `## Blocker` proceeds into the run (does not exit 7), because the reset runs before the start-of-iteration blocker detection.
-- [ ] AC checkboxes present in the pre-attempt (authored) state remain ticked after the reset; only the recorded prior-attempt delta is reverted.
-- [ ] A no-commit run that completes cleanly leaves no persisted delta and triggers no reset on a later unrelated run.
-- [ ] A `gitEnabled: true` worktree-backed run records no delta and applies no reset (behavior unchanged).
-- [ ] New tests cover: delta capture on an incomplete and on an interrupted no-commit run, AC reversion + blocker strip on the next no-commit run, preservation of a pre-attempt authored tick across the reset, and a clean completion leaving no record.
+- [x] A `gitEnabled: false` run that ends incomplete records its run-cumulative source-spec delta — the AC checkboxes it ticked and the `## Blocker` it appended — in jarvis-owned state outside the target repo.
+- [x] An interrupted (Ctrl-C/killed) `gitEnabled: false` run still leaves the delta recorded for the next run to reset (capture does not require a graceful exit).
+- [x] On re-run of that incomplete no-commit spec, jarvis reverts exactly those still-ticked AC checkboxes and strips that attempt's `## Blocker` before invoking the agent.
+- [x] A no-commit re-run whose only stale change is a prior-attempt `## Blocker` proceeds into the run (does not exit 7), because the reset runs before the start-of-iteration blocker detection.
+- [x] AC checkboxes present in the pre-attempt (authored) state remain ticked after the reset; only the recorded prior-attempt delta is reverted.
+- [x] A no-commit run that completes cleanly leaves no persisted delta and triggers no reset on a later unrelated run.
+- [x] A `gitEnabled: true` worktree-backed run records no delta and applies no reset (behavior unchanged).
+- [x] New tests cover: delta capture on an incomplete and on an interrupted no-commit run, AC reversion + blocker strip on the next no-commit run, preservation of a pre-attempt authored tick across the reset, and a clean completion leaving no record.
 
 ## Documentation updates
 
-- [ ] `v1/docs/run-loop.md` — document the no-commit re-run auto-reset (delta capture on incomplete exit; AC revert + blocker strip before the next attempt's blocker check).
-- [ ] `v2/docs/v1-behaviors.md` — record the new no-commit re-run reset behavior (this changes existing v1 behavior: stale-blocker exit-7 and persistent AC ticks on no-commit re-runs).
-- [ ] `v1/docs/operator-runbook.md` — note that no-commit re-runs no longer require hand-reverting checkboxes or stripping the prior `## Blocker`.
+- [x] `v1/docs/run-loop.md` — document the no-commit re-run auto-reset (delta capture on incomplete exit; AC revert + blocker strip before the next attempt's blocker check).
+- [x] `v2/docs/v1-behaviors.md` — record the new no-commit re-run reset behavior (this changes existing v1 behavior: stale-blocker exit-7 and persistent AC ticks on no-commit re-runs).
+- [x] `v1/docs/operator-runbook.md` — note that no-commit re-runs no longer require hand-reverting checkboxes or stripping the prior `## Blocker`.

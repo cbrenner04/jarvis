@@ -3,6 +3,7 @@ import { closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "n
 import { basename, dirname, join } from "node:path";
 import { detectBlockerClaim, parseSpec, stripBlockerSection } from "../../../../shared/spec-parser.ts";
 import { openSessionLog, resolveReviewPasses } from "../../config.ts";
+import { applyReset, recordNewlyCheckedAc, recordBlocker, createFreshDelta, loadDelta, clearDelta } from "./no-commit-delta.ts";
 import { getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
@@ -351,6 +352,13 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         // this same iteration (fall through to build the fix-up prompt below).
         isFixupIteration = true;
       } else {
+        // Clear no-commit delta on clean completion
+        if (done === 0 && !gitEnabled) {
+          const activeSubspecToClean = getActiveLinkedSubspecPath(specPath);
+          if (activeSubspecToClean !== undefined) {
+            clearDelta(activeSubspecToClean);
+          }
+        }
         return { kind: "return", exitCode: done };
       }
     } else {
@@ -391,6 +399,22 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           stdio: "pipe",
         }).trim()
       : null;
+
+  // For no-commit runs, load and apply any prior-attempt delta before the blocker check
+  // This resets any stale AC ticks and blockers from a prior incomplete run
+  if (!isFixupIteration && activeSubspecPath !== undefined && !gitEnabled) {
+    const priorDelta = loadDelta(activeSubspecPath);
+    if (priorDelta !== null) {
+      applyReset(activeSubspecPath, priorDelta);
+      // Create a fresh delta for this attempt
+      state.noCommitDelta = createFreshDelta(activeSubspecPath);
+    }
+  } else if (!gitEnabled && activeSubspecPath !== undefined) {
+    // First iteration: create a fresh delta if not already present
+    if (state.noCommitDelta === null) {
+      state.noCommitDelta = createFreshDelta(activeSubspecPath);
+    }
+  }
 
   // Check if the active subspec already has a blocker at the start
   // Skip for fix-up iterations since there's no active unchecked subspec
@@ -808,6 +832,13 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         const allChecked = afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
         const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
+        // Record newly checked AC in no-commit delta
+        if (!gitEnabled && state.noCommitDelta !== null && newlyChecked.length > 0) {
+          for (const ac of newlyChecked) {
+            recordNewlyCheckedAc(state.noCommitDelta, ac.text);
+          }
+        }
+
         if (allChecked || newlyChecked.length > 0) {
           state.consecutiveEditedUnticked = 0;
           state.consecutiveEditedUntickedSubspecPath = null;
@@ -820,6 +851,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           const blockerBody = afterParse.blocker;
           if (!blockerBody) {
             throw new Error(`Blocker section added but body is missing in ${afterSubspecPath}`);
+          }
+
+          // Record blocker in no-commit delta
+          if (!gitEnabled && state.noCommitDelta !== null) {
+            recordBlocker(state.noCommitDelta, blockerBody);
           }
 
           // Check if blocker is a claim about pre-existing failures
@@ -1222,6 +1258,10 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           record_role: "run_terminal",
           ...telemetryMeta,
         });
+        // Clear no-commit delta on clean completion
+        if (done === 0 && !gitEnabled && afterSubspecPath !== undefined) {
+          clearDelta(afterSubspecPath);
+        }
         return { kind: "return", exitCode: done };
       }
       // For fix-up iterations, we don't check no-progress since all boxes are already checked;

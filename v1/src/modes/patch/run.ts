@@ -23,6 +23,8 @@ import {
 } from "./preflight.ts";
 import { DescendantTracker, type ProcInfo } from "./reap.ts";
 import { runSnapshotUpdateRetest as runSnapshotUpdateRetestImpl } from "./snapshot-update-retest-runner.ts";
+import type { DeltaRecord } from "./no-commit-delta.ts";
+import { createFreshDelta, loadDelta, clearDelta } from "./no-commit-delta.ts";
 
 export type PreflightOk = {
   kind: "ok";
@@ -114,6 +116,7 @@ export type IterationContext = {
     consecutiveEditedUntickedSubspecPath: string | null;
     consecutiveBlockerClaimRejections: number;
     consecutiveBlockerClaimRejectionsSubspecPath: string | null;
+    noCommitDelta: DeltaRecord | null;
   };
 };
 
@@ -271,6 +274,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     consecutiveEditedUntickedSubspecPath: null,
     consecutiveBlockerClaimRejections: 0,
     consecutiveBlockerClaimRejectionsSubspecPath: null,
+    noCommitDelta: null,
   };
 
   const onSigint = () => {

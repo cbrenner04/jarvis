@@ -413,14 +413,12 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     const priorDelta = loadDelta(activeSubspecPath);
     if (priorDelta !== null) {
       applyReset(activeSubspecPath, priorDelta);
-      // Create a fresh delta for this attempt
-      state.noCommitDelta = createFreshDelta(activeSubspecPath);
     }
-  } else if (!gitEnabled && activeSubspecPath !== undefined) {
-    // First iteration: create a fresh delta if not already present
-    if (state.noCommitDelta === null) {
-      state.noCommitDelta = createFreshDelta(activeSubspecPath);
-    }
+    // Create a fresh delta for this attempt (first run or re-run after reset)
+    state.noCommitDelta = createFreshDelta(activeSubspecPath);
+  } else if (!gitEnabled && activeSubspecPath !== undefined && state.noCommitDelta === null) {
+    // Fixup iterations: create delta if needed
+    state.noCommitDelta = createFreshDelta(activeSubspecPath);
   }
 
   // Check if the active subspec already has a blocker at the start

@@ -509,6 +509,27 @@ checkout, `jarvis1 run` exits 1 with `error: target is not a git checkout;
 set "git": false in config or pass --repo to a git checkout` before invoking
 any agent.
 
+### No-commit re-run auto-reset
+
+When a `git: false` (no-commit) run is interrupted (Ctrl-C), killed, or blocked
+before completion, any acceptance criteria checkboxes ticked and blockers
+appended during that incomplete run persist in the source spec. On re-run of that
+same incomplete spec, jarvis automatically reverts these stale mutations before
+invoking the agent:
+
+- Acceptance criteria that were ticked in the prior incomplete run are
+  un-ticked, resetting the spec to its pre-attempt state.
+- Any `## Blocker` section appended in the prior run is stripped, allowing the
+  run to proceed without hitting the blocker-detection exit (code 7).
+
+The recorded delta (the set of AC keys newly checked + the appended blocker
+text) is persisted during the incomplete run and cleared when a re-run
+successfully completes the spec. If a run completes cleanly (all checkboxes
+ticked), no delta is left for subsequent runs. This eliminates manual
+hand-reverting of checkboxes and blockers before retrying a no-commit run after
+an interruption. Pre-attempt AC checkboxes (authored state before any run)
+remain ticked through the reset, so operator work is never lost.
+
 ## Plan mode
 
 Plan mode (`jarvis1 plan [<intent-file|"inline text">]`) drafts new specs collaboratively with an agent, while `jarvis1 run` implements existing specs. Refine → draft → self-review runs inside **`.worktree/plan-<plan-name>/`** on branch **`plan/<plan-name>`** (branch/worktree names intentionally **omit** the UTC prefix even when authoring files live under **`spec/YYYY-MM-DDTHH-mm-ssZ-<plan-name>/`**). **Legacy trees** capped at **`spec/<plan-name>/`** remain **`jarvis1 plan --resume` capable**. A GitHub draft PR opens after **`plan: draft`**. Readiness transitions are attempted when all phases complete without blockers. If the draft PR is already ready, it remains untouched (idempotent). If it is still draft and the readiness gate fails, a later successful `jarvis1 plan --resume …` invocation retries the transition. Stderr defaults stay quiet besides milestone chatter ([quieter-output section in plan-mode docs](./plan-mode.md#default-terminal-output)), and stdout **Next steps** recap merge/`jarvis1 run` without instructing reviewers to toggle readiness manually.

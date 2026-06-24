@@ -39,6 +39,15 @@ import {
   tryFinishSpecIfDone,
 } from "./completion-pipeline.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
+import {
+  applyReset,
+  clearDelta,
+  createFreshDelta,
+  loadDelta,
+  recordBlocker,
+  recordNewlyCheckedAc,
+  saveDelta,
+} from "./no-commit-delta.ts";
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { maybeMarkReady } from "./pr.ts";
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
@@ -323,6 +332,38 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   const iterationStartedAt = Date.now();
   const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
 
+  // Helper to capture delta on interrupt/timeout: diff current spec against pre-iteration state
+  function captureInterruptedDelta(
+    activeSubspecPath: string | undefined,
+    beforeCriteria: AcceptanceCriterion[],
+    hasBlockerBefore: boolean,
+  ): void {
+    if (!activeSubspecPath || gitEnabled || state.noCommitDelta === null) {
+      return;
+    }
+    try {
+      if (!existsSync(activeSubspecPath)) {
+        return;
+      }
+      const afterCriteria = snapshotAcceptanceCriteria(activeSubspecPath);
+      const newlyChecked = diffAcceptanceCriteria(beforeCriteria, afterCriteria);
+      for (const ac of newlyChecked) {
+        recordNewlyCheckedAc(state.noCommitDelta, ac.text);
+      }
+
+      const afterParse = parseSpec(readFileSync(activeSubspecPath, "utf8"));
+      const hasBlockerNow = afterParse.blocker !== undefined;
+      if (hasBlockerNow && !hasBlockerBefore) {
+        const blockerBody = afterParse.blocker;
+        if (blockerBody) {
+          recordBlocker(state.noCommitDelta, blockerBody);
+        }
+      }
+    } catch {
+      // Best effort: if we can't capture the delta, just continue
+    }
+  }
+
   if (iteration > cfg.maxIterations) {
     printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
     fanout("harness", `max iterations (${cfg.maxIterations}) reached; stopping\n`, "stderr");
@@ -351,6 +392,13 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         // this same iteration (fall through to build the fix-up prompt below).
         isFixupIteration = true;
       } else {
+        // Clear no-commit delta on clean completion
+        if (done === 0 && !gitEnabled) {
+          const activeSubspecToClean = getActiveLinkedSubspecPath(specPath);
+          if (activeSubspecToClean !== undefined) {
+            clearDelta(activeSubspecToClean);
+          }
+        }
         return { kind: "return", exitCode: done };
       }
     } else {
@@ -391,6 +439,22 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           stdio: "pipe",
         }).trim()
       : null;
+
+  // For no-commit runs, load and apply any prior-attempt delta before the blocker check
+  // This resets any stale AC ticks and blockers from a prior incomplete run
+  // Only apply reset once per run (iteration 1), never on subsequent iterations
+  if (!isFixupIteration && activeSubspecPath !== undefined && !gitEnabled && !state.noCommitResetAppliedThisRun) {
+    const priorDelta = loadDelta(activeSubspecPath);
+    if (priorDelta !== null) {
+      applyReset(activeSubspecPath, priorDelta);
+    }
+    // Create a fresh delta for this attempt (first run or re-run after reset)
+    state.noCommitDelta = createFreshDelta(activeSubspecPath);
+    state.noCommitResetAppliedThisRun = true;
+  } else if (!gitEnabled && activeSubspecPath !== undefined && state.noCommitDelta === null) {
+    // Subsequent iterations or fixup iterations: create delta if needed
+    state.noCommitDelta = createFreshDelta(activeSubspecPath);
+  }
 
   // Check if the active subspec already has a blocker at the start
   // Skip for fix-up iterations since there's no active unchecked subspec
@@ -681,6 +745,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     // Check for idle timeout
     if (result.kind === "error" && result.stderr.includes("aborted: idle-timeout")) {
       fanout("harness", `iteration ${iteration} exceeded idle timeout of ${cfg.idleOutputTimeoutMs}ms\n`, "stderr");
+      captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
       const idleTelemetryRecord: TelemetryRecord = {
         agent: agent.name,
         iteration,
@@ -706,6 +771,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     // Check for iteration timeout
     if (result.kind === "error" && result.stderr.includes("aborted: iteration-timeout")) {
       fanout("harness", `iteration ${iteration} exceeded timeout of ${cfg.iterationTimeoutMs}ms\n`, "stderr");
+      captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
       const iterationTelemetryRecord: TelemetryRecord = {
         agent: agent.name,
         iteration,
@@ -737,6 +803,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         cfg.runTimeoutMs ? `run exceeded timeout of ${cfg.runTimeoutMs}ms\n` : "run timeout\n",
         "stderr",
       );
+      captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
       writeTelemetry({
         agent: agent.name,
         iteration,
@@ -750,6 +817,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
 
     // Check for SIGINT
     if (result.kind === "error" && result.stderr.includes("aborted: sigint")) {
+      captureInterruptedDelta(activeSubspecPath, beforeCriteria, hasBlockerBefore);
       return { kind: "exit", exitCode: 130 };
     }
 
@@ -808,6 +876,13 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         const allChecked = afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
         const checkedTotal = afterCriteria.filter((c) => c.checked).length;
 
+        // Record newly checked AC in no-commit delta
+        if (!gitEnabled && state.noCommitDelta !== null && newlyChecked.length > 0) {
+          for (const ac of newlyChecked) {
+            recordNewlyCheckedAc(state.noCommitDelta, ac.text);
+          }
+        }
+
         if (allChecked || newlyChecked.length > 0) {
           state.consecutiveEditedUnticked = 0;
           state.consecutiveEditedUntickedSubspecPath = null;
@@ -820,6 +895,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           const blockerBody = afterParse.blocker;
           if (!blockerBody) {
             throw new Error(`Blocker section added but body is missing in ${afterSubspecPath}`);
+          }
+
+          // Record blocker in no-commit delta
+          if (!gitEnabled && state.noCommitDelta !== null) {
+            recordBlocker(state.noCommitDelta, blockerBody);
           }
 
           // Check if blocker is a claim about pre-existing failures
@@ -992,6 +1072,10 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             exitReason: "blocker-detected",
             ...telemetryMeta,
           });
+          // Record this run's delta on incomplete exit to overwrite any prior delta
+          if (!gitEnabled && state.noCommitDelta !== null && afterSubspecPath !== undefined) {
+            saveDelta(state.noCommitDelta);
+          }
           return { kind: "return", exitCode: 7 };
         }
 
@@ -1126,6 +1210,10 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 `iteration ${iteration} edited files but checked no new acceptance criteria for ${afterSubspecPath}; ${blocker}\n\nUnmet acceptance criteria:\n${unmetList}\n\nInspect the dirty worktree, then tick satisfied acceptance criteria, fix, or revert before rerunning. Worktree: ${agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
                 "stderr",
               );
+              // Record this run's delta on incomplete exit to overwrite any prior delta
+              if (!gitEnabled && state.noCommitDelta !== null && afterSubspecPath !== undefined) {
+                saveDelta(state.noCommitDelta);
+              }
               return { kind: "return", exitCode: 6 };
             }
           }
@@ -1178,6 +1266,10 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             exitReason: "blocker-detected",
             ...telemetryMeta,
           });
+          // Record this run's delta on incomplete exit (fix-up iterations)
+          if (!gitEnabled && state.noCommitDelta !== null && state.noCommitDelta.activeSubspecPath !== undefined) {
+            saveDelta(state.noCommitDelta);
+          }
           return { kind: "return", exitCode: 7 };
         }
       }
@@ -1222,6 +1314,10 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           record_role: "run_terminal",
           ...telemetryMeta,
         });
+        // Clear no-commit delta on clean completion
+        if (done === 0 && !gitEnabled && afterSubspecPath !== undefined) {
+          clearDelta(afterSubspecPath);
+        }
         return { kind: "return", exitCode: done };
       }
       // For fix-up iterations, we don't check no-progress since all boxes are already checked;
@@ -1269,6 +1365,10 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           ...usageCost,
           ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
         });
+        // Record this run's delta on incomplete exit to overwrite any prior delta
+        if (!gitEnabled && state.noCommitDelta !== null && activeSubspecPath !== undefined) {
+          saveDelta(state.noCommitDelta);
+        }
         return { kind: "return", exitCode: 4 };
       }
       writeTelemetry({
@@ -1281,6 +1381,10 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         ...usageCost,
         ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
       });
+      // Record this run's delta on incomplete loopback to overwrite any prior delta
+      if (!gitEnabled && state.noCommitDelta !== null && activeSubspecPath !== undefined) {
+        saveDelta(state.noCommitDelta);
+      }
       state.iteration += 1;
       return { kind: "continue" };
     }

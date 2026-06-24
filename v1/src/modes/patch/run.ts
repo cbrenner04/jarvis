@@ -15,6 +15,7 @@ import type {
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
 import { runBaseRefTests as runBaseRefTestsImpl } from "./base-ref-test-runner.ts";
 import { finalize, runIteration, setupLogging } from "./iteration.ts";
+import type { DeltaRecord } from "./no-commit-delta.ts";
 import {
   buildActiveAgents,
   maybeWarnAboutUnmergedPlanBranch,
@@ -114,6 +115,8 @@ export type IterationContext = {
     consecutiveEditedUntickedSubspecPath: string | null;
     consecutiveBlockerClaimRejections: number;
     consecutiveBlockerClaimRejectionsSubspecPath: string | null;
+    noCommitDelta: DeltaRecord | null;
+    noCommitResetAppliedThisRun: boolean;
   };
 };
 
@@ -271,6 +274,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     consecutiveEditedUntickedSubspecPath: null,
     consecutiveBlockerClaimRejections: 0,
     consecutiveBlockerClaimRejectionsSubspecPath: null,
+    noCommitDelta: null,
+    noCommitResetAppliedThisRun: false,
   };
 
   const onSigint = () => {

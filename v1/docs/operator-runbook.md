@@ -219,6 +219,15 @@ Common cases:
 
 Admin-merge skips approval and CI gating but **not** local verification — always run `bun run ready` before merging.
 
+## No-commit re-run auto-reset
+
+When a `git: false` (no-commit) run is interrupted, killed, or blocked before completion, any acceptance-criteria checkboxes ticked and blockers appended during that run persist in the source spec on re-run. **Jarvis now automatically reverts these stale mutations** before agent invocation:
+
+- Acceptance criteria ticked in the prior incomplete run are un-ticked.
+- Any `## Blocker` appended is stripped.
+
+The **observer no longer needs to manually revert checkboxes or strip blockers** before retrying a no-commit run after an interruption. Simply re-run with the same spec path: `jarvis1 run <spec>`. Pre-attempt checkboxes (authored before any run) remain ticked, so operator work is preserved.
+
 ## Sandbox blindness and false-negatives
 
 The sandbox (e.g. in Claude Code) can hide real state:

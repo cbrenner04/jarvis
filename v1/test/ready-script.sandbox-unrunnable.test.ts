@@ -145,13 +145,14 @@ describe("ready tier parsing and step lists", () => {
     ]);
   });
 
-  test("full tier runs check:fix:unsafe, typecheck, test, and check after install", () => {
+  test("full tier runs check:fix:unsafe, typecheck, test, check, and lint:md after install", () => {
     expect(getReadyCommands("full", { runInstall: true })).toEqual([
       { name: "bun", args: ["install", "--frozen-lockfile"] },
       { name: "bun", args: ["run", "check:fix:unsafe"] },
       { name: "bun", args: ["run", "typecheck"] },
       { name: "bun", args: ["run", "test"] },
       { name: "bun", args: ["run", "check"] },
+      { name: "bun", args: ["run", "lint:md"] },
     ]);
   });
 
@@ -164,7 +165,7 @@ describe("ready tier parsing and step lists", () => {
 
     expect(checkFixIndex).toBe(0);
     expect(installIndex).toBe(-1);
-    expect(commands.map((command) => command.args[1])).toEqual(["check:fix:unsafe", "typecheck", "test", "check"]);
+    expect(commands.map((command) => command.args[1])).toEqual(["check:fix:unsafe", "typecheck", "test", "check", "lint:md"]);
   });
 
   test("full tier keeps install before check:fix:unsafe when install runs", () => {
@@ -230,6 +231,7 @@ describe("ready tier parsing and step lists", () => {
         "typecheck",
         "test",
         "check",
+        "lint:md",
       ]);
     } finally {
       rmSync(repoRoot, { recursive: true, force: true });
@@ -339,6 +341,7 @@ describe("ready install digest", () => {
       "typecheck",
       "test",
       "check",
+      "lint:md",
     ]);
     expect(readRecordedInstallDigest(repoRoot)).toBe(digest);
   });
@@ -473,8 +476,8 @@ describe("ready serial-retry on test failure", () => {
         process.stderr.write = origWrite;
       }
 
-      // Verify execution order: check:fix:unsafe, typecheck, parallel test (fails), serial test (passes), check
-      expect(executed).toEqual(["run check:fix:unsafe", "run typecheck", "run test", "test", "run check"]);
+      // Verify execution order: check:fix:unsafe, typecheck, parallel test (fails), serial test (passes), check, lint:md
+      expect(executed).toEqual(["run check:fix:unsafe", "run typecheck", "run test", "test", "run check", "run lint:md"]);
 
       // Verify the recovery signal is logged
       const stderr = stderrLines.join("");

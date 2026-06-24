@@ -14,7 +14,7 @@ import {
   ReadyCommandError,
   runReadyAndCommit,
 } from "../../ready-gate.ts";
-import { pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
+import { hasUpstream, pushCurrent, worktreeCompletionBlocker } from "../../worktree.ts";
 import { countUnchecked, findBlockerInLinkedSubspecs } from "./completion.ts";
 import { buildPrBody, generatePrDescription, maybeMarkReady, updatePrBody } from "./pr.ts";
 import { runPatchReviewPhase } from "./review.ts";
@@ -149,6 +149,47 @@ async function generatePrBody(
     indexPath: specPath,
     narrative,
   });
+}
+
+type FanoutFn = (
+  tag: "harness" | "outbound" | "inbound_stdout" | "inbound_stderr",
+  text: string,
+  stream: "stdout" | "stderr" | null,
+) => void;
+
+function discardFixupCommits(cwd: string, baselineSha: string, fanout: FanoutFn, skipGhCheck?: boolean): void {
+  // Reset to baseline
+  try {
+    execFileSync("git", ["reset", "--hard", baselineSha], {
+      cwd,
+      stdio: "pipe",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    fanout("harness", `warning: failed to reset to first-red baseline: ${message}\n`, "stderr");
+  }
+
+  // Force-push if upstream exists, git checks are enabled, and there are commits beyond baseline
+  if (hasUpstream(cwd) && skipGhCheck !== true) {
+    try {
+      const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd,
+        encoding: "utf8",
+        stdio: "pipe",
+      }).trim();
+      // Only push if HEAD differs from baseline (commits beyond baseline exist)
+      if (headSha !== baselineSha) {
+        execFileSync("git", ["push", "--force-with-lease"], {
+          cwd,
+          env: process.env,
+          stdio: "pipe",
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      fanout("harness", `warning: failed to force-push after discard: ${message}\n`, "stderr");
+    }
+  }
 }
 
 /**
@@ -291,6 +332,23 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
   if (shouldRunCompletionReadyGate) {
     const gateResult = await runCompletionReadyGate(ctx, readyCommand);
     if (gateResult.kind === "red") {
+      // Capture the first-red baseline before any fix-up loopback
+      if (
+        ctx.state.firstRedBaselineSha === undefined &&
+        preflight.gitEnabled &&
+        existsSync(join(preflight.agentWorkingDir, ".git"))
+      ) {
+        try {
+          ctx.state.firstRedBaselineSha = execFileSync("git", ["rev-parse", "HEAD"], {
+            cwd: preflight.agentWorkingDir,
+            encoding: "utf8",
+            stdio: "pipe",
+          }).trim();
+        } catch {
+          // No HEAD sha available: skip capturing baseline; no discard on stuck-red
+        }
+      }
+
       if (gateResult.retryable === false) {
         const worktreeName = basename(preflight.agentWorkingDir);
         logging.fanout(
@@ -312,9 +370,17 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
       if (isStuckRed) {
         // Stuck-red stop: the failure is unchanged, no new checkbox, no new blocker
         const worktreeName = basename(preflight.agentWorkingDir);
+        if (ctx.state.firstRedBaselineSha !== undefined) {
+          discardFixupCommits(
+            preflight.agentWorkingDir,
+            ctx.state.firstRedBaselineSha,
+            logging.fanout,
+            ctx.opts.skipGhCheck,
+          );
+        }
         logging.fanout(
           "harness",
-          `${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          `${gateResult.failureText}\n\nThe gate stayed red after fix-up iteration: the failure is unchanged and no new work was ticked. The issue may be flaky or require manual intervention. Fix-up edits have been discarded (recoverable via git reflog), and the PR is left at the original completed work. Finalize by hand if needed.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
           "stderr",
         );
         logging.writeTelemetry({
@@ -345,9 +411,17 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
       if (ctx.state.consecutiveRedFixups >= CONSECUTIVE_RED_FIXUP_BOUND) {
         // Changing-failure bound: failure text differs each iteration but no AC progress
         const worktreeName = basename(preflight.agentWorkingDir);
+        if (ctx.state.firstRedBaselineSha !== undefined) {
+          discardFixupCommits(
+            preflight.agentWorkingDir,
+            ctx.state.firstRedBaselineSha,
+            logging.fanout,
+            ctx.opts.skipGhCheck,
+          );
+        }
         logging.fanout(
           "harness",
-          `${gateResult.failureText}\n\nThe ready gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations with no acceptance criteria progress and the failure differed each pass. The issue persists without convergence.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          `${gateResult.failureText}\n\nThe gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations: the failure differed each pass but no acceptance criteria progressed. The issue may be flaky or require manual intervention. Fix-up edits have been discarded (recoverable via git reflog), and the PR is left at the original completed work. Finalize by hand if needed.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
           "stderr",
         );
         logging.writeTelemetry({

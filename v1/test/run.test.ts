@@ -886,7 +886,9 @@ describe("runCommand", () => {
     // second completion check also stays red and trips the unchanged-failure
     // stuck-red stop.
     expect(code).toBe(10);
-    expect(cap.err()).toContain("The failure is unchanged after fix-up iteration");
+    expect(cap.err()).toContain("gate stayed red after fix-up iteration");
+    expect(cap.err()).toContain("flaky");
+    expect(cap.err()).toContain("Finalize by hand");
     // Seam called 6 times (3 per completion check, 2 checks).
     expect(gateCalls).toBe(6);
     // Agent called once normally, once for fix-up.
@@ -920,6 +922,8 @@ describe("runCommand", () => {
     expect(cap.err()).toContain("bun run ready failed:");
     expect(cap.err()).toContain("ERROR: test failed");
     expect(cap.err()).toContain("jarvis1 triage");
+    expect(cap.err()).toContain("flaky");
+    expect(cap.err()).toContain("Finalize by hand");
     // Gate is retried up to 3 times per completion invocation (bound=2 + initial).
     // Two completion checks (initial + after fix-up) = 6 total seam calls.
     expect(gateCalls).toBe(6);
@@ -1009,6 +1013,7 @@ Date: 2026-06-18`,
     // Exit 10 because failures are treated as unchanged after normalization.
     expect(code).toBe(10);
     expect(cap.err()).toContain("bun run ready failed:");
+    expect(cap.err()).toContain("flaky");
     // Gate is retried 3 times per completion check, 2 checks total = 6 calls.
     expect(gateCalls).toBe(6);
   });
@@ -1076,9 +1081,9 @@ Date: 2026-06-18`,
     // completion 2 final red differs -> count=2 -> fix-up
     // completion 3 final red differs -> count=3 (>=N) -> exit 10
     expect(code).toBe(10);
-    expect(cap.err()).toContain("ready gate stayed red");
+    expect(cap.err()).toContain("gate stayed red");
     expect(cap.err()).toContain("3 consecutive fix-up iterations");
-    expect(cap.err()).toContain("no acceptance criteria progress");
+    expect(cap.err()).toContain("flaky");
     expect(cap.err()).toContain("jarvis1 triage");
     // Gate called 9 times (3 attempts per completion check, 3 checks total).
     expect(gateCalls).toBe(9);
@@ -1119,6 +1124,157 @@ Date: 2026-06-18`,
     // Should mention the bound and consecutive iterations
     expect(errorOutput).toContain("stayed red");
     expect(errorOutput).toContain("consecutive fix-up iterations");
+  });
+
+  test("completion: stuck-red with real fix-up commits resets to baseline and messages name flaky-or-real", async () => {
+    const spec = initCompletionGateRepo();
+
+    const cap = captureIo();
+    const failureText = "bun run ready failed:\nERROR: test failed";
+
+    // Track commit SHAs to verify reset happened
+    let baselineSha: string | null = null;
+    let fixupSha: string | null = null;
+
+    // Agent completes the task on first call, then adds a fix-up commit on subsequent calls
+    const claude = new FakeAgent("claude", (callCount) => {
+      if (callCount === 1) {
+        // Complete the spec
+        writeFileSync(spec, readFileSync(spec, "utf8").replace("- [ ]", "- [x]"));
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+        baselineSha = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
+      } else if (callCount === 2) {
+        // Fix-up iteration: add a chase edit commit
+        writeFileSync(spec, `${readFileSync(spec, "utf8")}\nfix attempt 1\n`);
+        execSync("git add index.md && git commit -m 'fix-up attempt 1'", { cwd: projectRoot });
+        fixupSha = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    let _gateCalls = 0;
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir, maxIterations: 10 },
+      agents: { claude },
+      handleSignals: false,
+      reviewPasses: 0,
+      runCompletionReadyGate: () => {
+        _gateCalls += 1;
+        return { kind: "red", failureText };
+      },
+    });
+
+    // Should exit 10 (stuck-red)
+    expect(code).toBe(10);
+
+    // Messages should mention flaky-or-real and finalize by hand
+    const errorOutput = cap.err();
+    expect(errorOutput).toContain("flaky");
+    expect(errorOutput).toContain("Finalize by hand");
+    expect(errorOutput).toContain("git reflog");
+    expect(errorOutput).toContain("Fix-up edits have been discarded");
+
+    // Verify the fix-up commit was discarded locally: HEAD should be reset to baseline
+    const currentHead = execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim();
+    if (baselineSha !== null) {
+      expect(currentHead).toBe(baselineSha);
+    }
+    // Fix-up commit should be in reflog (as a reset target)
+    if (fixupSha !== null) {
+      const reflog = execSync("git reflog", { cwd: projectRoot, encoding: "utf8" });
+      // The fix-up should be in reflog (as a reset target), but HEAD should not point to it
+      const shortSha = (fixupSha as string).slice(0, 7);
+      expect(reflog).toContain(shortSha);
+    }
+  });
+
+  test("completion: failed force-push still exits 10 with ready-stuck-red telemetry", async () => {
+    const spec = initCompletionGateRepo();
+
+    const cap = captureIo();
+    const failureText = "bun run ready failed:\nERROR: test failed";
+
+    // Agent that adds a fix-up commit on the second call
+    const claude = new FakeAgent("claude", (callCount) => {
+      if (callCount === 1) {
+        writeFileSync(spec, readFileSync(spec, "utf8").replace("- [ ]", "- [x]"));
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+      } else if (callCount === 2) {
+        // Add a fix-up commit
+        writeFileSync(spec, `${readFileSync(spec, "utf8")}\nfix attempt\n`);
+        execSync("git add index.md && git commit -m 'fix-up'", { cwd: projectRoot });
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    let _gateCalls = 0;
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir, maxIterations: 10 },
+      agents: { claude },
+      handleSignals: false,
+      reviewPasses: 0,
+      runCompletionReadyGate: () => {
+        _gateCalls += 1;
+        return { kind: "red", failureText };
+      },
+    });
+
+    // Should still exit 10 even though there's no upstream (so force-push fails silently)
+    expect(code).toBe(10);
+
+    // Telemetry should include ready-stuck-red
+    const telemetryPath = join(cfgDir, "runs.jsonl");
+    const lines = readFileSync(telemetryPath, "utf8").trim().split("\n");
+    const stuckRedRecord = lines
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .find((r) => r.exit_reason === "ready-stuck-red");
+    expect(stuckRedRecord).toBeDefined();
+  });
+
+  test("completion: no upstream / skipGhCheck exits 10 with no push attempted", async () => {
+    const spec = initCompletionGateRepo();
+
+    const cap = captureIo();
+    const failureText = "bun run ready failed:\nERROR: test failed";
+
+    // Agent that adds a fix-up commit on the second call
+    const claude = new FakeAgent("claude", (callCount) => {
+      if (callCount === 1) {
+        writeFileSync(spec, readFileSync(spec, "utf8").replace("- [ ]", "- [x]"));
+        execSync("git add index.md && git commit -m done", { cwd: projectRoot });
+      } else if (callCount === 2) {
+        // Add a fix-up commit
+        writeFileSync(spec, `${readFileSync(spec, "utf8")}\nfix attempt\n`);
+        execSync("git add index.md && git commit -m 'fix-up'", { cwd: projectRoot });
+      }
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    let _gateCalls = 0;
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir, maxIterations: 10 },
+      agents: { claude },
+      handleSignals: false,
+      reviewPasses: 0,
+      skipGhCheck: true,
+      runCompletionReadyGate: () => {
+        _gateCalls += 1;
+        return { kind: "red", failureText };
+      },
+    });
+
+    // Should exit 10 (stuck-red)
+    expect(code).toBe(10);
+
+    // No error should be logged about failed push (since it was skipped)
+    const errorOutput = cap.err();
+    expect(errorOutput).not.toContain("failed to force-push");
   });
 
   describe("completion-transition ready gate", () => {

@@ -436,11 +436,15 @@ Exit code `10` (`ready-stuck-red`) fires in two scenarios:
 2. The failure text differs between iterations (changing, not identical).
 3. N = 3, allowing two genuine fix-up attempts before the bound.
 
-Both indicate the issue persists and manual intervention is likely needed. The harness outputs:
-- For identical-failure stop: The captured `bun run ready failed:` text that failed before and fails after, noting it is "unchanged."
-- For changing-failure bound: The captured `bun run ready failed:` text and a note that the gate stayed red for N consecutive fix-up iterations with no acceptance-criteria progress and the failure differed each pass.
-- A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves.
-- A telemetry record with exit reason `ready-stuck-red` for observability.
+Both indicate the issue persists and manual intervention is likely needed. On exit, the harness performs the following:
+1. Discards the fix-up commits added during the loop (resets the PR branch to the first-red baseline and force-pushes with `--force-with-lease`), leaving the PR at the original completed work without the chase edits.
+2. Outputs an operator message:
+   - For identical-failure stop: The captured `bun run ready failed:` text that failed before and fails after, noting the fix-up edits have been discarded (recoverable via git reflog), and the PR is left at the original completed work.
+   - For changing-failure bound: The captured `bun run ready failed:` text and a note that the gate stayed red for N consecutive fix-up iterations with no acceptance-criteria progress and the failure differed each pass, the fix-up edits have been discarded, and the PR is left at the original completed work.
+   - A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves.
+3. Writes a telemetry record with exit reason `ready-stuck-red` for observability (even if the git reset or force-push fails, the telemetry is still written and the exit code remains 10).
+
+If a git reset or force-push fails during the discard step, a warning is logged but the exit code remains 10 and telemetry is still written. When git is disabled, no upstream exists, or `--skip-gh-check` is set, the discard step is skipped (no force-push attempted) and the exit code remains 10.
 
 If the failure text changed substantively (e.g. a different line number, different test output) and is still under the N-iteration bound, the loop continues. Noise-only differences (timings, paths) are normalized away and do not extend the loop; such failures are caught by the identical-failure stop after one iteration.
 
@@ -767,7 +771,7 @@ jarvis1 log-server
 | `7` | `blocked` | The run is blocked. The active subspec gained a `## Blocker` section (or already had one at the start). Any work from the iteration is committed and pushed. The blocker body is printed to stderr. Fix the underlying issue or remove the blocker section from the spec, then rerun. |
 | `8` | `timeout` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | `worktree-locked` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |
-| `10` | `ready-stuck-red` | The run is stuck on a red `bun run ready` failure after fix-up iteration(s). Two scenarios: (1) **identical-failure stop**: The captured failure text is unchanged after normalization (for noise like timings and paths), and no new work was ticked and no new blocker was added. (2) **changing-failure bound**: The ready gate has returned red for N (3) consecutive fix-up iterations with no acceptance-criteria progress, and the failure text differs between iterations. Both are recoverable stops: the issue persists and manual intervention may be needed. The error message includes the captured failure text and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import, a flaky or non-deterministic failure) and rerun to retry the fix-up iteration. |
+| `10` | `ready-stuck-red` | The run is stuck on a red `bun run ready` failure after fix-up iteration(s). Two scenarios: (1) **identical-failure stop**: The captured failure text is unchanged after normalization (for noise like timings and paths), and no new work was ticked and no new blocker was added. (2) **changing-failure bound**: The ready gate has returned red for N (3) consecutive fix-up iterations with no acceptance-criteria progress, and the failure text differs between iterations. Both are recoverable stops: the issue persists and manual intervention may be needed. The fix-up commits (chase edits) are discarded before exit: the PR branch is reset to the first-red baseline (the state before the first fix-up iteration) and force-pushed with `--force-with-lease`, leaving the PR at the original completed work without the chase edits. The discarded commits remain accessible via git reflog. The error message includes the captured failure text and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import, a flaky or non-deterministic failure) and rerun to retry the fix-up iteration. |
 | `130` | `sigint` | Interrupted with Ctrl-C. |
 
 On exit `4`, `5`, and `10`, the bounded tail of recent agent output is printed to the

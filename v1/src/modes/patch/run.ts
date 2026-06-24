@@ -106,6 +106,7 @@ export type IterationContext = {
     previousCompletionFailureText: string | null;
     consecutiveRedFixups: number;
     acProgressSinceLastGate: boolean;
+    firstRedBaselineSha?: string;
     completionTransitionReadyResult?: {
       headSha: string;
     };

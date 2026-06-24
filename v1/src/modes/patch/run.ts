@@ -15,6 +15,7 @@ import type {
 import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } from "../shared-entry.ts";
 import { runBaseRefTests as runBaseRefTestsImpl } from "./base-ref-test-runner.ts";
 import { finalize, runIteration, setupLogging } from "./iteration.ts";
+import type { DeltaRecord } from "./no-commit-delta.ts";
 import {
   buildActiveAgents,
   maybeWarnAboutUnmergedPlanBranch,
@@ -23,8 +24,6 @@ import {
 } from "./preflight.ts";
 import { DescendantTracker, type ProcInfo } from "./reap.ts";
 import { runSnapshotUpdateRetest as runSnapshotUpdateRetestImpl } from "./snapshot-update-retest-runner.ts";
-import type { DeltaRecord } from "./no-commit-delta.ts";
-import { createFreshDelta, loadDelta, clearDelta } from "./no-commit-delta.ts";
 
 export type PreflightOk = {
   kind: "ok";

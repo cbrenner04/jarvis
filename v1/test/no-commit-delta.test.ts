@@ -1,8 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { createFreshDelta, loadDelta, saveDelta, clearDelta, applyReset, recordNewlyCheckedAc, recordBlocker, __testSetDeltaStateDir, __testClearDeltaStateDir } from "../src/modes/patch/no-commit-delta.ts";
+import { join } from "node:path";
+import {
+  __testClearDeltaStateDir,
+  __testSetDeltaStateDir,
+  applyReset,
+  clearDelta,
+  createFreshDelta,
+  loadDelta,
+  recordBlocker,
+  recordNewlyCheckedAc,
+} from "../src/modes/patch/no-commit-delta.ts";
 
 describe("no-commit-delta", () => {
   let tempDir: string;

@@ -1,7 +1,6 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { parseSpec } from "../../../../shared/spec-parser.ts";
+import { join } from "node:path";
 
 // Test seam for overriding the delta state directory
 let testStateDir: string | null = null;
@@ -99,8 +98,6 @@ export function applyReset(specPath: string, delta: DeltaRecord): void {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
 
-
-
     // Detect acceptance criteria section
     if (line === "## Acceptance criteria") {
       inAcSection = true;
@@ -153,7 +150,6 @@ export function applyReset(specPath: string, delta: DeltaRecord): void {
 
   writeFileSync(specPath, output.join("\n"), "utf8");
 }
-
 
 // Update delta with newly checked AC (called as mutations occur)
 export function recordNewlyCheckedAc(delta: DeltaRecord, acText: string): void {

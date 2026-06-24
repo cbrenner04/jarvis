@@ -3,7 +3,6 @@ import { closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "n
 import { basename, dirname, join } from "node:path";
 import { detectBlockerClaim, parseSpec, stripBlockerSection } from "../../../../shared/spec-parser.ts";
 import { openSessionLog, resolveReviewPasses } from "../../config.ts";
-import { applyReset, recordNewlyCheckedAc, recordBlocker, createFreshDelta, loadDelta, clearDelta } from "./no-commit-delta.ts";
 import { getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
@@ -40,6 +39,14 @@ import {
   tryFinishSpecIfDone,
 } from "./completion-pipeline.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
+import {
+  applyReset,
+  clearDelta,
+  createFreshDelta,
+  loadDelta,
+  recordBlocker,
+  recordNewlyCheckedAc,
+} from "./no-commit-delta.ts";
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { maybeMarkReady } from "./pr.ts";
 import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";

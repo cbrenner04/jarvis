@@ -1,15 +1,6 @@
 {
-  "globs": [
-    "v1/spec/**/*.md",
-    "v1/docs/**/*.md",
-    "reports/**/*.md",
-    "README.md",
-    "AGENTS.md"
-  ],
-  "ignores": [
-    "**/completed/**",
-    "**/node_modules/**"
-  ],
+  "globs": ["v1/spec/**/*.md", "v1/docs/**/*.md", "reports/**/*.md", "README.md", "AGENTS.md"],
+  "ignores": ["**/completed/**", "**/node_modules/**"],
   "config": {
     "default": true,
     "MD009": false,

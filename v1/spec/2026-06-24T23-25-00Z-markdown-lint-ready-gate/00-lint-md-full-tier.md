@@ -15,16 +15,19 @@ and prose conventions rot between reviews.
 ## Task checklist
 
 - [ ] Append `{ name: "bun", args: ["run", "lint:md"] }` to the `full` branch of `getReadyCommands` in `scripts/ready.ts`, after the `check` step.
-- [ ] Update the tier-list assertions in `v1/test/ready-script.sandbox-unrunnable.test.ts` to expect the new step in the full list and its absence from fast.
-- [ ] Update docs: the ready-tier table in `v1/docs/run-loop.md` and the full-tier sequence in `v2/docs/v1-behaviors.md`.
+- [ ] Update `v1/test/ready-script.sandbox-unrunnable.test.ts`: the full-tier `toEqual` array, the second `["check:fix:unsafe", "typecheck", "test", "check"]` occurrence in the skips-install test, and the test **title** that names the full-tier steps (else it becomes misleading).
+- [ ] Update docs: the ready-tier table in `v1/docs/run-loop.md`, and **both** full-tier step recitations in `v2/docs/v1-behaviors.md` — the review-phase baseline (~line 51) and the ready-pipeline-order claim (~line 400).
+
+Implementer note: the lint globs cover `v1/spec/**/*.md` with no ignore for the active spec dir, so the full tier will lint this spec's own files. Keep them lint-clean or the gate blocks the PR going ready.
 
 ## Acceptance criteria
 
 - [ ] `bun run ready` full tier runs `bun run lint:md`; a Markdown lint violation in the in-scope corpus fails the gate with a non-zero exit.
-- [ ] The `fast` tier is unchanged — it runs `typecheck` then `test` only and never runs `lint:md`.
+- [ ] The unmodified in-scope corpus passes the full tier (gate is green on `main` at merge).
+- [ ] The `fast` tier still runs `typecheck` then `test` only: the fast-tier assertions in `v1/test/ready-script.sandbox-unrunnable.test.ts` stay green (unchanged by this addition).
 - [ ] `getReadyCommands("full", …)` lists `lint:md` after `check`, and the tier-list tests in `v1/test/ready-script.sandbox-unrunnable.test.ts` assert this and stay green.
 
 ## Documentation updates
 
 - `v1/docs/run-loop.md`: add `lint:md` to the `full` tier row of the ready-tier table.
-- `v2/docs/v1-behaviors.md`: update the full-tier `ready` sequence entries to include `lint:md` (changes existing v1 behavior — parity baseline must record it).
+- `v2/docs/v1-behaviors.md`: add `lint:md` to **both** full-tier step recitations — the review-phase baseline (~line 51) and the ready-pipeline-order claim (~line 400). Edit only the parenthetical step list; leave the "enforced by regression tests" clause intact (changes existing v1 behavior — parity baseline must record it).

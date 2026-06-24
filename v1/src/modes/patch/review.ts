@@ -737,6 +737,11 @@ function createPatchReviewAdapter(args: {
   };
 }
 
+// Map review exit codes: preserve blocker (7) and interrupt (130), remap others to review-incomplete (11).
+function mapReviewExitCode(exitCode: number): number {
+  return exitCode === 7 || exitCode === 130 ? exitCode : 11;
+}
+
 /** Run patch review passes through the shared review runner. */
 export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promise<number> {
   let idleTimeoutOccurred = false;
@@ -1110,11 +1115,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     }
 
     if (reviewExitCode !== 0) {
-      // Keep 7 (blocker) and 130 (interrupt) unchanged; map all other non-zero codes to 11
-      if (reviewExitCode === 7 || reviewExitCode === 130) {
-        return reviewExitCode;
-      }
-      return 11;
+      return mapReviewExitCode(reviewExitCode);
     }
   } catch (err) {
     // An idle-watchdog abort surfaces as a thrown ReviewTerminalError (exit -1);
@@ -1124,11 +1125,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       return 11;
     }
     if (err instanceof ReviewTerminalError) {
-      // Keep exit code 7 (committed blocker) and 130 (interrupt) unchanged; map all others to 11
-      if (err.exitCode === 7 || err.exitCode === 130) {
-        return err.exitCode;
-      }
-      return 11;
+      return mapReviewExitCode(err.exitCode);
     }
     throw err;
   }

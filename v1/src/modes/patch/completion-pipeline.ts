@@ -545,9 +545,17 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       fanout("harness", `review phase error: ${message}\n`, "stderr");
-      reviewExitCode = 1;
+      reviewExitCode = 11;
     }
     if (reviewExitCode !== 0) {
+      if (reviewExitCode === 11) {
+        const worktreeName = basename(preflight.agentWorkingDir);
+        logging.fanout(
+          "harness",
+          `review did not complete. The PR is left draft. Recover with \`jarvis1 run --resume-review\` or manual finalize.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          "stderr",
+        );
+      }
       return reviewExitCode;
     }
   } else if (preflight.gitEnabled) {

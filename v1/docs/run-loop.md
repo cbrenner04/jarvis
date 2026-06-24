@@ -308,9 +308,9 @@ the same review-phase entry as a normal completion, bypassing the
 skipped (no `patch_phase: "shrink"` telemetry row is emitted). All existing
 review outcomes are preserved:
 
-- Baseline or final gate failure: non-zero exit code, PR stays draft.
+- Baseline or final gate failure: exit `1` (red tree), PR stays draft.
+- Review execution failure (quota exhaustion, idle timeout, infra error): exit `11`, PR stays draft.
 - Review blocker: exit `7`, blocker content printed to stderr.
-- Review quota exhaustion: exit `2`.
 - Already-ready PR: idempotent no-op (final `gh pr ready` leaves it untouched).
 
 `--max-iterations` is accepted but has no behavioral effect (review resume runs
@@ -333,11 +333,13 @@ The review phase flow is:
    consumed (never committed, no `## Blocker` written to the spec). Each pass
    starts a fresh review agent chain (`modes.review.agentOrder` →
    `modes.plan.agentOrder`). Quota exhaustion within a pass rotates to the next
-   configured review agent; if all are exhausted in that pass, exit `2`. Under
-   `quotaFallback: "lenient"`, spawn **`error`** results with no porcelain change
-   during the invocation upgrade to **`quota`** and rotate like strict quota.
-   Other hard **`error`** results stop the pass (no rotation). Per-pass iteration
-   timeout is enforced by the patch adapter's agent wrapper.
+   configured review agent; if all are exhausted in that pass, exit `11`
+   (`review-incomplete`). Under `quotaFallback: "lenient"`, spawn **`error`**
+   results with no porcelain change during the invocation upgrade to **`quota`**
+   and rotate like strict quota. Other hard **`error`** results stop the pass and
+   exit `11` (no rotation). Model configuration errors, review/actuator commit
+   failures, spec/code revert failures, and review idle timeouts also exit `11`.
+   Per-pass iteration timeout is enforced by the patch adapter's agent wrapper.
 3. **Final ready**: when the tree is unchanged since the recorded green result,
    skips `bun run ready` and calls `gh pr ready` (worktree cleanliness comes from
    the reuse predicate). When the tree changed or no green was recorded, runs
@@ -772,6 +774,7 @@ jarvis1 log-server
 | `8` | `timeout` | An iteration or global run timeout was exceeded. Configure `iterationTimeoutMs` (default 30 minutes) and optional `runTimeoutMs` in config. |
 | `9` | `worktree-locked` | The worktree is in use by another process. A process with a higher `pid` is currently operating on this worktree. Wait for that process to finish or use `jarvis1 triage <worktree-name>` to inspect the lock state. |
 | `10` | `ready-stuck-red` | The run is stuck on a red `bun run ready` failure after fix-up iteration(s). Two scenarios: (1) **identical-failure stop**: The captured failure text is unchanged after normalization (for noise like timings and paths), and no new work was ticked and no new blocker was added. (2) **changing-failure bound**: The ready gate has returned red for N (3) consecutive fix-up iterations with no acceptance-criteria progress, and the failure text differs between iterations. Both are recoverable stops: the issue persists and manual intervention may be needed. The fix-up commits (chase edits) are discarded before exit: the PR branch is reset to the first-red baseline (the state before the first fix-up iteration) and force-pushed with `--force-with-lease`, leaving the PR at the original completed work without the chase edits. The discarded commits remain accessible via git reflog. The error message includes the captured failure text and a pointer to `jarvis1 triage <worktree-name>` to inspect state and see suggested next moves. Fix the underlying issue (e.g., a linting rule, a missing import, a flaky or non-deterministic failure) and rerun to retry the fix-up iteration. |
+| `11` | `review-incomplete` | The post-completion review phase did not complete. This covers review agents quota-exhausted, review idle-timeout, model configuration error, or review/actuator infrastructure failures (commit push failure, spec/code revert failure, blocker commit failure, actuator unavailability, etc). The draft PR is left draft and implementation commits are intact. Recover with `jarvis1 run --resume-review` to re-enter the review phase, or manually finalize the PR. |
 | `130` | `sigint` | Interrupted with Ctrl-C. |
 
 On exit `4`, `5`, and `10`, the bounded tail of recent agent output is printed to the

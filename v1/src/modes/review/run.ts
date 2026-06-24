@@ -12,7 +12,7 @@ import { ReviewTerminalError } from "./types.ts";
 // maps 2 -> quota-exhausted, 3 -> model_config; patch propagates 7 as blocker,
 // 130 as interrupt). Normalize a colliding error code to 1. The true code is
 // still recorded in telemetry, so the diagnostic is never lost.
-const RESERVED_REVIEW_EXIT_CODES = new Set([0, 2, 3, 7, 130]);
+const RESERVED_REVIEW_EXIT_CODES = new Set([0, 2, 3, 7, 11, 130]);
 
 function normalizeErrorExitCode(exitCode: number): number {
   return RESERVED_REVIEW_EXIT_CODES.has(exitCode) ? 1 : exitCode;

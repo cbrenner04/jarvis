@@ -1106,21 +1106,29 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
     const reviewExitCode = await runReview(runReviewOpts);
 
     if (idleTimeoutOccurred) {
-      return 8;
+      return 11;
     }
 
     if (reviewExitCode !== 0) {
-      return reviewExitCode;
+      // Keep 7 (blocker) and 130 (interrupt) unchanged; map all other non-zero codes to 11
+      if (reviewExitCode === 7 || reviewExitCode === 130) {
+        return reviewExitCode;
+      }
+      return 11;
     }
   } catch (err) {
     // An idle-watchdog abort surfaces as a thrown ReviewTerminalError (exit -1);
-    // the telemetry record already set idleTimeoutOccurred, so map it to 8 here
-    // too (the return-path check above is skipped when the actuator throws).
+    // the telemetry record already set idleTimeoutOccurred, so map it to 11 here
+    // (the return-path check above is skipped when the actuator throws).
     if (idleTimeoutOccurred) {
-      return 8;
+      return 11;
     }
     if (err instanceof ReviewTerminalError) {
-      return err.exitCode;
+      // Keep exit code 7 (committed blocker) and 130 (interrupt) unchanged; map all others to 11
+      if (err.exitCode === 7 || err.exitCode === 130) {
+        return err.exitCode;
+      }
+      return 11;
     }
     throw err;
   }

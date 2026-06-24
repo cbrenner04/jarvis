@@ -41,17 +41,17 @@ exit code that `completion-pipeline.ts` propagates verbatim (line ~429-431), and
 
 ## Acceptance criteria
 
-- [ ] When the post-completion review phase fails because all review agents are quota-exhausted on a criteria-complete, completion-gate-green tree, `jarvis1 run` exits `11` with `exitReason` `review-incomplete`.
-- [ ] A review-phase idle-timeout, `model_config` error, review/actuator commit failure, or a `review-blocker-commit-failed` on a gate-green tree also exits `11` / `review-incomplete` (not `8`/`3`/`1`).
-- [ ] A review-phase throw that escapes to the completion pipeline exits `11` / `review-incomplete`, not `1`.
-- [ ] A reviewer agent CLI that coincidentally exits `11` is collapsed to `1` (`error`), not reported as `review-incomplete`.
-- [ ] On a `review-incomplete` stop the draft PR is left draft and implementation commits are intact (no `gh pr ready` is issued).
-- [ ] The `review-incomplete` stop prints a generic operator message stating review did not complete, the PR is left draft, and recovery is `--resume-review` or manual finalize.
-- [ ] `--resume-review` runs that fail review execution on an already-complete tree also exit `11` / `review-incomplete`.
-- [ ] A committed review-raised blocker still exits `7` (`blocked`) — `run.test.ts` blocker test (`completion: blocker added during fix-up iteration stops with exit 7`) stays green; review-blocker behavior is unchanged.
-- [ ] A review final (or baseline) ready gate going red still exits `1` (`error`); `run.test.ts` review-final tests (`common path with review: one full ready…`, `when tree is unchanged, review final skips ready…`) stay green.
-- [ ] The end-to-end review-quota test (`review-agent quota exhaustion exits 2 and leaves the PR draft`) is updated to assert exit `11` / `review-incomplete`.
-- [ ] `exitReason` `review-incomplete` (exit `11`) is documented in the `v1/docs/run-loop.md` "Stop conditions and exit codes" table and the review-phase section.
+- [x] When the post-completion review phase fails because all review agents are quota-exhausted on a criteria-complete, completion-gate-green tree, `jarvis1 run` exits `11` with `exitReason` `review-incomplete`.
+- [x] A review-phase idle-timeout, `model_config` error, review/actuator commit failure, or a `review-blocker-commit-failed` on a gate-green tree also exits `11` / `review-incomplete` (not `8`/`3`/`1`).
+- [x] A review-phase throw that escapes to the completion pipeline exits `11` / `review-incomplete`, not `1`.
+- [x] A reviewer agent CLI that coincidentally exits `11` is collapsed to `1` (`error`), not reported as `review-incomplete`.
+- [x] On a `review-incomplete` stop the draft PR is left draft and implementation commits are intact (no `gh pr ready` is issued).
+- [x] The `review-incomplete` stop prints a generic operator message stating review did not complete, the PR is left draft, and recovery is `--resume-review` or manual finalize.
+- [x] `--resume-review` runs that fail review execution on an already-complete tree also exit `11` / `review-incomplete`.
+- [x] A committed review-raised blocker still exits `7` (`blocked`) — `run.test.ts` blocker test (`completion: blocker added during fix-up iteration stops with exit 7`) stays green; review-blocker behavior is unchanged.
+- [x] A review final (or baseline) ready gate going red still exits `1` (`error`); `run.test.ts` review-final tests (`common path with review: one full ready…`, `when tree is unchanged, review final skips ready…`) stay green.
+- [x] The end-to-end review-quota test (`review-agent quota exhaustion exits 2 and leaves the PR draft`) is updated to assert exit `11` / `review-incomplete`.
+- [x] `exitReason` `review-incomplete` (exit `11`) is documented in the `v1/docs/run-loop.md` "Stop conditions and exit codes" table and the review-phase section.
 
 ## Documentation updates
 

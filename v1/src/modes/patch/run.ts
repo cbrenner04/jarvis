@@ -362,6 +362,8 @@ function mapExitCodeToReason(exitCode: number): string {
       return "worktree-locked";
     case 10:
       return "ready-stuck-red";
+    case 11:
+      return "review-incomplete";
     case 130:
       return "sigint";
     default:

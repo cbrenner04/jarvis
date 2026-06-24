@@ -6246,7 +6246,7 @@ describe("review phase", () => {
     expect(existsSync(join(env.worktree, ".jarvis-review-blocker"))).toBe(false);
   });
 
-  test("review commit push failure leaves PR draft and exits 1", async () => {
+  test("review commit push failure leaves PR draft and exits 11", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
     const claude = reviewFakeAgent(
@@ -6274,7 +6274,7 @@ describe("review phase", () => {
       handleSignals: false,
     });
 
-    expect(code).toBe(1);
+    expect(code).toBe(11);
     expect(cap.err()).toContain("review: actuator commit failed");
     expect(existsSync(env.prReadyLog)).toBe(false);
   });
@@ -6303,7 +6303,7 @@ describe("review phase", () => {
     expect(existsSync(env.prReadyLog)).toBe(false);
   });
 
-  test("review-agent quota exhaustion exits 2 and leaves the PR draft", async () => {
+  test("review-agent quota exhaustion exits 11 and leaves the PR draft", async () => {
     const env = setupReviewEnv({ reviewPasses: 1 });
     const cap = captureIo();
     const claude = reviewFakeAgent("claude", () => ({ kind: "quota", stderr: "limit" }));
@@ -6317,7 +6317,7 @@ describe("review phase", () => {
       handleSignals: false,
     });
 
-    expect(code).toBe(2);
+    expect(code).toBe(11);
     expect(existsSync(env.prReadyLog)).toBe(false);
   });
 

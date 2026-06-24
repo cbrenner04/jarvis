@@ -10,8 +10,9 @@ import { ReviewTerminalError } from "./types.ts";
 // Exit codes the harness reserves for specific review outcomes. A raw agent
 // error code that collides with one would be misread by callers (e.g. plan
 // maps 2 -> quota-exhausted, 3 -> model_config; patch propagates 7 as blocker,
-// 130 as interrupt). Normalize a colliding error code to 1. The true code is
-// still recorded in telemetry, so the diagnostic is never lost.
+// 11 as review-incomplete, 130 as interrupt). Normalize a colliding error code
+// to 1. The true code is still recorded in telemetry, so the diagnostic is
+// never lost.
 const RESERVED_REVIEW_EXIT_CODES = new Set([0, 2, 3, 7, 11, 130]);
 
 function normalizeErrorExitCode(exitCode: number): number {

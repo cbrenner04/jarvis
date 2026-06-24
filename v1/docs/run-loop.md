@@ -380,7 +380,7 @@ The completion gate:
    `check:fix:unsafe` output.
 4. If any retry turns green: commits any accumulated `check:fix` output,
    records the same completion-transition green result keyed to post-gate HEAD
-   + clean worktree, and proceeds to shrink → review → `maybeMarkReady` exactly
+   - clean worktree, and proceeds to shrink → review → `maybeMarkReady` exactly
    like a first-try green. The operator log distinguishes this from a first-try
    pass with `completion: ready gate passed on retry (attempt N)`.
 5. Only ready-command failures are retried. If committing `check:fix` output
@@ -770,7 +770,6 @@ jarvis prints a summary block to stdout with:
     `"unavailable"` / `"no-usage"` intentionally do **not** count as mixes)
   - null-dollar rows excluded from the displayed total.
 - Every run summary ends with: `Hit a harness gap? https://github.com/cbrenner04/jarvis/issues/new/choose`
-
 
 The summary table is computed from the session's telemetry JSONL lines
 (`namespace` + `ts >= run_start_ts`), not from in-memory counters, so the same

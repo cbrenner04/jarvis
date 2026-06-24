@@ -87,4 +87,3 @@ un-normalized corpus is acceptable.
   scope and `**/completed/**` exemption.
 - `v2/docs/v1-behaviors.md`: not required — net-new dev tooling, no existing
   behavior changed.
-

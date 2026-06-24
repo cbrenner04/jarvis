@@ -22,4 +22,5 @@ green completion gate; the review failure is still reported as a partial outcome
 - The exit-code / `exitReason` reporting of the review-only failure.
 
 ## Prerequisites
+
 - The run distinguishes a review-only failure (criteria-complete + gate-green, review phase failed) from an implementation failure.

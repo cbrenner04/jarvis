@@ -216,7 +216,6 @@ The first push uses `git push -u origin plan/<plan-name>` to set up tracking;
 
 later pushes use plain `git push`.
 
-
 When every scripted phase succeeds, plan mode attempts a readiness transition (mirroring **`jarvis run`** readiness semantics):
 - If the branch's open PR is **draft**, the ready gate runs (`bun run ready`, or the project's `readyCommand` if set). On success, any `check:fix` output is committed and pushed, then `gh pr ready` flips it to ready. On gate failure, the PR remains draft.
 - If the branch's open PR is **already ready**, it remains untouched (idempotent).

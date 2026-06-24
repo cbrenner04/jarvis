@@ -19,4 +19,3 @@ name: verify-session-prs-merged
 - `v2/docs/v1-behaviors.md` — session-end PR verdict and outstanding-state behavior.
 
 ## Prerequisites
-

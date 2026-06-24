@@ -100,11 +100,11 @@ rotating agents after a quota-classified result:
 - **Per-agent rotation:** `quota exhausted; falling back` (strict spawn-side
   quota) and `probable quota-like error (exit N); falling back` (lenient
   weak-quota upgrade when the no-progress / porcelain guard passes).
-- **Plan prefix:** the same phrases appear after `plan: <agent>: ` so mixed logs
+- **Plan prefix:** the same phrases appear after `plan: <agent>:` so mixed logs
   stay mode-tagged.
 - **Final exhaustion:** patch prints `all agents quota-exhausted`. Plan prints
-  `plan: all agents quota-exhausted` and may add a phase suffix (` during
-  refine`, ` during naming-only phase`, etc.).
+  `plan: all agents quota-exhausted` and may add a phase suffix (`during
+  refine`, `during naming-only phase`, etc.).
 
 Canonical string constants: `src/quota-harness-messages.ts`. Plan rotation
 lines are emitted from `src/modes/plan/emit-plan-quota-stderr.ts`.

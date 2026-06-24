@@ -207,6 +207,7 @@ export function getReadyCommands(tier: ReadyTier, opts: { runInstall: boolean })
     { name: "bun", args: ["run", "typecheck"] },
     { name: "bun", args: ["run", "test"] },
     { name: "bun", args: ["run", "check"] },
+    { name: "bun", args: ["run", "lint:md"] },
   );
 
   return commands;

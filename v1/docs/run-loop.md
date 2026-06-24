@@ -122,7 +122,7 @@ When unset or invalid, the script defaults to **`full`**.
 | Tier | Steps |
 | --- | --- |
 | **`fast`** | `typecheck` → `test` |
-| **`full`** | `install` when required → `check:fix` → `typecheck` → `test` → `check` |
+| **`full`** | `install` when required → `check:fix` → `typecheck` → `test` → `check` → `lint:md` |
 
 In the **`full`** tier, `bun install --frozen-lockfile` is skipped when a
 recomputed install digest matches the digest recorded after the last successful

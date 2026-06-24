@@ -22,10 +22,10 @@ Implementer note: the lint globs cover `v1/spec/**/*.md` with no ignore for the 
 
 ## Acceptance criteria
 
-- [ ] `bun run ready` full tier runs `bun run lint:md`; a Markdown lint violation in the in-scope corpus fails the gate with a non-zero exit.
-- [ ] The unmodified in-scope corpus passes the full tier (gate is green on `main` at merge).
-- [ ] The `fast` tier still runs `typecheck` then `test` only: the fast-tier assertions in `v1/test/ready-script.sandbox-unrunnable.test.ts` stay green (unchanged by this addition).
-- [ ] `getReadyCommands("full", …)` lists `lint:md` after `check`, and the tier-list tests in `v1/test/ready-script.sandbox-unrunnable.test.ts` assert this and stay green.
+- [x] `bun run ready` full tier runs `bun run lint:md`; a Markdown lint violation in the in-scope corpus fails the gate with a non-zero exit.
+- [x] The unmodified in-scope corpus passes the full tier (gate is green on `main` at merge).
+- [x] The `fast` tier still runs `typecheck` then `test` only: the fast-tier assertions in `v1/test/ready-script.sandbox-unrunnable.test.ts` stay green (unchanged by this addition).
+- [x] `getReadyCommands("full", …)` lists `lint:md` after `check`, and the tier-list tests in `v1/test/ready-script.sandbox-unrunnable.test.ts` assert this and stay green.
 
 ## Documentation updates
 

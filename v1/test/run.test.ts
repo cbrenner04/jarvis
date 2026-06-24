@@ -1710,8 +1710,8 @@ exit 0
       const claude = createCompletionAgent(spec);
 
       let gateCallsInFirstCompletion = 0;
-      let completionCheckCount = 0;
-      const code = await runWithDefaults({
+      let _completionCheckCount = 0;
+      const _code = await runWithDefaults({
         specPath: spec,
         io: cap.io,
         config: { dir: cfgDir },
@@ -1722,7 +1722,7 @@ exit 0
           gateCallsInFirstCompletion += 1;
           // Count completions by checking when we return to 1
           if (gateCallsInFirstCompletion === 1) {
-            completionCheckCount += 1;
+            _completionCheckCount += 1;
           }
           // Red on all attempts (bound 0 means 1 attempt per completion check)
           return { kind: "red", failureText: "bun run ready failed:\nno retries with bound 0" };

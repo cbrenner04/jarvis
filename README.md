@@ -419,6 +419,7 @@ Read-only checks:
 - `bun run lint`
 - `bun run format:check`
 - `bun run check`
+- `bun run lint:md` — Markdown linter for specs, docs, and reports; invokes `markdownlint-cli2` with config at `.markdownlint-cli2.jsonc`
 
 Write-enabled fixes:
 
@@ -428,6 +429,14 @@ Write-enabled fixes:
 
 Unsafe fix variants are also available as `format:unsafe`,
 `lint:fix:unsafe`, and `check:fix:unsafe`; inspect their diffs carefully.
+
+### Markdown linting
+
+`bun run lint:md` lints Markdown files across `v1/spec/`, `v1/docs/`, `reports/`,
+and root docs (`README.md`, `AGENTS.md`). Completed specs under `**/completed/**`
+are exempted. The linter is rules-based and non-mutating; violations report
+genuine deviations from conventions (spacing, headings, and list markers)
+rather than style noise. See `.markdownlint-cli2.jsonc` for the active rule set.
 
 ### Per-test timeout
 

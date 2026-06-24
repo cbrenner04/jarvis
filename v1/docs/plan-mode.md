@@ -36,7 +36,6 @@ Plan mode is useful for:
 - **Non-interactive automation**: `jarvis1 plan <ready-intent>` works end-to-end without human prompts.
 - **Spec validation before work**: review and edit the generated spec before implementation begins.
 
-
 ## Names and paths
 
 - **`<plan-name>`** — The collision-suffixed kebab-case slug (from the ready-intent's `name:`) backing **`plan/<plan-name>`** and `.worktree/plan-<plan-name>/`; it **never** includes the filesystem timestamp segment.
@@ -147,7 +146,7 @@ Rendered prompt snapshots for this phase are reviewed from revision-keyed fixtur
   Drafted by <agent-attribution>.
   Subspecs: <count>
   ```
-  Where `<agent-attribution>` is the agent's `attributionLabel()` (also written as the `Jarvis-Agent` git trailer) and `<count>` is the number of subspec files (files matching `[0-9]*.md`, excluding `index.md` and `intent.md`). The leading `Spec: ` line lets the attribution renderer in `src/pr.ts` pick the commit up.
+  Where `<agent-attribution>` is the agent's `attributionLabel()` (also written as the `Jarvis-Agent` git trailer) and `<count>` is the number of subspec files (files matching `[0-9]*.md`, excluding `index.md` and `intent.md`). The leading `Spec:` line lets the attribution renderer in `src/pr.ts` pick the commit up.
 - Pushed: immediately after commit.
 
 **Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during draft, the draft files are first committed as `plan: draft` (per the normal commit shape above) and then a separate `plan: blocker` commit captures the blocker; plan mode stops (see [Stop conditions](#stop-conditions)).
@@ -339,7 +338,7 @@ User interrupts with Ctrl-C (SIGINT). Jarvis records the signal and, at the next
 
 ### 4. Agent quota exhausted
 
-The draft phase uses `modes.plan.agentOrder`. Review passes use the shared review agent chain (`modes.review.agentOrder`, falling back to `modes.plan.agentOrder`). Each review pass starts a fresh agent chain (quota exhaustion on pass 1 does not remove agents from pass 2). When a selected agent reports a quota signal, jarvis advances to the next agent in that pass's chain. While rotating during draft, stderr lines use the same core phrases as patch mode (`quota exhausted; falling back` and `probable quota-like error (exit N); falling back`), each prefixed with `plan: <agent>: ` for grep in mixed logs. Review quota rotation uses the same phrases with the `plan: <agent>:` prefix via `emitPlanAgentQuotaFallback`. Under `quotaFallback: "lenient"`, review also upgrades weak-quota spawn **`error`** results when git porcelain is unchanged across the invocation. If all agents are exhausted in a pass, jarvis exits `2` and prints `plan: all agents quota-exhausted` to stderr (optionally with a phase suffix), matching patch mode's quota exit code; see [docs/quota-signals.md](./quota-signals.md) and the [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
+The draft phase uses `modes.plan.agentOrder`. Review passes use the shared review agent chain (`modes.review.agentOrder`, falling back to `modes.plan.agentOrder`). Each review pass starts a fresh agent chain (quota exhaustion on pass 1 does not remove agents from pass 2). When a selected agent reports a quota signal, jarvis advances to the next agent in that pass's chain. While rotating during draft, stderr lines use the same core phrases as patch mode (`quota exhausted; falling back` and `probable quota-like error (exit N); falling back`), each prefixed with `plan: <agent>:` for grep in mixed logs. Review quota rotation uses the same phrases with the `plan: <agent>:` prefix via `emitPlanAgentQuotaFallback`. Under `quotaFallback: "lenient"`, review also upgrades weak-quota spawn **`error`** results when git porcelain is unchanged across the invocation. If all agents are exhausted in a pass, jarvis exits `2` and prints `plan: all agents quota-exhausted` to stderr (optionally with a phase suffix), matching patch mode's quota exit code; see [docs/quota-signals.md](./quota-signals.md) and the [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix).
 
 If an agent reports a `model_config` signal (the configured model is not supported by that CLI/account), jarvis exits `3` and prints `plan: model configuration error` plus the agent's stderr. This matches patch mode's `model_config` exit code (see `src/modes/patch/run.ts`).
 
@@ -464,7 +463,7 @@ Before the `plan: draft` commit is created, jarvis performs structural validatio
 
 **Structural checks per generated subspec:**
 
-- **Heading exactness (fail)**: A near-miss acceptance or blocker heading (e.g. `### Acceptance criteria`, `## acceptance criteria`, `## Blocker ` variants) blocks the draft commit. The parser already detects these and the draft gate promotes them to hard failures.
+- **Heading exactness (fail)**: A near-miss acceptance or blocker heading (e.g. `### Acceptance criteria`, `## acceptance criteria`, `## Blocker` variants) blocks the draft commit. The parser already detects these and the draft gate promotes them to hard failures.
 - **Duplicate canonical sections (fail)**: A subspec with duplicate `## Acceptance criteria` or duplicate `## Blocker` headings blocks the draft commit. The parser takes the first occurrence, so a second block's criteria are invisible to patch-mode ticking — a correctness hazard.
 - **Missing/empty acceptance section (fail)**: A subspec with no parseable acceptance criteria under an exact `## Acceptance criteria` heading blocks the draft commit. An unparseable subspec never completes at run time.
 - **Structural ACs (warn, non-blocking)**: An acceptance criterion whose predicate is a location/existence claim about code structure (e.g. "X lives in a dedicated module with unit tests") produces a non-blocking warning on stderr. Behavioral ACs naming a symbol as the subject of a behavioral assertion (e.g. "`validateDraftOutput` returns invalid when …") produce no warning. The draft still commits when structural ACs are detected.

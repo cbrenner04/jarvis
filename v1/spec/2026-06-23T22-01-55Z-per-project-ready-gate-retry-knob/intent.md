@@ -21,4 +21,5 @@ Setting it raises retries for known-flaky projects or lowers them to fail fast o
 - Discarding fix-up commits.
 
 ## Prerequisites
+
 - The completion ready gate retries on red before entering the fix-up loop.

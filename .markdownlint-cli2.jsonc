@@ -1,6 +1,6 @@
 {
   "globs": ["v1/spec/**/*.md", "v1/docs/**/*.md", "reports/**/*.md", "README.md", "AGENTS.md"],
-  "ignores": ["**/completed/**", "**/node_modules/**"],
+  "ignores": ["**/completed/**", "**/node_modules/**", "**/verdict-*.md"],
   "config": {
     "default": true,
     // Unordered/ordered list markers: inconsistent marker usage across corpus (pervasive house style)
@@ -14,6 +14,12 @@
     // Inline HTML: docs use inline <...> tags; widespread and intentional
     "MD033": false,
     // Fenced code block language: many code blocks lack language identifiers; enforcing would require corpus reflow
-    "MD040": false
+    "MD040": false,
+    // Ordered list item prefix: corpus has intentional numbered lists that don't follow 1/2/3 pattern
+    "MD029": false,
+    // Multiple headings with the same content: docs reuse heading names across distinct sections
+    "MD024": false,
+    // Link fragments: anchor references vary by context; some fragments reference non-heading content
+    "MD051": false
   }
 }

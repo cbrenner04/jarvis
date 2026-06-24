@@ -23,4 +23,5 @@ with logic changes.
 - Reformatting frozen archived specs under `**/completed/**`.
 
 ## Prerequisites
+
 - A `bun run lint:md` script and its house-style config exist.

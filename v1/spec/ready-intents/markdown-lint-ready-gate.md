@@ -16,5 +16,6 @@ checks so a Markdown violation fails `ready`. Land this only after the in-scope
 corpus passes lint, so the gate is green on `main` at merge.
 
 ## Prerequisites
+
 - A `bun run lint:md` script exists.
 - The in-scope Markdown corpus passes `bun run lint:md` clean.

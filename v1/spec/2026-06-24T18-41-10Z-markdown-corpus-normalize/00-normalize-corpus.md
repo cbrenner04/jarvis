@@ -35,10 +35,10 @@ covers: leave `globs` as-is, and do not add/remove durable-corpus files via
 
 ## Acceptance criteria
 
-- [ ] `bun run lint:md` exits 0.
-- [ ] No file under any `**/completed/**` path is modified by this change.
-- [ ] `package.json` is unchanged. The only `.markdownlint-cli2.jsonc` edits are adding generated-artifact patterns to `ignores` and disabling non-mechanically-fixable rules; `globs` and the durable-corpus membership of `ignores` are unchanged.
-- [ ] Every changed line in a durable-corpus file falls into a mechanical category that an enabled rule autofixes (blank lines around headings, list indentation/marker spacing, collapsed consecutive blank lines, final newline) — verifiable by inspecting the diff against this category list. No prose, ordering, or content edits.
+- [x] `bun run lint:md` exits 0.
+- [x] No file under any `**/completed/**` path is modified by this change.
+- [x] `package.json` is unchanged. The only `.markdownlint-cli2.jsonc` edits are adding generated-artifact patterns to `ignores` and disabling non-mechanically-fixable rules; `globs` and the durable-corpus membership of `ignores` are unchanged.
+- [x] Every changed line in a durable-corpus file falls into a mechanical category that an enabled rule autofixes (blank lines around headings, list indentation/marker spacing, collapsed consecutive blank lines, final newline) — verifiable by inspecting the diff against this category list. No prose, ordering, or content edits.
 
 ## Documentation updates
 

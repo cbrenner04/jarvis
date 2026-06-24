@@ -169,14 +169,22 @@ function discardFixupCommits(cwd: string, baselineSha: string, fanout: FanoutFn,
     fanout("harness", `warning: failed to reset to first-red baseline: ${message}\n`, "stderr");
   }
 
-  // Force-push if upstream exists and git checks are enabled
+  // Force-push if upstream exists, git checks are enabled, and there are commits beyond baseline
   if (hasUpstream(cwd) && skipGhCheck !== true) {
     try {
-      execFileSync("git", ["push", "--force-with-lease"], {
+      const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
         cwd,
-        env: process.env,
+        encoding: "utf8",
         stdio: "pipe",
-      });
+      }).trim();
+      // Only push if HEAD differs from baseline (commits beyond baseline exist)
+      if (headSha !== baselineSha) {
+        execFileSync("git", ["push", "--force-with-lease"], {
+          cwd,
+          env: process.env,
+          stdio: "pipe",
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       fanout("harness", `warning: failed to force-push after discard: ${message}\n`, "stderr");
@@ -372,7 +380,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         }
         logging.fanout(
           "harness",
-          `${gateResult.failureText}\n\nThe failure is unchanged after fix-up iteration and no new work was ticked. The issue persists. Fix-up edits have been discarded (recoverable via git reflog), and the PR is left at the original completed work.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          `${gateResult.failureText}\n\nThe gate stayed red after fix-up iteration: the failure is unchanged and no new work was ticked. The issue may be flaky or require manual intervention. Fix-up edits have been discarded (recoverable via git reflog), and the PR is left at the original completed work. Finalize by hand if needed.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
           "stderr",
         );
         logging.writeTelemetry({
@@ -413,7 +421,7 @@ async function tryFinishSpecIfDone(ctx: IterationContext): Promise<number | null
         }
         logging.fanout(
           "harness",
-          `${gateResult.failureText}\n\nThe ready gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations with no acceptance criteria progress and the failure differed each pass. The issue persists without convergence. Fix-up edits have been discarded (recoverable via git reflog), and the PR is left at the original completed work.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
+          `${gateResult.failureText}\n\nThe gate stayed red for ${CONSECUTIVE_RED_FIXUP_BOUND} consecutive fix-up iterations: the failure differed each pass but no acceptance criteria progressed. The issue may be flaky or require manual intervention. Fix-up edits have been discarded (recoverable via git reflog), and the PR is left at the original completed work. Finalize by hand if needed.\n\nWorktree: ${preflight.agentWorkingDir}\n\nRun \`jarvis1 triage ${worktreeName}\` to inspect state and see suggested next moves.\n`,
           "stderr",
         );
         logging.writeTelemetry({

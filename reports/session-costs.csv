@@ -33,19 +33,19 @@ report,name,plan_model,plan_cost,plan_time,plan_tokens_in,plan_tokens_out,run_mo
 2026-06-23-overlord,outcome-data-source-audit,claude opus,2.65,00:07:57,15794,25478,claude haiku,1.79,00:18:24,10273,33097,4.44,
 2026-06-23-overlord,outcome-sheets-schema-and-standard,codex gpt-5.5,2.45,00:07:16,248779,16552,codex gpt-5.4,2.01,00:16:55,244876,27487,4.46,
 2026-06-23-overlord,outcome-sheets-backfill,codex gpt-5.5,1.84,00:05:34,191225,11387,codex gpt-5.4,4.71,00:35:31,582886,85656,6.55,
-2026-06-23-overlord,declared-tier-starts-model-escalation,codex gpt-5.5,2.41,00:07:02,257420,15749,codex gpt-5.4,2.41,00:28:32,160377,28289,4.82,run review phase quota-failed (codex+cursor); impl complete, manual-finalized
+2026-06-23-overlord,declared-tier-starts-model-escalation,codex gpt-5.5,2.41,00:07:02,257420,15749,codex gpt-5.4,2.41,00:28:32,160377,28289,4.82,run review phase quota-failed (codex+cursor); impl complete; manual-finalized
 2026-06-23-overlord,route-spec-authoring-by-target,claude opus,3.94,00:16:37,13736,39646,claude haiku,2.93,00:34:11,10171,42431,6.87,
 2026-06-23-overlord,route-cleanup-archival-by-target,claude opus,3.43,00:17:59,14468,33353,claude haiku,2.35,00:24:18,10085,48109,5.78,
 2026-06-23-overlord,migrate-accumulated-completed-specs,claude opus,4.06,00:14:19,13469,37300,claude haiku,1.38,00:15:22,12173,19928,5.44,
 2026-06-23-overlord,rename-wip-intents-dir-to-seeds,claude opus,2.71,00:11:08,13258,26136,claude haiku,2.7,00:28:09,8235,48551,5.41,
-2026-06-24-overlord,verify-session-prs-merged,claude opus,2.92,,,,claude,3.32,,,,6.24,plan #478 run #484
-2026-06-24-overlord,retry-ready-gate-on-red,claude opus,3.03,,,,codex,4.66,,,,7.69,run finished by codex after claude quota; #482/#488
-2026-06-24-overlord,quarantine-fixup-edits,claude opus,4.01,,,,claude,6.07,,,,10.08,run incl untested first attempt 1.94 + retest 4.13; #483/#491
-2026-06-24-overlord,commit-false-rerun-spec-reset,claude opus,3.83,,,,claude,4.63,,,,8.46,run incl load-flake timeout + isolated re-gate; #485/#496
-2026-06-24-overlord,commit-false-rerun-worktree-reuse,claude opus,1.48,,,,,,,,, 1.48,plan blocked no-referent; abandoned (closed #486)
-2026-06-24-overlord,review-failure-distinct-exit-reason,claude opus,4.57,,,,claude,3.18,,,,7.75,#487/#494
-2026-06-24-overlord,per-project-ready-gate-retry-knob,claude opus,2.46,,,,claude,2.77,,,,5.23,#489/#497
-2026-06-24-overlord,auto-ready-pr-on-review-failure,claude opus,3.99,,,,claude,3.32,,,,7.31,run exited 11; finalized via PR head #495/#498
-2026-06-24-overlord,markdown-lint-script,claude opus,2.35,,,,claude,2.77,,,,5.12,3 env-blocked attempts + operator dep-provision; #492
-2026-06-24-overlord,markdown-corpus-normalize,claude opus,2.64,,,,claude,2.05,,,,4.69,run exited 11 actuator push-diverge; finalized via PR head #499
-2026-06-24-overlord,markdown-lint-ready-gate,claude opus,3.20,,,,claude,2.09,,,,5.29,plan incl failed draft 0.94; #500/#501
+2026-06-24-overlord,verify-session-prs-merged,claude opus,2.92,00:08:49,23577,24237,claude,3.32,00:45:06,17022,77028,6.23,plan #478 run #484
+2026-06-24-overlord,retry-ready-gate-on-red-before-fixup,claude opus,3.03,00:09:30,12577,24924,claude,4.66,00:55:58,401769,44556,7.69,run finished by codex after claude quota; #482/#488
+2026-06-24-overlord,quarantine-fixup-edits-on-stuck-red,claude opus,4.01,00:12:53,12873,38156,claude,6.07,02:01:32,150320,125992,10.08,run incl untested first attempt + retest; #483/#491
+2026-06-24-overlord,commit-false-rerun-spec-reset,claude opus,3.83,00:14:10,12859,38065,claude,4.63,01:41:25,11690,105566,8.46,run incl load-flake timeout + isolated re-gate; #485/#496
+2026-06-24-overlord,commit-false-rerun-worktree-reuse,claude opus,1.48,00:09:44,2650,7626,,,,,,1.48,plan blocked no-referent; abandoned (closed #486)
+2026-06-24-overlord,review-failure-distinct-exit-reason,claude opus,4.57,00:16:34,13214,44569,claude,3.18,01:09:32,8436,55669,7.75,#487/#494
+2026-06-24-overlord,per-project-ready-gate-retry-knob,claude opus,2.46,00:06:20,16331,15773,claude,2.77,01:11:34,10275,58970,5.24,#489/#497
+2026-06-24-overlord,auto-ready-pr-on-review-failure,claude opus,3.99,00:12:02,13115,35413,claude,3.32,01:15:22,12132,73250,7.30,run exited 11; finalized via PR head #495/#498
+2026-06-24-overlord,markdown-lint-script,claude opus,2.35,00:07:12,12579,23064,claude,2.77,00:47:33,16334,41614,5.12,3 env-blocked run attempts + operator dep-provision; #492
+2026-06-24-overlord,markdown-corpus-normalize,claude opus,2.64,00:07:20,12825,25290,claude,2.05,00:40:14,8161,47923,4.69,run exited 11 actuator push-diverge; finalized via PR head #499
+2026-06-24-overlord,markdown-lint-ready-gate,claude opus,3.20,00:07:16,15915,24368,claude,2.09,00:32:11,7917,32262,5.29,plan incl failed draft; #500/#501

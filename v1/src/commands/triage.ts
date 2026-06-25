@@ -1,7 +1,8 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { ConfigOptions } from "../config.ts";
+import { loadConfig } from "../config.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
@@ -21,6 +22,7 @@ export type TriageCommandOptions = {
   io: TriageIo;
   config?: ConfigOptions;
   worktreeName?: string;
+  markReady?: boolean;
   ghRunner?: TriageGhRunner;
 };
 
@@ -50,6 +52,9 @@ export function triageCommand(opts: TriageCommandOptions): number {
 
   // Named form: drill-down for a specific worktree
   if (opts.worktreeName !== undefined) {
+    if (opts.markReady) {
+      return triageMarkReady(opts);
+    }
     return triageDrillDown(worktreeDir, opts.worktreeName, opts.io);
   }
 
@@ -888,4 +893,220 @@ function getAheadBehind(worktreePath: string): string {
 function getSpecProgress(_worktreePath: string): string {
   // Stub for now - will be filled in by subspec 01
   return "-";
+}
+
+function triageMarkReady(opts: TriageCommandOptions): number {
+  const worktreeDir = join(opts.projectRoot, ".worktree");
+  const worktreeName = opts.worktreeName;
+  if (!worktreeName) {
+    opts.io.stderr(`triage --mark-ready: internal error - no worktree name\n`);
+    return 1;
+  }
+
+  const worktreePath = join(worktreeDir, worktreeName);
+
+  if (!existsSync(worktreePath)) {
+    opts.io.stderr(`triage --mark-ready: unknown worktree: ${worktreeName}\n`);
+    return 1;
+  }
+
+  // Get the branch name
+  let branch: string;
+  try {
+    branch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd: worktreePath,
+      stdio: "pipe",
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    opts.io.stderr(`triage --mark-ready: unable to get branch name\n`);
+    return 1;
+  }
+
+  // Check if the worktree is locked by a live run PID
+  const lockPath = getWorktreeLockPath(worktreePath);
+  if (existsSync(lockPath)) {
+    try {
+      const raw = readFileSync(lockPath, "utf8");
+      const lock: WorktreeLock = JSON.parse(raw);
+      if (isProcessAlive(lock.pid)) {
+        opts.io.stdout(
+          `triage --mark-ready: worktree is locked by live run (PID ${lock.pid}). Cannot proceed.\n`,
+        );
+        return 1;
+      }
+    } catch {
+      // Ignore lock file read errors
+    }
+  }
+
+  // Get the spec path from .active-spec-path marker
+  const specMarkerPath = join(worktreePath, ".active-spec-path");
+  let specPath: string | undefined;
+  if (existsSync(specMarkerPath)) {
+    try {
+      specPath = readFileSync(specMarkerPath, "utf8").trim();
+    } catch {
+      opts.io.stderr(`triage --mark-ready: unable to read .active-spec-path marker\n`);
+      return 1;
+    }
+  } else {
+    opts.io.stderr(`triage --mark-ready: .active-spec-path marker not found (pre-marker worktree)\n`);
+    return 1;
+  }
+
+  if (!specPath || !existsSync(specPath)) {
+    opts.io.stderr(`triage --mark-ready: spec file not found: ${specPath || "(unknown)"}\n`);
+    return 1;
+  }
+
+  // Check if spec is complete
+  const specComplete = computeSpecComplete(specPath);
+  if (!specComplete) {
+    opts.io.stderr(`triage --mark-ready: spec is not complete — linked subspecs have unchecked items\n`);
+    return 1;
+  }
+
+  // Check PR state
+  const ghRunner = opts.ghRunner || createDefaultGhRunner();
+  const prState = ghRunner.getPrState(branch);
+  if (!prState) {
+    opts.io.stderr(`triage --mark-ready: no PR found for branch ${branch}\n`);
+    return 1;
+  }
+
+  if (!prState.isDraft) {
+    opts.io.stderr(
+      `triage --mark-ready: PR is not in DRAFT state (current state: ${prState.state}). Cannot promote.\n`,
+    );
+    return 1;
+  }
+
+  // Resolve the readyCommand from the project config
+  let readyCommand: string | undefined;
+  try {
+    const fullConfig = loadConfig(opts.config);
+    for (const project of Object.values(fullConfig.projects)) {
+      if (project.root === opts.projectRoot) {
+        readyCommand = project.readyCommand;
+        break;
+      }
+    }
+  } catch {
+    // Ignore config loading errors, use default readyCommand
+  }
+
+  // Re-run the completion ready gate once
+  const gateResult = runCompletionReadyGate(worktreePath, readyCommand);
+  if (gateResult.kind === "error") {
+    opts.io.stderr(`triage --mark-ready: ready gate failed\n${gateResult.message}\n`);
+    return 1;
+  }
+
+  // Mark the PR ready
+  try {
+    execSync(`gh pr ready ${branch}`, {
+      cwd: worktreePath,
+      stdio: "pipe",
+    });
+    opts.io.stdout(`triage --mark-ready: PR promoted to ready\n`);
+    return 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    opts.io.stderr(`triage --mark-ready: failed to mark PR ready\n${message}\n`);
+    return 1;
+  }
+}
+
+function runCompletionReadyGate(
+  cwd: string,
+  readyCommand?: string,
+): { kind: "success" } | { kind: "error"; message: string } {
+  try {
+    const tokens = readyCommand ? readyCommand.trim().split(/\s+/) : ["bun", "run", "ready"];
+    const [head, ...args] = tokens;
+    try {
+      execFileSync(head!, args, {
+        cwd,
+        env: { ...process.env, JARVIS_READY_TIER: "full" },
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const out = err as NodeJS.ErrnoException & {
+        stdout?: Buffer;
+        stderr?: Buffer;
+      };
+      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+      return {
+        kind: "error",
+        message: captured || `${tokens.join(" ")} failed`,
+      };
+    }
+
+    // Check if the tree is still dirty after the gate
+    const porcelain = execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+
+    if (porcelain !== "") {
+      // Tree is dirty — need to commit and push
+      try {
+        execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+        const commitMessage = "chore: apply pre-ready check:fix";
+        execFileSync("git", ["commit", "-F", "-"], {
+          cwd,
+          env: process.env,
+          stdio: ["pipe", "pipe", "pipe"],
+          input: commitMessage,
+        });
+      } catch (err) {
+        const out = err as NodeJS.ErrnoException & {
+          stdout?: Buffer;
+          stderr?: Buffer;
+        };
+        const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+        return {
+          kind: "error",
+          message: captured || "git commit failed",
+        };
+      }
+
+      // Re-check if still dirty
+      const porcelainAfter = execFileSync("git", ["status", "--porcelain"], {
+        cwd,
+        encoding: "utf8",
+        stdio: "pipe",
+      }).trim();
+      if (porcelainAfter !== "") {
+        return {
+          kind: "error",
+          message: `pre-ready check:fix commit succeeded but worktree is still dirty:\n${porcelainAfter}\nDo not mark ready. Inspect the branch and commit or discard the unexpected changes.`,
+        };
+      }
+
+      // Push the branch
+      try {
+        execFileSync("git", ["push"], {
+          cwd,
+          stdio: "pipe",
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          kind: "error",
+          message: `git push failed: ${message}`,
+        };
+      }
+    }
+
+    return { kind: "success" };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      kind: "error",
+      message,
+    };
+  }
 }

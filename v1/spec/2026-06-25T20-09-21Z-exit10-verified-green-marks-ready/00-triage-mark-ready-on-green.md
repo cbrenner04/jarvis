@@ -33,18 +33,18 @@ existing `triage` command instead of adding a subcommand.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <worktree-name> --mark-ready` re-runs the completion ready gate once against that worktree and, on green, flips its draft PR to ready and exits 0.
-- [ ] On green with a dirty tree after fix-up, `--mark-ready` commits (`git add -A`) and pushes the branch before marking ready, matching run completion.
-- [ ] On a red gate — any failure mode (command failure, fix-commit failure, fix-push failure, still-dirty) — `--mark-ready` leaves the PR draft, prints the captured failure text, and exits non-zero.
-- [ ] `--mark-ready` uses a per-project `readyCommand` override (when configured) instead of `bun run ready`.
-- [ ] `--mark-ready` reports and does not call the gate or `gh pr ready` when the worktree has no PR, the PR is not in DRAFT (already ready, merged, or closed), the spec's linked subspecs are incomplete, the `.active-spec-path` marker is absent, or the worktree is locked by a live run.
-- [ ] A single-file / non-index spec (zero linked subspecs) counts as complete and is promotable.
-- [ ] `jarvis1 triage --mark-ready` with no worktree name exits non-zero with a usage error.
-- [ ] `v1/test/triage-command.test.ts` existing listing and drill-down tests stay green — the no-arg listing and the plain named drill-down run no gate and mutate no PR.
-- [ ] `jarvis1 triage --help` / the triage usage string lists the `--mark-ready` flag.
+- [x] `jarvis1 triage <worktree-name> --mark-ready` re-runs the completion ready gate once against that worktree and, on green, flips its draft PR to ready and exits 0.
+- [x] On green with a dirty tree after fix-up, `--mark-ready` commits (`git add -A`) and pushes the branch before marking ready, matching run completion.
+- [x] On a red gate — any failure mode (command failure, fix-commit failure, fix-push failure, still-dirty) — `--mark-ready` leaves the PR draft, prints the captured failure text, and exits non-zero.
+- [x] `--mark-ready` uses a per-project `readyCommand` override (when configured) instead of `bun run ready`.
+- [x] `--mark-ready` reports and does not call the gate or `gh pr ready` when the worktree has no PR, the PR is not in DRAFT (already ready, merged, or closed), the spec's linked subspecs are incomplete, the `.active-spec-path` marker is absent, or the worktree is locked by a live run.
+- [x] A single-file / non-index spec (zero linked subspecs) counts as complete and is promotable.
+- [x] `jarvis1 triage --mark-ready` with no worktree name exits non-zero with a usage error.
+- [x] `v1/test/triage-command.test.ts` existing listing and drill-down tests stay green — the no-arg listing and the plain named drill-down run no gate and mutate no PR.
+- [x] `jarvis1 triage --help` / the triage usage string lists the `--mark-ready` flag.
 
 ## Documentation updates
 
-- [ ] `v1/docs/run-loop.md`: the exit-10 (`ready-stuck-red`) section names `jarvis1 triage <worktree-name> --mark-ready` as the recovery that re-runs the gate and promotes on green.
-- [ ] `v1/docs/operator-runbook.md`: the stuck-red (exit 10) recovery step names the `triage --mark-ready` path alongside the existing rerun-`jarvis1 run` path.
-- [ ] `v2/docs/v1-behaviors.md`: record the `triage --mark-ready` behavior — gate re-run; green→ready including the **commit-and-push** of a dirty tree (same side effect as run completion); red→draft+non-zero across all gate failure modes; no-op guards (no-PR, not-DRAFT, incomplete spec, missing marker, locked); single-file spec promotable; `readyCommand` honored — and that the read-only triage forms are unchanged.
+- [x] `v1/docs/run-loop.md`: the exit-10 (`ready-stuck-red`) section names `jarvis1 triage <worktree-name> --mark-ready` as the recovery that re-runs the gate and promotes on green.
+- [x] `v1/docs/operator-runbook.md`: the stuck-red (exit 10) recovery step names the `triage --mark-ready` path alongside the existing rerun-`jarvis1 run` path.
+- [x] `v2/docs/v1-behaviors.md`: record the `triage --mark-ready` behavior — gate re-run; green→ready including the **commit-and-push** of a dirty tree (same side effect as run completion); red→draft+non-zero across all gate failure modes; no-op guards (no-PR, not-DRAFT, incomplete spec, missing marker, locked); single-file spec promotable; `readyCommand` honored — and that the read-only triage forms are unchanged.

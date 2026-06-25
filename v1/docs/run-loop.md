@@ -517,7 +517,7 @@ Both indicate the issue persists and manual intervention is likely needed. On ex
 2. Outputs an operator message:
    - For identical-failure stop: The captured `bun run ready failed:` text that failed before and fails after, noting the fix-up edits have been discarded (recoverable via git reflog), and the PR is left at the original completed work.
    - For changing-failure bound: The captured `bun run ready failed:` text and a note that the gate stayed red for N consecutive fix-up iterations with no acceptance-criteria progress and the failure differed each pass, the fix-up edits have been discarded, and the PR is left at the original completed work.
-   - A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves.
+   - A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves. If the operator verifies the gate should now pass, use `jarvis1 triage <worktree-name> --mark-ready` to re-run the gate once and promote the PR on green.
 3. Writes a telemetry record with exit reason `ready-stuck-red` for observability (even if the git reset or force-push fails, the telemetry is still written and the exit code remains 10).
 
 If a git reset or force-push fails during the discard step, a warning is logged but the exit code remains 10 and telemetry is still written. When git is disabled, no upstream exists, or `--skip-gh-check` is set, the discard step is skipped (no force-push attempted) and the exit code remains 10.

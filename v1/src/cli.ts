@@ -52,7 +52,7 @@ export type ParsedArgs =
   | { kind: "config"; rest: string[] }
   | { kind: "log-server" }
   | { kind: "cleanup"; dryRun?: boolean }
-  | { kind: "triage"; worktreeName?: string }
+  | { kind: "triage"; worktreeName?: string; markReady?: boolean }
   | { kind: "review-feedback"; worktreeName?: string }
   | { kind: "plan"; rest: string[] }
   | { kind: "intent"; rest: string[] }
@@ -125,9 +125,10 @@ Flags:
 
   Remove merged worktrees.
 `,
-  triage: `Usage: jarvis1 triage [worktree-name]
+  triage: `Usage: jarvis1 triage [worktree-name] [--mark-ready]
 
-  Inspect a dirty or orphaned worktree.
+  Inspect a dirty or orphaned worktree. On a named worktree, --mark-ready re-runs
+  the completion ready gate and, on green, flips the draft PR to ready.
 `,
   "review-feedback": `Usage: jarvis1 review-feedback <worktree-name>
 
@@ -289,12 +290,23 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
       if (rest.includes("--help") || rest.includes("-h")) {
         return { kind: "help", command: "triage" };
       }
-      const worktreeName = rest[0];
-      const result: { kind: "triage"; worktreeName?: string } = {
+      const markReady = rest.includes("--mark-ready");
+      const args = rest.filter((arg) => arg !== "--mark-ready");
+      const worktreeName = args[0];
+      const result: { kind: "triage"; worktreeName?: string; markReady?: boolean } = {
         kind: "triage",
       };
       if (worktreeName !== undefined) {
         result.worktreeName = worktreeName;
+      }
+      if (markReady) {
+        result.markReady = true;
+      }
+      if (markReady && worktreeName === undefined) {
+        return {
+          kind: "error",
+          message: "triage: --mark-ready requires a worktree name",
+        };
       }
       return result;
     }
@@ -530,6 +542,9 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
       }
       if (parsed.worktreeName !== undefined) {
         triageOpts.worktreeName = parsed.worktreeName;
+      }
+      if (parsed.markReady !== undefined) {
+        triageOpts.markReady = parsed.markReady;
       }
       return triageCommand(triageOpts);
     }

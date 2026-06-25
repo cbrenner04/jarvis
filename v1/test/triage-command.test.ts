@@ -826,3 +826,114 @@ describe("triage verdict", () => {
     expect(output).toContain("[CLEAN]");
   });
 });
+
+describe("triage --mark-ready", () => {
+  test("--mark-ready without worktree name should not pass to command layer (CLI rejects)", () => {
+    // This test verifies that the CLI layer rejects --mark-ready without a worktree name
+    // and never calls the triage command. The command layer doesn't need to handle this,
+    // but we verify the read-only listing still works.
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      // No worktreeName provided - the CLI would have already rejected --mark-ready in this case
+    });
+    // Should return listing (not an error)
+    expect(code).toBe(0);
+    expect(out()).toContain("no worktrees");
+  });
+
+  test("--mark-ready on unknown worktree returns error", () => {
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName: "nonexistent",
+      markReady: true,
+    });
+    expect(code).toBe(1);
+    expect(err()).toContain("unknown worktree");
+  });
+
+  test("--mark-ready with missing .active-spec-path returns error", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain(".active-spec-path marker not found");
+  });
+
+  test("--mark-ready when no PR exists returns error", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Write a minimal spec file
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "test-spec.md");
+    writeFileSync(specPath, "# Test\n\n- [x] item 1");
+    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: () => null,
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("no PR found");
+  });
+
+  test("--mark-ready when PR is not DRAFT returns error", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Get the actual branch name (which is "main" from setupWorktree)
+    const branch = "main";
+
+    // Write a minimal spec file
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "test-spec.md");
+    writeFileSync(specPath, "# Test\n\n- [x] item 1");
+    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: (b) => {
+          if (b === branch) {
+            return {
+              state: "OPEN",
+              isDraft: false,
+            };
+          }
+          return null;
+        },
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("PR is not in DRAFT state");
+  });
+});

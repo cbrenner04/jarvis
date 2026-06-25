@@ -1,0 +1,25 @@
+# Verdict
+
+The spec's core architecture is sound — routing credential/auth failures through the existing quota rotation path (rather than introducing a new `kind: "auth"`) is the correct way to bound blast radius, and the plan-side note coverage is adequate because all plan sub-passes funnel through one shared emit helper. Uphold the following refinements before implementation.
+
+## Required refinements
+
+1. **Transient false-positive is the load-bearing defect — fix the signal set.** Classifying a failure as the quota kind at spawn time bypasses the transient-retry path (which fires only for the error kind) and permanently rotates the agent away for the whole run. A one-off `401`/`unauthorized` blip would therefore burn a healthy agent with no retry. The spec must require *durable* auth phrasing (revoked / log-out-and-sign-in / re-authenticate) and drop bare `401`/`unauthorized` from the rotation signal, and/or let those transient-looking codes fall through retry first. This is the highest-risk issue and must be resolved, not deferred. (Intent: "rotate, not hard-stop" — but only for genuinely unrecoverable credential failures, not transient blips.)
+
+2. **Commit the auth-vs-transient precedence.** The spec defines auth-vs-model_config ordering but is silent on what happens when stderr matches both an auth signal and a transient signal (e.g. connection-reset). Define the order; transient-first is the likely answer and also reinforces refinement 1.
+
+3. **Commit the shared-vs-per-agent pattern split.** Only a codex sample exists as evidence, yet the decision says "shared + per-agent as needed" and enumerates nothing. Scope durable patterns to the agent they're evidenced for (codex), and reserve any cross-agent patterns for unambiguous durable phrasing only. This is where false positives originate, so it couples to refinement 1.
+
+4. **Name the marker contract.** Subspec 01 gates entirely on a "marker" on the quota-classified result, but the spec never names the field, its type, or that it mutates the shared discriminated result type. Because the note must name the offending agent, the marker must carry (or be accompanied by) that agent name. Name the field, its type, and flag it as a change to the shared result type with downstream quota-site consumers.
+
+5. **Close or scope the patch-family emit-point gap.** The classification change is global, but the re-auth note is added only at the plan helper and the patch quota fallback. Patch-mode review, shrink, prompt-mode, and review-mode each emit rotation messaging independently and would show misleading quota wording for an auth rotation. Either extend the note to those emit points (ideally via a shared helper mirroring the plan side) or explicitly scope them out of subspec 01. As drafted, the spec under-delivers on its own thesis for those rotation paths. Subspec 00's acceptance criteria assert rotation "in both patch and plan" while the change is global with no AC/test exercising review/shrink/prompt — align the ACs/tests with whatever coverage is chosen.
+
+6. **Correct the Problem framing (precision, low stakes).** The captured codex sample matches none of the model-configuration patterns, so the dominant real path today is the error kind → exit 3, not a fatal model_config classification. State that as the primary path; keep the "auth before model_config" precedence as defense-in-depth (an auth message could contain a model word) rather than the primary motivation.
+
+7. **Make the telemetry limitation explicit.** Riding the quota path means telemetry cannot distinguish auth from quota; only the stderr note can. This is a defensible scope choice, but add a one-line known-limitation note so the tradeoff is recorded rather than inferred.
+
+8. **Minor precision items.** Name the strict (spawn-classified quota) patch block that subspec 01 hooks, to avoid mis-wiring against the lenient path. Note that classification is stderr-driven and the codex exit code is unconfirmed by the captured sample. Consider adding a `v1-behaviors.md` line for subspec 01, since it adds a new operator-visible rotation stderr line.
+
+## Rationale
+
+Refinements 1–3 protect against the spec actively regressing reliability — silently converting recoverable/transient failures into permanent agent loss runs counter to the intent's "another agent can run now" premise. Refinement 4 is required for subspec 01 to be independently implementable (spec guidance: subspecs must be implementable without inventing the contract). Refinement 5 is required for the spec to honor its own acceptance criteria and avoid shipping misleading operator messaging on affected rotation paths — the operator-visibility note is the intent's core deliverable. Refinements 6–8 convert implicit assumptions and imprecise framing into stated decisions.

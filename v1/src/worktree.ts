@@ -318,6 +318,74 @@ export function hasUpstream(cwd: string): boolean {
   }
 }
 
+export class RebaseConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RebaseConflictError";
+  }
+}
+
+/**
+ * Reconcile the current branch with its remote before push. Fetches and
+ * rebases onto `origin/<branch>` if the remote has commits not reachable
+ * from local HEAD. Aborts on rebase conflict and throws RebaseConflictError.
+ * Non-fatal on fetch failure or missing upstream.
+ */
+export function reconcileActuatorCommit(cwd: string): void {
+  const branch = getCurrentBranch(cwd);
+
+  // Fetch remote refs
+  bestEffortFetch(cwd);
+
+  // Skip if no upstream configured
+  if (!hasUpstream(cwd)) {
+    return;
+  }
+
+  // Skip if origin/<branch> doesn't exist
+  if (!branchExistsOnOrigin(cwd, branch)) {
+    return;
+  }
+
+  // Check if remote has commits not reachable from local HEAD
+  try {
+    const countOutput = execFileSync("git", ["rev-list", "--count", `HEAD..origin/${branch}`], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+
+    const count = parseInt(countOutput, 10);
+    if (count === 0) {
+      // Local is already up to date with remote
+      return;
+    }
+  } catch {
+    // If rev-list fails, skip rebase
+    return;
+  }
+
+  // Rebase onto origin/<branch>
+  try {
+    execFileSync("git", ["rebase", `origin/${branch}`], {
+      cwd,
+      stdio: "pipe",
+    });
+  } catch (err) {
+    // Rebase failed; check if it's due to a conflict
+    try {
+      execFileSync("git", ["rebase", "--abort"], {
+        cwd,
+        stdio: "pipe",
+      });
+    } catch {
+      // best-effort abort
+    }
+    const stderr = getProcessStderr(err);
+    throw new RebaseConflictError(stderr.length > 0 ? stderr : String(err));
+  }
+}
+
 function getProcessStderr(err: unknown): string {
   if (
     typeof err === "object" &&

@@ -61,12 +61,12 @@ mid-rebase, discarding the actuator commit, or implying convergence on conflict.
 
 ## Acceptance criteria
 
-- [ ] When `origin/<branch>` has commits not reachable from local `HEAD` at actuator push time, the actuator fetches and rebases onto `origin/<branch>` so `pushCurrent` is a fast-forward and the worktree HEAD does not diverge from the PR head.
-- [ ] `v1/src/modes/patch/review.ts` empty-porcelain actuator branch stays unchanged (no fetch, rebase, or push).
-- [ ] Fetch failure is non-fatal: reconcile is skipped and the actuator proceeds to `pushCurrent` (divergence may still occur).
-- [ ] After a successful fetch, missing `origin/<branch>` (`hasUpstream` false or `branchExistsOnOrigin` false) skips rebase and proceeds to `pushCurrent`.
-- [ ] Rebase conflict aborts the rebase, keeps the actuator commit unpushed, throws `ReviewTerminalError` remapped to `review-incomplete` (`11`) with implementation commits intact; the worktree is not left mid-rebase and remains diverged from the PR head.
-- [ ] Helper unit tests cover remote-ahead fast-forwardable rebase, fetch-failure skip, missing-upstream skip, and rebase-conflict abort; integration coverage asserts `pushCurrent` succeeds after reconcile when `origin/<branch>` is ahead.
+- [x] When `origin/<branch>` has commits not reachable from local `HEAD` at actuator push time, the actuator fetches and rebases onto `origin/<branch>` so `pushCurrent` is a fast-forward and the worktree HEAD does not diverge from the PR head.
+- [x] `v1/src/modes/patch/review.ts` empty-porcelain actuator branch stays unchanged (no fetch, rebase, or push).
+- [x] Fetch failure is non-fatal: reconcile is skipped and the actuator proceeds to `pushCurrent` (divergence may still occur).
+- [x] After a successful fetch, missing `origin/<branch>` (`hasUpstream` false or `branchExistsOnOrigin` false) skips rebase and proceeds to `pushCurrent`.
+- [x] Rebase conflict aborts the rebase, keeps the actuator commit unpushed, throws `ReviewTerminalError` remapped to `review-incomplete` (`11`) with implementation commits intact; the worktree is not left mid-rebase and remains diverged from the PR head.
+- [x] Helper unit tests cover remote-ahead fast-forwardable rebase, fetch-failure skip, missing-upstream skip, and rebase-conflict abort; integration coverage asserts `pushCurrent` succeeds after reconcile when `origin/<branch>` is ahead.
 
 ## Documentation updates
 

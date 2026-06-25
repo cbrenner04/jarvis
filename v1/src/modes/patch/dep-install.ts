@@ -1,8 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readlinkSync, rmSync, renameSync, copyFileSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 type DepInstallResult =
   | {

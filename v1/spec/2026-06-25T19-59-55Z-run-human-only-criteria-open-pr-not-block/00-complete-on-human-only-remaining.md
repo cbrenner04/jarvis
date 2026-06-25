@@ -37,13 +37,13 @@ does not kill the regression.
 
 ## Acceptance criteria
 
-- [ ] A patch run whose active subspec's only remaining unchecked acceptance criteria are human-only finishes the normal completion path (index checkbox flips, completion ready gate runs, draft PR is opened/marked ready) instead of iterating further or exiting blocked — **even when the agent appended a `## Blocker` for a human-only criterion** (the blocker is stripped, not honored).
-- [ ] A subspec with at least one unchecked automated (non-human-only) criterion is still treated as incomplete and keeps iterating; an appended `## Blocker` for it still exits 7. It does not complete early.
-- [ ] `parseSpec` classifies an acceptance criterion as human-only when its text ends with `(Manual)`, `visual inspection only`, or `no automated guard` (case-insensitive, trailing whitespace/period ignored), and as automated otherwise.
-- [ ] A criterion that only *mentions* a marker phrase mid-prose (e.g. "add an automated guard where there is no automated guard today") is classified automated, not human-only.
-- [ ] A subspec whose criteria are all human-only does not complete on a no-op iteration with no committed code change; it completes only after the agent commits at least one code change.
-- [ ] A completed human-only-only run's summary/commit reports the automated criteria as satisfied and the unchecked human-only criteria as human-verify (e.g. `4/7 (3 human-verify)`), not `7/7`.
-- [ ] After such a run completes, the unchecked human-only criteria remain unchecked in the committed subspec file (they are not auto-ticked).
+- [x] A patch run whose active subspec's only remaining unchecked acceptance criteria are human-only finishes the normal completion path (index checkbox flips, completion ready gate runs, draft PR is opened/marked ready) instead of iterating further or exiting blocked — **even when the agent appended a `## Blocker` for a human-only criterion** (the blocker is stripped, not honored).
+- [x] A subspec with at least one unchecked automated (non-human-only) criterion is still treated as incomplete and keeps iterating; an appended `## Blocker` for it still exits 7. It does not complete early.
+- [x] `parseSpec` classifies an acceptance criterion as human-only when its text ends with `(Manual)`, `visual inspection only`, or `no automated guard` (case-insensitive, trailing whitespace/period ignored), and as automated otherwise.
+- [x] A criterion that only *mentions* a marker phrase mid-prose (e.g. "add an automated guard where there is no automated guard today") is classified automated, not human-only.
+- [x] A subspec whose criteria are all human-only does not complete on a no-op iteration with no committed code change; it completes only after the agent commits at least one code change.
+- [x] A completed human-only-only run's summary/commit reports the automated criteria as satisfied and the unchecked human-only criteria as human-verify (e.g. `4/7 (3 human-verify)`), not `7/7`.
+- [x] After such a run completes, the unchecked human-only criteria remain unchecked in the committed subspec file (they are not auto-ticked).
 
 ## Documentation updates
 

@@ -267,7 +267,7 @@ describe("commitWipProgress", () => {
 
     commitWipProgress(specPath, {
       cwd: gitDir,
-      newlyChecked: [{ text: "First criterion", checked: true }],
+      newlyChecked: [{ text: "First criterion", checked: true, humanOnly: false }],
       checkedTotal: 1,
       total: 2,
       agentLabel: "",
@@ -355,7 +355,7 @@ describe("Jarvis-Agent trailer", () => {
 
     commitWipProgress(specPath, {
       cwd: gitDir,
-      newlyChecked: [{ text: "First criterion", checked: true }],
+      newlyChecked: [{ text: "First criterion", checked: true, humanOnly: false }],
       checkedTotal: 1,
       total: 1,
       agentLabel: "codex (default model)",
@@ -400,7 +400,7 @@ External dependency missing
 
     commitWipProgressWithBlocker(specPath, {
       cwd: gitDir,
-      newlyChecked: [{ text: "First criterion", checked: true }],
+      newlyChecked: [{ text: "First criterion", checked: true, humanOnly: false }],
       checkedTotal: 1,
       total: 1,
       blockerBody: "External dependency missing",

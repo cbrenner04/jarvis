@@ -11,6 +11,7 @@ export type LinkedSubspec = TaskItem & {
 export type AcceptanceCriterion = {
   checked: boolean;
   text: string;
+  humanOnly: boolean;
 };
 
 export type WarningKind =
@@ -262,6 +263,19 @@ function parseTasksAndSubspecs(lines: string[]): {
   return { tasks, linkedSubspecs };
 }
 
+/** Detect if a criterion text is human-only based on trailing markers.
+ * Markers (case-insensitive, trailing-anchored): (Manual), "visual inspection only", "no automated guard"
+ */
+export function isHumanOnlyCriterion(text: string): boolean {
+  const trimmed = text.trim();
+  let testText = trimmed;
+  if (testText.endsWith(".")) {
+    testText = testText.slice(0, -1).trim();
+  }
+  const markers = ["(manual)", "visual inspection only", "no automated guard"];
+  return markers.some((marker) => testText.toLowerCase().endsWith(marker));
+}
+
 /** Parse acceptance criteria from section lines. */
 function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] {
   const acceptanceCriteria: AcceptanceCriterion[] = [];
@@ -270,9 +284,11 @@ function parseAcceptanceCriteria(sectionLines: string[]): AcceptanceCriterion[] 
     if (!taskMatch?.[2]) {
       continue;
     }
+    const text = taskMatch[2].trim();
     acceptanceCriteria.push({
       checked: (taskMatch[1] ?? " ").toLowerCase() === "x",
-      text: taskMatch[2].trim(),
+      text,
+      humanOnly: isHumanOnlyCriterion(text),
     });
   }
   return acceptanceCriteria;

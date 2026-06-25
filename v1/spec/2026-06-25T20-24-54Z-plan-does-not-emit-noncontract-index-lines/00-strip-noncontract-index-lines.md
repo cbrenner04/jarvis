@@ -69,28 +69,28 @@ of `modes.plan.commit`.
 
 ## Acceptance criteria
 
-- [ ] A drafted `index.md` containing a stray `repo:` line has that line
+- [x] A drafted `index.md` containing a stray `repo:` line has that line
   removed before the `plan: draft` commit; the committed/merged index contains
   only the H1 title and the subspec checklist.
-- [ ] A drafted `index.md` containing other stray metadata or prose lines
+- [x] A drafted `index.md` containing other stray metadata or prose lines
   (e.g. `status: wip`, a free-text sentence) has them removed; H1 title and
   checklist items are preserved in order.
-- [ ] A drafted `index.md` already conforming to the contract (H1 + checklist,
+- [x] A drafted `index.md` already conforming to the contract (H1 + checklist,
   blank lines only) is left semantically unchanged — including one with no
   trailing newline (the cleanup does not rewrite it when content is unchanged).
-- [ ] When no `index.md` is present at the strip point, the draft flow proceeds
+- [x] When no `index.md` is present at the strip point, the draft flow proceeds
   without error (the cleanup no-ops).
-- [ ] Under `commit: false`, a drafted `index.md` with a stray agent-written
+- [x] Under `commit: false`, a drafted `index.md` with a stray agent-written
   `repo:` line ends with exactly the programmatically injected `repo:` binding
   (`injectRepoLineIntoIndex`), not the agent's value.
-- [ ] `parseIndex` (`v1/src/modes/plan/pr.ts`) reads the same title and subspec
+- [x] `parseIndex` (`v1/src/modes/plan/pr.ts`) reads the same title and subspec
   list from the cleaned index as before (existing `parseIndex`/plan draft tests
   stay green; the cleanup only removes lines `parseIndex` already ignores).
 
 ## Documentation updates
 
-- [ ] `v1/docs/plan-mode.md` draft-phase section documents that jarvis strips
+- [x] `v1/docs/plan-mode.md` draft-phase section documents that jarvis strips
   non-contract lines from the generated `index.md` before the `plan: draft`
   commit, leaving only the H1 title and subspec checklist.
-- [ ] `v2/docs/v1-behaviors.md` records the index-cleanup behavior added to the
+- [x] `v2/docs/v1-behaviors.md` records the index-cleanup behavior added to the
   draft phase.

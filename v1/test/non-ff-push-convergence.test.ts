@@ -117,7 +117,6 @@ describe("tryConvergeNonFfActuatorPush", () => {
     const result = tryConvergeNonFfActuatorPush(localDir, "main");
 
     expect(result.converged).toBe(true);
-    expect(result.reason).toBeUndefined();
 
     // Verify HEAD is now at the remote commit
     const convergedSha = execSync("git rev-parse HEAD", { cwd: localDir, encoding: "utf8" }).trim();
@@ -130,8 +129,7 @@ describe("tryConvergeNonFfActuatorPush", () => {
     execSync("git add remote.txt && git commit -m remote", { cwd: localDir });
     execSync("git push origin main", { cwd: localDir });
 
-    // Get local SHA before reset
-    const beforeResetSha = execSync("git rev-parse HEAD", { cwd: localDir, encoding: "utf8" }).trim();
+    const remoteSha = execSync("git rev-parse HEAD", { cwd: localDir, encoding: "utf8" }).trim();
 
     // Reset to before the remote push
     const baselineSha = execSync("git rev-parse HEAD~1", { cwd: localDir, encoding: "utf8" }).trim();
@@ -140,6 +138,8 @@ describe("tryConvergeNonFfActuatorPush", () => {
     // Create an actuator commit with different content (different tree than remote)
     writeFileSync(join(localDir, "different.txt"), "different content\n");
     execSync("git add different.txt && git commit -m actuator", { cwd: localDir });
+
+    const actuatorSha = execSync("git rev-parse HEAD", { cwd: localDir, encoding: "utf8" }).trim();
 
     // Verify trees are different
     const localTree = execSync("git rev-parse HEAD^{tree}", { cwd: localDir, encoding: "utf8" }).trim();
@@ -153,23 +153,28 @@ describe("tryConvergeNonFfActuatorPush", () => {
     const result = tryConvergeNonFfActuatorPush(localDir, "main");
 
     expect(result.converged).toBe(false);
-    expect(result.reason).toBe("tree mismatch");
 
-    // Verify worktree was not changed
+    // Verify worktree was not changed (HEAD still at actuator commit, not remote)
     const afterSha = execSync("git rev-parse HEAD", { cwd: localDir, encoding: "utf8" }).trim();
-    expect(afterSha).not.toBe(beforeResetSha);
+    expect(afterSha).toBe(actuatorSha);
+    expect(afterSha).not.toBe(remoteSha);
   });
 
-  test("returns failure reason when fetch fails", () => {
+  test("fails when fetch fails", () => {
     // Create a local branch with no upstream or with a bad remote
     execSync("git checkout -b isolated-branch", { cwd: localDir });
     writeFileSync(join(localDir, "isolated.txt"), "isolated\n");
     execSync("git add isolated.txt && git commit -m isolated", { cwd: localDir });
 
+    const beforeSha = execSync("git rev-parse HEAD", { cwd: localDir, encoding: "utf8" }).trim();
+
     // Try to converge on a non-existent remote branch
     const result = tryConvergeNonFfActuatorPush(localDir, "nonexistent-branch");
 
     expect(result.converged).toBe(false);
-    expect(result.reason).toBe("fetch failed");
+
+    // Verify worktree was not changed
+    const afterSha = execSync("git rev-parse HEAD", { cwd: localDir, encoding: "utf8" }).trim();
+    expect(afterSha).toBe(beforeSha);
   });
 });

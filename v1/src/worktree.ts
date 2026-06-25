@@ -408,12 +408,7 @@ export function isNonFastForwardPushError(stderr: string): boolean {
   return patterns.some((p) => p.test(stderr));
 }
 
-export type NonFfConvergenceResult = {
-  converged: boolean;
-  reason?: string;
-};
-
-export function tryConvergeNonFfActuatorPush(cwd: string, branch: string): NonFfConvergenceResult {
+export function tryConvergeNonFfActuatorPush(cwd: string, branch: string): { converged: boolean } {
   try {
     // Fetch the remote branch
     execFileSync("git", ["fetch", "origin", branch], {
@@ -421,10 +416,7 @@ export function tryConvergeNonFfActuatorPush(cwd: string, branch: string): NonFf
       stdio: "pipe",
     });
   } catch {
-    return {
-      converged: false,
-      reason: "fetch failed",
-    };
+    return { converged: false };
   }
 
   try {
@@ -442,10 +434,7 @@ export function tryConvergeNonFfActuatorPush(cwd: string, branch: string): NonFf
     }).trim();
 
     if (localTree !== remoteTree) {
-      return {
-        converged: false,
-        reason: "tree mismatch",
-      };
+      return { converged: false };
     }
 
     // Trees match; reset to fetched tip
@@ -455,12 +444,8 @@ export function tryConvergeNonFfActuatorPush(cwd: string, branch: string): NonFf
     });
 
     return { converged: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      converged: false,
-      reason: `convergence check failed: ${message}`,
-    };
+  } catch {
+    return { converged: false };
   }
 }
 

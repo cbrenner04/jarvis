@@ -18,7 +18,7 @@ An observer session is not done when the PRs merge — it's done when the findin
 
 1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive (see [Merging](#merging)). Keep stuck work moving (diagnose, finalize, or re-queue).
 2. **Create seeds** in `v2/spec/seeds/` for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
-3. **Triage incoming harness suggestions** from other-repo observers (see below) into seeds.
+3. **Triage incoming harness suggestions** from other-repo observers (see below) into seeds. The issue stays **open** until the fix is implemented and merged — it is not closed at triage.
 4. **Write a final report** committed under `reports/` with a precise UTC-timestamp filename (e.g. `reports/2026-06-23T00-52-38Z-overlord.md`) — date-only names collide when there are multiple sessions a day. Cover: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost, in the [standard cost schema](#cost-reporting-standard).
 5. **Maintain this runbook** directly (branch → PR → admin-merge — lighter than the full intent→plan→run pipeline). Keep it current; batch edits rather than one PR per thought.
 6. **Run end-of-session cleanup** ([below](#end-of-session-cleanup)) — `jarvis1 cleanup` to retire merged worktrees and archive specs into their home directories.
@@ -160,8 +160,8 @@ For each suggestion:
 
 1. **Review** the issue and assess whether it's worth a seed.
 2. **Create a seed** in `v2/spec/seeds/` capturing the suggestion. Use the issue content to seed the intent's problem statement and decisions.
-3. **Close the issue** with a comment referencing the seeded intent (e.g., "Seeded as v2/spec/seeds/2026-06-22-example-intent.md").
-4. **Allow closing without a seed** if the suggestion isn't actionable or doesn't warrant an intent — rare, but OK (e.g., duplicate of an existing issue, or out-of-scope for Jarvis's design).
+3. **Leave the issue open** and add a comment referencing the seeded intent (e.g., "Seeded as `<seeds-dir>/<name>.md`"). The issue tracks real remaining work, so it stays open until the fix is **implemented and merged** — the implementation PR closes it via a `Closes #N` keyword in its body. Do **not** close a seeded issue at triage; a seed is capture, not completion.
+4. **Close at triage only when not seeding** — if the suggestion isn't actionable or doesn't warrant a seed (duplicate, or out-of-scope for Jarvis's design), close it then with an explanation. A *seeded* issue is never closed at triage.
 5. **Operator-error / project-setup, not a harness gap.** If the issue is really an operator mistake or a problem with the *target project's* setup (misconfiguration, missing dependency, environment) rather than something Jarvis itself should change, **respond on the issue** explaining the cause/fix but **do not seed or change the harness** — and **flag it to the operator** so they're aware it surfaced. Don't bake a workaround into Jarvis for what is really a setup fix on the operator's side.
 
 ## Background-run-and-poll pattern

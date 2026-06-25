@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { Agent, AgentResult } from "../../../src/agents/types.ts";
 import {
   buildPrBody,
@@ -96,6 +96,77 @@ describe("buildPrBody", () => {
     writeFileSync(indexPath, "- [ ] [00 - one](./00-one.md)\n");
     const body = buildPrBody({ indexPath, narrative: null });
     expect(body).toBe("");
+  });
+
+  test("includes human-verify checklist section for unchecked human-only criteria", () => {
+    writeFileSync(
+      indexPath,
+      ["# Spec", "", "- [x] [00 - first](./00-first.md)", "- [ ] [01 - second](./01-second.md)", ""].join("\n"),
+    );
+    writeFileSync(
+      join(dirname(indexPath), "00-first.md"),
+      ["# First", "", "## Acceptance criteria", "", "- [x] Test 1", ""].join("\n"),
+    );
+    writeFileSync(
+      join(dirname(indexPath), "01-second.md"),
+      [
+        "# Second",
+        "",
+        "## Acceptance criteria",
+        "",
+        "- [ ] Should work (Manual)",
+        "- [x] Other test",
+        "",
+      ].join("\n"),
+    );
+
+    const body = buildPrBody({ indexPath, narrative: null });
+    expect(body).toContain("# Spec");
+    expect(body).toContain("## Human verification checklist");
+    expect(body).toContain("- [ ] Should work (Manual)");
+    expect(body).toContain("[./01-second.md](./01-second.md)");
+  });
+
+  test("omits human-verify checklist section when no unchecked human-only criteria exist", () => {
+    writeFileSync(
+      indexPath,
+      ["# Spec", "", "- [x] [00 - first](./00-first.md)", "- [ ] [01 - second](./01-second.md)", ""].join("\n"),
+    );
+    writeFileSync(
+      join(dirname(indexPath), "00-first.md"),
+      ["# First", "", "## Acceptance criteria", "", "- [x] Test 1", ""].join("\n"),
+    );
+    writeFileSync(
+      join(dirname(indexPath), "01-second.md"),
+      [
+        "# Second",
+        "",
+        "## Acceptance criteria",
+        "",
+        "- [x] Should work (Manual)",
+        "- [ ] Other test",
+        "",
+      ].join("\n"),
+    );
+
+    const body = buildPrBody({ indexPath, narrative: null });
+    expect(body).toBe("# Spec");
+    expect(body).not.toContain("## Human verification checklist");
+  });
+
+  test("omits human-verify checklist section when all human-only criteria are checked", () => {
+    writeFileSync(
+      indexPath,
+      ["# Spec", "", "- [x] [00 - first](./00-first.md)", ""].join("\n"),
+    );
+    writeFileSync(
+      join(dirname(indexPath), "00-first.md"),
+      ["# First", "", "## Acceptance criteria", "", "- [x] Test 1 (Manual)", ""].join("\n"),
+    );
+
+    const body = buildPrBody({ indexPath, narrative: null });
+    expect(body).toBe("# Spec");
+    expect(body).not.toContain("## Human verification checklist");
   });
 });
 

@@ -28,4 +28,3 @@ trips the violation.
   external root).
 
 ## Prerequisites
-

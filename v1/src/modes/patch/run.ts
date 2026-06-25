@@ -117,6 +117,7 @@ export type IterationContext = {
     consecutiveBlockerClaimRejectionsSubspecPath: string | null;
     noCommitDelta: DeltaRecord | null;
     noCommitResetAppliedThisRun: boolean;
+    runStartHead: string | null;
   };
 };
 
@@ -276,6 +277,7 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     consecutiveBlockerClaimRejectionsSubspecPath: null,
     noCommitDelta: null,
     noCommitResetAppliedThisRun: false,
+    runStartHead: null,
   };
 
   const onSigint = () => {

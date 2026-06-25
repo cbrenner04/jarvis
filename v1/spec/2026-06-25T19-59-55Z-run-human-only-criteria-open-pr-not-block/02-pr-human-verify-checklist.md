@@ -21,8 +21,8 @@ in-file annotation. The current PR body (`buildPrBody`) lists nothing about them
 
 ## Acceptance criteria
 
-- [ ] When a completed run's linked subspecs contain unchecked human-only criteria, the draft PR body includes a human-verify checklist section listing each unchecked human-only criterion with its source subspec.
-- [ ] When no unchecked human-only criteria exist, the PR body omits the section entirely (no empty header).
+- [x] When a completed run's linked subspecs contain unchecked human-only criteria, the draft PR body includes a human-verify checklist section listing each unchecked human-only criterion with its source subspec.
+- [x] When no unchecked human-only criteria exist, the PR body omits the section entirely (no empty header).
 
 ## Documentation updates
 

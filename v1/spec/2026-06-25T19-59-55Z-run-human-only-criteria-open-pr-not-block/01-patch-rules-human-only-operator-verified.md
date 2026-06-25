@@ -23,8 +23,8 @@ to verify, not the sandbox's.
 
 ## Acceptance criteria
 
-- [ ] The rendered patch implementation prompt instructs agents that acceptance criteria flagged human-only (`(Manual)`, "visual inspection only", "no automated guard") are operator-verified: implement and leave them unchecked, do not attempt in-sandbox visual verification or bind a dev-server port for them, and do not append a `## Blocker` for them.
-- [ ] `prompts/patch/rules.md` `revision` is incremented and the prompt registry/snapshot tests pass with the new fragment.
+- [x] The rendered patch implementation prompt instructs agents that acceptance criteria flagged human-only (`(Manual)`, "visual inspection only", "no automated guard") are operator-verified: implement and leave them unchecked, do not attempt in-sandbox visual verification or bind a dev-server port for them, and do not append a `## Blocker` for them.
+- [x] `prompts/patch/rules.md` `revision` is incremented and the prompt registry/snapshot tests pass with the new fragment.
 
 ## Documentation updates
 

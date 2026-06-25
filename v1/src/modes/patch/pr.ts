@@ -33,7 +33,60 @@ export function buildPrBody(opts: { indexPath: string; narrative: string | null 
     body = body === "" ? narrativeBlock : `${body}\n\n${narrativeBlock}`;
   }
 
+  const humanVerifyItems = collectUncheckedHumanOnlyCriteria(opts.indexPath, parsedIndex);
+  if (humanVerifyItems.length > 0) {
+    const checklist = buildHumanVerifyChecklist(humanVerifyItems);
+    body = body === "" ? checklist : `${body}\n\n${checklist}`;
+  }
+
   return body;
+}
+
+type HumanVerifyItem = {
+  criterion: string;
+  subspecPath: string;
+};
+
+function collectUncheckedHumanOnlyCriteria(
+  indexPath: string,
+  parsedIndex: ReturnType<typeof parseSpec>,
+): HumanVerifyItem[] {
+  const items: HumanVerifyItem[] = [];
+  const indexDir = dirname(indexPath);
+
+  for (const subspec of parsedIndex.linkedSubspecs) {
+    // Skip external links
+    if (/^[a-z][a-z0-9+.-]*:/i.test(subspec.path)) {
+      continue;
+    }
+
+    const subspecPath = resolve(indexDir, subspec.path);
+    if (!existsSync(subspecPath)) {
+      continue;
+    }
+
+    const subspecContent = readFileSync(subspecPath, "utf8");
+    const parsedSubspec = parseSpec(subspecContent);
+
+    for (const criterion of parsedSubspec.acceptanceCriteria) {
+      if (!criterion.checked && criterion.humanOnly) {
+        items.push({
+          criterion: criterion.text,
+          subspecPath: subspec.path,
+        });
+      }
+    }
+  }
+
+  return items;
+}
+
+function buildHumanVerifyChecklist(items: HumanVerifyItem[]): string {
+  const lines: string[] = ["## Human verification checklist"];
+  for (const item of items) {
+    lines.push(`- [ ] ${item.criterion} ([${item.subspecPath}](${item.subspecPath}))`);
+  }
+  return lines.join("\n");
 }
 
 export { extractNarrative };

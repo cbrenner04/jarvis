@@ -78,30 +78,30 @@ absolute-path `repo:` exact-root matches all behave as today.
 
 ## Acceptance criteria
 
-- [ ] A spec inside a registered project whose `repo:` line is a relative slash
+- [x] A spec inside a registered project whose `repo:` line is a relative slash
   path (`./project`) resolves to that registered project (`source:
   "registered"`) and runs, instead of aborting with `spec repo must be an
   absolute path`.
-- [ ] A spec inside a registered project whose `repo:` line is a non-slug
+- [x] A spec inside a registered project whose `repo:` line is a non-slug
   bareword (`jarvis`) resolves to that registered project (`source:
   "registered"`) and runs, instead of aborting with the unknown-repo error.
-- [ ] A spec inside a non-registered git checkout with a relative-path or
+- [x] A spec inside a non-registered git checkout with a relative-path or
   bareword `repo:` line resolves in ad-hoc mode (`source: "ad-hoc"`).
-- [ ] `resolve-project.test.ts` "unknown key errors with registered projects
+- [x] `resolve-project.test.ts` "unknown key errors with registered projects
   list" stays green — an unresolvable `repo:` with no location fallback still
   returns the informative resolution error.
-- [ ] `resolve-project.test.ts` URL fall-through, legacy absolute-path, key/slug,
+- [x] `resolve-project.test.ts` URL fall-through, legacy absolute-path, key/slug,
   ambiguous, and `--repo` tests stay green (legitimate resolution unchanged).
-- [ ] A spec with a relative `repo:` line that is not inside any registered
+- [x] A spec with a relative `repo:` line that is not inside any registered
   project or git checkout still exits 1 before any agent runs, emitting the
   unknown-repo resolution error (`no project matches "<value>"`) rather than the
   removed `spec repo must be an absolute path` string (`run.test.ts`).
-- [ ] `run.test.ts` spec-`repo:` source-attribution and `--repo` tests stay green.
+- [x] `run.test.ts` spec-`repo:` source-attribution and `--repo` tests stay green.
 
 ## Documentation updates
 
-- [ ] `v1/docs/run-loop.md` Iteration resolution section documents that an
+- [x] `v1/docs/run-loop.md` Iteration resolution section documents that an
   unresolvable `repo:` line is ignored when the spec location resolves, with the
   hard error reserved for the no-fallback case.
-- [ ] `v1/docs/spec-guidance.md` resolution-order section reflects the same.
-- [ ] `v2/docs/v1-behaviors.md` records the changed resolution behavior.
+- [x] `v1/docs/spec-guidance.md` resolution-order section reflects the same.
+- [x] `v2/docs/v1-behaviors.md` records the changed resolution behavior.

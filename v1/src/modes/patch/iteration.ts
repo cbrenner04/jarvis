@@ -326,6 +326,18 @@ export function finalize(
   }
 }
 
+function onlyHumanOnlyRemain(criteria: AcceptanceCriterion[]): boolean {
+  const uncheckedNonHumanOnly = criteria.filter((c) => !c.humanOnly && !c.checked);
+  const hasHumanOnlyCriteria = criteria.some((c) => c.humanOnly);
+  return uncheckedNonHumanOnly.length === 0 && hasHumanOnlyCriteria;
+}
+
+function stripBlockerAndContinueFile(path: string): void {
+  const currentContent = readFileSync(path, "utf8");
+  const strippedContent = stripBlockerSection(currentContent);
+  writeFileSync(path, strippedContent, "utf8");
+}
+
 export async function runIteration(ctx: IterationContext): Promise<IterationOutcome> {
   const { preflight, logging, opts, activeAgents, state } = ctx;
   const { specPath, gitEnabled, agentWorkingDir, cfg } = preflight;
@@ -476,6 +488,15 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);
   const taskExcerpt = isFixupIteration ? "ready: fix bun run ready failure" : task?.line.slice(0, 140);
   const activeSubspecPath = isFixupIteration ? undefined : getActiveLinkedSubspecPath(specPath);
+  // Capture runStartHead on first iteration for all-human-only guard
+  if (gitEnabled && existsSync(join(agentWorkingDir, ".git")) && state.runStartHead === null) {
+    state.runStartHead = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: agentWorkingDir,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+  }
+
   const preIterationHead =
     gitEnabled && existsSync(join(agentWorkingDir, ".git"))
       ? execFileSync("git", ["rev-parse", "HEAD"], {
@@ -506,18 +527,26 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   if (!isFixupIteration && activeSubspecPath !== undefined) {
     const parsedSubspec = parseSpec(readFileSync(activeSubspecPath, "utf8"));
     if (parsedSubspec.blocker !== undefined) {
-      const blockerBody = parsedSubspec.blocker;
-      const blockerText = blockerBody ? `${activeSubspecPath}\n\n${blockerBody}` : activeSubspecPath;
-      fanout("harness", `${blockerText}\n`, "stderr");
-      writeTelemetry({
-        agent: agent.name,
-        iteration,
-        durationMs: iterationDurationMs(),
-        kind: "blocked",
-        exitReason: "blocker-detected",
-        ...telemetryMeta,
-      });
-      return { kind: "return", exitCode: 7 };
+      if (onlyHumanOnlyRemain(parsedSubspec.acceptanceCriteria)) {
+        // Only human-only criteria remain: strip blocker and continue
+        stripBlockerAndContinueFile(activeSubspecPath);
+        fanout("harness", `blocker stripped: only human-only acceptance criteria remain\n`, "stderr");
+        // Continue without exiting; don't increment iteration, re-check for other conditions
+      } else {
+        // Automated criteria remain: honor the blocker
+        const blockerBody = parsedSubspec.blocker;
+        const blockerText = blockerBody ? `${activeSubspecPath}\n\n${blockerBody}` : activeSubspecPath;
+        fanout("harness", `${blockerText}\n`, "stderr");
+        writeTelemetry({
+          agent: agent.name,
+          iteration,
+          durationMs: iterationDurationMs(),
+          kind: "blocked",
+          exitReason: "blocker-detected",
+          ...telemetryMeta,
+        });
+        return { kind: "return", exitCode: 7 };
+      }
     }
   }
 
@@ -531,13 +560,33 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     });
     const uncommittedTicks = diffAcceptanceCriteria(committedCriteria, workingTreeCriteria);
     if (uncommittedTicks.length > 0) {
-      const allChecked = workingTreeCriteria.length > 0 && workingTreeCriteria.every((c) => c.checked);
+      const nonHumanOnlyCriteria = workingTreeCriteria.filter((c) => !c.humanOnly);
+      const allNonHumanOnlyChecked = nonHumanOnlyCriteria.length > 0 && nonHumanOnlyCriteria.every((c) => c.checked);
+      const allHumanOnly = workingTreeCriteria.length > 0 && workingTreeCriteria.every((c) => c.humanOnly);
       const checkedTotal = workingTreeCriteria.filter((c) => c.checked).length;
+      const humanOnlyUnchecked = workingTreeCriteria.filter((c) => c.humanOnly && !c.checked);
+
       try {
-        if (allChecked) {
+        if (allNonHumanOnlyChecked) {
+          // All non-human-only criteria are checked
+          if (allHumanOnly) {
+            // All criteria are human-only: can only complete if there are code changes
+            const currentHead = execFileSync("git", ["rev-parse", "HEAD"], {
+              cwd: agentWorkingDir,
+              encoding: "utf8",
+              stdio: "pipe",
+            }).trim();
+            const hasCodeChanges = state.runStartHead !== null && state.runStartHead !== currentHead;
+            if (!hasCodeChanges) {
+              // No code changes for all-human-only subspec, don't auto-complete
+              state.iteration += 1;
+              return { kind: "continue" };
+            }
+          }
           commitSubspec(activeSubspecPath, {
             cwd: agentWorkingDir,
             agentLabel: agent.attributionLabel(),
+            ...(allHumanOnly ? { humanOnlyCount: humanOnlyUnchecked.length, total: workingTreeCriteria.length } : {}),
           });
         } else {
           commitWipProgress(activeSubspecPath, {
@@ -545,6 +594,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             newlyChecked: uncommittedTicks,
             checkedTotal,
             total: workingTreeCriteria.length,
+            humanOnlyCount: humanOnlyUnchecked.length,
             agentLabel: agent.attributionLabel(),
           });
         }
@@ -554,7 +604,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         return { kind: "return", exitCode: 1 };
       }
 
-      if (!opts.skipGhCheck && allChecked) {
+      if (!opts.skipGhCheck && allNonHumanOnlyChecked) {
         try {
           const firstPush = !hasUpstream(agentWorkingDir);
           pushCurrent({ cwd: agentWorkingDir, firstPush });
@@ -568,7 +618,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       // Try to install deps if they changed
       maybeInstallDeps(agent.attributionLabel());
 
-      if (allChecked) {
+      if (allNonHumanOnlyChecked) {
         state.iteration += 1;
         const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
         if (state.completionLoopbackSignal !== null) {
@@ -921,8 +971,12 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       if (afterSubspecPath !== undefined) {
         const afterCriteria = snapshotAcceptanceCriteria(afterSubspecPath);
         const newlyChecked = diffAcceptanceCriteria(beforeCriteria, afterCriteria);
-        const allChecked = afterCriteria.length > 0 && afterCriteria.every((c) => c.checked);
+        const nonHumanOnlyCriteria = afterCriteria.filter((c) => !c.humanOnly);
+        const allNonHumanOnlyChecked =
+          nonHumanOnlyCriteria.length === 0 || nonHumanOnlyCriteria.every((c) => c.checked);
+        const allHumanOnly = afterCriteria.length > 0 && afterCriteria.every((c) => c.humanOnly);
         const checkedTotal = afterCriteria.filter((c) => c.checked).length;
+        const humanOnlyUnchecked = afterCriteria.filter((c) => c.humanOnly && !c.checked);
 
         // Record newly checked AC in no-commit delta
         if (!gitEnabled && state.noCommitDelta !== null && newlyChecked.length > 0) {
@@ -931,7 +985,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           }
         }
 
-        if (allChecked || newlyChecked.length > 0) {
+        if (allNonHumanOnlyChecked || newlyChecked.length > 0) {
           state.consecutiveEditedUnticked = 0;
           state.consecutiveEditedUntickedSubspecPath = null;
         }
@@ -945,197 +999,323 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             throw new Error(`Blocker section added but body is missing in ${afterSubspecPath}`);
           }
 
-          // Record blocker in no-commit delta
-          if (!gitEnabled && state.noCommitDelta !== null) {
-            recordBlocker(state.noCommitDelta, blockerBody);
-          }
-
-          // Check if blocker is a claim about pre-existing failures
-          const isClaim = detectBlockerClaim(blockerBody);
-          const BLOCKER_CLAIM_REJECTION_BOUND = 2;
-          const resetRejectionCounter = () => {
-            if (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath) {
-              state.consecutiveBlockerClaimRejections = 0;
-              state.consecutiveBlockerClaimRejectionsSubspecPath = afterSubspecPath;
+          if (onlyHumanOnlyRemain(afterParse.acceptanceCriteria)) {
+            // Only human-only criteria remain: strip blocker and continue
+            stripBlockerAndContinueFile(afterSubspecPath);
+            fanout("harness", `blocker stripped: only human-only acceptance criteria remain\n`, "stderr");
+            writeTelemetry({
+              agent: agent.name,
+              iteration,
+              durationMs: iterationDurationMs(),
+              kind: "blocker-rejected",
+              exitReason: "blocker-stripped-human-only",
+              ...telemetryMeta,
+              ...usageCost,
+              ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
+            });
+            // Continue processing: treat as no blocker and check for completion
+          } else {
+            // Automated criteria remain: process the blocker normally
+            // Record blocker in no-commit delta
+            if (!gitEnabled && state.noCommitDelta !== null) {
+              recordBlocker(state.noCommitDelta, blockerBody);
             }
-          };
 
-          if (
-            isClaim &&
-            gitEnabled &&
-            opts.runBaseRefTests !== undefined &&
-            (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath ||
-              state.consecutiveBlockerClaimRejections < BLOCKER_CLAIM_REJECTION_BOUND)
-          ) {
-            // Validate the claim against base ref
-            let baseRefGreen = false;
-            try {
-              // Resolve the actual base branch name (offline-first, then fallback)
-              let baseBranch = "main"; // default fallback
+            // Check if blocker is a claim about pre-existing failures
+            const isClaim = detectBlockerClaim(blockerBody);
+            const BLOCKER_CLAIM_REJECTION_BOUND = 2;
+            const resetRejectionCounter = () => {
+              if (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath) {
+                state.consecutiveBlockerClaimRejections = 0;
+                state.consecutiveBlockerClaimRejectionsSubspecPath = afterSubspecPath;
+              }
+            };
+
+            if (
+              isClaim &&
+              gitEnabled &&
+              opts.runBaseRefTests !== undefined &&
+              (state.consecutiveBlockerClaimRejectionsSubspecPath !== afterSubspecPath ||
+                state.consecutiveBlockerClaimRejections < BLOCKER_CLAIM_REJECTION_BOUND)
+            ) {
+              // Validate the claim against base ref
+              let baseRefGreen = false;
               try {
-                // Try to get current branch name
-                const currentBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-                  cwd: agentWorkingDir,
-                  encoding: "utf8",
-                  stdio: "pipe",
-                }).trim();
-                if (currentBranch && currentBranch !== "HEAD") {
-                  // Try to get tracking branch from git config (local, no network)
-                  try {
-                    const trackingBranch = execFileSync("git", ["config", `branch.${currentBranch}.merge`], {
-                      cwd: agentWorkingDir,
-                      encoding: "utf8",
-                      stdio: "pipe",
-                    }).trim();
-                    if (trackingBranch?.startsWith("refs/heads/")) {
-                      baseBranch = trackingBranch.substring("refs/heads/".length);
+                // Resolve the actual base branch name (offline-first, then fallback)
+                let baseBranch = "main"; // default fallback
+                try {
+                  // Try to get current branch name
+                  const currentBranch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+                    cwd: agentWorkingDir,
+                    encoding: "utf8",
+                    stdio: "pipe",
+                  }).trim();
+                  if (currentBranch && currentBranch !== "HEAD") {
+                    // Try to get tracking branch from git config (local, no network)
+                    try {
+                      const trackingBranch = execFileSync("git", ["config", `branch.${currentBranch}.merge`], {
+                        cwd: agentWorkingDir,
+                        encoding: "utf8",
+                        stdio: "pipe",
+                      }).trim();
+                      if (trackingBranch?.startsWith("refs/heads/")) {
+                        baseBranch = trackingBranch.substring("refs/heads/".length);
+                      }
+                    } catch {
+                      // Tracking info not available, use default
                     }
-                  } catch {
-                    // Tracking info not available, use default
+                  }
+                } catch {
+                  // Fall through: couldn't determine branch, use default
+                }
+                // Use local merge-base to resolve the base ref (offline, no network calls)
+                baseRefGreen = await opts.runBaseRefTests(baseBranch);
+              } catch (_err) {
+                // Validation failure: fail-safe, blocker stands
+                baseRefGreen = false;
+              }
+
+              if (baseRefGreen) {
+                // Base ref is green: reject the claim blocker
+                const currentSpecContent = readFileSync(afterSubspecPath, "utf8");
+                const strippedContent = stripBlockerSection(currentSpecContent);
+                writeFileSync(afterSubspecPath, strippedContent, "utf8");
+
+                // Update rejection tracking
+                resetRejectionCounter();
+                state.consecutiveBlockerClaimRejections += 1;
+
+                // Emit rejection telemetry
+                fanout(
+                  "harness",
+                  `blocker claim rejected: base ref validates green; cited failures do not reproduce\n`,
+                  "stderr",
+                );
+                writeTelemetry({
+                  agent: agent.name,
+                  iteration,
+                  durationMs: iterationDurationMs(),
+                  kind: "blocker-rejected",
+                  exitReason: "base-ref-green",
+                  ...telemetryMeta,
+                });
+
+                // Continue the loop (do not exit 7, do not commit blocker)
+                state.iteration += 1;
+                return { kind: "continue" };
+              } else {
+                // Base ref is red or validation failed: check snapshot-churn gate
+                resetRejectionCounter();
+
+                if (opts.runSnapshotUpdateRetest !== undefined) {
+                  // Invoke snapshot-update re-test seam
+                  let snapshotRetest = false;
+                  try {
+                    snapshotRetest = await opts.runSnapshotUpdateRetest();
+                  } catch (_err) {
+                    // Seam error: fail-safe, blocker stands
+                    snapshotRetest = false;
+                  }
+
+                  if (snapshotRetest) {
+                    // Re-test green: snapshot churn detected, reject the blocker
+                    const currentSpecContent = readFileSync(afterSubspecPath, "utf8");
+                    const strippedContent = stripBlockerSection(currentSpecContent);
+                    writeFileSync(afterSubspecPath, strippedContent, "utf8");
+
+                    // Increment rejection counter (reset already happened above)
+                    state.consecutiveBlockerClaimRejections += 1;
+
+                    // Emit rejection telemetry
+                    fanout(
+                      "harness",
+                      `blocker claim rejected (snapshot-churn): snapshot-update re-test passes; failures were outdated snapshots\n`,
+                      "stderr",
+                    );
+                    writeTelemetry({
+                      agent: agent.name,
+                      iteration,
+                      durationMs: iterationDurationMs(),
+                      kind: "blocker-rejected",
+                      exitReason: "snapshot-churn",
+                      ...telemetryMeta,
+                    });
+
+                    // Continue the loop (do not exit 7, do not commit blocker)
+                    state.iteration += 1;
+                    return { kind: "continue" };
                   }
                 }
-              } catch {
-                // Fall through: couldn't determine branch, use default
               }
-              // Use local merge-base to resolve the base ref (offline, no network calls)
-              baseRefGreen = await opts.runBaseRefTests(baseBranch);
-            } catch (_err) {
-              // Validation failure: fail-safe, blocker stands
-              baseRefGreen = false;
-            }
-
-            if (baseRefGreen) {
-              // Base ref is green: reject the claim blocker
-              const currentSpecContent = readFileSync(afterSubspecPath, "utf8");
-              const strippedContent = stripBlockerSection(currentSpecContent);
-              writeFileSync(afterSubspecPath, strippedContent, "utf8");
-
-              // Update rejection tracking
-              resetRejectionCounter();
-              state.consecutiveBlockerClaimRejections += 1;
-
-              // Emit rejection telemetry
-              fanout(
-                "harness",
-                `blocker claim rejected: base ref validates green; cited failures do not reproduce\n`,
-                "stderr",
-              );
-              writeTelemetry({
-                agent: agent.name,
-                iteration,
-                durationMs: iterationDurationMs(),
-                kind: "blocker-rejected",
-                exitReason: "base-ref-green",
-                ...telemetryMeta,
-              });
-
-              // Continue the loop (do not exit 7, do not commit blocker)
-              state.iteration += 1;
-              return { kind: "continue" };
             } else {
-              // Base ref is red or validation failed: check snapshot-churn gate
+              // Non-claim blocker or bound hit: reset rejection counter
               resetRejectionCounter();
-
-              if (opts.runSnapshotUpdateRetest !== undefined) {
-                // Invoke snapshot-update re-test seam
-                let snapshotRetest = false;
-                try {
-                  snapshotRetest = await opts.runSnapshotUpdateRetest();
-                } catch (_err) {
-                  // Seam error: fail-safe, blocker stands
-                  snapshotRetest = false;
-                }
-
-                if (snapshotRetest) {
-                  // Re-test green: snapshot churn detected, reject the blocker
-                  const currentSpecContent = readFileSync(afterSubspecPath, "utf8");
-                  const strippedContent = stripBlockerSection(currentSpecContent);
-                  writeFileSync(afterSubspecPath, strippedContent, "utf8");
-
-                  // Increment rejection counter (reset already happened above)
-                  state.consecutiveBlockerClaimRejections += 1;
-
-                  // Emit rejection telemetry
-                  fanout(
-                    "harness",
-                    `blocker claim rejected (snapshot-churn): snapshot-update re-test passes; failures were outdated snapshots\n`,
-                    "stderr",
-                  );
-                  writeTelemetry({
-                    agent: agent.name,
-                    iteration,
-                    durationMs: iterationDurationMs(),
-                    kind: "blocker-rejected",
-                    exitReason: "snapshot-churn",
-                    ...telemetryMeta,
-                  });
-
-                  // Continue the loop (do not exit 7, do not commit blocker)
-                  state.iteration += 1;
-                  return { kind: "continue" };
-                }
-              }
-            }
-          } else {
-            // Non-claim blocker or bound hit: reset rejection counter
-            resetRejectionCounter();
-          }
-
-          // Commit and exit 7 for blockers that stand
-          if (gitEnabled) {
-            try {
-              commitWipProgressWithBlocker(afterSubspecPath, {
-                cwd: agentWorkingDir,
-                newlyChecked,
-                checkedTotal,
-                total: afterCriteria.length,
-                blockerBody,
-                agentLabel: agent.attributionLabel(),
-              });
-            } catch (err) {
-              const message = err instanceof Error ? err.message : String(err);
-              fanout("harness", `failed to commit blocker for ${afterSubspecPath}: ${message}\n`, "stderr");
-              return { kind: "return", exitCode: 1 };
             }
 
-            // Try to install deps if they changed (before push so lockfile commit gets pushed)
-            maybeInstallDeps(agent.attributionLabel());
-
-            if (!opts.skipGhCheck) {
+            // Commit and exit 7 for blockers that stand
+            if (gitEnabled) {
               try {
-                const firstPush = !hasUpstream(agentWorkingDir);
-                pushCurrent({ cwd: agentWorkingDir, firstPush });
+                commitWipProgressWithBlocker(afterSubspecPath, {
+                  cwd: agentWorkingDir,
+                  newlyChecked,
+                  checkedTotal,
+                  total: afterCriteria.length,
+                  blockerBody,
+                  agentLabel: agent.attributionLabel(),
+                });
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
-                fanout("harness", `failed to push blocker commit for ${afterSubspecPath}: ${message}\n`, "stderr");
+                fanout("harness", `failed to commit blocker for ${afterSubspecPath}: ${message}\n`, "stderr");
                 return { kind: "return", exitCode: 1 };
               }
-            }
-          }
 
-          const blockerText = `${afterSubspecPath}\n\n${blockerBody}`;
-          fanout("harness", `${blockerText}\n`, "stderr");
-          writeTelemetry({
-            agent: agent.name,
-            iteration,
-            durationMs: iterationDurationMs(),
-            kind: "blocked",
-            exitReason: "blocker-detected",
-            ...telemetryMeta,
-          });
-          // Record this run's delta on incomplete exit to overwrite any prior delta
-          if (!gitEnabled && state.noCommitDelta !== null && afterSubspecPath !== undefined) {
-            saveDelta(state.noCommitDelta);
+              // Try to install deps if they changed (before push so lockfile commit gets pushed)
+              maybeInstallDeps(agent.attributionLabel());
+
+              if (!opts.skipGhCheck) {
+                try {
+                  const firstPush = !hasUpstream(agentWorkingDir);
+                  pushCurrent({ cwd: agentWorkingDir, firstPush });
+                } catch (err) {
+                  const message = err instanceof Error ? err.message : String(err);
+                  fanout("harness", `failed to push blocker commit for ${afterSubspecPath}: ${message}\n`, "stderr");
+                  return { kind: "return", exitCode: 1 };
+                }
+              }
+            }
+
+            const blockerText = `${afterSubspecPath}\n\n${blockerBody}`;
+            fanout("harness", `${blockerText}\n`, "stderr");
+            writeTelemetry({
+              agent: agent.name,
+              iteration,
+              durationMs: iterationDurationMs(),
+              kind: "blocked",
+              exitReason: "blocker-detected",
+              ...telemetryMeta,
+            });
+            // Record this run's delta on incomplete exit to overwrite any prior delta
+            if (!gitEnabled && state.noCommitDelta !== null && afterSubspecPath !== undefined) {
+              saveDelta(state.noCommitDelta);
+            }
+            return { kind: "return", exitCode: 7 };
           }
-          return { kind: "return", exitCode: 7 };
         }
 
-        if (allChecked) {
-          if (gitEnabled) {
+        if (allNonHumanOnlyChecked) {
+          // Check for all-human-only edit signal guard
+          if (allHumanOnly) {
+            // All criteria are human-only: can only complete if there are code changes
+            const currentHead = execFileSync("git", ["rev-parse", "HEAD"], {
+              cwd: agentWorkingDir,
+              encoding: "utf8",
+              stdio: "pipe",
+            }).trim();
+            const hasCodeChanges = state.runStartHead !== null && state.runStartHead !== currentHead;
+            if (!hasCodeChanges) {
+              // No code changes for all-human-only subspec, don't auto-complete
+              subspecProgressed = false;
+              // Fall through to the "no progress" logic below
+            } else if (gitEnabled) {
+              try {
+                commitSubspec(afterSubspecPath, {
+                  cwd: agentWorkingDir,
+                  agentLabel: agent.attributionLabel(),
+                  ...(allHumanOnly ? { humanOnlyCount: humanOnlyUnchecked.length, total: afterCriteria.length } : {}),
+                });
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                fanout("harness", `failed to commit completed subspec ${afterSubspecPath}: ${message}\n`, "stderr");
+                return { kind: "return", exitCode: 1 };
+              }
+
+              // Try to install deps if they changed (before push so lockfile commit gets pushed)
+              maybeInstallDeps(agent.attributionLabel());
+
+              if (!opts.skipGhCheck) {
+                try {
+                  const firstPush = !hasUpstream(agentWorkingDir);
+                  pushCurrent({ cwd: agentWorkingDir, firstPush });
+                } catch (err) {
+                  const message = err instanceof Error ? err.message : String(err);
+                  fanout("harness", `failed to push completed subspec ${afterSubspecPath}: ${message}\n`, "stderr");
+                  return { kind: "return", exitCode: 1 };
+                }
+
+                try {
+                  let _createdThisIteration = false;
+                  const base = await getBaseBranch(agentWorkingDir);
+                  const branch = getCurrentBranch(agentWorkingDir);
+                  if (!state.draftPrEnsured) {
+                    const prBody = async (): Promise<string> =>
+                      generatePrBody(
+                        afterSpecPath,
+                        agent,
+                        agentWorkingDir,
+                        cfg.modes.patch.prNarrative ?? "template",
+                        base,
+                        {
+                          signal: iterationController.signal,
+                          abortKillGraceMs: killGraceMs,
+                          onSpawned: ({ pid }) => {
+                            watchdogPgid = pid;
+                          },
+                        },
+                      );
+                    const footer = renderAttributionSummary({
+                      cwd: agentWorkingDir,
+                      base,
+                    });
+                    const ensured = await ensureDraftPr({
+                      branch,
+                      base,
+                      title: getIndexTitle(afterSpecPath),
+                      bodyGenerator: prBody,
+                      footer,
+                      cwd: agentWorkingDir,
+                    });
+                    _createdThisIteration = ensured.created;
+                    state.draftPrEnsured = true;
+                  }
+                  // When post-completion shrink or review will run, defer PR
+                  // readiness to those phases.
+                  const implementationIterations = logging.patchIterationsCompletedForSummary() + 1;
+                  const willRunShrink = gitEnabled && implementationIterations > 0 && cfg.modes.patch.shrink !== "off";
+                  const willRunReview =
+                    gitEnabled && resolveReviewPasses(cfg, opts.reviewPasses) > 0 && implementationIterations > 0;
+                  if (!willRunReview && !willRunShrink) {
+                    maybeMarkReady({
+                      indexPath: afterSpecPath,
+                      cwd: agentWorkingDir,
+                      agentLabel: agent.attributionLabel(),
+                      ...(ctx.state.completionTransitionReadyResult !== undefined
+                        ? { recordedGreenResult: ctx.state.completionTransitionReadyResult }
+                        : {}),
+                      refreshRecordedGreenResult: (headSha: string) => {
+                        ctx.state.completionTransitionReadyResult = { headSha };
+                      },
+                    });
+                  }
+                } catch (err) {
+                  const message = err instanceof Error ? err.message : String(err);
+                  fanout(
+                    "harness",
+                    `failed to update PR for completed subspec ${afterSubspecPath}: ${message}\n`,
+                    "stderr",
+                  );
+                  return { kind: "return", exitCode: 1 };
+                }
+              }
+              subspecCompleted = true;
+            }
+          } else if (gitEnabled) {
             try {
               commitSubspec(afterSubspecPath, {
                 cwd: agentWorkingDir,
                 agentLabel: agent.attributionLabel(),
+                ...(humanOnlyUnchecked.length > 0
+                  ? { humanOnlyCount: humanOnlyUnchecked.length, total: afterCriteria.length }
+                  : {}),
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
@@ -1220,8 +1400,8 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 return { kind: "return", exitCode: 1 };
               }
             }
+            subspecCompleted = true;
           }
-          subspecCompleted = true;
         } else if (newlyChecked.length > 0) {
           subspecProgressed = true;
           if (gitEnabled) {
@@ -1231,6 +1411,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 newlyChecked,
                 checkedTotal,
                 total: afterCriteria.length,
+                humanOnlyCount: humanOnlyUnchecked.length,
                 agentLabel: agent.attributionLabel(),
               });
             } catch (err) {

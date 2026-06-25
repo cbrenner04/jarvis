@@ -2233,7 +2233,8 @@ exit 0
     });
 
     expect(code).toBe(1);
-    expect(cap.err()).toContain("spec repo must be an absolute path");
+    expect(cap.err()).toContain("spec `repo:`:");
+    expect(cap.err()).toContain("no project matches");
   });
 
   test("does not print successful agent stdout/stderr to terminal", async () => {

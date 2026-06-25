@@ -58,7 +58,10 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
   // Step 2: Spec `repo:` URL/slug → loose-match against registered origins.
   // Legacy absolute-path repo values are handled by subspec 03; here we
   // preserve back-compat by checking for an exact root match first.
-  if (opts.specRepo !== undefined && opts.specRepo.trim() !== "") {
+  const unresolvedSpecRepo = (() => {
+    if (opts.specRepo === undefined || opts.specRepo.trim() === "") {
+      return undefined;
+    }
     const repoValue = opts.specRepo.trim();
 
     // Try matching as a registered project key first (exact match).
@@ -67,7 +70,7 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
       return {
         kind: "ok",
         resolved: { project: byName, mode: "registered", source: "spec-repo" },
-      };
+      } as const;
     }
 
     if (isAbsolute(repoValue)) {
@@ -80,17 +83,17 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
             mode: "registered",
             source: "spec-repo",
           },
-        };
+        } as const;
       }
       // Otherwise ignored per portable-repo-resolution decisions; fall
       // through to location-based resolution.
+      return undefined;
     } else {
       const normalized = normalizeRepoUrl(repoValue);
       if (normalized === undefined) {
-        return {
-          kind: "error",
-          message: formatUnknownRepoError(repoValue, projects, "spec `repo:`"),
-        };
+        // Unresolvable value (relative path or bareword): defer error,
+        // fall through to location-based resolution (steps 3/4).
+        return undefined;
       }
       const matches = projects.filter((p) => p.origin !== undefined && normalizeRepoUrl(p.origin) === normalized);
       if (matches.length === 1) {
@@ -98,16 +101,30 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
         return {
           kind: "ok",
           resolved: { project, mode: "registered", source: "spec-repo" },
-        };
+        } as const;
       }
       if (matches.length > 1) {
         return {
           kind: "ambiguous",
           candidates: matches,
-          reason: `multiple registered projects match repo ${repoValue}`,
-        };
+          reason: `multiple registered projects match repo ${opts.specRepo}`,
+        } as const;
       }
       // No matches → fall through to location-based resolution.
+      return undefined;
+    }
+  })();
+
+  if (unresolvedSpecRepo !== undefined) {
+    if (unresolvedSpecRepo.kind === "ok") {
+      return { kind: unresolvedSpecRepo.kind, resolved: unresolvedSpecRepo.resolved };
+    }
+    if (unresolvedSpecRepo.kind === "ambiguous") {
+      return {
+        kind: unresolvedSpecRepo.kind,
+        candidates: unresolvedSpecRepo.candidates,
+        reason: unresolvedSpecRepo.reason,
+      };
     }
   }
 
@@ -133,6 +150,20 @@ export function resolveProject(opts: ResolveOptions): ResolveResult {
         source: "ad-hoc",
       },
     };
+  }
+
+  // If spec `repo:` was unresolvable and location-based resolution also failed,
+  // emit the unknown-repo error instead of the generic needs-prompt.
+  if (opts.specRepo !== undefined && opts.specRepo.trim() !== "") {
+    const repoValue = opts.specRepo.trim();
+    const normalized = normalizeRepoUrl(repoValue);
+    if (normalized === undefined) {
+      // This is an unresolvable repo value (relative path or bareword).
+      return {
+        kind: "error",
+        message: formatUnknownRepoError(repoValue, projects, "spec `repo:`"),
+      };
+    }
   }
 
   // Step 5: fall through to prompt (handled by subspec 02; surface signal).

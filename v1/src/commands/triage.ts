@@ -913,7 +913,7 @@ function triageMarkReady(opts: TriageCommandOptions): number {
   // Get the branch name
   let branch: string;
   try {
-    branch = execSync("git rev-parse --abbrev-ref HEAD", {
+    branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd: worktreePath,
       stdio: "pipe",
       encoding: "utf8",
@@ -1003,7 +1003,7 @@ function triageMarkReady(opts: TriageCommandOptions): number {
 
   // Mark the PR ready
   try {
-    execSync(`gh pr ready ${branch}`, {
+    execFileSync("gh", ["pr", "ready", branch], {
       cwd: worktreePath,
       stdio: "pipe",
     });
@@ -1014,6 +1014,18 @@ function triageMarkReady(opts: TriageCommandOptions): number {
     opts.io.stderr(`triage --mark-ready: failed to mark PR ready\n${message}\n`);
     return 1;
   }
+}
+
+function captureExecError(
+  err: unknown,
+  fallback: string,
+): string {
+  const out = err as NodeJS.ErrnoException & {
+    stdout?: Buffer;
+    stderr?: Buffer;
+  };
+  const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
+  return captured || fallback;
 }
 
 function runCompletionReadyGate(
@@ -1030,14 +1042,9 @@ function runCompletionReadyGate(
         stdio: "pipe",
       });
     } catch (err) {
-      const out = err as NodeJS.ErrnoException & {
-        stdout?: Buffer;
-        stderr?: Buffer;
-      };
-      const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
       return {
         kind: "error",
-        message: captured || `${tokens.join(" ")} failed`,
+        message: captureExecError(err, `${tokens.join(" ")} failed`),
       };
     }
 
@@ -1060,14 +1067,9 @@ function runCompletionReadyGate(
           input: commitMessage,
         });
       } catch (err) {
-        const out = err as NodeJS.ErrnoException & {
-          stdout?: Buffer;
-          stderr?: Buffer;
-        };
-        const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
         return {
           kind: "error",
-          message: captured || "git commit failed",
+          message: captureExecError(err, "git commit failed"),
         };
       }
 

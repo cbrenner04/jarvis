@@ -237,6 +237,14 @@ summary format reflects this by reporting unchecked human-only criteria as "huma
 than including them in the checked count (e.g., `4/7 (3 human-verify)` indicates 4 automated
 criteria checked, 7 total, 3 human-only unchecked).
 
+### Agent guidance on human-only criteria
+
+Agents are instructed to implement acceptance criteria flagged as human-only but leave them unchecked,
+run the automated gate, and not attempt in-sandbox visual verification (such as binding a dev-server
+port for manual inspection). Human-only criteria remain the operator's responsibility to verify after
+the run completes. Agents do not append a `## Blocker` for human-only criteria when they cannot be
+verified in-sandbox.
+
 When a `## Blocker` is appended during iteration, the harness checks whether only human-only
 criteria remain. If so, the blocker is stripped (not honored) and the run proceeds through the
 normal completion path. If automated criteria remain unchecked, the blocker is honored and the

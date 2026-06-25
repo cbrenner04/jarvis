@@ -488,6 +488,15 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   const task = isFixupIteration ? null : getFirstUncheckedTask(specPath);
   const taskExcerpt = isFixupIteration ? "ready: fix bun run ready failure" : task?.line.slice(0, 140);
   const activeSubspecPath = isFixupIteration ? undefined : getActiveLinkedSubspecPath(specPath);
+  // Capture runStartHead on first iteration for all-human-only guard
+  if (gitEnabled && existsSync(join(agentWorkingDir, ".git")) && state.runStartHead === null) {
+    state.runStartHead = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: agentWorkingDir,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+  }
+
   const preIterationHead =
     gitEnabled && existsSync(join(agentWorkingDir, ".git"))
       ? execFileSync("git", ["rev-parse", "HEAD"], {
@@ -562,12 +571,12 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           // All non-human-only criteria are checked
           if (allHumanOnly) {
             // All criteria are human-only: can only complete if there are code changes
-            const committedHead = execFileSync("git", ["rev-parse", "HEAD"], {
+            const currentHead = execFileSync("git", ["rev-parse", "HEAD"], {
               cwd: agentWorkingDir,
               encoding: "utf8",
               stdio: "pipe",
             }).trim();
-            const hasCodeChanges = committedHead !== preIterationHead;
+            const hasCodeChanges = state.runStartHead !== null && state.runStartHead !== currentHead;
             if (!hasCodeChanges) {
               // No code changes for all-human-only subspec, don't auto-complete
               state.iteration += 1;
@@ -577,6 +586,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           commitSubspec(activeSubspecPath, {
             cwd: agentWorkingDir,
             agentLabel: agent.attributionLabel(),
+            ...(allHumanOnly ? { humanOnlyCount: humanOnlyUnchecked.length, total: workingTreeCriteria.length } : {}),
           });
         } else {
           commitWipProgress(activeSubspecPath, {
@@ -997,7 +1007,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               agent: agent.name,
               iteration,
               durationMs: iterationDurationMs(),
-              kind: "ok",
+              kind: "blocker-rejected",
               exitReason: "blocker-stripped-human-only",
               ...telemetryMeta,
               ...usageCost,
@@ -1201,7 +1211,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               encoding: "utf8",
               stdio: "pipe",
             }).trim();
-            const hasCodeChanges = preIterationHead !== null && preIterationHead !== currentHead;
+            const hasCodeChanges = state.runStartHead !== null && state.runStartHead !== currentHead;
             if (!hasCodeChanges) {
               // No code changes for all-human-only subspec, don't auto-complete
               subspecProgressed = false;
@@ -1211,6 +1221,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 commitSubspec(afterSubspecPath, {
                   cwd: agentWorkingDir,
                   agentLabel: agent.attributionLabel(),
+                  ...(allHumanOnly ? { humanOnlyCount: humanOnlyUnchecked.length, total: afterCriteria.length } : {}),
                 });
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
@@ -1302,6 +1313,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               commitSubspec(afterSubspecPath, {
                 cwd: agentWorkingDir,
                 agentLabel: agent.attributionLabel(),
+                ...(humanOnlyUnchecked.length > 0 ? { humanOnlyCount: humanOnlyUnchecked.length, total: afterCriteria.length } : {}),
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);

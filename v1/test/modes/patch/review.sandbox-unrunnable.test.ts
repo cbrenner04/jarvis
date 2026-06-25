@@ -999,7 +999,7 @@ while true; do :; done
     const { dir, specPath, cleanup } = setupPatchReviewRepo();
     const harness: string[] = [];
     try {
-      const reconcileCalls: string[] = [];
+      const _reconcileCalls: string[] = [];
       // Capture reconcile calls by monitoring git operations
       const actuatorAgent = new FakeAgent(
         "claude",

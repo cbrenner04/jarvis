@@ -22,7 +22,7 @@ import {
 } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
-import { pushCurrent, reconcileActuatorCommit, RebaseConflictError } from "../../worktree.ts";
+import { pushCurrent, RebaseConflictError, reconcileActuatorCommit } from "../../worktree.ts";
 import { type RunReviewOptions, runReview } from "../review/run.ts";
 import {
   type ReviewAdapter,
@@ -984,11 +984,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
                 reconcileActuatorCommit(opts.cwd);
               } catch (reconcileErr) {
                 if (reconcileErr instanceof RebaseConflictError) {
-                  opts.fanout(
-                    "harness",
-                    `review: actuator rebase conflict: ${reconcileErr.message}\n`,
-                    "stderr",
-                  );
+                  opts.fanout("harness", `review: actuator rebase conflict: ${reconcileErr.message}\n`, "stderr");
                   const usageAndCost = extractUsageAndCost(result, agent.name, configuredModel);
                   opts.writeTelemetry({
                     agent: agent.name,

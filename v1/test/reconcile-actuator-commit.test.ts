@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { reconcileActuatorCommit, RebaseConflictError } from "../src/worktree.ts";
+import { join } from "node:path";
+import { RebaseConflictError, reconcileActuatorCommit } from "../src/worktree.ts";
 
 let localDir = "";
 let remoteDir = "";
@@ -40,27 +40,27 @@ describe("reconcileActuatorCommit", () => {
 
     // Reset local to before the push (simulating the state in the spec)
     const beforeSha = execSync("git rev-parse HEAD~1", { cwd: localDir, encoding: "utf8" }).trim();
-    execSync("git reset --hard " + beforeSha, { cwd: localDir });
+    execSync(`git reset --hard ${beforeSha}`, { cwd: localDir });
 
     // Add a new commit locally (the actuator commit)
     writeFileSync(join(localDir, "local.txt"), "local change\n");
     execSync("git add local.txt && git commit -m local", { cwd: localDir });
 
     // Before reconcile, we should be diverged
-    const beforeRemoteCount = execSync(
-      "git rev-list --count HEAD..origin/main",
-      { cwd: localDir, encoding: "utf8" }
-    ).trim();
+    const beforeRemoteCount = execSync("git rev-list --count HEAD..origin/main", {
+      cwd: localDir,
+      encoding: "utf8",
+    }).trim();
     expect(parseInt(beforeRemoteCount, 10)).toBeGreaterThan(0);
 
     // Reconcile should fast-forward
     reconcileActuatorCommit(localDir);
 
     // After reconcile, we should be up to date
-    const afterRemoteCount = execSync(
-      "git rev-list --count HEAD..origin/main",
-      { cwd: localDir, encoding: "utf8" }
-    ).trim();
+    const afterRemoteCount = execSync("git rev-list --count HEAD..origin/main", {
+      cwd: localDir,
+      encoding: "utf8",
+    }).trim();
     expect(parseInt(afterRemoteCount, 10)).toBe(0);
 
     // Verify both commits are in the history
@@ -104,12 +104,12 @@ describe("reconcileActuatorCommit", () => {
     // Push a commit to origin
     writeFileSync(join(localDir, "file.txt"), "remote version\n");
     execSync("git add file.txt && git commit -m remote", { cwd: localDir });
-    const remoteCommitSha = execSync("git rev-parse HEAD", { cwd: localDir, encoding: "utf8" }).trim();
+    const _remoteCommitSha = execSync("git rev-parse HEAD", { cwd: localDir, encoding: "utf8" }).trim();
     execSync("git push origin main", { cwd: localDir });
 
     // Reset local to before the push
     const baselineSha = execSync("git rev-parse HEAD~1", { cwd: localDir, encoding: "utf8" }).trim();
-    execSync("git reset --hard " + baselineSha, { cwd: localDir });
+    execSync(`git reset --hard ${baselineSha}`, { cwd: localDir });
 
     // Make a conflicting change locally
     writeFileSync(join(localDir, "file.txt"), "local version\n");
@@ -122,7 +122,7 @@ describe("reconcileActuatorCommit", () => {
     }).toThrow(RebaseConflictError);
 
     // Verify worktree is not left mid-rebase (rebase was aborted)
-    const rebasePath = join(localDir, ".git", "rebase-merge");
+    const _rebasePath = join(localDir, ".git", "rebase-merge");
     expect(execSync("git status --porcelain", { cwd: localDir, encoding: "utf8" }).trim()).toBe("");
 
     // Verify local commit is still present and not pushed

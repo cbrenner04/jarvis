@@ -16,6 +16,10 @@ import {
   revertSpecTreeEdits,
   runPatchReviewPhase,
 } from "../../../src/modes/patch/review.ts";
+import {
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessAuthRotateLine,
+} from "../../../src/quota-harness-messages.ts";
 import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
@@ -924,6 +928,69 @@ while true; do :; done
       expect(existsSync(sentinel)).toBe(true);
     } finally {
       rmSync(sentinelDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  test("emits auth note on auth failure in review quota rotation", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const harness: string[] = [];
+    try {
+      const claude = new FakeAgent("claude", () => ({
+        kind: "quota",
+        stderr: "refresh token revoked",
+        authFailure: true,
+      }));
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+      expect(code).toBe(11);
+      const emitted = harness.join("\n");
+      expect(emitted).toContain(`claude: ${harnessAuthRotateLine("claude")}`);
+      expect(emitted).not.toContain(HARNESS_QUOTA_FALLBACK_STRICT);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("emits quota line (not auth note) on plain quota in review rotation", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const harness: string[] = [];
+    try {
+      const claude = new FakeAgent("claude", () => ({
+        kind: "quota",
+        stderr: "limit exceeded",
+      }));
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+      expect(code).toBe(11);
+      const emitted = harness.join("\n");
+      expect(emitted).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
+      expect(emitted).not.toContain("auth failed");
+    } finally {
       cleanup();
     }
   });

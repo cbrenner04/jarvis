@@ -17,6 +17,10 @@ import {
   snapshotAllAcceptanceCriteria,
 } from "../../../src/modes/patch/shrink.ts";
 import type { AcceptanceCriterion } from "../../../src/modes/patch/subspec.ts";
+import {
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessAuthRotateLine,
+} from "../../../src/quota-harness-messages.ts";
 import { stripDelimitedBlocks } from "./review.sandbox-unrunnable.test.ts";
 
 const CLAUDE_ENTRY = { agent: "claude" as const, model: "haiku" };
@@ -569,6 +573,67 @@ while true; do :; done
       expect(existsSync(sentinel)).toBe(true);
     } finally {
       rmSync(sentinelDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  test("emits auth note on auth failure in shrink quota rotation", async () => {
+    const { dir, specPath, cleanup } = setupShrinkRepo();
+    const harness: string[] = [];
+    try {
+      const agent = new FakeAgent("claude", () => ({
+        kind: "quota",
+        stderr: "refresh token revoked",
+        authFailure: true,
+      }));
+      await runPatchShrinkPhase({
+        config: makeShrinkConfig(),
+        cwd: dir,
+        specPath,
+        allowlist: new Set(["impl.txt"]),
+        skipPreShrinkGate: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude: agent },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+      const emitted = harness.join("\n");
+      expect(emitted).toContain(`claude: ${harnessAuthRotateLine("claude")}`);
+      expect(emitted).not.toContain(HARNESS_QUOTA_FALLBACK_STRICT);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("emits quota line (not auth note) on plain quota in shrink rotation", async () => {
+    const { dir, specPath, cleanup } = setupShrinkRepo();
+    const harness: string[] = [];
+    try {
+      const agent = new FakeAgent("claude", () => ({
+        kind: "quota",
+        stderr: "limit exceeded",
+      }));
+      await runPatchShrinkPhase({
+        config: makeShrinkConfig(),
+        cwd: dir,
+        specPath,
+        allowlist: new Set(["impl.txt"]),
+        skipPreShrinkGate: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude: agent },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+      const emitted = harness.join("\n");
+      expect(emitted).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
+      expect(emitted).not.toContain("auth failed");
+    } finally {
       cleanup();
     }
   });

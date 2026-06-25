@@ -24,5 +24,5 @@ export const HARNESS_NO_PROGRESS_FALLBACK = "no progress; escalating to next age
 
 /** Emitted on stderr when auth failure rotates to the next agent, naming the agent needing re-auth (no trailing newline). */
 export function harnessAuthRotateLine(agent: string): string {
-  return `${agent} auth failed; re-authenticate and retry`;
+  return `${agent} auth failed; re-authenticate and rerun`;
 }

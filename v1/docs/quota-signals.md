@@ -73,6 +73,11 @@ Cursor patterns are deferred to the first real sample. This rules out false
 positives from broad cross-agent matching. When every agent is exhausted by auth
 and/or quota, the run terminates via the existing quota-exhaustion path (exit 2).
 
+**Known limitation:** Classification requires a non-zero exit code; an exit-0 CLI
+emitting auth-failure stderr (if one exists) would return `kind: "ok"` without
+rotating. This is within the stderr-driven, exit-code-unconfirmed scope, but
+represents residual risk if a sample exits 0.
+
 ## Quota fallback
 
 **Patch and plan modes:** With `quotaFallback: "lenient"`, **`applyQuotaFallbackWhenAllowed`**
@@ -113,16 +118,17 @@ only rotates agents for quota-classified results within that iteration; see
 ### Operator-visible stderr (grep contract)
 
 Patch (`jarvis1 run`) and plan (`jarvis1 plan`) share these substrings when
-rotating agents after a quota-classified result:
+rotating agents after a quota-classified result. Each rotation event emits one
+line, not multiple:
 
 - **Per-agent rotation (plain quota):** `quota exhausted; falling back` (strict spawn-side
   quota) and `probable quota-like error (exit N); falling back` (lenient
   weak-quota upgrade when the no-progress / porcelain guard passes).
 - **Per-agent rotation (auth failure):** When a quota-classified result carries
   an `authFailure: true` marker, both patch and plan emit `<agent> auth failed;
-  re-authenticate and retry` instead of quota phrasing, naming the agent needing
-  re-authentication. This note appears in addition to per-agent rotation lines
-  on all modes: patch iteration (`src/modes/patch/iteration.ts`), shrink
+  re-authenticate and rerun` instead of quota phrasing, naming the agent needing
+  re-authentication. This single auth note appears on all modes that emit per-agent
+  rotation lines: patch iteration (`src/modes/patch/iteration.ts`), shrink
   (`src/modes/patch/shrink.ts`), review (`src/modes/patch/review.ts`), prompt
   (`src/modes/prompt/run.ts`), and plan (`src/modes/plan/emit-plan-quota-stderr.ts`).
 - **Plan prefix:** the same phrases appear after `plan: <agent>:` so mixed logs

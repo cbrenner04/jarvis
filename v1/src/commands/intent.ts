@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Agent, AgentName } from "../agents/types.ts";
 import { CONFIG_DIR, loadConfig, resolvePlanFlags, validateTargetDir } from "../config.ts";
 import type { LogClient } from "../logging.ts";
@@ -220,6 +220,37 @@ function hasValidPrerequisitesSection(text: string): boolean {
     .every((line) => /^- \S.*$/.test(line));
 }
 
+function runMarkdownlintFix(stagingDir: string): { ok: true } | { ok: false; error: string } {
+  const currentFileUrl = import.meta.url;
+  const currentFilePath = currentFileUrl.startsWith("file://") ? currentFileUrl.slice(7) : currentFileUrl;
+  const harnessRoot = dirname(dirname(dirname(dirname(currentFilePath))));
+  const configPath = join(harnessRoot, ".markdownlint-cli2.jsonc");
+  const files = listStageMarkdownFiles(stagingDir);
+  if (files.length === 0) {
+    return { ok: true };
+  }
+  try {
+    execFileSync("npx", ["markdownlint-cli2", "--fix", "--config", configPath, ...files], {
+      env: process.env,
+      stdio: "pipe",
+      cwd: harnessRoot,
+    });
+    return { ok: true };
+  } catch (err) {
+    const error = err as { status?: number; message?: string };
+    if (error.status !== undefined && error.status !== 0) {
+      return {
+        ok: false,
+        error: `intent: markdownlint found non-autofixable violations; run \`markdownlint-cli2 --config "${configPath}" <file>\` for details`,
+      };
+    }
+    return {
+      ok: false,
+      error: `intent: markdownlint autofix failed: ${(err as Error).message}`,
+    };
+  }
+}
+
 function repairIntentFile(path: string, slug: string): void {
   const content = readFileSync(path, "utf8");
   let text = content.replace(/\r\n/g, "\n");
@@ -287,12 +318,14 @@ function repairIntentFile(path: string, slug: string): void {
   }
 }
 
-function repairIntentStageContent(stagingDir: string): void {
+function repairIntentStageContent(stagingDir: string): { ok: true } | { ok: false; error: string } {
   const files = listStageMarkdownFiles(stagingDir);
   for (const path of files) {
     const slug = basename(path, ".md");
     repairIntentFile(path, slug);
   }
+  const autofixResult = runMarkdownlintFix(stagingDir);
+  return autofixResult;
 }
 
 function validateIntentFilenames(files: string[]):
@@ -403,7 +436,11 @@ function validateIntentStage(
     return gating;
   }
 
-  repairIntentStageContent(stagingDir);
+  const repair = repairIntentStageContent(stagingDir);
+  if (!repair.ok) {
+    return repair;
+  }
+
   return validateIntentStageContent(gating.intents);
 }
 
@@ -665,7 +702,11 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
         return 1;
       }
 
-      repairIntentStageContent(externalStageDir);
+      const repair = repairIntentStageContent(externalStageDir);
+      if (!repair.ok) {
+        opts.io.stderr(`${repair.error}\n`);
+        return 1;
+      }
 
       const validation = validateIntentStageContent(filenameValidation.intents);
       if (!validation.ok) {

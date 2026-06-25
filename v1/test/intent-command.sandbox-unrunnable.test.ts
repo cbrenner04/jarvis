@@ -73,7 +73,10 @@ class SplitAgent implements Agent {
     | "repair-missing-prerequisites"
     | "repair-unterminated-frontmatter"
     | "repair-near-miss-prerequisites"
-    | "repair-empty-name";
+    | "repair-empty-name"
+    | "autofix-md012-md018"
+    | "autofix-with-issue-reference"
+    | "autofix-residual-violation";
 
   constructor(
     name: AgentName,
@@ -92,7 +95,10 @@ class SplitAgent implements Agent {
       | "repair-missing-prerequisites"
       | "repair-unterminated-frontmatter"
       | "repair-near-miss-prerequisites"
-      | "repair-empty-name",
+      | "repair-empty-name"
+      | "autofix-md012-md018"
+      | "autofix-with-issue-reference"
+      | "autofix-residual-violation",
   ) {
     this.name = name;
     this.#mode = mode;
@@ -230,6 +236,53 @@ name:
 ---
 
 ## Intent
+
+Body content.
+
+## Prerequisites
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "autofix-md012-md018") {
+      writeFileSync(
+        join(stageDir, "autofix-test.md"),
+        `---
+name: autofix-test
+---
+
+## Intent
+
+Body content.
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "autofix-with-issue-reference") {
+      writeFileSync(
+        join(stageDir, "issue-ref.md"),
+        `---
+name: issue-ref
+---
+
+## Intent
+
+Body content with reference to #499.
+`,
+        "utf8",
+      );
+      return { kind: "ok", stdout: "", stderr: "" };
+    }
+    if (this.#mode === "autofix-residual-violation") {
+      writeFileSync(
+        join(stageDir, "residual.md"),
+        `---
+name: residual
+---
+
+# Header
 
 Body content.
 
@@ -421,6 +474,9 @@ function createSplitAgentFactory(
       | "repair-unterminated-frontmatter"
       | "repair-near-miss-prerequisites"
       | "repair-empty-name"
+      | "autofix-md012-md018"
+      | "autofix-with-issue-reference"
+      | "autofix-residual-violation"
     >
   >,
 ) {
@@ -1440,5 +1496,142 @@ describe("intentCommand", () => {
 
   test("--target-dir flag appears in usage output", () => {
     expect(INTENT_USAGE).toContain("--target-dir");
+  });
+
+  test("autofix: MD012 and MD018 violations are fixed by markdownlint autofix", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "autofix-md012-md018" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("intent: split commit pushed");
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "autofix-test.md"), "utf8");
+      expect(content).toContain("name: autofix-test");
+      expect(content).toContain("## Prerequisites");
+      // Verify there are no excessive blank lines (MD012 fixed)
+      const lines = content.split("\n");
+      let maxConsecutiveBlank = 0;
+      let currentBlank = 0;
+      for (const line of lines) {
+        if (line.trim() === "") {
+          currentBlank += 1;
+          maxConsecutiveBlank = Math.max(maxConsecutiveBlank, currentBlank);
+        } else {
+          currentBlank = 0;
+        }
+      }
+      expect(maxConsecutiveBlank).toBeLessThanOrEqual(2);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("autofix: issue references (#NNN) are preserved through repair and autofix", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "autofix-with-issue-reference" }),
+      });
+      expect(code).toBe(0);
+      expect(cap.err()).toContain("intent: split commit pushed");
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "issue-ref.md"), "utf8");
+      // Issue reference should be preserved as #499, not corrupted to # 499
+      expect(content).toContain("#499");
+      expect(content).not.toContain("# 499");
+      expect(content).toContain("name: issue-ref");
+      expect(content).toContain("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("autofix: issue references are preserved in no-commit path", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "autofix-with-issue-reference" }),
+      });
+      expect(code).toBe(0);
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      const content = readFileSync(join(externalRoot, "ready-intents", "issue-ref.md"), "utf8");
+      // Issue reference should be preserved as #499, not corrupted to # 499
+      expect(content).toContain("#499");
+      expect(content).not.toContain("# 499");
+      expect(content).toContain("name: issue-ref");
+      expect(content).toContain("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("autofix: residual non-autofixable violations cause emit to fail with named error", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "autofix-residual-violation" }),
+      });
+      // Should fail because MD041 (first line should be H1) is non-autofixable
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("intent: markdownlint found non-autofixable violations");
+      expect(existsSync(env.prState)).toBe(false);
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("repair: structural repair tests still pass after autofix changes", async () => {
+    const env = setupEnv();
+    try {
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: [TWO_BEHAVIOR_SEED],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "repair-missing-prerequisites" }),
+      });
+      expect(code).toBe(0);
+      const worktree = findIntentWorktree(env.projectRoot);
+      const content = readFileSync(join(worktree, "spec", "ready-intents", "missing-prereqs.md"), "utf8");
+      expect(content).toContain("name: missing-prereqs");
+      expect(content).toContain("## Prerequisites");
+      const lines = content.split("\n");
+      const lastContent = lines.filter((line) => line.trim()).pop();
+      expect(lastContent).toBe("## Prerequisites");
+    } finally {
+      env.cleanup();
+    }
   });
 });

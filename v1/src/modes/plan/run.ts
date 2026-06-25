@@ -179,10 +179,113 @@ function remoteSpecBranchExists(projectRoot: string, branchName: string): boolea
   }
 }
 
+export function isDisposablePlanWorktree(args: {
+  projectRoot: string;
+  planName: string;
+  targetDir: string;
+  specTimestamp?: boolean;
+}): boolean {
+  const branchName = `plan/${args.planName}`;
+  const _specTimestamp = args.specTimestamp ?? false;
+  const worktreePath = join(args.projectRoot, ".worktree", `plan-${args.planName}`);
+
+  // Check if local branch exists
+  const localBranchExists = (() => {
+    try {
+      execFileSync("git", ["rev-parse", "--verify", branchName], {
+        cwd: args.projectRoot,
+        stdio: "pipe",
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  // Check if local worktree exists
+  const worktreeExists = existsSync(worktreePath);
+
+  // Disposability requires at least some surviving state (branch or worktree)
+  if (!localBranchExists && !worktreeExists) {
+    return false; // No surviving state; non-disposable
+  }
+
+  // Check if origin has the branch (fail-closed: unreachable means non-disposable)
+  const remoteExists = (() => {
+    try {
+      const output = execFileSync("git", ["ls-remote", "--heads", "origin", branchName], {
+        cwd: args.projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+      return output.trim().length > 0;
+    } catch {
+      // Treat unknown/unreachable as non-disposable to preserve potentially-pushed work.
+      // This is intentionally fail-closed: the collision helper uses fail-open semantics for performance.
+      return true;
+    }
+  })();
+
+  if (remoteExists) {
+    return false;
+  }
+
+  // Check if local branch has commits beyond merge-base
+  if (localBranchExists) {
+    try {
+      const mergeBase = execFileSync("git", ["merge-base", branchName, "HEAD"], {
+        cwd: args.projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      }).trim();
+      const branchTip = execFileSync("git", ["rev-parse", branchName], {
+        cwd: args.projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      }).trim();
+      if (mergeBase !== branchTip) {
+        return false; // Has commits beyond merge-base
+      }
+    } catch {
+      return false; // Error means non-disposable
+    }
+  }
+
+  // Check if committed spec dir exists (match timestamped dirs via prefix stripping)
+  const specRoot = join(args.projectRoot, args.targetDir);
+  if (existsSync(specRoot)) {
+    try {
+      for (const entry of readdirSync(specRoot)) {
+        // Always strip timestamp prefix when checking, consistent with collision check
+        const stripped = stripPlanSpecTimestampPrefix(entry);
+        if (stripped === args.planName) {
+          return false; // Committed spec dir exists
+        }
+      }
+    } catch {
+      // Best effort; read failure means non-disposable to be safe
+      return false;
+    }
+  }
+
+  // All checks passed: disposable
+  return true;
+}
+
 function _removeSpecDirIfPresent(worktreePath: string, specDirBasename: string, targetDir: string = "spec") {
-  const specDir = join(worktreePath, targetDir, specDirBasename);
-  if (existsSync(specDir)) {
-    rmSync(specDir, { recursive: true, force: true });
+  // Try both timestamped and unprefixed versions
+  const specParentDir = join(worktreePath, targetDir);
+  if (existsSync(specParentDir)) {
+    try {
+      for (const entry of readdirSync(specParentDir)) {
+        const stripped = stripPlanSpecTimestampPrefix(entry);
+        if (stripped === specDirBasename) {
+          rmSync(join(specParentDir, entry), { recursive: true, force: true });
+        }
+      }
+    } catch {
+      // Best effort
+    }
   }
 }
 
@@ -215,8 +318,19 @@ function planNameCollides(
   checkCommittedPlanState: boolean,
 ): boolean {
   if (checkCommittedPlanState) {
-    if (existsSync(join(projectRoot, targetDir, planName))) {
-      return true;
+    // Check for committed spec dir, matching timestamped dirs via prefix stripping
+    const specRoot = join(projectRoot, targetDir);
+    if (existsSync(specRoot)) {
+      try {
+        for (const entry of readdirSync(specRoot)) {
+          const stripped = stripPlanSpecTimestampPrefix(entry);
+          if (stripped === planName) {
+            return true;
+          }
+        }
+      } catch {
+        // Read failure: conservatively assume no collision
+      }
     }
     if (existsSync(join(projectRoot, ".worktree", `plan-${planName}`))) {
       return true;
@@ -812,14 +926,43 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       }
     }
 
+    // For commit: true fresh runs, check if a disposable same-name worktree survives
+    let disposablePlanName: string | undefined;
+    if (commit) {
+      if (
+        isDisposablePlanWorktree({
+          projectRoot: project.root,
+          planName: readyIntentName,
+          targetDir,
+          specTimestamp,
+        })
+      ) {
+        disposablePlanName = readyIntentName;
+        // Will tear down and reuse this name below
+      }
+    }
+
     // Check for collision and determine final plan name
-    const planName = await ensureUniquePlanName(project.root, readyIntentName, targetDir, {
-      ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
-      specTimestamp,
-      checkCommittedPlanState: commit,
-    });
+    const planName =
+      disposablePlanName ??
+      (await ensureUniquePlanName(project.root, readyIntentName, targetDir, {
+        ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
+        specTimestamp,
+        checkCommittedPlanState: commit && disposablePlanName === undefined,
+      }));
     const specDirBasename = specTimestamp ? `${formatPlanSpecTimestamp()}-${planName}` : planName;
     planHarnessLog(planLogClient, `plan: spec name=${planName}`);
+
+    // If a disposable worktree survives, tear it down before creating fresh
+    if (disposablePlanName) {
+      cleanupCommittedTempPlanState(
+        project.root,
+        disposablePlanName,
+        join(project.root, ".worktree", `plan-${disposablePlanName}`),
+        targetDir,
+      );
+      planHarnessLog(planLogClient, `plan: disposed stale worktree plan-${disposablePlanName}`);
+    }
 
     // Create worktree for fresh mode (only if it's a git repo and gh is available).
     // For commit: false, use the main checkout as worktreePath.

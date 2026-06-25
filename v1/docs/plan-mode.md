@@ -302,8 +302,9 @@ Resume commit subjects carry an `r<n>` suffix where `<n>` is the resume invocati
 Plan mode takes the spec name from the ready-intent rather than deriving it:
 
 - The ready-intent's frontmatter `name: <kebab-case>` (validated at entry to match the filename) becomes the base `<plan-name>`.
-- Jarvis applies the uniqueness suffix loop on collisions (`-2`, `-3`, …) against existing spec dirs, worktrees, and remote `plan/*` branches.
-- The worktree/branch are created under the final name directly; there is no temporary-name rename.
+- **Fresh `commit: true` re-runs with disposable worktrees (self-heal):** When a surviving local `plan/<plan-name>` branch has no commits beyond its merge-base with the current HEAD, no `origin/plan/<plan-name>` remote tracking ref, and no committed `<targetDir>/<timestamp>-<plan-name>` spec dir exists, the run reuses the same `<plan-name>` by tearing down the stale worktree/branch and recreating fresh from the base branch. No manual cleanup is required; the re-run is self-healing.
+- **Collision bumping:** When same-name state is non-disposable (a committed spec dir exists, the remote branch exists, or the branch carries plan commits beyond the merge-base), jarvis applies the uniqueness suffix loop on collisions (`-2`, `-3`, …) against the final name. The worktree/branch are created under the final name directly; there is no temporary-name rename.
+- A disposable worktree is one with local-only scratch state that can be safely discarded and recreated. A dirty/uncommitted worktree is treated as disposable scratch.
 
 ## Stop conditions
 

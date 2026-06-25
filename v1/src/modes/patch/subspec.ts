@@ -6,7 +6,10 @@ import { appendAgentTrailer } from "../../commit-trailer.ts";
 
 export type { AcceptanceCriterion };
 
-export function commitSubspec(subspecPath: string, opts: { cwd?: string; agentLabel: string }): void {
+export function commitSubspec(
+  subspecPath: string,
+  opts: { cwd?: string; agentLabel: string; humanOnlyCount?: number; total?: number },
+): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
   const indexPath = getIndexPath(subspecPath);
   const indexContent = readFileSync(indexPath, "utf8");
@@ -31,7 +34,13 @@ export function commitSubspec(subspecPath: string, opts: { cwd?: string; agentLa
   const relativeSpecPath = relative(realpathSync(gitRoot), realpathSync(subspecPath));
   const bodyFirstLine = `Spec: ${relativeSpecPath}`;
   const commitBody = `${bodyFirstLine}\n\n${acceptanceCriteriaSection}`;
-  const baseMessage = `${parsed.h1}\n\n${commitBody}`;
+
+  let summary = parsed.h1;
+  if (opts.humanOnlyCount !== undefined && opts.total !== undefined && opts.humanOnlyCount > 0) {
+    summary = `${parsed.h1} (${opts.total - opts.humanOnlyCount}/${opts.total} automated, ${opts.humanOnlyCount} human-verify)`;
+  }
+
+  const baseMessage = `${summary}\n\n${commitBody}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
 
   try {
@@ -89,6 +98,7 @@ export function commitWipProgress(
     newlyChecked: AcceptanceCriterion[];
     checkedTotal: number;
     total: number;
+    humanOnlyCount?: number;
     agentLabel: string;
   },
 ): void {
@@ -101,7 +111,12 @@ export function commitWipProgress(
   execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
 
   const relativeSpecPath = relative(realpathSync(opts.cwd), realpathSync(subspecPath));
-  const summary = `WIP: ${parsed.h1} (${opts.checkedTotal}/${opts.total} criteria)`;
+  let summary: string;
+  if (opts.humanOnlyCount !== undefined && opts.humanOnlyCount > 0) {
+    summary = `WIP: ${parsed.h1} (${opts.checkedTotal}/${opts.total} criteria, ${opts.humanOnlyCount} human-verify)`;
+  } else {
+    summary = `WIP: ${parsed.h1} (${opts.checkedTotal}/${opts.total} criteria)`;
+  }
   const body =
     opts.newlyChecked.length === 0
       ? `Spec: ${relativeSpecPath}`

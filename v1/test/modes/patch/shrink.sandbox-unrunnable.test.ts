@@ -102,8 +102,12 @@ describe("shrink helpers", () => {
   });
 
   test("hasAcceptanceCriteriaRegression detects unchecked regression", () => {
-    const before = new Map<string, AcceptanceCriterion[]>([["subspec.md", [{ text: "done", checked: true }]]]);
-    const after = new Map<string, AcceptanceCriterion[]>([["subspec.md", [{ text: "done", checked: false }]]]);
+    const before = new Map<string, AcceptanceCriterion[]>([
+      ["subspec.md", [{ text: "done", checked: true, humanOnly: false }]],
+    ]);
+    const after = new Map<string, AcceptanceCriterion[]>([
+      ["subspec.md", [{ text: "done", checked: false, humanOnly: false }]],
+    ]);
     expect(hasAcceptanceCriteriaRegression(before, after)).toBe(true);
   });
 

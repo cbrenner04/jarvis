@@ -252,6 +252,27 @@ Bad (refactor — paraphrases behavior the author didn't verify):
 
 This is **refactor-only** and must not be read as "every AC cites a test." New-behavior ACs are explicitly exempt — they keep the prose form above, backed by *new* tests; requiring them to cite a pre-existing test is nonsensical because the behavior is new. The plan-draft validator enforces this automatically: a preservation/continuation AC (verbs like `preserved`, `unchanged`, `stays`, `stops`, `continues`) that carries no path-like test/source anchor produces a non-blocking `missing-anchor-behavioral-ac` warning at draft time.
 
+#### Human-only acceptance criteria
+
+An acceptance criterion is classified as **human-only** if its text ends with (after trimming trailing whitespace and a single trailing period) one of these markers: `(Manual)`, `visual inspection only`, or `no automated guard` (case-insensitive, whole-phrase match). Human-only criteria describe verification that the harness cannot automate — manual inspection, live testing, or external approval.
+
+Human-only criteria do not block subspec completion. A run completes as soon as all **non-human-only** criteria are checked; unchecked human-only criteria remain for human verification after the run finishes. The run summary reflects this by labeling unchecked human-only criteria as "human-verify" rather than treating them as blockers (e.g., `4/7 (3 human-verify)` indicates 4 automated criteria checked, 7 total, 3 human-only unchecked).
+
+Use human-only criteria sparingly and only when the verification genuinely cannot be automated:
+
+Good (human-only):
+```md
+- [ ] The feature works in the live iOS simulator. (Manual)
+- [ ] No visual regressions on the redesigned dashboard. (visual inspection only)
+```
+
+Bad (should be automated):
+```md
+- [ ] The code follows team conventions. (no automated guard)
+```
+
+(Conventions should have linters; if they don't, add one rather than marking them human-only.)
+
 Subspec heading contract (enforced by patch mode parser):
 - Acceptance criteria must use the exact heading `## Acceptance criteria`.
 - Blockers must use the exact heading `## Blocker`.

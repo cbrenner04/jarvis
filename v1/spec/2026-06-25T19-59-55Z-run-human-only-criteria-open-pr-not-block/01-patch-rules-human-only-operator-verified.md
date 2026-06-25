@@ -12,6 +12,7 @@ to verify, not the sandbox's.
 
 - Recognize the same three seed markers as the harness: `(Manual)`, `visual inspection only`, `no automated guard`. Rules out divergent agent/harness definitions.
 - Guidance: implement, run the automated gate, leave human-only criteria unchecked, do **not** attempt in-sandbox visual verification (no dev-server/port bind), and do **not** append a `## Blocker` for them. Rules out the dev-server-bind blocker that suppressed the PR.
+- This prompt rule is an assist that reduces blocker churn, not the defense: subspec 00's harness blocker guard is what guarantees a human-only-only run still produces the PR even if the agent blocks anyway. Rules out treating the prompt as the sole fix.
 - Bump `patch.rules` `revision`. Rules out a stale-revision snapshot drift.
 
 ## Task checklist

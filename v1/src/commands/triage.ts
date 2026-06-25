@@ -1016,10 +1016,7 @@ function triageMarkReady(opts: TriageCommandOptions): number {
   }
 }
 
-function captureExecError(
-  err: unknown,
-  fallback: string,
-): string {
+function captureExecError(err: unknown, fallback: string): string {
   const out = err as NodeJS.ErrnoException & {
     stdout?: Buffer;
     stderr?: Buffer;

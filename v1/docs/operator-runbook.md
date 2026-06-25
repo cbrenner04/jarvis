@@ -272,7 +272,7 @@ Merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. 
 
 ## Session start
 
-Feed incoming friction into the system **before** driving any work:
+Every operator session starts the same way: feed incoming friction into the system **before** driving any work, then turn the backlog into shippable work.
 
 1. **Pull `main`** and check for surviving `.worktree/` state from a prior session (finalize or `jarvis1 cleanup` as needed).
 2. **Sweep open intake issues** and triage each into a seed (see [Triage](#triage-jarvis-on-jarvis-observer)):
@@ -281,9 +281,11 @@ Feed incoming friction into the system **before** driving any work:
    gh issue list --repo cbrenner04/jarvis --state open
    ```
 
-   Seed every actionable one at the start, so reported friction is captured and can be **queued into this session** if it's in scope (the issue stays open until its fix merges). Re-check at close-out for issues filed mid-session.
+   Seed every actionable one — match each issue against existing seeds/ready-intents first so you only seed what isn't already captured. Reported friction is captured and can be **queued into this session** if it's in scope (the issue stays open until its fix merges). Re-check at close-out for issues filed mid-session.
+3. **Create ready-intents for all open seeds.** Run `jarvis1 intent <seed-file>` on every seed (seeds must be committed to `main` first so the intent worktree sees them), review + merge each resulting draft PR. This drains the seed backlog into authored ready-intents.
+4. **Pick the 5 most important ready-intents and complete them.** For each, `jarvis1 plan <ready-intent>` to draft the spec (merge it), then `jarvis1 run <spec>` to implement (review + admin-merge). Prioritize by operator impact: gaps that force manual intervention every session, things that block other work, and correctness/safety over polish.
 
-Doing this first — not just as an end-of-session afterthought — is what guarantees outside friction actually enters the seed backlog instead of getting lost.
+Doing steps 1–2 first — not just as an end-of-session afterthought — is what guarantees outside friction actually enters the seed backlog instead of getting lost. Steps 3–4 are the recurring throughput of a session; the exact count flexes, but "seed everything, intent everything, complete the top few" is the standing shape.
 
 ## End-of-session cleanup
 

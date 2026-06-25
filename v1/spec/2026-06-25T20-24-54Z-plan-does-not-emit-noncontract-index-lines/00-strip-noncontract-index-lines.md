@@ -20,29 +20,51 @@ of `modes.plan.commit`.
 - Strip stray lines, do not reject the draft. Rules out failing the whole plan
   run on a recoverable formatting slip; the draft proceeds with a canonical
   index.
-- Non-contract = any line that is not the first H1 title, a subspec checklist
-  item (`- [ ] [..](..)`), or blank. Rules out a narrow `repo:`-only strip that
-  would leave other stray metadata (`status:`, prose) violating the contract.
-- The strip runs in the draft flow after `validateDraftOutput` passes and
-  before `injectRepoLineIntoIndex` and the draft commit/boundary check, for both
-  `commit: true` and `commit: false`. Rules out running after injection (which
-  would delete the legitimate injected `repo:` line) and rules out a
-  commit-only fix.
+- Retain = lines the index contract allows: the title H1, subspec checklist
+  items, and blanks. The retention matcher is at least as permissive as
+  `parseIndex`'s grammar (reuse it) — tolerating leading whitespace and checked
+  `[x]`/`[X]` items, not just the literal `- [ ] [..](..)`. Rules out a matcher
+  narrower than `parseIndex` that would strip a line the run side still reads,
+  breaking the parse-parity criterion; and rules out a narrow `repo:`-only strip
+  that would leave other stray metadata (`status:`, prose).
+- The strip runs after `validateDraftOutput` succeeds and before the draft
+  boundary check — which is itself upstream of both the no-commit
+  `injectRepoLineIntoIndex` and the draft commit. This single mode-independent
+  anchor holds for both `commit: true` and `commit: false`. Rules out targeting
+  `injectRepoLineIntoIndex` directly: that name is ambiguous (an inert pre-draft
+  call that early-returns plus the real post-draft injection, both guarded by
+  `commit === false`), so it is not an anchor on the `commit: true` path; and
+  rules out running after injection, which would delete the legitimate injected
+  `repo:` line.
+- The strip no-ops when `index.md` is absent. Rules out crashing on the path
+  where `validateDraftOutput` returns valid with a blocker before `index.md`
+  exists.
 - A stray agent-written `repo:` is removed before injection so the no-commit
   path writes the correct binding instead of skipping injection on the early
   `repo:`-already-present return. Rules out leaving the agent's possibly-wrong
   value in place.
+- The strip is a standalone step, not folded into `validateDraftOutput`.
+  Validation also runs on the blocker path and is otherwise read-only; keeping
+  the file mutation out of the validator is the reason. Rules out a validator
+  that mutates on some paths and not others.
+- Emit a one-line stderr notice when the strip removes ≥1 line. Rules out a
+  silent strip that hides a misbehaving prompt with no operator trail, matching
+  the surrounding draft flow's stderr warnings.
 
 ## Task checklist
 
-- [ ] Add an index-cleanup step that rewrites the drafted `index.md` to retain
-  only the H1 title, subspec checklist items, and blank lines.
-- [ ] Call it in the draft flow (`v1/src/modes/plan/run.ts`) after draft
-  validation succeeds and before `injectRepoLineIntoIndex` / the draft commit,
-  in both commit modes.
+- [ ] Add a standalone index-cleanup step that retains only the title H1,
+  subspec checklist items (matched via `parseIndex`'s grammar), and blank
+  lines; no-ops when `index.md` is absent; skips the write when the cleaned
+  content equals what was read; and emits a one-line stderr notice when it
+  removes ≥1 line.
+- [ ] Call it in the draft flow (`v1/src/modes/plan/run.ts`) after
+  `validateDraftOutput` succeeds and before the draft boundary check, in both
+  commit modes.
 - [ ] Add tests covering: a stray `repo:` line removed; other stray metadata /
-  prose removed; a clean H1+checklist index left byte-identical; no-commit
-  injection writing the correct `repo:` after a stray one is stripped.
+  prose removed; a clean H1+checklist index left unchanged (including one with
+  no trailing newline); absent `index.md` no-ops; no-commit injection writing
+  the correct `repo:` after a stray one is stripped.
 - [ ] Update docs (plan-mode.md, v2/docs/v1-behaviors.md).
 
 ## Acceptance criteria
@@ -54,7 +76,10 @@ of `modes.plan.commit`.
   (e.g. `status: wip`, a free-text sentence) has them removed; H1 title and
   checklist items are preserved in order.
 - [ ] A drafted `index.md` already conforming to the contract (H1 + checklist,
-  blank lines only) is left unchanged.
+  blank lines only) is left semantically unchanged — including one with no
+  trailing newline (the cleanup does not rewrite it when content is unchanged).
+- [ ] When no `index.md` is present at the strip point, the draft flow proceeds
+  without error (the cleanup no-ops).
 - [ ] Under `commit: false`, a drafted `index.md` with a stray agent-written
   `repo:` line ends with exactly the programmatically injected `repo:` binding
   (`injectRepoLineIntoIndex`), not the agent's value.

@@ -29,6 +29,7 @@ import { NARRATIVE_END_MARKER } from "../src/pr.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
 } from "../src/quota-harness-messages.ts";
 
@@ -3765,6 +3766,36 @@ exit 0
     expect(cap.out()).toContain("iteration: 1");
     expect(cap.out()).toContain("iteration: 2");
     expect(cap.err()).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+  });
+
+  test("falls through claude to codex on auth failure; emits auth-rotation note", async () => {
+    const spec = writeSpec("- [ ] todo\n");
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "quota",
+      stderr: "refresh token revoked",
+      authFailure: true,
+    }));
+    const codex = new FakeAgent("codex", () => {
+      writeFileSync(spec, "- [x] todo\n");
+      return { kind: "ok", stdout: "", stderr: "" };
+    });
+
+    const code = await runWithDefaults({
+      specPath: spec,
+      io: cap.io,
+      config: { dir: cfgDir },
+      agents: { claude, codex },
+      handleSignals: false,
+    });
+
+    expect(code).toBe(0);
+    expect(cap.out()).toContain("iteration: 1");
+    expect(cap.out()).toContain("iteration: 2");
+    expect(cap.err()).toContain(`claude: ${harnessAuthRotateLine("claude")}`);
+    expect(cap.err()).not.toContain(HARNESS_QUOTA_FALLBACK_STRICT);
     expect(claude.calls).toHaveLength(1);
     expect(codex.calls).toHaveLength(1);
   });

@@ -115,9 +115,16 @@ only rotates agents for quota-classified results within that iteration; see
 Patch (`jarvis1 run`) and plan (`jarvis1 plan`) share these substrings when
 rotating agents after a quota-classified result:
 
-- **Per-agent rotation:** `quota exhausted; falling back` (strict spawn-side
+- **Per-agent rotation (plain quota):** `quota exhausted; falling back` (strict spawn-side
   quota) and `probable quota-like error (exit N); falling back` (lenient
   weak-quota upgrade when the no-progress / porcelain guard passes).
+- **Per-agent rotation (auth failure):** When a quota-classified result carries
+  an `authFailure: true` marker, both patch and plan emit `<agent> auth failed;
+  re-authenticate and retry` instead of quota phrasing, naming the agent needing
+  re-authentication. This note appears in addition to per-agent rotation lines
+  on all modes: patch iteration (`src/modes/patch/iteration.ts`), shrink
+  (`src/modes/patch/shrink.ts`), review (`src/modes/patch/review.ts`), prompt
+  (`src/modes/prompt/run.ts`), and plan (`src/modes/plan/emit-plan-quota-stderr.ts`).
 - **Plan prefix:** the same phrases appear after `plan: <agent>:` so mixed logs
   stay mode-tagged.
 - **Final exhaustion:** patch prints `all agents quota-exhausted`. Plan prints

@@ -9,7 +9,11 @@ import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
-import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
+import {
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessAuthRotateLine,
+  harnessQuotaFallbackLenientLine,
+} from "../../quota-harness-messages.ts";
 import { runReadyGateWithTier } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
@@ -428,7 +432,11 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
         lastOutputAtMs: shrinkLastOutputAtMs,
         onQuotaFallbackEmit: (agentName, spawnResult, classified) => {
           if (spawnResult.kind === "quota") {
-            opts.fanout("harness", `${agentName}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
+            if (spawnResult.authFailure === true) {
+              opts.fanout("harness", `${agentName}: ${harnessAuthRotateLine(agentName)}\n`, "stderr");
+            } else {
+              opts.fanout("harness", `${agentName}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
+            }
           } else if (spawnResult.kind === "error" && classified.kind === "quota") {
             opts.fanout(
               "harness",

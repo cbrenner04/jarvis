@@ -16,6 +16,7 @@ import { assertGhReady, getBaseBranch } from "../../gh.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
 } from "../../quota-harness-messages.ts";
 import { promptSummary } from "../../run-summary.ts";
@@ -297,6 +298,8 @@ export async function promptCommand(opts: PromptRunOptions): Promise<number> {
           quotaAttemptCount += 1;
           if (rawResult.kind === "error") {
             opts.io.stderr(`${agent.name}: ${harnessQuotaFallbackLenientLine(rawResult.exitCode)}\n`);
+          } else if (rawResult.kind === "quota" && rawResult.authFailure === true) {
+            opts.io.stderr(`${agent.name}: ${harnessAuthRotateLine(agent.name)}\n`);
           } else {
             opts.io.stderr(`${agent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`);
           }

@@ -8,7 +8,11 @@ import { appendAgentTrailer } from "../../commit-trailer.ts";
 import type { Config } from "../../config.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
-import { HARNESS_QUOTA_FALLBACK_STRICT, harnessQuotaFallbackLenientLine } from "../../quota-harness-messages.ts";
+import {
+  HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessAuthRotateLine,
+  harnessQuotaFallbackLenientLine,
+} from "../../quota-harness-messages.ts";
 import {
   getCurrentHeadSha,
   isTreeUnchangedSinceRecordedGreen,
@@ -1092,10 +1096,14 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         if (classified.kind !== "quota") {
           return;
         }
-        const line =
-          spawnResult.kind === "quota"
-            ? HARNESS_QUOTA_FALLBACK_STRICT
-            : harnessQuotaFallbackLenientLine(spawnResult.kind === "error" ? spawnResult.exitCode : 0);
+        let line: string;
+        if (spawnResult.kind === "quota" && spawnResult.authFailure === true) {
+          line = harnessAuthRotateLine(agent);
+        } else if (spawnResult.kind === "quota") {
+          line = HARNESS_QUOTA_FALLBACK_STRICT;
+        } else {
+          line = harnessQuotaFallbackLenientLine(spawnResult.kind === "error" ? spawnResult.exitCode : 0);
+        }
         opts.fanout("harness", `${agent}: ${line}\n`, "stderr");
         if (spawnResult.kind === "error" && spawnResult.stderr.length > 0) {
           const stderr = spawnResult.stderr.endsWith("\n") ? spawnResult.stderr : `${spawnResult.stderr}\n`;

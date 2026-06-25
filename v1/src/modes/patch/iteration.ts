@@ -10,6 +10,7 @@ import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_NO_PROGRESS_FALLBACK,
   HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessAuthRotateLine,
   harnessQuotaFallbackLenientLine,
   harnessTransientRetryLine,
 } from "../../quota-harness-messages.ts";
@@ -1390,7 +1391,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     }
     if (result.kind === "quota") {
       activeAgents.shift();
-      fanout("harness", `${agent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
+      if (result.authFailure === true) {
+        fanout("harness", `${agent.name}: ${harnessAuthRotateLine(agent.name)}\n`, "stderr");
+      } else {
+        fanout("harness", `${agent.name}: ${HARNESS_QUOTA_FALLBACK_STRICT}\n`, "stderr");
+      }
       if (activeAgents.length === 0) {
         fanout("harness", `${HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED}\n`, "stderr");
         writeTelemetry({

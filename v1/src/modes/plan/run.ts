@@ -39,6 +39,7 @@ import {
 } from "./boundary.ts";
 import { commitPlanBlocker, commitPlanDraft } from "./commits.ts";
 import { runDraftPhase, validateDraftOutput } from "./draft.ts";
+import { stripNonContractIndexLines } from "./index-cleanup.ts";
 import { createPlanTelemetryWriter, type PlanTelemetryWriter } from "./plan-telemetry.ts";
 import { buildPlanPrHeader, maybeMarkPlanPrReady, type OpenPrInfo, updatePlanPrBody } from "./pr.ts";
 import { type PlanReviewPhaseOptions, runPlanReviewPhase } from "./review.ts";
@@ -1169,6 +1170,12 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           }
           return 1;
         }
+
+        // Strip non-contract lines from index.md before injection
+        stripNonContractIndexLines({
+          specDirPath: finalSpecPath,
+          stderr: opts.io.stderr,
+        });
 
         opts.io.stderr(`plan: draft phase completed\n`);
         if (commit === false) {

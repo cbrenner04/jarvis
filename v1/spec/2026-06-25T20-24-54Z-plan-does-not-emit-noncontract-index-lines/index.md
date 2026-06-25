@@ -1,3 +1,3 @@
 # Plan-generated `index.md` carries only contract lines
 
-- [ ] [00 - Strip non-contract lines from drafted index.md](./00-strip-noncontract-index-lines.md)
+- [x] [00 - Strip non-contract lines from drafted index.md](./00-strip-noncontract-index-lines.md)

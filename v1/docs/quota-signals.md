@@ -56,6 +56,23 @@ any pattern and fast-fail with exactly one invocation. Each re-attempt emits
 `onRetry` callback, operator-distinguishable from quota strings and the agent
 transient line (not confusable with hang or fallback).
 
+## Credential/auth failures
+
+A credential or auth failure is a durable session/token error (refresh token
+revoked, re-authentication required, log out and sign in) that prevents the
+agent from running. The shared spawn layer (`src/agents/spawn.ts`) detects
+these via **`isCredentialAuthSignal`** (`src/agents/quota.ts`) and classifies
+them as **`kind: "quota"`** with an **`authFailure: true` marker**, allowing
+the run to rotate to the next agent. Only true durable-auth phrasing is matched;
+transient-looking blips (bare `401`/`unauthorized`, or messages matching both
+auth and transient signals) fall through to the transient or generic-error paths
+and do not rotate (allowing same-agent retries to recover a momentary blip).
+
+Patterns are **scoped per-agent**: Codex has verified auth patterns; Claude and
+Cursor patterns are deferred to the first real sample. This rules out false
+positives from broad cross-agent matching. When every agent is exhausted by auth
+and/or quota, the run terminates via the existing quota-exhaustion path (exit 2).
+
 ## Quota fallback
 
 **Patch and plan modes:** With `quotaFallback: "lenient"`, **`applyQuotaFallbackWhenAllowed`**
@@ -76,6 +93,7 @@ codes after fallback exhaustion, and telemetry semantics.
 
 | Raw CLI outcome | Classified kind | Patch iteration behavior (`jarvis1 run`) | Plan phase behavior (`jarvis1 plan`) | Exit code when all agents exhausted or no fallback remains | Telemetry kind/reason |
 | --- | --- | --- | --- | --- | --- |
+| Non-zero exit + durable credential/auth signal from stderr patterns | `quota` (with `authFailure: true` marker) | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) | `quota` / `quota-exhausted` |
 | Non-zero exit + strict quota signal from stderr patterns | `quota` | Rotate immediately to next agent | Rotate immediately to next agent | `2` (quota exhausted) | `quota` / `quota-exhausted` |
 | Non-zero exit + weak quota signal (lenient), guard passes (`allowLenientWeakQuotaFallback=true`) | `quota` (upgraded from weak `error`) | Rotate to next agent only when no-progress guard passes | Rotate to next agent only when unchanged-porcelain guard passes | `2` (quota exhausted) | `quota` / `quota-exhausted` |
 | Non-zero exit + weak quota signal (lenient), guard fails | `error` (no upgrade) | No quota rotation; treated as hard failure for that iteration | In current behavior, plan inner loop still continues to later agents on hard `error` (see mode difference below) | Patch exits `1` for error when no fallback path applies | `error` / `agent-error` |
@@ -196,6 +214,14 @@ sample below is exit-`0` JSON on stdout.
 
 ## Codex
 
+### Observed credential/auth stderr (real samples)
+
+- 2026-06-25 — Codex refresh token revoked (exit non-zero, stderr)
+
+  ```text
+  Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.
+  ```
+
 ### Observed quota stderr (real samples)
 
 - No real samples recorded yet.
@@ -269,9 +295,24 @@ Status key:
 - `/\\brequest rejected \\(429\\)\\b/i` — Unverified.
   Sample link: none yet.
 
+### `codexCredentialAuthPatterns`
+
+- `/\\brefresh token was revoked\\b/i` — Matched.
+  Sample link: 2026-06-25 (refresh token revoked).
+- `/\\brefresh token revoked\\b/i` — Matched.
+  Sample link: 2026-06-25 (refresh token revoked).
+- `/\\blog out and sign in\\b/i` — Matched.
+  Sample link: 2026-06-25 (refresh token revoked).
+- `/\\bplease log out and sign in\\b/i` — Matched.
+  Sample link: 2026-06-25 (refresh token revoked).
+- `/\\bre-?authenticate/i` — Unverified best-effort.
+  Sample link: none yet.
+- `/\\bre-?authentication required\\b/i` — Unverified best-effort.
+  Sample link: none yet.
+
 ### `codexQuotaPatterns`
 
-- `/\\byou['’]ve (?:hit|reached) your usage limit\\b/i` — Unverified.
+- `/\\byou[‘’]ve (?:hit|reached) your usage limit\\b/i` — Unverified.
   Sample link: none yet.
 - `/\\busage limit\\b.*\\b(?:reset|resets|window)\\b/i` — Unverified.
   Sample link: none yet.

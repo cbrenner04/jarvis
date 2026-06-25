@@ -3,7 +3,7 @@
 
 import type { ChildProcess, SpawnOptions, StdioOptions } from "node:child_process";
 import { spawn as realSpawn } from "node:child_process";
-import { isModelConfigurationSignal, isQuotaSignal, isTransientSignal } from "./quota.ts";
+import { isCredentialAuthSignal, isModelConfigurationSignal, isQuotaSignal, isTransientSignal } from "./quota.ts";
 import type { AgentName, AgentResult, AgentRunOptions } from "./types.ts";
 
 export interface SpawnConfig {
@@ -84,8 +84,12 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
           const exitCode = code ?? -1;
           const diagnostics = `${errBuf}${outBuf}`;
 
-          // Classification order: model config → quota → transient retry → generic error
-          if (isModelConfigurationSignal(config.name, diagnostics)) {
+          // Classification order: transient → auth → model_config → quota
+          if (isTransientSignal(config.name, exitCode, diagnostics)) {
+            settle({ kind: "error", exitCode, stderr: diagnostics });
+          } else if (isCredentialAuthSignal(config.name, exitCode, diagnostics)) {
+            settle({ kind: "quota", stderr: diagnostics, authFailure: true });
+          } else if (isModelConfigurationSignal(config.name, diagnostics)) {
             settle({ kind: "model_config", stderr: diagnostics });
           } else if (isQuotaSignal(config.name, exitCode, diagnostics)) {
             settle({ kind: "quota", stderr: diagnostics });

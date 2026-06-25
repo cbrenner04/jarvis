@@ -117,14 +117,11 @@ describe("isModelConfigurationSignal", () => {
 });
 
 describe("isCredentialAuthSignal", () => {
+  const CODEX_REFRESH_TOKEN_REVOKED =
+    "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.";
+
   test("matches Codex refresh token revoked sample", () => {
-    expect(
-      isCredentialAuthSignal(
-        "codex",
-        1,
-        "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.",
-      ),
-    ).toBe(true);
+    expect(isCredentialAuthSignal("codex", 1, CODEX_REFRESH_TOKEN_REVOKED)).toBe(true);
   });
 
   test("matches Codex re-authenticate patterns", () => {

@@ -14,7 +14,11 @@ using the following order:
    project's root, or a URL/slug that loose-matches a registered project's
    `origin`.
 2. Spec `repo:` matches a registered project's key, or URL/slug — loose-matched
-   against the `origin` URLs recorded for each registered project.
+   against the `origin` URLs recorded for each registered project. An unresolvable
+   `repo:` value (relative path or bareword that does not match a registered key)
+   is deferred; resolution proceeds to steps 3/4 below, and the spec is run against
+   that location if found. Only if steps 3/4 also fail is the unresolvable value
+   reported as an error.
 3. Spec path is inside a registered project's `root` — that project wins.
 4. Spec path is inside any git checkout (walking parents until `.git`) — the
    run proceeds in ad-hoc mode against that checkout. Nothing is persisted

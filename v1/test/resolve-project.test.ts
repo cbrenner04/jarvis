@@ -374,4 +374,132 @@ describe("resolveProject", () => {
       expect(result.resolved.source).toBe("registered");
     }
   });
+
+  test("relative path repo: falls through to location-based resolution when spec inside registered project", () => {
+    registerProject("project-a", projectA, { dir: cfgDir });
+    const specDir = join(projectA, "specs");
+    mkdirSync(specDir);
+    const specPath = join(specDir, "index.md");
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "./project",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.project.key).toBe("project-a");
+      expect(result.resolved.source).toBe("registered");
+      expect(result.resolved.mode).toBe("registered");
+    }
+  });
+
+  test("bareword repo: falls through to location-based resolution when spec inside registered project", () => {
+    registerProject("project-a", projectA, { dir: cfgDir });
+    const specDir = join(projectA, "specs");
+    mkdirSync(specDir);
+    const specPath = join(specDir, "index.md");
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "jarvis",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.project.key).toBe("project-a");
+      expect(result.resolved.source).toBe("registered");
+      expect(result.resolved.mode).toBe("registered");
+    }
+  });
+
+  test("relative path repo: falls through to ad-hoc resolution when spec inside unregistered git checkout", () => {
+    execSync("git init -b main", { cwd: projectB });
+    const specDir = join(projectB, "specs");
+    mkdirSync(specDir);
+    const specPath = join(specDir, "index.md");
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "./other-project",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.project.root).toBe(projectB);
+      expect(result.resolved.source).toBe("ad-hoc");
+      expect(result.resolved.mode).toBe("ad-hoc");
+    }
+  });
+
+  test("bareword repo: falls through to ad-hoc resolution when spec inside unregistered git checkout", () => {
+    execSync("git init -b main", { cwd: projectB });
+    const specDir = join(projectB, "specs");
+    mkdirSync(specDir);
+    const specPath = join(specDir, "index.md");
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "some-repo",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.resolved.project.root).toBe(projectB);
+      expect(result.resolved.source).toBe("ad-hoc");
+      expect(result.resolved.mode).toBe("ad-hoc");
+    }
+  });
+
+  test("relative path repo: errors with unknown-repo message when no location fallback", () => {
+    registerProject("project-a", projectA, { dir: cfgDir });
+    registerProject("project-b", projectB, { dir: cfgDir });
+    const specPath = join(dir, "specs", "index.md");
+    mkdirSync(join(dir, "specs"));
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "./other-project",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toContain("spec `repo:`:");
+      expect(result.message).toContain("./other-project");
+      expect(result.message).toContain("project-a");
+      expect(result.message).toContain("project-b");
+    }
+  });
+
+  test("bareword repo: errors with unknown-repo message when no location fallback", () => {
+    registerProject("project-a", projectA, { dir: cfgDir });
+    registerProject("project-b", projectB, { dir: cfgDir });
+    const specPath = join(dir, "specs", "index.md");
+    mkdirSync(join(dir, "specs"));
+    writeFileSync(specPath, "- [ ] todo\n");
+
+    const result = resolveProject({
+      specPath,
+      specRepo: "missing-repo",
+      config: { dir: cfgDir },
+    });
+
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") {
+      expect(result.message).toContain("spec `repo:`:");
+      expect(result.message).toContain("missing-repo");
+      expect(result.message).toContain("project-a");
+      expect(result.message).toContain("project-b");
+    }
+  });
 });

@@ -81,7 +81,10 @@ Jarvis resolves the target repo at run time in this order:
 
 1. `--repo <name|path|url>` flag passed on the command line.
 2. Spec `repo:` matches a registered project's key, or URL/slug loose-matched
-   against the `origin` URLs of registered projects.
+   against the `origin` URLs of registered projects. An unresolvable value
+   (relative path or bareword) is deferred; resolution continues to steps 3/4,
+   and the spec is run against that location if found. Only if steps 3/4 also
+   fail is the unresolvable value reported as an error.
 3. Spec path lives inside a registered project's root.
 4. Spec path lives inside any git checkout (used in ad-hoc mode; jarvis does
    not persist anything to config).

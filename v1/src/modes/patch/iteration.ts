@@ -507,9 +507,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     const parsedSubspec = parseSpec(readFileSync(activeSubspecPath, "utf8"));
     if (parsedSubspec.blocker !== undefined) {
       // Check if only human-only criteria remain; if so, skip the blocker
-      const uncheckedNonHumanOnly = parsedSubspec.acceptanceCriteria.filter(
-        (c) => !c.humanOnly && !c.checked,
-      );
+      const uncheckedNonHumanOnly = parsedSubspec.acceptanceCriteria.filter((c) => !c.humanOnly && !c.checked);
       const hasHumanOnlyCriteria = parsedSubspec.acceptanceCriteria.some((c) => c.humanOnly);
 
       if (uncheckedNonHumanOnly.length === 0 && hasHumanOnlyCriteria) {
@@ -517,11 +515,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         const currentSpecContent = readFileSync(activeSubspecPath, "utf8");
         const strippedContent = stripBlockerSection(currentSpecContent);
         writeFileSync(activeSubspecPath, strippedContent, "utf8");
-        fanout(
-          "harness",
-          `blocker stripped: only human-only acceptance criteria remain\n`,
-          "stderr",
-        );
+        fanout("harness", `blocker stripped: only human-only acceptance criteria remain\n`, "stderr");
         // Continue without exiting; don't increment iteration, re-check for other conditions
       } else {
         // Automated criteria remain: honor the blocker
@@ -990,20 +984,14 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           }
 
           // Check if only human-only criteria remain; if so, skip the blocker
-          const uncheckedNonHumanOnly = afterParse.acceptanceCriteria.filter(
-            (c) => !c.humanOnly && !c.checked,
-          );
+          const uncheckedNonHumanOnly = afterParse.acceptanceCriteria.filter((c) => !c.humanOnly && !c.checked);
           const hasHumanOnlyCriteria = afterParse.acceptanceCriteria.some((c) => c.humanOnly);
           if (uncheckedNonHumanOnly.length === 0 && hasHumanOnlyCriteria) {
             // Only human-only criteria remain: strip blocker and continue
             const currentSpecContent = readFileSync(afterSubspecPath, "utf8");
             const strippedContent = stripBlockerSection(currentSpecContent);
             writeFileSync(afterSubspecPath, strippedContent, "utf8");
-            fanout(
-              "harness",
-              `blocker stripped: only human-only acceptance criteria remain\n`,
-              "stderr",
-            );
+            fanout("harness", `blocker stripped: only human-only acceptance criteria remain\n`, "stderr");
             writeTelemetry({
               agent: agent.name,
               iteration,

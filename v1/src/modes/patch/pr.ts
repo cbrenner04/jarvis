@@ -47,7 +47,10 @@ type HumanVerifyItem = {
   subspecPath: string;
 };
 
-function collectUncheckedHumanOnlyCriteria(indexPath: string, parsedIndex: ReturnType<typeof parseSpec>): HumanVerifyItem[] {
+function collectUncheckedHumanOnlyCriteria(
+  indexPath: string,
+  parsedIndex: ReturnType<typeof parseSpec>,
+): HumanVerifyItem[] {
   const items: HumanVerifyItem[] = [];
   const indexDir = dirname(indexPath);
 

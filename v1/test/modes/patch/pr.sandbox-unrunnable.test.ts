@@ -109,15 +109,7 @@ describe("buildPrBody", () => {
     );
     writeFileSync(
       join(dirname(indexPath), "01-second.md"),
-      [
-        "# Second",
-        "",
-        "## Acceptance criteria",
-        "",
-        "- [ ] Should work (Manual)",
-        "- [x] Other test",
-        "",
-      ].join("\n"),
+      ["# Second", "", "## Acceptance criteria", "", "- [ ] Should work (Manual)", "- [x] Other test", ""].join("\n"),
     );
 
     const body = buildPrBody({ indexPath, narrative: null });
@@ -138,15 +130,7 @@ describe("buildPrBody", () => {
     );
     writeFileSync(
       join(dirname(indexPath), "01-second.md"),
-      [
-        "# Second",
-        "",
-        "## Acceptance criteria",
-        "",
-        "- [x] Should work (Manual)",
-        "- [ ] Other test",
-        "",
-      ].join("\n"),
+      ["# Second", "", "## Acceptance criteria", "", "- [x] Should work (Manual)", "- [ ] Other test", ""].join("\n"),
     );
 
     const body = buildPrBody({ indexPath, narrative: null });
@@ -155,10 +139,7 @@ describe("buildPrBody", () => {
   });
 
   test("omits human-verify checklist section when all human-only criteria are checked", () => {
-    writeFileSync(
-      indexPath,
-      ["# Spec", "", "- [x] [00 - first](./00-first.md)", ""].join("\n"),
-    );
+    writeFileSync(indexPath, ["# Spec", "", "- [x] [00 - first](./00-first.md)", ""].join("\n"));
     writeFileSync(
       join(dirname(indexPath), "00-first.md"),
       ["# First", "", "## Acceptance criteria", "", "- [x] Test 1 (Manual)", ""].join("\n"),

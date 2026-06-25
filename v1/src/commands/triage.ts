@@ -1,10 +1,14 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { ConfigOptions } from "../config.ts";
+import { loadConfig } from "../config.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
+import { runReadyGateWithTier } from "../ready-gate.ts";
+import { withSyncTransientRetry } from "../gh.ts";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;
@@ -21,7 +25,12 @@ export type TriageCommandOptions = {
   io: TriageIo;
   config?: ConfigOptions;
   worktreeName?: string;
+  markReady?: boolean;
   ghRunner?: TriageGhRunner;
+  /** Test seam: run the ready gate. Defaults to runReadyGateWithTier. */
+  runGate?: (cwd: string, readyCommand?: string) => void;
+  /** Test seam: mark PR ready. Defaults to gh pr ready with retry. */
+  prReady?: (branch: string, cwd: string) => void;
 };
 
 export type DirtyKind = "clean" | "untracked-only" | "modified" | "mixed";
@@ -50,6 +59,9 @@ export function triageCommand(opts: TriageCommandOptions): number {
 
   // Named form: drill-down for a specific worktree
   if (opts.worktreeName !== undefined) {
+    if (opts.markReady) {
+      return triageMarkReady(opts);
+    }
     return triageDrillDown(worktreeDir, opts.worktreeName, opts.io);
   }
 
@@ -888,4 +900,187 @@ function getAheadBehind(worktreePath: string): string {
 function getSpecProgress(_worktreePath: string): string {
   // Stub for now - will be filled in by subspec 01
   return "-";
+}
+
+function triageMarkReady(opts: TriageCommandOptions): number {
+  const worktreeDir = join(opts.projectRoot, ".worktree");
+  const worktreeName = opts.worktreeName;
+  if (!worktreeName) {
+    opts.io.stderr(`triage --mark-ready: internal error - no worktree name\n`);
+    return 1;
+  }
+
+  const worktreePath = join(worktreeDir, worktreeName);
+
+  if (!existsSync(worktreePath)) {
+    opts.io.stderr(`triage --mark-ready: unknown worktree: ${worktreeName}\n`);
+    return 1;
+  }
+
+  // Get the branch name
+  let branch: string;
+  try {
+    branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: worktreePath,
+      stdio: "pipe",
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    opts.io.stderr(`triage --mark-ready: unable to get branch name\n`);
+    return 1;
+  }
+
+  // Get the spec path from .active-spec-path marker (before PR check)
+  const specMarkerPath = join(worktreePath, ".active-spec-path");
+  let specPath: string | undefined;
+  if (existsSync(specMarkerPath)) {
+    try {
+      specPath = readFileSync(specMarkerPath, "utf8").trim();
+    } catch {
+      opts.io.stderr(`triage --mark-ready: unable to read .active-spec-path marker\n`);
+      return 1;
+    }
+  } else {
+    opts.io.stderr(`triage --mark-ready: .active-spec-path marker not found (pre-marker worktree)\n`);
+    return 1;
+  }
+
+  if (!specPath || !existsSync(specPath)) {
+    opts.io.stderr(`triage --mark-ready: spec file not found: ${specPath || "(unknown)"}\n`);
+    return 1;
+  }
+
+  // Check if the worktree is locked by a live run PID
+  const lockPath = getWorktreeLockPath(worktreePath);
+  if (existsSync(lockPath)) {
+    try {
+      const raw = readFileSync(lockPath, "utf8");
+      const lock: WorktreeLock = JSON.parse(raw);
+      if (isProcessAlive(lock.pid)) {
+        opts.io.stderr(`triage --mark-ready: worktree is locked by live run (PID ${lock.pid}). Cannot proceed.\n`);
+        return 1;
+      }
+    } catch {
+      // Ignore lock file read errors
+    }
+  }
+
+  // Pre-check order: (a) PR exists, (b) PR is DRAFT, (c) spec complete
+  const ghRunner = opts.ghRunner || createDefaultGhRunner();
+  const prState = ghRunner.getPrState(branch);
+  if (!prState) {
+    opts.io.stderr(`triage --mark-ready: no PR found for branch ${branch}\n`);
+    return 1;
+  }
+
+  if (!prState.isDraft) {
+    opts.io.stderr(
+      `triage --mark-ready: PR is not in DRAFT state (current state: ${prState.state}). Cannot promote.\n`,
+    );
+    return 1;
+  }
+
+  // Check if spec is complete (treating single-file specs as complete if no unchecked items)
+  const specComplete = isSpecComplete(specPath);
+  if (!specComplete) {
+    opts.io.stderr(`triage --mark-ready: spec is not complete — linked subspecs have unchecked items\n`);
+    return 1;
+  }
+
+  // Resolve the readyCommand from the project config
+  let readyCommand: string | undefined;
+  try {
+    const fullConfig = loadConfig(opts.config);
+    for (const project of Object.values(fullConfig.projects)) {
+      if (project.root === opts.projectRoot) {
+        readyCommand = project.readyCommand;
+        break;
+      }
+    }
+  } catch {
+    // Ignore config loading errors, use default readyCommand
+  }
+
+  // Re-run the completion ready gate once with no recorded green carrier
+  const realRunGate = (cwd: string, cmd?: string) => {
+    runReadyGateWithTier({
+      cwd,
+      agentLabel: "triage-mark-ready",
+      ...(cmd !== undefined ? { readyCommand: cmd } : {}),
+    });
+  };
+
+  const runGateFn = opts.runGate ?? realRunGate;
+  let gateError: Error | null = null;
+  try {
+    runGateFn(worktreePath, readyCommand);
+  } catch (err) {
+    gateError = err instanceof Error ? err : new Error(String(err));
+  }
+
+  if (gateError) {
+    const message = gateError.message || String(gateError);
+    opts.io.stderr(`triage --mark-ready: ready gate failed\n${message}\n`);
+    return 1;
+  }
+
+  // Mark the PR ready with retry wrapper
+  const realPrReady = (branch: string, cwd: string) => {
+    withSyncTransientRetry(
+      () => {
+        execFileSync("gh", ["pr", "ready", branch], {
+          cwd,
+          stdio: "pipe",
+        });
+      },
+      {
+        op: "gh pr ready",
+        isPrReady: true,
+      },
+    );
+  };
+
+  const prReadyFn = opts.prReady ?? realPrReady;
+  try {
+    prReadyFn(branch, worktreePath);
+    opts.io.stdout(`triage --mark-ready: PR promoted to ready\n`);
+    return 0;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    opts.io.stderr(`triage --mark-ready: failed to mark PR ready\n${message}\n`);
+    return 1;
+  }
+}
+
+function isSpecComplete(specPath: string): boolean {
+  if (!specPath || !existsSync(specPath)) {
+    return false;
+  }
+
+  try {
+    const unchecked = countUnchecked(specPath);
+    if (unchecked > 0) {
+      return false;
+    }
+
+    if (basename(specPath) === "index.md") {
+      // For index specs, check if linked subspecs are complete
+      const indexContent = readFileSync(specPath, "utf8");
+      const parsed = parseSpec(indexContent);
+      const linked = parsed.linkedSubspecs;
+
+      if (linked.length === 0) {
+        // Single-file or malformed spec with no linked subspecs: treat as complete if no unchecked items
+        return true;
+      }
+
+      // For index specs with linked subspecs, all must be checked
+      return linked.every((item: { checked: boolean }) => item.checked);
+    }
+
+    // Single-file spec: complete if no unchecked items
+    return true;
+  } catch {
+    return false;
+  }
 }

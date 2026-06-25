@@ -36,14 +36,14 @@ corrupting content and without shipping residual violations downstream.
 
 ## Acceptance criteria
 
-- [ ] After `jarvis intent` fan-out, running `bun run lint:md` over the generated `ready-intents/*.md` tree exits 0 with no operator edits, for inputs that would otherwise trip `MD012` and `MD018`.
-- [ ] An issue reference written into intent content (e.g. `#499`) is still an issue reference after repair + autofix — it is not promoted to a heading (no `# 499`).
-- [ ] A staged file with violations that remain after autofix (a non-autofixable rule) causes `jarvis intent` to fail with a named error before any file is renamed into `ready-intents/`, rather than emitting the dirty file.
-- [ ] Autofix uses the same markdownlint config the `lint:md` ready step uses, resolved from the harness repo and passed explicitly — no separate, relaxed, or cwd-discovered rule set.
-- [ ] The no-commit (external) staging path is autofixed against the harness config, same as the commit path — no path-specific branch.
-- [ ] A new test in `v1/test/intent-command.sandbox-unrunnable.test.ts` exercises the emit-contract repair step on seeded staging content containing `MD012` and `MD018`, asserts the seeded content is dirty before the pass and lint-clean after (bytes changed), and asserts a `#NNN` reference is preserved.
-- [ ] The existing repair cases in `v1/test/intent-command.sandbox-unrunnable.test.ts` (name and `## Prerequisites` repair) stay green — structural repair behavior otherwise unchanged.
-- [ ] `lint:md` remains a step in the full ready tier in its existing position in `scripts/ready.ts` — not relaxed or reordered.
+- [x] After `jarvis intent` fan-out, running `bun run lint:md` over the generated `ready-intents/*.md` tree exits 0 with no operator edits, for inputs that would otherwise trip `MD012` and `MD018`.
+- [x] An issue reference written into intent content (e.g. `#499`) is still an issue reference after repair + autofix — it is not promoted to a heading (no `# 499`).
+- [x] A staged file with violations that remain after autofix (a non-autofixable rule) causes `jarvis intent` to fail with a named error before any file is renamed into `ready-intents/`, rather than emitting the dirty file.
+- [x] Autofix uses the same markdownlint config the `lint:md` ready step uses, resolved from the harness repo and passed explicitly — no separate, relaxed, or cwd-discovered rule set.
+- [x] The no-commit (external) staging path is autofixed against the harness config, same as the commit path — no path-specific branch.
+- [x] A new test in `v1/test/intent-command.sandbox-unrunnable.test.ts` exercises the emit-contract repair step on seeded staging content containing `MD012` and `MD018`, asserts the seeded content is dirty before the pass and lint-clean after (bytes changed), and asserts a `#NNN` reference is preserved.
+- [x] The existing repair cases in `v1/test/intent-command.sandbox-unrunnable.test.ts` (name and `## Prerequisites` repair) stay green — structural repair behavior otherwise unchanged.
+- [x] `lint:md` remains a step in the full ready tier in its existing position in `scripts/ready.ts` — not relaxed or reordered.
 
 ## Documentation updates
 

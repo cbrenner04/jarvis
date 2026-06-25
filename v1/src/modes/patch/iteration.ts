@@ -39,6 +39,7 @@ import {
   getIndexTitle,
   tryFinishSpecIfDone,
 } from "./completion-pipeline.ts";
+import { commitLockfileChanges, detectDepChange, installDeps } from "./dep-install.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import {
   applyReset,
@@ -71,7 +72,6 @@ import {
   snapshotAcceptanceCriteria,
   snapshotCommittedAcceptanceCriteria,
 } from "./subspec.ts";
-import { detectDepChange, installDeps, commitLockfileChanges } from "./dep-install.ts";
 
 type LogTag = "harness" | "outbound" | "inbound_stdout" | "inbound_stderr";
 type LogStream = "stdout" | "stderr" | null;

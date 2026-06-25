@@ -2,12 +2,14 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-type DepInstallResult = {
-  kind: "ok";
-} | {
-  kind: "error";
-  message: string;
-};
+type DepInstallResult =
+  | {
+      kind: "ok";
+    }
+  | {
+      kind: "error";
+      message: string;
+    };
 
 export function detectDepChange(cwd: string): boolean {
   try {
@@ -55,10 +57,7 @@ export function installDeps(cwd: string, installCommand: string): DepInstallResu
   }
 }
 
-export function commitLockfileChanges(
-  cwd: string,
-  agentLabel: string,
-): void {
+export function commitLockfileChanges(cwd: string, agentLabel: string): void {
   try {
     // Check if there are changes to commit
     const statusOutput = execFileSync("git", ["status", "--porcelain", "--", "package.json", "bun.lock"], {

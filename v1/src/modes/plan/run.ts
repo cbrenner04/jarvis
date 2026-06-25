@@ -896,30 +896,38 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
     // For commit: true fresh runs, check if a disposable same-name worktree survives
     let disposablePlanName: string | undefined;
     if (commit) {
-      if (isDisposablePlanWorktree({
-        projectRoot: project.root,
-        planName: readyIntentName,
-        targetDir,
-        specTimestamp,
-      })) {
+      if (
+        isDisposablePlanWorktree({
+          projectRoot: project.root,
+          planName: readyIntentName,
+          targetDir,
+          specTimestamp,
+        })
+      ) {
         disposablePlanName = readyIntentName;
         // Will tear down and reuse this name below
       }
     }
 
     // Check for collision and determine final plan name
-    const planName = disposablePlanName ??
-      await ensureUniquePlanName(project.root, readyIntentName, targetDir, {
+    const planName =
+      disposablePlanName ??
+      (await ensureUniquePlanName(project.root, readyIntentName, targetDir, {
         ...(externalSpecRoot !== undefined ? { externalSpecRoot } : {}),
         specTimestamp,
         checkCommittedPlanState: commit && disposablePlanName === undefined,
-      });
+      }));
     const specDirBasename = specTimestamp ? `${formatPlanSpecTimestamp()}-${planName}` : planName;
     planHarnessLog(planLogClient, `plan: spec name=${planName}`);
 
     // If a disposable worktree survives, tear it down before creating fresh
     if (disposablePlanName) {
-      cleanupCommittedTempPlanState(project.root, disposablePlanName, join(project.root, ".worktree", `plan-${disposablePlanName}`), targetDir);
+      cleanupCommittedTempPlanState(
+        project.root,
+        disposablePlanName,
+        join(project.root, ".worktree", `plan-${disposablePlanName}`),
+        targetDir,
+      );
       planHarnessLog(planLogClient, `plan: disposed stale worktree plan-${disposablePlanName}`);
     }
 

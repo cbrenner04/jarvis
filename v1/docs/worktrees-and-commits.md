@@ -113,7 +113,7 @@ transitions to ready for review. The readiness transition begins with
 `bun run ready`, which first runs `bun install --frozen-lockfile` so Biome is
 available, then runs `bun run check:fix` (Biome's safe format and lint-rule
 fixer). This may rewrite files before the rest of the ready gate
-(`typecheck → test → check`) proceeds. The test phase runs `bun run test` (the
+(`typecheck → test → check → lint:md`) proceeds. The test phase runs `bun run test` (the
 aggregate test command that covers all slices); see
 [v2/docs/v1-behaviors.md#test-execution-and-development-workflows](../../v2/docs/v1-behaviors.md#test-execution-and-development-workflows)
 for the test-command contract. If `check:fix` or any later step fails,

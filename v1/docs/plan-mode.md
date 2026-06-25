@@ -370,7 +370,7 @@ On fresh `commit: true` runs, the first `plan: draft` commit triggers the `ensur
 
 ### Auto-mark ready on success
 
-Like patch mode, plan mode invokes `bun run ready` automatically once every scripted phase succeeds (no blocker). The readiness transition begins with `bun install --frozen-lockfile` so Biome is available, then runs `bun run check:fix` (Biome's safe format and lint-rule fixer) as the second step — which may rewrite files — before `typecheck → test → check` proceeds.
+Like patch mode, plan mode invokes `bun run ready` automatically once every scripted phase succeeds (no blocker). The readiness transition begins with `bun install --frozen-lockfile` so Biome is available, then runs `bun run check:fix` (Biome's safe format and lint-rule fixer) as the second step — which may rewrite files — before `typecheck → test → check → lint:md` proceeds.
 
 **Readiness transition behavior:**
 - If the branch's open PR is **draft**, the `bun run ready` gate runs. On success, any `check:fix` output is committed and pushed (`chore: apply pre-ready check:fix`), then `gh pr ready` flips the PR to ready. On gate failure, the PR remains draft.

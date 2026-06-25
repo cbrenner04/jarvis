@@ -37,9 +37,9 @@ canonical list; stale recitations are corrected in place, not re-homed.
 
 ## Acceptance criteria
 
-- [ ] No step-level ready-pipeline recitation in `v1/docs/plan-mode.md`, `v1/docs/worktrees-and-commits.md`, `v1/docs/workflows.md`, or `README.md` ends at `check`; each names `lint:md` as the final step.
-- [ ] `v1/docs/run-loop.md` ready-tier table (line ~125) is unchanged.
-- [ ] Abstracted `bun run ready` mentions that list no steps are unchanged.
+- [x] No step-level ready-pipeline recitation in `v1/docs/plan-mode.md`, `v1/docs/worktrees-and-commits.md`, `v1/docs/workflows.md`, or `README.md` ends at `check`; each names `lint:md` as the final step.
+- [x] `v1/docs/run-loop.md` ready-tier table (line ~125) is unchanged.
+- [x] Abstracted `bun run ready` mentions that list no steps are unchanged.
 
 ## Documentation updates
 

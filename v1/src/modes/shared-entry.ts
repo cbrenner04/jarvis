@@ -178,15 +178,6 @@ async function resolveProjectFromSpec(opts: {
   const specRepoRaw = readRepoPath(opts.specPath);
   const specRepo = specRepoRaw === undefined || specRepoRaw.trim() === "" ? undefined : specRepoRaw.trim();
 
-  // Reject relative `repo:` values up front
-  if (specRepo !== undefined && /[\\/]/.test(specRepo) && !isAbsolute(specRepo) && !looksLikeUrlOrSlug(specRepo)) {
-    return {
-      project: { key: "", root: "" },
-      mode: "registered",
-      error: `spec repo must be an absolute path: ${specRepo}`,
-    };
-  }
-
   const resolveOpts: Parameters<typeof resolveProject>[0] = {
     specPath: opts.specPath,
   };

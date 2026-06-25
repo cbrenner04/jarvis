@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import type { SuggestedMovesInput, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
 
@@ -824,5 +824,343 @@ describe("triage verdict", () => {
     // First should show unavailable, second should show CLEAN
     expect(output).toContain("[unavailable]");
     expect(output).toContain("[CLEAN]");
+  });
+});
+
+describe("triage --mark-ready", () => {
+  test("--mark-ready without worktree name should not pass to command layer (CLI rejects)", () => {
+    // This test verifies that the CLI layer rejects --mark-ready without a worktree name
+    // and never calls the triage command. The command layer doesn't need to handle this,
+    // but we verify the read-only listing still works.
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      // No worktreeName provided - the CLI would have already rejected --mark-ready in this case
+    });
+    // Should return listing (not an error)
+    expect(code).toBe(0);
+    expect(out()).toContain("no worktrees");
+  });
+
+  test("--mark-ready on unknown worktree returns error", () => {
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName: "nonexistent",
+      markReady: true,
+    });
+    expect(code).toBe(1);
+    expect(err()).toContain("unknown worktree");
+  });
+
+  test("--mark-ready with missing .active-spec-path returns error", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain(".active-spec-path marker not found");
+  });
+
+  test("--mark-ready when no PR exists returns error", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Write a minimal spec file
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "test-spec.md");
+    writeFileSync(specPath, "# Test\n\n- [x] item 1");
+    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: () => null,
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("no PR found");
+  });
+
+  test("--mark-ready when PR is not DRAFT returns error", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Get the actual branch name (which is "main" from setupWorktree)
+    const branch = "main";
+
+    // Write a minimal spec file
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "test-spec.md");
+    writeFileSync(specPath, "# Test\n\n- [x] item 1");
+    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: (b) => {
+          if (b === branch) {
+            return {
+              state: "OPEN",
+              isDraft: false,
+            };
+          }
+          return null;
+        },
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("PR is not in DRAFT state");
+  });
+
+  test("--mark-ready with incomplete spec returns error", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Write an index spec with unchecked subspecs
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const indexPath = join(specDir, "spec-1", "index.md");
+    mkdirSync(dirname(indexPath), { recursive: true });
+    writeFileSync(indexPath, "# Test\n\n- [ ] [subspec 1](./01-test.md)");
+    writeFileSync(join(dirname(indexPath), "01-test.md"), "# Test\n\n- [ ] item");
+
+    writeFileSync(join(worktreePath, ".active-spec-path"), indexPath);
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: () => ({
+          state: "OPEN",
+          isDraft: true,
+        }),
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("spec is not complete");
+  });
+
+  test("--mark-ready with single-file spec that is complete succeeds", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Write a single-file spec (no index, no linked subspecs)
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "test-spec.md");
+    writeFileSync(specPath, "# Test\n\n- [x] item 1\n- [x] item 2");
+    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+
+    let gateRan = false;
+    let prReadyRan = false;
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: () => ({
+          state: "OPEN",
+          isDraft: true,
+        }),
+      },
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {
+        prReadyRan = true;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(out()).toContain("promoted to ready");
+    expect(gateRan).toBe(true);
+    expect(prReadyRan).toBe(true);
+  });
+
+  test("--mark-ready with locked worktree returns error", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Write a minimal spec file
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "test-spec.md");
+    writeFileSync(specPath, "# Test\n\n- [x] item 1");
+    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+
+    // Create a lock file with a live PID (lock path is worktreePath/.jarvis.lock)
+    const lockPath = join(worktreePath, ".jarvis.lock");
+    writeFileSync(
+      lockPath,
+      JSON.stringify({
+        pid: process.pid,
+        started_at: new Date().toISOString(),
+        host: "test",
+      }),
+    );
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: () => ({
+          state: "OPEN",
+          isDraft: true,
+        }),
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("worktree is locked by live run");
+  });
+
+  test("--mark-ready gate failure returns error with message", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Write a minimal spec file
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "test-spec.md");
+    writeFileSync(specPath, "# Test\n\n- [x] item 1");
+    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: () => ({
+          state: "OPEN",
+          isDraft: true,
+        }),
+      },
+      runGate: () => {
+        throw new Error("gate command failed");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("ready gate failed");
+    expect(err()).toContain("gate command failed");
+  });
+
+  test("--mark-ready gh pr ready failure returns error", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Write a minimal spec file
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "test-spec.md");
+    writeFileSync(specPath, "# Test\n\n- [x] item 1");
+    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+
+    const { io, err } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: () => ({
+          state: "OPEN",
+          isDraft: true,
+        }),
+      },
+      runGate: () => {
+        // Gate succeeds
+      },
+      prReady: () => {
+        throw new Error("gh pr ready failed");
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("failed to mark PR ready");
+    expect(err()).toContain("gh pr ready failed");
+  });
+
+  test("--mark-ready calls both runGate and prReady seams", () => {
+    const worktreeName = "branch-1";
+    const worktreePath = join(worktreeDir, worktreeName);
+    setupWorktree(worktreePath);
+
+    // Write a minimal spec file
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    const specPath = join(specDir, "test-spec.md");
+    writeFileSync(specPath, "# Test\n\n- [x] item 1");
+    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+
+    let gateSeamCalled = false;
+    let prReadySeamCalled = false;
+
+    const { io, out } = captureIo();
+    const code = triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: () => ({
+          state: "OPEN",
+          isDraft: true,
+        }),
+      },
+      runGate: () => {
+        gateSeamCalled = true;
+      },
+      prReady: () => {
+        prReadySeamCalled = true;
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(out()).toContain("promoted to ready");
+    expect(gateSeamCalled).toBe(true);
+    expect(prReadySeamCalled).toBe(true);
   });
 });

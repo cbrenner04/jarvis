@@ -10,8 +10,8 @@ On a criteria-complete, gate-green run the post-completion review actuator
 commits locally and pushes. When the remote tip moved ahead (the
 implementation commit was already pushed and the PR opened), the actuator's
 push is rejected non-fast-forward and the worktree HEAD diverges from the PR
-head — forcing a manual finalize. Observed on `markdown-corpus-normalize` (PR
-#499), 2026-06-24.
+head — forcing a manual finalize. Observed on `markdown-corpus-normalize`
+(PR #499), 2026-06-24.
 
 ## Direction
 

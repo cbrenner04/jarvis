@@ -114,18 +114,15 @@ exists.
 
 ## Post-iteration dependency install
 
-After each iteration completes and the commit is made (or pushed, depending on
-commit type), the harness checks whether the commit touched `package.json` or
-`bun.lock`. If so, the harness runs the project's `installCommand` (configured
-per-project, defaults to `bun install`) **outside the agent sandbox** where
-network access is available.
+When a patch agent adds a new dependency, it edits `package.json` or lockfile, records the decision in the spec, and continues the iteration. The harness handles dependency installation after the iteration completes: after each commit (subspec, WIP-progress, WIP-blocker), the harness checks whether the commit touched `package.json` or `bun.lock`. If so, the harness runs the project's `installCommand` (configured per-project, defaults to `bun install`) **outside the agent sandbox** where network access is available.
 
 **Flow**:
-1. Commit is made locally in the worktree
-2. Commit is pushed (if git-enabled and not skipped)
-3. Harness detects dep-file change in the commit
-4. Harness runs `installCommand` in the worktree
-5. If install succeeds and regenerates lockfile, harness commits those changes
+1. Agent edits `package.json`/lockfile and continues (in-sandbox install will fail, which is expected)
+2. Commit is made locally in the worktree
+3. Commit is pushed (if git-enabled and not skipped)
+4. Harness detects dep-file change in the commit
+5. Harness runs `installCommand` in the worktree outside the sandbox
+6. If install succeeds and regenerates lockfile, harness commits those changes
 
 **Promotion**: when the worktree's `node_modules` is a symlink to the primary
 checkout (the default for fresh worktrees), the install command fails with

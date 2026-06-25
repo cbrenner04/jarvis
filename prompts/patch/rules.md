@@ -2,7 +2,7 @@
 id: patch.rules
 behavior: patch-rules
 kind: fragment
-revision: 5
+revision: 6
 ---
 # Patch Mode
 
@@ -34,4 +34,4 @@ Execute active spec only.
 - Mid-edit red: do not raise pre-existing/unrelated/baseline-failures blockers; harness validates and rejects unconfirmed claims.
 - Repeated failure (after edits complete): record failure in spec; stop.
 - No TODOs. Put follow-up in spec.
-- New dependency? Record decision in spec; stop.
+- New dependency? Edit `package.json`/lockfile, record the decision in spec, and continue. Dependency installs are harness-managed and run outside the sandbox after the iteration. In-sandbox install failures are expected and not grounds for a `## Blocker`.

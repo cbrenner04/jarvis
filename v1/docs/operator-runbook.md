@@ -28,7 +28,7 @@ An observer session is not done when the PRs merge — it's done when the findin
 
 1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive (see [Merging](#merging)). Keep stuck work moving (diagnose, finalize, or re-queue).
 2. **Create seeds** in `v2/spec/seeds/` for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
-3. **Triage incoming harness suggestions** from other-repo observers (see below) into seeds. The issue stays **open** until the fix is implemented and merged — it is not closed at triage.
+3. **Triage incoming harness suggestions** from other-repo observers (see below) into seeds — **sweep open issues at [session start](#session-start), and again at close-out**. The issue stays **open** until the fix is implemented and merged — it is not closed at triage.
 4. **Write a final report** committed under `reports/` with a precise UTC-timestamp filename (e.g. `reports/2026-06-23T00-52-38Z-overlord.md`) — date-only names collide when there are multiple sessions a day. Cover: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost, in the [standard cost schema](#cost-reporting-standard).
 5. **Maintain this runbook** directly (branch → PR → admin-merge — lighter than the full intent→plan→run pipeline). Keep it current; batch edits rather than one PR per thought.
 6. **Run end-of-session cleanup** ([below](#end-of-session-cleanup)) — `jarvis1 cleanup` to retire merged worktrees and archive specs into their home directories.
@@ -269,6 +269,21 @@ Merge **only** when the diff is correct, in-scope, and leaks nothing sensitive. 
 - **`check:fix`** (safe Biome fixes) leaves residual `noExplicitAny`/unused-var/non-null issues; **`check:fix:unsafe`** applies the riskier fixes and runs in the full ready tier before the final `check` lint. `noNonNullAssertion` has `fix: "none"` in `biome.json` (level retained at `warn`) — it is not rewritten by `check:fix:unsafe` because its autofix rewrites `!` to `?.`, which is `T | undefined` under `noUncheckedIndexedAccess` and fails the subsequent `typecheck` step.
 - **`bun run typecheck`** is a separate gate (TS compiler; `noImplicitAny` lives in `tsconfig.json`, not Biome).
 - Tests that spawn real processes live in `*.sandbox-unrunnable.test.ts` files and only run **sandbox-off**.
+
+## Session start
+
+Feed incoming friction into the system **before** driving any work:
+
+1. **Pull `main`** and check for surviving `.worktree/` state from a prior session (finalize or `jarvis1 cleanup` as needed).
+2. **Sweep open intake issues** and triage each into a seed (see [Triage](#triage-jarvis-on-jarvis-observer)):
+
+   ```sh
+   gh issue list --repo cbrenner04/jarvis --state open
+   ```
+
+   Seed every actionable one at the start, so reported friction is captured and can be **queued into this session** if it's in scope (the issue stays open until its fix merges). Re-check at close-out for issues filed mid-session.
+
+Doing this first — not just as an end-of-session afterthought — is what guarantees outside friction actually enters the seed backlog instead of getting lost.
 
 ## End-of-session cleanup
 

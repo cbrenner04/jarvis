@@ -69,6 +69,7 @@ export type Project = {
   updateSnapshotsCommand?: string;
   readyCommand?: string;
   readyGateRetryBound?: number;
+  installCommand?: string;
 };
 
 export type ProjectMatch = {
@@ -483,6 +484,16 @@ function validateConfig(input: unknown, file: string): Config {
       }
       project.readyCommand = readyCommandRaw;
     }
+    const installCommandRaw = (value as Record<string, unknown>).installCommand;
+    if (installCommandRaw !== undefined) {
+      if (typeof installCommandRaw !== "string") {
+        fail(file, `project ${JSON.stringify(name)} installCommand must be a string`);
+      }
+      if (installCommandRaw.trim() === "") {
+        fail(file, `project ${JSON.stringify(name)} installCommand must be a non-empty string`);
+      }
+      project.installCommand = installCommandRaw;
+    }
     const readyGateRetryBoundRaw = (value as Record<string, unknown>).readyGateRetryBound;
     if (readyGateRetryBoundRaw !== undefined) {
       project.readyGateRetryBound = validateNonNegativeInteger(
@@ -501,6 +512,7 @@ function validateConfig(input: unknown, file: string): Config {
       "updateSnapshotsCommand",
       "readyCommand",
       "readyGateRetryBound",
+      "installCommand",
     ]);
     const projectObj = value as Record<string, unknown>;
     for (const key of Object.keys(projectObj)) {
@@ -514,7 +526,7 @@ function validateConfig(input: unknown, file: string): Config {
         }
         fail(
           file,
-          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, readyGateRetryBound)`,
+          `project ${JSON.stringify(name)}: unknown key ${JSON.stringify(key)} (allowed: root, origin, git, siblings, plan, updateSnapshotsCommand, readyCommand, readyGateRetryBound, installCommand)`,
         );
       }
     }

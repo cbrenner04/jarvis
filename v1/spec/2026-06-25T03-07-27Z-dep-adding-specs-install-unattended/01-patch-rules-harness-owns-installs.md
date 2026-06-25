@@ -29,13 +29,13 @@ The patch rules must reflect that dependency installs are harness-managed.
 
 ## Acceptance criteria
 
-- [ ] The patch rules no longer instruct the agent to stop when adding a
+- [x] The patch rules no longer instruct the agent to stop when adding a
       dependency; they instruct it to edit `package.json`/lockfile, record the
       decision, and continue.
-- [ ] The assembled patch prompt (`patch.rules` fragment) states that dependency
+- [x] The assembled patch prompt (`patch.rules` fragment) states that dependency
       installs are harness-managed and that an in-sandbox install failure is not
       grounds for a `## Blocker`.
-- [ ] The `patch.rules` fragment `revision` is greater than its prior value.
+- [x] The `patch.rules` fragment `revision` is greater than its prior value.
 
 ## Documentation updates
 

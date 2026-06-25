@@ -84,21 +84,21 @@ cheap symlink in place for everything else.
 
 ## Acceptance criteria
 
-- [ ] After a patch iteration whose commit changes `package.json` or `bun.lock`
+- [x] After a patch iteration whose commit changes `package.json` or `bun.lock`
       (any commit path), the worktree's `node_modules` is a real directory (not
       the shared symlink) containing the newly added dependency, installed by
       the harness outside the agent sandbox.
-- [ ] A patch iteration that changes neither `package.json` nor `bun.lock` runs
+- [x] A patch iteration that changes neither `package.json` nor `bun.lock` runs
       no install: on a pre-promotion worktree the `node_modules` symlink stays
       intact; on a promoted worktree the real `node_modules` is untouched.
-- [ ] After a successful harness install that regenerates the lockfile, the
+- [x] After a successful harness install that regenerates the lockfile, the
       post-install `package.json`/`bun.lock` are committed on the branch before
       the ready gate runs.
-- [ ] Resuming a run whose worktree already has a promoted real `node_modules`
+- [x] Resuming a run whose worktree already has a promoted real `node_modules`
       does not throw and does not attempt to re-create the symlink over it.
-- [ ] A failed harness install is logged loudly and does not abort the run; the
+- [x] A failed harness install is logged loudly and does not abort the run; the
       completion ready gate still runs.
-- [ ] `installCommand` is configurable per project and defaults to
+- [x] `installCommand` is configurable per project and defaults to
       `bun install` when unset.
 
 ## Documentation updates

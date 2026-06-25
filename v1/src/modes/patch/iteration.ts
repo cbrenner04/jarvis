@@ -39,6 +39,7 @@ import {
   getIndexTitle,
   tryFinishSpecIfDone,
 } from "./completion-pipeline.ts";
+import { commitLockfileChanges, detectDepChange, installDeps } from "./dep-install.ts";
 import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "./idle-watchdog.ts";
 import {
   applyReset,
@@ -365,6 +366,49 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     }
   }
 
+  // Helper to check for dep changes after commit and run install if needed
+  function maybeInstallDeps(agentLabel: string): void {
+    if (!gitEnabled) {
+      return; // Only run install in git-enabled mode
+    }
+
+    try {
+      if (!detectDepChange(agentWorkingDir)) {
+        return; // No dep changes detected
+      }
+
+      fanout("harness", "[dep-install] detected package.json or bun.lock change\n", "stderr");
+
+      // Get the install command from config
+      const project = cfg.projects[preflight.project.key];
+      const installCommand = project?.installCommand ?? "bun install";
+
+      fanout("harness", `[dep-install] running: ${installCommand}\n`, "stderr");
+
+      const result = installDeps(agentWorkingDir, installCommand);
+      if (result.kind === "error") {
+        fanout("harness", `[dep-install] install failed: ${result.message}\n`, "stderr");
+        return; // Continue run on install failure
+      }
+
+      fanout("harness", "[dep-install] install succeeded\n", "stderr");
+
+      // Try to commit regenerated lockfile
+      try {
+        commitLockfileChanges(agentWorkingDir, agentLabel);
+        fanout("harness", "[dep-install] committed regenerated lockfile\n", "stderr");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        fanout("harness", `[dep-install] failed to commit lockfile: ${message}\n`, "stderr");
+        // Continue even if commit fails
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      fanout("harness", `[dep-install] unexpected error: ${message}\n`, "stderr");
+      // Continue on any error
+    }
+  }
+
   if (iteration > cfg.maxIterations) {
     printBoundedTail(opts, [...state.latestIterationStdout, ...state.latestIterationStderr]);
     fanout("harness", `max iterations (${cfg.maxIterations}) reached; stopping\n`, "stderr");
@@ -520,6 +564,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           return { kind: "return", exitCode: 1 };
         }
       }
+
+      // Try to install deps if they changed
+      maybeInstallDeps(agent.attributionLabel());
 
       if (allChecked) {
         state.iteration += 1;
@@ -1051,6 +1098,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               return { kind: "return", exitCode: 1 };
             }
 
+            // Try to install deps if they changed (before push so lockfile commit gets pushed)
+            maybeInstallDeps(agent.attributionLabel());
+
             if (!opts.skipGhCheck) {
               try {
                 const firstPush = !hasUpstream(agentWorkingDir);
@@ -1092,6 +1142,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               fanout("harness", `failed to commit completed subspec ${afterSubspecPath}: ${message}\n`, "stderr");
               return { kind: "return", exitCode: 1 };
             }
+
+            // Try to install deps if they changed (before push so lockfile commit gets pushed)
+            maybeInstallDeps(agent.attributionLabel());
 
             if (!opts.skipGhCheck) {
               try {
@@ -1185,6 +1238,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               fanout("harness", `failed to commit WIP progress for ${afterSubspecPath}: ${message}\n`, "stderr");
               return { kind: "return", exitCode: 1 };
             }
+
+            // Try to install deps if they changed
+            maybeInstallDeps(agent.attributionLabel());
           }
           ctx.state.acProgressSinceLastGate = true;
         } else {
@@ -1254,6 +1310,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 fanout("harness", `failed to push blocker commit for ${blockerInfo.path}: ${message}\n`, "stderr");
                 return { kind: "return", exitCode: 1 };
               }
+
+              // Try to install deps if they changed
+              maybeInstallDeps(agent.attributionLabel());
             }
           }
 

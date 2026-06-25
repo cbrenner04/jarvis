@@ -467,15 +467,27 @@ export function createWorktreeSymlinks(
     }
 
     if (existsSync(targetPath)) {
-      try {
-        const currentLink = readlinkSync(targetPath);
-        const expectedTarget = relative(dirname(targetPath), sourcePath);
-        if (currentLink === expectedTarget) {
+      // Skip node_modules if it's already a real directory (promoted from symlink)
+      if (linkTarget === "node_modules") {
+        try {
+          readlinkSync(targetPath);
+          // It's a symlink, so we should remove it and recreate
+          rmSync(targetPath, { recursive: true });
+        } catch {
+          // Not a symlink, it's a real directory; skip and don't recreate symlink
           continue;
         }
-        rmSync(targetPath, { recursive: true });
-      } catch {
-        throw new Error(`Cannot create symlink at ${targetPath}: non-symlink file or directory already exists`);
+      } else {
+        try {
+          const currentLink = readlinkSync(targetPath);
+          const expectedTarget = relative(dirname(targetPath), sourcePath);
+          if (currentLink === expectedTarget) {
+            continue;
+          }
+          rmSync(targetPath, { recursive: true });
+        } catch {
+          throw new Error(`Cannot create symlink at ${targetPath}: non-symlink file or directory already exists`);
+        }
       }
     }
 

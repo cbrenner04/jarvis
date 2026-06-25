@@ -96,6 +96,28 @@ Push failures are errors that halt work; there is no automatic retry. This
 keeps the draft PR synchronized with the latest commit, allowing reviewers
 and CI to see incremental progress.
 
+## Dependency installation on change
+
+When a commit touches `package.json` or `bun.lock`, the harness detects the
+change and installs dependencies outside the agent sandbox (with network
+access). This resolves the constraint that neither agent can install when
+`node_modules` is a symlink to the primary checkout.
+
+**Symlink promotion**: if the worktree's `node_modules` is a symlink, the
+install replaces it with a real directory. If it is already real, the install
+leaves it intact. On resume, the worktree-creation logic skips recreating
+the `node_modules` symlink if a real directory already exists at that path.
+
+**Lockfile commit**: if the install regenerates `package.json` or `bun.lock`,
+the harness commits those changes as a dedicated Jarvis-owned commit with
+`Jarvis-Agent: harness` trailer. This commit is created before the ready gate
+runs, so the PR never ships with uncommitted lockfile changes.
+
+**Install failure**: install failures are logged loudly but do not halt the
+run. The next iteration's typecheck and ready gate may fail if the dependency
+is not actually installed. This is a non-self-healing path — the operator must
+resolve the install manually by running the install command in the worktree.
+
 ## Draft PR lifecycle
 
 After the first successful subspec commit lands, `jarvis run` opens a draft

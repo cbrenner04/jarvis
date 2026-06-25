@@ -195,8 +195,17 @@ target the same spec name.
 
 The plan name is determined up front from the ready-intent's frontmatter `name:` 
 field. Jarvis verifies the name for collision with existing worktrees, branches, 
-and specs, applying collision suffixing if needed. The worktree is created directly 
-at `.worktree/plan-<plan-name>/` on `plan/<plan-name>`, and the `intent.md` is 
+and specs, applying collision suffixing if needed. 
+
+**Self-heal on re-run:** When a fresh `commit: true` run discovers a surviving `plan/<plan-name>` 
+branch and worktree that are disposable (local-only scratch with no commits beyond the merge-base, 
+no remote tracking ref, and no committed `<targetDir>/<timestamp>-<plan-name>` spec dir), the run 
+tears down the stale worktree/branch and recreates fresh under the same `<plan-name>`. A dirty or 
+uncommitted worktree is treated as disposable scratch. Non-disposable state (a committed spec dir, 
+remote branch, or branch with plan commits beyond base) triggers normal collision suffixing (`-2`, `-3`, …) 
+and the surviving state is preserved.
+
+The worktree is created directly at `.worktree/plan-<plan-name>/` on `plan/<plan-name>`, and the `intent.md` is 
 seeded as a byte-for-byte copy of the ready-intent.
 
 **Phase commits** in plan mode have special subjects:

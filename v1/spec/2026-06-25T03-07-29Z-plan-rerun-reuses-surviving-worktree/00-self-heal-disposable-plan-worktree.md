@@ -44,16 +44,16 @@ Scope: plan `commit: true` only; `createManagedWorktree`'s throw is unchanged an
 
 ## Acceptance criteria
 
-- [ ] A `commit: true` fresh re-run whose only surviving state is a disposable local `plan-<name>` worktree/branch (no plan commits beyond the `plan/<name>`-vs-HEAD merge-base, no `origin/plan/<name>`, no committed `<targetDir>/<timestamp>-<name>`) reuses the same `<name>` — it tears the surviving worktree+branch down and recreates fresh, without manual `jarvis1 cleanup` or `git branch -D`, and without bumping to `<name>-2`.
-- [ ] The disposable re-run drafts from a clean recreated worktree (no leftover files or commits from the prior attempt).
-- [ ] A surviving worktree with uncommitted/dirty scratch (SIGINT before the draft commit) and no plan commits beyond base classifies disposable and is force-removed and recreated under the same `<name>`.
-- [ ] "No plan commits beyond base" is evaluated against the merge-base of surviving `plan/<name>` and current HEAD; a branch with one plan commit beyond that merge-base classifies non-disposable.
-- [ ] A committed `<targetDir>/<timestamp>-<name>` spec dir (timestamp-prefixed) blocks teardown — the run classifies non-disposable and bumps to `<name>-2` despite the unprefixed `<name>` not literally matching.
-- [ ] When `origin/plan/<name>` cannot be determined (offline/transient git error), the run classifies non-disposable and does not tear down the local branch.
-- [ ] A surviving `plan-<name>` carrying a committed plan commit beyond base, a pushed `origin/plan/<name>`, an unreachable remote, or a committed `<targetDir>/<timestamp>-<name>` spec dir is not torn down: the run keeps current collision behavior (suffix bump to `<name>-2`) and the surviving state is preserved.
-- [ ] A failed teardown leaves the existing actionable worktree-exists message (`... resolve with jarvis1 cleanup or remove manually`) surfacing on the subsequent creation, not a generic failure.
-- [ ] `plan-worktree.test.ts` "fails if worktree already exists at the target path" stays green (the `createManagedWorktree` self-guard throw is unchanged).
-- [ ] `plan-command.sandbox-unrunnable.test.ts` git:false collision test stays green (git:false naming path unchanged by this scope).
+- [x] A `commit: true` fresh re-run whose only surviving state is a disposable local `plan-<name>` worktree/branch (no plan commits beyond the `plan/<name>`-vs-HEAD merge-base, no `origin/plan/<name>`, no committed `<targetDir>/<timestamp>-<name>`) reuses the same `<name>` — it tears the surviving worktree+branch down and recreates fresh, without manual `jarvis1 cleanup` or `git branch -D`, and without bumping to `<name>-2`.
+- [x] The disposable re-run drafts from a clean recreated worktree (no leftover files or commits from the prior attempt).
+- [x] A surviving worktree with uncommitted/dirty scratch (SIGINT before the draft commit) and no plan commits beyond base classifies disposable and is force-removed and recreated under the same `<name>`.
+- [x] "No plan commits beyond base" is evaluated against the merge-base of surviving `plan/<name>` and current HEAD; a branch with one plan commit beyond that merge-base classifies non-disposable.
+- [x] A committed `<targetDir>/<timestamp>-<name>` spec dir (timestamp-prefixed) blocks teardown — the run classifies non-disposable and bumps to `<name>-2` despite the unprefixed `<name>` not literally matching.
+- [x] When `origin/plan/<name>` cannot be determined (offline/transient git error), the run classifies non-disposable and does not tear down the local branch.
+- [x] A surviving `plan-<name>` carrying a committed plan commit beyond base, a pushed `origin/plan/<name>`, an unreachable remote, or a committed `<targetDir>/<timestamp>-<name>` spec dir is not torn down: the run keeps current collision behavior (suffix bump to `<name>-2`) and the surviving state is preserved.
+- [x] A failed teardown leaves the existing actionable worktree-exists message (`... resolve with jarvis1 cleanup or remove manually`) surfacing on the subsequent creation, not a generic failure.
+- [x] `plan-worktree.test.ts` "fails if worktree already exists at the target path" stays green (the `createManagedWorktree` self-guard throw is unchanged).
+- [x] `plan-command.sandbox-unrunnable.test.ts` git:false collision test stays green (git:false naming path unchanged by this scope).
 
 ## Documentation updates
 

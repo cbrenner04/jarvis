@@ -3,14 +3,12 @@ import { execSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  isNonFastForwardPushError,
-  tryConvergeNonFfActuatorPush,
-} from "../src/worktree.ts";
+import { isNonFastForwardPushError, tryConvergeNonFfActuatorPush } from "../src/worktree.ts";
 
 describe("isNonFastForwardPushError", () => {
   test("detects 'non-fast-forward' error", () => {
-    const stderr = "error: failed to push some refs to 'origin'\n\
+    const stderr =
+      "error: failed to push some refs to 'origin'\n\
 hint: Updates were rejected because the tip of your current branch is behind\n\
 hint: its remote counterpart. Integrate the remote changes before pushing again.";
     expect(isNonFastForwardPushError(stderr)).toBe(true);

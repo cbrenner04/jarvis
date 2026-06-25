@@ -1029,11 +1029,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
                   const convergenceResult = tryConvergeNonFfActuatorPush(opts.cwd, branch);
                   if (convergenceResult.converged) {
                     // Convergence succeeded; exit with 11 to trigger auto-ready
-                    opts.fanout(
-                      "harness",
-                      `review: actuator push rejected non-ff; converged to PR head\n`,
-                      "stdout",
-                    );
+                    opts.fanout("harness", `review: actuator push rejected non-ff; converged to PR head\n`, "stdout");
                     opts.writeTelemetry({
                       agent: agent.name,
                       iteration: ctx.passNumber,

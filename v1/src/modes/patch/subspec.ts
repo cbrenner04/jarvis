@@ -89,6 +89,7 @@ export function commitWipProgress(
     newlyChecked: AcceptanceCriterion[];
     checkedTotal: number;
     total: number;
+    humanOnlyCount?: number;
     agentLabel: string;
   },
 ): void {
@@ -101,7 +102,12 @@ export function commitWipProgress(
   execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
 
   const relativeSpecPath = relative(realpathSync(opts.cwd), realpathSync(subspecPath));
-  const summary = `WIP: ${parsed.h1} (${opts.checkedTotal}/${opts.total} criteria)`;
+  let summary: string;
+  if (opts.humanOnlyCount !== undefined && opts.humanOnlyCount > 0) {
+    summary = `WIP: ${parsed.h1} (${opts.checkedTotal}/${opts.total} criteria, ${opts.humanOnlyCount} human-verify)`;
+  } else {
+    summary = `WIP: ${parsed.h1} (${opts.checkedTotal}/${opts.total} criteria)`;
+  }
   const body =
     opts.newlyChecked.length === 0
       ? `Spec: ${relativeSpecPath}`

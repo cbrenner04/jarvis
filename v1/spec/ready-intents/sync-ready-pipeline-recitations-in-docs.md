@@ -30,4 +30,3 @@ to prevent re-drift, vs. minimal mechanical edits per doc.
 - Docs that abstract `ready` without enumerating steps.
 
 ## Prerequisites
-

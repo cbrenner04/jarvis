@@ -186,7 +186,7 @@ export function isDisposablePlanWorktree(args: {
   specTimestamp?: boolean;
 }): boolean {
   const branchName = `plan/${args.planName}`;
-  const specTimestamp = args.specTimestamp ?? false;
+  const _specTimestamp = args.specTimestamp ?? false;
   const worktreePath = join(args.projectRoot, ".worktree", `plan-${args.planName}`);
 
   // Check if local branch exists

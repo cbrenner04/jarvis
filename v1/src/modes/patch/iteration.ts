@@ -1313,7 +1313,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               commitSubspec(afterSubspecPath, {
                 cwd: agentWorkingDir,
                 agentLabel: agent.attributionLabel(),
-                ...(humanOnlyUnchecked.length > 0 ? { humanOnlyCount: humanOnlyUnchecked.length, total: afterCriteria.length } : {}),
+                ...(humanOnlyUnchecked.length > 0
+                  ? { humanOnlyCount: humanOnlyUnchecked.length, total: afterCriteria.length }
+                  : {}),
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);

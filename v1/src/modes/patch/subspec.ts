@@ -6,7 +6,10 @@ import { appendAgentTrailer } from "../../commit-trailer.ts";
 
 export type { AcceptanceCriterion };
 
-export function commitSubspec(subspecPath: string, opts: { cwd?: string; agentLabel: string; humanOnlyCount?: number; total?: number }): void {
+export function commitSubspec(
+  subspecPath: string,
+  opts: { cwd?: string; agentLabel: string; humanOnlyCount?: number; total?: number },
+): void {
   const subspecContent = readFileSync(subspecPath, "utf8");
   const indexPath = getIndexPath(subspecPath);
   const indexContent = readFileSync(indexPath, "utf8");

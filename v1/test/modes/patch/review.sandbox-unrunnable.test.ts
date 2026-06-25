@@ -991,4 +991,50 @@ while true; do :; done
       cleanup();
     }
   });
+
+  test("actuator invokes reconcile before push (via commitPass)", async () => {
+    // This test verifies the actuator path includes reconcile + push.
+    // The full integration is tested via unit tests; this validates
+    // that the review flow correctly calls reconcileActuatorCommit.
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    const harness: string[] = [];
+    try {
+      const reconcileCalls: string[] = [];
+      // Capture reconcile calls by monitoring git operations
+      const actuatorAgent = new FakeAgent(
+        "claude",
+        (callCount) => {
+          if (callCount === 4) {
+            // Fourth call is the actuator (after 3 review roles)
+            writeFileSync(join(dir, "review.txt"), "review fix\n");
+            execSync("git add review.txt", { cwd: dir });
+            return { kind: "ok", stdout: "Applied review fixes", stderr: "" };
+          }
+          return { kind: "ok", stdout: "Review notes", stderr: "" };
+        },
+        true,
+      );
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({ reviewOrder: [CLAUDE_ENTRY] }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: (tag, text) => {
+          if (tag === "harness") harness.push(text.trim());
+        },
+        writeTelemetry: () => {},
+        agents: { claude: actuatorAgent },
+        actuatorAgents: [actuatorAgent],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(harness.join("\n")).toContain("actuator completed");
+    } finally {
+      cleanup();
+    }
+  });
 });

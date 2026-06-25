@@ -345,7 +345,17 @@ The review phase flow is:
    the reuse predicate). When the tree changed or no green was recorded, runs
    **`full`** then `gh pr ready`. Under **`--resume-review`**, always **`full`**
    then `gh pr ready`.
-4. **Review-incomplete exit auto-ready**: if the review phase exits `11` 
+4. **Actuator push reconciliation**: When the verdict actuator commits code changes,
+   the harness reconciles the local branch with `origin/<branch>` before pushing.
+   `bestEffortFetch` is called first; if it succeeds and the remote has commits not
+   reachable from local `HEAD`, the branch is rebased onto `origin/<branch>`. If
+   the rebase conflicts, it is aborted and the phase exits `11` (`review-incomplete`)
+   with the actuator commit kept unpushed and implementation commits intact. On
+   fetch failure (network down, no origin), the reconcile is skipped and the push
+   proceeds as normal (divergence may occur). When the tree is clean (no actuator
+   changes), no fetch, rebase, or push runs. This ensures the actuator's push is
+   fast-forward and the worktree HEAD does not diverge from the PR head.
+5. **Review-incomplete exit auto-ready**: if the review phase exits `11` 
    (review-incomplete), the harness attempts to auto-ready the PR via `maybeMarkReady` 
    before returning exit code `11`. On an unchanged tree, this runs the `ready` gate 
    with tier **`fast`** and calls `gh pr ready`. If the tree moved during review 

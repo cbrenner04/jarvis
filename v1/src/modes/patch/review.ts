@@ -22,7 +22,7 @@ import {
 } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
-import { pushCurrent } from "../../worktree.ts";
+import { pushCurrent, reconcileActuatorCommit, RebaseConflictError } from "../../worktree.ts";
 import { type RunReviewOptions, runReview } from "../review/run.ts";
 import {
   type ReviewAdapter,
@@ -978,6 +978,33 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
                 stdio: ["pipe", "pipe", "pipe"],
                 input: commitMessage,
               });
+
+              // Reconcile with remote before push
+              try {
+                reconcileActuatorCommit(opts.cwd);
+              } catch (reconcileErr) {
+                if (reconcileErr instanceof RebaseConflictError) {
+                  opts.fanout(
+                    "harness",
+                    `review: actuator rebase conflict: ${reconcileErr.message}\n`,
+                    "stderr",
+                  );
+                  const usageAndCost = extractUsageAndCost(result, agent.name, configuredModel);
+                  opts.writeTelemetry({
+                    agent: agent.name,
+                    iteration: ctx.passNumber,
+                    durationMs,
+                    kind: "error",
+                    exitReason: "actuator-rebase-conflict",
+                    patch_phase: "review",
+                    ...usageAndCost,
+                    ...telemetryMeta,
+                  });
+                  throw new ReviewTerminalError(reconcileErr.message, 11, { telemetryRecorded: true });
+                }
+                // Other reconcile errors are non-fatal; fall through to push
+              }
+
               pushCurrent({ cwd: opts.cwd, firstPush: false });
 
               // Refresh PR footer

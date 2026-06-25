@@ -112,6 +112,51 @@ the harness-injected linked subspec can differ: the banner reflects top-level
 index progress; the prompt carries the active linked subspec body when one
 exists.
 
+## Post-iteration dependency install
+
+After each iteration completes and the commit is made (or pushed, depending on
+commit type), the harness checks whether the commit touched `package.json` or
+`bun.lock`. If so, the harness runs the project's `installCommand` (configured
+per-project, defaults to `bun install`) **outside the agent sandbox** where
+network access is available.
+
+**Flow**:
+1. Commit is made locally in the worktree
+2. Commit is pushed (if git-enabled and not skipped)
+3. Harness detects dep-file change in the commit
+4. Harness runs `installCommand` in the worktree
+5. If install succeeds and regenerates lockfile, harness commits those changes
+
+**Promotion**: when the worktree's `node_modules` is a symlink to the primary
+checkout (the default for fresh worktrees), the install command fails with
+`EPERM`. The harness removes the symlink before installing, creating a real
+`node_modules` directory that persists for the run. On resume, `createWorktreeSymlinks`
+skips the `node_modules` entry if a real directory already exists, avoiding
+overwriting the promoted real directory with a new symlink.
+
+**Lockfile commit**: any changes to `package.json` or `bun.lock` regenerated
+by the install are committed by the harness with message
+`harness: regenerate lockfile after dep install` and Jarvis-Agent trailer.
+This commit is created before the ready gate runs, so the PR never ships with
+uncommitted lockfile state.
+
+**Failure handling**: install failures are logged loudly but do not halt the
+run. The next iteration's typecheck and ready gate may fail if the dependency
+is actually missing. This is not a self-healing path — manual resolution is
+required if needed.
+
+**Configuration**: the `installCommand` is optional per-project and defaults to
+`bun install` when unset. Set it in the project's config block:
+
+```json
+"projects": {
+  "my-repo": {
+    "root": "/path/to/repo",
+    "installCommand": "npm ci"
+  }
+}
+```
+
 ## Ready script tiers
 
 Operator entrypoint `bun run ready` runs the **`full`** tier. Harness gates

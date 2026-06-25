@@ -69,6 +69,7 @@ export type Project = {
   updateSnapshotsCommand?: string;
   readyCommand?: string;
   readyGateRetryBound?: number;
+  installCommand?: string;
 };
 
 export type ProjectMatch = {

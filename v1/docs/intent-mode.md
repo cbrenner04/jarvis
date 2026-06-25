@@ -67,13 +67,6 @@ heading (e.g., `### Prerequisites` or `## prerequisites`) is treated as absent
 and receives an empty section; it is not promoted. Malformed `## Prerequisites`
 bodies (non-bullet text) remain a hard error and abort without partial writes.
 
-After structural repair, each staged intent file is markdownlint-autofixed against
-the harness's `.markdownlint-cli2.jsonc` config to ensure generated files pass the
-`lint:md` ready gate. Issue references (e.g., `#499`) are preserved as references
-and never promoted to headings. If a file contains non-autofixable linting violations
-(rules that cannot be automatically fixed), the emit fails with a named error before
-any file moves into `ready-intents/`.
-
 `name:` collisions are hard errors. If `<targetDir>/ready-intents/<name>.md`
 already exists, the run aborts without overwriting files and without opening a
 PR. Disallowed filenames (ordering prefixes, `index`, characters outside

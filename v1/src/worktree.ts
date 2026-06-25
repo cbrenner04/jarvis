@@ -398,6 +398,57 @@ function getProcessStderr(err: unknown): string {
   return "";
 }
 
+export function isNonFastForwardPushError(stderr: string): boolean {
+  const patterns = [
+    /non-fast-forward/i,
+    /failed to push some refs/i,
+    /Updates were rejected because/i,
+    /tip of your current branch is behind/i,
+  ];
+  return patterns.some((p) => p.test(stderr));
+}
+
+export function tryConvergeNonFfActuatorPush(cwd: string, branch: string): { converged: boolean } {
+  try {
+    // Fetch the remote branch
+    execFileSync("git", ["fetch", "origin", branch], {
+      cwd,
+      stdio: "pipe",
+    });
+  } catch {
+    return { converged: false };
+  }
+
+  try {
+    // Get tree SHAs
+    const localTree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+
+    const remoteTree = execFileSync("git", ["rev-parse", "FETCH_HEAD^{tree}"], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+
+    if (localTree !== remoteTree) {
+      return { converged: false };
+    }
+
+    // Trees match; reset to fetched tip
+    execFileSync("git", ["reset", "--hard", "FETCH_HEAD"], {
+      cwd,
+      stdio: "pipe",
+    });
+
+    return { converged: true };
+  } catch {
+    return { converged: false };
+  }
+}
+
 export function createWorktreeSymlinks(
   projectRoot: string,
   worktreePath: string,

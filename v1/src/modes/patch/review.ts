@@ -22,7 +22,13 @@ import {
 } from "../../ready-gate.ts";
 import type { CostSource, PatchTelemetryPhase, TelemetryKind, UsageSource } from "../../telemetry.ts";
 import { extractUsageAndCost } from "../../telemetry-enrichment.ts";
-import { pushCurrent, RebaseConflictError, reconcileActuatorCommit } from "../../worktree.ts";
+import {
+  isNonFastForwardPushError,
+  pushCurrent,
+  RebaseConflictError,
+  reconcileActuatorCommit,
+  tryConvergeNonFfActuatorPush,
+} from "../../worktree.ts";
 import { type RunReviewOptions, runReview } from "../review/run.ts";
 import {
   type ReviewAdapter,
@@ -1015,8 +1021,41 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              opts.fanout("harness", `review: actuator commit failed: ${message}\n`, "stderr");
               const usageAndCost = extractUsageAndCost(result, agent.name, configuredModel);
+
+              // Check if this is a non-fast-forward push rejection
+              if (isNonFastForwardPushError(message)) {
+                try {
+                  const convergenceResult = tryConvergeNonFfActuatorPush(opts.cwd, branch);
+                  if (convergenceResult.converged) {
+                    // Convergence succeeded; exit with 11 to trigger auto-ready
+                    opts.fanout("harness", `review: actuator push rejected non-ff; converged to PR head\n`, "stdout");
+                    opts.writeTelemetry({
+                      agent: agent.name,
+                      iteration: ctx.passNumber,
+                      durationMs,
+                      kind: "error",
+                      exitReason: "actuator-push-converged",
+                      patch_phase: "review",
+                      ...usageAndCost,
+                      ...telemetryMeta,
+                    });
+                    throw new ReviewTerminalError("non-ff push converged", 11);
+                  }
+                  // Convergence failed; fall through to surface the original push error
+                } catch (convergenceErr) {
+                  // If the convergence itself threw an unexpected error, fall through
+                  if (!(convergenceErr instanceof ReviewTerminalError)) {
+                    // Unexpected error; fall through to surface the original push error
+                  } else {
+                    // Re-throw ReviewTerminalError (convergence succeeded and threw exit-11)
+                    throw convergenceErr;
+                  }
+                }
+              }
+
+              // Non-ff convergence not attempted or failed; surface the original push error
+              opts.fanout("harness", `review: actuator commit failed: ${message}\n`, "stderr");
               opts.writeTelemetry({
                 agent: agent.name,
                 iteration: ctx.passNumber,

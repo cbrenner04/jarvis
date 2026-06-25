@@ -69,21 +69,21 @@ tree-equal / single-failed-push case only.
 
 ## Acceptance criteria
 
-- [ ] A non-fast-forward review-actuator push rejection is identified by the
+- [x] A non-fast-forward review-actuator push rejection is identified by the
   documented stderr heuristics after transient retry exhausts, not surfaced as
   an unrecovered diverged worktree when trees match.
-- [ ] When local HEAD tree equals the fetched PR-head tree, the worktree HEAD
+- [x] When local HEAD tree equals the fetched PR-head tree, the worktree HEAD
   converges to the fetched PR head (actuator commit discarded) and is no longer
   diverged from `origin/<branch>`.
-- [ ] When local HEAD tree ≠ fetched PR-head tree, the worktree is left
+- [x] When local HEAD tree ≠ fetched PR-head tree, the worktree is left
   unchanged, the push failure is surfaced, and convergence observability is not
   emitted.
-- [ ] On `review-incomplete` (exit `11`) after a converged non-ff actuator
+- [x] On `review-incomplete` (exit `11`) after a converged non-ff actuator
   push, auto-ready readies the PR head; the run still exits `11`.
-- [ ] A transient push error and a non-fast-forward rejection are handled
+- [x] A transient push error and a non-fast-forward rejection are handled
   differently: transient retries as before; only a classified non-fast-forward
   rejection attempts convergence.
-- [ ] Converge and surfaced-failure paths are operator-distinguishable via
+- [x] Converge and surfaced-failure paths are operator-distinguishable via
   distinct fanout and/or telemetry `exitReason`.
 
 ## Documentation updates

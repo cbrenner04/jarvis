@@ -2,18 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentName, AgentResult } from "../../src/agents/types.ts";
 import { runAgent } from "../../src/agents/spawn.ts";
+import type { AgentName, AgentResult } from "../../src/agents/types.ts";
 import { createFakeSpawnWithOutput } from "./fake-spawn.ts";
 
 const CODEX_REFRESH_TOKEN_REVOKED =
   "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.";
 
-async function classifyAgentError(
-  agentName: AgentName,
-  exitCode: number,
-  stderr: string,
-): Promise<AgentResult> {
+async function classifyAgentError(agentName: AgentName, exitCode: number, stderr: string): Promise<AgentResult> {
   const cwd = mkdtempSync(join(tmpdir(), "spawn-test-"));
   const recorder = createFakeSpawnWithOutput({
     [agentName]: { exit: exitCode, stdout: "", stderr },

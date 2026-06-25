@@ -179,7 +179,7 @@ function remoteSpecBranchExists(projectRoot: string, branchName: string): boolea
   }
 }
 
-function isDisposablePlanWorktree(args: {
+export function isDisposablePlanWorktree(args: {
   projectRoot: string;
   planName: string;
   targetDir: string;
@@ -187,6 +187,7 @@ function isDisposablePlanWorktree(args: {
 }): boolean {
   const branchName = `plan/${args.planName}`;
   const specTimestamp = args.specTimestamp ?? false;
+  const worktreePath = join(args.projectRoot, ".worktree", `plan-${args.planName}`);
 
   // Check if local branch exists
   const localBranchExists = (() => {
@@ -201,7 +202,15 @@ function isDisposablePlanWorktree(args: {
     }
   })();
 
-  // Check if origin has the branch (treat errors as non-disposable)
+  // Check if local worktree exists
+  const worktreeExists = existsSync(worktreePath);
+
+  // Disposability requires at least some surviving state (branch or worktree)
+  if (!localBranchExists && !worktreeExists) {
+    return false; // No surviving state; non-disposable
+  }
+
+  // Check if origin has the branch (fail-closed: unreachable means non-disposable)
   const remoteExists = (() => {
     try {
       const output = execFileSync("git", ["ls-remote", "--heads", "origin", branchName], {
@@ -211,7 +220,9 @@ function isDisposablePlanWorktree(args: {
       });
       return output.trim().length > 0;
     } catch {
-      return true; // Treat unknown/unreachable as non-disposable
+      // Treat unknown/unreachable as non-disposable to preserve potentially-pushed work.
+      // This is intentionally fail-closed: the collision helper uses fail-open semantics for performance.
+      return true;
     }
   })();
 
@@ -240,13 +251,14 @@ function isDisposablePlanWorktree(args: {
     }
   }
 
-  // Check if committed spec dir exists
+  // Check if committed spec dir exists (match timestamped dirs via prefix stripping)
   const specRoot = join(args.projectRoot, args.targetDir);
   if (existsSync(specRoot)) {
     try {
       for (const entry of readdirSync(specRoot)) {
-        const stripForTimestamp = specTimestamp ? stripPlanSpecTimestampPrefix(entry) : entry;
-        if (stripForTimestamp === args.planName) {
+        // Always strip timestamp prefix when checking, consistent with collision check
+        const stripped = stripPlanSpecTimestampPrefix(entry);
+        if (stripped === args.planName) {
           return false; // Committed spec dir exists
         }
       }
@@ -261,9 +273,19 @@ function isDisposablePlanWorktree(args: {
 }
 
 function _removeSpecDirIfPresent(worktreePath: string, specDirBasename: string, targetDir: string = "spec") {
-  const specDir = join(worktreePath, targetDir, specDirBasename);
-  if (existsSync(specDir)) {
-    rmSync(specDir, { recursive: true, force: true });
+  // Try both timestamped and unprefixed versions
+  const specParentDir = join(worktreePath, targetDir);
+  if (existsSync(specParentDir)) {
+    try {
+      for (const entry of readdirSync(specParentDir)) {
+        const stripped = stripPlanSpecTimestampPrefix(entry);
+        if (stripped === specDirBasename) {
+          rmSync(join(specParentDir, entry), { recursive: true, force: true });
+        }
+      }
+    } catch {
+      // Best effort
+    }
   }
 }
 
@@ -296,8 +318,19 @@ function planNameCollides(
   checkCommittedPlanState: boolean,
 ): boolean {
   if (checkCommittedPlanState) {
-    if (existsSync(join(projectRoot, targetDir, planName))) {
-      return true;
+    // Check for committed spec dir, matching timestamped dirs via prefix stripping
+    const specRoot = join(projectRoot, targetDir);
+    if (existsSync(specRoot)) {
+      try {
+        for (const entry of readdirSync(specRoot)) {
+          const stripped = stripPlanSpecTimestampPrefix(entry);
+          if (stripped === planName) {
+            return true;
+          }
+        }
+      } catch {
+        // Read failure: conservatively assume no collision
+      }
     }
     if (existsSync(join(projectRoot, ".worktree", `plan-${planName}`))) {
       return true;

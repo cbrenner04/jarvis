@@ -8,10 +8,7 @@ import { join } from "node:path";
  * Skips write when content is unchanged.
  * Emits stderr notice when ≥1 lines are removed.
  */
-export function stripNonContractIndexLines(args: {
-  specDirPath: string;
-  stderr?: (s: string) => void;
-}): void {
+export function stripNonContractIndexLines(args: { specDirPath: string; stderr?: (s: string) => void }): void {
   const indexPath = join(args.specDirPath, "index.md");
   if (!existsSync(indexPath)) {
     return; // No-op when index.md is absent

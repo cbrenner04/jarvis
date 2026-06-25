@@ -8,7 +8,8 @@ import { createFakeSpawnWithOutput } from "./fake-spawn.ts";
 describe("spawn classification order: transient → auth → model_config → quota", () => {
   test("durable auth stderr surfaces as quota with authFailure: true for Codex", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "spawn-test-"));
-    const stderr = "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.";
+    const stderr =
+      "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.";
     const recorder = createFakeSpawnWithOutput({
       codex: { exit: 1, stdout: "", stderr },
     });
@@ -54,30 +55,34 @@ describe("spawn classification order: transient → auth → model_config → qu
     expect(result).toEqual({ kind: "error", exitCode: 401, stderr });
   });
 
-  test("stderr matching both auth and transient retries same agent on error kind", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "spawn-test-"));
-    const stderr = "connection reset: refresh token revoked";
-    const recorder = createFakeSpawnWithOutput({
-      codex: { exit: 1, stdout: "", stderr },
-    });
+  test(
+    "stderr matching both auth and transient retries same agent on error kind",
+    async () => {
+      const cwd = mkdtempSync(join(tmpdir(), "spawn-test-"));
+      const stderr = "connection reset: refresh token revoked";
+      const recorder = createFakeSpawnWithOutput({
+        codex: { exit: 1, stdout: "", stderr },
+      });
 
-    const result = await runAgent(
-      {
-        name: "codex",
-        binary: "codex",
-        cwd,
-        buildArgv: () => [],
-        stdio: ["ignore", "pipe", "pipe"],
-        streamErrorPrefix: "test:",
-        spawn: recorder.spawn,
-      },
-      "test",
-      { cwd },
-    );
+      const result = await runAgent(
+        {
+          name: "codex",
+          binary: "codex",
+          cwd,
+          buildArgv: () => [],
+          stdio: ["ignore", "pipe", "pipe"],
+          streamErrorPrefix: "test:",
+          spawn: recorder.spawn,
+        },
+        "test",
+        { cwd },
+      );
 
-    // Transient wins in the precedence order, so this stays as error (no authFailure rotation)
-    expect(result).toEqual({ kind: "error", exitCode: 1, stderr });
-  }, { timeout: 10000 });
+      // Transient wins in the precedence order, so this stays as error (no authFailure rotation)
+      expect(result).toEqual({ kind: "error", exitCode: 1, stderr });
+    },
+    { timeout: 10000 },
+  );
 
   test("genuine model-id misconfiguration stays model_config", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "spawn-test-"));
@@ -132,7 +137,8 @@ describe("spawn classification order: transient → auth → model_config → qu
 
   test("auth failure on non-codex agents does not rotate", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "spawn-test-"));
-    const stderr = "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.";
+    const stderr =
+      "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.";
     const recorder = createFakeSpawnWithOutput({
       claude: { exit: 1, stdout: "", stderr },
     });

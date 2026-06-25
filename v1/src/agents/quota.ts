@@ -67,6 +67,16 @@ const aiderModelConfigurationPatterns = [
   /\bmodel is not loaded\b/i,
   /\bno such model\b/i,
 ];
+
+const codexCredentialAuthPatterns = [
+  /\brefresh token was revoked\b/i,
+  /\brefresh token revoked\b/i,
+  /\blog out and sign in\b/i,
+  /\bplease log out and sign in\b/i,
+  /\bre-?authenticate/i,
+  /\bre-?authentication required\b/i,
+];
+
 const weakQuotaPatterns = [/\b429\b/i, /\b503\b/i, /\brate.?limit\b/i, /\btoo many requests\b/i];
 
 const sharedTransportPatterns = [
@@ -114,6 +124,11 @@ export function isModelConfigurationSignal(nameOrStderr: AgentName | string, may
         ? [...modelConfigurationPatterns, ...aiderModelConfigurationPatterns]
         : modelConfigurationPatterns;
 
+  return patterns.some((pattern) => pattern.test(stderr));
+}
+
+export function isCredentialAuthSignal(name: AgentName, _exitCode: number, stderr: string): boolean {
+  const patterns = name === "codex" ? codexCredentialAuthPatterns : [];
   return patterns.some((pattern) => pattern.test(stderr));
 }
 

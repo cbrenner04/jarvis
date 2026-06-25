@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   applyQuotaFallbackToAgentResult,
   applyQuotaFallbackWhenAllowed,
+  isCredentialAuthSignal,
   isModelConfigurationSignal,
   isQuotaSignal,
   isTransientNetworkError,
@@ -112,6 +113,58 @@ describe("isModelConfigurationSignal", () => {
 
   test("does not match bare 'connection refused' for Aider without model/host hint", () => {
     expect(isModelConfigurationSignal("aider", "connection refused")).toBe(false);
+  });
+});
+
+describe("isCredentialAuthSignal", () => {
+  const CODEX_REFRESH_TOKEN_REVOKED =
+    "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again.";
+
+  test("matches Codex refresh token revoked sample", () => {
+    expect(isCredentialAuthSignal("codex", 1, CODEX_REFRESH_TOKEN_REVOKED)).toBe(true);
+  });
+
+  test("matches Codex re-authenticate patterns", () => {
+    expect(isCredentialAuthSignal("codex", 1, "Please re-authenticate to continue")).toBe(true);
+    expect(isCredentialAuthSignal("codex", 1, "Re-authentication required")).toBe(true);
+    expect(isCredentialAuthSignal("codex", 1, "refresh token revoked")).toBe(true);
+    expect(isCredentialAuthSignal("codex", 1, "Please log out and sign in again")).toBe(true);
+  });
+
+  test("does not match bare 401 or unauthorized", () => {
+    expect(isCredentialAuthSignal("codex", 401, "401 Unauthorized")).toBe(false);
+    expect(isCredentialAuthSignal("codex", 1, "401 unauthorized")).toBe(false);
+  });
+
+  test("does not treat model configuration as auth failure", () => {
+    expect(isCredentialAuthSignal("codex", 1, "unknown model")).toBe(false);
+  });
+
+  test("does not classify auth signals for non-codex agents", () => {
+    expect(
+      isCredentialAuthSignal(
+        "claude",
+        1,
+        "Your access token could not be refreshed because your refresh token was revoked.",
+      ),
+    ).toBe(false);
+    expect(
+      isCredentialAuthSignal(
+        "cursor",
+        1,
+        "Your access token could not be refreshed because your refresh token was revoked.",
+      ),
+    ).toBe(false);
+  });
+
+  test("matches regardless of exit code value", () => {
+    expect(
+      isCredentialAuthSignal(
+        "codex",
+        0,
+        "Your access token could not be refreshed because your refresh token was revoked.",
+      ),
+    ).toBe(true);
   });
 });
 

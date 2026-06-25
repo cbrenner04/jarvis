@@ -11,6 +11,7 @@ import { promptCommand } from "../../../src/modes/prompt/run.ts";
 import {
   HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED,
   HARNESS_QUOTA_FALLBACK_STRICT,
+  harnessAuthRotateLine,
 } from "../../../src/quota-harness-messages.ts";
 import { FAKE_AGENT_SPAWN_PID, waitForPollCount } from "../../descendant-poll-test-helpers.ts";
 
@@ -215,6 +216,28 @@ describe("promptCommand", () => {
     expect(out).toContain("No changes were made.");
     expect(cap.err()).toContain(`claude: ${HARNESS_QUOTA_FALLBACK_STRICT}`);
     expect(cap.err()).toContain("limit");
+    expect(cap.err()).not.toContain(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
+  });
+
+  test("falls through claude to codex on auth failure; emits auth-rotation note", async () => {
+    setupPromptEnv();
+    const cap = captureIo();
+    const claude = new FakeAgent("claude", () => ({
+      kind: "quota",
+      stderr: "refresh token revoked",
+      authFailure: true,
+    }));
+    const codex = new FakeAgent("codex", () => ({ kind: "ok", stdout: "codex answer\n", stderr: "" }));
+
+    const code = await runPrompt({ claude, codex }, cap);
+
+    expect(code).toBe(0);
+    expect(claude.calls).toHaveLength(1);
+    expect(codex.calls).toHaveLength(1);
+    const out = cap.out();
+    expect(out).toContain("codex answer");
+    expect(cap.err()).toContain(`claude: ${harnessAuthRotateLine("claude")}`);
+    expect(cap.err()).not.toContain(HARNESS_QUOTA_FALLBACK_STRICT);
     expect(cap.err()).not.toContain(HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED);
   });
 

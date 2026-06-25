@@ -16,7 +16,7 @@ export type AgentResult =
       cost_source?: "agent" | "computed" | "estimated" | "no-price" | "no-usage";
       warnings?: string[];
     }
-  | { kind: "quota"; stderr: string }
+  | { kind: "quota"; stderr: string; authFailure?: true }
   | { kind: "model_config"; stderr: string }
   | { kind: "error"; exitCode: number; stderr: string };
 

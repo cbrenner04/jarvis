@@ -21,3 +21,8 @@ export const HARNESS_ALL_AGENTS_QUOTA_EXHAUSTED = "all agents quota-exhausted";
 
 /** Emitted on stderr when no-progress escalates to the next agent (no trailing newline). */
 export const HARNESS_NO_PROGRESS_FALLBACK = "no progress; escalating to next agent";
+
+/** Emitted on stderr when auth failure rotates to the next agent, naming the agent needing re-auth (no trailing newline). */
+export function harnessAuthRotateLine(agent: string): string {
+  return `${agent} auth failed; re-authenticate and rerun`;
+}

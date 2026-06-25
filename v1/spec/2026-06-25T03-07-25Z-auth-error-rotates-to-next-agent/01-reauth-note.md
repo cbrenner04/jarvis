@@ -26,9 +26,9 @@ its own thesis.
 
 ## Acceptance criteria
 
-- [ ] On rotating past an agent for an auth failure, each rotation path (patch run, shrink, review, prompt, plan) emits a one-line operator note naming that agent as needing re-authentication.
-- [ ] The note is a stable grep substring distinct from `quota exhausted; falling back`, the lenient line, and the transient-retry phrasing; a plain (non-auth) quota rotation does not emit it — `v1/test/modes/plan/emit-plan-quota-stderr.test.ts` stays green for the existing quota path.
-- [ ] The run continues on the fallback agent after the note; final exhaustion still prints the existing `all agents quota-exhausted` line.
+- [x] On rotating past an agent for an auth failure, each rotation path (patch run, shrink, review, prompt, plan) emits a one-line operator note naming that agent as needing re-authentication.
+- [x] The note is a stable grep substring distinct from `quota exhausted; falling back`, the lenient line, and the transient-retry phrasing; a plain (non-auth) quota rotation does not emit it — `v1/test/modes/plan/emit-plan-quota-stderr.test.ts` stays green for the existing quota path.
+- [x] The run continues on the fallback agent after the note; final exhaustion still prints the existing `all agents quota-exhausted` line.
 
 ## Documentation updates
 

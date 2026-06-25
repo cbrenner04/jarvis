@@ -36,10 +36,10 @@ classification keys on stderr.)
 
 ## Acceptance criteria
 
-- [ ] An agent CLI failure whose stderr matches a durable credential/sign-in-required signature rotates to the next configured agent instead of terminating the run. Classification is global (the shared spawn classifier), so rotation occurs on any quota-rotation path; verified by tests in patch (`jarvis run`) and plan (`jarvis plan`) as representatives.
-- [ ] A transient-looking blip (bare `401`/`unauthorized`, or stderr matching both auth and a transient signal) does **not** rotate on the first failure — it stays `kind: "error"` and is eligible for the existing same-agent transient retry.
-- [ ] A genuine model-id misconfiguration still terminates fatally (exit 3, `model_config`) with no rotation — existing `isModelConfigurationSignal` tests in `v1/test/agents/quota.test.ts` stay green.
-- [ ] When every agent is exhausted by auth and/or quota, the run terminates via the existing quota-exhaustion path (exit 2), not exit 3.
+- [x] An agent CLI failure whose stderr matches a durable credential/sign-in-required signature rotates to the next configured agent instead of terminating the run. Classification is global (the shared spawn classifier), so rotation occurs on any quota-rotation path; verified by tests in patch (`jarvis run`) and plan (`jarvis plan`) as representatives.
+- [x] A transient-looking blip (bare `401`/`unauthorized`, or stderr matching both auth and a transient signal) does **not** rotate on the first failure — it stays `kind: "error"` and is eligible for the existing same-agent transient retry.
+- [x] A genuine model-id misconfiguration still terminates fatally (exit 3, `model_config`) with no rotation — existing `isModelConfigurationSignal` tests in `v1/test/agents/quota.test.ts` stay green.
+- [x] When every agent is exhausted by auth and/or quota, the run terminates via the existing quota-exhaustion path (exit 2), not exit 3.
 
 ## Documentation updates
 

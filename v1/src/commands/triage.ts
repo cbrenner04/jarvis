@@ -930,9 +930,7 @@ function triageMarkReady(opts: TriageCommandOptions): number {
       const raw = readFileSync(lockPath, "utf8");
       const lock: WorktreeLock = JSON.parse(raw);
       if (isProcessAlive(lock.pid)) {
-        opts.io.stdout(
-          `triage --mark-ready: worktree is locked by live run (PID ${lock.pid}). Cannot proceed.\n`,
-        );
+        opts.io.stdout(`triage --mark-ready: worktree is locked by live run (PID ${lock.pid}). Cannot proceed.\n`);
         return 1;
       }
     } catch {

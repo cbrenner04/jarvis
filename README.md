@@ -462,7 +462,7 @@ bun run ready
 
 That script runs `bun install --frozen-lockfile` first so Biome is available,
 then `bun run check:fix` (Biome's safe format and lint-rule fixer), `bun run
-typecheck`, `bun run test`, and `bun run check` with a 10-minute wall-clock
+typecheck`, `bun run test`, `bun run check`, and `bun run lint:md` with a 10-minute wall-clock
 deadline. If any step hangs or the total time exceeds 10 minutes, the script
 kills the process tree and exits with code 124.
 

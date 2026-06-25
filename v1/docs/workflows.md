@@ -75,7 +75,7 @@ flowchart TD
     planEntry --> draft(["Draft: prereq gate →<br/>index.md + subspecs (one call)"]):::llm
     draft --> openDraft["Open draft PR"]:::det
     openDraft --> review(["Self-review: adversary → advocate →<br/>adjudicator → actuator<br/>(one flow per pass) × --review-passes (default 1)"]):::llm
-    review --> markReady["bun run ready (install → check:fix →<br/>typecheck → test → check)<br/>then gh pr ready (auto)"]:::det
+    review --> markReady["bun run ready (install → check:fix →<br/>typecheck → test → check → lint:md)<br/>then gh pr ready (auto)"]:::det
   end
 
   markReady --> handoff["Human reviews + merges plan PR to main"]:::det
@@ -187,7 +187,7 @@ flowchart TD
   reviewBlk -- no --> reviewCommit["Commit plan: review: &lt;role&gt; / actuator · push<br/>updatePrBody (det)"]:::det
   reviewCommit --> reviewLoop
 
-  reviewLoop -- no --> ready["bun run ready (install → check:fix →<br/>typecheck → test → check)<br/>then gh pr ready (auto)"]:::det
+  reviewLoop -- no --> ready["bun run ready (install → check:fix →<br/>typecheck → test → check → lint:md)<br/>then gh pr ready (auto)"]:::det
   ready --> done["exit 0 · print Next steps"]:::stop
 
   classDef det fill:#dff5e1,stroke:#2f7d3a,color:#0b3d16;
@@ -229,7 +229,7 @@ What loops vs. what's a distinct path:
   `bun run check:fix` (Biome's mutating format/lint fixer). If `check:fix`
   mutates any files, the harness commits and pushes them as a single
   `chore: apply pre-ready check:fix` commit. Then it runs `typecheck → test →
-  check` in CI order. Only if all steps succeed does the harness call
+  check → lint:md` in CI order. Only if all steps succeed does the harness call
   `gh pr ready`. If any step fails, the PR stays in draft.
 
 `--resume` re-enters the diagram at the review-loop, reusing the existing
@@ -361,7 +361,7 @@ What loops vs. what's a distinct path:
 - **Readiness gates**: the completion-transition gate, the shrink/review
   baseline gates, and the review final gate all run `bun install
   --frozen-lockfile`, then `bun run check:fix` (Biome's mutating format/lint
-  fixer), then `typecheck → test → check` in CI order. The baseline gates reuse
+  fixer), then `typecheck → test → check → lint:md` in CI order. The baseline gates reuse
   the recorded green result when the tree is unchanged; the final gate always
   verifies before the draft→ready flip. If any step fails, the PR stays in
   draft for manual correction.

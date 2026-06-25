@@ -565,6 +565,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         }
       }
 
+      // Try to install deps if they changed
+      maybeInstallDeps(agent.attributionLabel());
+
       if (allChecked) {
         state.iteration += 1;
         const done = (await tryFinishSpecIfDone(ctx)) ?? 0;
@@ -1095,6 +1098,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               return { kind: "return", exitCode: 1 };
             }
 
+            // Try to install deps if they changed (before push so lockfile commit gets pushed)
+            maybeInstallDeps(agent.attributionLabel());
+
             if (!opts.skipGhCheck) {
               try {
                 const firstPush = !hasUpstream(agentWorkingDir);
@@ -1104,9 +1110,6 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 fanout("harness", `failed to push blocker commit for ${afterSubspecPath}: ${message}\n`, "stderr");
                 return { kind: "return", exitCode: 1 };
               }
-
-              // Try to install deps if they changed
-              maybeInstallDeps(agent.attributionLabel());
             }
           }
 
@@ -1140,6 +1143,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               return { kind: "return", exitCode: 1 };
             }
 
+            // Try to install deps if they changed (before push so lockfile commit gets pushed)
+            maybeInstallDeps(agent.attributionLabel());
+
             if (!opts.skipGhCheck) {
               try {
                 const firstPush = !hasUpstream(agentWorkingDir);
@@ -1149,9 +1155,6 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 fanout("harness", `failed to push completed subspec ${afterSubspecPath}: ${message}\n`, "stderr");
                 return { kind: "return", exitCode: 1 };
               }
-
-              // Try to install deps if they changed
-              maybeInstallDeps(agent.attributionLabel());
 
               try {
                 let _createdThisIteration = false;

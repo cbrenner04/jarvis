@@ -12,6 +12,16 @@ But **"fewer manual steps" is not "more commands."** The fix for a manual step i
 
 The measure of progress is the **shrinking count of manual interventions per session**, not the number of commands. Some turns surface a gap; many won't — don't force a new intent every turn.
 
+## Operator feedback cadence
+
+The orchestration loop (the observer's own model calls) is the dominant session cost — far above the jarvis runs themselves. So narrate sparingly:
+
+- **Status updates only when something lands** — a PR merges, a stage completes, a seed ships. Report it tersely.
+- **Otherwise, radio silence.** After launching background work, stop; the completion notification re-wakes you. No "still running" / "here's the current queue" turns.
+- **Interrupt only to get a decision** you genuinely can't resolve yourself.
+
+Useful feedback is welcome; running commentary is not. The happy middle — land-events plus genuine questions — keeps the observer cheap without going dark.
+
 ## Observer responsibilities (definition of done)
 
 An observer session is not done when the PRs merge — it's done when the findings and tooling persist. Every session owes:

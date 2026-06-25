@@ -6,6 +6,9 @@ import { loadConfig } from "../config.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
+import { runReadyGateWithTier } from "../ready-gate.ts";
+import { withSyncTransientRetry } from "../gh.ts";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;
@@ -24,6 +27,10 @@ export type TriageCommandOptions = {
   worktreeName?: string;
   markReady?: boolean;
   ghRunner?: TriageGhRunner;
+  /** Test seam: run the ready gate. Defaults to runReadyGateWithTier. */
+  runGate?: (cwd: string, readyCommand?: string) => void;
+  /** Test seam: mark PR ready. Defaults to gh pr ready with retry. */
+  prReady?: (branch: string, cwd: string) => void;
 };
 
 export type DirtyKind = "clean" | "untracked-only" | "modified" | "mixed";
@@ -923,22 +930,7 @@ function triageMarkReady(opts: TriageCommandOptions): number {
     return 1;
   }
 
-  // Check if the worktree is locked by a live run PID
-  const lockPath = getWorktreeLockPath(worktreePath);
-  if (existsSync(lockPath)) {
-    try {
-      const raw = readFileSync(lockPath, "utf8");
-      const lock: WorktreeLock = JSON.parse(raw);
-      if (isProcessAlive(lock.pid)) {
-        opts.io.stdout(`triage --mark-ready: worktree is locked by live run (PID ${lock.pid}). Cannot proceed.\n`);
-        return 1;
-      }
-    } catch {
-      // Ignore lock file read errors
-    }
-  }
-
-  // Get the spec path from .active-spec-path marker
+  // Get the spec path from .active-spec-path marker (before PR check)
   const specMarkerPath = join(worktreePath, ".active-spec-path");
   let specPath: string | undefined;
   if (existsSync(specMarkerPath)) {
@@ -958,14 +950,22 @@ function triageMarkReady(opts: TriageCommandOptions): number {
     return 1;
   }
 
-  // Check if spec is complete
-  const specComplete = computeSpecComplete(specPath);
-  if (!specComplete) {
-    opts.io.stderr(`triage --mark-ready: spec is not complete — linked subspecs have unchecked items\n`);
-    return 1;
+  // Check if the worktree is locked by a live run PID
+  const lockPath = getWorktreeLockPath(worktreePath);
+  if (existsSync(lockPath)) {
+    try {
+      const raw = readFileSync(lockPath, "utf8");
+      const lock: WorktreeLock = JSON.parse(raw);
+      if (isProcessAlive(lock.pid)) {
+        opts.io.stderr(`triage --mark-ready: worktree is locked by live run (PID ${lock.pid}). Cannot proceed.\n`);
+        return 1;
+      }
+    } catch {
+      // Ignore lock file read errors
+    }
   }
 
-  // Check PR state
+  // Pre-check order: (a) PR exists, (b) PR is DRAFT, (c) spec complete
   const ghRunner = opts.ghRunner || createDefaultGhRunner();
   const prState = ghRunner.getPrState(branch);
   if (!prState) {
@@ -977,6 +977,13 @@ function triageMarkReady(opts: TriageCommandOptions): number {
     opts.io.stderr(
       `triage --mark-ready: PR is not in DRAFT state (current state: ${prState.state}). Cannot promote.\n`,
     );
+    return 1;
+  }
+
+  // Check if spec is complete (treating single-file specs as complete if no unchecked items)
+  const specComplete = isSpecComplete(specPath);
+  if (!specComplete) {
+    opts.io.stderr(`triage --mark-ready: spec is not complete — linked subspecs have unchecked items\n`);
     return 1;
   }
 
@@ -994,19 +1001,48 @@ function triageMarkReady(opts: TriageCommandOptions): number {
     // Ignore config loading errors, use default readyCommand
   }
 
-  // Re-run the completion ready gate once
-  const gateResult = runCompletionReadyGate(worktreePath, readyCommand);
-  if (gateResult.kind === "error") {
-    opts.io.stderr(`triage --mark-ready: ready gate failed\n${gateResult.message}\n`);
+  // Re-run the completion ready gate once with no recorded green carrier
+  const realRunGate = (cwd: string, cmd?: string) => {
+    runReadyGateWithTier({
+      cwd,
+      agentLabel: "triage-mark-ready",
+      ...(cmd !== undefined ? { readyCommand: cmd } : {}),
+    });
+  };
+
+  const runGateFn = opts.runGate ?? realRunGate;
+  let gateError: Error | null = null;
+  try {
+    runGateFn(worktreePath, readyCommand);
+  } catch (err) {
+    gateError = err instanceof Error ? err : new Error(String(err));
+  }
+
+  if (gateError) {
+    const message = gateError.message || String(gateError);
+    opts.io.stderr(`triage --mark-ready: ready gate failed\n${message}\n`);
     return 1;
   }
 
-  // Mark the PR ready
+  // Mark the PR ready with retry wrapper
+  const realPrReady = (branch: string, cwd: string) => {
+    withSyncTransientRetry(
+      () => {
+        execFileSync("gh", ["pr", "ready", branch], {
+          cwd,
+          stdio: "pipe",
+        });
+      },
+      {
+        op: "gh pr ready",
+        isPrReady: true,
+      },
+    );
+  };
+
+  const prReadyFn = opts.prReady ?? realPrReady;
   try {
-    execFileSync("gh", ["pr", "ready", branch], {
-      cwd: worktreePath,
-      stdio: "pipe",
-    });
+    prReadyFn(branch, worktreePath);
     opts.io.stdout(`triage --mark-ready: PR promoted to ready\n`);
     return 0;
   } catch (err) {
@@ -1016,94 +1052,35 @@ function triageMarkReady(opts: TriageCommandOptions): number {
   }
 }
 
-function captureExecError(err: unknown, fallback: string): string {
-  const out = err as NodeJS.ErrnoException & {
-    stdout?: Buffer;
-    stderr?: Buffer;
-  };
-  const captured = [out.stdout?.toString(), out.stderr?.toString()].filter(Boolean).join("\n").trim();
-  return captured || fallback;
-}
+function isSpecComplete(specPath: string): boolean {
+  if (!specPath || !existsSync(specPath)) {
+    return false;
+  }
 
-function runCompletionReadyGate(
-  cwd: string,
-  readyCommand?: string,
-): { kind: "success" } | { kind: "error"; message: string } {
   try {
-    const tokens = readyCommand ? readyCommand.trim().split(/\s+/) : ["bun", "run", "ready"];
-    const [head, ...args] = tokens;
-    try {
-      execFileSync(head!, args, {
-        cwd,
-        env: { ...process.env, JARVIS_READY_TIER: "full" },
-        stdio: "pipe",
-      });
-    } catch (err) {
-      return {
-        kind: "error",
-        message: captureExecError(err, `${tokens.join(" ")} failed`),
-      };
+    const unchecked = countUnchecked(specPath);
+    if (unchecked > 0) {
+      return false;
     }
 
-    // Check if the tree is still dirty after the gate
-    const porcelain = execFileSync("git", ["status", "--porcelain"], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
+    if (basename(specPath) === "index.md") {
+      // For index specs, check if linked subspecs are complete
+      const indexContent = readFileSync(specPath, "utf8");
+      const parsed = parseSpec(indexContent);
+      const linked = parsed.linkedSubspecs;
 
-    if (porcelain !== "") {
-      // Tree is dirty — need to commit and push
-      try {
-        execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
-        const commitMessage = "chore: apply pre-ready check:fix";
-        execFileSync("git", ["commit", "-F", "-"], {
-          cwd,
-          env: process.env,
-          stdio: ["pipe", "pipe", "pipe"],
-          input: commitMessage,
-        });
-      } catch (err) {
-        return {
-          kind: "error",
-          message: captureExecError(err, "git commit failed"),
-        };
+      if (linked.length === 0) {
+        // Single-file or malformed spec with no linked subspecs: treat as complete if no unchecked items
+        return true;
       }
 
-      // Re-check if still dirty
-      const porcelainAfter = execFileSync("git", ["status", "--porcelain"], {
-        cwd,
-        encoding: "utf8",
-        stdio: "pipe",
-      }).trim();
-      if (porcelainAfter !== "") {
-        return {
-          kind: "error",
-          message: `pre-ready check:fix commit succeeded but worktree is still dirty:\n${porcelainAfter}\nDo not mark ready. Inspect the branch and commit or discard the unexpected changes.`,
-        };
-      }
-
-      // Push the branch
-      try {
-        execFileSync("git", ["push"], {
-          cwd,
-          stdio: "pipe",
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return {
-          kind: "error",
-          message: `git push failed: ${message}`,
-        };
-      }
+      // For index specs with linked subspecs, all must be checked
+      return linked.every((item: { checked: boolean }) => item.checked);
     }
 
-    return { kind: "success" };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return {
-      kind: "error",
-      message,
-    };
+    // Single-file spec: complete if no unchecked items
+    return true;
+  } catch {
+    return false;
   }
 }

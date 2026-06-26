@@ -12,7 +12,10 @@ A patch run drives three sub-roles that currently cannot tier independently:
 
 The review actuator and patch actuator both resolve from
 `modes.patch.agentOrder`, so an operator cannot assign them different orders.
-This subspec adds the config surface for per-sub-role overrides; wiring lands in
+Note they consume that order differently: the verdict actuator reads only the
+head's model (`modes.patch.agentOrder[0]?.model` in `review.ts`), while the
+shrink agent and patch loop iterate the full list for quota fallback. This
+subspec adds the config surface for per-sub-role overrides; wiring lands in
 `01`.
 
 ## Decisions
@@ -36,13 +39,21 @@ This subspec adds the config surface for per-sub-role overrides; wiring lands in
   the block, which would break every existing config.
 - Unknown keys under `subRoleAgentOrder` fail config load with a named error.
   Rules out silently ignoring a typo'd sub-role name, which would leave an
-  operator believing a tier was applied when it was not.
+  operator believing a tier was applied when it was not. This is intentionally
+  stricter than the lenient `modes.patch` parent (which tolerates unknown keys):
+  a dropped sub-role tier is silent and costly, where a stray unknown key on
+  `modes.patch` is harmless, so the child warrants hard failure the parent does
+  not.
+- Field location: `subRoleAgentOrder` lives on the patch `ModeConfig`, alongside
+  the existing patch-only `shrink` field. Rules out a separate patch-only type,
+  which would fragment patch config for no gain since `ModeConfig` already
+  carries patch-only fields.
 
 ## Task checklist
 
-- Add an optional `subRoleAgentOrder` field to the patch `ModeConfig` (or a
-  patch-only type) typed as a partial map of `reviewPanel` / `reviewActuator` /
-  `patchActuator` to `AgentEntry[]`.
+- Add an optional `subRoleAgentOrder` field to the patch `ModeConfig` typed as a
+  partial map of `reviewPanel` / `reviewActuator` / `patchActuator` to
+  `AgentEntry[]`.
 - Validate the block at config load: each present key runs the
   `validateAgentOrder` contract under a field name like
   `modes.patch.subRoleAgentOrder.<key>`; unknown keys fail with a named error;

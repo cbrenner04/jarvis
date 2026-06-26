@@ -164,9 +164,7 @@ function archiveExternalSpec(
   }
 
   if (existsSync(destination)) {
-    io.stderr(
-      `spec archive destination already exists; left source in place: ${source} -> ${destination}\n`,
-    );
+    io.stderr(`spec archive destination already exists; left source in place: ${source} -> ${destination}\n`);
     return false;
   }
 

@@ -657,7 +657,7 @@ describe("cleanupCommand", () => {
     const externalSpecDir = join(externalRoot, "specs", projectId, specName);
     mkdirSync(externalSpecDir, { recursive: true });
 
-    const worktreePath = createTrackedWorktree(specName);
+    const _worktreePath = createTrackedWorktree(specName);
 
     const code = cleanupCommand({
       projectRoot,

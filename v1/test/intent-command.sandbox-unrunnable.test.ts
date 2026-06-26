@@ -895,6 +895,8 @@ describe("intentCommand", () => {
       expect(cap.err()).toContain("seeds/");
       // Verify the error message names the external home, not the in-repo dir
       expect(cap.err()).not.toContain("spec/seeds");
+      // Positively assert the message names the external seeds home
+      expect(cap.err()).toContain("specs/project/seeds");
 
       const externalRoot = join(env.cfgDir, "specs", "project");
       expect(existsSync(join(externalRoot, "ready-intents"))).toBe(false);
@@ -1464,6 +1466,8 @@ describe("intentCommand", () => {
       expect(cap.err()).toContain("intent: raw seed files must live under");
       expect(cap.err()).toContain("seeds/");
       expect(cap.err()).not.toContain("v1/spec/seeds");
+      // Positively assert the message names the external seeds home
+      expect(cap.err()).toContain("specs/project/seeds");
       const externalRoot = join(env.cfgDir, "specs", "project");
       expect(existsSync(join(externalRoot, "ready-intents"))).toBe(false);
     } finally {

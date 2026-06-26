@@ -118,6 +118,11 @@ describe("buildPrompt", () => {
     expect(prompt).toContain("- ../repo-b");
     expect(prompt).toContain("Treat these directories as part of the target project");
   });
+
+  test("includes guidance that agent should not run git commit", () => {
+    const prompt = buildPrompt("spec/example/index.md");
+    expect(prompt).toContain("git commit");
+  });
 });
 
 describe("buildVerdictActuatorPrompt", () => {

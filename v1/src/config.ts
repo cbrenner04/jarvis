@@ -235,14 +235,20 @@ function validateConfig(input: unknown, file: string): Config {
 
   let patchActuationCapabilityFloor: number | undefined;
   if (patchModeObj.actuationCapabilityFloor !== undefined) {
-    if (typeof patchModeObj.actuationCapabilityFloor !== "number" || !Number.isFinite(patchModeObj.actuationCapabilityFloor)) {
+    if (
+      typeof patchModeObj.actuationCapabilityFloor !== "number" ||
+      !Number.isFinite(patchModeObj.actuationCapabilityFloor)
+    ) {
       fail(file, "modes.patch.actuationCapabilityFloor must be a finite number");
     }
     patchActuationCapabilityFloor = patchModeObj.actuationCapabilityFloor;
     // Enforce coupling: if floor is set, all entries must have numeric capability
     for (const entry of patchAgentOrder) {
       if (entry.capability === undefined) {
-        fail(file, `modes.patch.actuationCapabilityFloor is set but modes.patch.agentOrder entry (${entry.agent}) is missing capability`);
+        fail(
+          file,
+          `modes.patch.actuationCapabilityFloor is set but modes.patch.agentOrder entry (${entry.agent}) is missing capability`,
+        );
       }
     }
   }
@@ -556,7 +562,9 @@ function validateConfig(input: unknown, file: string): Config {
         agentOrder: patchAgentOrder,
         prNarrative: patchPrNarrative,
         shrink: patchShrink,
-        ...(patchActuationCapabilityFloor !== undefined ? { actuationCapabilityFloor: patchActuationCapabilityFloor } : {}),
+        ...(patchActuationCapabilityFloor !== undefined
+          ? { actuationCapabilityFloor: patchActuationCapabilityFloor }
+          : {}),
       },
       plan: {
         agentOrder: planAgentOrder,
@@ -907,10 +915,7 @@ export function resolveReviewAgentOrder(cfg: Config): AgentEntry[] {
   return cfg.modes.plan.agentOrder;
 }
 
-export function filterAgentsByCapabilityFloor(
-  agents: AgentEntry[],
-  floor: number | undefined,
-): AgentEntry[] {
+export function filterAgentsByCapabilityFloor(agents: AgentEntry[], floor: number | undefined): AgentEntry[] {
   if (floor === undefined) {
     return agents;
   }

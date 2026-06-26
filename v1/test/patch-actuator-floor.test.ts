@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentEntry } from "../src/config.ts";
+import type { AgentEntry, Config } from "../src/config.ts";
 import { filterAgentsByCapabilityFloor } from "../src/config.ts";
 import { buildActiveAgents } from "../src/modes/patch/preflight.ts";
-import type { Config } from "../src/config.ts";
 import type { RunCommandOptions } from "../src/modes/patch/run.ts";
 
 describe("filterAgentsByCapabilityFloor", () => {

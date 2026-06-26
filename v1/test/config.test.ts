@@ -2714,8 +2714,6 @@ describe("review mode config validation", () => {
       }),
     );
     const cfg = loadConfig({ dir });
-    expect(cfg.modes.plan.agentOrder).toEqual([
-      { agent: "claude", model: "haiku", capability: 3 },
-    ]);
+    expect(cfg.modes.plan.agentOrder).toEqual([{ agent: "claude", model: "haiku", capability: 3 }]);
   });
 });

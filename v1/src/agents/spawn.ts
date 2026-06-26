@@ -242,8 +242,9 @@ export async function runAgent(config: SpawnConfig, prompt: string, opts: AgentR
       });
 
       // Sleep before re-attempt, racing the abort signal
-      if (!opts.signal?.aborted && attempt < TRANSIENT_BACKOFF_SCHEDULE_MS.length) {
-        await sleepMs(TRANSIENT_BACKOFF_SCHEDULE_MS[attempt]!, opts.signal);
+      const backoffMs = TRANSIENT_BACKOFF_SCHEDULE_MS[attempt];
+      if (!opts.signal?.aborted && backoffMs !== undefined) {
+        await sleepMs(backoffMs, opts.signal);
       }
 
       // Abort may have arrived during the sleep; short-circuit before spawning

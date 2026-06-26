@@ -11,6 +11,16 @@ export interface FakeSpawnRecord {
 export interface FakeSpawnRecorder {
   records: FakeSpawnRecord[];
   spawn: (binary: string, argv: readonly string[], opts: SpawnOptions) => ChildProcess;
+  /** The single recorded spawn; throws unless exactly one was recorded. */
+  only: () => FakeSpawnRecord;
+}
+
+function onlyRecord(records: readonly FakeSpawnRecord[]): FakeSpawnRecord {
+  const [record, ...rest] = records;
+  if (record === undefined || rest.length > 0) {
+    throw new Error(`expected exactly one recorded spawn, got ${records.length}`);
+  }
+  return record;
 }
 
 class FakeChildProcess extends EventEmitter implements ChildProcess {
@@ -61,7 +71,7 @@ class FakeChildProcess extends EventEmitter implements ChildProcess {
     return true;
   }
 
-  send(_message: any, _sendHandle?: any, _options?: any, _callback?: (error: Error | null) => void): boolean {
+  send(_message: unknown, _sendHandle?: unknown, _options?: unknown, _callback?: (error: Error | null) => void): boolean {
     return false;
   }
 
@@ -83,6 +93,7 @@ export function createFakeSpawnRecorder(): FakeSpawnRecorder {
 
   return {
     records,
+    only: () => onlyRecord(records),
     spawn: (binary: string, argv: readonly string[], opts: SpawnOptions): ChildProcess => {
       records.push({ binary, argv, opts });
       return new FakeChildProcess("", "");
@@ -97,6 +108,7 @@ export function createFakeSpawnWithOutput(
 
   return {
     records,
+    only: () => onlyRecord(records),
     spawn: (binary: string, argv: readonly string[], opts: SpawnOptions): ChildProcess => {
       records.push({ binary, argv, opts });
 

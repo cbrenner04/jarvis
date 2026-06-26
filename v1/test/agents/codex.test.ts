@@ -51,7 +51,7 @@ describe("CodexAgent", () => {
         expect(result.stderr).toBe("hi-err");
       }
       expect(recorder.records).toHaveLength(1);
-      const record = recorder.records[0]!;
+      const record = recorder.only();
       expect(record.binary).toBe("codex");
       expect(record.argv).toEqual([
         "exec",
@@ -77,7 +77,7 @@ describe("CodexAgent", () => {
       await agent.run("the prompt", { cwd });
 
       expect(recorder.records).toHaveLength(1);
-      const record = recorder.records[0]!;
+      const record = recorder.only();
       expect(record.argv).toContain("--model");
       expect(record.argv).toContain("gpt-5.4");
     });
@@ -185,7 +185,7 @@ describe("CodexAgent", () => {
       await agent.run("p", { cwd });
 
       expect(recorder.records).toHaveLength(1);
-      const record = recorder.records[0]!;
+      const record = recorder.only();
       expect(record.argv).toContain("--sandbox");
       expect(record.argv).toContain("workspace-write");
       expect(record.argv).toContain("-c");
@@ -207,7 +207,7 @@ describe("CodexAgent", () => {
       });
 
       expect(recorder.records).toHaveLength(1);
-      const record = recorder.records[0]!;
+      const record = recorder.only();
       expect(record.argv).toContain("--add-dir");
       expect(record.argv).toContain("/abs/specs/foo");
       expect(record.argv).toContain("/abs/specs/bar");
@@ -225,7 +225,7 @@ describe("CodexAgent", () => {
       await agent.run("p", { cwd });
 
       expect(recorder.records).toHaveLength(1);
-      const record = recorder.records[0]!;
+      const record = recorder.only();
       expect(record.argv).not.toContain("--add-dir");
     });
   });

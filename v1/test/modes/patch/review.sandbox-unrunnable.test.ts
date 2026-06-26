@@ -704,7 +704,7 @@ describe("runPatchReviewPhase", () => {
 
   test("idle watchdog timeout fires in review debate phase", async () => {
     const reviewIdleTimeoutMs = 1000;
-    const { dir, specPath, specDir, cleanup } = setupPatchReviewRepo();
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {
       const tmpDir = join(dir, "tmp");
       mkdirSync(tmpDir, { recursive: true });
@@ -779,7 +779,7 @@ while true; do :; done
 
   test("idle watchdog timeout fires in review actuator phase", async () => {
     const reviewIdleTimeoutMs = 1000;
-    const { dir, specPath, specDir, cleanup } = setupPatchReviewRepo();
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
     try {
       // Place the hang script OUTSIDE the repo working tree (under the test's
       // parent dir): before the actuator spawns, the review flow reverts stray

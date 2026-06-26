@@ -5,7 +5,7 @@ import { getCurrentBranch } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import { resolveSubRoleAgentOrder, type AgentEntry, type Config } from "../../config.ts";
+import { type AgentEntry, type Config, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
 import {
@@ -844,9 +844,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         }
       }
 
-      const resolvedAgent =
-        agent ??
-        (headEntry ? createAgent(headEntry.agent, headEntry.model) : undefined);
+      const resolvedAgent = agent ?? (headEntry ? createAgent(headEntry.agent, headEntry.model) : undefined);
       if (resolvedAgent === undefined) {
         opts.fanout("harness", "review: actuator no agents available\n", "stderr");
         throw new ReviewTerminalError("actuator no agents available", 2);

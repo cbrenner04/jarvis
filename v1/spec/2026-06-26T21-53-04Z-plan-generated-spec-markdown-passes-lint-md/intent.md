@@ -29,3 +29,13 @@ not relax or reorder it.
 
 - `lint:md` runs as a step in the full ready tier
 - Plan mode generates `index.md` and numbered subspec files
+
+
+## Blocker
+
+Out-of-bounds write detected. The following paths were modified outside `v1/spec/2026-06-26T21-53-04Z-plan-generated-spec-markdown-passes-lint-md/` and have been reverted:
+
+  - `.jarvis-review-plan-adversary-1`
+  - `mdprobe/`
+
+Spec-file write boundary is enforced: only files under `v1/spec/2026-06-26T21-53-04Z-plan-generated-spec-markdown-passes-lint-md/` may be modified.

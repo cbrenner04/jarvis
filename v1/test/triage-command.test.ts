@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { SuggestedMovesInput, TriageGhRunner, TriageIo } from "../src/commands/triage.ts";
 import { getSuggestedMoves, triageCommand } from "../src/commands/triage.ts";
 

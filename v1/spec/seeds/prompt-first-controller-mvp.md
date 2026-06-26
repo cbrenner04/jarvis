@@ -1,7 +1,6 @@
 # Prompt-first controller MVP
 
-Design the first MVP of `jarvis "<intent>"` that replaces the TUI operator
-agent.
+Design the first MVP of `jarvis "<intent>"` that replaces the TUI operator agent.
 
 Desired UX:
 
@@ -12,8 +11,7 @@ jarvis "review current branch"
 jarvis "ship it"
 ```
 
-Core principle: the prompt is only intent. Jarvis owns state, routing,
-workflows, policy, execution, recovery, and reporting.
+Core principle: the prompt is only intent. Jarvis owns state, routing, workflows, policy, execution, recovery, and reporting.
 
 Architecture:
 
@@ -64,6 +62,10 @@ Design the first MVP of `jarvis "<intent>"`. It should:
 
 Do not build a chat wrapper. Build a controller loop.
 
-This should land as v1 work, with heavy emphasis on documenting the resulting
-behavior in `v2/docs/v1-behaviors.md` so v2 can preserve or deliberately revise
-the controller contract.
+This should land as v1 work, with heavy emphasis on documenting the resulting behavior in `v2/docs/v1-behaviors.md` so v2 can preserve or deliberately revise the controller contract.
+
+## God talking
+
+For the first iteration, errors should exit. They should, upon exit, give a summary to understand why exit and a command to resume
+Jarvis should exit early if it isn't 100% sure how to route. So in that case, the error should ask the user to improve its prompt. 
+There are three options for what jarvis does, the prompt given is the seed, the prompt given resumes a seed/intent, error with ask for more information.

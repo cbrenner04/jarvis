@@ -1,8 +1,8 @@
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
-import type { ConfigOptions } from "../config.ts";
-import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
+import type { ConfigOptions, ProjectMatch } from "../config.ts";
+import { computeProjectSafeId, stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
 
 export type CleanupIo = {
   stdout: (s: string) => void;
@@ -19,6 +19,9 @@ export type CleanupCommandOptions = {
   isMergedPr?: (branch: string) => boolean;
   removeItem?: (item: { path: string; branch: string; dir: string }) => void;
   candidateHomes?: string[];
+  project?: ProjectMatch;
+  commit?: boolean;
+  jarvisConfigDir?: string;
 };
 
 function branchForWorktree(worktreePath: string): string {
@@ -133,6 +136,73 @@ function commitArchivedSpecMove(projectRoot: string, source: string, destination
   });
 }
 
+function isReservedExternalHomeName(basename: string): boolean {
+  return basename === "completed" || basename === "ready-intents";
+}
+
+function archiveExternalSpec(
+  jarvisConfigDir: string,
+  project: ProjectMatch,
+  specDirBasename: string,
+  io: CleanupIo,
+): boolean {
+  const projectId = computeProjectSafeId(project);
+  const externalHome = join(jarvisConfigDir, "specs", projectId);
+  const source = join(externalHome, specDirBasename);
+  const destination = join(externalHome, "completed", specDirBasename);
+
+  if (isReservedExternalHomeName(specDirBasename)) {
+    io.stderr(
+      `unsafe spec archive mapping for "${specDirBasename}": refusing to move external spec with reserved name\n`,
+    );
+    return false;
+  }
+
+  if (!existsSync(source)) {
+    io.stdout(`no spec directory moved for external spec: missing ${source}\n`);
+    return true;
+  }
+
+  if (existsSync(destination)) {
+    io.stderr(
+      `spec archive destination already exists; left source in place: ${source} -> ${destination}\n`,
+    );
+    return false;
+  }
+
+  try {
+    mkdirSync(join(externalHome, "completed"), { recursive: true });
+    renameSync(source, destination);
+    io.stdout(`moved spec directory ${source} -> ${destination}\n`);
+    return true;
+  } catch (err) {
+    io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
+    return false;
+  }
+}
+
+function pruneReadyIntent(
+  jarvisConfigDir: string,
+  project: ProjectMatch,
+  specDirBasename: string,
+  io: CleanupIo,
+): void {
+  const projectId = computeProjectSafeId(project);
+  const strippedName = stripPlanSpecTimestampPrefix(specDirBasename);
+  const readyIntentPath = join(jarvisConfigDir, "specs", projectId, "ready-intents", `${strippedName}.md`);
+
+  if (!existsSync(readyIntentPath)) {
+    return;
+  }
+
+  try {
+    rmSync(readyIntentPath);
+    io.stdout(`pruned consumed ready-intent ${readyIntentPath}\n`);
+  } catch (err) {
+    io.stderr(`failed to prune ready-intent ${readyIntentPath}: ${(err as Error).message}\n`);
+  }
+}
+
 export function cleanupCommand(opts: CleanupCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
   const targetDir = opts.targetDir ?? "spec";
@@ -185,6 +255,9 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
   }
 
   let hadFailures = false;
+  const commit = opts.commit ?? true;
+  const jarvisConfigDir = opts.jarvisConfigDir ?? join(process.env.HOME ?? process.env.USERPROFILE ?? "~", ".jarvis");
+
   for (const item of toRemove) {
     try {
       if (opts.removeItem) {
@@ -199,40 +272,59 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
 
-      const { source, specName, missingSource, sourceHome } = resolveSpecArchiveSource(
-        opts.projectRoot,
-        targetDir,
-        item.branch,
-        candidateHomes,
-      );
-      if (specName === "completed") {
-        opts.io.stderr(`unsafe spec archive mapping for "${item.dir}": refusing to move ${targetDir}/completed/\n`);
-        hadFailures = true;
-        continue;
-      }
+      if (!commit && opts.project) {
+        const specDirBasename = specNameForBranch(item.branch);
+        if (isPlanBranch(item.branch)) {
+          opts.io.stdout(
+            `skipping external archive for plan-mode worktree on branch ${item.branch}: plan worktrees do not produce external archives\n`,
+          );
+          continue;
+        }
 
-      const completedRoot = join(opts.projectRoot, sourceHome, "completed");
-      const destination = join(completedRoot, specName);
+        const archiveSuccess = archiveExternalSpec(jarvisConfigDir, opts.project, specDirBasename, opts.io);
+        if (!archiveSuccess) {
+          hadFailures = true;
+          continue;
+        }
+        pruneReadyIntent(jarvisConfigDir, opts.project, specDirBasename, opts.io);
+      } else {
+        const { source, specName, missingSource, sourceHome } = resolveSpecArchiveSource(
+          opts.projectRoot,
+          targetDir,
+          item.branch,
+          candidateHomes,
+        );
+        if (specName === "completed") {
+          opts.io.stderr(`unsafe spec archive mapping for "${item.dir}": refusing to move ${targetDir}/completed/\n`);
+          hadFailures = true;
+          continue;
+        }
 
-      if (!existsSync(source)) {
-        opts.io.stdout(`no spec directory moved for ${item.branch}: missing ${missingSource}\n`);
-        continue;
-      }
+        const completedRoot = join(opts.projectRoot, sourceHome, "completed");
+        const destination = join(completedRoot, specName);
 
-      if (existsSync(destination)) {
-        opts.io.stderr(`spec archive destination already exists; left source in place: ${source} -> ${destination}\n`);
-        hadFailures = true;
-        continue;
-      }
+        if (!existsSync(source)) {
+          opts.io.stdout(`no spec directory moved for ${item.branch}: missing ${missingSource}\n`);
+          continue;
+        }
 
-      try {
-        mkdirSync(completedRoot, { recursive: true });
-        renameSync(source, destination);
-        commitArchivedSpecMove(opts.projectRoot, source, destination, specName);
-        opts.io.stdout(`moved spec directory ${source} -> ${destination}\n`);
-      } catch (err) {
-        opts.io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
-        hadFailures = true;
+        if (existsSync(destination)) {
+          opts.io.stderr(
+            `spec archive destination already exists; left source in place: ${source} -> ${destination}\n`,
+          );
+          hadFailures = true;
+          continue;
+        }
+
+        try {
+          mkdirSync(completedRoot, { recursive: true });
+          renameSync(source, destination);
+          commitArchivedSpecMove(opts.projectRoot, source, destination, specName);
+          opts.io.stdout(`moved spec directory ${source} -> ${destination}\n`);
+        } catch (err) {
+          opts.io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
+          hadFailures = true;
+        }
       }
     } catch (err) {
       opts.io.stderr(`failed to remove ${item.branch}: ${(err as Error).message}\n`);

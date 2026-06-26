@@ -438,4 +438,269 @@ describe("cleanupCommand", () => {
     expect(existsSync(join(projectRoot, "v1", "spec", "completed", specName))).toBe(false);
     expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# default spec\n");
   });
+
+  test("commit:false project archives to external home and prunes ready-intent", () => {
+    const { io } = captureIo(["y"]);
+
+    const specName = "external-spec";
+    const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
+    const projectId = "test";
+    const externalSpecDir = join(externalRoot, "specs", projectId, specName);
+    const externalReadyIntentDir = join(externalRoot, "specs", projectId, "ready-intents");
+    mkdirSync(externalSpecDir, { recursive: true });
+    mkdirSync(externalReadyIntentDir, { recursive: true });
+    writeFileSync(join(externalSpecDir, "index.md"), "# external spec\n");
+    writeFileSync(join(externalReadyIntentDir, `${specName}.md`), "# intent\n");
+
+    const worktreePath = createTrackedWorktree(specName);
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      commit: false,
+      project: { key: projectId, root: projectRoot },
+      jarvisConfigDir: externalRoot,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    const destination = join(externalRoot, "specs", projectId, "completed", specName);
+    expect(existsSync(externalSpecDir)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# external spec\n");
+    expect(existsSync(join(externalReadyIntentDir, `${specName}.md`))).toBe(false);
+    rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  test("commit:false with missing external spec is non-fatal", () => {
+    const { io, out } = captureIo(["y"]);
+
+    const specName = "missing-external";
+    const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
+    const projectId = "test";
+    const worktreePath = createTrackedWorktree(specName);
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      commit: false,
+      project: { key: projectId, root: projectRoot },
+      jarvisConfigDir: externalRoot,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(out()).toContain("no spec directory moved for external spec");
+    rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  test("commit:false with missing ready-intent prunes to no-op", () => {
+    const { io } = captureIo(["y"]);
+
+    const specName = "no-intent";
+    const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
+    const projectId = "test";
+    const externalSpecDir = join(externalRoot, "specs", projectId, specName);
+    mkdirSync(externalSpecDir, { recursive: true });
+    writeFileSync(join(externalSpecDir, "index.md"), "# spec\n");
+
+    const worktreePath = createTrackedWorktree(specName);
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      commit: false,
+      project: { key: projectId, root: projectRoot },
+      jarvisConfigDir: externalRoot,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    const destination = join(externalRoot, "specs", projectId, "completed", specName);
+    expect(existsSync(destination)).toBe(true);
+    rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  test("commit:false with existing external destination leaves source and intent intact", () => {
+    const { io, err } = captureIo(["y"]);
+
+    const specName = "collide-external";
+    const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
+    const projectId = "test";
+    const externalSpecDir = join(externalRoot, "specs", projectId, specName);
+    const externalDestination = join(externalRoot, "specs", projectId, "completed", specName);
+    const externalReadyIntentDir = join(externalRoot, "specs", projectId, "ready-intents");
+    mkdirSync(externalSpecDir, { recursive: true });
+    mkdirSync(externalDestination, { recursive: true });
+    mkdirSync(externalReadyIntentDir, { recursive: true });
+    writeFileSync(join(externalSpecDir, "index.md"), "# spec\n");
+    writeFileSync(join(externalReadyIntentDir, `${specName}.md`), "# intent\n");
+
+    const worktreePath = createTrackedWorktree(specName);
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      commit: false,
+      project: { key: projectId, root: projectRoot },
+      jarvisConfigDir: externalRoot,
+    });
+
+    expect(code).toBe(1);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(externalSpecDir)).toBe(true);
+    expect(existsSync(join(externalReadyIntentDir, `${specName}.md`))).toBe(true);
+    expect(err()).toContain("spec archive destination already exists");
+    rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  test("commit:false refuses reserved-name spec dirs", () => {
+    const { io, err } = captureIo(["y"]);
+
+    const specName = "completed";
+    const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
+    const projectId = "test";
+    const externalSpecDir = join(externalRoot, "specs", projectId, specName);
+    mkdirSync(externalSpecDir, { recursive: true });
+    writeFileSync(join(externalSpecDir, "index.md"), "# spec\n");
+
+    const worktreePath = createTrackedWorktree(specName);
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      commit: false,
+      project: { key: projectId, root: projectRoot },
+      jarvisConfigDir: externalRoot,
+    });
+
+    expect(code).toBe(1);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(externalSpecDir)).toBe(true);
+    expect(err()).toContain("unsafe spec archive mapping");
+    expect(err()).toContain("reserved name");
+    rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  test("commit:false skips plan-mode worktrees", () => {
+    const { io, out } = captureIo(["y"]);
+
+    const name = "plan-spec";
+    const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
+    const projectId = "test";
+    const externalSpecDir = join(externalRoot, "specs", projectId, `plan/${name}`);
+    mkdirSync(externalSpecDir, { recursive: true });
+
+    const worktreePath = createTrackedPlanWorktree(name);
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      commit: false,
+      project: { key: projectId, root: projectRoot },
+      jarvisConfigDir: externalRoot,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(externalSpecDir)).toBe(true);
+    expect(out()).toContain("skipping external archive for plan-mode worktree");
+    rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  test("commit:false archives timestamped spec", () => {
+    const { io } = captureIo(["y"]);
+
+    const name = "timestamped-spec";
+    const timestampedName = `2026-06-23T10-30-45Z-${name}`;
+    const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
+    const projectId = "test";
+    const externalSpecDir = join(externalRoot, "specs", projectId, timestampedName);
+    const externalReadyIntentDir = join(externalRoot, "specs", projectId, "ready-intents");
+    mkdirSync(externalSpecDir, { recursive: true });
+    mkdirSync(externalReadyIntentDir, { recursive: true });
+    writeFileSync(join(externalSpecDir, "index.md"), "# spec\n");
+    writeFileSync(join(externalReadyIntentDir, `${name}.md`), "# intent\n");
+
+    const worktreePath = createTrackedWorktree(timestampedName);
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      commit: false,
+      project: { key: projectId, root: projectRoot },
+      jarvisConfigDir: externalRoot,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    const destination = join(externalRoot, "specs", projectId, "completed", timestampedName);
+    expect(existsSync(externalSpecDir)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(existsSync(join(externalReadyIntentDir, `${name}.md`))).toBe(false);
+    rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  test("commit:false refuses ready-intents as spec dir", () => {
+    const { io, err } = captureIo(["y"]);
+
+    const specName = "ready-intents";
+    const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
+    const projectId = "test";
+    const externalSpecDir = join(externalRoot, "specs", projectId, specName);
+    mkdirSync(externalSpecDir, { recursive: true });
+
+    const worktreePath = createTrackedWorktree(specName);
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      commit: false,
+      project: { key: projectId, root: projectRoot },
+      jarvisConfigDir: externalRoot,
+    });
+
+    expect(code).toBe(1);
+    expect(existsSync(externalSpecDir)).toBe(true);
+    expect(err()).toContain("unsafe spec archive mapping");
+    rmSync(externalRoot, { recursive: true, force: true });
+  });
+
+  test("commit:true ignores external home (unchanged)", () => {
+    const { io } = captureIo(["y"]);
+
+    const specName = "in-repo-spec";
+    const worktreePath = createTrackedWorktree(specName);
+    const source = join(projectRoot, "spec", specName);
+    const destination = join(projectRoot, "spec", "completed", specName);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# in-repo\n");
+
+    const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
+    const projectId = "test";
+
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      isMergedPr: () => true,
+      commit: true,
+      project: { key: projectId, root: projectRoot },
+      jarvisConfigDir: externalRoot,
+    });
+
+    expect(code).toBe(0);
+    expect(existsSync(worktreePath)).toBe(false);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# in-repo\n");
+    rmSync(externalRoot, { recursive: true, force: true });
+  });
 });

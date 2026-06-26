@@ -246,7 +246,7 @@ Steps 1–2 first (not as an end-of-session afterthought) is what guarantees out
 
 ## End-of-session cleanup
 
-1. **`jarvis1 cleanup`** — removes merged worktrees and archives each completed spec into the `completed/` directory of its home (`v1/spec`, `v2/spec`, or configured `targetDir`). It prompts `[y/N]`; pipe `echo y | jarvis1 cleanup` non-interactively (`--dry-run` to preview).
+1. **`jarvis1 cleanup`** — removes merged worktrees and archives each completed spec into the `completed/` directory of its home (`v1/spec`, `v2/spec`, or configured `targetDir`). For `commit: false` projects, specs are archived from the external home `~/.jarvis/specs/<project-safe-id>/` to that home's `completed/` subdirectory, with no manual `mv` or ready-intent pruning required. It prompts `[y/N]`; pipe `echo y | jarvis1 cleanup` non-interactively (`--dry-run` to preview).
 2. **Prune consumed seeds.** Delete `<targetDir>/seeds/*` whose work shipped this session, and any leftover `<targetDir>/ready-intents/*` from a plan that didn't consume them (currently `v1/spec/` — see [Where seeds and intents live](#where-seeds-and-intents-live)).
 
 ## Branch-before-edit discipline

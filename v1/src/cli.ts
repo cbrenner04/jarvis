@@ -512,9 +512,12 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
           stderr: io.stderr,
           readlineSync,
         },
+        project,
       };
       const cfg = loadConfig(opts.config);
-      cleanupOpts.targetDir = resolvePlanFlags(cfg, cfg.projects[project.key]).targetDir;
+      const planFlags = resolvePlanFlags(cfg, cfg.projects[project.key]);
+      cleanupOpts.targetDir = planFlags.targetDir;
+      cleanupOpts.commit = planFlags.commit;
       if (opts.config !== undefined) {
         cleanupOpts.config = opts.config;
       }

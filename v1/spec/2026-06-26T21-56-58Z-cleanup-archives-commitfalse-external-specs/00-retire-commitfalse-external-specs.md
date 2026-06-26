@@ -25,12 +25,20 @@ retires each merged worktree's spec from the external home instead of in-repo:
 - Destination: `~/.jarvis/specs/<project-safe-id>/completed/<spec-dir>/`.
 - Archiving is a filesystem move only — no `git add`/`commit`/`push` (external-home
   artifacts are not tracked in the target repo).
-- Prune the consumed ready-intent `~/.jarvis/specs/<project-safe-id>/ready-intents/<name>.md`,
-  where `<name>` is the spec-dir basename with any timestamp prefix stripped
-  (`stripPlanSpecTimestampPrefix`). A missing ready-intent is not an error.
+- Only after the archive move succeeds, prune the consumed ready-intent
+  `~/.jarvis/specs/<project-safe-id>/ready-intents/<name>.md`, where `<name>` is the
+  spec-dir basename with any timestamp prefix stripped (`stripPlanSpecTimestampPrefix`).
+  A missing ready-intent is not an error. A failed move leaves the ready-intent intact.
 
 In-repo (`commit: true`) cleanup is unchanged: it still searches in-repo homes
 and git-tracks the archive move.
+
+## Out of scope
+
+- Retroactive re-archiving across mode switches: cleanup branches on the project's
+  *current* effective `plan.commit` (no per-spec authoring-mode record exists). A spec
+  authored under a different `plan.commit` than is currently configured is not
+  retroactively archived from the other home.
 
 ## Decisions
 
@@ -47,6 +55,22 @@ and git-tracks the archive move.
 - An already-existing `completed/<spec-dir>` destination leaves the source in place
   and reports failure, matching the existing in-repo guard. Rules out clobbering a
   prior archive.
+- Refuse to relocate a spec dir whose basename is a reserved external-home name
+  (`completed` or `ready-intents`); report failure and leave it in place. The external
+  home holds both reserved siblings directly alongside spec dirs, so a pathological
+  spec name could otherwise relocate (then compound via prune) a reserved directory.
+  Rules out irrecoverable corruption of the external home. (In-repo guards only
+  `completed`; the external home needs both.)
+- Prune the ready-intent only after a successful archive move; a failed move (e.g.
+  destination exists, reserved-name refusal) leaves both source and ready-intent
+  intact. Rules out destroying the consumed seed while the spec sits unarchived —
+  the exact hand-recovery state #566 eliminates.
+- Exact `<proj>/<spec-dir>` matching with no readdir timestamp scan is safe because
+  `commit:false` *plan* worktrees never reach archiving: a plan worktree carries an
+  untimestamped `plan/<name>` branch and produces no merged PR, so it is filtered out
+  before archiving; only run worktrees (branched on the timestamped spec-dir basename)
+  arrive here and match exactly. Rules out a `plan/`-branch worktree silently failing
+  to match — the invariant the dropped scan rests on.
 
 ## Task checklist
 
@@ -56,11 +80,14 @@ and git-tracks the archive move.
   external home via `computeProjectSafeId`/`computeNoCommitSpecRoot` and the config dir;
   skip the in-repo home search.
 - [ ] Perform external archiving as a filesystem move with no git operations; prune
-  the consumed ready-intent (no-op if absent).
+  the consumed ready-intent only after a successful move (no-op if absent).
+- [ ] Refuse a reserved-name (`completed`/`ready-intents`) spec-dir basename before
+  any move or prune.
 - [ ] Tests cover: commit:false external archive move + ready-intent prune, no git
   invoked; missing external source reports the external path; existing external
-  destination left-in-place; missing ready-intent prunes to no-op; commit:true path
-  unchanged.
+  destination left-in-place with ready-intent intact; missing ready-intent prunes to
+  no-op; reserved-name basename refused; a `plan/`-prefixed branch under commit:false
+  left untouched; commit:true path unchanged.
 
 ## Acceptance criteria
 
@@ -71,6 +98,13 @@ and git-tracks the archive move.
   `~/.jarvis/specs/<proj>/ready-intents/<stripped-name>.md` for the retired spec.
 - [ ] `commit: false` archiving runs no `git add`/`commit`/`push` against the target repo.
 - [ ] A missing external ready-intent during `commit: false` cleanup is a no-op, not a failure.
+- [ ] The ready-intent is pruned only after a successful archive move; a failed move
+  (existing destination or reserved-name refusal) leaves both the source dir and the
+  ready-intent intact.
+- [ ] A spec dir whose basename is a reserved external-home name (`completed` or
+  `ready-intents`) is refused — left in place, reported as failure, with no prune.
+- [ ] A `commit: false` worktree on an untimestamped `plan/<name>` branch is left
+  untouched by external archiving (no exact `<proj>/<spec-dir>` match).
 - [ ] An existing `~/.jarvis/specs/<proj>/completed/<name>/` leaves the source in place
   and cleanup reports failure.
 - [ ] When the external source dir is absent, the missing-source message names the

@@ -32,11 +32,11 @@ regardless.
 
 ## Acceptance criteria
 
-- [ ] The agent-facing patch rules instruct the agent not to create commits (not to run `git commit`), stating Jarvis owns staging and committing.
-- [ ] The rendered implementation prompt produced by `buildPrompt` includes the no-self-commit guidance, verified by a test in `v1/test/prompt.test.ts` asserting the stable keyword `git commit`.
-- [ ] `prompts/patch/rules.md` carries `revision: 8` and `prompts/patch/instructions.md` (`patch.prompt.body`) carries `revision: 7`.
-- [ ] The `patch.prompt.body` rendered-prompt fixtures (shared and codex-exec wrapper) are regenerated and `rendered-snapshots.test.ts` asserts revision `7`.
-- [ ] `bun run test` and `bun run typecheck` pass.
+- [x] The agent-facing patch rules instruct the agent not to create commits (not to run `git commit`), stating Jarvis owns staging and committing.
+- [x] The rendered implementation prompt produced by `buildPrompt` includes the no-self-commit guidance, verified by a test in `v1/test/prompt.test.ts` asserting the stable keyword `git commit`.
+- [x] `prompts/patch/rules.md` carries `revision: 8` and `prompts/patch/instructions.md` (`patch.prompt.body`) carries `revision: 7`.
+- [x] The `patch.prompt.body` rendered-prompt fixtures (shared and codex-exec wrapper) are regenerated and `rendered-snapshots.test.ts` asserts revision `7`.
+- [x] `bun run test` and `bun run typecheck` pass.
 
 ## Documentation updates
 

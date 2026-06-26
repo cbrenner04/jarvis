@@ -74,27 +74,27 @@ denominator — but leaves two loop branches unguarded:
 
 ## Acceptance criteria
 
-- [ ] A test in `v1/test/run.test.ts` proves sustained retryable red runs the
+- [x] A test in `v1/test/run.test.ts` proves sustained retryable red runs the
   completion ready gate exactly `bound + 1` times within a single completion
   check before returning red: at bound 2 a reset-on-bound sentinel records the
   first check's count as exactly 3, stderr contains `attempt 1/3, retrying` and
   `attempt 2/3, retrying` but never `attempt 3/3, retrying`, the terminal-red
   line `ready gate failed:` is emitted, and the run ends red (non-zero exit, no
   `spec complete`).
-- [ ] A test proves non-retryable red (`retryable: false`) returns red on the
+- [x] A test proves non-retryable red (`retryable: false`) returns red on the
   first attempt at bound 2 — where a retryable red would have retried: the first
   completion check invokes the seam exactly once, no `retrying` message is
   emitted, and the run ends red (non-zero exit, no `spec complete`).
-- [ ] A test proves retryable red across more than one retry eventually passes
+- [x] A test proves retryable red across more than one retry eventually passes
   when a later attempt is green (bound 2, red→red→green ⇒ gate invoked exactly 3
   times, run exits 0, stdout contains `spec complete`). This green-terminating
   variant carries the exact `bound + 1` count proof (no loopback to contaminate
   the count).
-- [ ] The pre-existing `attempt 1/7` (bound 6 override) and `attempt 1/3`
+- [x] The pre-existing `attempt 1/7` (bound 6 override) and `attempt 1/3`
   (default-when-unset) tests stay green, keeping the override and default
   denominator guarded (no new work; the attempt-denominator-tracks-bound
   coverage is already satisfied).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

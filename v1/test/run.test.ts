@@ -21,6 +21,7 @@ import type { LogClient } from "../src/logging.ts";
 import {
   maybeWarnAboutUnmergedPlanBranch,
   prepareActiveSpecPath,
+  type CompletionReadyGateResult,
   type RunCommandOptions,
   type RunIo,
   runCommand,
@@ -1807,6 +1808,84 @@ exit 0
 
       expect(code).toBe(0);
       expect(cap.err()).toContain("attempt 1/3"); // Default bound 2 -> 3 total attempts
+      expect(cap.out()).toContain("spec complete");
+    });
+
+    async function testGateLoopWithBound(
+      bound: number,
+      gateImpl: (cwd: string) => CompletionReadyGateResult,
+    ): Promise<{ spec: string; cap: ReturnType<typeof captureIo>; code: number }> {
+      const spec = initCompletionGateRepo();
+      const cfg = loadConfig({ dir: cfgDir });
+      if (cfg.projects.project === undefined) {
+        cfg.projects.project = { root: projectRoot };
+      }
+      cfg.projects.project.readyGateRetryBound = bound;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = createCompletionAgent(spec);
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        reviewPasses: 0,
+        runCompletionReadyGate: gateImpl,
+      });
+
+      return { spec, cap, code };
+    }
+
+    test("gate-loop behavior: sustained retryable red exhausts bound 2 exactly", async () => {
+      const { cap, code } = await testGateLoopWithBound(2, (_cwd) => {
+        return { kind: "red", failureText: "commit failed: test error" };
+      });
+
+      expect(code).not.toBe(0);
+      const stderr = cap.err();
+      expect(stderr).toContain("attempt 1/3), retrying");
+      expect(stderr).toContain("attempt 2/3), retrying");
+      expect(stderr).not.toContain("attempt 3/3), retrying");
+      expect(stderr).toContain("ready gate failed:");
+    });
+
+    test("gate-loop behavior: non-retryable red at bound 2 exits on first attempt", async () => {
+      let gateCallCount = 0;
+
+      const { cap, code } = await testGateLoopWithBound(2, (_cwd) => {
+        gateCallCount += 1;
+        return {
+          kind: "red",
+          failureText: "push failed: permission denied to repository",
+          retryable: false,
+        };
+      });
+
+      expect(gateCallCount).toBe(1);
+      expect(cap.err()).not.toContain("retrying");
+      expect(cap.err()).toContain("ready gate failed:");
+      expect(code).not.toBe(0);
+    });
+
+    test("gate-loop behavior: retryable red across multiple attempts ends green when later attempt succeeds (bound 2, red→red→green) — proves exact bound + 1 count", async () => {
+      let gateCalls = 0;
+
+      const { cap, code } = await testGateLoopWithBound(2, (_cwd) => {
+        gateCalls += 1;
+        if (gateCalls <= 2) {
+          return { kind: "red", failureText: "commit failed: transient error" };
+        }
+        return { kind: "green" };
+      });
+
+      // This green-terminating variant measures the exact count uncontaminated by loopback.
+      // Green return on attempt 3 ends the single completion check before any second check,
+      // so gateCalls === totalAttempts is a genuine measurement of bound + 1.
+      expect(gateCalls).toBe(3);
+      expect(code).toBe(0);
       expect(cap.out()).toContain("spec complete");
     });
   });

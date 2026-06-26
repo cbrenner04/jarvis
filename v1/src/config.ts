@@ -81,6 +81,7 @@ export type ProjectMatch = {
 export type AgentEntry = {
   agent: AgentName;
   model: string;
+  capability?: number;
 };
 
 export type ModeConfig = {
@@ -90,6 +91,7 @@ export type ModeConfig = {
   targetDir?: string;
   prNarrative?: "template" | "agent";
   shrink?: "off" | "agent";
+  actuationCapabilityFloor?: number;
 };
 
 export type ReviewModeConfig = {
@@ -229,6 +231,26 @@ function validateConfig(input: unknown, file: string): Config {
   let patchShrink: "off" | "agent" = "agent";
   if (patchModeObj.shrink !== undefined) {
     patchShrink = validateShrink(patchModeObj.shrink, "modes.patch.shrink", (message) => fail(file, message));
+  }
+
+  let patchActuationCapabilityFloor: number | undefined;
+  if (patchModeObj.actuationCapabilityFloor !== undefined) {
+    if (
+      typeof patchModeObj.actuationCapabilityFloor !== "number" ||
+      !Number.isFinite(patchModeObj.actuationCapabilityFloor)
+    ) {
+      fail(file, "modes.patch.actuationCapabilityFloor must be a finite number");
+    }
+    patchActuationCapabilityFloor = patchModeObj.actuationCapabilityFloor;
+    // Enforce coupling: if floor is set, all entries must have numeric capability
+    for (const entry of patchAgentOrder) {
+      if (entry.capability === undefined) {
+        fail(
+          file,
+          `modes.patch.actuationCapabilityFloor is set but modes.patch.agentOrder entry (${entry.agent}) is missing capability`,
+        );
+      }
+    }
   }
 
   const planMode = modesObj.plan;
@@ -540,6 +562,9 @@ function validateConfig(input: unknown, file: string): Config {
         agentOrder: patchAgentOrder,
         prNarrative: patchPrNarrative,
         shrink: patchShrink,
+        ...(patchActuationCapabilityFloor !== undefined
+          ? { actuationCapabilityFloor: patchActuationCapabilityFloor }
+          : {}),
       },
       plan: {
         agentOrder: planAgentOrder,
@@ -602,7 +627,14 @@ function validateAgentOrder(input: unknown, fieldName: string, file: string): Ag
         `${fieldName}[${i}].model: ${JSON.stringify(entry.model)} is not a known priced model for agent ${JSON.stringify(entry.agent)}`,
       );
     }
-    agentOrder.push({ agent: entry.agent, model: entry.model });
+    let capability: number | undefined;
+    if (entry.capability !== undefined) {
+      if (typeof entry.capability !== "number" || !Number.isFinite(entry.capability)) {
+        fail(file, `${fieldName}[${i}].capability must be a finite number`);
+      }
+      capability = entry.capability;
+    }
+    agentOrder.push({ agent: entry.agent, model: entry.model, ...(capability !== undefined ? { capability } : {}) });
   }
   return agentOrder;
 }
@@ -881,6 +913,13 @@ export function resolveReviewAgentOrder(cfg: Config): AgentEntry[] {
     return cfg.modes.review.agentOrder;
   }
   return cfg.modes.plan.agentOrder;
+}
+
+export function filterAgentsByCapabilityFloor(agents: AgentEntry[], floor: number | undefined): AgentEntry[] {
+  if (floor === undefined) {
+    return agents;
+  }
+  return agents.filter((entry) => entry.capability !== undefined && entry.capability >= floor);
 }
 
 export function findProjectForPath(p: string, opts?: ConfigOptions): Project | undefined {

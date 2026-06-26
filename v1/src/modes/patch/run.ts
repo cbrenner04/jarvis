@@ -249,8 +249,6 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     return preflight.exitCode;
   }
 
-  const activeAgents = buildActiveAgents(opts, preflight.cfg, preflight.patchTier);
-
   const loggingSetup = setupLogging(opts, preflight, sharedPreflight.logClient);
   const logging = loggingSetup;
   let runExitReason = "error";
@@ -318,6 +316,8 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
     };
   }
 
+  const activeAgents = buildActiveAgents(opts, preflight.cfg, preflight.patchTier);
+
   const ctx: IterationContext = {
     preflight,
     logging,
@@ -328,6 +328,22 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
   };
 
   try {
+    if (activeAgents.length === 0 && preflight.cfg.modes.patch.actuationCapabilityFloor !== undefined) {
+      const floorValue = preflight.cfg.modes.patch.actuationCapabilityFloor;
+      const errorMsg = `error: patch actuation has no agents meeting capability floor ${floorValue}`;
+      logging.fanout("harness", errorMsg, "stderr");
+      logging.writeTelemetry({
+        agent: "harness",
+        iteration: 0,
+        durationMs: Date.now() - runStartedMs,
+        kind: "error",
+        exitReason: "floor-error",
+        record_role: "run_terminal",
+      });
+      runExitReason = "floor-error";
+      return 1;
+    }
+
     while (true) {
       const outcome = await runIteration(ctx);
       if (outcome.kind === "return") {

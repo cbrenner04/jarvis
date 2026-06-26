@@ -695,10 +695,18 @@ fails before any CLI runs. Jarvis does not query
 providers or CLIs before running to validate model availability. If the
 selected agent CLI reports that the configured model is unsupported, jarvis
 exits with a model-configuration message and does not fall back to another
-agent. Fallback is reserved for quota exhaustion: if an agent reports quota
-exhaustion, jarvis removes it from the active list for that run and falls back
-to the next configured agent. See [quota-signals.md](./quota-signals.md) for
-the detection rules and
+agent.
+
+When `modes.patch.actuationCapabilityFloor` is configured, initial agent
+selection and fallback chains respect the minimum capability gate. Agents are
+filtered at preflight before tier start-index resolution: only entries with
+`capability >= floor` are used; if unset, all entries are eligible. Tier
+selection (trivial/standard/hard) is resolved against the floor-eligible
+ladder length, so tier positioning is independent of filtered-out agents. When
+no agents meet the floor, a fatal preflight error exits `1` with the role and
+floor named (before any agent runs). Fallback is reserved for quota exhaustion: if an agent reports quota exhaustion, jarvis removes it from the active list for that run and falls back to
+the next configured agent **in the floor-eligible ladder**. The floor is applied once via the active ladder for iteration and review phases. Shrink re-applies the floor independently to `modes.patch.agentOrder` before building shrink bindings; if no agents meet the floor, shrink is skipped with an error on the same channel as the patch-phase floor error, and the completed run's outcome is preserved. An explicit `--agents` override (patch-spawn CLI flag) can place a below-floor model on an eligible slot by operator intent — the floor gates configured entries, not overrides. See [quota-signals.md](./quota-signals.md) for the
+detection rules and
 [Classification and fallback outcome matrix](./quota-signals.md#classification-and-fallback-outcome-matrix)
 for the authoritative outcome mapping. Operator-visible quota stderr phrases
 (including the exact grep substrings shared with plan mode) are listed under

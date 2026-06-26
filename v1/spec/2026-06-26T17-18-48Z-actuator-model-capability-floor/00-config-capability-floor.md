@@ -23,11 +23,11 @@ only; no selection behavior yet (first consumer is subspec 01).
 
 ## Acceptance criteria
 
-- [ ] A config whose `modes.patch.agentOrder` entries each carry a numeric `capability` and that sets `modes.patch.actuationCapabilityFloor` loads without error.
-- [ ] A config that omits `actuationCapabilityFloor` loads unchanged whether or not entries carry `capability` (feature off).
-- [ ] Setting `actuationCapabilityFloor` while any `modes.patch.agentOrder` entry lacks a numeric `capability` fails config load with an error naming the offending entry.
-- [ ] A non-numeric `capability` or non-numeric `actuationCapabilityFloor` fails config load with a field-named error.
-- [ ] `v1/docs/config.md` documents `capability`, `actuationCapabilityFloor`, and that higher `capability` means more capable / below-floor is `capability < floor`.
+- [x] A config whose `modes.patch.agentOrder` entries each carry a numeric `capability` and that sets `modes.patch.actuationCapabilityFloor` loads without error.
+- [x] A config that omits `actuationCapabilityFloor` loads unchanged whether or not entries carry `capability` (feature off).
+- [x] Setting `actuationCapabilityFloor` while any `modes.patch.agentOrder` entry lacks a numeric `capability` fails config load with an error naming the offending entry.
+- [x] A non-numeric `capability` or non-numeric `actuationCapabilityFloor` fails config load with a field-named error.
+- [x] `v1/docs/config.md` documents `capability`, `actuationCapabilityFloor`, and that higher `capability` means more capable / below-floor is `capability < floor`.
 
 ## Documentation updates
 

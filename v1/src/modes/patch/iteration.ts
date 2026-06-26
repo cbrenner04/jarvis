@@ -479,7 +479,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     return { kind: "return", exitCode: 2 };
   }
 
-  const configuredPatchModelEntry = resolveSubRoleAgentOrder(cfg, "patchActuator").find((entry) => entry.agent === agent.name);
+  const configuredPatchModelEntry = resolveSubRoleAgentOrder(cfg, "patchActuator").find(
+    (entry) => entry.agent === agent.name,
+  );
   const telemetryMeta =
     configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
   const configuredPatchModel = configuredPatchModelEntry?.model;

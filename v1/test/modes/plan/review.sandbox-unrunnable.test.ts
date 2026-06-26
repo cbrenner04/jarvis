@@ -419,6 +419,72 @@ describe("runPlanReviewPhase", () => {
     }
   });
 
+  test("reverts out-of-bounds actuator writes before commit when specDirPath is unset", async () => {
+    const { worktreeRoot, cleanup } = setupPlanRemote();
+    const name = "2026-06-25T23-59-59Z-review-target";
+    const targetDir = "v1/spec";
+    try {
+      execSync(`git branch plan/${name}`, { cwd: worktreeRoot });
+      const worktreePath = join(worktreeRoot, "worktree");
+      mkdirSync(worktreePath);
+      execSync(`git worktree add --no-checkout worktree plan/${name}`, { cwd: worktreeRoot });
+      execSync(`git checkout plan/${name}`, { cwd: worktreePath });
+
+      const specDir = join(worktreePath, targetDir, name);
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(join(specDir, "intent.md"), `---\nname: ${name}\n---\n\n# Intent\n\nseed\n`);
+      writeFileSync(join(specDir, "index.md"), "# Draft\n\n- [ ] [00](./00-one.md)\n");
+      writeFileSync(join(specDir, "00-one.md"), "# One\n\n## Acceptance criteria\n\n- [ ] x\n");
+      execSync("git add -A", { cwd: worktreePath });
+      execSync("git commit -m 'seed'", { cwd: worktreePath });
+      execSync("git push -u origin HEAD", { cwd: worktreePath });
+
+      const headBefore = execSync("git rev-parse HEAD", { cwd: worktreePath, encoding: "utf8" }).trim();
+      const strayDir = join(worktreePath, name);
+      const strayFile = join(strayDir, "00-stray.md");
+      let stderr = "";
+      const agent = new FakeAgent("claude", (_c, prompt, _opts) => {
+        if (prompt.includes("Review Actuator")) {
+          mkdirSync(strayDir, { recursive: true });
+          writeFileSync(strayFile, "# stray\n", "utf8");
+          return { kind: "ok", stdout: "", stderr: "" };
+        }
+        if (prompt.includes("Review: Adjudicator")) {
+          return { kind: "ok", stdout: "Keep the current spec; no in-bounds edits required.\n", stderr: "" };
+        }
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const result = await runPlanReviewPhase({
+        worktreePath,
+        name,
+        specDirBasename: name,
+        config: makeReviewConfig({ planOrder: [CLAUDE_ENTRY], reviewPasses: 1 }),
+        reviewPassesOverride: 1,
+        commit: true,
+        checkBoundary: true,
+        targetDir,
+        createAgent: () => agent,
+        stderr: (line) => {
+          stderr += line;
+        },
+      });
+
+      expect(result.exitCode).toBe(1);
+      expect(stderr).toContain("plan: actuator boundary violation detected before commit");
+      expect(stderr).toContain(`${name}/`);
+      expect(() => readFileSync(strayFile, "utf8")).toThrow();
+      expect(() => execSync(`test -d '${strayDir}'`, { cwd: worktreePath })).toThrow();
+      const headAfter = execSync("git rev-parse HEAD", { cwd: worktreePath, encoding: "utf8" }).trim();
+      expect(headAfter).toBe(headBefore);
+      expect(execSync("git status --porcelain", { cwd: worktreePath, encoding: "utf8" }).trim()).toBe(
+        `?? ${targetDir}/${name}/verdict-plan.md`,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
   test("git-disabled review skips target-repo git-status boundary on worktree roots", async () => {
     const { dir, cfgDir, project } = (() => {
       const tmp = mkdtempSync(join(tmpdir(), "jarvis-plan-review-worktree-"));

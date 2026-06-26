@@ -45,11 +45,11 @@ with zero enforcement, reproducing PR #549.
 
 ## Acceptance criteria
 
-- [ ] The built actuator prompt anchors writes to `<targetDir>/<NAME>/` (full prefix) via the same imperative write-boundary rule the draft prompt carries; in the external no-commit (flat-layout) case it instead restricts writes to the working directory, mirroring the draft.
-- [ ] In a single-subspec commit-mode pass (`specDirPath` unset), when the actuator agent writes a file outside the resolved spec dir, the actuator commit path detects the boundary violation, removes the stray path (including a newly-created untracked `<worktree-root>/<timestamp-name>/` directory), fails the pass, and produces no commit containing the out-of-bounds file.
-- [ ] A new plan-side test exercises an actuator pass with `specDirPath` unset, a non-default `targetDir`, and a timestamped `name`, scripting the mock agent to write a stray out-of-bounds file, and asserts the guard catches/reverts it and nothing lands at `<worktree-root>/<timestamp-name>/`.
-- [ ] The actuator prompt `revision` is bumped, the `@r<n>` rendered snapshot fixture is regenerated, and `v1/test/prompts/rendered-snapshots.test.ts` asserts the new revision (snapshot test stays green).
-- [ ] `v2/docs/v1-behaviors.md` and `v1/docs/prompt-governance.md` record that the actuator writes refined files to the resolved spec dir (full `targetDir` prefix) overwriting the draft in place, that the commit path enforces a write-boundary check, and the new prompt revision.
+- [x] The built actuator prompt anchors writes to `<targetDir>/<NAME>/` (full prefix) via the same imperative write-boundary rule the draft prompt carries; in the external no-commit (flat-layout) case it instead restricts writes to the working directory, mirroring the draft.
+- [x] In a single-subspec commit-mode pass (`specDirPath` unset), when the actuator agent writes a file outside the resolved spec dir, the actuator commit path detects the boundary violation, removes the stray path (including a newly-created untracked `<worktree-root>/<timestamp-name>/` directory), fails the pass, and produces no commit containing the out-of-bounds file.
+- [x] A new plan-side test exercises an actuator pass with `specDirPath` unset, a non-default `targetDir`, and a timestamped `name`, scripting the mock agent to write a stray out-of-bounds file, and asserts the guard catches/reverts it and nothing lands at `<worktree-root>/<timestamp-name>/`.
+- [x] The actuator prompt `revision` is bumped, the `@r<n>` rendered snapshot fixture is regenerated, and `v1/test/prompts/rendered-snapshots.test.ts` asserts the new revision (snapshot test stays green).
+- [x] `v2/docs/v1-behaviors.md` and `v1/docs/prompt-governance.md` record that the actuator writes refined files to the resolved spec dir (full `targetDir` prefix) overwriting the draft in place, that the commit path enforces a write-boundary check, and the new prompt revision.
 
 ## Documentation updates
 

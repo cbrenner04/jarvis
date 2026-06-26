@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 export type BoundaryCheckResult = { ok: true } | { ok: false; offendingPaths: string[] };
 
+const GIT_UNKNOWN_PATH_MESSAGE = "did not match any file(s) known to git";
+
 /**
  * Check that all modified files in the worktree are within <targetDir>/<name>/
  * or within the allowed list (e.g., the worktree's .gitignore).
@@ -103,7 +105,8 @@ export function assertTargetRepoPlanBoundary(projectRoot: string): BoundaryCheck
 }
 
 /**
- * Revert modified files by path using `git checkout --`.
+ * Revert modified files by path using `git checkout --` and remove untracked
+ * additions with `git clean -fd`.
  */
 export function revertPaths(worktreePath: string, paths: string[]): void {
   if (paths.length === 0) {
@@ -117,8 +120,19 @@ export function revertPaths(worktreePath: string, paths: string[]): void {
         stdio: "pipe",
       });
     } catch (err) {
-      // Log but continue with other paths
-      console.error(`warning: failed to revert ${path}: ${err}`);
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.includes(GIT_UNKNOWN_PATH_MESSAGE)) {
+        console.error(`warning: failed to revert ${path}: ${message}`);
+      }
+    }
+    try {
+      execFileSync("git", ["clean", "-fd", "--", path], {
+        cwd: worktreePath,
+        stdio: "pipe",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`warning: failed to clean ${path}: ${message}`);
     }
   }
 }

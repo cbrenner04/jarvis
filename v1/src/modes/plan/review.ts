@@ -885,6 +885,18 @@ export async function runPlanReviewPhase(opts: PlanReviewPhaseOptions): Promise<
         return;
       }
 
+      if (opts.checkBoundary) {
+        const boundary = assertPlanWriteBoundary(opts.worktreePath, opts.specDirBasename, targetDir);
+        if (!boundary.ok) {
+          opts.stderr?.(`plan: actuator boundary violation detected before commit\n`);
+          revertPaths(opts.worktreePath, boundary.offendingPaths);
+          for (const path of boundary.offendingPaths) {
+            opts.stderr?.(`  - ${path}\n`);
+          }
+          throw new ReviewTerminalError("write boundary violation", 1);
+        }
+      }
+
       // Commit actuator changes
       try {
         execFileSync("git", ["add", "-A"], { cwd: opts.worktreePath, stdio: "pipe" });

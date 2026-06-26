@@ -31,7 +31,6 @@ import { planSummary } from "../../run-summary.ts";
 import { createPlanWorktree, createWorktreeSymlinks, ensureExistingBranchWorktree } from "../../worktree.ts";
 import {
   appendBoundaryBlocker,
-  assertNoCommitExternalSpecBoundary,
   assertPlanWriteBoundary,
   assertTargetRepoPlanBoundary,
   type BoundaryCheckResult,
@@ -1190,23 +1189,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           ? assertTargetRepoPlanBoundary(project.root)
           : { ok: true };
 
-      // For no-commit runs, also check the external spec directory
-      const externalBoundaryCheck: BoundaryCheckResult =
-        !commit && externalSpecRoot
-          ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename)
-          : { ok: true };
-
-      const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
-      if (!allBoundariesOk) {
+      if (!boundaryCheck.ok) {
         opts.io.stderr(`plan: boundary violation detected before draft commit\n`);
-        const bcOffending = boundaryCheck.ok ? [] : boundaryCheck.offendingPaths;
-        const ebcOffending = externalBoundaryCheck.ok ? [] : externalBoundaryCheck.offendingPaths;
-        const allOffendingPaths = [...bcOffending, ...ebcOffending];
+        const offendingPaths = boundaryCheck.ok ? [] : boundaryCheck.offendingPaths;
         if (commit) {
-          revertPaths(worktreePath, allOffendingPaths);
+          revertPaths(worktreePath, offendingPaths);
         }
-        appendBoundaryBlocker(finalSpecPath, specDirBasename, allOffendingPaths, targetDir);
-        for (const path of allOffendingPaths) {
+        appendBoundaryBlocker(finalSpecPath, specDirBasename, offendingPaths, targetDir);
+        for (const path of offendingPaths) {
           opts.io.stderr(`  - ${path}\n`);
         }
 

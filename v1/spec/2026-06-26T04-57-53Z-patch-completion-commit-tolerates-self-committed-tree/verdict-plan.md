@@ -1,0 +1,19 @@
+The code confirms the analysis. Now my verdict.
+
+## Verdict
+
+The spec is sound in its core design (apply the existing `git diff --cached --quiet` guard to the two unguarded commit paths), but it mis-describes *when* the clean-tree case actually triggers, which would mislead the test author and leave the real #547 bug unreproduced. Required refinements:
+
+1. **Correct `commitSubspec`'s clean-tree precondition.** The Problem section and AC #1 imply `commitSubspec` hits "nothing to commit" in the ordinary self-commit scenario (agent commits code, leaves `index.md` alone). It does not: `commitSubspec` writes the index checkbox flip (`writeFileSync` at line 29) *before* `git add -A` (line 32). When the agent leaves the index unchecked, jarvis's own flip stages a real change and the commit succeeds normally. `commitSubspec` reaches a clean tree **only when the index checkbox is already `[x]`** at commit time — i.e. a resumed run, or an agent that flipped and committed the index itself. Restate the precondition this way so the spec is accurate and the guard's purpose (defending the already-checked/resumed case) is clear.
+
+2. **Name `commitWipProgress` as the path that fixes the literal #547 abort.** `commitWipProgress` does not write the index — it is the path that genuinely hits a clean tree when a self-committing agent has already committed everything (including ticked criteria). The spec should frame this path as the one that reproduces and fixes the intake bug, rather than attributing the abort primarily to the completion commit.
+
+3. **Fix the test preconditions to match (1) and (2).** AC #1's parenthetical "(agent self-committed)" taken literally — commit code, leave index unchecked — will not exercise `commitSubspec`'s new guard (it will commit normally). The `commitSubspec` clean-tree test must set up the already-`[x]` index precondition. The `commitWipProgress` test should use the all-already-committed precondition. State these so the tests actually hit the guarded branch.
+
+4. **Record the attribution side effect in the doc updates.** When the guard short-circuits, the subspec's work lives in the agent's own commit, which carries no `Jarvis-Agent` trailer, so that subspec drops out of the rendered PR attribution footer. This is a reviewer-visible behavior change. The `worktrees-and-commits.md` and `v2/docs/v1-behaviors.md` bullets must note this consequence, not just the no-op — per the repo rule that behavior changes touching attribution/commit semantics be recorded in the v1-behaviors baseline.
+
+5. **Soften "verbatim."** Neither `commitSubspec` nor `commitWipProgress` currently contains the guard, so "apply verbatim" is misleading. Phrase it as applying the *same guard shape* as the blocker path (`spawnSync` `git diff --cached --quiet`; `status === 0` → return, `status !== 1` → throw with stderr/stdout detail).
+
+6. **Add a one-line note that no downstream consumer depends on a per-subspec jarvis commit existing.** Completion detection reads `HEAD:<spec>`, which on the no-op path resolves to the agent's own commit carrying the checked criteria, so the run continues correctly. A single sentence (decision or doc note) closes this gap; a dedicated test is not required.
+
+Rationale: refinements 1–3 are blocking — without them the spec's stated trigger contradicts the code, and a faithful test author would write tests that never exercise the new guard, defeating the intent's purpose of tolerating self-commits on every per-subspec commit path. Refinements 4–6 are low-cost accuracy/completeness fixes that keep the documentation baseline honest and remove ambiguity.

@@ -1,0 +1,3 @@
+No valid issues require actuator action. The spec's root-cause diagnosis now correctly pins the 30000ms `bunfig.toml` timeout and reframes the mechanism as event-loop starvation amplification; AC #2 is scoped to the transient case; and the one-line `sleepMs: async () => {}` injection satisfies both acceptance criteria with no production change. The remaining observations (no regression guard, inline-comment idiom, repo-wide flake class) are all explicitly out of scope per the intent and verdict-plan.
+
+Empty verdict — ship as-is.

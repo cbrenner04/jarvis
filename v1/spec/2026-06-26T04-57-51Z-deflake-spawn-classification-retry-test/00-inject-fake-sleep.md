@@ -32,8 +32,8 @@ describe block just stops depending on wall-time.
 
 ## Acceptance criteria
 
-- [ ] `classifyAgentError` in `v1/test/agents/spawn-classification.test.ts` injects an immediate-resolve `sleepMs` so the transient-retry loop performs no real backoff sleeps.
-- [ ] The `spawn classification order: transient → auth → model_config → quota` describe block (all six tests) stays green with its current expected results; the transient test (`"connection reset: refresh token revoked"`) — the only one that enters the backoff path — no longer depends on the real `[1000, 2000, 4000]`ms backoff wall-time.
+- [x] `classifyAgentError` in `v1/test/agents/spawn-classification.test.ts` injects an immediate-resolve `sleepMs` so the transient-retry loop performs no real backoff sleeps.
+- [x] The `spawn classification order: transient → auth → model_config → quota` describe block (all six tests) stays green with its current expected results; the transient test (`"connection reset: refresh token revoked"`) — the only one that enters the backoff path — no longer depends on the real `[1000, 2000, 4000]`ms backoff wall-time.
 
 ## Documentation updates
 

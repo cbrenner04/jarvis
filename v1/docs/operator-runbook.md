@@ -193,6 +193,7 @@ Avoid bare shell `&` — the process dies when the shell exits, and runs untrack
 ## Concurrency — avoid cross-run conflicts
 
 - **Don't run two Jarvis commands that touch the same files concurrently.** Separate worktrees prevent lock contention, but overlapping edits produce merge conflicts later (and CPU contention raises flake rates). Sequence runs that share files; merge each as it lands so branches stay close to `main`.
+- **Throttle `jarvis run` (impl) to ~1–2 concurrent; fan out `plan`/`intent` freely.** Each `run`'s completion gate executes the full test suite, so 3–4 concurrent runs starve each other's gates and tip timing-sensitive tests over their timeouts — faking `exit 8` (watchdog timeout) / `exit 1` failures on correct code. (Observed 2026-06-25: 4 concurrent impl runs, three gate-failed on one flaky test; all recovered by re-running each gate in isolation.) `plan` and `intent` have short, cheap gates and isolated spec dirs, so ~3–5 concurrent is fine. When an impl run gate-fails under contention, finalize by re-running its gate in isolation (sandbox-off) on the integration-merged branch — green means it was a contention flake, not bad code.
 - **Don't branch-switch the primary checkout while a `plan`/`intent` is starting** — it reads the seed from the primary checkout at startup; a switch mid-read is a race. Merges and `pull` on `main` (no branch switch) are safe.
 - For observer-side edits (like this runbook) while runs are in flight, work in a **separate worktree** so the primary checkout stays on `main`.
 

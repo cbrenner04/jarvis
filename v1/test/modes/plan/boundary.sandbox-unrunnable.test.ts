@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   appendBoundaryBlocker,
-  assertNoCommitExternalSpecBoundary,
   assertPlanWriteBoundary,
   assertTargetRepoPlanBoundary,
   revertPaths,
@@ -236,5 +235,4 @@ describe("boundary", () => {
     expect(content).not.toContain("Old blocker content");
     expect(content).toContain("Out-of-bounds write detected");
   });
-
 });

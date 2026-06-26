@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export type BoundaryCheckResult = { ok: true } | { ok: false; offendingPaths: string[] };
@@ -175,8 +175,8 @@ Spec-file write boundary is enforced: only files under \`${targetDir}/${specDirB
  * This allows concurrent no-commit plans to coexist.
  */
 export function assertNoCommitExternalSpecBoundary(
-  externalSpecRoot: string,
-  specDirBasename: string,
+  _externalSpecRoot: string,
+  _specDirBasename: string,
 ): BoundaryCheckResult {
   return { ok: true };
 }

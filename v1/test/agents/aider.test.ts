@@ -35,7 +35,8 @@ describe("AiderAgent", () => {
       },
     });
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).toContain("--message");
     expect(record.argv).toContain("the prompt");
     expect(record.argv).toContain("--model");
@@ -60,7 +61,8 @@ describe("AiderAgent", () => {
     await agent.run("the prompt", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).toContain("--yes-always");
     expect(record.argv).not.toContain("--dangerously");
     expect(record.argv).not.toContain("--skip");
@@ -226,7 +228,8 @@ describe("AiderAgent", () => {
     });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).toContain(sibling1);
     expect(record.argv).toContain(sibling2);
   });
@@ -251,7 +254,8 @@ describe("AiderAgent", () => {
     });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).toContain(sibling1);
     expect(record.argv).toContain(sibling2);
     expect(record.argv).toContain(sibling3);
@@ -270,7 +274,8 @@ describe("AiderAgent", () => {
     await agent.run("prompt", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.opts.env).toBeDefined();
     expect(record.opts.env?.BROWSER).toBe("false");
   });

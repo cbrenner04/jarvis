@@ -45,6 +45,11 @@ type ModeConfig = {
   agentOrder: AgentEntry[];
   prNarrative?: "template" | "agent"; // PR narrative mode: default "template"
   shrink?: "off" | "agent"; // patch mode only: whether to run shrink phase (default "agent")
+  subRoleAgentOrder?: {
+    reviewPanel?: AgentEntry[];
+    reviewActuator?: AgentEntry[];
+    patchActuator?: AgentEntry[];
+  }; // patch mode only: optional per-sub-role agent-order overrides
   commit?: boolean; // plan mode only: whether to commit specs to the target repo (default true)
   targetDir?: string; // plan and intent modes: relative path where committed specs are routed (default "spec")
   actuationCapabilityFloor?: number; // patch mode only: minimum capability rank to use (default unset = no floor)
@@ -265,6 +270,45 @@ Example configuration to disable shrink for a project:
         { "agent": "claude", "model": "haiku" }
       ],
       "shrink": "off"
+    }
+  }
+}
+```
+
+## `modes.patch.subRoleAgentOrder`
+
+The optional `modes.patch.subRoleAgentOrder` block adds per-sub-role agent-order overrides within `jarvis run`. When the block or an individual key is unset, resolution stays at today's behavior.
+
+Allowed keys:
+
+- `reviewPanel`: read-only review roles (`adversary`, `advocate`, `adjudicator`)
+- `reviewActuator`: verdict actuator
+- `patchActuator`: implementation loop and shrink agent
+
+Each present key uses the same `AgentEntry[]` schema and validation contract as `modes.patch.agentOrder`: the array must be non-empty, agents must be known, agents must not repeat, and each model must be valid for its agent. Unknown keys under `subRoleAgentOrder` are rejected at config load.
+
+Example:
+
+```json
+{
+  "modes": {
+    "patch": {
+      "agentOrder": [
+        { "agent": "claude", "model": "sonnet" },
+        { "agent": "codex", "model": "gpt-5.4" }
+      ],
+      "subRoleAgentOrder": {
+        "reviewPanel": [
+          { "agent": "claude", "model": "haiku" }
+        ],
+        "reviewActuator": [
+          { "agent": "codex", "model": "gpt-5.4" }
+        ],
+        "patchActuator": [
+          { "agent": "claude", "model": "sonnet" },
+          { "agent": "codex", "model": "gpt-5.4" }
+        ]
+      }
     }
   }
 }

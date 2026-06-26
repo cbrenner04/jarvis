@@ -84,6 +84,12 @@ export type AgentEntry = {
   capability?: number;
 };
 
+export type PatchSubRoleAgentOrder = Partial<{
+  reviewPanel: AgentEntry[];
+  reviewActuator: AgentEntry[];
+  patchActuator: AgentEntry[];
+}>;
+
 export type ModeConfig = {
   agentOrder: AgentEntry[];
   specTimestamp?: boolean;
@@ -91,6 +97,7 @@ export type ModeConfig = {
   targetDir?: string;
   prNarrative?: "template" | "agent";
   shrink?: "off" | "agent";
+  subRoleAgentOrder?: PatchSubRoleAgentOrder;
   actuationCapabilityFloor?: number;
 };
 
@@ -231,6 +238,11 @@ function validateConfig(input: unknown, file: string): Config {
   let patchShrink: "off" | "agent" = "agent";
   if (patchModeObj.shrink !== undefined) {
     patchShrink = validateShrink(patchModeObj.shrink, "modes.patch.shrink", (message) => fail(file, message));
+  }
+
+  let patchSubRoleAgentOrder: PatchSubRoleAgentOrder | undefined;
+  if (patchModeObj.subRoleAgentOrder !== undefined) {
+    patchSubRoleAgentOrder = validatePatchSubRoleAgentOrder(patchModeObj.subRoleAgentOrder, file);
   }
 
   let patchActuationCapabilityFloor: number | undefined;
@@ -562,6 +574,7 @@ function validateConfig(input: unknown, file: string): Config {
         agentOrder: patchAgentOrder,
         prNarrative: patchPrNarrative,
         shrink: patchShrink,
+        ...(patchSubRoleAgentOrder !== undefined ? { subRoleAgentOrder: patchSubRoleAgentOrder } : {}),
         ...(patchActuationCapabilityFloor !== undefined
           ? { actuationCapabilityFloor: patchActuationCapabilityFloor }
           : {}),
@@ -637,6 +650,33 @@ function validateAgentOrder(input: unknown, fieldName: string, file: string): Ag
     agentOrder.push({ agent: entry.agent, model: entry.model, ...(capability !== undefined ? { capability } : {}) });
   }
   return agentOrder;
+}
+
+function validatePatchSubRoleAgentOrder(input: unknown, file: string): PatchSubRoleAgentOrder {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    fail(file, "modes.patch.subRoleAgentOrder must be an object");
+  }
+
+  const raw = input as Record<string, unknown>;
+  const allowedKeys = ["reviewPanel", "reviewActuator", "patchActuator"] as const;
+  const allowedKeySet = new Set<string>(allowedKeys);
+  for (const key of Object.keys(raw)) {
+    if (!allowedKeySet.has(key)) {
+      fail(
+        file,
+        `modes.patch.subRoleAgentOrder: unknown key ${JSON.stringify(key)} (allowed: ${allowedKeys.join(", ")})`,
+      );
+    }
+  }
+
+  const subRoleAgentOrder: PatchSubRoleAgentOrder = {};
+  for (const key of allowedKeys) {
+    const value = raw[key];
+    if (value !== undefined) {
+      subRoleAgentOrder[key] = validateAgentOrder(value, `modes.patch.subRoleAgentOrder.${key}`, file);
+    }
+  }
+  return subRoleAgentOrder;
 }
 
 function validateNoModeAgents(input: unknown, fieldName: string, file: string): void {

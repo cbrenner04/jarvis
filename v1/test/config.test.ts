@@ -127,6 +127,79 @@ describe("loadConfig", () => {
     expect(cfg.projects.jarvis).toEqual({ root: "/Users/me/jarvis" });
   });
 
+  test("accepts patch sub-role agent orders", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: CLAUDE_ONLY,
+            subRoleAgentOrder: {
+              reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
+              reviewActuator: [{ agent: "claude", model: "haiku" }],
+              patchActuator: [{ agent: "cursor", model: "Composer 2.5" }],
+            },
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.subRoleAgentOrder).toEqual({
+      reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
+      reviewActuator: [{ agent: "claude", model: "haiku" }],
+      patchActuator: [{ agent: "cursor", model: "Composer 2.5" }],
+    });
+  });
+
+  test("accepts patch config without sub-role agent orders", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    expect(loadConfig({ dir }).modes.patch.subRoleAgentOrder).toBeUndefined();
+  });
+
+  test("accepts patch sub-role agent orders with omitted keys", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: CLAUDE_ONLY,
+            subRoleAgentOrder: {
+              reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
+            },
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    expect(loadConfig({ dir }).modes.patch.subRoleAgentOrder).toEqual({
+      reviewPanel: [{ agent: "codex", model: "gpt-5.3-codex" }],
+    });
+  });
+
   test("accepts aider in patch agentOrder", () => {
     writeFileSync(
       join(dir, "config.json"),
@@ -607,6 +680,52 @@ describe("loadConfig", () => {
       }),
     );
     expect(() => loadConfig({ dir })).toThrow(/modes\.plan\.agentOrder.*duplicate/);
+  });
+
+  test("rejects invalid patch sub-role agent order", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: CLAUDE_ONLY,
+            subRoleAgentOrder: {
+              reviewActuator: [{ agent: "claude", model: "not-a-model" }],
+            },
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.subRoleAgentOrder\.reviewActuator/);
+  });
+
+  test("rejects unknown patch sub-role agent order key", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: CLAUDE_ONLY,
+            subRoleAgentOrder: {
+              reviewer: [{ agent: "claude", model: "haiku" }],
+            },
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.subRoleAgentOrder: unknown key "reviewer"/);
   });
 
   test("rejects unknown agent", () => {

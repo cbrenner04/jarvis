@@ -518,7 +518,7 @@ describe("cleanupCommand", () => {
     const specName = "no-intent";
     const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
     const projectId = "test";
-    const externalSpecDir = setupExternalSpec(externalRoot, projectId, specName, false);
+    const _externalSpecDir = setupExternalSpec(externalRoot, projectId, specName, false);
 
     const worktreePath = createTrackedWorktree(specName);
 

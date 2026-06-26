@@ -21,6 +21,7 @@ import type { LogClient } from "../src/logging.ts";
 import {
   maybeWarnAboutUnmergedPlanBranch,
   prepareActiveSpecPath,
+  type CompletionReadyGateResult,
   type RunCommandOptions,
   type RunIo,
   runCommand,
@@ -1812,8 +1813,7 @@ exit 0
 
     async function testGateLoopWithBound(
       bound: number,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      gateImpl: (cwd: string) => any,
+      gateImpl: (cwd: string) => CompletionReadyGateResult,
     ): Promise<{ spec: string; cap: ReturnType<typeof captureIo>; code: number }> {
       const spec = initCompletionGateRepo();
       const cfg = loadConfig({ dir: cfgDir });
@@ -1840,18 +1840,10 @@ exit 0
     }
 
     test("gate-loop behavior: sustained retryable red exhausts bound 2 exactly", async () => {
-      let attemptCount = 0;
-      let firstCheckAttemptCount = 0;
-
       const { cap, code } = await testGateLoopWithBound(2, (_cwd) => {
-        attemptCount += 1;
-        if (attemptCount === 4 && firstCheckAttemptCount === 0) {
-          firstCheckAttemptCount = 3;
-        }
         return { kind: "red", failureText: "commit failed: test error" };
       });
 
-      expect(firstCheckAttemptCount).toBe(3);
       expect(code).not.toBe(0);
       const stderr = cap.err();
       expect(stderr).toContain("attempt 1/3), retrying");
@@ -1878,7 +1870,7 @@ exit 0
       expect(code).not.toBe(0);
     });
 
-    test("gate-loop behavior: retryable red across multiple attempts ends green when later attempt succeeds (bound 2, red→red→green)", async () => {
+    test("gate-loop behavior: retryable red across multiple attempts ends green when later attempt succeeds (bound 2, red→red→green) — proves exact bound + 1 count", async () => {
       let gateCalls = 0;
 
       const { cap, code } = await testGateLoopWithBound(2, (_cwd) => {
@@ -1889,6 +1881,9 @@ exit 0
         return { kind: "green" };
       });
 
+      // This green-terminating variant measures the exact count uncontaminated by loopback.
+      // Green return on attempt 3 ends the single completion check before any second check,
+      // so gateCalls === totalAttempts is a genuine measurement of bound + 1.
       expect(gateCalls).toBe(3);
       expect(code).toBe(0);
       expect(cap.out()).toContain("spec complete");

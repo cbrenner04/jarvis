@@ -1809,6 +1809,134 @@ exit 0
       expect(cap.err()).toContain("attempt 1/3"); // Default bound 2 -> 3 total attempts
       expect(cap.out()).toContain("spec complete");
     });
+
+    test("gate-loop behavior: sustained retryable red exhausts bound 2 exactly", async () => {
+      const spec = initCompletionGateRepo();
+
+      const cfg = loadConfig({ dir: cfgDir });
+      if (cfg.projects.project === undefined) {
+        cfg.projects.project = { root: projectRoot };
+      }
+      cfg.projects.project.readyGateRetryBound = 2;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = createCompletionAgent(spec);
+
+      let attemptCount = 0;
+      let firstCheckAttemptCount = 0;
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        reviewPasses: 0,
+        runCompletionReadyGate: () => {
+          attemptCount += 1;
+          // At bound 2, first check should make 3 attempts (calls 1, 2, 3)
+          // If we get to call 4, we're in a second completion check, so record the first count
+          if (attemptCount === 4 && firstCheckAttemptCount === 0) {
+            firstCheckAttemptCount = 3;
+          }
+          // Red on all attempts
+          return { kind: "red", failureText: "commit failed: test error" };
+        },
+      });
+
+      // Verify first check made exactly bound + 1 = 3 attempts
+      expect(firstCheckAttemptCount).toBe(3);
+      // Verify non-zero exit (run failed due to gate failure)
+      expect(code).not.toBe(0);
+      // Verify stderr contains first two attempt messages with "retrying"
+      const stderr = cap.err();
+      expect(stderr).toContain("attempt 1/3), retrying");
+      expect(stderr).toContain("attempt 2/3), retrying");
+      // Verify third attempt NOT followed by "retrying" (terminal line uses colon instead)
+      expect(stderr).not.toContain("attempt 3/3), retrying");
+      // Verify terminal red with colon form
+      expect(stderr).toContain("ready gate failed:");
+    });
+
+    test("gate-loop behavior: non-retryable red at bound 2 exits on first attempt", async () => {
+      const spec = initCompletionGateRepo();
+
+      const cfg = loadConfig({ dir: cfgDir });
+      if (cfg.projects.project === undefined) {
+        cfg.projects.project = { root: projectRoot };
+      }
+      cfg.projects.project.readyGateRetryBound = 2;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = createCompletionAgent(spec);
+
+      let gateCallCount = 0;
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        reviewPasses: 0,
+        runCompletionReadyGate: () => {
+          gateCallCount += 1;
+          // Return non-retryable red immediately (stops retry loop)
+          return {
+            kind: "red",
+            failureText: "push failed: permission denied to repository",
+            retryable: false,
+          };
+        },
+      });
+
+      // Verify first completion check invoked seam exactly once (no retries due to non-retryable)
+      expect(gateCallCount).toBe(1);
+      // Verify no "retrying" message in stderr (retryable: false should not retry)
+      expect(cap.err()).not.toContain("retrying");
+      // Verify terminal red with colon form
+      expect(cap.err()).toContain("ready gate failed:");
+      // Verify non-zero exit (run failed)
+      expect(code).not.toBe(0);
+    });
+
+    test("gate-loop behavior: retryable red across multiple attempts ends green when later attempt succeeds (bound 2, red→red→green)", async () => {
+      const spec = initCompletionGateRepo();
+
+      const cfg = loadConfig({ dir: cfgDir });
+      if (cfg.projects.project === undefined) {
+        cfg.projects.project = { root: projectRoot };
+      }
+      cfg.projects.project.readyGateRetryBound = 2;
+      writeConfig(cfg, { dir: cfgDir });
+
+      const cap = captureIo();
+      const claude = createCompletionAgent(spec);
+
+      let gateCalls = 0;
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+        reviewPasses: 0,
+        runCompletionReadyGate: () => {
+          gateCalls += 1;
+          // Red twice (attempt 1 and 2), then green (attempt 3)
+          if (gateCalls <= 2) {
+            return { kind: "red", failureText: "commit failed: transient error" };
+          }
+          return { kind: "green" };
+        },
+      });
+
+      // Verify gate invoked exactly 3 times (bound 2 + 1)
+      expect(gateCalls).toBe(3);
+      // Verify successful completion
+      expect(code).toBe(0);
+      expect(cap.out()).toContain("spec complete");
+    });
   });
 
   describe("post-completion gate tier matrix", () => {

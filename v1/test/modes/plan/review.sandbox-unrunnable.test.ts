@@ -442,7 +442,7 @@ describe("runPlanReviewPhase", () => {
       const headBefore = execSync("git rev-parse HEAD", { cwd: worktreePath, encoding: "utf8" }).trim();
       const strayDir = join(worktreePath, name);
       let stderr = "";
-      const agent = new FakeAgent("claude", (_c, prompt, opts) => {
+      const agent = new FakeAgent("claude", (_c, prompt, _opts) => {
         if (prompt.includes("Review Actuator")) {
           mkdirSync(strayDir, { recursive: true });
           writeFileSync(join(strayDir, "00-stray.md"), "# stray\n", "utf8");

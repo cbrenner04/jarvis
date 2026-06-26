@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 export type BoundaryCheckResult = { ok: true } | { ok: false; offendingPaths: string[] };
 
+const GIT_UNKNOWN_PATH_MESSAGE = "did not match any file(s) known to git";
+
 /**
  * Check that all modified files in the worktree are within <targetDir>/<name>/
  * or within the allowed list (e.g., the worktree's .gitignore).
@@ -119,7 +121,7 @@ export function revertPaths(worktreePath: string, paths: string[]): void {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (!message.includes("did not match any file(s) known to git")) {
+      if (!message.includes(GIT_UNKNOWN_PATH_MESSAGE)) {
         console.error(`warning: failed to revert ${path}: ${message}`);
       }
     }
@@ -129,7 +131,8 @@ export function revertPaths(worktreePath: string, paths: string[]): void {
         stdio: "pipe",
       });
     } catch (err) {
-      console.error(`warning: failed to clean ${path}: ${err}`);
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`warning: failed to clean ${path}: ${message}`);
     }
   }
 }

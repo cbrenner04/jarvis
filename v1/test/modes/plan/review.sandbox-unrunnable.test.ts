@@ -441,11 +441,12 @@ describe("runPlanReviewPhase", () => {
 
       const headBefore = execSync("git rev-parse HEAD", { cwd: worktreePath, encoding: "utf8" }).trim();
       const strayDir = join(worktreePath, name);
+      const strayFile = join(strayDir, "00-stray.md");
       let stderr = "";
       const agent = new FakeAgent("claude", (_c, prompt, _opts) => {
         if (prompt.includes("Review Actuator")) {
           mkdirSync(strayDir, { recursive: true });
-          writeFileSync(join(strayDir, "00-stray.md"), "# stray\n", "utf8");
+          writeFileSync(strayFile, "# stray\n", "utf8");
           return { kind: "ok", stdout: "", stderr: "" };
         }
         if (prompt.includes("Review: Adjudicator")) {
@@ -472,7 +473,7 @@ describe("runPlanReviewPhase", () => {
       expect(result.exitCode).toBe(1);
       expect(stderr).toContain("plan: actuator boundary violation detected before commit");
       expect(stderr).toContain(`${name}/`);
-      expect(() => readFileSync(join(strayDir, "00-stray.md"), "utf8")).toThrow();
+      expect(() => readFileSync(strayFile, "utf8")).toThrow();
       expect(() => execSync(`test -d '${strayDir}'`, { cwd: worktreePath })).toThrow();
       const headAfter = execSync("git rev-parse HEAD", { cwd: worktreePath, encoding: "utf8" }).trim();
       expect(headAfter).toBe(headBefore);

@@ -12,6 +12,7 @@ import { evaluateIdleWatchdog, sampleFileActivityIfNeeded } from "../patch/idle-
 import { emitPlanAgentQuotaFallback } from "./emit-plan-quota-stderr.ts";
 import { createPlanInvocationBinding } from "./plan-invocation-binding.ts";
 import type { PlanTelemetryWriter } from "./plan-telemetry.ts";
+import { resolvePlanSpecDirPath } from "./spec-dir.ts";
 import { renderTemplate, TemplateRenderingError } from "./template-renderer.ts";
 
 function snapshotActuatorSpecFiles(specDir: string): string {
@@ -130,20 +131,10 @@ export type VerdictActuatorOptions = {
   idleOutputTimeoutMs?: number | undefined;
 };
 
-/**
- * Run the verdict actuator: apply a review verdict to generated spec files.
- */
 export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<void> {
-  const specDir =
-    opts.specDirPath ??
-    (opts.externalSpecRoot
-      ? join(opts.externalSpecRoot, opts.name)
-      : join(opts.worktreePath, opts.targetDir ?? "spec", opts.name));
-  const intentPath = opts.specDirPath
-    ? join(opts.specDirPath, "intent.md")
-    : opts.externalSpecRoot
-      ? join(opts.externalSpecRoot, opts.name, "intent.md")
-      : join(opts.worktreePath, opts.targetDir ?? "spec", opts.name, "intent.md");
+  const flatSpecLayout = opts.specDirPath !== undefined;
+  const specDir = resolvePlanSpecDirPath(opts.worktreePath, opts.name, opts.specDirPath, opts.targetDir);
+  const intentPath = join(specDir, "intent.md");
   const intentBefore = readFileSync(intentPath, "utf8");
   const currentSpec = snapshotActuatorSpecFiles(specDir);
 
@@ -158,7 +149,7 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
       currentSpec,
       specGuidance,
       verdict: opts.verdict,
-      ...(opts.specDirPath !== undefined ? { flatSpecLayout: true, workDirLabel: specDir } : {}),
+      ...(flatSpecLayout ? { flatSpecLayout: true, workDirLabel: specDir } : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });
   } catch (err) {

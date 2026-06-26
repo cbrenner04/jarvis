@@ -63,6 +63,10 @@ commit body includes:
 The same commit also flips the index.md checkbox for the subspec from `[ ]`
 to `[x]`, staging both the work and the index update together.
 
+If `git add -A` stages nothing, jarvis skips the per-subspec commit instead of
+aborting the run. This clean-tree no-op is tolerated on all three per-subspec
+commit paths: completion, `WIP:` progress, and `WIP:` blocker.
+
 ### Jarvis-Agent trailer
 
 Every commit jarvis creates carries a `Jarvis-Agent: <label>` git trailer
@@ -84,6 +88,11 @@ blocker commits.
 Stamping `WIP:` commits as well as subspec commits keeps the data shape
 uniform across every commit jarvis writes, even though the PR body
 attribution footer only renders subspec commits.
+
+When a clean-tree no-op skips the commit entirely, there is no jarvis-authored
+commit and therefore no `Jarvis-Agent` trailer for that subspec. In that case
+the work remains only in the agent's own commit and drops out of the rendered
+PR attribution footer.
 
 ## Push cadence
 

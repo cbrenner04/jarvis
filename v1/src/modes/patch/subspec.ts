@@ -30,6 +30,25 @@ export function commitSubspec(
 
   const gitRoot = opts.cwd ?? getGitRoot(subspecPath);
   execFileSync("git", ["add", "-A"], { cwd: gitRoot, stdio: "pipe" });
+  const diffResult = spawnSync("git", ["diff", "--cached", "--quiet"], {
+    cwd: gitRoot,
+    stdio: "pipe",
+  });
+  if (diffResult.status === 0) {
+    return;
+  }
+  if (diffResult.status !== 1) {
+    const stderr = diffResult.stderr ? diffResult.stderr.toString() : "";
+    const stdout = diffResult.stdout ? diffResult.stdout.toString() : "";
+    let errorDetail = "";
+    if (stderr) {
+      errorDetail += `\nstderr: ${stderr}`;
+    }
+    if (stdout) {
+      errorDetail += `\nstdout: ${stdout}`;
+    }
+    throw new Error(`git diff --cached --quiet failed${errorDetail}`);
+  }
 
   const relativeSpecPath = relative(realpathSync(gitRoot), realpathSync(subspecPath));
   const bodyFirstLine = `Spec: ${relativeSpecPath}`;
@@ -109,6 +128,25 @@ export function commitWipProgress(
   }
 
   execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
+  const diffResult = spawnSync("git", ["diff", "--cached", "--quiet"], {
+    cwd: opts.cwd,
+    stdio: "pipe",
+  });
+  if (diffResult.status === 0) {
+    return;
+  }
+  if (diffResult.status !== 1) {
+    const stderr = diffResult.stderr ? diffResult.stderr.toString() : "";
+    const stdout = diffResult.stdout ? diffResult.stdout.toString() : "";
+    let errorDetail = "";
+    if (stderr) {
+      errorDetail += `\nstderr: ${stderr}`;
+    }
+    if (stdout) {
+      errorDetail += `\nstdout: ${stdout}`;
+    }
+    throw new Error(`git diff --cached --quiet failed${errorDetail}`);
+  }
 
   const relativeSpecPath = relative(realpathSync(opts.cwd), realpathSync(subspecPath));
   let summary: string;

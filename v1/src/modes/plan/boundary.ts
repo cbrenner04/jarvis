@@ -168,15 +168,3 @@ Spec-file write boundary is enforced: only files under \`${targetDir}/${specDirB
   }
 }
 
-/**
- * For no-commit plan runs: no longer checks external storage.
- * The external spec root is not inspected; sibling directory creation
- * no longer triggers a boundary violation.
- * This allows concurrent no-commit plans to coexist.
- */
-export function assertNoCommitExternalSpecBoundary(
-  _externalSpecRoot: string,
-  _specDirBasename: string,
-): BoundaryCheckResult {
-  return { ok: true };
-}

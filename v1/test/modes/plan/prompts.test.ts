@@ -132,6 +132,21 @@ describe("buildVerdictActuatorPrompt", () => {
     expect(prompt).not.toContain("Do not write any other files.");
   });
 
+  test("uses full targetDir prefix in committed-spec layout", () => {
+    const prompt = buildVerdictActuatorPrompt({
+      name: "2026-06-26T04-57-54Z-my-plan",
+      intent: "# Intent\n",
+      currentSpec: '<<<FILE name="00-one.md" BEGIN>>>\n# One\n<<<FILE END>>>',
+      specGuidance: "guidance",
+      verdict: "Tighten the write boundary.",
+      targetDir: "v1/spec",
+    });
+
+    expect(prompt).toContain(
+      "Only write files under `v1/spec/2026-06-26T04-57-54Z-my-plan/`.",
+    );
+  });
+
   test("uses working-directory boundary in flat layout", () => {
     const prompt = buildVerdictActuatorPrompt({
       name: "p",

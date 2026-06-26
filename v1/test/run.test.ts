@@ -7228,10 +7228,7 @@ exit 1
     // 2. Mocking the shrink invocation to trigger the empty-eligible path.
     // Both are out of scope for this verdict, so we verify the code path exists.
 
-    const shrinkSource = readFileSync(
-      join(import.meta.dir, "../src/modes/patch/shrink.ts"),
-      "utf8"
-    );
+    const shrinkSource = readFileSync(join(import.meta.dir, "../src/modes/patch/shrink.ts"), "utf8");
 
     // Verify that shrink uses filterAgentsByCapabilityFloor
     expect(shrinkSource).toContain("filterAgentsByCapabilityFloor");

@@ -479,8 +479,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     return { kind: "return", exitCode: 2 };
   }
 
-  const patchActuatorOrder = resolveSubRoleAgentOrder(cfg, "patchActuator");
-  const configuredPatchModelEntry = patchActuatorOrder.find((entry) => entry.agent === agent.name);
+  const configuredPatchModelEntry = resolveSubRoleAgentOrder(cfg, "patchActuator").find((entry) => entry.agent === agent.name);
   const telemetryMeta =
     configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
   const configuredPatchModel = configuredPatchModelEntry?.model;
@@ -1661,7 +1660,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       return { kind: "continue" };
     }
     if (result.kind === "model_config") {
-      const entry = patchActuatorOrder.find((e) => e.agent === agent.name);
+      const entry = resolveSubRoleAgentOrder(cfg, "patchActuator").find((e) => e.agent === agent.name);
       const configErr = `${agent.name}: configured patch model ${JSON.stringify(entry?.model)} is not supported by this CLI/account\n`;
       fanout("harness", configErr, "stderr");
       if (result.stderr.length > 0) {

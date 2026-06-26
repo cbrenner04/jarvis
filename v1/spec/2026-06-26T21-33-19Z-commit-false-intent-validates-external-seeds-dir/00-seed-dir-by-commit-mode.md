@@ -23,9 +23,20 @@ observed on `groceries-client`).
 ## Decisions
 
 - For `commit === false`, validate against `join(externalRoot, "seeds")`; the
-  external seed home is the only active seeds dir for that mode — rules out
-  accepting either location, which would let in-repo seeds silently bypass the
-  external home the no-commit pipeline reads from.
+  external seed home is the documented seed home for that mode — rules out
+  accepting either location, which would weaken the placement-convention guard
+  that keeps `commit: false` seeds in their documented external home. (The
+  passed path is read directly; the pipeline never enumerates the seeds dir, so
+  this is a placement guard, not a functional read-path gate.)
+- This inverts an existing behavior: today a `commit: false` file seed placed in
+  the in-repo seeds dir is accepted; after this change it is rejected. The
+  accept→reject flip is intended — rules out preserving in-repo acceptance under
+  `commit: false`.
+- `--target-dir` no longer influences the `commit: false` seed-input dir: the
+  external `join(externalRoot, "seeds")` has no `targetDir` component, whereas
+  the old `join(project.root, targetDir, "seeds")` did — rules out the prior
+  documented behavior that `--target-dir` applies to the no-commit seed-input
+  check.
 - Compute `externalRoot` once and reuse it for both validation and the
   existing no-commit branch — rules out duplicating the
   `join(jarvisConfigDir, "specs", computeProjectSafeId(project))` derivation.
@@ -41,9 +52,10 @@ observed on `groceries-client`).
   no-commit branch.
 - [ ] Update the rejection message to reflect the active seeds dir.
 - [ ] Update the existing `intent-command.sandbox-unrunnable.test.ts` case that
-  places a `commit: false` file seed in the in-repo dir so it places the seed in
-  the external seeds dir; add/keep a case proving an in-repo seed is rejected
-  under `commit: false`.
+  places a `commit: false` file seed in the in-repo dir: relocate the seed to the
+  external seeds dir AND rename the case so its name describes acceptance from the
+  external home (its old name asserted the now-inverted in-repo behavior). Add a
+  case proving an in-repo seed is rejected under `commit: false`.
 - [ ] Update `v1/docs/intent-mode.md` and `v2/docs/v1-behaviors.md` for the
   commit-mode-dependent seed-input dir.
 
@@ -54,16 +66,24 @@ observed on `groceries-client`).
   to the split flow instead of rejecting with `raw seed files must live under`.
 - [ ] Under `commit: false`, a file seed located in the in-repo
   `project.root/<targetDir>/seeds` is rejected.
+- [ ] Under `commit: false`, the rejection message names the active external
+  seeds home (`~/.jarvis/specs/<projectSafeId>/seeds/`), not `${targetDir}/seeds/`.
 - [ ] Under `commit: true`, file-seed validation against in-repo
   `project.root/<targetDir>/seeds` is unchanged (existing committed-mode seed
   test stays green).
 - [ ] `v1/docs/intent-mode.md` and `v2/docs/v1-behaviors.md` state that the
   file-seed input dir is the external seeds home under `commit: false` and the
   in-repo seeds dir under `commit: true`.
+- [ ] The `v2/docs/v1-behaviors.md` line stating `--target-dir` applies to the
+  no-commit seed-input check is corrected to record that `--target-dir` no
+  longer affects the `commit: false` seed-input dir.
 
 ## Documentation updates
 
 - `v1/docs/intent-mode.md` — file-seed location is commit-mode-dependent.
-- `v2/docs/v1-behaviors.md` — amend the seed-input-check entries (currently
-  "File seeds must live under `<targetDir>/seeds/`" and the `--target-dir`
-  seed-input-check note) to record the external-vs-in-repo resolution.
+- `v2/docs/v1-behaviors.md` — amend the seed-input-check entry (currently
+  "File seeds must live under `<targetDir>/seeds/`") to record the
+  external-vs-in-repo resolution by commit mode, AND correct the `--target-dir`
+  note (currently stating no-commit runs apply `--target-dir` to the seed-input
+  check) to state `--target-dir` no longer affects the `commit: false`
+  seed-input dir.

@@ -13,6 +13,7 @@ import {
   findProjectMatchForPath,
   type ProjectMatch,
   resolveReviewPasses,
+  resolveSubRoleAgentOrder,
   setProjectOrigin,
 } from "../../config.ts";
 import { assertGhReady } from "../../gh.ts";
@@ -339,7 +340,7 @@ export function buildActiveAgents(opts: RunCommandOptions, cfg: Config, patchTie
   const overrides = opts.agents;
   const agents: Agent[] = [];
   const eligibleAgents = filterAgentsByCapabilityFloor(
-    cfg.modes.patch.agentOrder,
+    resolveSubRoleAgentOrder(cfg, "patchActuator"),
     cfg.modes.patch.actuationCapabilityFloor,
   );
   const startIndex = resolvePatchTierStartIndex(patchTier, eligibleAgents.length);

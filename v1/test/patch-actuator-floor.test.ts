@@ -148,4 +148,39 @@ describe("buildActiveAgents with capability floor", () => {
     expect(result).toHaveLength(1);
     expect(result.map((a) => a.attributionLabel())).toEqual(["Composer 2.5"]);
   });
+
+  test("uses patchActuator override for tier selection", () => {
+    const patchOrder: AgentEntry[] = [
+      { agent: "claude", model: "haiku" },
+      { agent: "codex", model: "gpt-5.4" },
+    ];
+    const patchActuator: AgentEntry[] = [
+      { agent: "cursor", model: "Composer 2.5" },
+      { agent: "codex", model: "gpt-5.4" },
+    ];
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: {
+          agentOrder: patchOrder,
+          subRoleAgentOrder: { patchActuator },
+        },
+        plan: { agentOrder: patchOrder },
+        prompt: { agentOrder: patchOrder },
+        review: { passes: 1 },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://127.0.0.1:4310/logs",
+      logServerBind: "127.0.0.1:4310",
+      git: true,
+      projects: {},
+    };
+
+    const result = buildActiveAgents(makeOpts(), cfg, "standard");
+    expect(result).toHaveLength(1);
+    expect(result.map((a) => a.attributionLabel())).toEqual(["gpt-5.4"]);
+  });
 });

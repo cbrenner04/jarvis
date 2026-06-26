@@ -14,6 +14,7 @@ import {
   resolvePlanFlags,
   resolveReviewAgentOrder,
   resolveReviewPasses,
+  resolveSubRoleAgentOrder,
   setGit,
   setProjectGit,
   setProjectOrigin,
@@ -2414,6 +2415,66 @@ describe("resolveReviewAgentOrder", () => {
       projects: {},
     };
     expect(resolveReviewAgentOrder(cfg)).toEqual(reviewOrder);
+  });
+});
+
+describe("resolveSubRoleAgentOrder", () => {
+  test("falls back per sub-role when no override is set", () => {
+    const patchOrder: AgentEntry[] = [{ agent: "claude", model: "haiku" }];
+    const planOrder: AgentEntry[] = [{ agent: "cursor", model: "Composer 2" }];
+    const reviewOrder: AgentEntry[] = [{ agent: "codex", model: "gpt-5.3-codex" }];
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: { agentOrder: patchOrder },
+        plan: { agentOrder: planOrder },
+        prompt: { agentOrder: planOrder },
+        review: { passes: 2, agentOrder: reviewOrder },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {},
+    };
+
+    expect(resolveSubRoleAgentOrder(cfg, "patchActuator")).toEqual(patchOrder);
+    expect(resolveSubRoleAgentOrder(cfg, "reviewActuator")).toEqual(patchOrder);
+    expect(resolveSubRoleAgentOrder(cfg, "reviewPanel")).toEqual(reviewOrder);
+  });
+
+  test("returns sub-role override when configured", () => {
+    const patchOrder: AgentEntry[] = [{ agent: "claude", model: "haiku" }];
+    const patchActuator: AgentEntry[] = [{ agent: "cursor", model: "Composer 2.5" }];
+    const reviewActuator: AgentEntry[] = [{ agent: "codex", model: "gpt-5.4" }];
+    const reviewPanel: AgentEntry[] = [{ agent: "aider", model: "ollama_chat/qwen3.6:35b" }];
+    const cfg: Config = {
+      version: 2,
+      modes: {
+        patch: {
+          agentOrder: patchOrder,
+          subRoleAgentOrder: { patchActuator, reviewActuator, reviewPanel },
+        },
+        plan: { agentOrder: patchOrder },
+        prompt: { agentOrder: patchOrder },
+        review: { passes: 2 },
+      },
+      quotaFallback: "lenient",
+      weakQuotaExitCodes: [],
+      maxIterations: 10,
+      iterationTimeoutMs: 30 * 60_000,
+      logServerUrl: "http://x/",
+      logServerBind: "x",
+      git: true,
+      projects: {},
+    };
+
+    expect(resolveSubRoleAgentOrder(cfg, "patchActuator")).toEqual(patchActuator);
+    expect(resolveSubRoleAgentOrder(cfg, "reviewActuator")).toEqual(reviewActuator);
+    expect(resolveSubRoleAgentOrder(cfg, "reviewPanel")).toEqual(reviewPanel);
   });
 });
 

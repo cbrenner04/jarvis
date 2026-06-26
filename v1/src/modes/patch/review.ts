@@ -5,7 +5,7 @@ import { getCurrentBranch } from "../../../../shared/git.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentRunOptions } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import type { Config } from "../../config.ts";
+import { resolveSubRoleAgentOrder, type AgentEntry, type Config } from "../../config.ts";
 import { getBaseBranch, postPrComment, withSyncTransientRetry } from "../../gh.ts";
 import { checkPrExists } from "../../pr.ts";
 import {
@@ -270,7 +270,7 @@ export type PatchReviewPhaseOptions = {
   runFinalGate?: (branch: string, tier: ReadyTier | "skip") => void;
   /** Test seam: fixed base branch instead of `getBaseBranch`. */
   baseBranch?: string;
-  /** Actuator context: the active patch agents to use for verdict execution. */
+  /** Test override: substitute agents for the resolved review actuator order by index. */
   actuatorAgents?: Agent[];
   /** Recorded green result from completion transition: reuse when tree unchanged, refresh on re-run. */
   recordedGreenResult?: {
@@ -812,7 +812,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
   };
 
   // Create actuator that runs the patch agent with the verdict
-  const createActuator = (patchAgents: Agent[]) => {
+  const createActuator = (actuatorOrder: AgentEntry[], actuatorAgents?: Agent[]) => {
     return async (verdict: string, ctx: ReviewPassContext): Promise<void> => {
       if (!verdict?.trim()) {
         // Empty verdict: skip actuator invocation (existing no-change path)
@@ -834,14 +834,25 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       // Build actuator prompt from the verdict
       const prompt = buildVerdictActuatorPrompt(verdict, opts.specPath);
 
-      // Run the first available patch agent
-      const agent = patchAgents[0];
+      // The verdict actuator stays head-only even when its configured order has fallback rungs.
+      const headEntry = actuatorOrder[0];
+      const agent = actuatorAgents?.[0] ?? (headEntry ? opts.agents?.[headEntry.agent] : undefined);
       if (agent === undefined) {
+        if (headEntry === undefined) {
+          opts.fanout("harness", "review: actuator no agents available\n", "stderr");
+          throw new ReviewTerminalError("actuator no agents available", 2);
+        }
+      }
+
+      const resolvedAgent =
+        agent ??
+        (headEntry ? createAgent(headEntry.agent, headEntry.model) : undefined);
+      if (resolvedAgent === undefined) {
         opts.fanout("harness", "review: actuator no agents available\n", "stderr");
         throw new ReviewTerminalError("actuator no agents available", 2);
       }
 
-      const configuredModel = opts.config.modes.patch.agentOrder[0]?.model;
+      const configuredModel = headEntry?.model;
       const telemetryMeta = configuredModel ? { configured_model: configuredModel } : {};
 
       const actuatorController = new AbortController();
@@ -915,10 +926,10 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       try {
         opts.fanout("outbound", prompt, null, {
           actuator: true,
-          agent: agent.name,
+          agent: resolvedAgent.name,
         });
 
-        const result = await agent.run(prompt, {
+        const result = await resolvedAgent.run(prompt, {
           cwd: opts.cwd,
           signal: actuatorController.signal,
           abortKillGraceMs: killGraceMs,
@@ -977,7 +988,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           if (porcelain !== "") {
             try {
               execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
-              const commitMessage = appendAgentTrailer("review: actuator", agent.name);
+              const commitMessage = appendAgentTrailer("review: actuator", resolvedAgent.name);
               execFileSync("git", ["commit", "-F", "-"], {
                 cwd: opts.cwd,
                 env: process.env,
@@ -991,9 +1002,9 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               } catch (reconcileErr) {
                 if (reconcileErr instanceof RebaseConflictError) {
                   opts.fanout("harness", `review: actuator rebase conflict: ${reconcileErr.message}\n`, "stderr");
-                  const usageAndCost = extractUsageAndCost(result, agent.name, configuredModel);
+                  const usageAndCost = extractUsageAndCost(result, resolvedAgent.name, configuredModel);
                   opts.writeTelemetry({
-                    agent: agent.name,
+                    agent: resolvedAgent.name,
                     iteration: ctx.passNumber,
                     durationMs,
                     kind: "error",
@@ -1021,7 +1032,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               });
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
-              const usageAndCost = extractUsageAndCost(result, agent.name, configuredModel);
+              const usageAndCost = extractUsageAndCost(result, resolvedAgent.name, configuredModel);
 
               // Check if this is a non-fast-forward push rejection
               if (isNonFastForwardPushError(message)) {
@@ -1031,7 +1042,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
                     // Convergence succeeded; exit with 11 to trigger auto-ready
                     opts.fanout("harness", `review: actuator push rejected non-ff; converged to PR head\n`, "stdout");
                     opts.writeTelemetry({
-                      agent: agent.name,
+                      agent: resolvedAgent.name,
                       iteration: ctx.passNumber,
                       durationMs,
                       kind: "error",
@@ -1057,7 +1068,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
               // Non-ff convergence not attempted or failed; surface the original push error
               opts.fanout("harness", `review: actuator commit failed: ${message}\n`, "stderr");
               opts.writeTelemetry({
-                agent: agent.name,
+                agent: resolvedAgent.name,
                 iteration: ctx.passNumber,
                 durationMs,
                 kind: "error",
@@ -1071,26 +1082,26 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
 
             opts.fanout("harness", `review: actuator completed\n`, "stdout");
             opts.writeTelemetry({
-              agent: agent.name,
+              agent: resolvedAgent.name,
               iteration: ctx.passNumber,
               durationMs,
               kind: "ok",
               exitReason: "ok",
               patch_phase: "review",
-              ...extractUsageAndCost(result, agent.name, configuredModel),
+              ...extractUsageAndCost(result, resolvedAgent.name, configuredModel),
               ...telemetryMeta,
             });
           } else {
             // No changes from actuator
             opts.fanout("harness", `review: actuator made no changes\n`, "stdout");
             opts.writeTelemetry({
-              agent: agent.name,
+              agent: resolvedAgent.name,
               iteration: ctx.passNumber,
               durationMs,
               kind: "ok",
               exitReason: "ok",
               patch_phase: "review",
-              ...extractUsageAndCost(result, agent.name, configuredModel),
+              ...extractUsageAndCost(result, resolvedAgent.name, configuredModel),
               ...telemetryMeta,
             });
           }
@@ -1107,7 +1118,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
           }
           const exitCode = result.kind === "model_config" ? 3 : result.kind === "error" ? result.exitCode : 1;
           opts.writeTelemetry({
-            agent: agent.name,
+            agent: resolvedAgent.name,
             iteration: ctx.passNumber,
             durationMs,
             kind: result.kind === "quota" ? "quota" : result.kind === "model_config" ? "error" : "error",
@@ -1129,6 +1140,8 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
 
   try {
     const wrappedTelemetry = opts.writeTelemetry;
+    const reviewPanelOrder = resolveSubRoleAgentOrder(opts.config, "reviewPanel");
+    const reviewActuatorOrder = resolveSubRoleAgentOrder(opts.config, "reviewActuator");
     const trackingWriteTelemetry = (record: Parameters<typeof opts.writeTelemetry>[0]) => {
       if (record.exitReason === "watchdog-idle-timeout") {
         idleTimeoutOccurred = true;
@@ -1146,6 +1159,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
         base,
       }),
       ...(opts.reviewPassesOverride !== undefined ? { reviewPassesOverride: opts.reviewPassesOverride } : {}),
+      reviewAgentOrder: reviewPanelOrder,
       loadAgent: ({ name, model }) => {
         const override = opts.agents?.[name as AgentName];
         const agent = override ?? createAgent(name as AgentName, model);
@@ -1174,9 +1188,7 @@ export async function runPatchReviewPhase(opts: PatchReviewPhaseOptions): Promis
       },
     };
 
-    if (opts.actuatorAgents) {
-      runReviewOpts.actuator = createActuator(opts.actuatorAgents);
-    }
+    runReviewOpts.actuator = createActuator(reviewActuatorOrder, opts.actuatorAgents);
 
     const reviewExitCode = await runReview(runReviewOpts);
 

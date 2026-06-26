@@ -54,13 +54,27 @@ class FakeAgent implements Agent {
 function makeReviewConfig(opts?: {
   planOrder?: Array<{ agent: AgentName; model: string }>;
   reviewOrder?: Array<{ agent: AgentName; model: string }>;
+  patchOrder?: Array<{ agent: AgentName; model: string }>;
+  reviewPanelOrder?: Array<{ agent: AgentName; model: string }>;
+  reviewActuatorOrder?: Array<{ agent: AgentName; model: string }>;
   reviewPasses?: number;
 }): Config {
   const planOrder = opts?.planOrder ?? [CLAUDE_ENTRY, CODEX_ENTRY];
+  const patchOrder = opts?.patchOrder ?? [CLAUDE_ENTRY];
   return {
     version: 2,
     modes: {
-      patch: { agentOrder: [CLAUDE_ENTRY] },
+      patch: {
+        agentOrder: patchOrder,
+        ...(opts?.reviewPanelOrder !== undefined || opts?.reviewActuatorOrder !== undefined
+          ? {
+              subRoleAgentOrder: {
+                ...(opts.reviewPanelOrder !== undefined ? { reviewPanel: opts.reviewPanelOrder } : {}),
+                ...(opts.reviewActuatorOrder !== undefined ? { reviewActuator: opts.reviewActuatorOrder } : {}),
+              },
+            }
+          : {}),
+      },
       plan: { agentOrder: planOrder },
       prompt: { agentOrder: planOrder },
       review: {
@@ -279,6 +293,78 @@ describe("runPatchReviewPhase", () => {
       });
       expect(fallbackCode).toBe(0);
       expect(codex.calls).toHaveLength(3); // 3 roles per cycle
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("uses reviewPanel override for patch review without changing standalone fallback", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const reviewer = new FakeAgent("codex", (_callCount, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "" : "No issues found",
+        stderr: "",
+      }));
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({
+          reviewOrder: [CLAUDE_ENTRY],
+          reviewPanelOrder: [CODEX_ENTRY],
+        }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { codex: reviewer },
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+      expect(code).toBe(0);
+      expect(reviewer.calls).toHaveLength(3);
+      expect(reviewer.calls[0]?.prompt).toContain("Review: Adversary");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("uses reviewActuator head for verdict actuator only", async () => {
+    const { dir, specPath, cleanup } = setupPatchReviewRepo();
+    try {
+      const reviewer = new FakeAgent("claude", (_callCount, prompt) => ({
+        kind: "ok",
+        stdout: prompt.includes("Review: Adjudicator") ? "apply fix\n" : "finding\n",
+        stderr: "",
+      }));
+      const actuator = new FakeAgent("codex", () => ({
+        kind: "ok",
+        stdout: "done\n",
+        stderr: "",
+      }));
+
+      const code = await runPatchReviewPhase({
+        config: makeReviewConfig({
+          reviewOrder: [CLAUDE_ENTRY],
+          patchOrder: [CLAUDE_ENTRY],
+          reviewActuatorOrder: [CODEX_ENTRY],
+        }),
+        cwd: dir,
+        specPath,
+        reviewPassesOverride: 1,
+        skipGates: true,
+        fanout: () => {},
+        writeTelemetry: () => {},
+        agents: { claude: reviewer },
+        actuatorAgents: [actuator],
+        iterationTimeoutMs: 30_000,
+        baseBranch: "main",
+      });
+
+      expect(code).toBe(0);
+      expect(reviewer.calls).toHaveLength(3);
+      expect(actuator.calls).toHaveLength(1);
     } finally {
       cleanup();
     }
@@ -566,12 +652,12 @@ describe("runPatchReviewPhase", () => {
       let roleCalls = 0;
       const reviewer = new FakeAgent(
         "claude",
-        async () => {
+        async (_callCount, prompt) => {
           roleCalls += 1;
           await waitForPollCount(() => pollCount, roleCalls * 2);
           return {
             kind: "ok",
-            stdout: "no issues\n",
+            stdout: prompt.includes("Review: Adjudicator") ? "" : "no issues\n",
             stderr: "",
           };
         },

@@ -90,6 +90,8 @@ export type PatchSubRoleAgentOrder = Partial<{
   patchActuator: AgentEntry[];
 }>;
 
+export type PatchSubRole = keyof PatchSubRoleAgentOrder;
+
 export type ModeConfig = {
   agentOrder: AgentEntry[];
   specTimestamp?: boolean;
@@ -953,6 +955,20 @@ export function resolveReviewAgentOrder(cfg: Config): AgentEntry[] {
     return cfg.modes.review.agentOrder;
   }
   return cfg.modes.plan.agentOrder;
+}
+
+export function resolveSubRoleAgentOrder(cfg: Config, subRole: PatchSubRole): AgentEntry[] {
+  const override = cfg.modes.patch.subRoleAgentOrder?.[subRole];
+  if (override !== undefined) {
+    return override;
+  }
+  switch (subRole) {
+    case "reviewPanel":
+      return resolveReviewAgentOrder(cfg);
+    case "reviewActuator":
+    case "patchActuator":
+      return cfg.modes.patch.agentOrder;
+  }
 }
 
 export function filterAgentsByCapabilityFloor(agents: AgentEntry[], floor: number | undefined): AgentEntry[] {

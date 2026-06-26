@@ -7,7 +7,7 @@ import { parseSpec } from "../../../../shared/spec-parser.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent, AgentName, AgentResult } from "../../agents/types.ts";
 import { appendAgentTrailer } from "../../commit-trailer.ts";
-import { type Config, filterAgentsByCapabilityFloor } from "../../config.ts";
+import { type Config, filterAgentsByCapabilityFloor, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import {
   HARNESS_QUOTA_FALLBACK_STRICT,
@@ -422,7 +422,7 @@ export async function runPatchShrinkPhase(opts: PatchShrinkPhaseOptions): Promis
     };
 
     const eligibleAgents = filterAgentsByCapabilityFloor(
-      opts.config.modes.patch.agentOrder,
+      resolveSubRoleAgentOrder(opts.config, "reviewActuator"),
       opts.config.modes.patch.actuationCapabilityFloor,
     );
 

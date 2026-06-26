@@ -208,6 +208,28 @@ describe("runReview", () => {
     ]);
   });
 
+  test("uses explicit reviewAgentOrder override when provided", async () => {
+    const prompts = makeAdapter();
+    await runReview({
+      config: makeConfig({
+        planOrder: [{ agent: "cursor", model: "Composer 2" }],
+        reviewOrder: [{ agent: "claude", model: "haiku" }],
+        reviewPasses: 1,
+      }),
+      cwd: "/tmp/review",
+      adapter: prompts.adapter,
+      reviewAgentOrder: [{ agent: "codex", model: "gpt-5.3-codex" }],
+      loadAgent: ({ name }: { name: string; model: string }) =>
+        makeAgent(name as AgentName, () => ({ kind: "ok", stdout: "", stderr: "" })),
+    });
+
+    expect(prompts.prompts.map((p) => `${p.passNumber}:${p.agent}:${p.role}`)).toEqual([
+      "1:codex:adversary",
+      "1:codex:advocate",
+      "1:codex:adjudicator",
+    ]);
+  });
+
   test("rotates to the next review agent on quota and exits 2 when all are exhausted", async () => {
     const { adapter, prompts, telemetry } = makeAdapter();
     const seen = new Map<string, number>();

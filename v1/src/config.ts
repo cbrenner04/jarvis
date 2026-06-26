@@ -907,6 +907,16 @@ export function resolveReviewAgentOrder(cfg: Config): AgentEntry[] {
   return cfg.modes.plan.agentOrder;
 }
 
+export function filterAgentsByCapabilityFloor(
+  agents: AgentEntry[],
+  floor: number | undefined,
+): AgentEntry[] {
+  if (floor === undefined) {
+    return agents;
+  }
+  return agents.filter((entry) => entry.capability !== undefined && entry.capability >= floor);
+}
+
 export function findProjectForPath(p: string, opts?: ConfigOptions): Project | undefined {
   const match = findProjectMatchForPath(p, opts);
   if (match === undefined) {

@@ -251,6 +251,13 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
   const activeAgents = buildActiveAgents(opts, preflight.cfg, preflight.patchTier);
 
+  if (activeAgents.length === 0 && preflight.cfg.modes.patch.actuationCapabilityFloor !== undefined) {
+    opts.io.stderr(
+      `error: patch actuation has no agents meeting capability floor ${preflight.cfg.modes.patch.actuationCapabilityFloor}\n`,
+    );
+    return 1;
+  }
+
   const loggingSetup = setupLogging(opts, preflight, sharedPreflight.logClient);
   const logging = loggingSetup;
   let runExitReason = "error";

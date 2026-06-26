@@ -26,14 +26,14 @@ filtering the ladder once also governs the review-actuator.
 
 ## Acceptance criteria
 
-- [ ] With a floor set, initial patch actuator selection skips in-order entries whose `capability < floor` and starts on the first floor-eligible agent at or after the tier start index.
-- [ ] On quota/error fallback, the patch run never falls back onto an entry whose `capability < floor`; it advances only among floor-eligible agents.
-- [ ] An explicit `--agents` override is honored as configured even when it places a below-floor model on an eligible slot (the floor governs configured entries, not the override).
-- [ ] When no `modes.patch.agentOrder` entry meets the floor, the run exits non-zero before invoking any agent with an error naming the actuation role and the floor.
-- [ ] When floor-eligible agents exist but all drain, the run still ends in its existing drain outcome (quota-exhausted or no-progress), not the floor error.
-- [ ] The patch review-actuator phase selects only floor-eligible models (it reuses the floor-filtered active ladder).
-- [ ] With no `actuationCapabilityFloor` configured, patch selection and fallback behavior is unchanged.
-- [ ] `v2/docs/v1-behaviors.md` records the floor-aware patch selection/fallback behavior.
+- [x] With a floor set, initial patch actuator selection skips in-order entries whose `capability < floor` and starts on the first floor-eligible agent at or after the tier start index.
+- [x] On quota/error fallback, the patch run never falls back onto an entry whose `capability < floor`; it advances only among floor-eligible agents.
+- [x] An explicit `--agents` override is honored as configured even when it places a below-floor model on an eligible slot (the floor governs configured entries, not the override).
+- [x] When no `modes.patch.agentOrder` entry meets the floor, the run exits non-zero before invoking any agent with an error naming the actuation role and the floor.
+- [x] When floor-eligible agents exist but all drain, the run still ends in its existing drain outcome (quota-exhausted or no-progress), not the floor error.
+- [x] The patch review-actuator phase selects only floor-eligible models (it reuses the floor-filtered active ladder).
+- [x] With no `actuationCapabilityFloor` configured, patch selection and fallback behavior is unchanged.
+- [x] `v2/docs/v1-behaviors.md` records the floor-aware patch selection/fallback behavior.
 
 ## Documentation updates
 

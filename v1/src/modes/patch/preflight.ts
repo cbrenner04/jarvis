@@ -9,6 +9,7 @@ import { readGitOriginUrl } from "../../commands/init.ts";
 import {
   type Config,
   effectiveGit,
+  filterAgentsByCapabilityFloor,
   findProjectMatchForPath,
   type ProjectMatch,
   resolveReviewPasses,
@@ -337,8 +338,12 @@ export function maybeWarnAboutUnmergedPlanBranch(args: {
 export function buildActiveAgents(opts: RunCommandOptions, cfg: Config, patchTier: PatchTier): Agent[] {
   const overrides = opts.agents;
   const agents: Agent[] = [];
-  const startIndex = resolvePatchTierStartIndex(patchTier, cfg.modes.patch.agentOrder.length);
-  for (const entry of cfg.modes.patch.agentOrder.slice(startIndex)) {
+  const eligibleAgents = filterAgentsByCapabilityFloor(
+    cfg.modes.patch.agentOrder,
+    cfg.modes.patch.actuationCapabilityFloor,
+  );
+  const startIndex = resolvePatchTierStartIndex(patchTier, eligibleAgents.length);
+  for (const entry of eligibleAgents.slice(startIndex)) {
     const override = overrides?.[entry.agent];
     if (override !== undefined) {
       agents.push(override);

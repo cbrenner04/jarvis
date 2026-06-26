@@ -55,6 +55,20 @@ function createIndexFile(): string {
   return indexPath;
 }
 
+function createAcceptanceSpec(checked: boolean): string {
+  return `# Test Spec
+
+## Acceptance criteria
+
+- [${checked ? "x" : " "}] First criterion
+`;
+}
+
+function commitAll(message: string): void {
+  execSync("git add .", { cwd: gitDir, stdio: "pipe" });
+  execSync(`git commit -m '${message}'`, { cwd: gitDir, stdio: "pipe" });
+}
+
 function getLastCommitMessage(): string {
   return execFileSync("git", ["log", "-1", "--pretty=%B"], {
     cwd: gitDir,
@@ -93,8 +107,7 @@ describe("commitSubspec", () => {
 `,
     );
 
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
@@ -117,8 +130,7 @@ describe("commitSubspec", () => {
 `,
     );
 
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
@@ -140,8 +152,7 @@ describe("commitSubspec", () => {
 `,
     );
 
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
@@ -153,18 +164,9 @@ describe("commitSubspec", () => {
   test("updates index checkbox after commit", () => {
     createIndexFile();
     const indexPath = join(gitDir, "spec", "index.md");
-    const specPath = createSpecFile(
-      "01-test-one.md",
-      `# Test Spec
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
 
-## Acceptance criteria
-
-- [x] First criterion
-`,
-    );
-
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
@@ -175,15 +177,7 @@ describe("commitSubspec", () => {
   test("returns without throwing when the tree is already committed and clean", () => {
     createIndexFile();
     const indexPath = join(gitDir, "spec", "index.md");
-    const specPath = createSpecFile(
-      "01-test-one.md",
-      `# Test Spec
-
-## Acceptance criteria
-
-- [x] First criterion
-`,
-    );
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
 
     writeFileSync(
       indexPath,
@@ -195,8 +189,7 @@ describe("commitSubspec", () => {
 `,
     );
 
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'agent already committed completion'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("agent already committed completion");
 
     const beforeSha = getHeadSha();
     commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
@@ -207,18 +200,9 @@ describe("commitSubspec", () => {
 
   test("rethrows git commit failures when staged changes exist", () => {
     createIndexFile();
-    const specPath = createSpecFile(
-      "01-test-one.md",
-      `# Test Spec
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
 
-## Acceptance criteria
-
-- [x] First criterion
-`,
-    );
-
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
     configureFailingCommitSigning();
 
     expect(() => commitSubspec(specPath, { cwd: gitDir, agentLabel: "" })).toThrow(/git commit/);
@@ -238,8 +222,7 @@ describe("commitWipProgress", () => {
 `,
     );
 
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     // Make a change to commit
     writeFileSync(
@@ -347,18 +330,9 @@ describe("commitWipProgress", () => {
   });
 
   test("returns without throwing when the tree is already committed and clean", () => {
-    const specPath = createSpecFile(
-      "01-test-one.md",
-      `# Test Spec
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
 
-## Acceptance criteria
-
-- [x] First criterion
-`,
-    );
-
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'agent already committed progress'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("agent already committed progress");
 
     const beforeSha = getHeadSha();
     commitWipProgress(specPath, {
@@ -373,28 +347,11 @@ describe("commitWipProgress", () => {
   });
 
   test("rethrows git commit failures when staged changes exist", () => {
-    const specPath = createSpecFile(
-      "01-test-one.md",
-      `# Test Spec
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(false));
 
-## Acceptance criteria
+    commitAll("initial");
 
-- [ ] First criterion
-`,
-    );
-
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
-
-    writeFileSync(
-      specPath,
-      `# Test Spec
-
-## Acceptance criteria
-
-- [x] First criterion
-`,
-    );
+    writeFileSync(specPath, createAcceptanceSpec(true));
     configureFailingCommitSigning();
 
     expect(() =>

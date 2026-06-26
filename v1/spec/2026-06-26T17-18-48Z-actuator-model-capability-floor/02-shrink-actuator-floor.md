@@ -19,10 +19,10 @@ the floor applied independently. Reuses the floor-filter helper from subspec 01.
 
 ## Acceptance criteria
 
-- [ ] With a floor set, the shrink actuator selects and falls back only among entries whose `capability >= floor`, never a below-floor model.
-- [ ] When no `modes.patch.agentOrder` entry meets the floor, shrink is skipped with an error naming the shrink actuation role and the floor on the same stderr + telemetry channel as subspec 01's floor error, and the already-complete run's outcome/exit is unchanged.
-- [ ] With no `actuationCapabilityFloor` configured, shrink selection and fallback behavior is unchanged.
-- [ ] `v2/docs/v1-behaviors.md` records the floor-aware shrink actuator behavior.
+- [x] With a floor set, the shrink actuator selects and falls back only among entries whose `capability >= floor`, never a below-floor model.
+- [x] When no `modes.patch.agentOrder` entry meets the floor, shrink is skipped with an error naming the shrink actuation role and the floor on the same stderr + telemetry channel as subspec 01's floor error, and the already-complete run's outcome/exit is unchanged.
+- [x] With no `actuationCapabilityFloor` configured, shrink selection and fallback behavior is unchanged.
+- [x] `v2/docs/v1-behaviors.md` records the floor-aware shrink actuator behavior.
 
 ## Documentation updates
 

@@ -397,15 +397,14 @@ describe("commitWipProgress", () => {
     );
     configureFailingCommitSigning();
 
-    expect(
-      () =>
-        commitWipProgress(specPath, {
-          cwd: gitDir,
-          newlyChecked: [{ text: "First criterion", checked: true, humanOnly: false }],
-          checkedTotal: 1,
-          total: 1,
-          agentLabel: "",
-        }),
+    expect(() =>
+      commitWipProgress(specPath, {
+        cwd: gitDir,
+        newlyChecked: [{ text: "First criterion", checked: true, humanOnly: false }],
+        checkedTotal: 1,
+        total: 1,
+        agentLabel: "",
+      }),
     ).toThrow(/git commit/);
   });
 });

@@ -19,9 +19,9 @@ import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agen
 import { type AgentEntry, loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import {
+  type CompletionReadyGateResult,
   maybeWarnAboutUnmergedPlanBranch,
   prepareActiveSpecPath,
-  type CompletionReadyGateResult,
   type RunCommandOptions,
   type RunIo,
   runCommand,

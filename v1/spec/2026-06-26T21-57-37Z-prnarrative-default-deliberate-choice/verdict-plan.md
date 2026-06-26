@@ -1,0 +1,17 @@
+## Verdict — refinement required; do not ship as drafted
+
+The flip direction (default → `agent`) is well-justified by the intake evidence and is not in dispute. But three code-level gaps make the spec's stated outcome unverifiable or false as drafted. All three are upheld.
+
+### Required refinements
+
+1. **Existing-config migration is the load-bearing gap.** Bootstrap only writes `DEFAULT_CONFIG` when no config file exists, and the prior bootstrap already serialized the full config — so the single operator's on-disk config already carries the literal `prNarrative: "template"` key. Validation reads that stored key and never consults `DEFAULT_CONFIG`. Result: flipping the default leaves the operator's real PRs on `template`, the exact "silent path most PRs take" the intent targets. The spec must make the operator action that actually delivers the intent explicit — regenerate or hand-edit the existing config — and AC #1 ("freshly bootstrapped config") must not be allowed to stand in for real-world effect. The Decision should also be honest that the flip's value is contingent on this migration step.
+
+2. **There are multiple `"template"` default surfaces; the spec flips only one.** Beyond `DEFAULT_CONFIG`, an omit-fallback resolves a missing `prNarrative` key to `"template"` for each mode (the `… = "template"` resolution in `config.ts`, patch and plan). After the flip, a partial/hand-edited config that omits the key still resolves to `template`, making "the default is `agent`" false on a real path. The spec must either flip those omit-fallbacks too so the documented default holds everywhere, or explicitly record the divergence as a deliberate decision. The call-site `?? "template"` fallbacks are defensive-only but should be acknowledged. The Decision/docs must stop framing "the default" as a single switch and name which surfaces change and which knowingly remain `template`.
+
+3. **Test blast radius is under-scoped.** `run.test.ts` builds configs via fresh-temp-dir bootstrap (~40 sites), so flipping `DEFAULT_CONFIG` changes the *resolved* `prNarrative` for every such test — not only the two carrying a `// With default prNarrative: "template"` comment. Tests that run to draft-PR creation and assert exact agent-call counts or narrative bodies will now take the agent branch and break. Plan-side tests (`modes/plan/*`) flip identically and are absent from the checklist. The spec must scope this as an open-ended sweep across `run.test.ts` and the plan suite — pinning `prNarrative: "template"` wherever a test pins template behavior — rather than claiming the flip is absorbed by two pinned tests.
+
+4. **Minor — AC #2 restates unchanged behavior.** "Setting `template` still selects template narrative" is pre-existing behavior the flip does not change. Per the refactor/preservation convention, cite the pinning test ("`<test>` stays green") rather than paraphrase the behavior, or drop it as not this spec's contract.
+
+### Rationale
+
+Refinements 1–3 are verified code paths, not stylistic. The intent's goal is to change the behavior of the silent default path; as drafted the spec can satisfy its acceptance criteria while the operator's actual behavior is untouched (1), while a documented default that is false on a live path (2), and while leaving an unbounded set of tests red on an assertion the code contradicts (3). The spec needs to (a) make the operator migration action explicit, (b) reconcile or record the multiple default surfaces, and (c) scope the test impact as an open sweep — then it ships honestly.

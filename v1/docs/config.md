@@ -282,8 +282,8 @@ The optional `modes.patch.subRoleAgentOrder` block adds per-sub-role agent-order
 Allowed keys:
 
 - `reviewPanel`: read-only review roles (`adversary`, `advocate`, `adjudicator`)
-- `reviewActuator`: verdict actuator
-- `patchActuator`: implementation loop and shrink agent
+- `reviewActuator`: verdict actuator (head-only) and shrink agent (full list)
+- `patchActuator`: implementation loop
 
 Each present key uses the same `AgentEntry[]` schema and validation contract as `modes.patch.agentOrder`: the array must be non-empty, agents must be known, agents must not repeat, and each model must be valid for its agent. Unknown keys under `subRoleAgentOrder` are rejected at config load.
 

@@ -97,16 +97,3 @@ byte-identical in behavior.
 - `v2/docs/v1-behaviors.md` — update the agent-order resolution entry to include
   the per-sub-role overrides and fallbacks.
 - `v1/docs/agents.md` — extend Review/shrink model tiering with the new overrides.
-
-## Blocker
-
-`bun run test` still fails outside this subspec in
-`v1/test/run.sandbox-unrunnable.test.ts`:
-
-- `watchdog timeout records last_output_age_ms from early output then stall`
-  expects `typeof timeoutRow?.last_output_age_ms === "number"` but receives
-  `null` (`typeof === "object"`).
-
-Targeted suites for this change pass:
-
-- `bun test v1/test/config.test.ts v1/test/patch-actuator-floor.test.ts v1/test/modes/review/run.test.ts v1/test/modes/patch/review.sandbox-unrunnable.test.ts v1/test/modes/patch/shrink.sandbox-unrunnable.test.ts`

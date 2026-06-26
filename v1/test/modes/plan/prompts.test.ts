@@ -142,9 +142,7 @@ describe("buildVerdictActuatorPrompt", () => {
       targetDir: "v1/spec",
     });
 
-    expect(prompt).toContain(
-      "Only write files under `v1/spec/2026-06-26T04-57-54Z-my-plan/`.",
-    );
+    expect(prompt).toContain("Only write files under `v1/spec/2026-06-26T04-57-54Z-my-plan/`.");
   });
 
   test("uses working-directory boundary in flat layout", () => {

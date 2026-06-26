@@ -837,7 +837,39 @@ describe("intentCommand", () => {
     }
   });
 
-  test("committed-path behavior is preserved with no-commit configured", async () => {
+  test("no-commit accepts file seed from external seeds home", async () => {
+    const env = setupEnv();
+    try {
+      const cfg = loadConfig({ dir: env.cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: env.cfgDir });
+
+      const externalRoot = join(env.cfgDir, "specs", "project");
+      const seedDir = join(externalRoot, "seeds");
+      mkdirSync(seedDir, { recursive: true });
+      const seedPath = join(seedDir, "raw-seed.md");
+      writeFileSync(seedPath, "# Seed\n");
+
+      const cap = captureIo();
+      const code = await intentCommand({
+        io: cap.io,
+        args: ["--repo", "project", seedPath],
+        cwd: env.projectRoot,
+        config: { dir: env.cfgDir },
+        logClient: okLogClient,
+        createAgent: createSplitAgentFactory({ claude: "ok-one" }),
+      });
+      expect(code).toBe(0);
+
+      expect(readFileSync(join(externalRoot, "ready-intents", "single-behavior.md"), "utf8")).toContain(
+        "name: single-behavior",
+      );
+    } finally {
+      env.cleanup();
+    }
+  });
+
+  test("no-commit rejects file seed from in-repo seeds dir", async () => {
     const env = setupEnv();
     try {
       const cfg = loadConfig({ dir: env.cfgDir });
@@ -848,25 +880,24 @@ describe("intentCommand", () => {
       mkdirSync(seedDir, { recursive: true });
       const seedPath = join(seedDir, "raw-seed.md");
       writeFileSync(seedPath, "# Seed\n");
-      execSync("git add spec/", { cwd: env.projectRoot });
-      execSync("git commit -m 'add seeds'", { cwd: env.projectRoot });
-      execSync("git push", { cwd: env.projectRoot });
 
       const cap = captureIo();
       const code = await intentCommand({
         io: cap.io,
-        args: [seedPath],
+        args: ["--repo", "project", seedPath],
         cwd: env.projectRoot,
         config: { dir: env.cfgDir },
         logClient: okLogClient,
         createAgent: createSplitAgentFactory({ claude: "ok-one" }),
       });
-      expect(code).toBe(0);
+      expect(code).toBe(1);
+      expect(cap.err()).toContain("intent: raw seed files must live under");
+      expect(cap.err()).toContain("seeds/");
+      // Verify the error message names the external home, not the in-repo dir
+      expect(cap.err()).not.toContain("spec/seeds");
 
       const externalRoot = join(env.cfgDir, "specs", "project");
-      expect(readFileSync(join(externalRoot, "ready-intents", "single-behavior.md"), "utf8")).toContain(
-        "name: single-behavior",
-      );
+      expect(existsSync(join(externalRoot, "ready-intents"))).toBe(false);
     } finally {
       env.cleanup();
     }
@@ -1406,14 +1437,14 @@ describe("intentCommand", () => {
     }
   });
 
-  test("--target-dir in no-commit mode rejects file seed outside the overridden directory", async () => {
+  test("--target-dir in no-commit mode does not affect seed-input directory validation", async () => {
     const env = setupEnv();
     try {
       const cfg = loadConfig({ dir: env.cfgDir });
       cfg.modes.plan.commit = false;
       writeConfig(cfg, { dir: env.cfgDir });
 
-      // Create a seed file in spec/seeds/ (not v1/spec/seeds/)
+      // Create a seed file in spec/seeds/ (not in external home)
       const seedDir = join(env.projectRoot, "spec", "seeds");
       mkdirSync(seedDir, { recursive: true });
       const seedPath = join(seedDir, "raw-seed.md");
@@ -1429,8 +1460,10 @@ describe("intentCommand", () => {
         createAgent: createSplitAgentFactory({ claude: "ok-one" }),
       });
       expect(code).toBe(1);
-      // Rejection message should name the overridden directory
-      expect(cap.err()).toContain("intent: raw seed files must live under v1/spec/seeds/");
+      // Rejection message should name the external home, not the overridden directory
+      expect(cap.err()).toContain("intent: raw seed files must live under");
+      expect(cap.err()).toContain("seeds/");
+      expect(cap.err()).not.toContain("v1/spec/seeds");
       const externalRoot = join(env.cfgDir, "specs", "project");
       expect(existsSync(join(externalRoot, "ready-intents"))).toBe(false);
     } finally {

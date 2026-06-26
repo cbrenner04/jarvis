@@ -596,9 +596,13 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
   planHarnessLog(planLogClient, `intent: target project=${project.key} root=${project.root}`);
   planHarnessLog(planLogClient, `intent: resolved flags commit=${commit} targetDir=${targetDir}`);
 
-  const seedDir = join(project.root, targetDir, "seeds");
+  const jarvisConfigDir = opts.config?.dir ?? CONFIG_DIR;
+  const externalRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
+
+  const seedDir = commit ? join(project.root, targetDir, "seeds") : join(externalRoot, "seeds");
+  const seedDirDisplay = commit ? `${targetDir}/seeds/` : join(externalRoot, "seeds") + "/";
   if (inv.mode === "file" && !isPathInside(seedDir, inv.seedPath)) {
-    opts.io.stderr(`intent: raw seed files must live under ${targetDir}/seeds/\n`);
+    opts.io.stderr(`intent: raw seed files must live under ${seedDirDisplay}\n`);
     return 1;
   }
 
@@ -608,8 +612,6 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
   const runName = `${runStem}-${randomUUID().slice(0, 8)}`;
 
   if (!commit) {
-    const jarvisConfigDir = opts.config?.dir ?? CONFIG_DIR;
-    const externalRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
     mkdirSync(externalRoot, { recursive: true });
 
     const externalStageDir = join(externalRoot, ".jarvis-intent-stage");

@@ -600,7 +600,7 @@ export async function intentCommand(opts: IntentCommandOptions): Promise<number>
   const externalRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
 
   const seedDir = commit ? join(project.root, targetDir, "seeds") : join(externalRoot, "seeds");
-  const seedDirDisplay = commit ? `${targetDir}/seeds/` : `${join(externalRoot, "seeds")}/`;
+  const seedDirDisplay = commit ? `${targetDir}/seeds/` : `${seedDir}/`;
   if (inv.mode === "file" && !isPathInside(seedDir, inv.seedPath)) {
     opts.io.stderr(`intent: raw seed files must live under ${seedDirDisplay}\n`);
     return 1;

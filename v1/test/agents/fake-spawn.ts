@@ -61,7 +61,12 @@ class FakeChildProcess extends EventEmitter implements ChildProcess {
     return true;
   }
 
-  send(_message: any, _sendHandle?: any, _options?: any, _callback?: (error: Error | null) => void): boolean {
+  send(
+    _message: unknown,
+    _sendHandle?: unknown,
+    _options?: unknown,
+    _callback?: (error: Error | null) => void,
+  ): boolean {
     return false;
   }
 

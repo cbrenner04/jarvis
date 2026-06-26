@@ -91,10 +91,14 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
 
   const realBunRunReady = (cwd: string, readyTier: ReadyTier) => {
     const tokens = opts.readyCommand !== undefined ? opts.readyCommand.trim().split(/\s+/) : ["bun", "run", "ready"];
-    const [head, ...args] = tokens;
+    const head = tokens[0];
+    if (!head) {
+      throw new ReadyCommandError("readyCommand is empty");
+    }
+    const args = tokens.slice(1);
     const displayCmd = tokens.join(" ");
     try {
-      execFileSync(head!, args, {
+      execFileSync(head, args, {
         cwd,
         env: { ...process.env, JARVIS_READY_TIER: readyTier },
         stdio: "pipe",

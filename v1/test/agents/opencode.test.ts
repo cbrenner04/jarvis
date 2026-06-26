@@ -34,7 +34,8 @@ describe("OpencodeAgent", () => {
       expect(result.usage?.cache_creation_input_tokens).toBe(0);
     }
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.binary).toBe("opencode");
     expect(record.argv).toContain("--dir");
     expect(record.argv).toContain(cwd);
@@ -59,7 +60,8 @@ describe("OpencodeAgent", () => {
     await agent.run("the prompt", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).not.toContain("--dangerously-skip-permissions");
     expect(record.argv).toContain("--dir");
   });
@@ -222,7 +224,8 @@ describe("OpencodeAgent", () => {
     });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).toContain("--dir");
     expect(record.argv).toContain(cwd);
     expect(record.argv).not.toContain("--dangerously-skip-permissions");
@@ -241,7 +244,8 @@ describe("OpencodeAgent", () => {
     await agent.run("p", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).toContain("--format");
     expect(record.argv).toContain("json");
     expect(record.argv).not.toContain("default");

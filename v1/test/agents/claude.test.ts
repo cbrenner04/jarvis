@@ -31,7 +31,8 @@ describe("ClaudeAgent", () => {
 
     expect(result).toEqual({ kind: "ok", stdout: "hi-out", stderr: "hi-err" });
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.binary).toBe("claude");
     expect(record.argv).toEqual(["-p", "--permission-mode", "acceptEdits", "--output-format", "json"]);
     expect(record.opts.cwd).toBe(cwd);
@@ -50,7 +51,8 @@ describe("ClaudeAgent", () => {
     await agent.run("the prompt", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).toEqual([
       "-p",
       "--permission-mode",
@@ -176,7 +178,8 @@ describe("ClaudeAgent", () => {
     });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).toEqual([
       "-p",
       "--permission-mode",
@@ -200,7 +203,8 @@ describe("ClaudeAgent", () => {
     await agent.run("p", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).not.toContain("--add-dir");
   });
 
@@ -214,7 +218,8 @@ describe("ClaudeAgent", () => {
     await agent.run("p", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const [record] = recorder.records;
+    if (!record) throw new Error("expected record");
     expect(record.argv).toContain("--permission-mode");
     expect(record.argv).toContain("acceptEdits");
   });

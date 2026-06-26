@@ -4,6 +4,21 @@ Reference for the **observer** dogfooding Jarvis on the Jarvis repo itself — d
 
 Scope: **Jarvis-on-Jarvis only.** An observer driving Jarvis on some *other* repo just runs the prescribed process to land that repo's work and surfaces harness gaps through the [intake](#harness-suggestions-from-other-repos), which the Jarvis-on-Jarvis observer triages.
 
+## Where seeds and intents live
+
+Seeds and ready-intents live under the configured `plan.targetDir`, **not** a fixed
+`v2/spec`. The live `~/.jarvis/config.json` currently sets the jarvis project's
+`plan.targetDir` to **`v1/spec`**, so the working dirs are:
+
+- Seeds: `v1/spec/seeds/`
+- Ready-intents: `v1/spec/ready-intents/`
+- Active/completed specs: `v1/spec/<UTC-timestamp>-<name>/` and `v1/spec/completed/`
+
+Genuine v2 planning is the exception: authored with an explicit `--target-dir v2/spec`
+override, landing under `v2/spec/`. Check both trees when sweeping the backlog —
+`v1/spec` holds the live shipping-surface work; `v2/spec` only the v2-override specs.
+Throughout this doc, `<targetDir>` means whatever `plan.targetDir` currently resolves to.
+
 ## North star
 
 Touch **only `jarvis` commands — as few as possible.** Every hands-on step that isn't a jarvis command (resolving a conflict, reconciling an index, restoring a dropped test, manually finalizing, re-running a transient) is a **harness gap**, a seed waiting to be written whose done-state is "a future observer doesn't do this by hand."
@@ -23,7 +38,7 @@ The orchestration loop (the observer's own model calls) dominates session cost �
 A session is done when the findings and tooling persist, not when the PRs merge. Every session owes:
 
 1. **Drive + review + merge.** Background-run each invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive (see [Merging](#merging)). Keep stuck work moving.
-2. **Create seeds** in `v2/spec/seeds/` for anything about Jarvis itself that should change — a gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
+2. **Create seeds** in the configured seeds dir (currently `v1/spec/seeds/` — see [Where seeds and intents live](#where-seeds-and-intents-live)) for anything about Jarvis itself that should change — a gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
 3. **Triage incoming harness suggestions** into seeds — sweep open issues at [session start](#session-start) and again at close-out. The issue stays **open** until its fix merges.
 4. **Write a final report** under `reports/` with a UTC-timestamp filename (e.g. `reports/2026-06-23T00-52-38Z-overlord.md`) — date-only names collide. Cover what shipped/merged, workflow/tooling/harness observations, and a cost breakdown (Jarvis spend from `~/.jarvis/runs.jsonl` plus the observer's own session cost) in the [cost schema](#cost-reporting-standard).
 5. **Maintain this runbook** directly (branch → PR → admin-merge). Keep it current; batch edits.
@@ -115,7 +130,7 @@ gh issue list --repo cbrenner04/jarvis --label harness-suggestion --state open
 If the label is absent, fall back to searching the open-issue list manually. For each suggestion:
 
 1. **Review** and assess whether it's worth a seed.
-2. **Seed it** in `v2/spec/seeds/`, using the issue content for the problem statement and decisions.
+2. **Seed it** in the configured seeds dir (see [Where seeds and intents live](#where-seeds-and-intents-live)), using the issue content for the problem statement and decisions.
 3. **Leave the issue open** and comment referencing the seed (e.g. "Seeded as `<seeds-dir>/<name>.md`"). It stays open until the fix is implemented and merged — the implementation PR closes it via `Closes #N`. A seed is capture, not completion.
 4. **Close at triage only when not seeding** — not actionable, duplicate, or out-of-scope — with an explanation.
 5. **Operator-error / project-setup is not a harness gap.** If the issue is really an operator mistake or the *target project's* setup (misconfig, missing dep, environment), **respond on the issue** with the cause/fix, **don't seed or change the harness**, and **flag it to the operator**.
@@ -232,7 +247,7 @@ Steps 1–2 first (not as an end-of-session afterthought) is what guarantees out
 ## End-of-session cleanup
 
 1. **`jarvis1 cleanup`** — removes merged worktrees and archives each completed spec into the `completed/` directory of its home (`v1/spec`, `v2/spec`, or configured `targetDir`). It prompts `[y/N]`; pipe `echo y | jarvis1 cleanup` non-interactively (`--dry-run` to preview).
-2. **Prune consumed seeds.** Delete `v2/spec/seeds/*` whose work shipped this session, and any leftover `v2/spec/ready-intents/*` from a plan that didn't consume them.
+2. **Prune consumed seeds.** Delete `<targetDir>/seeds/*` whose work shipped this session, and any leftover `<targetDir>/ready-intents/*` from a plan that didn't consume them (currently `v1/spec/` — see [Where seeds and intents live](#where-seeds-and-intents-live)).
 
 ## Branch-before-edit discipline
 

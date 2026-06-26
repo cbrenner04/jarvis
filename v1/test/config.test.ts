@@ -2509,4 +2509,213 @@ describe("review mode config validation", () => {
     expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.shrink/);
     expect(() => loadConfig({ dir })).toThrow(/off.*agent/);
   });
+
+  test("accepts modes.patch.agentOrder entries with numeric capability", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [
+              { agent: "claude", model: "haiku", capability: 3 },
+              { agent: "codex", model: "gpt-5.3-codex", capability: 6 },
+            ],
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.agentOrder).toEqual([
+      { agent: "claude", model: "haiku", capability: 3 },
+      { agent: "codex", model: "gpt-5.3-codex", capability: 6 },
+    ]);
+  });
+
+  test("accepts modes.patch.agentOrder without capability when floor is not set", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.agentOrder).toEqual(CLAUDE_ONLY);
+    expect(cfg.modes.patch.actuationCapabilityFloor).toBeUndefined();
+  });
+
+  test("accepts modes.patch.actuationCapabilityFloor with numeric value when all entries have capability", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [
+              { agent: "claude", model: "haiku", capability: 3 },
+              { agent: "codex", model: "gpt-5.3-codex", capability: 6 },
+            ],
+            actuationCapabilityFloor: 5,
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.patch.actuationCapabilityFloor).toBe(5);
+  });
+
+  test("rejects modes.patch.actuationCapabilityFloor when any entry lacks capability", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [
+              { agent: "claude", model: "haiku", capability: 3 },
+              { agent: "codex", model: "gpt-5.3-codex" },
+            ],
+            actuationCapabilityFloor: 5,
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/actuationCapabilityFloor is set/);
+    expect(() => loadConfig({ dir })).toThrow(/modes\.patch\.agentOrder/);
+    expect(() => loadConfig({ dir })).toThrow(/missing capability/);
+    expect(() => loadConfig({ dir })).toThrow(/codex/);
+  });
+
+  test("rejects non-numeric modes.patch.actuationCapabilityFloor", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }],
+            actuationCapabilityFloor: "5",
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/actuationCapabilityFloor/);
+    expect(() => loadConfig({ dir })).toThrow(/finite number/);
+  });
+
+  test("rejects non-finite modes.patch.actuationCapabilityFloor", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }],
+            actuationCapabilityFloor: Infinity,
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/actuationCapabilityFloor/);
+    expect(() => loadConfig({ dir })).toThrow(/finite number/);
+  });
+
+  test("rejects non-numeric capability in agentOrder", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "claude", model: "haiku", capability: "3" }],
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/capability/);
+    expect(() => loadConfig({ dir })).toThrow(/finite number/);
+  });
+
+  test("rejects non-finite capability in agentOrder", () => {
+    const file = join(dir, "config.json");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: {
+            agentOrder: [{ agent: "claude", model: "haiku", capability: NaN }],
+          },
+          plan: { agentOrder: CLAUDE_ONLY },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    expect(() => loadConfig({ dir })).toThrow(file);
+    expect(() => loadConfig({ dir })).toThrow(/capability/);
+    expect(() => loadConfig({ dir })).toThrow(/finite number/);
+  });
+
+  test("allows capability in plan mode agentOrder (ignored)", () => {
+    writeFileSync(
+      join(dir, "config.json"),
+      JSON.stringify({
+        version: 2,
+        modes: {
+          patch: { agentOrder: CLAUDE_ONLY },
+          plan: {
+            agentOrder: [{ agent: "claude", model: "haiku", capability: 3 }],
+          },
+          prompt: { agentOrder: CLAUDE_ONLY },
+          review: { passes: 2 },
+        },
+        projects: {},
+      }),
+    );
+    const cfg = loadConfig({ dir });
+    expect(cfg.modes.plan.agentOrder).toEqual([
+      { agent: "claude", model: "haiku", capability: 3 },
+    ]);
+  });
 });

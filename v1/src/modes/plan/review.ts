@@ -333,7 +333,6 @@ export type PlanReviewPhaseOptions = {
   checkBoundary?: boolean;
   logNoChangeSkip?: boolean;
   externalSpecRoot?: string;
-  preExistingSiblings?: Set<string>;
   projectRoot?: string;
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
@@ -481,7 +480,7 @@ function createPlanReviewAdapter(args: {
         : assertTargetRepoPlanBoundary(opts.projectRoot ?? opts.worktreePath);
     const externalBoundaryCheck: BoundaryCheckResult =
       !opts.commit && opts.externalSpecRoot
-        ? assertNoCommitExternalSpecBoundary(opts.externalSpecRoot, opts.specDirBasename, opts.preExistingSiblings)
+        ? assertNoCommitExternalSpecBoundary(opts.externalSpecRoot, opts.specDirBasename)
         : { ok: true };
     if (boundaryCheck.ok && externalBoundaryCheck.ok) {
       return { ok: true };

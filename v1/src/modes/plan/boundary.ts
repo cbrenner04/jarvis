@@ -169,45 +169,14 @@ Spec-file write boundary is enforced: only files under \`${targetDir}/${specDirB
 }
 
 /**
- * For no-commit plan runs: check that the agent wrote only under the expected
- * spec directory within the external storage root, not to sibling directories.
- *
- * Flags only top-level entries created during this run: those that are neither
- * the active spec dir nor in the pre-existing set. Allows legitimate siblings
- * like ready-intents/ and prior spec dirs that existed before this run.
+ * For no-commit plan runs: no longer checks external storage.
+ * The external spec root is not inspected; sibling directory creation
+ * no longer triggers a boundary violation.
+ * This allows concurrent no-commit plans to coexist.
  */
 export function assertNoCommitExternalSpecBoundary(
   externalSpecRoot: string,
   specDirBasename: string,
-  preExistingSiblings?: Set<string>,
 ): BoundaryCheckResult {
-  // Check that the directory exists
-  if (!existsSync(externalSpecRoot)) {
-    return { ok: true };
-  }
-
-  let entries: string[];
-  try {
-    entries = readdirSync(externalSpecRoot);
-  } catch (_err) {
-    return {
-      ok: false,
-      offendingPaths: [`(failed to read ${externalSpecRoot})`],
-    };
-  }
-
-  const offendingPaths: string[] = [];
-  for (const entry of entries) {
-    // Skip the active spec dir and any pre-existing siblings
-    if (entry === specDirBasename || preExistingSiblings?.has(entry)) {
-      continue;
-    }
-    offendingPaths.push(join(externalSpecRoot, entry));
-  }
-
-  if (offendingPaths.length === 0) {
-    return { ok: true };
-  }
-
-  return { ok: false, offendingPaths };
+  return { ok: true };
 }

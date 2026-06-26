@@ -914,17 +914,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
     // For no-commit runs, create the external spec root directory early
     let externalSpecRoot: string | undefined;
-    let preExistingSiblings: Set<string> | undefined;
     if (commit === false) {
       externalSpecRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
       mkdirSync(externalSpecRoot, { recursive: true });
-      // Capture snapshot of pre-existing entries before the spec dir is created
-      try {
-        preExistingSiblings = new Set(readdirSync(externalSpecRoot));
-      } catch {
-        // If we can't read the dir, proceed without the snapshot (will catch at boundary check)
-        preExistingSiblings = undefined;
-      }
     }
 
     // For commit: true fresh runs, check if a disposable same-name worktree survives
@@ -1201,7 +1193,7 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
       // For no-commit runs, also check the external spec directory
       const externalBoundaryCheck: BoundaryCheckResult =
         !commit && externalSpecRoot
-          ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename, preExistingSiblings)
+          ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename)
           : { ok: true };
 
       const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
@@ -1405,9 +1397,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         };
         if (externalSpecRoot !== undefined) {
           reviewOpts.externalSpecRoot = externalSpecRoot;
-          if (preExistingSiblings !== undefined) {
-            reviewOpts.preExistingSiblings = preExistingSiblings;
-          }
         }
         const reviewResult = await runPlanReviewPhase({
           ...reviewOpts,

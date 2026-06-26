@@ -167,4 +167,3 @@ Spec-file write boundary is enforced: only files under \`${targetDir}/${specDirB
     throw new Error(`failed to append blocker section to intent.md: ${err}`);
   }
 }
-

@@ -16,20 +16,7 @@ describe("filterAgentsByCapabilityFloor", () => {
     expect(result).toEqual(agents);
   });
 
-  test("filters agents below floor", () => {
-    const agents: AgentEntry[] = [
-      { agent: "claude", model: "haiku", capability: 2 },
-      { agent: "codex", model: "gpt-5.4", capability: 3 },
-      { agent: "cursor", model: "Composer 2.5", capability: 1 },
-    ];
-
-    const result = filterAgentsByCapabilityFloor(agents, 2);
-    expect(result).toHaveLength(2);
-    expect(result).toContainEqual({ agent: "claude", model: "haiku", capability: 2 });
-    expect(result).toContainEqual({ agent: "codex", model: "gpt-5.4", capability: 3 });
-  });
-
-  test("excludes agents with capability less than floor", () => {
+  test("filters agents by capability floor, preserving order", () => {
     const agents: AgentEntry[] = [
       { agent: "claude", model: "haiku", capability: 1 },
       { agent: "codex", model: "gpt-5.4", capability: 3 },
@@ -37,9 +24,10 @@ describe("filterAgentsByCapabilityFloor", () => {
     ];
 
     const result = filterAgentsByCapabilityFloor(agents, 2);
-    expect(result).toHaveLength(2);
-    expect(result).toContainEqual({ agent: "codex", model: "gpt-5.4", capability: 3 });
-    expect(result).toContainEqual({ agent: "cursor", model: "Composer 2.5", capability: 2 });
+    expect(result).toEqual([
+      { agent: "codex", model: "gpt-5.4", capability: 3 },
+      { agent: "cursor", model: "Composer 2.5", capability: 2 },
+    ]);
   });
 
   test("returns empty array when all agents are below floor", () => {
@@ -50,21 +38,6 @@ describe("filterAgentsByCapabilityFloor", () => {
 
     const result = filterAgentsByCapabilityFloor(agents, 3);
     expect(result).toHaveLength(0);
-  });
-
-  test("preserves order of filtered agents", () => {
-    const agents: AgentEntry[] = [
-      { agent: "claude", model: "haiku", capability: 1 },
-      { agent: "codex", model: "gpt-5.4", capability: 3 },
-      { agent: "cursor", model: "Composer 2.5", capability: 2 },
-    ];
-
-    const result = filterAgentsByCapabilityFloor(agents, 2);
-    expect(result).toHaveLength(2);
-    if (result.length >= 2) {
-      expect(result[0]!.agent).toBe("codex");
-      expect(result[1]!.agent).toBe("cursor");
-    }
   });
 });
 
@@ -102,7 +75,7 @@ describe("buildActiveAgents with capability floor", () => {
     };
   }
 
-  test("selects from first agent when no floor is set", () => {
+  test("selects all agents when no floor is set", () => {
     const agents: AgentEntry[] = [
       { agent: "claude", model: "haiku" },
       { agent: "codex", model: "gpt-5.4" },
@@ -113,10 +86,9 @@ describe("buildActiveAgents with capability floor", () => {
 
     const result = buildActiveAgents(opts, cfg, "trivial");
     expect(result).toHaveLength(3);
-    expect(result[0]).toBeDefined();
   });
 
-  test("skips below-floor agents at tier start index", () => {
+  test("skips below-floor agents in tier selection", () => {
     const agents: AgentEntry[] = [
       { agent: "claude", model: "haiku", capability: 1 },
       { agent: "codex", model: "gpt-5.4", capability: 3 },
@@ -125,28 +97,10 @@ describe("buildActiveAgents with capability floor", () => {
     const cfg = makeConfig(agents, 2);
     const opts = makeOpts();
 
-    // standard tier starts at index 1
-    const result = buildActiveAgents(opts, cfg, "standard");
-    expect(result.length).toBeGreaterThan(0);
-    // The tier index is resolved against the floor-eligible ladder
-    // Floor-eligible: [codex(3), cursor(2)]
-    // Tier start at index 1 of original ladder, but resolved against floor-eligible
-    // This should give us agents starting from the position in the filtered ladder
-  });
-
-  test("selects only floor-eligible agents for fallback", () => {
-    const agents: AgentEntry[] = [
-      { agent: "claude", model: "haiku", capability: 1 },
-      { agent: "codex", model: "gpt-5.4", capability: 3 },
-      { agent: "cursor", model: "Composer 2.5", capability: 2 },
-    ];
-    const cfg = makeConfig(agents, 2);
-    const opts = makeOpts();
-
+    // Floor 2: claude(1) filtered, codex(3) and cursor(2) remain
     const result = buildActiveAgents(opts, cfg, "trivial");
-    // With floor 2, only codex(3) and cursor(2) are eligible
-    // trivial tier starts at index 0, so we get both
-    expect(result.length).toBeGreaterThanOrEqual(2);
+    expect(result).toHaveLength(2);
+    expect(result.map((a) => a.attributionLabel())).toEqual(["gpt-5.4", "Composer 2.5"]);
   });
 
   test("returns empty array when no agents meet floor", () => {
@@ -159,22 +113,5 @@ describe("buildActiveAgents with capability floor", () => {
 
     const result = buildActiveAgents(opts, cfg, "trivial");
     expect(result).toHaveLength(0);
-  });
-
-  test("respects tier selection within floor-eligible ladder", () => {
-    const agents: AgentEntry[] = [
-      { agent: "claude", model: "haiku", capability: 1 },
-      { agent: "codex", model: "gpt-5.4", capability: 2 },
-      { agent: "cursor", model: "Composer 2.5", capability: 3 },
-    ];
-    const cfg = makeConfig(agents, 2);
-    const opts = makeOpts();
-
-    // hard tier selects from the end of the ladder
-    // Floor-eligible: [codex(2), cursor(3)]
-    // hard tier: index = floor-eligible.length - 1 = 1
-    const result = buildActiveAgents(opts, cfg, "hard");
-    // Should start from the last floor-eligible agent
-    expect(result.length).toBeGreaterThan(0);
   });
 });

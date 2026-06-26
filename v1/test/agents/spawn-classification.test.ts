@@ -26,7 +26,7 @@ async function classifyAgentError(agentName: AgentName, exitCode: number, stderr
       spawn: recorder.spawn,
     },
     "test",
-    { cwd },
+    { cwd, sleepMs: async () => {} },
   );
 }
 

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Io } from "../cli.ts";
 import type { Config, ProjectMatch } from "../config.ts";
 import { type ConfigOptions, loadConfig } from "../config.ts";
@@ -318,7 +318,7 @@ async function readLineFromStdin(): Promise<string | undefined> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function looksLikeUrlOrSlug(value: string): boolean {
+function _looksLikeUrlOrSlug(value: string): boolean {
   if (/^(https?:\/\/|ssh:\/\/|git:\/\/|git@)/i.test(value)) {
     return true;
   }

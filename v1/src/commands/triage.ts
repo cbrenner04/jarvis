@@ -1,14 +1,14 @@
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { parseSpec } from "../../../shared/spec-parser.ts";
 import type { ConfigOptions } from "../config.ts";
 import { loadConfig } from "../config.ts";
+import { withSyncTransientRetry } from "../gh.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
-import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
-import { withSyncTransientRetry } from "../gh.ts";
-import { parseSpec } from "../../../shared/spec-parser.ts";
+import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 
 export type TriageIo = {
   stdout: (s: string) => void;

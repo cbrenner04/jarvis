@@ -11,8 +11,8 @@ repo root (`<root>/<timestamp>-<name>/00-*.md`) instead of overwriting the draft
 under `<targetDir>/<timestamp>-<name>/00-*.md`. The spec dir kept the
 verdict-rejected `plan: draft` version; the refined `plan: review: actuator`
 version landed at a stray top-level path the index never references, so a later
-`jarvis run` silently read the pre-refinement draft. Observed 2026-06-25 on PR
-#549 (hand-recovered).
+`jarvis run` silently read the pre-refinement draft. Observed 2026-06-25 on
+PR #549 (hand-recovered).
 
 ## Direction
 

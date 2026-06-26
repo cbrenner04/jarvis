@@ -47,7 +47,7 @@ denominator — but leaves two loop branches unguarded:
   at all. At bound 0 this test would be indistinguishable from the existing
   bound-0 red test and prove nothing about non-retryability.
 - Terminal red is distinguished from a retry by the colon form
-  `ready gate failed: ` (the retry line is `ready gate failed (attempt N/M),
+  `ready gate failed:` (the retry line is `ready gate failed (attempt N/M),
   retrying`); the bare `ready gate failed` substring matches both, so assert the
   colon form (matching the existing bound-0 test).
 - Assert sustained-red and non-retryable runs actually terminate red (non-zero
@@ -62,7 +62,7 @@ denominator — but leaves two loop branches unguarded:
   - Sustained retryable red, bound 2: gate returns retryable red every attempt;
     reset-on-bound sentinel records the first check's attempt count — assert it
     is 3; assert stderr emits `attempt 1/3, retrying` and `attempt 2/3,
-    retrying`, never `attempt 3/3, retrying`, then `ready gate failed: `; assert
+    retrying`, never `attempt 3/3, retrying`, then `ready gate failed:`; assert
     terminal red (non-zero exit, no `spec complete`).
   - Non-retryable red, bound 2: seam returns `{ kind: "red", retryable: false }`
     with a realistic commit/push-flavored failure text; assert the first
@@ -79,7 +79,7 @@ denominator — but leaves two loop branches unguarded:
   check before returning red: at bound 2 a reset-on-bound sentinel records the
   first check's count as exactly 3, stderr contains `attempt 1/3, retrying` and
   `attempt 2/3, retrying` but never `attempt 3/3, retrying`, the terminal-red
-  line `ready gate failed: ` is emitted, and the run ends red (non-zero exit, no
+  line `ready gate failed:` is emitted, and the run ends red (non-zero exit, no
   `spec complete`).
 - [ ] A test proves non-retryable red (`retryable: false`) returns red on the
   first attempt at bound 2 — where a retryable red would have retried: the first

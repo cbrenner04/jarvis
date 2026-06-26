@@ -5,9 +5,9 @@
 The plan review actuator pointed the agent at the bare spec-dir basename
 (`<NAME>`) and — unlike the draft prompt — carried **no** imperative
 write-boundary rule. The draft prompt anchors writes with
-`- **Only write files under \`spec/<NAME>/\`.**` (`prompts/plan/draft.md:47`,
+the rule **Only write files under** `spec/<NAME>/` (`prompts/plan/draft.md:47`,
 rewritten to the `targetDir`-prefixed path at build time); the actuator prompt
-(`prompts/plan/review-actuator.md`) has only a `**Spec directory:** \`<NAME>\``
+(`prompts/plan/review-actuator.md`) has only a **Spec directory:** `<NAME>`
 label and no rule. With the agent's cwd at the worktree root, the actuator wrote
 refined subspecs to `<root>/<timestamp-name>/00-*.md` while the resolved spec
 dir under `targetDir` kept the verdict-rejected draft. A later `jarvis run` then
@@ -28,7 +28,7 @@ with zero enforcement, reproducing PR #549.
 
 ## Decisions
 
-- Add to the actuator prompt the same imperative write-boundary rule the draft prompt carries (`- **Only write files under \`spec/<NAME>/\`.**`, rewritten to the `targetDir`/spec-dir prefix at build time), not merely relabel the directory line. Rules out a weaker/no anchor that leaves writes landing at the worktree root.
+- Add to the actuator prompt the same imperative write-boundary rule the draft prompt carries (**Only write files under** `spec/<NAME>/`, rewritten to the `targetDir`/spec-dir prefix at build time), not merely relabel the directory line. Rules out a weaker/no anchor that leaves writes landing at the worktree root.
 - Add a structural write-boundary check to the actuator **commit path** (before `git add -A`/commit), mirroring `assertPlanWriteBoundary` as reviewer roles use it. Rules out a prompt-only fix that leaves the silent-commit mechanism unguarded.
 - On a boundary violation, remove the stray out-of-bounds path with a mechanism that covers **untracked** files (a newly-created out-of-bounds directory), i.e. `git clean -fd` as `revertSpecTreeEdits` already does — `git checkout -- <path>` does not remove untracked paths. Rules out a tracked-only revert that leaves the stray dir on disk.
 - External no-commit path: the actuator commit-path guard is gated on `opts.commit`, so the no-commit flow (flat `specDirPath` outside `targetDir`) is unaffected; the prompt's boundary rule must gain a flat-layout branch mirroring the draft (`draft.ts:66-70`), so the shared-prompt edit does not ship an untested behavior change to the no-commit path. Rules out an implicit, untested no-commit change.

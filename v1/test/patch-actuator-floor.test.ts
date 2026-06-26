@@ -114,4 +114,38 @@ describe("buildActiveAgents with capability floor", () => {
     const result = buildActiveAgents(opts, cfg, "trivial");
     expect(result).toHaveLength(0);
   });
+
+  test("tier standard: starts from index 1 in floor-eligible ladder", () => {
+    const agents: AgentEntry[] = [
+      { agent: "claude", model: "haiku", capability: 1 },
+      { agent: "codex", model: "gpt-5.4", capability: 3 },
+      { agent: "cursor", model: "Composer 2.5", capability: 2 },
+    ];
+    const cfg = makeConfig(agents, 2);
+    const opts = makeOpts();
+
+    // Floor 2: claude(1) filtered, codex(3) and cursor(2) remain
+    // Standard tier start index = min(1, 2-1) = 1
+    // slice(1) = [cursor]
+    const result = buildActiveAgents(opts, cfg, "standard");
+    expect(result).toHaveLength(1);
+    expect(result.map((a) => a.attributionLabel())).toEqual(["Composer 2.5"]);
+  });
+
+  test("tier hard: starts from last index in floor-eligible ladder", () => {
+    const agents: AgentEntry[] = [
+      { agent: "claude", model: "haiku", capability: 1 },
+      { agent: "codex", model: "gpt-5.4", capability: 3 },
+      { agent: "cursor", model: "Composer 2.5", capability: 2 },
+    ];
+    const cfg = makeConfig(agents, 2);
+    const opts = makeOpts();
+
+    // Floor 2: claude(1) filtered, codex(3) and cursor(2) remain
+    // Hard tier start index = 2 - 1 = 1
+    // slice(1) = [cursor]
+    const result = buildActiveAgents(opts, cfg, "hard");
+    expect(result).toHaveLength(1);
+    expect(result.map((a) => a.attributionLabel())).toEqual(["Composer 2.5"]);
+  });
 });

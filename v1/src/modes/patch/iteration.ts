@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { detectBlockerClaim, parseSpec, stripBlockerSection } from "../../../../shared/spec-parser.ts";
-import { openSessionLog, resolveReviewPasses } from "../../config.ts";
+import { openSessionLog, resolveReviewPasses, resolveSubRoleAgentOrder } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import type { LogClient } from "../../logging.ts";
 import { ensureDraftPr, renderAttributionSummary } from "../../pr.ts";
@@ -479,7 +479,8 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     return { kind: "return", exitCode: 2 };
   }
 
-  const configuredPatchModelEntry = cfg.modes.patch.agentOrder.find((entry) => entry.agent === agent.name);
+  const patchActuatorOrder = resolveSubRoleAgentOrder(cfg, "patchActuator");
+  const configuredPatchModelEntry = patchActuatorOrder.find((entry) => entry.agent === agent.name);
   const telemetryMeta =
     configuredPatchModelEntry?.model !== undefined ? { configured_model: configuredPatchModelEntry.model } : {};
   const configuredPatchModel = configuredPatchModelEntry?.model;
@@ -1660,7 +1661,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       return { kind: "continue" };
     }
     if (result.kind === "model_config") {
-      const entry = cfg.modes.patch.agentOrder.find((e) => e.agent === agent.name);
+      const entry = patchActuatorOrder.find((e) => e.agent === agent.name);
       const configErr = `${agent.name}: configured patch model ${JSON.stringify(entry?.model)} is not supported by this CLI/account\n`;
       fanout("harness", configErr, "stderr");
       if (result.stderr.length > 0) {

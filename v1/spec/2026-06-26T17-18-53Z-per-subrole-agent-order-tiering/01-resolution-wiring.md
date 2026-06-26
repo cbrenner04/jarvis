@@ -64,30 +64,30 @@ byte-identical in behavior.
 
 ## Acceptance criteria
 
-- [ ] With `modes.patch.subRoleAgentOrder` unset, the patch loop, review panel,
+- [x] With `modes.patch.subRoleAgentOrder` unset, the patch loop, review panel,
       verdict actuator, and shrink agent each resolve to the same agent order as
       before this change (existing patch/review/shrink tests stay green).
-- [ ] With `subRoleAgentOrder.patchActuator` set, the patch implementation loop
+- [x] With `subRoleAgentOrder.patchActuator` set, the patch implementation loop
       uses that order (patch-tier start-index slicing applies to it); the review
       panel and review/shrink actuators are unaffected.
-- [ ] With `subRoleAgentOrder.reviewActuator` set, the verdict actuator reads the
+- [x] With `subRoleAgentOrder.reviewActuator` set, the verdict actuator reads the
       head (`reviewActuator[0]`) model while the patch loop and review panel are
       unaffected.
-- [ ] With `subRoleAgentOrder.reviewActuator` set, the shrink agent uses the full
+- [x] With `subRoleAgentOrder.reviewActuator` set, the shrink agent uses the full
       `reviewActuator` list while the patch loop and review panel are unaffected.
-- [ ] With `subRoleAgentOrder.reviewPanel` set, the patch-run adversary/advocate/
+- [x] With `subRoleAgentOrder.reviewPanel` set, the patch-run adversary/advocate/
       adjudicator roles use that order while the actuators are unaffected.
-- [ ] An override preserves quota-fallback iteration over the full list for the
+- [x] An override preserves quota-fallback iteration over the full list for the
       shrink agent and the patch loop, while the verdict actuator stays head-only
       (no fallback gained).
-- [ ] Standalone `jarvis review` resolves its review agent order unchanged: the
+- [x] Standalone `jarvis review` resolves its review agent order unchanged: the
       `resolveReviewAgentOrder` describe block in `v1/test/config.test.ts` and
       `v1/test/modes/review/run.test.ts` stay green (the threaded `reviewPanel`
       order defaults to absent for this caller).
-- [ ] Plan-mode self-review resolves its review agent order unchanged: the
+- [x] Plan-mode self-review resolves its review agent order unchanged: the
       `resolveReviewAgentOrder` fallback tests in `v1/test/config.test.ts` (which
       pin `modes.review.agentOrder ?? modes.plan.agentOrder`) stay green.
-- [ ] `v2/docs/v1-behaviors.md` and `v1/docs/agents.md` describe the three
+- [x] `v2/docs/v1-behaviors.md` and `v1/docs/agents.md` describe the three
       per-sub-role overrides and their per-mode fallbacks, including that
       `reviewActuator` governs both the verdict actuator (head-only) and the
       shrink agent (full list).

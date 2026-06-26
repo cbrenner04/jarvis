@@ -1,0 +1,5 @@
+1. Missing external source must not prune the ready-intent. For `commit:false`, the consumed `ready-intents/<name>.md` may be deleted only after an actual archive move succeeds. If the external spec dir is absent, cleanup must report the missing external path and leave any ready-intent intact. Add coverage for missing source with an existing ready-intent.
+
+2. External-home resolution must use the configured Jarvis config dir consistently with plan/intent. Cleanup receives config context, so `commit:false` cleanup must archive under that effective config home, not silently fall back to `$HOME/.jarvis` when the CLI passed a different config dir. This is required for the spec’s “same computeProjectSafeId/computeNoCommitSpecRoot path that intent/plan use” behavior.
+
+3. Revert unrelated spec churn in `v1/spec/2026-06-26T21-57-30Z-improve-template-pr-narrative-quality/index.md`. The branch should only change the active subspec and required durable docs/code/tests; unrelated whitespace edits increase review noise and violate the repo’s minimal-scope rule.

@@ -6,7 +6,7 @@ only; no selection behavior yet (first consumer is subspec 01).
 
 ## Decisions
 
-- Capability rank is an operator-assigned integer per agent-order entry: `AgentEntry.capability?: number`, higher = more capable. Rules out deriving rank from ladder position (the ladder is a cost/fallback ordering — default puts the cheapest model first, so position is not capability) and rules out a separate model→rank registry that could drift from `agentOrder`.
+- Capability rank is an operator-assigned number per agent-order entry: `AgentEntry.capability?: number`, higher = more capable. Rank only needs ordering, so any finite number is accepted (no integer constraint). Rules out deriving rank from ladder position (the ladder is a cost/fallback ordering — default puts the cheapest model first, so position is not capability) and rules out a separate model→rank registry that could drift from `agentOrder`.
 - "Below floor" is defined by plain numeric comparison: an entry is below-floor iff `entry.capability < floor`. Rules out named capability tiers, which would need their own ordered-name registry.
 - Floor lives on the actuation mode: `modes.patch.actuationCapabilityFloor?: number`. Rules out a global floor — the intent scopes the floor to actuation roles, all of which resolve from `modes.patch.agentOrder`.
 - Floor absent ⇒ feature off, selection unchanged. Backward-compatible; rules out a default floor that would silently change existing runs.

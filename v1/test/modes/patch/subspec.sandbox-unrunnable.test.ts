@@ -55,12 +55,42 @@ function createIndexFile(): string {
   return indexPath;
 }
 
+function createAcceptanceSpec(checked: boolean): string {
+  return `# Test Spec
+
+## Acceptance criteria
+
+- [${checked ? "x" : " "}] First criterion
+`;
+}
+
+function commitAll(message: string): void {
+  execSync("git add .", { cwd: gitDir, stdio: "pipe" });
+  execSync(`git commit -m '${message}'`, { cwd: gitDir, stdio: "pipe" });
+}
+
 function getLastCommitMessage(): string {
   return execFileSync("git", ["log", "-1", "--pretty=%B"], {
     cwd: gitDir,
     encoding: "utf8",
     stdio: "pipe",
   }).trim();
+}
+
+function getHeadSha(): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: gitDir,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+}
+
+function configureFailingCommitSigning(): void {
+  execFileSync("git", ["config", "commit.gpgsign", "true"], { cwd: gitDir, stdio: "pipe" });
+  execFileSync("git", ["config", "gpg.program", "/usr/bin/false"], {
+    cwd: gitDir,
+    stdio: "pipe",
+  });
 }
 
 describe("commitSubspec", () => {
@@ -77,8 +107,7 @@ describe("commitSubspec", () => {
 `,
     );
 
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
@@ -101,8 +130,7 @@ describe("commitSubspec", () => {
 `,
     );
 
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
@@ -124,8 +152,7 @@ describe("commitSubspec", () => {
 `,
     );
 
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
@@ -137,23 +164,48 @@ describe("commitSubspec", () => {
   test("updates index checkbox after commit", () => {
     createIndexFile();
     const indexPath = join(gitDir, "spec", "index.md");
-    const specPath = createSpecFile(
-      "01-test-one.md",
-      `# Test Spec
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
 
-## Acceptance criteria
-
-- [x] First criterion
-`,
-    );
-
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
 
     const indexContent = readFileSync(indexPath, "utf8");
     expect(indexContent).toContain("- [x] [01 — Test one]");
+  });
+
+  test("returns without throwing when the tree is already committed and clean", () => {
+    createIndexFile();
+    const indexPath = join(gitDir, "spec", "index.md");
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
+
+    writeFileSync(
+      indexPath,
+      `# Test Spec Group
+
+## Subspecs
+
+- [x] [01 — Test one](./01-test-one.md)
+`,
+    );
+
+    commitAll("agent already committed completion");
+
+    const beforeSha = getHeadSha();
+    commitSubspec(specPath, { cwd: gitDir, agentLabel: "" });
+
+    expect(getHeadSha()).toBe(beforeSha);
+    expect(readFileSync(indexPath, "utf8")).toContain("- [x] [01 — Test one]");
+  });
+
+  test("rethrows git commit failures when staged changes exist", () => {
+    createIndexFile();
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
+
+    commitAll("initial");
+    configureFailingCommitSigning();
+
+    expect(() => commitSubspec(specPath, { cwd: gitDir, agentLabel: "" })).toThrow(/git commit/);
   });
 });
 
@@ -170,8 +222,7 @@ describe("commitWipProgress", () => {
 `,
     );
 
-    execSync("git add .", { cwd: gitDir, stdio: "pipe" });
-    execSync("git commit -m 'initial'", { cwd: gitDir, stdio: "pipe" });
+    commitAll("initial");
 
     // Make a change to commit
     writeFileSync(
@@ -276,6 +327,42 @@ describe("commitWipProgress", () => {
     const message = getLastCommitMessage();
     expect(message).toContain("Newly checked:");
     expect(message).toContain("- First criterion");
+  });
+
+  test("returns without throwing when the tree is already committed and clean", () => {
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(true));
+
+    commitAll("agent already committed progress");
+
+    const beforeSha = getHeadSha();
+    commitWipProgress(specPath, {
+      cwd: gitDir,
+      newlyChecked: [{ text: "First criterion", checked: true, humanOnly: false }],
+      checkedTotal: 1,
+      total: 1,
+      agentLabel: "",
+    });
+
+    expect(getHeadSha()).toBe(beforeSha);
+  });
+
+  test("rethrows git commit failures when staged changes exist", () => {
+    const specPath = createSpecFile("01-test-one.md", createAcceptanceSpec(false));
+
+    commitAll("initial");
+
+    writeFileSync(specPath, createAcceptanceSpec(true));
+    configureFailingCommitSigning();
+
+    expect(() =>
+      commitWipProgress(specPath, {
+        cwd: gitDir,
+        newlyChecked: [{ text: "First criterion", checked: true, humanOnly: false }],
+        checkedTotal: 1,
+        total: 1,
+        agentLabel: "",
+      }),
+    ).toThrow(/git commit/);
   });
 });
 

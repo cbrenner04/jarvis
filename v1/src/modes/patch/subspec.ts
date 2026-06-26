@@ -30,6 +30,9 @@ export function commitSubspec(
 
   const gitRoot = opts.cwd ?? getGitRoot(subspecPath);
   execFileSync("git", ["add", "-A"], { cwd: gitRoot, stdio: "pipe" });
+  if (!hasStagedChanges(gitRoot)) {
+    return;
+  }
 
   const relativeSpecPath = relative(realpathSync(gitRoot), realpathSync(subspecPath));
   const bodyFirstLine = `Spec: ${relativeSpecPath}`;
@@ -42,32 +45,7 @@ export function commitSubspec(
 
   const baseMessage = `${summary}\n\n${commitBody}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
-
-  try {
-    execFileSync("git", ["commit", "-F", "-"], {
-      cwd: gitRoot,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      input: commitMessage,
-    });
-  } catch (err) {
-    let errorMessage = err instanceof Error ? err.message : String(err);
-    const stderr =
-      err instanceof Error && "stderr" in err && Buffer.isBuffer((err as { stderr: unknown }).stderr)
-        ? (err as { stderr: Buffer }).stderr.toString()
-        : "";
-    const stdout =
-      err instanceof Error && "stdout" in err && Buffer.isBuffer((err as { stdout: unknown }).stdout)
-        ? (err as { stdout: Buffer }).stdout.toString()
-        : "";
-    if (stderr) {
-      errorMessage += `\nstderr: ${stderr}`;
-    }
-    if (stdout) {
-      errorMessage += `\nstdout: ${stdout}`;
-    }
-    throw new Error(errorMessage);
-  }
+  commitStagedChanges(gitRoot, commitMessage);
 }
 
 export function snapshotAcceptanceCriteria(subspecPath: string): AcceptanceCriterion[] {
@@ -109,6 +87,9 @@ export function commitWipProgress(
   }
 
   execFileSync("git", ["add", "-A"], { cwd: opts.cwd, stdio: "pipe" });
+  if (!hasStagedChanges(opts.cwd)) {
+    return;
+  }
 
   const relativeSpecPath = relative(realpathSync(opts.cwd), realpathSync(subspecPath));
   let summary: string;
@@ -123,32 +104,7 @@ export function commitWipProgress(
       : `Spec: ${relativeSpecPath}\n\nNewly checked:\n${opts.newlyChecked.map((c) => `- ${c.text}`).join("\n")}`;
   const baseMessage = `${summary}\n\n${body}`;
   const commitMessage = appendAgentTrailer(baseMessage, opts.agentLabel);
-
-  try {
-    execFileSync("git", ["commit", "-F", "-"], {
-      cwd: opts.cwd,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      input: commitMessage,
-    });
-  } catch (err) {
-    let errorMessage = err instanceof Error ? err.message : String(err);
-    const stderr =
-      err instanceof Error && "stderr" in err && Buffer.isBuffer((err as { stderr: unknown }).stderr)
-        ? (err as { stderr: Buffer }).stderr.toString()
-        : "";
-    const stdout =
-      err instanceof Error && "stdout" in err && Buffer.isBuffer((err as { stdout: unknown }).stdout)
-        ? (err as { stdout: Buffer }).stdout.toString()
-        : "";
-    if (stderr) {
-      errorMessage += `\nstderr: ${stderr}`;
-    }
-    if (stdout) {
-      errorMessage += `\nstdout: ${stdout}`;
-    }
-    throw new Error(errorMessage);
-  }
+  commitStagedChanges(opts.cwd, commitMessage);
 }
 
 export function commitWipProgressWithBlocker(
@@ -245,6 +201,54 @@ function getGitRoot(subspecPath: string): string {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`could not find git root for ${subspecPath}: ${message}`);
   }
+}
+
+function hasStagedChanges(cwd: string): boolean {
+  const diffResult = spawnSync("git", ["diff", "--cached", "--quiet"], {
+    cwd,
+    stdio: "pipe",
+  });
+  if (diffResult.status === 0) {
+    return false;
+  }
+  if (diffResult.status !== 1) {
+    throw new Error(`git diff --cached --quiet failed${getErrorDetail(diffResult.stderr, diffResult.stdout)}`);
+  }
+  return true;
+}
+
+function commitStagedChanges(cwd: string, commitMessage: string): void {
+  try {
+    execFileSync("git", ["commit", "-F", "-"], {
+      cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      input: commitMessage,
+    });
+  } catch (err) {
+    let errorMessage = err instanceof Error ? err.message : String(err);
+    const stderr =
+      err instanceof Error && "stderr" in err && Buffer.isBuffer((err as { stderr: unknown }).stderr)
+        ? (err as { stderr: Buffer }).stderr
+        : undefined;
+    const stdout =
+      err instanceof Error && "stdout" in err && Buffer.isBuffer((err as { stdout: unknown }).stdout)
+        ? (err as { stdout: Buffer }).stdout
+        : undefined;
+    errorMessage += getErrorDetail(stderr, stdout);
+    throw new Error(errorMessage);
+  }
+}
+
+function getErrorDetail(stderr: string | Buffer | undefined, stdout: string | Buffer | undefined): string {
+  let errorDetail = "";
+  if (stderr) {
+    errorDetail += `\nstderr: ${stderr.toString()}`;
+  }
+  if (stdout) {
+    errorDetail += `\nstdout: ${stdout.toString()}`;
+  }
+  return errorDetail;
 }
 
 function getIndexPath(subspecPath: string): string {

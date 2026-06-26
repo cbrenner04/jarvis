@@ -43,12 +43,12 @@ two paths lack the guard.
 
 ## Acceptance criteria
 
-- [ ] `commitSubspec` returns without throwing when the index checkbox is already `[x]` and `git add -A` stages nothing (resumed run / agent self-committed the index), leaving the index `[x]` on disk.
-- [ ] `commitWipProgress` returns without throwing when a self-committing agent has already committed everything and `git add -A` stages nothing.
-- [ ] A genuine dirty tree is committed exactly as before by both `commitSubspec` and `commitWipProgress` (existing `subspec.sandbox-unrunnable.test.ts` commit tests stay green).
-- [ ] A `git commit` failure that is not the empty/clean-tree case still surfaces as a thrown error from both functions.
-- [ ] `commitWipProgressWithBlocker` clean-tree early-return behavior is unchanged.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `commitSubspec` returns without throwing when the index checkbox is already `[x]` and `git add -A` stages nothing (resumed run / agent self-committed the index), leaving the index `[x]` on disk.
+- [x] `commitWipProgress` returns without throwing when a self-committing agent has already committed everything and `git add -A` stages nothing.
+- [x] A genuine dirty tree is committed exactly as before by both `commitSubspec` and `commitWipProgress` (existing `subspec.sandbox-unrunnable.test.ts` commit tests stay green).
+- [x] A `git commit` failure that is not the empty/clean-tree case still surfaces as a thrown error from both functions.
+- [x] `commitWipProgressWithBlocker` clean-tree early-return behavior is unchanged.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

@@ -126,9 +126,26 @@ describe("buildVerdictActuatorPrompt", () => {
     expect(prompt).toContain("Plan Mode — Review Actuator");
     expect(prompt).toContain("Current Spec Files");
     expect(prompt).toContain("Add the missing AC.");
+    expect(prompt).toContain("Only write files under `spec/p/`.");
     expect(prompt).toContain("Do not edit `intent.md` unless appending a genuine `## Blocker` section.");
     expect(prompt).not.toContain("Intent Refinement Phase");
     expect(prompt).not.toContain("Do not write any other files.");
+  });
+
+  test("uses working-directory boundary in flat layout", () => {
+    const prompt = buildVerdictActuatorPrompt({
+      name: "p",
+      intent: "# Intent\n",
+      currentSpec: "spec",
+      specGuidance: "guidance",
+      verdict: "Fix ACs.",
+      flatSpecLayout: true,
+      workDirLabel: "/tmp/specs/p",
+    });
+
+    expect(prompt).toContain("**Working directory:** `/tmp/specs/p`");
+    expect(prompt).toContain("Only write files in the working directory.");
+    expect(prompt).not.toContain("Only write files under `spec/p/`.");
   });
 });
 

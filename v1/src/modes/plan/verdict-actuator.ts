@@ -38,6 +38,9 @@ export function buildVerdictActuatorPrompt(opts: {
   currentSpec: string;
   specGuidance: string;
   verdict: string;
+  /** External no-commit layout: files live in the working directory, not `spec/<name>/`. */
+  flatSpecLayout?: boolean;
+  workDirLabel?: string;
   /** Committed spec root (defaults to "spec" for backwards compatibility). */
   targetDir?: string;
 }): string {
@@ -47,8 +50,17 @@ export function buildVerdictActuatorPrompt(opts: {
     stepPromptId: "plan.prompt.review-actuator",
   });
 
+  const workDir = opts.workDirLabel ?? opts.name;
   const targetDir = opts.targetDir ?? "spec";
-  template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
+  if (opts.flatSpecLayout) {
+    template = template.replace(
+      "- **Only write files under `spec/<NAME>/`.**",
+      "- **Only write files in the working directory.** Do not create `spec/` subdirectories or other parent paths.",
+    );
+    template = template.replaceAll("spec/<NAME>/intent.md", "intent.md");
+  } else {
+    template = template.replaceAll("spec/<NAME>/", `${targetDir}/<NAME>/`);
+  }
 
   enforceDelimiterPolicy({
     value: opts.intent,
@@ -80,7 +92,7 @@ export function buildVerdictActuatorPrompt(opts: {
       template,
       new Set(["WORKDIR", "NAME", "INTENT", "CURRENT_SPEC", "SPEC_GUIDANCE", "VERDICT"]),
       {
-        WORKDIR: opts.name,
+        WORKDIR: workDir,
         NAME: opts.name,
         INTENT: opts.intent,
         CURRENT_SPEC: opts.currentSpec,
@@ -95,7 +107,7 @@ export function buildVerdictActuatorPrompt(opts: {
     throw err;
   }
 
-  return template;
+  return template.endsWith("\n") ? template : `${template}\n`;
 }
 
 export type VerdictActuatorOptions = {
@@ -146,6 +158,7 @@ export async function runVerdictActuator(opts: VerdictActuatorOptions): Promise<
       currentSpec,
       specGuidance,
       verdict: opts.verdict,
+      ...(opts.specDirPath !== undefined ? { flatSpecLayout: true, workDirLabel: specDir } : {}),
       ...(opts.targetDir !== undefined ? { targetDir: opts.targetDir } : {}),
     });
   } catch (err) {

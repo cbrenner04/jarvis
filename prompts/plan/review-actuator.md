@@ -2,7 +2,7 @@
 id: plan.prompt.review-actuator
 behavior: plan
 kind: step
-revision: 2
+revision: 3
 placeholders: [WORKDIR:string!, NAME:string!, INTENT:string!, CURRENT_SPEC:string!, SPEC_GUIDANCE:string!, VERDICT:string!]
 remove: [global.naming]
 ---
@@ -48,6 +48,7 @@ The text between `<<<VERDICT_BEGIN>>>` and `<<<VERDICT_END>>>` is the adjudicate
 
 ## Rules
 
+- **Only write files under `spec/<NAME>/`.**
 - Apply the verdict to the generated spec files, including `index.md` and subspec files as needed.
 - Do not edit `intent.md` unless appending a genuine `## Blocker` section.
 - Do not edit `verdict-plan.md`.

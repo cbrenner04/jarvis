@@ -66,7 +66,7 @@ describe("rendered prompt snapshots", () => {
     expect(registry.getById("plan.prompt.draft").metadata.revision).toBe("8");
     expect(registry.getById("plan.prompt.review").metadata.revision).toBe("6");
     expect(registry.getById("plan.prompt.review.adversary").metadata.revision).toBe("2");
-    expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("2");
+    expect(registry.getById("plan.prompt.review-actuator").metadata.revision).toBe("3");
 
     const patchKey = `${registry.getById("patch.prompt.body").metadata.id}@r${registry.getById("patch.prompt.body").metadata.revision}.shared.txt`;
     const draftKey = `${registry.getById("plan.prompt.draft").metadata.id}@r${registry.getById("plan.prompt.draft").metadata.revision}.shared.txt`;

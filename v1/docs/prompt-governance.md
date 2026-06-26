@@ -138,7 +138,7 @@ is asserted by `v1/test/prompts/rendered-snapshots.test.ts`, including:
 - patch prompt body (`patch.prompt.body`, currently `@r3`)
 - plan draft/review prompts (draft `@r7`, review `@r6`; review
   includes multiple pass contexts)
-- plan review actuator prompt (`plan.prompt.review-actuator`, currently `@r2`)
+- plan review actuator prompt (`plan.prompt.review-actuator`, currently `@r3`)
 - codex transport wrapper variant (`codex.exec.stdin+marker`)
 
 Coverage remains assembled-output focused: tests assert final rendered prompt

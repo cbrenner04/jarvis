@@ -136,10 +136,6 @@ function commitArchivedSpecMove(projectRoot: string, source: string, destination
   });
 }
 
-function isReservedExternalHomeName(basename: string): boolean {
-  return basename === "completed" || basename === "ready-intents";
-}
-
 function archiveExternalSpec(
   jarvisConfigDir: string,
   project: ProjectMatch,
@@ -151,7 +147,7 @@ function archiveExternalSpec(
   const source = join(externalHome, specDirBasename);
   const destination = join(externalHome, "completed", specDirBasename);
 
-  if (isReservedExternalHomeName(specDirBasename)) {
+  if (specDirBasename === "completed" || specDirBasename === "ready-intents") {
     io.stderr(
       `unsafe spec archive mapping for "${specDirBasename}": refusing to move external spec with reserved name\n`,
     );

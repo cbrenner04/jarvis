@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CleanupIo, cleanupCommand } from "../src/commands/cleanup.ts";
+import { stripPlanSpecTimestampPrefix } from "../src/modes/plan/spec-paths.ts";
 
 function captureIo(responses: string[] = []): {
   io: CleanupIo;
@@ -32,6 +33,26 @@ function captureIo(responses: string[] = []): {
     out: () => out,
     err: () => err,
   };
+}
+
+function setupExternalSpec(
+  externalRoot: string,
+  projectId: string,
+  specName: string,
+  includeIntent: boolean = true,
+): string {
+  const specDir = join(externalRoot, "specs", projectId, specName);
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(join(specDir, "index.md"), "# spec\n");
+
+  if (includeIntent) {
+    const intentDir = join(externalRoot, "specs", projectId, "ready-intents");
+    mkdirSync(intentDir, { recursive: true });
+    const intentName = stripPlanSpecTimestampPrefix(specName);
+    writeFileSync(join(intentDir, `${intentName}.md`), "# intent\n");
+  }
+
+  return specDir;
 }
 
 let root: string;
@@ -445,12 +466,7 @@ describe("cleanupCommand", () => {
     const specName = "external-spec";
     const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
     const projectId = "test";
-    const externalSpecDir = join(externalRoot, "specs", projectId, specName);
-    const externalReadyIntentDir = join(externalRoot, "specs", projectId, "ready-intents");
-    mkdirSync(externalSpecDir, { recursive: true });
-    mkdirSync(externalReadyIntentDir, { recursive: true });
-    writeFileSync(join(externalSpecDir, "index.md"), "# external spec\n");
-    writeFileSync(join(externalReadyIntentDir, `${specName}.md`), "# intent\n");
+    const externalSpecDir = setupExternalSpec(externalRoot, projectId, specName);
 
     const worktreePath = createTrackedWorktree(specName);
 
@@ -468,8 +484,8 @@ describe("cleanupCommand", () => {
     const destination = join(externalRoot, "specs", projectId, "completed", specName);
     expect(existsSync(externalSpecDir)).toBe(false);
     expect(existsSync(destination)).toBe(true);
-    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# external spec\n");
-    expect(existsSync(join(externalReadyIntentDir, `${specName}.md`))).toBe(false);
+    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# spec\n");
+    expect(existsSync(join(externalRoot, "specs", projectId, "ready-intents", `${specName}.md`))).toBe(false);
     rmSync(externalRoot, { recursive: true, force: true });
   });
 
@@ -502,9 +518,7 @@ describe("cleanupCommand", () => {
     const specName = "no-intent";
     const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
     const projectId = "test";
-    const externalSpecDir = join(externalRoot, "specs", projectId, specName);
-    mkdirSync(externalSpecDir, { recursive: true });
-    writeFileSync(join(externalSpecDir, "index.md"), "# spec\n");
+    const externalSpecDir = setupExternalSpec(externalRoot, projectId, specName, false);
 
     const worktreePath = createTrackedWorktree(specName);
 
@@ -530,14 +544,9 @@ describe("cleanupCommand", () => {
     const specName = "collide-external";
     const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
     const projectId = "test";
-    const externalSpecDir = join(externalRoot, "specs", projectId, specName);
+    const externalSpecDir = setupExternalSpec(externalRoot, projectId, specName);
     const externalDestination = join(externalRoot, "specs", projectId, "completed", specName);
-    const externalReadyIntentDir = join(externalRoot, "specs", projectId, "ready-intents");
-    mkdirSync(externalSpecDir, { recursive: true });
     mkdirSync(externalDestination, { recursive: true });
-    mkdirSync(externalReadyIntentDir, { recursive: true });
-    writeFileSync(join(externalSpecDir, "index.md"), "# spec\n");
-    writeFileSync(join(externalReadyIntentDir, `${specName}.md`), "# intent\n");
 
     const worktreePath = createTrackedWorktree(specName);
 
@@ -553,7 +562,7 @@ describe("cleanupCommand", () => {
     expect(code).toBe(1);
     expect(existsSync(worktreePath)).toBe(false);
     expect(existsSync(externalSpecDir)).toBe(true);
-    expect(existsSync(join(externalReadyIntentDir, `${specName}.md`))).toBe(true);
+    expect(existsSync(join(externalRoot, "specs", projectId, "ready-intents", `${specName}.md`))).toBe(true);
     expect(err()).toContain("spec archive destination already exists");
     rmSync(externalRoot, { recursive: true, force: true });
   });
@@ -621,12 +630,7 @@ describe("cleanupCommand", () => {
     const timestampedName = `2026-06-23T10-30-45Z-${name}`;
     const externalRoot = mkdtempSync(join(tmpdir(), "jarvis-external-"));
     const projectId = "test";
-    const externalSpecDir = join(externalRoot, "specs", projectId, timestampedName);
-    const externalReadyIntentDir = join(externalRoot, "specs", projectId, "ready-intents");
-    mkdirSync(externalSpecDir, { recursive: true });
-    mkdirSync(externalReadyIntentDir, { recursive: true });
-    writeFileSync(join(externalSpecDir, "index.md"), "# spec\n");
-    writeFileSync(join(externalReadyIntentDir, `${name}.md`), "# intent\n");
+    const externalSpecDir = setupExternalSpec(externalRoot, projectId, timestampedName);
 
     const worktreePath = createTrackedWorktree(timestampedName);
 
@@ -644,7 +648,7 @@ describe("cleanupCommand", () => {
     const destination = join(externalRoot, "specs", projectId, "completed", timestampedName);
     expect(existsSync(externalSpecDir)).toBe(false);
     expect(existsSync(destination)).toBe(true);
-    expect(existsSync(join(externalReadyIntentDir, `${name}.md`))).toBe(false);
+    expect(existsSync(join(externalRoot, "specs", projectId, "ready-intents", `${name}.md`))).toBe(false);
     rmSync(externalRoot, { recursive: true, force: true });
   });
 

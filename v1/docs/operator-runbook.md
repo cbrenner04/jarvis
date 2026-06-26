@@ -4,6 +4,21 @@ Reference for the **observer** dogfooding Jarvis on the Jarvis repo itself — d
 
 Scope: this is the **Jarvis-on-Jarvis** runbook. An observer driving Jarvis on some *other* target repo isn't this doc's audience — they just run the prescribed process to land that repo's work, and surface any harness gaps through the intake (see [Harness suggestions from other repos](#harness-suggestions-from-other-repos)), which the Jarvis-on-Jarvis observer triages.
 
+## Where seeds and intents live
+
+Seeds and ready-intents live under the configured `plan.targetDir`, **not** a fixed
+`v2/spec`. The live `~/.jarvis/config.json` currently sets the jarvis project's
+`plan.targetDir` to **`v1/spec`**, so the working dirs are:
+
+- Seeds: `v1/spec/seeds/`
+- Ready-intents: `v1/spec/ready-intents/`
+- Active/completed specs: `v1/spec/<UTC-timestamp>-<name>/` and `v1/spec/completed/`
+
+Genuine v2 planning is the exception: authored with an explicit `--target-dir v2/spec`
+override, landing under `v2/spec/`. Check both trees when sweeping the backlog —
+`v1/spec` holds the live shipping-surface work; `v2/spec` only the v2-override specs.
+Throughout this doc, `<targetDir>` means whatever `plan.targetDir` currently resolves to.
+
 ## North star
 
 The observer should be touching **only `jarvis` commands — and as few as possible.** Every hands-on step that isn't invoking a jarvis command (resolving a conflict, reconciling an index, restoring a dropped test, manually finalizing, re-running after a transient) is a **harness gap, not the job** — each is a wip-intent waiting to be written, whose definition of done is "a future observer doesn't do this by hand."
@@ -27,7 +42,7 @@ Useful feedback is welcome; running commentary is not. The happy middle — land
 An observer session is not done when the PRs merge — it's done when the findings and tooling persist. Every session owes:
 
 1. **Drive + review + merge.** Background-run each Jarvis invocation, poll for state, review each PR, and admin-merge **only** when the diff is correct, in-scope, and leaks nothing sensitive (see [Merging](#merging)). Keep stuck work moving (diagnose, finalize, or re-queue).
-2. **Create seeds** in `v2/spec/seeds/` for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
+2. **Create seeds** in the seeds dir of the configured `plan.targetDir` (currently `v1/spec/seeds/` — see [Where seeds and intents live](#where-seeds-and-intents-live)) for *anything about Jarvis itself* that should change — a harness gap, friction, or improvement surfaced while observing. Seed it; don't just mention it in the report.
 3. **Triage incoming harness suggestions** from other-repo observers (see below) into seeds — **sweep open issues at [session start](#session-start), and again at close-out**. The issue stays **open** until the fix is implemented and merged — it is not closed at triage.
 4. **Write a final report** committed under `reports/` with a precise UTC-timestamp filename (e.g. `reports/2026-06-23T00-52-38Z-overlord.md`) — date-only names collide when there are multiple sessions a day. Cover: what shipped/merged; **workflow + tooling + harness observations** (failure modes hit, what worked); and a **cost breakdown** — Jarvis run spend (from `~/.jarvis/runs.jsonl`) plus the observer's own session cost, in the [standard cost schema](#cost-reporting-standard).
 5. **Maintain this runbook** directly (branch → PR → admin-merge — lighter than the full intent→plan→run pipeline). Keep it current; batch edits rather than one PR per thought.
@@ -169,7 +184,7 @@ If the label is absent or you're filtering without it, fall back to searching th
 For each suggestion:
 
 1. **Review** the issue and assess whether it's worth a seed.
-2. **Create a seed** in `v2/spec/seeds/` capturing the suggestion. Use the issue content to seed the intent's problem statement and decisions.
+2. **Create a seed** in the configured seeds dir (see [Where seeds and intents live](#where-seeds-and-intents-live)) capturing the suggestion. Use the issue content to seed the intent's problem statement and decisions.
 3. **Leave the issue open** and add a comment referencing the seeded intent (e.g., "Seeded as `<seeds-dir>/<name>.md`"). The issue tracks real remaining work, so it stays open until the fix is **implemented and merged** — the implementation PR closes it via a `Closes #N` keyword in its body. Do **not** close a seeded issue at triage; a seed is capture, not completion.
 4. **Close at triage only when not seeding** — if the suggestion isn't actionable or doesn't warrant a seed (duplicate, or out-of-scope for Jarvis's design), close it then with an explanation. A *seeded* issue is never closed at triage.
 5. **Operator-error / project-setup, not a harness gap.** If the issue is really an operator mistake or a problem with the *target project's* setup (misconfiguration, missing dependency, environment) rather than something Jarvis itself should change, **respond on the issue** explaining the cause/fix but **do not seed or change the harness** — and **flag it to the operator** so they're aware it surfaced. Don't bake a workaround into Jarvis for what is really a setup fix on the operator's side.
@@ -297,8 +312,9 @@ Run before wrapping a session:
    where the spec is located). It prompts `[y/N]`; pipe `echo y | jarvis1 cleanup` in a non-interactive
    shell. (`--dry-run` to preview.) Each v1-authored spec archives to `v1/spec/completed/` and each
    v2-authored spec archives to `v2/spec/completed/`.
-2. **Prune consumed seeds.** Delete `v2/spec/seeds/*` whose work shipped this session, and any
-   `v2/spec/ready-intents/*` left over from a plan that didn't consume them.
+2. **Prune consumed seeds.** Delete `<targetDir>/seeds/*` whose work shipped this session, and any
+   `<targetDir>/ready-intents/*` left over from a plan that didn't consume them (currently
+   `v1/spec/seeds/` and `v1/spec/ready-intents/` — see [Where seeds and intents live](#where-seeds-and-intents-live)).
 
 ## Branch-before-edit discipline
 

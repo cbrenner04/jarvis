@@ -2,7 +2,7 @@ import { type SpawnOptions, spawn } from "node:child_process";
 import { isTransientNetworkError } from "./agents/quota.ts";
 import { harnessGitGhTransientRetryLine } from "./quota-harness-messages.ts";
 
-type SpawnFn = typeof spawn;
+export type SpawnFn = typeof spawn;
 
 export const GH_RETRY_CAP = 3; // 3 total invocations (2 re-attempts)
 export const GH_RETRY_BACKOFF_MS = 1000;
@@ -160,8 +160,7 @@ export async function postPrComment(prNumber: number, body: string, cwd?: string
 
 function defaultSleepSync(ms: number): void {
   // Bun is injected by the Bun runtime; unavailable in non-Bun environments
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const bunGlobal = (globalThis as any).Bun;
+  const bunGlobal = (globalThis as { Bun?: { sleepSync?: (ms: number) => void } }).Bun;
   if (bunGlobal?.sleepSync) {
     bunGlobal.sleepSync(ms);
   }
@@ -201,7 +200,7 @@ export function withSyncTransientRetry(thunk: () => void, opts: SyncTransientRet
       } else {
         stderr = lastError.message;
       }
-      const exitCode = (lastError as any).status ?? -1;
+      const exitCode = (lastError as { status?: number }).status ?? -1;
 
       // For gh pr ready, treat "already ready" as success (lost-ack case)
       if (isPrReady && (/\balready ready\b/i.test(stderr) || /\bnot a draft\b/i.test(stderr))) {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { runGhCommand, withSyncTransientRetry } from "../src/gh.ts";
+import { runGhCommand, type SpawnFn, withSyncTransientRetry } from "../src/gh.ts";
 
 function createFakeChild(
   onSetup?: (child: EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }) => void,
@@ -15,22 +15,25 @@ function createFakeChild(
   return child;
 }
 
-function fakeSpawnEmittingError(err: NodeJS.ErrnoException): unknown {
-  return () => createFakeChild((child) => child.emit("error", err));
+// The fakes return lightweight EventEmitters, not real ChildProcess objects, so
+// each coerces through `unknown` to the heavily-overloaded SpawnFn type once here
+// rather than at every call site.
+function fakeSpawnEmittingError(err: NodeJS.ErrnoException): SpawnFn {
+  return (() => createFakeChild((child) => child.emit("error", err))) as unknown as SpawnFn;
 }
 
-function fakeSpawnReturning(exitCode: number, stdout = "", stderr = ""): unknown {
-  return () =>
+function fakeSpawnReturning(exitCode: number, stdout = "", stderr = ""): SpawnFn {
+  return (() =>
     createFakeChild((child) => {
       if (stdout) child.stdout.emit("data", Buffer.from(stdout));
       if (stderr) child.stderr.emit("data", Buffer.from(stderr));
       child.emit("close", exitCode);
-    });
+    })) as unknown as SpawnFn;
 }
 
-function fakeSpawnSequence(results: Array<{ exitCode: number; stdout?: string; stderr?: string }>): unknown {
+function fakeSpawnSequence(results: Array<{ exitCode: number; stdout?: string; stderr?: string }>): SpawnFn {
   let callCount = 0;
-  return () => {
+  return (() => {
     const result = results[Math.min(callCount, results.length - 1)];
     if (!result) throw new Error("fakeSpawnSequence: no results provided");
     callCount++;
@@ -39,15 +42,14 @@ function fakeSpawnSequence(results: Array<{ exitCode: number; stdout?: string; s
       if (result.stderr) child.stderr.emit("data", Buffer.from(result.stderr));
       child.emit("close", result.exitCode);
     });
-  };
+  }) as unknown as SpawnFn;
 }
 
 describe("runGhCommand error handling", () => {
   test("ENOENT spawn error produces dedicated 'binary not found on PATH' stderr", async () => {
     const err = new Error("spawn gh ENOENT") as NodeJS.ErrnoException;
     err.code = "ENOENT";
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
-    const fakeSpawn = fakeSpawnEmittingError(err) as any;
+    const fakeSpawn = fakeSpawnEmittingError(err);
 
     const result = await runGhCommand(["auth", "status"], undefined, fakeSpawn);
 
@@ -60,8 +62,7 @@ describe("runGhCommand error handling", () => {
   test("non-ENOENT spawn error continues to surface String(err) in stderr", async () => {
     const err = new Error("permission denied") as NodeJS.ErrnoException;
     err.code = "EACCES";
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
-    const fakeSpawn = fakeSpawnEmittingError(err) as any;
+    const fakeSpawn = fakeSpawnEmittingError(err);
 
     const result = await runGhCommand(["auth", "status"], undefined, fakeSpawn);
 
@@ -74,8 +75,7 @@ describe("runGhCommand error handling", () => {
   test("return shape (stdout, stderr, exitCode) is unchanged on error", async () => {
     const err = new Error("spawn gh ENOENT") as NodeJS.ErrnoException;
     err.code = "ENOENT";
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
-    const fakeSpawn = fakeSpawnEmittingError(err) as any;
+    const fakeSpawn = fakeSpawnEmittingError(err);
 
     const result = await runGhCommand(["auth", "status"], undefined, fakeSpawn);
 
@@ -86,11 +86,10 @@ describe("runGhCommand error handling", () => {
 describe("runGhCommand retry on transient errors", () => {
   test("retries transient gh error and returns success on later attempt", async () => {
     // First attempt: transient TLS timeout, second attempt: success
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
     const fakeSpawn = fakeSpawnSequence([
       { exitCode: 1, stderr: "TLS handshake timeout" },
       { exitCode: 0, stdout: "success output" },
-    ]) as any;
+    ]);
 
     const result = await runGhCommand(["auth", "status"], undefined, {
       spawnImpl: fakeSpawn,
@@ -101,11 +100,10 @@ describe("runGhCommand retry on transient errors", () => {
   });
 
   test("retries on DNS resolution failure", async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
     const fakeSpawn = fakeSpawnSequence([
       { exitCode: 1, stderr: "could not resolve host" },
       { exitCode: 0, stdout: "resolved" },
-    ]) as any;
+    ]);
 
     const result = await runGhCommand(["repo", "view"], undefined, {
       spawnImpl: fakeSpawn,
@@ -116,11 +114,10 @@ describe("runGhCommand retry on transient errors", () => {
   });
 
   test("retries on operation timeout", async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
     const fakeSpawn = fakeSpawnSequence([
       { exitCode: 1, stderr: "operation timed out" },
       { exitCode: 0, stdout: "completed" },
-    ]) as any;
+    ]);
 
     const result = await runGhCommand(["pr", "comment"], undefined, {
       spawnImpl: fakeSpawn,
@@ -132,7 +129,6 @@ describe("runGhCommand retry on transient errors", () => {
 
   test("stops retrying after cap (3 total invocations)", async () => {
     let invocationCount = 0;
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
     const fakeSpawn = ((_cmd: string, _args: string[], _opts: unknown) => {
       invocationCount++;
       const child = new EventEmitter() as EventEmitter & {
@@ -146,7 +142,7 @@ describe("runGhCommand retry on transient errors", () => {
         child.emit("close", 1);
       });
       return child;
-    }) as any;
+    }) as unknown as SpawnFn;
 
     const result = await runGhCommand(["auth", "status"], undefined, {
       spawnImpl: fakeSpawn,
@@ -159,7 +155,6 @@ describe("runGhCommand retry on transient errors", () => {
 
   test("does not retry on permanent failure (exit 0)", async () => {
     let invocationCount = 0;
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
     const fakeSpawn = ((_cmd: string, _args: string[], _opts: unknown) => {
       invocationCount++;
       const child = new EventEmitter() as EventEmitter & {
@@ -173,7 +168,7 @@ describe("runGhCommand retry on transient errors", () => {
         child.emit("close", 0);
       });
       return child;
-    }) as any;
+    }) as unknown as SpawnFn;
 
     const result = await runGhCommand(["auth", "status"], undefined, {
       spawnImpl: fakeSpawn,
@@ -185,7 +180,6 @@ describe("runGhCommand retry on transient errors", () => {
 
   test("does not retry on permanent gh failure (auth error)", async () => {
     let invocationCount = 0;
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
     const fakeSpawn = ((_cmd: string, _args: string[], _opts: unknown) => {
       invocationCount++;
       const child = new EventEmitter() as EventEmitter & {
@@ -199,7 +193,7 @@ describe("runGhCommand retry on transient errors", () => {
         child.emit("close", 1);
       });
       return child;
-    }) as any;
+    }) as unknown as SpawnFn;
 
     const result = await runGhCommand(["pr", "comment"], undefined, {
       spawnImpl: fakeSpawn,
@@ -211,12 +205,11 @@ describe("runGhCommand retry on transient errors", () => {
 
   test("invokes sleep seam once per re-attempt", async () => {
     const sleepCalls: number[] = [];
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
     const fakeSpawn = fakeSpawnSequence([
       { exitCode: 1, stderr: "TLS handshake timeout" },
       { exitCode: 1, stderr: "TLS handshake timeout" },
       { exitCode: 0, stdout: "success" },
-    ]) as any;
+    ]);
 
     const _result = await runGhCommand(["auth", "status"], undefined, {
       spawnImpl: fakeSpawn,
@@ -233,12 +226,11 @@ describe("runGhCommand retry on transient errors", () => {
 
   test("emits retry line via onRetry callback", async () => {
     const retryLines: string[] = [];
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
     const fakeSpawn = fakeSpawnSequence([
       { exitCode: 1, stderr: "TLS handshake timeout" },
       { exitCode: 1, stderr: "operation timed out" },
       { exitCode: 0, stdout: "success" },
-    ]) as any;
+    ]);
 
     const _result = await runGhCommand(["gh", "auth", "status"], undefined, {
       spawnImpl: fakeSpawn,
@@ -257,8 +249,7 @@ describe("runGhCommand retry on transient errors", () => {
   });
 
   test("backward compatibility: third param can be SpawnFn", async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: injecting a test-only spawn
-    const fakeSpawn = fakeSpawnReturning(0, "output") as any;
+    const fakeSpawn = fakeSpawnReturning(0, "output");
 
     const result = await runGhCommand(["auth", "status"], undefined, fakeSpawn);
 

@@ -887,9 +887,9 @@ describe("promptSummary", () => {
 
 describe("recordMatchesMode three-way matching", () => {
   test("patch mode matches only patch records", () => {
-    const patchRecord = { mode: "patch" } as any;
-    const promptRecord = { mode: "prompt" } as any;
-    const planRecord = { mode: "plan" } as any;
+    const patchRecord = { mode: "patch" };
+    const promptRecord = { mode: "prompt" };
+    const planRecord = { mode: "plan" };
 
     const telemetryPath = writeTelemetry([patchRecord, promptRecord, planRecord]);
     const runSummaryText = runSummary({

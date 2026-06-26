@@ -39,7 +39,7 @@ for (const name of ["claude", "codex", "cursor", "aider", "opencode"]) {
 }
 setEnv("PATH", `${binDir}:${process.env.PATH ?? ""}`);
 
-const gitConfig = [
+const gitConfig: [string, string][] = [
   ["core.hooksPath", "/dev/null"],
   ["advice.defaultBranchName", "false"],
   ["init.defaultBranch", "main"],
@@ -56,7 +56,9 @@ for (const [i, [key, value]] of gitConfig.entries()) {
   gitConfigEnv[`GIT_CONFIG_VALUE_${i}`] = value;
 }
 
-function withQuietGitDefaults<T extends { env?: NodeJS.ProcessEnv; stdio?: unknown }>(options: T | undefined): T {
+function withQuietGitDefaults<T extends { env?: NodeJS.ProcessEnv | undefined; stdio?: unknown }>(
+  options: T | undefined,
+): T {
   return {
     ...(options ?? ({} as T)),
     env: { ...process.env, ...gitConfigEnv, ...options?.env },
@@ -64,7 +66,7 @@ function withQuietGitDefaults<T extends { env?: NodeJS.ProcessEnv; stdio?: unkno
   };
 }
 
-function withInheritedEnv<T extends { env?: NodeJS.ProcessEnv }>(options: T | undefined): T {
+function withInheritedEnv<T extends { env?: NodeJS.ProcessEnv | undefined }>(options: T | undefined): T {
   if (options?.env !== undefined) {
     return options;
   }
@@ -84,17 +86,17 @@ mock.module("node:child_process", () => ({
     realExecSync(
       command,
       isGitShellCommand(command) ? withQuietGitDefaults(options) : options,
-    )) satisfies typeof childProcess.execSync,
+    )) as typeof childProcess.execSync,
   execFileSync: ((file: string, args?: readonly string[], options?: childProcess.ExecFileSyncOptions) =>
     realExecFileSync(
       file,
       args,
       file === "git" ? withQuietGitDefaults(options) : file === "gh" ? withInheritedEnv(options) : options,
-    )) satisfies typeof childProcess.execFileSync,
+    )) as typeof childProcess.execFileSync,
   spawnSync: ((file: string, args?: readonly string[], options?: childProcess.SpawnSyncOptions) =>
     realSpawnSync(
       file,
       args,
       file === "git" ? withQuietGitDefaults(options) : options,
-    )) satisfies typeof childProcess.spawnSync,
+    )) as typeof childProcess.spawnSync,
 }));

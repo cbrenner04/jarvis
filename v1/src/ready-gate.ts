@@ -93,8 +93,11 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     const tokens = opts.readyCommand !== undefined ? opts.readyCommand.trim().split(/\s+/) : ["bun", "run", "ready"];
     const [head, ...args] = tokens;
     const displayCmd = tokens.join(" ");
+    if (head === undefined) {
+      throw new ReadyCommandError(`invalid ready command: ${displayCmd}`);
+    }
     try {
-      execFileSync(head!, args, {
+      execFileSync(head, args, {
         cwd,
         env: { ...process.env, JARVIS_READY_TIER: readyTier },
         stdio: "pipe",

@@ -339,7 +339,9 @@ describe("resolveCodexSessionUsage", () => {
 describe("codex usage and cost calculation", () => {
   test("real fixture: cached input tokens billed only at cache-read rate", () => {
     const fixtureUsage = parseCodexSessionUsage(join(import.meta.dir, "fixtures", "codex", "0.130.0-session.jsonl"));
-    expect(fixtureUsage.usage).not.toBeNull();
+    const { usage } = fixtureUsage;
+    expect(usage).not.toBeNull();
+    if (usage === null) throw new Error("expected parsed usage from fixture");
 
     const prices: Prices = {
       version: 1,
@@ -355,7 +357,7 @@ describe("codex usage and cost calculation", () => {
       },
     };
 
-    const { cost_usd } = computeCost(fixtureUsage.usage!, "gpt-5", prices);
+    const { cost_usd } = computeCost(usage, "gpt-5", prices);
 
     const expectedCost = (36475 * 1000 + 5101 * 2000 + 606720 * 100) / 1_000_000;
     expect(cost_usd).toBeCloseTo(expectedCost, 10);

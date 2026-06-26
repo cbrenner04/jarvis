@@ -28,7 +28,7 @@ describe("CursorAgent", () => {
       expect(result.usage?.output_tokens).toBeGreaterThan(0);
     }
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const record = recorder.only();
     expect(record.binary).toBe("cursor");
     expect(record.argv).toContain("agent");
     expect(record.argv).toContain("-p");
@@ -50,7 +50,7 @@ describe("CursorAgent", () => {
     await agent.run("the prompt", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const record = recorder.only();
     expect(record.argv).toContain("--model");
     expect(record.argv).toContain("composer-2.5");
   });
@@ -65,7 +65,7 @@ describe("CursorAgent", () => {
     await agent.run("the prompt", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const record = recorder.only();
     expect(record.argv).toContain("--model");
     expect(record.argv).toContain("composer-2.5-fast");
   });
@@ -159,7 +159,7 @@ describe("CursorAgent", () => {
     await agent.run("p", { cwd });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const record = recorder.only();
     expect(record.argv).toContain("--force");
   });
 
@@ -214,7 +214,7 @@ describe("CursorAgent", () => {
     });
 
     expect(recorder.records).toHaveLength(1);
-    const record = recorder.records[0]!;
+    const record = recorder.only();
     expect(record.argv).toContain("--force");
     expect(record.argv).toContain("--workspace");
     expect(record.argv).toContain(cwd);

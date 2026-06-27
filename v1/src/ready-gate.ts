@@ -54,7 +54,7 @@ export type RunReadyAndCommitOpts = {
   cwd: string;
   /** Ready pipeline tier; defaults to `full`. */
   tier?: ReadyTier;
-  /** Test seam: agent label for the commit trailer. Threaded to the dirty-tree commit seam. */
+  /** Test seam: agent label for the commit trailer. Threaded to the post-ready dirty-tree commit seam. */
   agentLabel?: string;
   /** Per-project override for `bun run ready`. Tokenized on whitespace; no shell. Receives `JARVIS_READY_TIER`. */
   readyCommand?: string;
@@ -114,7 +114,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
 
   const realCommitCheckFix = (cwd: string, agentLabel: string) => {
     execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
-    const commitMessage = appendAgentTrailer("chore: apply pre-ready check:fix", agentLabel);
+    const commitMessage = appendAgentTrailer("chore: commit post-ready dirty output", agentLabel);
     try {
       execFileSync("git", ["commit", "-F", "-"], {
         cwd,
@@ -139,7 +139,7 @@ export function runReadyAndCommit(opts: RunReadyAndCommitOpts): void {
     if (porcelain !== "") {
       const dirtyBranch = getCurrentBranch(cwd);
       throw new ReadyCheckFixCommitError(
-        `pre-ready check:fix commit succeeded but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
+        `post-ready dirty-output commit succeeded but worktree is still dirty on branch ${dirtyBranch}:\n${porcelain}\nDo not call gh pr ready. Inspect the branch and commit or discard the unexpected changes.`,
       );
     }
 

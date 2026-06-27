@@ -373,10 +373,10 @@ On fresh `commit: true` runs, the first `plan: draft` commit triggers the `ensur
 
 ### Auto-mark ready on success
 
-Like patch mode, plan mode invokes `bun run ready` automatically once every scripted phase succeeds (no blocker). Built-in `ready` is strict verification-only; see [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md) for the authoritative built-in ready/fix split and step order. Custom `readyCommand` overrides are unchanged and may still dirty the tree.
+Like patch mode, plan mode invokes `bun run ready` automatically once every scripted phase succeeds (no blocker). Built-in `ready` is strict verification-only; see [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md) for the authoritative built-in ready/fix split and step order. Unlike patch mode, committed plan-mode readiness does not thread the per-project `readyCommand` override today; it always runs the built-in `bun run ready`.
 
 **Readiness transition behavior:**
-- If the branch's open PR is **draft**, plan first resolves the PR's actual base, fetches `origin/<base>`, and confirms `HEAD` contains that fetched base tip. If the branch is behind or diverged from base, jarvis emits a stderr message, skips the ready flip, and leaves the PR draft. If the base check cannot resolve or fetch, it soft-fails open and continues. After a passing base-current check, the `bun run ready` gate runs. On success, `gh pr ready` flips the PR to ready. If a custom `readyCommand` dirties the tree, the existing dirty-tree commit/push path still runs before the flip. On gate failure, the PR remains draft.
+- If the branch's open PR is **draft**, plan first resolves the PR's actual base, fetches `origin/<base>`, and confirms `HEAD` contains that fetched base tip. If the branch is behind or diverged from base, jarvis emits a stderr message, skips the ready flip, and leaves the PR draft. If the base check cannot resolve or fetch, it soft-fails open and continues. After a passing base-current check, the built-in `bun run ready` gate runs. On success, `gh pr ready` flips the PR to ready. Because this call site is not wired to `readyCommand`, the only dirty-tree commit path here is whatever the built-in `ready` or later harness logic actually leaves behind. On gate failure, the PR remains draft.
 - If the branch's open PR is **already ready**, both the gate and GitHub transition are skipped; the PR remains ready and emits no warning.
 - If **no open PR exists**, the readiness helper is a silent no-op.
 

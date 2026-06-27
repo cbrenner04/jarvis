@@ -226,10 +226,9 @@ What loops vs. what's a distinct path:
 - **Readiness transition**: when every phase succeeds without a blocker,
   `jarvis1 plan` invokes `bun run ready` and, on green, calls `gh pr ready`.
   The authoritative built-in ready/fix split and step order live in
-  [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). If a custom
-  `readyCommand` dirties the tree, the existing dirty-tree commit/push path
-  still applies before the ready flip. If any gate step fails, the PR stays in
-  draft.
+  [`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). This committed
+  plan-mode call site is not wired to `readyCommand`; it runs the built-in
+  `bun run ready`. If any gate step fails, the PR stays in draft.
 
 `--resume` re-enters the diagram at the review-loop, reusing the existing
 worktree, branch, and PR. With `modes.plan.commit: false` there is no

@@ -914,7 +914,10 @@ matching `data/prices.json` entries, so these runs usually record
 After `jarvis1 run` exits (success or failure after at least one iteration),
 jarvis prints a summary block to stdout with:
 
-- spec path and exit reason.
+- spec path and exit reason. On non-success exits, the summary cites the keyed
+  section in the target repo's `OPERATOR_RUNBOOK.md` where the recovery recipe
+  is found: `see runbook: OPERATOR_RUNBOOK.md › <section>`. Success (`criteria-complete`)
+  prints no citation.
 - **`iterations`**: Completed Jarvis patch iterations—each successful telemetry
   `kind: "ok"` invocation line for a real agent (not `record_role: run_terminal`).
 - **`attempts`**: Telemetry lines that represent CLI/harness-facing outcomes,

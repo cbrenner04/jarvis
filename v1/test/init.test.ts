@@ -278,6 +278,12 @@ describe("init", () => {
     }
   });
 
+  test("runbook contains cited H3 headings that failure exits reference", () => {
+    const runbook = initAndReadRunbook();
+    expect(runbook).toContain("### Recovery by exit reason");
+    expect(runbook).toContain("## Resume-first guidance");
+  });
+
   test("runbook contains sandbox/network notes", () => {
     const runbook = initAndReadRunbook();
     expect(runbook).toContain("Sandbox blindness");

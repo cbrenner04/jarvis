@@ -196,6 +196,8 @@ When a PR branched before recent merges (`mergeStateStatus: BEHIND`/`DIRTY`):
 
 ## Manual-finalize recovery (last-resort path)
 
+When a patch run (`jarvis run`) ends with a non-success exit reason, the summary includes a `see runbook: OPERATOR_RUNBOOK.md › <section>` pointer that routes you to recovery guidance for that failure reason. The section names match the scaffolded headings in the runbook — follow the pointer to find the recovery steps.
+
 When automated gates fail or are unsafe to re-run, finalize by hand **in the worktree** (the operator is finalizing, not an agent editing mid-run):
 
 ```sh

@@ -593,6 +593,20 @@ describe("runSummary", () => {
     expect(summary).not.toContain("$9");
   });
 
+  test("plan summary on failure does not cite runbook", () => {
+    const summary = planSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "plan:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "error",
+      durationMs: 123,
+      specPath: "spec/foo/index.md",
+    });
+
+    expect(summary).toContain("exit reason: error");
+    expect(summary).not.toContain("see runbook:");
+  });
+
   test("patch summary shows review attempts separately", () => {
     const telemetryPath = writeTelemetry([
       {
@@ -708,6 +722,79 @@ describe("runSummary", () => {
     expect(summary).not.toContain("shrink attempts");
     expect(summary).toContain("$0.07");
   });
+
+  function patchSummaryNoTelemetry(exitReason: string): string {
+    return runSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "p:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason,
+      iterations: 0,
+      durationMs: 123,
+      specPath: "spec/x/index.md",
+    });
+  }
+
+  test.each([
+    ["ready-stuck-red (exit code 10)", "Recovery by exit reason"],
+    ["timeout (exit code 8)", "Resume-first guidance"],
+    ["sigint (exit code 130)", "Resume-first guidance"],
+    ["worktree-locked (exit code 9)", "Resume-first guidance"],
+    ["error (exit code 1)", "Recovery by exit reason"],
+    ["floor-error", "Recovery by exit reason"],
+    ["quota-exhausted", "Recovery by exit reason"],
+    ["agent-error", "Recovery by exit reason"],
+    ["max-iterations", "Recovery by exit reason"],
+    ["dirty-worktree", "Recovery by exit reason"],
+    ["blocked", "Recovery by exit reason"],
+    ["review-incomplete", "Recovery by exit reason"],
+    ["exit-99 (exit code 99)", "Recovery by exit reason"],
+  ])("patch no-telemetry summary on %s cites runbook", (exitReason, section) => {
+    const summary = patchSummaryNoTelemetry(exitReason);
+    expect(summary).toContain(`exit reason: ${exitReason}`);
+    expect(summary).toContain(`see runbook: OPERATOR_RUNBOOK.md › ${section}`);
+  });
+
+  test("patch no-telemetry summary on criteria-complete prints no runbook pointer", () => {
+    const summary = patchSummaryNoTelemetry("criteria-complete (exit code 0)");
+    expect(summary).toContain("exit reason: criteria-complete (exit code 0)");
+    expect(summary).not.toContain("see runbook:");
+  });
+
+  test("patch summary with telemetry on error cites Recovery by exit reason", () => {
+    const telemetryPath = writeTelemetry([
+      {
+        ts: "2026-05-16T10:00:01.000Z",
+        namespace: "p:spec",
+        agent: "claude",
+        iteration: 1,
+        duration_ms: 1000,
+        kind: "ok",
+        exit_reason: "criteria-progress",
+        usage_source: "agent",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 50,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+        cost_usd: 0.05,
+        cost_source: "agent",
+      },
+    ]);
+    const summary = runSummary({
+      telemetryPath,
+      namespace: "p:spec",
+      startTs: "2026-05-16T10:00:00.000Z",
+      exitReason: "no-progress (exit code 4)",
+      iterations: 1,
+      durationMs: 1000,
+      specPath: "spec/foo/index.md",
+    });
+
+    expect(summary).toContain("exit reason: no-progress (exit code 4)");
+    expect(summary).toContain("see runbook: OPERATOR_RUNBOOK.md › Recovery by exit reason");
+  });
 });
 
 describe("promptSummary", () => {
@@ -750,6 +837,19 @@ describe("promptSummary", () => {
     expect(summary).toContain("$0.42");
     expect(summary).toContain("cache_r");
     expect(summary).toContain("cache_w");
+  });
+
+  test("prompt summary on failure does not cite runbook", () => {
+    const summary = promptSummary({
+      telemetryPath: "/nonexistent/runs.jsonl",
+      namespace: "prompt:x",
+      startTs: "2026-05-17T01:02:03.000Z",
+      exitReason: "error",
+      durationMs: 123,
+    });
+
+    expect(summary).toContain("exit reason: error");
+    expect(summary).not.toContain("see runbook:");
   });
 
   test("prompt summary ignores patch-mode rows", () => {

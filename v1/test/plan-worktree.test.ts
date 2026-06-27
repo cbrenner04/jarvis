@@ -341,6 +341,29 @@ describe("ensureWorktree (patch-mode)", () => {
     }
   });
 
+  test("still uses origin base when fetch fails but origin base ref already resolves locally", async () => {
+    const { dir, origin } = setupRepoWithOrigin();
+    try {
+      const specFile = writeSpec(dir);
+
+      const staleLocalBase = revParse(dir, "main");
+      const remoteBase = advanceOriginMain(origin);
+      execSync("git fetch origin", { cwd: dir });
+      execSync('git remote set-url origin "/definitely/missing/repo.git"', { cwd: dir });
+
+      const worktreePath = await ensureWorktree(dir, specFile);
+
+      expect(worktreePath).toBe(join(dir, ".worktree", "feature"));
+      expect(revParse(dir, "feature")).toBe(remoteBase);
+      expect(revParse(dir, "feature")).not.toBe(staleLocalBase);
+      expect(revParse(dir, "origin/main")).toBe(remoteBase);
+      expect(revParse(dir, "main")).toBe(staleLocalBase);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
   test("falls back to local base when origin is not configured", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-no-origin-"));
     try {
@@ -394,6 +417,29 @@ describe("createPlanWorktree", () => {
       expect(revParse(dir, "plan/test-plan")).not.toBe(staleLocalBase);
       expect(revParse(dir, "origin/main")).toBe(remoteBase);
       expect(revParse(dir, "main")).toBe(staleLocalBase);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to local base when origin base ref has never been fetched", async () => {
+    const origin = mkdtempSync(join(tmpdir(), "jarvis-plan-never-fetched-origin-"));
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-never-fetched-local-"));
+    try {
+      execSync("git init --bare", { cwd: origin });
+      initRepo(dir);
+      execSync(`git remote add origin "${origin}"`, { cwd: dir });
+
+      const localBase = revParse(dir, "main");
+      const worktreePath = await createPlanWorktree({
+        projectRoot: dir,
+        name: "test-plan",
+        baseBranch: "main",
+      });
+
+      expect(worktreePath).toBe(join(dir, ".worktree", "plan-test-plan"));
+      expect(revParse(dir, "plan/test-plan")).toBe(localBase);
     } finally {
       rmSync(dir, { recursive: true, force: true });
       rmSync(origin, { recursive: true, force: true });

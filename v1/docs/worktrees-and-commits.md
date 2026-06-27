@@ -297,12 +297,12 @@ Encountering **`plan: blocker`** commits (or lingering blockers) stops before re
 
 ## Cleanup
 
-`jarvis cleanup [--dry-run]` removes merged worktrees and branches from the
+`jarvis1 cleanup [--abandon] [--dry-run]` removes merged worktrees and branches from the
 local repo. Useful after PRs have been merged on GitHub to keep `.worktree/`
 tidy. Patch-mode repos use **`.worktree/<spec-dir>/`**; plan branches use **`.worktree/plan-<plan-name>/`** (sans UTC prefix despite timestamped spec paths).
 Both modes are handled on the same conditions.
 
-Behavior:
+Default behavior:
 
 - Lists all worktrees whose corresponding PR has `state: MERGED`.
 - Skips worktrees with uncommitted changes or unpushed commits.
@@ -322,6 +322,19 @@ Behavior:
 - If **`<targetDir>/<archive>/`** is missing entirely and no timestamped fallback matches, cleanup still succeeds but emits **`no spec directory moved`**.
 
 - If **`<targetDir>/completed/<archive>/`** already exists (or another filesystem guard trips), jarvis emits a descriptive warning while continuing other candidates and exits **non-zero only after exhausting the queue**.
+
+`--abandon` flips cleanup to the inverse selector over the same `.worktree/`
+set.
+
+- Eligible worktrees are those whose branch PR is **not merged** and has no
+  open ready PR. Closed PR, absent PR, and one open draft PR qualify.
+- Merged PRs stay for default cleanup. An open ready PR or multiple open
+  matching PRs are skipped.
+- On confirmation, jarvis closes the single matching open draft PR best-effort,
+  force-removes the worktree, deletes the local branch, then deletes the remote
+  branch. Missing remote branches are tolerated.
+- `--abandon` never archives or deletes the source spec directory. The spec
+  stays in place for a fresh `jarvis1 run`.
 
 The `.worktree/.keep` directory is never removed.
 

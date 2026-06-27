@@ -1,6 +1,6 @@
 import { isAbsolute, join, resolve } from "node:path";
 import { PATCH_TIERS, type PatchTier } from "../../shared/spec-parser.ts";
-import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
+import { cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
 import { INTENT_USAGE, intentCommand } from "./commands/intent.ts";
@@ -55,7 +55,7 @@ export type ParsedArgs =
   | { kind: "init" }
   | { kind: "config"; rest: string[] }
   | { kind: "log-server" }
-  | { kind: "cleanup"; dryRun?: boolean }
+  | { kind: "cleanup"; dryRun?: boolean; abandon?: boolean }
   | { kind: "triage"; worktreeName?: string; markReady?: boolean }
   | { kind: "review-feedback"; worktreeName?: string }
   | {
@@ -90,8 +90,8 @@ Commands:
   init              Register the current target repo.
   config            View or edit the jarvis config.
   log-server        Run the local log aggregation server.
-  cleanup [--dry-run]
-                    Remove merged worktrees.
+  cleanup [--abandon] [--dry-run]
+                    Remove merged or abandoned worktrees.
   triage [worktree-name]
                     Inspect a dirty or orphaned worktree.
   review-feedback <worktree-name>
@@ -135,9 +135,9 @@ Flags:
 
   Run the local log aggregation server.
 `,
-  cleanup: `Usage: jarvis1 cleanup [--dry-run]
+  cleanup: `Usage: jarvis1 cleanup [--abandon] [--dry-run]
 
-  Remove merged worktrees.
+  Remove merged worktrees, or retire abandoned worktrees with --abandon.
 `,
   triage: `Usage: jarvis1 triage [worktree-name] [--mark-ready]
 
@@ -298,7 +298,8 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         return { kind: "help", command: "cleanup" };
       }
       const dryRun = rest.includes("--dry-run");
-      return { kind: "cleanup", dryRun };
+      const abandon = rest.includes("--abandon");
+      return { kind: "cleanup", dryRun, abandon };
     }
     case "triage": {
       if (rest.includes("--help") || rest.includes("-h")) {
@@ -573,26 +574,21 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         }
         return input;
       };
-      const cleanupOpts: CleanupCommandOptions = {
+      const cfg = loadConfig(opts.config);
+      const planFlags = resolvePlanFlags(cfg, cfg.projects[project.key]);
+      return cleanupCommand({
         projectRoot: project.root,
         io: {
           stdout: io.stdout,
           stderr: io.stderr,
           readlineSync,
         },
-      };
-      const cfg = loadConfig(opts.config);
-      const planFlags = resolvePlanFlags(cfg, cfg.projects[project.key]);
-      cleanupOpts.targetDir = planFlags.targetDir;
-      cleanupOpts.commit = planFlags.commit;
-      cleanupOpts.externalSpecsRoot = join(opts.config?.dir ?? CONFIG_DIR, "specs", computeProjectSafeId(project));
-      if (opts.config !== undefined) {
-        cleanupOpts.config = opts.config;
-      }
-      if (parsed.dryRun !== undefined) {
-        cleanupOpts.dryRun = parsed.dryRun;
-      }
-      return cleanupCommand(cleanupOpts);
+        targetDir: planFlags.targetDir,
+        commit: planFlags.commit,
+        externalSpecsRoot: join(opts.config?.dir ?? CONFIG_DIR, "specs", computeProjectSafeId(project)),
+        ...(parsed.dryRun !== undefined ? { dryRun: parsed.dryRun } : {}),
+        ...(parsed.abandon !== undefined ? { abandon: parsed.abandon } : {}),
+      });
     }
     case "triage": {
       const cwd = opts.cwd ?? process.cwd();

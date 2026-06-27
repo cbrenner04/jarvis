@@ -85,10 +85,14 @@ export function detectClaudePoolContention(
 
 /**
  * Emit a single non-blocking warning if Claude pool contention is detected.
- * Safe to call multiple times; only warnings are emitted when contention is detected.
+ * Called once per run; emits a warning only when contention is detected.
  */
-export function warnAboutPoolContentionIfDetected(primaryAgent: Agent, sendLog: SendLog): void {
-  if (!detectClaudePoolContention(primaryAgent)) {
+export function warnAboutPoolContentionIfDetected(
+  primaryAgent: Agent,
+  sendLog: SendLog,
+  opts?: { listProcessesFn?: () => ProcWithCmd[] },
+): void {
+  if (!detectClaudePoolContention(primaryAgent, opts)) {
     return;
   }
 

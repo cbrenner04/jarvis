@@ -129,4 +129,25 @@ describe("pool contention detection", () => {
     // Uses real listProcessesWithCmd; just verifies it doesn't throw.
     expect(() => warnAboutPoolContentionIfDetected(fakeAgent("claude"), sendLog)).not.toThrow();
   });
+
+  test("warnAboutPoolContentionIfDetected emits warning with contention detected", () => {
+    const mockListProcesses = (): ProcWithCmd[] => [
+      { pid: 100, ppid: 1, comm: "jarvis" },
+      { pid: 101, ppid: 100, comm: "claude" },
+    ];
+
+    const loggedMessages: Array<{ tag: string; text: string }> = [];
+    const sendLog = (tag: string, text: string) => {
+      loggedMessages.push({ tag, text });
+    };
+
+    const claudeAgent = fakeAgent("claude");
+    warnAboutPoolContentionIfDetected(claudeAgent, sendLog, { listProcessesFn: mockListProcesses });
+
+    expect(loggedMessages.length).toBe(1);
+    const warning = loggedMessages[0]!;
+    expect(warning.tag).toBe("harness");
+    expect(warning.text).toContain("shares Claude pool");
+    expect(warning.text).toContain("Pause the competing session");
+  });
 });

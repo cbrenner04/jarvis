@@ -517,7 +517,7 @@ function specOutsideWorktreeReadDirs(opts: { specPath: string; agentWorkingDir: 
   return [dirname(specPath)];
 }
 
-function isSpecExternalToWorktree(opts: { specPath: string; agentWorkingDir: string }): boolean {
+function _isSpecExternalToWorktree(opts: { specPath: string; agentWorkingDir: string }): boolean {
   return specOutsideWorktreeReadDirs(opts) !== undefined;
 }
 

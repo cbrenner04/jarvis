@@ -1429,9 +1429,14 @@ describe("intentCommand", () => {
       // AC3: No-commit runs don't create PR or call gh pr ready
       expect(code).toBe(0);
       expect(cap.err()).toContain("2 intents written to");
-      expect(cap.err()).not.toContain("PR");
-      expect(cap.err()).not.toContain("warning");
-      expect(cap.out()).not.toContain("https://example.com");
+      expect(cap.err()).not.toContain("intent: split commit pushed");
+      expect(cap.err()).not.toContain("intent: draft PR");
+      expect(cap.err()).not.toContain("warning: could not mark PR ready for review");
+      expect(cap.out()).not.toContain("https://example.com/pull/");
+      expect(existsSync(env.prState)).toBe(false);
+      expect(existsSync(env.prReady)).toBe(false);
+      expect(existsSync(join(env.projectRoot, ".worktree"))).toBe(false);
+      expect(execSync("git branch --list 'intent/*'", { cwd: env.projectRoot, encoding: "utf8" }).trim()).toBe("");
     } finally {
       env.cleanup();
     }

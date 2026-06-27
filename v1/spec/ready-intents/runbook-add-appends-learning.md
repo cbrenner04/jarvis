@@ -11,4 +11,5 @@ appended entry lands in the right section and can carry its jarvis issue URL. Ho
 operator north star — folding into an existing flow beats a new subcommand where it fits.
 
 ## Prerequisites
+
 - `jarvis init` scaffolds an OPERATOR_RUNBOOK.md with stably-named sections

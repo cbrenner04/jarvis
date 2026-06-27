@@ -244,7 +244,9 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
         const archiveMapping = resolveSpecArchiveSource(opts.projectRoot, targetDir, item.branch, candidateHomes);
         const { source, specName, missingSource, sourceHome } = archiveMapping;
         if (specName === "completed") {
-          opts.io.stderr(`unsafe spec archive mapping for "${item.dir}": refusing to move ${archiveTargetDir}/completed/\n`);
+          opts.io.stderr(
+            `unsafe spec archive mapping for "${item.dir}": refusing to move ${archiveTargetDir}/completed/\n`,
+          );
           hadFailures = true;
           continue;
         }
@@ -258,7 +260,9 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
         }
 
         if (existsSync(destination)) {
-          opts.io.stderr(`spec archive destination already exists; left source in place: ${source} -> ${destination}\n`);
+          opts.io.stderr(
+            `spec archive destination already exists; left source in place: ${source} -> ${destination}\n`,
+          );
           hadFailures = true;
           continue;
         }
@@ -278,7 +282,9 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       const archiveMapping = resolveExternalSpecArchiveSource(archiveTargetDir, item.branch);
       const { source, specName, missingSource } = archiveMapping;
       if (specName === "completed") {
-        opts.io.stderr(`unsafe spec archive mapping for "${item.dir}": refusing to move ${archiveTargetDir}/completed/\n`);
+        opts.io.stderr(
+          `unsafe spec archive mapping for "${item.dir}": refusing to move ${archiveTargetDir}/completed/\n`,
+        );
         hadFailures = true;
         continue;
       }

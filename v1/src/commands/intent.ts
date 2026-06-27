@@ -220,6 +220,48 @@ function hasValidPrerequisitesSection(text: string): boolean {
     .every((line) => /^- \S.*$/.test(line));
 }
 
+function normalizePrerequisitesSectionSpacing(text: string): string {
+  const lines = text.split("\n");
+  const headingIndex = lines.findIndex((line) => line.trim() === "## Prerequisites");
+  if (headingIndex === -1) {
+    return text;
+  }
+
+  let changed = false;
+  let index = headingIndex;
+
+  let beforeStart = index;
+  while (beforeStart > 0 && (lines[beforeStart - 1] ?? "").trim() === "") {
+    beforeStart -= 1;
+  }
+  if (beforeStart === index) {
+    if (index > 0) {
+      lines.splice(index, 0, "");
+      index += 1;
+      changed = true;
+    }
+  } else if (index - beforeStart > 1) {
+    lines.splice(beforeStart, index - beforeStart - 1);
+    index = beforeStart + 1;
+    changed = true;
+  }
+
+  let afterEnd = index + 1;
+  while (afterEnd < lines.length && (lines[afterEnd] ?? "").trim() === "") {
+    afterEnd += 1;
+  }
+  const blankCountAfter = afterEnd - (index + 1);
+  if (blankCountAfter === 0) {
+    lines.splice(index + 1, 0, "");
+    changed = true;
+  } else if (blankCountAfter > 1) {
+    lines.splice(index + 2, blankCountAfter - 1);
+    changed = true;
+  }
+
+  return changed ? lines.join("\n") : text;
+}
+
 function repairIntentFile(path: string, slug: string): void {
   const content = readFileSync(path, "utf8");
   let text = content.replace(/\r\n/g, "\n");
@@ -279,6 +321,12 @@ function repairIntentFile(path: string, slug: string): void {
   if (!hasPrerequisitesSection(text)) {
     // Append empty Prerequisites section
     text += "\n\n## Prerequisites\n";
+    modified = true;
+  }
+
+  const normalizedSpacing = normalizePrerequisitesSectionSpacing(text);
+  if (normalizedSpacing !== text) {
+    text = normalizedSpacing;
     modified = true;
   }
 

@@ -25,5 +25,6 @@ clarify — same conservative stance as routing.
 - `v2/docs/v1-behaviors.md` — record the resume contract.
 
 ## Prerequisites
+
 - jarvis classifies a prompt and dispatches a resume route
 - the controller persists durable job state for a started job

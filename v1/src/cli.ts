@@ -19,8 +19,8 @@ import {
   validateNonNegativeInteger,
   validatePositiveInteger,
 } from "./config.ts";
-import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
+import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
 import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
 

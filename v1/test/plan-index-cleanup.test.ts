@@ -242,7 +242,7 @@ stray5
     }
   });
 
-  test("preserves multiple blank lines", () => {
+  test("collapses multiple blank lines", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-index-cleanup-blanks-"));
     try {
       const specDir = join(dir, "spec");
@@ -266,7 +266,13 @@ stray5
       });
 
       const content = readFileSync(indexPath, "utf8");
-      expect(content).toBe(original);
+      expect(content).toBe(`# My Spec
+
+- [ ] [01 — Foo](./01-foo.md)
+
+- [ ] [02 — Bar](./02-bar.md)
+
+`);
       expect(stderr).toHaveLength(0);
     } finally {
       rmSync(dir, { recursive: true, force: true });

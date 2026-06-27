@@ -12,4 +12,5 @@ recovery recipe). The runbook compounds in value instead of decaying because eac
 exit routes the operator to where the fix lives.
 
 ## Prerequisites
+
 - `jarvis init` scaffolds an OPERATOR_RUNBOOK.md with stably-named sections

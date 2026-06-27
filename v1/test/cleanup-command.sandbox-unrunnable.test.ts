@@ -508,7 +508,9 @@ describe("cleanupCommand", () => {
     });
 
     expect(code).toBe(0);
-    expect(out()).toContain(`no spec directory moved for missing-external: missing ${join(externalSpecsRoot, "missing-external")}`);
+    expect(out()).toContain(
+      `no spec directory moved for missing-external: missing ${join(externalSpecsRoot, "missing-external")}`,
+    );
     expect(err()).toBe("");
   });
 

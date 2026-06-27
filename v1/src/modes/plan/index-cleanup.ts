@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 /**
  * Strip non-contract lines from index.md.
- * Retains only: H1 title, subspec checklist items (matching parseIndex grammar), and blank lines.
+ * Retains only: H1 title, subspec checklist items (matching parseIndex grammar), and single blank lines.
  * No-ops when index.md is absent.
  * Skips write when content is unchanged.
  * Emits stderr notice when ≥1 lines are removed.
@@ -28,28 +28,35 @@ export function stripNonContractIndexLines(args: { specDirPath: string; stderr?:
 
   const retained: string[] = [];
   let removedCount = 0;
+  let previousRetainedBlank = false;
 
   for (const rawLine of allLines) {
     // Retain H1 heading
     if (/^#\s+.+/.test(rawLine)) {
       retained.push(rawLine);
+      previousRetainedBlank = false;
       continue;
     }
 
     // Retain checklist items (matches parseIndex's grammar)
     if (/^\s*-\s+\[( |x|X)\]\s+\[.+?\]\((.+?)\)/.test(rawLine)) {
       retained.push(rawLine);
+      previousRetainedBlank = false;
       continue;
     }
 
-    // Retain blank lines
+    // Retain at most one blank line between contract lines.
     if (rawLine.trim() === "") {
-      retained.push(rawLine);
+      if (!previousRetainedBlank) {
+        retained.push("");
+        previousRetainedBlank = true;
+      }
       continue;
     }
 
     // All other lines are removed
     removedCount += 1;
+    previousRetainedBlank = false;
   }
 
   // Reconstruct the content

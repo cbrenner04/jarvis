@@ -151,7 +151,7 @@ Rendered prompt snapshots for this phase are reviewed from revision-keyed fixtur
 
 **Blocker handling:** If the agent appends a `## Blocker` section to `intent.md` during draft, the draft files are first committed as `plan: draft` (per the normal commit shape above) and then a separate `plan: blocker` commit captures the blocker; plan mode stops (see [Stop conditions](#stop-conditions)).
 
-**Index cleanup:** After `validateDraftOutput` succeeds, jarvis strips non-contract lines from `index.md`. The index contract is an H1 title, the subspec checklist items (matching `parseIndex`'s grammar), and blank lines; everything else is removed. This prevents stray agent-written metadata (e.g., `repo:` lines, prose) from persisting in the merged spec. When `commit: false`, any agent-written `repo:` line is stripped before the programmatic `repo:` binding is injected. A one-line stderr notice is emitted when ≥1 lines are removed; the cleanup no-ops when `index.md` is absent.
+**Index cleanup:** After `validateDraftOutput` succeeds, jarvis strips non-contract lines from `index.md`. The index contract is an H1 title, the subspec checklist items (matching `parseIndex`'s grammar), and single blank-line separators; everything else is removed, and repeated blank runs collapse to one blank line. This prevents stray agent-written metadata (e.g., `repo:` lines, prose) from persisting in the merged spec. When `commit: false`, any agent-written `repo:` line is stripped before the programmatic `repo:` binding is injected. A one-line stderr notice is emitted when ≥1 non-contract lines are removed; the cleanup no-ops when `index.md` is absent.
 
 ### Phase 2: Self-review
 

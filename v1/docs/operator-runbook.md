@@ -162,6 +162,8 @@ If the label is absent, fall back to searching the open-issue list manually. For
 4. **Close at triage only when not seeding** — not actionable, duplicate, or out-of-scope — with an explanation.
 5. **Operator-error / project-setup is not a harness gap.** If the issue is really an operator mistake or the *target project's* setup (misconfig, missing dep, environment), **respond on the issue** with the cause/fix, **don't seed or change the harness**, and **flag it to the operator**.
 
+**Standing won't-fix:** making `jarvis1 cleanup` archive `commit:false` specs from the external home (intake #566) is **operator-usage, not a harness gap** — the other-repo operator must place specs in jarvis's expected directories. Do not re-seed, re-plan, or re-run it; close any resurfaced copy citing #566.
+
 ## Background-run-and-poll pattern
 
 Launch long-running invocations detached so they outlive the shell/turn, then poll:

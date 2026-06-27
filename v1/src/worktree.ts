@@ -5,16 +5,12 @@ import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../..
 import { getBaseBranch, type SyncTransientRetryOptions, withSyncTransientRetry } from "./gh.ts";
 
 function getCommitCountAheadOfBase(projectRoot: string, branchName: string, baseBranch: string): number {
-  try {
-    const output = execFileSync("git", ["rev-list", "--count", `${baseBranch}..${branchName}`], {
-      cwd: projectRoot,
-      encoding: "utf8",
-      stdio: "pipe",
-    }).trim();
-    return parseInt(output, 10);
-  } catch {
-    return 0;
-  }
+  const output = execFileSync("git", ["rev-list", "--count", `${baseBranch}..${branchName}`], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    stdio: "pipe",
+  }).trim();
+  return parseInt(output, 10);
 }
 
 function retireOrphanWorktree(projectRoot: string, specName: string): void {
@@ -77,7 +73,7 @@ export async function ensureWorktree(projectRoot: string, specPath: string): Pro
 
   bestEffortFetch(projectRoot);
 
-  const branchExists = branchExistsLocal(projectRoot, specName);
+  let branchExists = branchExistsLocal(projectRoot, specName);
   const branchExistsRemote = branchExistsOnOrigin(projectRoot, specName);
 
   // Detect and retire iter-0 orphan: branch+worktree with zero commits ahead of base
@@ -85,7 +81,7 @@ export async function ensureWorktree(projectRoot: string, specPath: string): Pro
     const baseBranch = await getBaseBranch(projectRoot);
     if (getCommitCountAheadOfBase(projectRoot, specName, baseBranch) === 0) {
       retireOrphanWorktree(projectRoot, specName);
-      // Mark as retired so we recreate below
+      branchExists = false; // Branch was deleted; reflect in state
     } else {
       // WIP branch exists with commits; clear litter and reuse
       clearWorktreeLitter(worktreePath);

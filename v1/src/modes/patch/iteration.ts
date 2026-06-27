@@ -1742,23 +1742,39 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       const stderr = result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`;
       fanout("harness", stderr, "stderr");
     }
-    if (isGitWorktree && afterSubspecPath !== undefined && !noIterationProgress) {
-      const afterCriteria = snapshotAcceptanceCriteria(afterSubspecPath);
-      const humanOnlyUnchecked = afterCriteria.filter((c) => c.humanOnly && !c.checked);
-      const checkedTotal = afterCriteria.filter((c) => c.checked).length;
-      try {
-        commitWipProgress(afterSubspecPath, {
-          cwd: agentWorkingDir,
-          newlyChecked: newlyCheckedCriteria,
-          checkedTotal,
-          total: afterCriteria.length,
-          humanOnlyCount: humanOnlyUnchecked.length,
-          agentLabel: agent.attributionLabel(),
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        fanout("harness", `failed to commit agent-error WIP progress for ${afterSubspecPath}: ${message}\n`, "stderr");
-        return { kind: "return", exitCode: 1 };
+    if (isGitWorktree && !noIterationProgress) {
+      if (afterSubspecPath !== undefined) {
+        const afterCriteria = snapshotAcceptanceCriteria(afterSubspecPath);
+        const humanOnlyUnchecked = afterCriteria.filter((c) => c.humanOnly && !c.checked);
+        const checkedTotal = afterCriteria.filter((c) => c.checked).length;
+        try {
+          commitWipProgress(afterSubspecPath, {
+            cwd: agentWorkingDir,
+            newlyChecked: newlyCheckedCriteria,
+            checkedTotal,
+            total: afterCriteria.length,
+            humanOnlyCount: humanOnlyUnchecked.length,
+            agentLabel: agent.attributionLabel(),
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          fanout("harness", `failed to commit agent-error WIP progress for ${afterSubspecPath}: ${message}\n`, "stderr");
+          return { kind: "return", exitCode: 1 };
+        }
+      } else if (isFixupIteration && editedTrackedFiles) {
+        // Fix-up iteration with tracked edits: commit WIP with generic label
+        try {
+          execFileSync("git", ["add", "-A"], { cwd: agentWorkingDir, stdio: "pipe" });
+          const commitMessage = `WIP: fix-up\n\nJarvis-Agent: ${agent.attributionLabel()}`;
+          execFileSync("git", ["commit", "-m", commitMessage], {
+            cwd: agentWorkingDir,
+            stdio: "pipe",
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          fanout("harness", `failed to commit agent-error WIP for fix-up iteration: ${message}\n`, "stderr");
+          return { kind: "return", exitCode: 1 };
+        }
       }
     }
     writeTelemetry({

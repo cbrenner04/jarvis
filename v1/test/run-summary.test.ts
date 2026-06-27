@@ -742,6 +742,12 @@ describe("runSummary", () => {
     ["worktree-locked (exit code 9)", "Resume-first guidance"],
     ["error (exit code 1)", "Recovery by exit reason"],
     ["floor-error", "Recovery by exit reason"],
+    ["quota-exhausted", "Recovery by exit reason"],
+    ["agent-error", "Recovery by exit reason"],
+    ["max-iterations", "Recovery by exit reason"],
+    ["dirty-worktree", "Recovery by exit reason"],
+    ["blocked", "Recovery by exit reason"],
+    ["review-incomplete", "Recovery by exit reason"],
     ["exit-99 (exit code 99)", "Recovery by exit reason"],
   ])("patch no-telemetry summary on %s cites runbook", (exitReason, section) => {
     const summary = patchSummaryNoTelemetry(exitReason);

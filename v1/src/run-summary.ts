@@ -501,7 +501,7 @@ function renderSummaryFromRecords(args: {
 }
 
 export function runSummary(args: RunSummaryArgs): string {
-  const unsuffixedReason = args.exitReason.split(" (exit code")[0] ?? args.exitReason;
+  const unsuffixedReason = args.exitReason.split(" (exit code")[0]!;
   const runbookSection = mapExitReasonToRunbookSection(unsuffixedReason);
 
   if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {

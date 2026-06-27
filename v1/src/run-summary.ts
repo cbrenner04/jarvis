@@ -507,15 +507,10 @@ function renderSummaryFromRecords(args: {
 export function runSummary(args: RunSummaryArgs): string {
   const unsuffixedReason = args.exitReason.split(" (exit code")[0] ?? args.exitReason;
   const runbookSection = mapExitReasonToRunbookSection(unsuffixedReason);
-  const runbookPointer =
-    runbookSection !== null ? `see runbook: OPERATOR_RUNBOOK.md › ${runbookSection}` : "";
+  const runbookPointer = runbookSection !== null ? `see runbook: OPERATOR_RUNBOOK.md › ${runbookSection}` : "";
 
   if (args.telemetryPath === null || !existsSync(args.telemetryPath)) {
-    const lines = [
-      "─── run summary ───",
-      `spec: ${args.specPath}`,
-      `exit reason: ${args.exitReason}`,
-    ];
+    const lines = ["─── run summary ───", `spec: ${args.specPath}`, `exit reason: ${args.exitReason}`];
     if (runbookPointer) {
       lines.push(runbookPointer);
     }

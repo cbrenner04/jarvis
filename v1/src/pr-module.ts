@@ -1,7 +1,7 @@
 import type { Agent, AgentRunOptions } from "./agents/types.ts";
 import type { CommitInfo } from "./pr.ts";
 import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, renderAttributionSummary } from "./pr.ts";
-import { generateNarrativeViaAgent, generateTemplateNarrative, shouldRegenerateNarrative } from "./pr-shared.ts";
+import { generateNarrativeViaAgent, generateTemplateNarrative, shouldRegenerateNarrative, type DiffStat } from "./pr-shared.ts";
 
 export type UpdatePrBodyOpts = {
   /** Shared PR body update options. */
@@ -24,6 +24,8 @@ export type UpdatePrBodyOpts = {
   getSubspecTitles: () => string[];
   /** Mode-specific: build prompt for agent (if prNarrative is "agent"). */
   buildPrompt?: (() => string) | undefined;
+  /** Optional: get diff stats for change summary (patch-mode only). */
+  getDiffStats?: (() => DiffStat[]) | undefined;
 };
 
 const defaultFetchPrBody = (branch: string, cwd: string): string => {
@@ -80,6 +82,7 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
           const commits = readBranchCommits({ cwd: opts.cwd, base: opts.base });
           return commits.map((commit: CommitInfo) => commit.subject);
         },
+        getDiffStats: opts.getDiffStats,
       });
     }
   } else {

@@ -73,9 +73,54 @@ export async function generateNarrativeViaAgent(opts: {
   }
 }
 
+export type DiffStat = {
+  added: number;
+  removed: number;
+  path: string;
+};
+
+type AreaStats = {
+  added: number;
+  removed: number;
+  files: number;
+};
+
+/**
+ * Group diff stats by area (containing directory capped at 2 segments).
+ * Root-level files (no directory) bucket under `(root)`.
+ */
+function groupDiffsByArea(diffs: DiffStat[]): Map<string, AreaStats> {
+  const areas = new Map<string, AreaStats>();
+
+  for (const diff of diffs) {
+    const area = extractArea(diff.path);
+    const current = areas.get(area) ?? { added: 0, removed: 0, files: 0 };
+    current.added += diff.added;
+    current.removed += diff.removed;
+    current.files += 1;
+    areas.set(area, current);
+  }
+
+  return areas;
+}
+
+/**
+ * Extract the containing directory (capped at 2 segments) from a file path.
+ * Root-level files (no directory) return `(root)`.
+ * Examples: `v1/src/modes/patch/x.ts` → `v1/src`, `scripts/foo.sh` → `scripts`, `prices.json` → `(root)`
+ */
+function extractArea(path: string): string {
+  const parts = path.split("/");
+  if (parts.length === 1) {
+    return "(root)";
+  }
+  return parts.slice(0, 2).join("/");
+}
+
 /**
  * Generate narrative deterministically from index subspecs and commit subjects.
  * Caller provides injectable seams to fetch subspecs and commits.
+ * Optional getDiffStats seam renders a `## Change summary` section (patch-mode only).
  * Returns the template narrative, marked as generated.
  */
 export function generateTemplateNarrative(opts: {
@@ -83,9 +128,12 @@ export function generateTemplateNarrative(opts: {
   getSubspecTitles: () => string[];
   /** Get commit subjects from base..HEAD. Should return newest first. */
   getCommitSubjects: () => string[];
+  /** Optional: get diff stats from base...HEAD. When supplied, renders `## Change summary`. */
+  getDiffStats?: () => DiffStat[];
 }): string {
   const subspecTitles = opts.getSubspecTitles();
   const commitSubjects = opts.getCommitSubjects();
+  const diffStats = opts.getDiffStats?.();
 
   const lines: string[] = [];
 
@@ -103,6 +151,38 @@ export function generateTemplateNarrative(opts: {
     lines.push("## Commits");
     for (const subject of commitSubjects) {
       lines.push(`- ${subject}`);
+    }
+  }
+
+  // Render Change summary if diff stats supplied and non-empty
+  if (diffStats && diffStats.length > 0) {
+    if (lines.length > 0) {
+      lines.push("");
+    }
+    lines.push("## Change summary");
+
+    const totalAdded = diffStats.reduce((sum, d) => sum + d.added, 0);
+    const totalRemoved = diffStats.reduce((sum, d) => sum + d.removed, 0);
+    const totalFiles = diffStats.length;
+
+    lines.push(`${totalFiles} file${totalFiles !== 1 ? "s" : ""} changed (+${totalAdded}/-${totalRemoved})`);
+    lines.push("");
+
+    // Group by area and sort
+    const areas = groupDiffsByArea(diffStats);
+    const sortedAreas = Array.from(areas.entries())
+      .sort(([areaA, statsA], [areaB, statsB]) => {
+        const changedLinesA = statsA.added + statsA.removed;
+        const changedLinesB = statsB.added + statsB.removed;
+        if (changedLinesB !== changedLinesA) {
+          return changedLinesB - changedLinesA; // desc by changed lines
+        }
+        return areaA.localeCompare(areaB); // asc by path
+      });
+
+    for (const [area, stats] of sortedAreas) {
+      const changedLines = stats.added + stats.removed;
+      lines.push(`- ${area}: ${stats.files} file${stats.files !== 1 ? "s" : ""} (+${stats.added}/-${stats.removed})`);
     }
   }
 

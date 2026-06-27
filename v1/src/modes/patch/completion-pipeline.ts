@@ -7,7 +7,7 @@ import { appendAgentTrailer } from "../../commit-trailer.ts";
 import { resolveReviewPasses } from "../../config.ts";
 import { getBaseBranch } from "../../gh.ts";
 import { checkPrExists, readBranchCommits } from "../../pr.ts";
-import { generateTemplateNarrative } from "../../pr-shared.ts";
+import { generateTemplateNarrative, type DiffStat } from "../../pr-shared.ts";
 import {
   ReadyCheckFixCommitError,
   ReadyCheckFixPushError,
@@ -112,6 +112,30 @@ function lookupPrUrl(branch: string, cwd: string): string | null {
   return url || null;
 }
 
+function readDiffStats(cwd: string, base: string): DiffStat[] {
+  try {
+    const output = execFileSync("git", ["diff", "--numstat", `${base}...HEAD`], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    const diffs: DiffStat[] = [];
+    for (const line of output.trim().split("\n")) {
+      if (!line) continue;
+      const [addedStr, removedStr, path] = line.split("\t");
+      if (path === undefined) continue;
+      // Handle binary files: "-" means not applicable
+      const added = addedStr === "-" ? 0 : parseInt(addedStr, 10);
+      const removed = removedStr === "-" ? 0 : parseInt(removedStr, 10);
+      if (isNaN(added) || isNaN(removed)) continue;
+      diffs.push({ added, removed, path });
+    }
+    return diffs;
+  } catch {
+    return [];
+  }
+}
+
 async function generatePrBody(
   specPath: string,
   agent: Agent,
@@ -133,6 +157,7 @@ async function generatePrBody(
         const commits = readBranchCommits({ cwd, base });
         return commits.map((c) => c.subject);
       },
+      getDiffStats: () => readDiffStats(cwd, base),
     });
   } else {
     const generated = await generatePrDescription({

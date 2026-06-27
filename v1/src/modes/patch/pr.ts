@@ -6,7 +6,7 @@ import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
-import { generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS } from "../../pr-shared.ts";
+import { generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS, type DiffStat } from "../../pr-shared.ts";
 import {
   type ReadyTier,
   type RunReadyAndCommitOpts,
@@ -141,6 +141,30 @@ function truncateContext(context: string): string {
   return `${context.slice(0, PR_DESCRIPTION_CONTEXT_MAX_CHARS)}\n\n[truncated]`;
 }
 
+function readDiffStats(cwd: string, base: string): DiffStat[] {
+  try {
+    const output = execFileSync("git", ["diff", "--numstat", `${base}...HEAD`], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    const diffs: DiffStat[] = [];
+    for (const line of output.trim().split("\n")) {
+      if (!line) continue;
+      const [addedStr, removedStr, path] = line.split("\t");
+      if (path === undefined) continue;
+      // Handle binary files: "-" means not applicable
+      const added = addedStr === "-" ? 0 : parseInt(addedStr, 10);
+      const removed = removedStr === "-" ? 0 : parseInt(removedStr, 10);
+      if (isNaN(added) || isNaN(removed)) continue;
+      diffs.push({ added, removed, path });
+    }
+    return diffs;
+  } catch {
+    return [];
+  }
+}
+
 export type UpdatePrBodyOpts = {
   indexPath: string;
   branch: string;
@@ -155,6 +179,8 @@ export type UpdatePrBodyOpts = {
   writePrBody?: (branch: string, body: string, cwd: string) => void;
   /** Test seam: render the attribution footer. Defaults to `renderAttributionSummary`. */
   renderFooter?: (opts: { cwd: string; base: string }) => string;
+  /** Test seam: get diff stats for change summary. Defaults to `git diff --numstat base...HEAD`. */
+  getDiffStats?: (cwd: string, base: string) => Parameters<typeof updatePrBodyShared>[0]["getDiffStats"];
 };
 
 /**
@@ -170,6 +196,7 @@ export type UpdatePrBodyOpts = {
  * Throws on `gh` failure; callers wrap with try/catch and warn-and-continue.
  */
 export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
+  const getDiffStats = opts.getDiffStats ?? ((cwd: string, base: string) => readDiffStats(cwd, base));
   const sharedOpts: Parameters<typeof updatePrBodyShared>[0] = {
     branch: opts.branch,
     base: opts.base,
@@ -185,6 +212,7 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
         specPath: opts.indexPath,
         specContext: buildSpecContext(opts.indexPath),
       }),
+    getDiffStats: () => getDiffStats(opts.cwd, opts.base),
   };
   if (opts.prNarrative !== undefined) {
     sharedOpts.prNarrative = opts.prNarrative;

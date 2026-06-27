@@ -34,14 +34,14 @@ appear identically at both:
 
 ## Acceptance criteria
 
-- [ ] The patch-mode `template` PR narrative includes a `## Change summary` section reporting total files changed and aggregate added/removed line counts from the branch diff (`base...HEAD`), produced with no agent invocation.
-- [ ] Change summary breaks the diff down by touched area (containing directory capped at two path segments; root-level files under `(root)`), ordered by changed lines desc then path asc, so the reviewer sees where the change lands.
-- [ ] A newly created patch-mode draft PR carries the same `## Change summary` content as a later rewrite of the same branch (draft-creation and rewrite call sites are both wired).
-- [ ] Plan-mode `template` PR narratives are unchanged: no `## Change summary` section appears on plan PRs.
-- [ ] When the branch diff is empty, the `## Change summary` section is omitted (no empty stub).
-- [ ] Binary-file diff entries (numstat `-`/`-`) count toward files-changed but contribute zero to the line totals.
-- [ ] Existing `## Subspecs` / `## Commits` template content is preserved: `run.test.ts` template-narrative PR-body assertions stay green.
-- [ ] The narrative stays marked generated (`<!-- jarvis:narrative:generated-sha256:` present) and regenerates on each rewrite.
+- [x] The patch-mode `template` PR narrative includes a `## Change summary` section reporting total files changed and aggregate added/removed line counts from the branch diff (`base...HEAD`), produced with no agent invocation.
+- [x] Change summary breaks the diff down by touched area (containing directory capped at two path segments; root-level files under `(root)`), ordered by changed lines desc then path asc, so the reviewer sees where the change lands.
+- [x] A newly created patch-mode draft PR carries the same `## Change summary` content as a later rewrite of the same branch (draft-creation and rewrite call sites are both wired).
+- [x] Plan-mode `template` PR narratives are unchanged: no `## Change summary` section appears on plan PRs.
+- [x] When the branch diff is empty, the `## Change summary` section is omitted (no empty stub).
+- [x] Binary-file diff entries (numstat `-`/`-`) count toward files-changed but contribute zero to the line totals.
+- [x] Existing `## Subspecs` / `## Commits` template content is preserved: `run.test.ts` template-narrative PR-body assertions stay green.
+- [x] The narrative stays marked generated (`<!-- jarvis:narrative:generated-sha256:` present) and regenerates on each rewrite.
 
 ## Documentation updates
 

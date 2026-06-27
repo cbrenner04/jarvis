@@ -73,9 +73,135 @@ export async function generateNarrativeViaAgent(opts: {
   }
 }
 
+export type DiffStat = {
+  added: number;
+  removed: number;
+  path: string;
+};
+
+type AreaStats = {
+  added: number;
+  removed: number;
+  files: number;
+};
+
+/**
+ * Classify a file path as source, test, docs, or config.
+ * Source = code files (not test, docs, or config).
+ * Test = *.test.ts or contains /test/ in path.
+ * Docs = *.md or v1/docs/** or v2/docs/**.
+ * Config = *.json.
+ */
+function classifyFile(path: string): "source" | "test" | "docs" | "config" {
+  if (path.endsWith(".test.ts") || path.includes("/test/")) {
+    return "test";
+  }
+  if (path.endsWith(".md") || path.startsWith("v1/docs/") || path.startsWith("v2/docs/")) {
+    return "docs";
+  }
+  if (path.endsWith(".json")) {
+    return "config";
+  }
+  return "source";
+}
+
+/**
+ * Derive risk cues from diff stats.
+ * Returns "no test changes" when the diff touches non-test source files but no test files.
+ * Returns null otherwise (no risk cue).
+ */
+function deriveRiskCue(diffs: DiffStat[]): string | null {
+  let hasSource = false;
+  let hasTest = false;
+
+  for (const diff of diffs) {
+    const classification = classifyFile(diff.path);
+    if (classification === "source") {
+      hasSource = true;
+    } else if (classification === "test") {
+      hasTest = true;
+    }
+  }
+
+  // Emit risk cue when source changed but test did not
+  if (hasSource && !hasTest) {
+    return "no test changes";
+  }
+
+  return null;
+}
+
+/**
+ * Extract the first prose line from subspec body text.
+ * Skips H1, headings (## etc), list items, and blank lines.
+ * Returns the first paragraph line (up to a character bound), or null if none found.
+ * Truncates with trailing `…` when longer than the bound.
+ */
+function extractWhyLine(body: string, charBound: number = 80): string | null {
+  const lines = body.split("\n");
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Skip empty lines
+    if (trimmed.length === 0) continue;
+
+    // Skip H1 (starts with single #)
+    if (trimmed.startsWith("# ")) continue;
+
+    // Skip headings (##, ###, etc)
+    if (trimmed.startsWith("#")) continue;
+
+    // Skip list items (-, *, +)
+    if (trimmed.match(/^[-*+]\s/)) continue;
+
+    // Found prose line
+    if (trimmed.length > charBound) {
+      return `${trimmed.slice(0, charBound)}…`;
+    }
+    return trimmed;
+  }
+
+  return null;
+}
+
+/**
+ * Group diff stats by area (containing directory capped at 2 segments).
+ * Root-level files (no directory) bucket under `(root)`.
+ */
+function groupDiffsByArea(diffs: DiffStat[]): Map<string, AreaStats> {
+  const areas = new Map<string, AreaStats>();
+
+  for (const diff of diffs) {
+    const area = extractArea(diff.path);
+    const current = areas.get(area) ?? { added: 0, removed: 0, files: 0 };
+    current.added += diff.added;
+    current.removed += diff.removed;
+    current.files += 1;
+    areas.set(area, current);
+  }
+
+  return areas;
+}
+
+/**
+ * Extract the containing directory (capped at 2 segments) from a file path.
+ * Root-level files (no directory) return `(root)`.
+ * Examples: `v1/src/modes/patch/x.ts` → `v1/src`, `scripts/foo.sh` → `scripts`, `prices.json` → `(root)`
+ */
+function extractArea(path: string): string {
+  const parts = path.split("/");
+  if (parts.length === 1) {
+    return "(root)";
+  }
+  return parts.slice(0, 2).join("/");
+}
+
 /**
  * Generate narrative deterministically from index subspecs and commit subjects.
  * Caller provides injectable seams to fetch subspecs and commits.
+ * Optional getDiffStats seam renders a `## Change summary` section (patch-mode only).
+ * Optional getDiffStats + getSubspecBodies seams render why/risk cues (patch-mode only).
  * Returns the template narrative, marked as generated.
  */
 export function generateTemplateNarrative(opts: {
@@ -83,16 +209,46 @@ export function generateTemplateNarrative(opts: {
   getSubspecTitles: () => string[];
   /** Get commit subjects from base..HEAD. Should return newest first. */
   getCommitSubjects: () => string[];
+  /** Optional: get diff stats from base...HEAD. When supplied, renders `## Change summary`. */
+  getDiffStats?: () => DiffStat[];
+  /** Optional: get subspec bodies (in same order as titles). Renders why lines (patch-mode only). */
+  getSubspecBodies?: () => string[];
 }): string {
   const subspecTitles = opts.getSubspecTitles();
   const commitSubjects = opts.getCommitSubjects();
+  const diffStats = opts.getDiffStats?.();
+  const subspecBodies = opts.getSubspecBodies?.();
 
   const lines: string[] = [];
 
+  // Render Subspecs with why lines
   if (subspecTitles.length > 0) {
     lines.push("## Subspecs");
+
+    // Extract why lines from bodies if available
+    let whyLines: Map<string, string> | null = null;
+    if (subspecBodies && subspecBodies.length > 0) {
+      whyLines = new Map();
+      const minLen = Math.min(subspecTitles.length, subspecBodies.length);
+      for (let i = 0; i < minLen; i++) {
+        const title = subspecTitles[i];
+        const body = subspecBodies[i];
+        if (title !== undefined && body !== undefined) {
+          const whyLine = extractWhyLine(body);
+          if (whyLine) {
+            whyLines.set(title, whyLine);
+          }
+        }
+      }
+    }
+
     for (const title of subspecTitles) {
-      lines.push(`- ${title}`);
+      const whyLine = whyLines?.get(title);
+      if (whyLine) {
+        lines.push(`- ${title} — ${whyLine}`);
+      } else {
+        lines.push(`- ${title}`);
+      }
     }
   }
 
@@ -103,6 +259,46 @@ export function generateTemplateNarrative(opts: {
     lines.push("## Commits");
     for (const subject of commitSubjects) {
       lines.push(`- ${subject}`);
+    }
+  }
+
+  // Render risk cues and change summary if diff stats supplied and non-empty
+  if (diffStats && diffStats.length > 0) {
+    if (lines.length > 0) {
+      lines.push("");
+    }
+
+    // Render risk cues section
+    const riskCue = deriveRiskCue(diffStats);
+    if (riskCue) {
+      lines.push("## Risk cues");
+      lines.push(`- ${riskCue}`);
+      lines.push("");
+    }
+
+    lines.push("## Change summary");
+
+    const totalAdded = diffStats.reduce((sum, d) => sum + d.added, 0);
+    const totalRemoved = diffStats.reduce((sum, d) => sum + d.removed, 0);
+    const totalFiles = diffStats.length;
+
+    lines.push(`${totalFiles} file${totalFiles !== 1 ? "s" : ""} changed (+${totalAdded}/-${totalRemoved})`);
+    lines.push("");
+
+    // Group by area and sort
+    const areas = groupDiffsByArea(diffStats);
+    const sortedAreas = Array.from(areas.entries()).sort(([areaA, statsA], [areaB, statsB]) => {
+      const changedLinesA = statsA.added + statsA.removed;
+      const changedLinesB = statsB.added + statsB.removed;
+      if (changedLinesB !== changedLinesA) {
+        return changedLinesB - changedLinesA; // desc by changed lines
+      }
+      return areaA.localeCompare(areaB); // asc by path
+    });
+
+    for (const [area, stats] of sortedAreas) {
+      const _changedLines = stats.added + stats.removed;
+      lines.push(`- ${area}: ${stats.files} file${stats.files !== 1 ? "s" : ""} (+${stats.added}/-${stats.removed})`);
     }
   }
 

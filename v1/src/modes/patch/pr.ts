@@ -1,12 +1,12 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
-import { generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS } from "../../pr-shared.ts";
+import { type DiffStat, generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS } from "../../pr-shared.ts";
 import {
   type ReadyTier,
   type RunReadyAndCommitOpts,
@@ -141,6 +141,30 @@ function truncateContext(context: string): string {
   return `${context.slice(0, PR_DESCRIPTION_CONTEXT_MAX_CHARS)}\n\n[truncated]`;
 }
 
+function readDiffStats(cwd: string, base: string): DiffStat[] {
+  try {
+    const output = execFileSync("git", ["diff", "--numstat", `${base}...HEAD`], {
+      cwd,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    const diffs: DiffStat[] = [];
+    for (const line of output.trim().split("\n")) {
+      if (!line) continue;
+      const [addedStr, removedStr, path] = line.split("\t");
+      if (path === undefined || addedStr === undefined || removedStr === undefined) continue;
+      // Handle binary files: "-" means not applicable
+      const added = addedStr === "-" ? 0 : parseInt(addedStr, 10);
+      const removed = removedStr === "-" ? 0 : parseInt(removedStr, 10);
+      if (Number.isNaN(added) || Number.isNaN(removed)) continue;
+      diffs.push({ added, removed, path });
+    }
+    return diffs;
+  } catch {
+    return [];
+  }
+}
+
 export type UpdatePrBodyOpts = {
   indexPath: string;
   branch: string;
@@ -155,6 +179,10 @@ export type UpdatePrBodyOpts = {
   writePrBody?: (branch: string, body: string, cwd: string) => void;
   /** Test seam: render the attribution footer. Defaults to `renderAttributionSummary`. */
   renderFooter?: (opts: { cwd: string; base: string }) => string;
+  /** Test seam: get diff stats for change summary. Defaults to `git diff --numstat base...HEAD`. */
+  getDiffStats?: (cwd: string, base: string) => DiffStat[];
+  /** Test seam: get subspec bodies for why lines. Defaults to reading from index-linked subspecs. */
+  getSubspecBodies?: () => string[];
 };
 
 /**
@@ -170,6 +198,24 @@ export type UpdatePrBodyOpts = {
  * Throws on `gh` failure; callers wrap with try/catch and warn-and-continue.
  */
 export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
+  const getDiffStatsFn: (cwd: string, base: string) => DiffStat[] =
+    opts.getDiffStats ?? ((cwd: string, base: string) => readDiffStats(cwd, base));
+  const getSubspecBodiesFn: () => string[] =
+    opts.getSubspecBodies ??
+    (() => {
+      const indexContent = readFileSync(opts.indexPath, "utf8");
+      const parsed = parseSpec(indexContent);
+      const indexDir = dirname(opts.indexPath);
+      return parsed.linkedSubspecs.map((s) => {
+        const subspecPath = join(indexDir, s.path);
+        try {
+          return readFileSync(subspecPath, "utf8");
+        } catch {
+          return "";
+        }
+      });
+    });
+
   const sharedOpts: Parameters<typeof updatePrBodyShared>[0] = {
     branch: opts.branch,
     base: opts.base,
@@ -185,7 +231,10 @@ export async function updatePrBody(opts: UpdatePrBodyOpts): Promise<void> {
         specPath: opts.indexPath,
         specContext: buildSpecContext(opts.indexPath),
       }),
+    getDiffStats: () => getDiffStatsFn(opts.cwd, opts.base),
+    getSubspecBodies: getSubspecBodiesFn,
   };
+
   if (opts.prNarrative !== undefined) {
     sharedOpts.prNarrative = opts.prNarrative;
   }

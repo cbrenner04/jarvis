@@ -68,10 +68,12 @@ Each emitted file:
 The emit contract is harness-enforced with deterministic repair. Missing or
 mismatched frontmatter `name:` and a missing `## Prerequisites` section are
 repaired before validation — `name:` is rewritten to match the filename slug,
-and an empty `## Prerequisites` section is appended when absent. A near-miss
-heading (e.g., `### Prerequisites` or `## prerequisites`) is treated as absent
-and receives an empty section; it is not promoted. Malformed `## Prerequisites`
-bodies (non-bullet text) remain a hard error and abort without partial writes.
+an empty `## Prerequisites` section is appended when absent, and blank-line
+spacing around an exact `## Prerequisites` heading is normalized to one blank
+line before and after. A near-miss heading (e.g., `### Prerequisites` or
+`## prerequisites`) is treated as absent and receives an empty section; it is
+not promoted. Malformed `## Prerequisites` bodies (non-bullet text) remain a
+hard error and abort without partial writes.
 
 `name:` collisions are hard errors. If `<targetDir>/ready-intents/<name>.md`
 already exists, the run aborts without overwriting files and without opening a

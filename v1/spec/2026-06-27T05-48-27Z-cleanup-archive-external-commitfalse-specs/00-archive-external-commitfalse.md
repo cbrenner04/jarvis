@@ -43,15 +43,15 @@ git commit/push, `commitArchivedSpecMove`) is unchanged.
 
 ## Acceptance criteria
 
-- [ ] For a `commit:false` project, cleaning a merged worktree moves its external spec dir `~/.jarvis/specs/<proj>/<name>/` to `~/.jarvis/specs/<proj>/completed/<name>/`.
-- [ ] For a `commit:false` project, the consumed `~/.jarvis/specs/<proj>/ready-intents/<branchSlug>.md` (the branch slug, e.g. `my-feature.md`, not the timestamped archive-source basename) is removed when present; its absence does not fail cleanup.
-- [ ] A timestamped external spec dir is matched from a `plan/<slug>` branch via the timestamp-stripped slug and lands in the external `completed/`, and its `ready-intents/<slug>.md` is pruned by branch slug.
-- [ ] For a `commit:false` project on a non-plan branch, an exact-match external spec dir `~/.jarvis/specs/<proj>/<branch>/` archives to `completed/<branch>/` (the external path is not gated on a `plan/` prefix).
-- [ ] External archival performs no `git add`/`commit`/`push`; it succeeds even when the external home is not a git repository.
-- [ ] For a `commit:false` project, a missing external spec dir is non-fatal and prints a `no spec directory moved ... missing <external-path>` message naming the external path.
-- [ ] For a `commit:false` project, an existing destination under external `completed/` leaves the source in place and reports failure (cleanup exit 1).
-- [ ] `cleanup-command.sandbox-unrunnable.test.ts` in-repo archival tests stay green (commit:true path with git commit/push unchanged).
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] For a `commit:false` project, cleaning a merged worktree moves its external spec dir `~/.jarvis/specs/<proj>/<name>/` to `~/.jarvis/specs/<proj>/completed/<name>/`.
+- [x] For a `commit:false` project, the consumed `~/.jarvis/specs/<proj>/ready-intents/<branchSlug>.md` (the branch slug, e.g. `my-feature.md`, not the timestamped archive-source basename) is removed when present; its absence does not fail cleanup.
+- [x] A timestamped external spec dir is matched from a `plan/<slug>` branch via the timestamp-stripped slug and lands in the external `completed/`, and its `ready-intents/<slug>.md` is pruned by branch slug.
+- [x] For a `commit:false` project on a non-plan branch, an exact-match external spec dir `~/.jarvis/specs/<proj>/<branch>/` archives to `completed/<branch>/` (the external path is not gated on a `plan/` prefix).
+- [x] External archival performs no `git add`/`commit`/`push`; it succeeds even when the external home is not a git repository.
+- [x] For a `commit:false` project, a missing external spec dir is non-fatal and prints a `no spec directory moved ... missing <external-path>` message naming the external path.
+- [x] For a `commit:false` project, an existing destination under external `completed/` leaves the source in place and reports failure (cleanup exit 1).
+- [x] `cleanup-command.sandbox-unrunnable.test.ts` in-repo archival tests stay green (commit:true path with git commit/push unchanged).
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

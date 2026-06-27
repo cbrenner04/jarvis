@@ -38,6 +38,7 @@ let root: string;
 let projectRoot: string;
 let worktreeDir: string;
 let remoteDir: string;
+let externalSpecsRoot: string;
 
 function createTrackedWorktree(specName: string): string {
   const worktreePath = join(worktreeDir, specName);
@@ -69,13 +70,25 @@ function createTrackedPlanWorktree(name: string): string {
   return worktreePath;
 }
 
+function runExternalCleanup(io: CleanupIo, root: string = externalSpecsRoot): number {
+  return cleanupCommand({
+    projectRoot,
+    io,
+    commit: false,
+    externalSpecsRoot: root,
+    isMergedPr: () => true,
+  });
+}
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "jarvis-cleanup-"));
   projectRoot = root;
   worktreeDir = join(projectRoot, ".worktree");
   remoteDir = join(projectRoot, "remote.git");
+  externalSpecsRoot = join(projectRoot, "external-specs");
   mkdirSync(worktreeDir, { recursive: true });
   mkdirSync(remoteDir, { recursive: true });
+  mkdirSync(externalSpecsRoot, { recursive: true });
 
   execSync("git init -b main", { cwd: projectRoot, stdio: "pipe" });
   execSync("git config user.email 'test@example.com'", {
@@ -437,5 +450,107 @@ describe("cleanupCommand", () => {
     expect(existsSync(destination)).toBe(true);
     expect(existsSync(join(projectRoot, "v1", "spec", "completed", specName))).toBe(false);
     expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# default spec\n");
+  });
+
+  test("commit:false archives external spec dir and prunes ready-intents by branch slug", () => {
+    const { io } = captureIo(["yes"]);
+
+    const name = "my-feature";
+    createTrackedPlanWorktree(name);
+    const timestampedName = `2026-06-27T05-48-27Z-${name}`;
+    const source = join(externalSpecsRoot, timestampedName);
+    const destination = join(externalSpecsRoot, "completed", timestampedName);
+    const readyIntentPath = join(externalSpecsRoot, "ready-intents", `${name}.md`);
+    mkdirSync(join(externalSpecsRoot, "ready-intents"), { recursive: true });
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# external plan\n");
+    writeFileSync(readyIntentPath, "intent\n");
+
+    const code = runExternalCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(existsSync(readyIntentPath)).toBe(false);
+    expect(readFileSync(join(destination, "index.md"), "utf8")).toBe("# external plan\n");
+  });
+
+  test("commit:false archives exact-match non-plan branch from external home", () => {
+    const { io } = captureIo(["yes"]);
+
+    const specName = "feature-branch";
+    createTrackedWorktree(specName);
+    const source = join(externalSpecsRoot, specName);
+    const destination = join(externalSpecsRoot, "completed", specName);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# external branch\n");
+
+    const code = runExternalCleanup(io);
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+  });
+
+  test("commit:false missing external source is non-fatal and names the external path", () => {
+    const { io, out, err } = captureIo(["yes"]);
+
+    createTrackedWorktree("missing-external");
+
+    const code = runExternalCleanup(io);
+
+    expect(code).toBe(0);
+    expect(out()).toContain(
+      `no spec directory moved for missing-external: missing ${join(externalSpecsRoot, "missing-external")}`,
+    );
+    expect(err()).toBe("");
+  });
+
+  test("commit:false destination collision keeps source and reports failure", () => {
+    const { io, err } = captureIo(["yes"]);
+
+    createTrackedWorktree("collide-external");
+    const source = join(externalSpecsRoot, "collide-external");
+    const destination = join(externalSpecsRoot, "completed", "collide-external");
+    mkdirSync(source, { recursive: true });
+    mkdirSync(destination, { recursive: true });
+
+    const code = runExternalCleanup(io);
+
+    expect(code).toBe(1);
+    expect(existsSync(source)).toBe(true);
+    expect(err()).toContain("spec archive destination already exists");
+    expect(err()).toContain(source);
+    expect(err()).toContain(destination);
+  });
+
+  test("commit:false external archival performs no git commit and works outside a git home", () => {
+    const { io } = captureIo(["yes"]);
+
+    const specName = "external-no-git";
+    const branchHeadBefore = execSync("git rev-parse HEAD", {
+      cwd: projectRoot,
+      stdio: "pipe",
+      encoding: "utf8",
+    }).trim();
+    createTrackedWorktree(specName);
+    const detachedExternalRoot = join(root, "detached-external-specs");
+    const source = join(detachedExternalRoot, specName);
+    const destination = join(detachedExternalRoot, "completed", specName);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "index.md"), "# detached external\n");
+
+    const code = runExternalCleanup(io, detachedExternalRoot);
+
+    expect(code).toBe(0);
+    expect(existsSync(source)).toBe(false);
+    expect(existsSync(destination)).toBe(true);
+    expect(
+      execSync("git rev-parse HEAD", {
+        cwd: projectRoot,
+        stdio: "pipe",
+        encoding: "utf8",
+      }).trim(),
+    ).toBe(branchHeadBefore);
   });
 });

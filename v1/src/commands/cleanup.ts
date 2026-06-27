@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { ConfigOptions } from "../config.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
@@ -16,6 +16,8 @@ export type CleanupCommandOptions = {
   config?: ConfigOptions;
   dryRun?: boolean;
   targetDir?: string;
+  commit?: boolean;
+  externalSpecsRoot?: string;
   isMergedPr?: (branch: string) => boolean;
   removeItem?: (item: { path: string; branch: string; dir: string }) => void;
   candidateHomes?: string[];
@@ -79,6 +81,78 @@ function resolveSpecArchiveSource(
   };
 }
 
+function resolveExternalSpecArchiveSource(
+  externalSpecsRoot: string,
+  branch: string,
+): { source: string; specName: string; missingSource: string } {
+  const specName = specNameForBranch(branch);
+  const exactSource = join(externalSpecsRoot, specName);
+  if (existsSync(exactSource)) {
+    return { source: exactSource, specName, missingSource: exactSource };
+  }
+
+  if (isPlanBranch(branch) && existsSync(externalSpecsRoot)) {
+    const timestampedMatch = readdirSync(externalSpecsRoot)
+      .filter((entry) => entry !== "completed" && entry !== "ready-intents")
+      .filter((entry) => stripPlanSpecTimestampPrefix(entry) === specName)
+      .sort()[0];
+    if (timestampedMatch !== undefined) {
+      return {
+        source: join(externalSpecsRoot, timestampedMatch),
+        specName: timestampedMatch,
+        missingSource: exactSource,
+      };
+    }
+  }
+
+  return {
+    source: exactSource,
+    specName,
+    missingSource: exactSource,
+  };
+}
+
+function archiveResolvedSpec(args: {
+  io: CleanupIo;
+  branch: string;
+  dir: string;
+  archiveRoot: string;
+  source: string;
+  specName: string;
+  missingSource: string;
+  onArchive?: (destination: string, specName: string) => void;
+}): boolean {
+  const { archiveRoot, branch, dir, io, missingSource, onArchive, source, specName } = args;
+  if (specName === "completed") {
+    io.stderr(`unsafe spec archive mapping for "${dir}": refusing to move ${archiveRoot}/completed/\n`);
+    return false;
+  }
+
+  const completedRoot = join(archiveRoot, "completed");
+  const destination = join(completedRoot, specName);
+
+  if (!existsSync(source)) {
+    io.stdout(`no spec directory moved for ${branch}: missing ${missingSource}\n`);
+    return true;
+  }
+
+  if (existsSync(destination)) {
+    io.stderr(`spec archive destination already exists; left source in place: ${source} -> ${destination}\n`);
+    return false;
+  }
+
+  try {
+    mkdirSync(completedRoot, { recursive: true });
+    renameSync(source, destination);
+    onArchive?.(destination, specName);
+    io.stdout(`moved spec directory ${source} -> ${destination}\n`);
+    return true;
+  } catch (err) {
+    io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
+    return false;
+  }
+}
+
 function deleteMergedBranch(projectRoot: string, branch: string): void {
   try {
     execSync(`git branch -d "${branch}"`, {
@@ -136,6 +210,7 @@ function commitArchivedSpecMove(projectRoot: string, source: string, destination
 export function cleanupCommand(opts: CleanupCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
   const targetDir = opts.targetDir ?? "spec";
+  const commit = opts.commit ?? true;
   const candidateHomes = opts.candidateHomes ?? [targetDir, "v1/spec", "v2/spec"];
   const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
 
@@ -199,39 +274,49 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
 
-      const { source, specName, missingSource, sourceHome } = resolveSpecArchiveSource(
-        opts.projectRoot,
-        targetDir,
-        item.branch,
-        candidateHomes,
-      );
-      if (specName === "completed") {
-        opts.io.stderr(`unsafe spec archive mapping for "${item.dir}": refusing to move ${targetDir}/completed/\n`);
+      const branchSlug = specNameForBranch(item.branch);
+      if (!commit && opts.externalSpecsRoot === undefined) {
+        opts.io.stderr(`missing cleanup archive root for ${item.branch}\n`);
         hadFailures = true;
         continue;
       }
-
-      const completedRoot = join(opts.projectRoot, sourceHome, "completed");
-      const destination = join(completedRoot, specName);
-
-      if (!existsSync(source)) {
-        opts.io.stdout(`no spec directory moved for ${item.branch}: missing ${missingSource}\n`);
-        continue;
+      let archived: boolean;
+      if (commit) {
+        const { source, specName, missingSource, sourceHome } = resolveSpecArchiveSource(
+          opts.projectRoot,
+          targetDir,
+          item.branch,
+          candidateHomes,
+        );
+        archived = archiveResolvedSpec({
+          io: opts.io,
+          branch: item.branch,
+          dir: item.dir,
+          archiveRoot: join(opts.projectRoot, sourceHome),
+          source,
+          specName,
+          missingSource,
+          onArchive: (destination, resolvedSpecName) => {
+            commitArchivedSpecMove(opts.projectRoot, source, destination, resolvedSpecName);
+          },
+        });
+      } else {
+        const externalSpecsRoot = opts.externalSpecsRoot as string;
+        const { source, specName, missingSource } = resolveExternalSpecArchiveSource(externalSpecsRoot, item.branch);
+        archived = archiveResolvedSpec({
+          io: opts.io,
+          branch: item.branch,
+          dir: item.dir,
+          archiveRoot: externalSpecsRoot,
+          source,
+          specName,
+          missingSource,
+          onArchive: () => {
+            rmSync(join(externalSpecsRoot, "ready-intents", `${branchSlug}.md`), { force: true });
+          },
+        });
       }
-
-      if (existsSync(destination)) {
-        opts.io.stderr(`spec archive destination already exists; left source in place: ${source} -> ${destination}\n`);
-        hadFailures = true;
-        continue;
-      }
-
-      try {
-        mkdirSync(completedRoot, { recursive: true });
-        renameSync(source, destination);
-        commitArchivedSpecMove(opts.projectRoot, source, destination, specName);
-        opts.io.stdout(`moved spec directory ${source} -> ${destination}\n`);
-      } catch (err) {
-        opts.io.stderr(`failed to archive spec directory ${source} -> ${destination}: ${(err as Error).message}\n`);
+      if (!archived) {
         hadFailures = true;
       }
     } catch (err) {

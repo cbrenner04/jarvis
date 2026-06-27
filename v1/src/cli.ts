@@ -1,4 +1,4 @@
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { PATCH_TIERS, type PatchTier } from "../../shared/spec-parser.ts";
 import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
@@ -10,6 +10,7 @@ import { pricesCommand } from "./commands/prices.ts";
 import { reviewFeedbackCommand } from "./commands/review-feedback.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
+  CONFIG_DIR,
   type ConfigOptions,
   findProjectMatchForPath,
   loadConfig,
@@ -19,6 +20,7 @@ import {
   validatePositiveInteger,
 } from "./config.ts";
 import { type RunCommandOptions, runCommand } from "./modes/patch/run.ts";
+import { computeProjectSafeId } from "./modes/plan/spec-paths.ts";
 import { promptCommand } from "./modes/prompt/run.ts";
 import { runSharedProjectPreflight } from "./modes/shared-entry.ts";
 
@@ -514,7 +516,10 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         },
       };
       const cfg = loadConfig(opts.config);
-      cleanupOpts.targetDir = resolvePlanFlags(cfg, cfg.projects[project.key]).targetDir;
+      const planFlags = resolvePlanFlags(cfg, cfg.projects[project.key]);
+      cleanupOpts.targetDir = planFlags.targetDir;
+      cleanupOpts.commit = planFlags.commit;
+      cleanupOpts.externalSpecsRoot = join(opts.config?.dir ?? CONFIG_DIR, "specs", computeProjectSafeId(project));
       if (opts.config !== undefined) {
         cleanupOpts.config = opts.config;
       }

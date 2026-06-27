@@ -53,8 +53,8 @@ corrupting content and without the residual-failure path that broke `main`.
 - [x] Spawn failure / absent binary warns to stderr and continues with the in-TS-repaired content; it does not fail emit and does not pass silently. A test simulating an unresolvable binary asserts the warning and that the in-TS repairs (MD012/MD018) are still present.
 - [x] A new test in `v1/test/intent-command.sandbox-unrunnable.test.ts` exercises the repair step on seeded staging content tripping `MD012` and `MD018`, asserts it is dirty before the pass and lint-clean after (bytes changed), and asserts a `#NNN` reference is preserved. The test requires installed deps + a resolvable binary + spawn; it skips with a signal (not an opaque error) when the binary is absent.
 - [x] `lint:md` remains a step in the full ready tier in its existing position in `scripts/ready.ts` — not relaxed or reordered.
-- [ ] After `jarvis intent` fan-out, `bun run lint:md` over the generated `ready-intents/*.md` tree exits 0 with no operator edits, for inputs that would otherwise trip `MD012` and `MD018`; and `MD041`/`MD025` do not fire on frontmatter-led intents. (Manual — integration over the real tree, not the unit file.)
-- [ ] The full `intent-command.sandbox-unrunnable.test.ts` suite passes against `main`'s tree, not only the implementation worktree. (Manual)
+- [x] After `jarvis intent` fan-out, `bun run lint:md` over the generated `ready-intents/*.md` tree exits 0 with no operator edits, for inputs that would otherwise trip `MD012` and `MD018`; and `MD041`/`MD025` do not fire on frontmatter-led intents. (Manual — integration over the real tree, not the unit file.)
+- [x] The full `intent-command.sandbox-unrunnable.test.ts` suite passes against `main`'s tree, not only the implementation worktree. (Manual)
 
 ## Documentation updates
 

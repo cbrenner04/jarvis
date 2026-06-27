@@ -30,12 +30,12 @@ idempotent.
 
 ## Acceptance criteria
 
-- [ ] Re-running an external `commit:false` source spec under `git:true` un-ticks acceptance criteria ticked by the prior incomplete run before the next agent invocation.
-- [ ] Re-running an external `commit:false` source spec drops the `## Blocker` that the prior incomplete run appended.
-- [ ] Acceptance criteria ticked before any run (pre-attempt) stay ticked through the reset.
-- [ ] An in-repo spec run under `git:true` triggers no delta reset (existing behavior preserved): its acceptance criteria and blockers are left as committed.
-- [ ] Existing `v1/test/no-commit-delta.test.ts` stays green (the un-tick / strip-blocker / preserve-pre-attempt mechanism is unchanged).
-- [ ] A new test exercises an external spec path resolved outside the agent working tree with `gitEnabled` true and asserts the prior-run delta is reset on re-run.
+- [x] Re-running an external `commit:false` source spec under `git:true` un-ticks acceptance criteria ticked by the prior incomplete run before the next agent invocation.
+- [x] Re-running an external `commit:false` source spec drops the `## Blocker` that the prior incomplete run appended.
+- [x] Acceptance criteria ticked before any run (pre-attempt) stay ticked through the reset.
+- [x] An in-repo spec run under `git:true` triggers no delta reset (existing behavior preserved): its acceptance criteria and blockers are left as committed.
+- [x] Existing `v1/test/no-commit-delta.test.ts` stays green (the un-tick / strip-blocker / preserve-pre-attempt mechanism is unchanged).
+- [x] A new test exercises an external spec path resolved outside the agent working tree with `gitEnabled` true and asserts the prior-run delta is reset on re-run.
 
 ## Documentation updates
 

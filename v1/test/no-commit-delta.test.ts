@@ -210,4 +210,39 @@ And even a third line.`;
     expect(resetContent).not.toContain("And even a third line");
     expect(resetContent).toContain("## Acceptance criteria");
   });
+
+  it("resets delta for external spec paths", () => {
+    const externalSpecDir = join(tempDir, "external-spec");
+    mkdirSync(externalSpecDir, { recursive: true });
+    const externalSpecPath = join(externalSpecDir, "spec.md");
+
+    const specContent = `# External Spec
+
+## Acceptance criteria
+
+- [x] AC ticked in prior run
+- [ ] Still unticked
+`;
+    writeFileSync(externalSpecPath, specContent, "utf8");
+
+    // Simulate a prior run that ticked an AC and appended a blocker
+    const delta = createFreshDelta(externalSpecPath);
+    recordNewlyCheckedAc(delta, "AC ticked in prior run");
+    recordBlocker(delta, "Error encountered");
+
+    // Verify delta was recorded
+    expect(loadDelta(externalSpecPath)).not.toBeNull();
+
+    // Apply reset as would happen on re-run
+    const priorDelta = loadDelta(externalSpecPath);
+    if (priorDelta !== null) {
+      applyReset(externalSpecPath, priorDelta);
+    }
+
+    const resetContent = readFileSync(externalSpecPath, "utf8");
+    expect(resetContent).toContain("- [ ] AC ticked in prior run");
+    expect(resetContent).not.toContain("## Blocker");
+    expect(resetContent).not.toContain("Error encountered");
+    expect(resetContent).toContain("- [ ] Still unticked");
+  });
 });

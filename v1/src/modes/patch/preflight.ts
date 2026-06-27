@@ -261,6 +261,8 @@ export async function resolveModeSpecificPreflight(
     return { kind: "error", exitCode: 1 };
   }
 
+  const specIsExternal = specDirs !== undefined;
+
   return {
     kind: "ok",
     project,
@@ -274,6 +276,7 @@ export async function resolveModeSpecificPreflight(
     additionalReadDirs,
     patchTier: resolvedPatchTier.tier,
     trackSourceSpecDelta,
+    specIsExternal,
   };
 }
 
@@ -512,6 +515,10 @@ function specOutsideWorktreeReadDirs(opts: { specPath: string; agentWorkingDir: 
     return undefined;
   }
   return [dirname(specPath)];
+}
+
+function isSpecExternalToWorktree(opts: { specPath: string; agentWorkingDir: string }): boolean {
+  return specOutsideWorktreeReadDirs(opts) !== undefined;
 }
 
 export function refreshActiveSpecPath(preflight: PreflightOk): string {

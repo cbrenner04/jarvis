@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
-import { type BaseCurrentCheckResult, checkBaseCurrent } from "../../git/base-current.ts";
+import { type BaseCurrentCheckResult, checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
 import type { CommitInfo } from "../../pr.ts";
 import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, readBranchCommits } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
@@ -321,9 +321,7 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
 
   const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch: opts.branch, cwd: opts.cwd });
   if (baseCurrent.status === "behind") {
-    (opts.stderr ?? process.stderr.write.bind(process.stderr))(
-      `ready flip blocked: branch ${opts.branch} does not contain base ${baseCurrent.baseRefName}; PR stays draft\n`,
-    );
+    writeReadyFlipBlocked(opts.stderr ?? process.stderr.write.bind(process.stderr), opts.branch, baseCurrent.baseRefName);
     return;
   }
 

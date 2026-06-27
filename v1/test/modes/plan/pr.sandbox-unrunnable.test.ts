@@ -91,6 +91,8 @@ ${NARRATIVE_END_MARKER}`;
 });
 
 let gitDir: string;
+const currentBase = (baseRefName: string | null = "main") => () => ({ status: "current" as const, baseRefName });
+const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, baseRefName });
 
 function gitSetup(): void {
   execSync("git init -q", { cwd: gitDir, stdio: "pipe" });
@@ -192,7 +194,7 @@ describe("maybeMarkPlanPrReady", () => {
         getPrStateCalled = true;
         return { state: "draft", number: 123 };
       },
-      checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+      checkBaseCurrent: currentBase(),
       markReady: (branch, cwd) => {
         markReadyCalled = true;
         markReadyBranch = branch;
@@ -213,7 +215,7 @@ describe("maybeMarkPlanPrReady", () => {
         branch: "feature",
         cwd: gitDir,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
-        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+        checkBaseCurrent: currentBase(),
         markReady: () => {
           throw new Error(multilineError);
         },
@@ -229,7 +231,7 @@ describe("maybeMarkPlanPrReady", () => {
       branch: "feature",
       cwd: gitDir,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
-      checkBaseCurrent: () => ({ status: "behind", baseRefName: "main" }),
+      checkBaseCurrent: behindBase("main"),
       markReady: () => {
         markReadyCalled = true;
       },
@@ -252,7 +254,7 @@ describe("maybeMarkPlanPrReady", () => {
       branch: "feature",
       cwd: gitDir,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
-      checkBaseCurrent: () => ({ status: "behind", baseRefName: "release" }),
+      checkBaseCurrent: behindBase("release"),
       runReady: () => {
         throw new Error("runReady should not execute");
       },
@@ -278,7 +280,7 @@ describe("maybeMarkPlanPrReady", () => {
       branch: "feature",
       cwd: gitDir,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
-      checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+      checkBaseCurrent: currentBase(),
       runReady: (cwd) => {
         runReadyCalled = true;
         expect(cwd).toBe(gitDir);
@@ -310,7 +312,7 @@ describe("maybeMarkPlanPrReady", () => {
       cwd: gitDir,
       agentLabel: "my-agent",
       getOpenPrState: () => ({ state: "draft", number: 123 }),
-      checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+      checkBaseCurrent: currentBase(),
       runReady: (cwd) => {
         runReadyCalled = true;
         writeFileSync(join(cwd, "dirty.txt"), "dirty\n");
@@ -341,7 +343,7 @@ describe("maybeMarkPlanPrReady", () => {
         branch: "feature",
         cwd: gitDir,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
-        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+        checkBaseCurrent: currentBase(),
         runReady: () => {
           throw new Error("runReady failed");
         },
@@ -366,7 +368,7 @@ describe("maybeMarkPlanPrReady", () => {
         branch: "feature",
         cwd: gitDir,
         getOpenPrState: () => ({ state: "draft", number: 123 }),
-        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+        checkBaseCurrent: currentBase(),
         runReady: (cwd) => {
           writeFileSync(join(cwd, "dirty.txt"), "dirty\n");
         },
@@ -389,7 +391,7 @@ describe("maybeMarkPlanPrReady", () => {
       branch: "feature",
       cwd: gitDir,
       getOpenPrState: () => ({ state: "draft", number: 123 }),
-      checkBaseCurrent: () => ({ status: "current", baseRefName: null }),
+      checkBaseCurrent: currentBase(null),
       markReady: () => {
         markReadyCalled = true;
       },

@@ -18,6 +18,8 @@ import { markGeneratedNarrative } from "../../../src/pr.ts";
 
 let dir: string;
 let indexPath: string;
+const currentBase = (baseRefName: string | null = "main") => () => ({ status: "current" as const, baseRefName });
+const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, baseRefName });
 
 function gitSetup(): void {
   execSync("git init -q", { cwd: dir, stdio: "pipe" });
@@ -369,7 +371,7 @@ describe("maybeMarkReady", () => {
         indexPath,
         cwd: dir,
         checkPrExists: () => true,
-        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+        checkBaseCurrent: currentBase(),
         markReady: (branch, cwd) => {
           markReadyCalled = true;
           markReadyBranch = branch;
@@ -392,7 +394,7 @@ describe("maybeMarkReady", () => {
         indexPath,
         cwd: dir,
         checkPrExists: () => true,
-        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+        checkBaseCurrent: currentBase(),
         markReady: () => {
           throw new Error(multilineError);
         },
@@ -422,7 +424,7 @@ describe("maybeMarkReady", () => {
       indexPath,
       cwd: dir,
       checkPrExists: () => true,
-      checkBaseCurrent: () => ({ status: "behind", baseRefName: "main" }),
+      checkBaseCurrent: behindBase("main"),
       markReady: () => {
         markReadyCalled = true;
       },
@@ -447,7 +449,7 @@ describe("maybeMarkReady", () => {
       indexPath,
       cwd: dir,
       checkPrExists: () => true,
-      checkBaseCurrent: () => ({ status: "behind", baseRefName: "release" }),
+      checkBaseCurrent: behindBase("release"),
       runReady: () => {
         throw new Error("runReady should not execute");
       },
@@ -479,7 +481,7 @@ describe("maybeMarkReady", () => {
       indexPath,
       cwd: dir,
       checkPrExists: () => true,
-      checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+      checkBaseCurrent: currentBase(),
       agentLabel: "test-agent",
       runReady: () => {
         runReadyCalled = true;
@@ -513,7 +515,7 @@ describe("maybeMarkReady", () => {
       indexPath,
       cwd: dir,
       checkPrExists: () => true,
-      checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+      checkBaseCurrent: currentBase(),
       recordedGreenResult: { headSha },
       runReady: (_cwd, tier) => {
         tiers.push(tier);
@@ -543,7 +545,7 @@ describe("maybeMarkReady", () => {
       indexPath,
       cwd: dir,
       checkPrExists: () => true,
-      checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+      checkBaseCurrent: currentBase(),
       agentLabel: "my-agent",
       runReady: () => {
         runReadyCalled = true;
@@ -584,7 +586,7 @@ describe("maybeMarkReady", () => {
         indexPath,
         cwd: dir,
         checkPrExists: () => true,
-        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+        checkBaseCurrent: currentBase(),
         runReady: () => {
           throw new Error("runReady failed");
         },
@@ -614,7 +616,7 @@ describe("maybeMarkReady", () => {
         indexPath,
         cwd: dir,
         checkPrExists: () => true,
-        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+        checkBaseCurrent: currentBase(),
         runReady: () => {
           // Dirty the tree
           execSync("echo dirty > dirty.txt", { cwd: dir, stdio: "pipe" });
@@ -646,7 +648,7 @@ describe("maybeMarkReady", () => {
         cwd: dir,
         readyCommand: script,
         checkPrExists: () => true,
-        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
+        checkBaseCurrent: currentBase(),
         commitCheckFix: () => {}, // stub commit/push; tree may be dirty from test setup
         ghPrReady: () => {}, // stub gh pr ready
       });
@@ -666,7 +668,7 @@ describe("maybeMarkReady", () => {
       indexPath,
       cwd: dir,
       checkPrExists: () => true,
-      checkBaseCurrent: () => ({ status: "current", baseRefName: null }),
+      checkBaseCurrent: currentBase(null),
       markReady: () => {
         markReadyCalled = true;
       },

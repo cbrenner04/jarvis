@@ -5,7 +5,7 @@ import { getCurrentBranch } from "../../../../shared/git.ts";
 import { parseSpec } from "../../../../shared/spec-parser.ts";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
 import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
-import { type BaseCurrentCheckResult, checkBaseCurrent } from "../../git/base-current.ts";
+import { type BaseCurrentCheckResult, checkBaseCurrent, writeReadyFlipBlocked } from "../../git/base-current.ts";
 import { checkPrExists, extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER } from "../../pr.ts";
 import { updatePrBody as updatePrBodyShared } from "../../pr-module.ts";
 import { type DiffStat, generateNarrativeViaAgent, PR_DESCRIPTION_CONTEXT_MAX_CHARS } from "../../pr-shared.ts";
@@ -316,9 +316,7 @@ export function maybeMarkReady(opts: MaybeMarkReadyOpts): void {
 
   const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch, cwd: opts.cwd });
   if (baseCurrent.status === "behind") {
-    (opts.stderr ?? process.stderr.write.bind(process.stderr))(
-      `ready flip blocked: branch ${branch} does not contain base ${baseCurrent.baseRefName}; PR stays draft\n`,
-    );
+    writeReadyFlipBlocked(opts.stderr ?? process.stderr.write.bind(process.stderr), branch, baseCurrent.baseRefName);
     return;
   }
 

@@ -1,8 +1,5 @@
 import { execFileSync } from "node:child_process";
 
-/**
- * Result of checking whether the current branch contains its PR base.
- */
 export type BaseCurrentCheckResult =
   | {
       status: "current";
@@ -13,11 +10,6 @@ export type BaseCurrentCheckResult =
       baseRefName: string;
     };
 
-/**
- * Resolve the PR base, fetch `origin/<base>`, and check whether `HEAD`
- * contains that fetched base tip. Base-resolution and fetch failures soft-fail
- * to `current` so transient git/GitHub issues do not strand PRs in draft.
- */
 export function checkBaseCurrent(opts: { branch: string; cwd: string }): BaseCurrentCheckResult {
   let baseRefName: string;
   try {
@@ -59,4 +51,8 @@ export function checkBaseCurrent(opts: { branch: string; cwd: string }): BaseCur
     }
     return { status: "current", baseRefName };
   }
+}
+
+export function writeReadyFlipBlocked(stderr: (s: string) => void, branch: string, baseRefName: string): void {
+  stderr(`ready flip blocked: branch ${branch} does not contain base ${baseRefName}; PR stays draft\n`);
 }

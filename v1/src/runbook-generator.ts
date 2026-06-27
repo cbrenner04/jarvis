@@ -1,4 +1,4 @@
-import { type Config, type Project } from "./config.ts";
+import type { Config, Project } from "./config.ts";
 import { inferStackFromRoot } from "./stack-inference.ts";
 
 export type RunbookContext = {
@@ -52,9 +52,7 @@ function formatPrNarrative(config: Config): string {
 export function generateOperatorRunbook(ctx: RunbookContext): string {
   const stack = inferStackFromRoot(ctx.projectRoot);
   const readyCommand = ctx.project.readyCommand ?? "not configured";
-  const originLine = ctx.projectOrigin
-    ? `- **Origin:** ${ctx.projectOrigin}`
-    : "- **Origin:** no origin configured";
+  const originLine = ctx.projectOrigin ? `- **Origin:** ${ctx.projectOrigin}` : "- **Origin:** no origin configured";
 
   const agentOrder = formatAgentOrder(ctx.config);
   const commitMode = formatCommitMode(ctx.config);

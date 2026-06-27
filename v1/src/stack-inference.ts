@@ -1,5 +1,5 @@
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * Infers a project's stack from marker files in its root directory.
@@ -31,10 +31,7 @@ import { join } from "path";
 export function inferStackFromRoot(rootPath: string): string {
   // Priority order: Bun > Node > Ruby > Go > Python > Rust
   // Check Bun marker (bun.lock/bun.lockb + package.json)
-  if (
-    hasFiles(rootPath, ["package.json"]) &&
-    hasFiles(rootPath, ["bun.lock", "bun.lockb"])
-  ) {
+  if (hasFiles(rootPath, ["package.json"]) && hasFiles(rootPath, ["bun.lock", "bun.lockb"])) {
     return "TypeScript (Bun)";
   }
 

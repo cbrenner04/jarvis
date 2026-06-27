@@ -88,3 +88,11 @@ report,session_id,report_date,completed_work_units,success_status,failure_reason
 2026-06-27T12-41-55Z-operator,failure-exits-cite-runbook-section,2026-06-27,1,completed,,patch,2,39.16,9,#598; plan blocked first ($0.22) then re-planned ($2.83) after init-scaffolds shipped; final run contention-flaked then isolated-green
 2026-06-27T12-41-55Z-operator,runbook-add-appends-learning,2026-06-27,1,completed,,patch,2,29.79,9,#598; plan blocked first ($0.54) then re-planned ($2.48)
 2026-06-27T12-41-55Z-operator,prnarrative-default-deliberate-choice,2026-06-27,1,completed,,patch,1,20.59,9,active spec; plan from prior session
+2026-06-27T18-36-37Z-operator,worktree-branches-off-fresh-base,2026-06-27,1,completed,,patch,2,33.02,7,PR #685
+2026-06-27T18-36-37Z-operator,ready-flip-confirms-base-current,2026-06-27,1,completed,,patch,2,49.32,16,PR #686
+2026-06-27T18-36-37Z-operator,cleanup-retires-abandoned-runs,2026-06-27,1,completed,,patch,2,41.4,10,"PR #687; run exit-11, operator-reviewed in lieu of skipped debate"
+2026-06-27T18-36-37Z-operator,merge-on-green-gate,2026-06-27,1,completed,,patch,2,42.12,8,PR #688; operator integration-merge + autofix-commit
+2026-06-27T18-36-37Z-operator,finalize-dirty-complete-run,2026-06-27,1,completed,,patch,1,44.57,9,PR #691; operator integration-merge
+2026-06-27T18-36-37Z-operator,merge-target-by-worktree-or-spec,2026-06-27,1,completed,,patch,1,40.37,11,PR #695; operator integration-merge
+2026-06-27T18-36-37Z-operator,finalize-refuses-when-behind-base,2026-06-27,1,completed,,plan,1,6.38,4,plan-only; impl deferred (#693); completed_work_units=1 = finalized plan
+2026-06-27T18-36-37Z-operator,intent-emit-lint-md-clean-ready-intents-pinned-autofix,2026-06-27,1,completed,,patch,1,27.97,7,PR #677; run-only this session; exit-6 then operator manual-finalize

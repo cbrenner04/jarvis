@@ -395,6 +395,9 @@ export function findRelocatedSpecFile(previousPath: string, searchRoot: string):
 }
 
 function findRelocatedSpecFileMatches(dir: string, parentName: string, fileName: string, matches: string[]): void {
+  if (!existsSync(dir)) {
+    return;
+  }
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === ".git" || entry.name === "node_modules") {
       continue;

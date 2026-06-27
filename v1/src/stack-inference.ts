@@ -29,47 +29,27 @@ import { join } from "node:path";
  * - Syncronous.
  */
 export function inferStackFromRoot(rootPath: string): string {
-  // Priority order: Bun > Node > Ruby > Go > Python > Rust
-  // Check Bun marker (bun.lock/bun.lockb + package.json)
   if (hasFiles(rootPath, ["package.json"]) && hasFiles(rootPath, ["bun.lock", "bun.lockb"])) {
     return "TypeScript (Bun)";
   }
-
-  // Check Node marker (package.json, no Bun lockfile)
   if (hasFiles(rootPath, ["package.json"])) {
     return "JavaScript/TypeScript (Node)";
   }
-
-  // Check Ruby marker
   if (hasFiles(rootPath, ["Gemfile"])) {
     return "Ruby";
   }
-
-  // Check Go marker
   if (hasFiles(rootPath, ["go.mod"])) {
     return "Go";
   }
-
-  // Check Python markers
   if (hasFiles(rootPath, ["pyproject.toml", "requirements.txt"])) {
     return "Python";
   }
-
-  // Check Rust marker
   if (hasFiles(rootPath, ["Cargo.toml"])) {
     return "Rust";
   }
-
-  // No recognized markers
   return "Unknown";
 }
 
-/**
- * Check if at least one file from names exists in rootPath.
- * @param rootPath Directory to check.
- * @param names Array of filenames. Returns true if any exist.
- * @returns true if at least one file exists, false otherwise.
- */
 function hasFiles(rootPath: string, names: string[]): boolean {
   return names.some((name) => existsSync(join(rootPath, name)));
 }

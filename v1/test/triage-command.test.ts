@@ -76,6 +76,40 @@ function setupMarkReadyWorktree(
   return { worktreePath, specPath };
 }
 
+function setupWorktreeLocalMarkReadySpec(worktreeName: string): {
+  worktreePath: string;
+  markerSpecPath: string;
+  worktreeSubspecPath: string;
+} {
+  const worktreePath = join(worktreeDir, worktreeName);
+  setupWorktree(worktreePath);
+
+  const barePath = join(root, `${worktreeName}-remote.git`);
+  execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
+  execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
+  execSync("git push -u origin main", { cwd: worktreePath, stdio: "pipe" });
+
+  const markerSpecDir = join(projectRoot, "v1", "spec", worktreeName);
+  const markerIndexPath = join(markerSpecDir, "index.md");
+  const markerSubspecPath = join(markerSpecDir, "01-test.md");
+  mkdirSync(markerSpecDir, { recursive: true });
+  writeFileSync(markerIndexPath, "# Test\n\n- [ ] [subspec 1](./01-test.md)\n");
+  writeFileSync(markerSubspecPath, "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion\n");
+
+  const worktreeSpecDir = join(worktreePath, "v1", "spec", worktreeName);
+  const worktreeSubspecPath = join(worktreeSpecDir, "01-test.md");
+  mkdirSync(worktreeSpecDir, { recursive: true });
+  writeFileSync(join(worktreeSpecDir, "index.md"), "# Test\n\n- [ ] [subspec 1](./01-test.md)\n");
+  writeFileSync(worktreeSubspecPath, "# Test\n\n## Acceptance criteria\n\n- [x] automated criterion\n");
+
+  writeFileSync(join(worktreePath, ".active-spec-path"), markerIndexPath);
+  execSync("git add .active-spec-path", { cwd: worktreePath });
+  execSync("git commit -m 'marker'", { cwd: worktreePath });
+  execSync("git push", { cwd: worktreePath, stdio: "pipe" });
+
+  return { worktreePath, markerSpecPath: markerIndexPath, worktreeSubspecPath };
+}
+
 function setupMergeWorktree(worktreeName: string): { worktreePath: string; specPath: string } {
   const worktreePath = join(worktreeDir, worktreeName);
   setupWorktree(worktreePath);
@@ -1236,6 +1270,96 @@ describe("triage --mark-ready", () => {
     expect(out()).toContain("promoted to ready");
     expect(gateSeamCalled).toBe(true);
     expect(prReadySeamCalled).toBe(true);
+  });
+
+  test("--mark-ready reads uncommitted worktree-local AC ticks when marker points at project root", async () => {
+    const worktreeName = "branch-exit6";
+    const { worktreePath } = setupWorktreeLocalMarkReadySpec(worktreeName);
+
+    let gateRan = false;
+
+    const { io, out } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {},
+    });
+
+    expect(code).toBe(0);
+    expect(gateRan).toBe(true);
+    expect(out()).toContain("promoted to ready");
+    const porcelain = execSync("git status --porcelain", {
+      cwd: worktreePath,
+      encoding: "utf8",
+    }).trim();
+    expect(porcelain).toBe("");
+  });
+
+  test("--mark-ready refuses when worktree-local ACs are unchecked despite project-root marker", async () => {
+    const worktreeName = "branch-exit6-incomplete";
+    setupWorktreeLocalMarkReadySpec(worktreeName);
+    const worktreeSubspecPath = join(worktreeDir, worktreeName, "v1", "spec", worktreeName, "01-test.md");
+    writeFileSync(
+      worktreeSubspecPath,
+      "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion\n",
+    );
+
+    let commitRan = false;
+    let gateRan = false;
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      commitAndPushDirty: () => {
+        commitRan = true;
+        return { ok: true };
+      },
+      runGate: () => {
+        gateRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("incomplete run");
+    expect(err()).toContain("not finalize");
+    expect(commitRan).toBe(false);
+    expect(gateRan).toBe(false);
+  });
+
+  test("--mark-ready commit failure reports commit-specific error not push failure", async () => {
+    const worktreeName = "branch-1";
+    setupMarkReadyWorktree(worktreeName, { makeDirty: true });
+
+    let gateRan = false;
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      commitAndPushDirty: () => ({ ok: false, reason: "commit-failed", message: "hook rejected" }),
+      runGate: () => {
+        gateRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("failed to finalize commit");
+    expect(err()).toContain("hook rejected");
+    expect(err()).not.toContain("failed to push finalize commit");
+    expect(gateRan).toBe(false);
   });
 
   describe("--merge flag", () => {

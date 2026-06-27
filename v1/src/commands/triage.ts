@@ -7,6 +7,7 @@ import type { ConfigOptions } from "../config.ts";
 import { loadConfig } from "../config.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
+import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";
 import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
 import { type EnsureDraftPrOpts, ensureDraftPr, renderAttributionSummary } from "../pr.ts";
@@ -29,7 +30,7 @@ export type TriageGhRunner = {
 
 export type CommitAndPushDirtyResult =
   | { ok: true }
-  | { ok: false; reason: "still-dirty" | "push-failed"; message?: string };
+  | { ok: false; reason: "still-dirty" | "commit-failed" | "push-failed"; message?: string };
 
 export type TriageCommandOptions = {
   projectRoot: string;
@@ -976,6 +977,9 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
   if (!commitResult.ok) {
     if (commitResult.reason === "still-dirty") {
       opts.io.stderr(`${label}: worktree still dirty after finalize commit\n`);
+    } else if (commitResult.reason === "commit-failed") {
+      const message = commitResult.message ?? "commit failed";
+      opts.io.stderr(`${label}: failed to finalize commit\n${message}\n`);
     } else {
       const message = commitResult.message ?? "push failed";
       opts.io.stderr(`${label}: failed to push finalize commit\n${message}\n`);
@@ -1052,8 +1056,21 @@ function commitAndPushFinalizeDirtyWorktree(worktreePath: string): CommitAndPush
     return pushWorktreeOrFail(worktreePath);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, reason: "push-failed", message };
+    return { ok: false, reason: "commit-failed", message };
   }
+}
+
+function resolveWorktreeLocalSpecPath(opts: {
+  projectRoot: string;
+  worktreePath: string;
+  markerSpecPath: string;
+}): string {
+  const prepared = prepareActiveSpecPath({
+    projectRoot: opts.projectRoot,
+    agentWorkingDir: opts.worktreePath,
+    specPath: opts.markerSpecPath,
+  });
+  return findRelocatedSpecFile(prepared, opts.worktreePath);
 }
 
 type TriageNamedWorktree =
@@ -1091,16 +1108,26 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     return { ok: false, code: 1 };
   }
 
-  let specPath: string;
+  let markerSpecPath: string;
   try {
-    specPath = readFileSync(specMarkerPath, "utf8").trim();
+    markerSpecPath = readFileSync(specMarkerPath, "utf8").trim();
   } catch {
     opts.io.stderr(`${label}: unable to read .active-spec-path marker\n`);
     return { ok: false, code: 1 };
   }
 
-  if (!specPath || !existsSync(specPath)) {
-    opts.io.stderr(`${label}: spec file not found: ${specPath || "(unknown)"}\n`);
+  if (!markerSpecPath) {
+    opts.io.stderr(`${label}: spec file not found: (unknown)\n`);
+    return { ok: false, code: 1 };
+  }
+
+  const specPath = resolveWorktreeLocalSpecPath({
+    projectRoot: opts.projectRoot,
+    worktreePath,
+    markerSpecPath,
+  });
+  if (!existsSync(specPath)) {
+    opts.io.stderr(`${label}: spec file not found: ${specPath}\n`);
     return { ok: false, code: 1 };
   }
 

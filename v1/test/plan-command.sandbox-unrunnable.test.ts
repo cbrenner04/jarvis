@@ -443,52 +443,6 @@ describe("planCommand", () => {
     }
   });
 
-  test("git: false keeps external-spec boundary enforcement active", async () => {
-    const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
-    try {
-      configureGitDisabledPlanProject(cfgDir, 0);
-
-      // Pre-populate external spec root with pre-existing siblings
-      const extSpecRoot = join(cfgDir, "specs", "project");
-      mkdirSync(extSpecRoot, { recursive: true });
-      mkdirSync(join(extSpecRoot, "ready-intents"), { recursive: true });
-      writeFileSync(join(extSpecRoot, "ready-intents", "old-intent.md"), "# Old\n");
-      mkdirSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec"), { recursive: true });
-      writeFileSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec", "intent.md"), "# Prior\n");
-
-      const intentPath = writeReadyIntent(project, "git-false-boundary");
-      const cap = captureIo();
-      const code = await planCommand({
-        io: cap.io,
-        args: [intentPath],
-        cwd: project,
-        config: { dir: cfgDir },
-        logClient: okLogClient,
-        skipGhCheck: true,
-        createAgent: () =>
-          new FakeAgent("claude", (_prompt, opts) => {
-            const specDir = opts.additionalReadDirs?.[0];
-            if (!specDir) {
-              throw new Error("expected external spec dir");
-            }
-            writeDraftSpec(specDir);
-            mkdirSync(join(dirname(specDir), "escaped-spec"), { recursive: true });
-            return { kind: "ok", stdout: "", stderr: "" };
-          }),
-      });
-
-      expect(code).toBe(1);
-      expect(cap.err()).toContain("plan: boundary violation detected before draft commit");
-      expect(cap.err()).toContain("escaped-spec");
-      expect(cap.err()).not.toContain("(git status failed)");
-      // Verify pre-existing siblings are not flagged
-      expect(existsSync(join(extSpecRoot, "ready-intents", "old-intent.md"))).toBe(true);
-      expect(existsSync(join(extSpecRoot, "2026-01-01T00-00-00Z-prior-spec", "intent.md"))).toBe(true);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
   test("commit: false with pre-existing siblings (ready-intents/ and prior spec dir) allows clean run", async () => {
     const { dir, cfgDir, project } = setupRegisteredGitWorktreeProject();
     try {

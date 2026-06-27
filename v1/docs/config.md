@@ -167,6 +167,21 @@ resolved project's record is missing `origin`, jarvis attempts to populate
 it from the project's `root` and persists the update. Failures here do not
 block the run.
 
+## Operator runbook scaffolding
+
+`jarvis init` scaffolds an `OPERATOR_RUNBOOK.md` file at the project root
+when the file is absent. The runbook is a persistent guide combining init-time
+facts (repo path, origin URL, inferred stack) with seeded config values
+(`readyCommand`, agent order, modes) and stubbed sections for operator
+fill-in (manual finalize procedures, recovery by exit reason, resume guidance,
+gate blind spots, cross-repo coordination).
+
+The runbook is not overwritten on re-run of `jarvis init` on the same
+project, preserving operator-authored customization. The file's existence
+is checked once per init run; the runbook is created only if absent. Fixed
+section headings (exact text and order) make the document structural contract:
+other tools and documentation may reference sections by name.
+
 ## Default contents
 
 Default contents on first bootstrap:

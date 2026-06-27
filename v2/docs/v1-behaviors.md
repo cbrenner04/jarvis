@@ -214,6 +214,7 @@ Sources: `v1/src/commands/plan.ts`, `v1/src/modes/plan/draft.ts`, `v1/src/modes/
 - Each registered project may declare `siblings`: absolute paths passed to the agent as additional readable directories alongside the spec. Patch preflight errors with exit `1` if a configured sibling does not exist. Sources: `v1/src/config.ts`, `v1/src/modes/patch/run.ts`
 - Invalid config structure is rejected with file-specific validation errors instead of partial best-effort reads. Sources: `v1/src/config.ts`
 - `jarvis1 init` only registers repos under `~/Work` by deriving the project key from the path relative to that root, and it records `origin` only when `git remote get-url origin` yields a non-empty value. Re-registering the same name+root is idempotent; the same name pointing at a different root errors. Sources: `v1/src/commands/init.ts`, `v1/src/config.ts`
+- `jarvis1 init` additionally scaffolds an `OPERATOR_RUNBOOK.md` file at the project root when absent, seeding it with project facts (repo path, origin URL, inferred stack, resolved `readyCommand`, config modes) and stubbed sections for operator fill-in (manual finalize, recovery by exit reason, resume guidance, gate blind spots, cross-repo coordination). The runbook is not overwritten on re-run; byte-for-byte idempotence is preserved. The runbook includes a static known-gotchas section with jarvis-issue URLs and fixed section headings so references remain stable. Sources: `v1/src/commands/init.ts`, `v1/src/runbook-generator.ts`
 
 ### Configuration field reference
 

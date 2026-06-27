@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { existsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { relative, resolve, sep } from "node:path";
 import type { Io } from "../cli.ts";
 import { type ConfigOptions, loadConfig, registerProject } from "../config.ts";
+import { generateOperatorRunbook } from "../runbook-generator.ts";
 
 export type InitOptions = {
   cwd: string;
@@ -72,5 +74,30 @@ export function init(opts: InitOptions): number {
   if (origin === undefined) {
     io.stdout(`note: no \`origin\` remote found in ${cwd}; skipped recording origin URL\n`);
   }
+
+  // Write OPERATOR_RUNBOOK.md if it doesn't already exist
+  const runbookPath = resolve(cwd, "OPERATOR_RUNBOOK.md");
+  if (!existsSync(runbookPath)) {
+    const fullConfig = loadConfig(opts.config);
+    const project = fullConfig.projects[name];
+    if (project === undefined) {
+      io.stderr(`jarvis1: project ${JSON.stringify(name)} not found in config\n`);
+      return 1;
+    }
+    const runbookContent = generateOperatorRunbook({
+      projectKey: name,
+      projectRoot: cwd,
+      projectOrigin: origin,
+      config: fullConfig,
+      project,
+    });
+    try {
+      writeFileSync(runbookPath, runbookContent, "utf8");
+    } catch (err) {
+      io.stderr(`jarvis1: failed to write runbook: ${(err as Error).message}\n`);
+      return 1;
+    }
+  }
+
   return 0;
 }

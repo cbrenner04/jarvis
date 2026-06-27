@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe("init", () => {
-  test("registers a repo under Work without creating target files", () => {
+  test("registers a repo under Work and creates OPERATOR_RUNBOOK.md", () => {
     const cap = captureIo();
     const code = init({
       cwd,
@@ -56,6 +56,7 @@ describe("init", () => {
     expect(existsSync(join(cwd, "AGENTS.md"))).toBe(false);
     expect(existsSync(join(cwd, "spec"))).toBe(false);
     expect(existsSync(join(cwd, ".jarvis"))).toBe(false);
+    expect(existsSync(join(cwd, "OPERATOR_RUNBOOK.md"))).toBe(true);
 
     const cfg = loadConfig({ dir: cfgDir });
     expect(cfg.projects["app-a"]).toEqual({ root: cwd });
@@ -212,5 +213,165 @@ describe("init", () => {
 
     const cfg = loadConfig({ dir: cfgDir });
     expect(cfg.projects).toEqual({ "old-name": { root: cwd } });
+  });
+
+  test("runbook includes project facts (key, root, stack, modes)", () => {
+    const cap = captureIo();
+    init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => "https://github.com/example/app-a.git",
+    });
+
+    const runbook = readFileSync(join(cwd, "OPERATOR_RUNBOOK.md"), "utf8");
+    expect(runbook).toContain("app-a");
+    expect(runbook).toContain(cwd);
+    expect(runbook).toContain("https://github.com/example/app-a.git");
+    expect(runbook).toContain("Inferred stack");
+    expect(runbook).toContain("Ready command");
+    expect(runbook).toContain("Plan commit mode");
+    expect(runbook).toContain("Patch agent order");
+  });
+
+  test("runbook renders 'no origin configured' when origin is absent", () => {
+    const cap = captureIo();
+    init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
+
+    const runbook = readFileSync(join(cwd, "OPERATOR_RUNBOOK.md"), "utf8");
+    expect(runbook).toContain("- **Origin:** no origin configured");
+  });
+
+  test("runbook renders 'not configured' for missing readyCommand", () => {
+    const cap = captureIo();
+    init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
+
+    const runbook = readFileSync(join(cwd, "OPERATOR_RUNBOOK.md"), "utf8");
+    expect(runbook).toContain("- **Ready command:** not configured");
+  });
+
+  test("runbook includes repos-and-gates table", () => {
+    const cap = captureIo();
+    init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
+
+    const runbook = readFileSync(join(cwd, "OPERATOR_RUNBOOK.md"), "utf8");
+    expect(runbook).toContain("| Repo | Path/URL | Gate |");
+    expect(runbook).toContain("| Target |");
+    expect(runbook).toContain(cwd);
+  });
+
+  test("runbook contains all fixed section headings in order", () => {
+    const cap = captureIo();
+    init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
+
+    const runbook = readFileSync(join(cwd, "OPERATOR_RUNBOOK.md"), "utf8");
+    const headings = [
+      "## Project facts",
+      "## Spec layout",
+      "## Repos and gates",
+      "## Sandbox and network",
+      "## Known gotchas",
+      "## Manual finalize and recovery",
+      "## Resume-first guidance",
+      "## Gate blind spots",
+      "## Cross-repo coordination",
+    ];
+    let lastPos = -1;
+    for (const heading of headings) {
+      const pos = runbook.indexOf(heading);
+      expect(pos).toBeGreaterThan(-1);
+      expect(pos).toBeGreaterThan(lastPos);
+      lastPos = pos;
+    }
+  });
+
+  test("runbook contains sandbox/network notes", () => {
+    const cap = captureIo();
+    init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
+
+    const runbook = readFileSync(join(cwd, "OPERATOR_RUNBOOK.md"), "utf8");
+    expect(runbook).toContain("Sandbox blindness");
+    expect(runbook).toContain("Network-restricted runs");
+  });
+
+  test("runbook contains known-gotchas with jarvis issue URLs", () => {
+    const cap = captureIo();
+    init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
+
+    const runbook = readFileSync(join(cwd, "OPERATOR_RUNBOOK.md"), "utf8");
+    expect(runbook).toContain("External spec symlinks");
+    expect(runbook).toContain("github.com/cbrenner04/jarvis/issues");
+  });
+
+  test("idempotent: does not overwrite existing runbook", () => {
+    const runbookPath = join(cwd, "OPERATOR_RUNBOOK.md");
+    const customContent = "# Custom Runbook\nCustom content here\n";
+    writeFileSync(runbookPath, customContent, "utf8");
+
+    const cap = captureIo();
+    const code = init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
+    expect(code).toBe(0);
+
+    const runbook = readFileSync(runbookPath, "utf8");
+    expect(runbook).toBe(customContent);
+  });
+
+  test("runbook explains commit:false external specs arrangement", () => {
+    const cap = captureIo();
+    init({
+      cwd,
+      io: cap.io,
+      config: { dir: cfgDir },
+      workRoot,
+      readOriginUrl: () => undefined,
+    });
+
+    const runbook = readFileSync(join(cwd, "OPERATOR_RUNBOOK.md"), "utf8");
+    expect(runbook).toContain("External specs for `commit:false` mode");
+    expect(runbook).toContain("~/.jarvis/specs/");
+    expect(runbook).toContain("symlink");
   });
 });

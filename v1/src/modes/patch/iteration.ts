@@ -52,7 +52,7 @@ import {
 } from "./no-commit-delta.ts";
 import { createPatchInvocationBinding } from "./patch-invocation-binding.ts";
 import { maybeMarkReady } from "./pr.ts";
-import { findRelocatedSpecFile, refreshActiveSpecPath } from "./preflight.ts";
+import { findRelocatedSpecFile, isSpecOutsideWorktree, refreshActiveSpecPath } from "./preflight.ts";
 import { buildFixupPrompt, buildPrompt, readRepoGuidance } from "./prompt.ts";
 import { collectSubtree, DESCENDANT_POLL_INTERVAL_MS, listProcesses } from "./reap.ts";
 import type {
@@ -345,6 +345,8 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   const iteration = state.iteration;
   const iterationStartedAt = Date.now();
   const iterationDurationMs = (): number => Date.now() - iterationStartedAt;
+  const hasUntrackedSpecMutation = (path: string | undefined): path is string =>
+    path !== undefined && (!gitEnabled || isSpecOutsideWorktree({ specPath: path, agentWorkingDir }));
 
   // Helper to capture delta on interrupt/timeout: diff current spec against pre-iteration state
   function captureInterruptedDelta(
@@ -352,7 +354,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     beforeCriteria: AcceptanceCriterion[],
     hasBlockerBefore: boolean,
   ): void {
-    if (!activeSubspecPath || gitEnabled || state.noCommitDelta === null) {
+    if (!hasUntrackedSpecMutation(activeSubspecPath) || state.noCommitDelta === null) {
       return;
     }
     try {
@@ -450,9 +452,9 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         isFixupIteration = true;
       } else {
         // Clear no-commit delta on clean completion
-        if (done === 0 && !gitEnabled) {
+        if (done === 0) {
           const activeSubspecToClean = getActiveLinkedSubspecPath(specPath);
-          if (activeSubspecToClean !== undefined) {
+          if (hasUntrackedSpecMutation(activeSubspecToClean)) {
             clearDelta(activeSubspecToClean);
           }
         }
@@ -511,7 +513,11 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
   // For no-commit runs, load and apply any prior-attempt delta before the blocker check
   // This resets any stale AC ticks and blockers from a prior incomplete run
   // Only apply reset once per run (iteration 1), never on subsequent iterations
-  if (!isFixupIteration && activeSubspecPath !== undefined && !gitEnabled && !state.noCommitResetAppliedThisRun) {
+  if (
+    !isFixupIteration &&
+    hasUntrackedSpecMutation(activeSubspecPath) &&
+    !state.noCommitResetAppliedThisRun
+  ) {
     const priorDelta = loadDelta(activeSubspecPath);
     if (priorDelta !== null) {
       applyReset(activeSubspecPath, priorDelta);
@@ -519,7 +525,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     // Create a fresh delta for this attempt (first run or re-run after reset)
     state.noCommitDelta = createFreshDelta(activeSubspecPath);
     state.noCommitResetAppliedThisRun = true;
-  } else if (!gitEnabled && activeSubspecPath !== undefined && state.noCommitDelta === null) {
+  } else if (hasUntrackedSpecMutation(activeSubspecPath) && state.noCommitDelta === null) {
     // Subsequent iterations or fixup iterations: create delta if needed
     state.noCommitDelta = createFreshDelta(activeSubspecPath);
   }
@@ -981,7 +987,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         const humanOnlyUnchecked = afterCriteria.filter((c) => c.humanOnly && !c.checked);
 
         // Record newly checked AC in no-commit delta
-        if (!gitEnabled && state.noCommitDelta !== null && newlyChecked.length > 0) {
+        if (hasUntrackedSpecMutation(afterSubspecPath) && state.noCommitDelta !== null && newlyChecked.length > 0) {
           for (const ac of newlyChecked) {
             recordNewlyCheckedAc(state.noCommitDelta, ac.text);
           }
@@ -1019,7 +1025,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           } else {
             // Automated criteria remain: process the blocker normally
             // Record blocker in no-commit delta
-            if (!gitEnabled && state.noCommitDelta !== null) {
+            if (hasUntrackedSpecMutation(afterSubspecPath) && state.noCommitDelta !== null) {
               recordBlocker(state.noCommitDelta, blockerBody);
             }
 
@@ -1197,7 +1203,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
               ...telemetryMeta,
             });
             // Record this run's delta on incomplete exit to overwrite any prior delta
-            if (!gitEnabled && state.noCommitDelta !== null && afterSubspecPath !== undefined) {
+            if (hasUntrackedSpecMutation(afterSubspecPath) && state.noCommitDelta !== null) {
               saveDelta(state.noCommitDelta);
             }
             return { kind: "return", exitCode: 7 };
@@ -1451,7 +1457,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
                 "stderr",
               );
               // Record this run's delta on incomplete exit to overwrite any prior delta
-              if (!gitEnabled && state.noCommitDelta !== null && afterSubspecPath !== undefined) {
+              if (hasUntrackedSpecMutation(afterSubspecPath) && state.noCommitDelta !== null) {
                 saveDelta(state.noCommitDelta);
               }
               return { kind: "return", exitCode: 6 };
@@ -1510,7 +1516,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
             ...telemetryMeta,
           });
           // Record this run's delta on incomplete exit (fix-up iterations)
-          if (!gitEnabled && state.noCommitDelta !== null && state.noCommitDelta.activeSubspecPath !== undefined) {
+          if (hasUntrackedSpecMutation(state.noCommitDelta?.activeSubspecPath) && state.noCommitDelta !== null) {
             saveDelta(state.noCommitDelta);
           }
           return { kind: "return", exitCode: 7 };
@@ -1558,7 +1564,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           ...telemetryMeta,
         });
         // Clear no-commit delta on clean completion
-        if (done === 0 && !gitEnabled && afterSubspecPath !== undefined) {
+        if (done === 0 && hasUntrackedSpecMutation(afterSubspecPath)) {
           clearDelta(afterSubspecPath);
         }
         return { kind: "return", exitCode: done };
@@ -1609,7 +1615,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
         });
         // Record this run's delta on incomplete exit to overwrite any prior delta
-        if (!gitEnabled && state.noCommitDelta !== null && activeSubspecPath !== undefined) {
+        if (hasUntrackedSpecMutation(activeSubspecPath) && state.noCommitDelta !== null) {
           saveDelta(state.noCommitDelta);
         }
         return { kind: "return", exitCode: 4 };
@@ -1625,7 +1631,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         ...(iterationWarnings !== undefined ? { warnings: iterationWarnings } : {}),
       });
       // Record this run's delta on incomplete loopback to overwrite any prior delta
-      if (!gitEnabled && state.noCommitDelta !== null && activeSubspecPath !== undefined) {
+      if (hasUntrackedSpecMutation(activeSubspecPath) && state.noCommitDelta !== null) {
         saveDelta(state.noCommitDelta);
       }
       state.iteration += 1;

@@ -355,11 +355,21 @@ export function buildActiveAgents(opts: RunCommandOptions, cfg: Config, patchTie
   return agents;
 }
 
-function specOutsideWorktreeReadDirs(opts: { specPath: string; agentWorkingDir: string }): string[] | undefined {
+/**
+ * Returns true when a spec path resolves outside the agent working tree.
+ * This is the patch-mode boundary used for extra read access and for
+ * detecting spec mutations git will not revert automatically.
+ */
+export function isSpecOutsideWorktree(opts: { specPath: string; agentWorkingDir: string }): boolean {
   const agentWorkingDir = resolve(opts.agentWorkingDir);
   const specPath = resolve(opts.specPath);
   const rel = relative(agentWorkingDir, specPath);
-  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
+  return !(rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)));
+}
+
+function specOutsideWorktreeReadDirs(opts: { specPath: string; agentWorkingDir: string }): string[] | undefined {
+  const specPath = resolve(opts.specPath);
+  if (!isSpecOutsideWorktree(opts)) {
     return undefined;
   }
   return [dirname(specPath)];

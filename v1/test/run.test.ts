@@ -19,6 +19,13 @@ import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agen
 import { type AgentEntry, loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
 import {
+  __testClearDeltaStateDir,
+  __testSetDeltaStateDir,
+  createFreshDelta,
+  recordBlocker,
+  recordNewlyCheckedAc,
+} from "../src/modes/patch/no-commit-delta.ts";
+import {
   type CompletionReadyGateResult,
   maybeWarnAboutUnmergedPlanBranch,
   prepareActiveSpecPath,
@@ -163,6 +170,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __testClearDeltaStateDir();
   if (originalPath === undefined) {
     delete process.env.PATH;
   } else {
@@ -5193,6 +5201,114 @@ exit 0
 
       expect(code).toBe(0);
       expect(cap.out()).toContain("spec complete");
+    });
+  });
+
+  describe("rerun reset for spec mutations git does not track", () => {
+    test("re-running an external spec under git: true resets prior-run ticks and blocker", async () => {
+      const deltaStateDir = join(dir, "delta-state");
+      mkdirSync(deltaStateDir, { recursive: true });
+      __testSetDeltaStateDir(deltaStateDir);
+
+      const specDir = join(dir, "external-specs", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const activeSubspec = join(specDir, "00-one.md");
+      const inactiveSubspec = join(specDir, "01-two.md");
+      writeFileSync(spec, withRepo("# Feature\n\n- [ ] [00 - One](./00-one.md)\n- [x] [01 - Two](./01-two.md)\n"));
+      writeFileSync(
+        activeSubspec,
+        "# 00 - One\n\n## Acceptance criteria\n\n- [x] Pre-attempt checked.\n- [ ] Ticked by prior run.\n",
+      );
+      writeFileSync(
+        inactiveSubspec,
+        "# 01 - Two\n\n## Acceptance criteria\n\n- [x] Already done.\n\n## Blocker\n\nPre-attempt blocker stays.\n",
+      );
+
+      const firstCap = captureIo();
+      const firstAgent = new FakeAgent("claude", () => {
+        writeFileSync(
+          activeSubspec,
+          "# 00 - One\n\n## Acceptance criteria\n\n- [x] Pre-attempt checked.\n- [x] Ticked by prior run.\n\n## Blocker\n\nPrior run blocker.\n",
+        );
+        return { kind: "error", exitCode: -1, stderr: "aborted: iteration-timeout" };
+      });
+
+      const firstCode = await runWithDefaults({
+        specPath: spec,
+        io: firstCap.io,
+        config: { dir: cfgDir },
+        agents: { claude: firstAgent },
+        handleSignals: false,
+      });
+
+      expect(firstCode).toBe(8);
+      expect(readFileSync(activeSubspec, "utf8")).toContain("- [x] Ticked by prior run.");
+      expect(readFileSync(activeSubspec, "utf8")).toContain("## Blocker");
+
+      const secondCap = captureIo();
+      const secondAgent = new FakeAgent("claude", () => {
+        const resetContent = readFileSync(activeSubspec, "utf8");
+        expect(resetContent).toContain("- [x] Pre-attempt checked.");
+        expect(resetContent).toContain("- [ ] Ticked by prior run.");
+        expect(resetContent).not.toContain("Prior run blocker.");
+        expect(resetContent).not.toContain("## Blocker");
+        expect(readFileSync(inactiveSubspec, "utf8")).toContain("Pre-attempt blocker stays.");
+        return { kind: "ok", stdout: "", stderr: "" };
+      });
+
+      const secondCode = await runWithDefaults({
+        specPath: spec,
+        io: secondCap.io,
+        config: { dir: cfgDir },
+        agents: { claude: secondAgent },
+        handleSignals: false,
+      });
+
+      expect(secondCode).toBe(4);
+      expect(readFileSync(activeSubspec, "utf8")).toContain("- [x] Pre-attempt checked.");
+      expect(readFileSync(activeSubspec, "utf8")).toContain("- [ ] Ticked by prior run.");
+      expect(readFileSync(activeSubspec, "utf8")).not.toContain("Prior run blocker.");
+      expect(readFileSync(inactiveSubspec, "utf8")).toContain("Pre-attempt blocker stays.");
+    });
+
+    test("an in-repo spec under git: true does not auto-reset prior-run mutations", async () => {
+      const deltaStateDir = join(dir, "delta-state");
+      mkdirSync(deltaStateDir, { recursive: true });
+      __testSetDeltaStateDir(deltaStateDir);
+
+      const specDir = join(projectRoot, "spec", "feature");
+      mkdirSync(specDir, { recursive: true });
+      const spec = join(specDir, "index.md");
+      const activeSubspec = join(specDir, "00-one.md");
+      writeFileSync(spec, withRepo("# Feature\n\n- [ ] [00 - One](./00-one.md)\n"));
+      writeFileSync(
+        activeSubspec,
+        "# 00 - One\n\n## Acceptance criteria\n\n- [x] Pre-attempt checked.\n- [x] Ticked by prior run.\n\n## Blocker\n\nPrior run blocker.\n",
+      );
+
+      const delta = createFreshDelta(activeSubspec);
+      recordNewlyCheckedAc(delta, "Ticked by prior run.");
+      recordBlocker(delta, "Prior run blocker.");
+
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("agent should not run when the in-repo blocker remains");
+      });
+
+      const code = await runWithDefaults({
+        specPath: spec,
+        io: cap.io,
+        config: { dir: cfgDir },
+        agents: { claude },
+        handleSignals: false,
+      });
+
+      expect(code).toBe(7);
+      expect(claude.calls).toHaveLength(0);
+      expect(readFileSync(activeSubspec, "utf8")).toContain("- [x] Ticked by prior run.");
+      expect(readFileSync(activeSubspec, "utf8")).toContain("## Blocker");
+      expect(readFileSync(activeSubspec, "utf8")).toContain("Prior run blocker.");
     });
   });
 

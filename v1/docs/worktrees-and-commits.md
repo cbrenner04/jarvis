@@ -67,6 +67,11 @@ If `git add -A` stages nothing, jarvis skips the per-subspec commit instead of
 aborting the run. This clean-tree no-op is tolerated on all three per-subspec
 commit paths: completion, `WIP:` progress, and `WIP:` blocker.
 
+An `agent-error` exit can also take the `WIP:` progress path: when the failed
+iteration left tracked edits or newly checked acceptance criteria, jarvis
+commits that partial state as `WIP:` before exiting `3`, leaving the worktree
+clean. Untracked-only litter does not count as progress and produces no commit.
+
 ### Jarvis-Agent trailer
 
 Every commit jarvis creates carries a `Jarvis-Agent: <label>` git trailer

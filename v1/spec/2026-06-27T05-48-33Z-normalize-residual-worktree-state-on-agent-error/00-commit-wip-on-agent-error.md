@@ -32,12 +32,12 @@ branch at base with no spurious commit.
 
 ## Acceptance criteria
 
-- [ ] On `agent-error` (exit 3) in a git-enabled run where the failing iteration left tracked edits or newly-checked acceptance criteria, a `WIP: <h1> (N/M criteria)` commit is created before exit and the worktree has no uncommitted tracked changes.
-- [ ] On `agent-error` in a git-enabled run with no tracked edits and no newly-checked criteria (even if the iteration created untracked-only files), no commit is created and the branch tip stays at the base commit.
-- [ ] When `commitWipProgress` fails on the agent-error WIP commit, the run exits 1 with a named harness error rather than exit 3.
-- [ ] The run still exits 3 (`agent-error`) on the progress (WIP committed) and no-progress paths; normalization does not change the cascade exit reason.
-- [ ] A new test in `v1/test` covers both the progress (clean worktree + WIP commit) and no-progress (no commit) agent-error branches.
-- [ ] `run.test.ts` agent-error exit-3 tests stay green (exit reason unchanged by the added commit step).
+- [x] On `agent-error` (exit 3) in a git-enabled run where the failing iteration left tracked edits or newly-checked acceptance criteria, a `WIP: <h1> (N/M criteria)` commit is created before exit and the worktree has no uncommitted tracked changes.
+- [x] On `agent-error` in a git-enabled run with no tracked edits and no newly-checked criteria (even if the iteration created untracked-only files), no commit is created and the branch tip stays at the base commit.
+- [x] When `commitWipProgress` fails on the agent-error WIP commit, the run exits 1 with a named harness error rather than exit 3.
+- [x] The run still exits 3 (`agent-error`) on the progress (WIP committed) and no-progress paths; normalization does not change the cascade exit reason.
+- [x] A new test in `v1/test` covers both the progress (clean worktree + WIP commit) and no-progress (no commit) agent-error branches.
+- [x] `run.test.ts` agent-error exit-3 tests stay green (exit reason unchanged by the added commit step).
 
 ## Documentation updates
 

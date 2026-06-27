@@ -34,6 +34,17 @@ function setupWorktree(worktreePath: string, makeDirty = false): void {
   }
 }
 
+function setupMergeWorktree(worktreeName: string): { worktreePath: string; specPath: string } {
+  const worktreePath = join(worktreeDir, worktreeName);
+  setupWorktree(worktreePath);
+  const specDir = join(projectRoot, "v1", "spec");
+  mkdirSync(specDir, { recursive: true });
+  const specPath = join(specDir, "test-spec.md");
+  writeFileSync(specPath, "# Test\n\n- [x] item 1");
+  writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+  return { worktreePath, specPath };
+}
+
 let root: string;
 let projectRoot: string;
 let worktreeDir: string;
@@ -1195,22 +1206,13 @@ describe("triage --mark-ready", () => {
     });
 
     test("--merge when no PR exists returns error", () => {
-      const worktreeName = "branch-1";
-      const worktreePath = join(worktreeDir, worktreeName);
-      setupWorktree(worktreePath);
-
-      // Write a minimal spec file
-      const specDir = join(projectRoot, "v1", "spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "test-spec.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
-      writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+      setupMergeWorktree("branch-1");
 
       const { io, err } = captureIo();
       const code = triageCommand({
         projectRoot,
         io,
-        worktreeName,
+        worktreeName: "branch-1",
         merge: true,
         ghRunner: {
           getPrState: () => null,
@@ -1222,22 +1224,13 @@ describe("triage --mark-ready", () => {
     });
 
     test("--merge when PR is merged returns error", () => {
-      const worktreeName = "branch-1";
-      const worktreePath = join(worktreeDir, worktreeName);
-      setupWorktree(worktreePath);
-
-      // Write a minimal spec file
-      const specDir = join(projectRoot, "v1", "spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "test-spec.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
-      writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+      setupMergeWorktree("branch-1");
 
       const { io, err } = captureIo();
       const code = triageCommand({
         projectRoot,
         io,
-        worktreeName,
+        worktreeName: "branch-1",
         merge: true,
         ghRunner: {
           getPrState: () => ({
@@ -1252,22 +1245,13 @@ describe("triage --mark-ready", () => {
     });
 
     test("--merge when PR is closed returns error", () => {
-      const worktreeName = "branch-1";
-      const worktreePath = join(worktreeDir, worktreeName);
-      setupWorktree(worktreePath);
-
-      // Write a minimal spec file
-      const specDir = join(projectRoot, "v1", "spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "test-spec.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
-      writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+      setupMergeWorktree("branch-1");
 
       const { io, err } = captureIo();
       const code = triageCommand({
         projectRoot,
         io,
-        worktreeName,
+        worktreeName: "branch-1",
         merge: true,
         ghRunner: {
           getPrState: () => ({
@@ -1315,36 +1299,28 @@ describe("triage --mark-ready", () => {
     });
 
     test("--merge with green CI checks merges the PR", () => {
-      const worktreeName = "branch-1";
-      const worktreePath = join(worktreeDir, worktreeName);
-      setupWorktree(worktreePath);
-
-      // Write a minimal spec file
-      const specDir = join(projectRoot, "v1", "spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "test-spec.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
-      writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+      setupMergeWorktree("branch-1");
 
       let gateRan = false;
       let prReadyRan = false;
       let mergeRan = false;
+      const greenChecks = [
+        { name: "check-1", status: "success" },
+        { name: "check-2", status: "skipped" },
+      ];
 
       const { io, out } = captureIo();
       const code = triageCommand({
         projectRoot,
         io,
-        worktreeName,
+        worktreeName: "branch-1",
         merge: true,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
             isDraft: true,
           }),
-          getChecks: () => [
-            { name: "check-1", status: "success" },
-            { name: "check-2", status: "skipped" },
-          ],
+          getChecks: () => greenChecks,
         },
         runGate: () => {
           gateRan = true;
@@ -1352,10 +1328,6 @@ describe("triage --mark-ready", () => {
         prReady: () => {
           prReadyRan = true;
         },
-        pollChecks: () => [
-          { name: "check-1", status: "success" },
-          { name: "check-2", status: "skipped" },
-        ],
         adminMerge: () => {
           mergeRan = true;
         },
@@ -1369,16 +1341,7 @@ describe("triage --mark-ready", () => {
     });
 
     test("--merge with red CI check refuses to merge", () => {
-      const worktreeName = "branch-1";
-      const worktreePath = join(worktreeDir, worktreeName);
-      setupWorktree(worktreePath);
-
-      // Write a minimal spec file
-      const specDir = join(projectRoot, "v1", "spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "test-spec.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
-      writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+      setupMergeWorktree("branch-1");
 
       let mergeRan = false;
 
@@ -1386,24 +1349,20 @@ describe("triage --mark-ready", () => {
       const code = triageCommand({
         projectRoot,
         io,
-        worktreeName,
+        worktreeName: "branch-1",
         merge: true,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
             isDraft: true,
           }),
+          getChecks: () => [
+            { name: "lint", status: "failure" },
+            { name: "test", status: "success" },
+          ],
         },
-        runGate: () => {
-          // Gate succeeds
-        },
-        prReady: () => {
-          // Mark ready succeeds
-        },
-        pollChecks: () => [
-          { name: "lint", status: "failure" },
-          { name: "test", status: "success" },
-        ],
+        runGate: () => {},
+        prReady: () => {},
         adminMerge: () => {
           mergeRan = true;
         },
@@ -1416,16 +1375,7 @@ describe("triage --mark-ready", () => {
     });
 
     test("--merge with pending CI checks waits", () => {
-      const worktreeName = "branch-1";
-      const worktreePath = join(worktreeDir, worktreeName);
-      setupWorktree(worktreePath);
-
-      // Write a minimal spec file
-      const specDir = join(projectRoot, "v1", "spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "test-spec.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
-      writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+      setupMergeWorktree("branch-1");
 
       let pollCount = 0;
 
@@ -1433,29 +1383,24 @@ describe("triage --mark-ready", () => {
       const code = triageCommand({
         projectRoot,
         io,
-        worktreeName,
+        worktreeName: "branch-1",
         merge: true,
+        pollIntervalMs: 0,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
-            isDraft: false, // Already ready
+            isDraft: false,
           }),
+          getChecks: () => {
+            pollCount++;
+            if (pollCount < 2) {
+              return [{ name: "test", status: "in_progress" }];
+            }
+            return [{ name: "test", status: "success" }];
+          },
         },
-        runGate: () => {
-          // Gate succeeds
-        },
-        pollChecks: () => {
-          pollCount++;
-          if (pollCount < 2) {
-            // First poll: pending
-            return [{ name: "test", status: "in_progress" }];
-          }
-          // Second poll: success
-          return [{ name: "test", status: "success" }];
-        },
-        adminMerge: () => {
-          // Merge succeeds
-        },
+        runGate: () => {},
+        adminMerge: () => {},
       });
 
       expect(code).toBe(0);
@@ -1464,16 +1409,7 @@ describe("triage --mark-ready", () => {
     });
 
     test("--merge with local gate failure refuses to merge", () => {
-      const worktreeName = "branch-1";
-      const worktreePath = join(worktreeDir, worktreeName);
-      setupWorktree(worktreePath);
-
-      // Write a minimal spec file
-      const specDir = join(projectRoot, "v1", "spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "test-spec.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
-      writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+      setupMergeWorktree("branch-1");
 
       let mergeRan = false;
 
@@ -1481,7 +1417,7 @@ describe("triage --mark-ready", () => {
       const code = triageCommand({
         projectRoot,
         io,
-        worktreeName,
+        worktreeName: "branch-1",
         merge: true,
         ghRunner: {
           getPrState: () => ({
@@ -1504,16 +1440,7 @@ describe("triage --mark-ready", () => {
     });
 
     test("--merge on already-ready PR proceeds without prReady call", () => {
-      const worktreeName = "branch-1";
-      const worktreePath = join(worktreeDir, worktreeName);
-      setupWorktree(worktreePath);
-
-      // Write a minimal spec file
-      const specDir = join(projectRoot, "v1", "spec");
-      mkdirSync(specDir, { recursive: true });
-      const specPath = join(specDir, "test-spec.md");
-      writeFileSync(specPath, "# Test\n\n- [x] item 1");
-      writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+      setupMergeWorktree("branch-1");
 
       let prReadyRan = false;
 
@@ -1521,28 +1448,24 @@ describe("triage --mark-ready", () => {
       const code = triageCommand({
         projectRoot,
         io,
-        worktreeName,
+        worktreeName: "branch-1",
         merge: true,
         ghRunner: {
           getPrState: () => ({
             state: "OPEN",
-            isDraft: false, // Already ready
+            isDraft: false,
           }),
+          getChecks: () => [{ name: "test", status: "success" }],
         },
-        runGate: () => {
-          // Gate succeeds
-        },
+        runGate: () => {},
         prReady: () => {
           prReadyRan = true;
         },
-        pollChecks: () => [{ name: "test", status: "success" }],
-        adminMerge: () => {
-          // Merge succeeds
-        },
+        adminMerge: () => {},
       });
 
       expect(code).toBe(0);
-      expect(prReadyRan).toBe(false); // Should not be called
+      expect(prReadyRan).toBe(false);
       expect(out()).toContain("merged successfully");
     });
   });

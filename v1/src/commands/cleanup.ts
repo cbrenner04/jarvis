@@ -1,8 +1,9 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join, relative } from "node:path";
-import type { ConfigOptions } from "../config.ts";
 import { stripPlanSpecTimestampPrefix } from "../modes/plan/spec-paths.ts";
+import { closePr, findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
+import { deleteLocalBranch, deleteRemoteBranch } from "../worktree.ts";
 
 export type CleanupIo = {
   stdout: (s: string) => void;
@@ -13,15 +14,21 @@ export type CleanupIo = {
 export type CleanupCommandOptions = {
   projectRoot: string;
   io: CleanupIo;
-  config?: ConfigOptions;
   dryRun?: boolean;
+  abandon?: boolean;
   targetDir?: string;
   commit?: boolean;
   externalSpecsRoot?: string;
   isMergedPr?: (branch: string) => boolean;
   removeItem?: (item: { path: string; branch: string; dir: string }) => void;
+  findMatchingOpenPrs?: (branch: string, cwd?: string) => MatchingOpenPr[];
+  closePr?: (prNumber: number, cwd?: string) => void;
+  deleteLocalBranch?: (projectRoot: string, branchName: string) => void;
+  deleteRemoteBranch?: (projectRoot: string, branchName: string) => void;
   candidateHomes?: string[];
 };
+
+type CleanupItem = { path: string; branch: string; dir: string };
 
 function branchForWorktree(worktreePath: string): string {
   return execSync("git rev-parse --abbrev-ref HEAD", {
@@ -211,10 +218,11 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
   const worktreeDir = join(opts.projectRoot, ".worktree");
   const targetDir = opts.targetDir ?? "spec";
   const commit = opts.commit ?? true;
+  const abandon = opts.abandon ?? false;
   const candidateHomes = opts.candidateHomes ?? [targetDir, "v1/spec", "v2/spec"];
   const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
 
-  const toRemove: Array<{ path: string; branch: string; dir: string }> = [];
+  const toRemove: CleanupItem[] = [];
 
   for (const worktreeName of worktrees) {
     const worktreePath = join(worktreeDir, worktreeName);
@@ -223,6 +231,21 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       branch = branchForWorktree(worktreePath);
     } catch {
       opts.io.stdout(`skipping ${worktreeName}: could not determine branch\n`);
+      continue;
+    }
+
+    if (abandon) {
+      if (!isEligibleForAbandon({
+        branch,
+        io: opts.io,
+        isMergedPr: opts.isMergedPr ?? isMergedPr,
+        findMatchingOpenPrs: opts.findMatchingOpenPrs ?? findMatchingOpenPrs,
+        projectRoot: opts.projectRoot,
+        worktreeName,
+      })) {
+        continue;
+      }
+      toRemove.push({ path: worktreePath, branch, dir: worktreeName });
       continue;
     }
 
@@ -239,7 +262,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
   }
 
   if (toRemove.length === 0) {
-    opts.io.stdout("no merged worktrees to remove\n");
+    opts.io.stdout(abandon ? "no abandoned worktrees to remove\n" : "no merged worktrees to remove\n");
     return 0;
   }
 
@@ -262,7 +285,17 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
   let hadFailures = false;
   for (const item of toRemove) {
     try {
-      if (opts.removeItem) {
+      if (abandon) {
+        retireAbandonedWorktree({
+          closePrFn: opts.closePr ?? closePr,
+          deleteLocalBranchFn: opts.deleteLocalBranch ?? deleteLocalBranch,
+          deleteRemoteBranchFn: opts.deleteRemoteBranch ?? deleteRemoteBranch,
+          findMatchingOpenPrsFn: opts.findMatchingOpenPrs ?? findMatchingOpenPrs,
+          item,
+          projectRoot: opts.projectRoot,
+          io: opts.io,
+        });
+      } else if (opts.removeItem) {
         opts.removeItem(item);
       } else {
         execSync(`git worktree remove "${item.path}"`, {
@@ -273,6 +306,10 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
       }
       const tag = isPlanBranch(item.branch) ? " (plan)" : "";
       opts.io.stdout(`removed ${item.branch}${tag}\n`);
+
+      if (abandon) {
+        continue;
+      }
 
       const branchSlug = specNameForBranch(item.branch);
       if (!commit && opts.externalSpecsRoot === undefined) {
@@ -330,14 +367,75 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
 
 function isMergedPr(branch: string): boolean {
   try {
-    const output = execSync(`gh pr view "${branch}" --json state -q .state`, {
-      stdio: "pipe",
+    const output = execFileSync("gh", ["pr", "view", branch, "--json", "state", "-q", ".state"], {
+      env: process.env,
       encoding: "utf8",
+      stdio: "pipe",
     });
     return output.trim() === "MERGED";
   } catch {
     return false;
   }
+}
+
+function isEligibleForAbandon(args: {
+  branch: string;
+  io: CleanupIo;
+  isMergedPr: (branch: string) => boolean;
+  findMatchingOpenPrs: (branch: string, cwd?: string) => MatchingOpenPr[];
+  projectRoot: string;
+  worktreeName: string;
+}): boolean {
+  if (args.isMergedPr(args.branch)) {
+    return false;
+  }
+
+  let matchingOpenPrs: MatchingOpenPr[];
+  try {
+    matchingOpenPrs = args.findMatchingOpenPrs(args.branch, args.projectRoot);
+  } catch (err) {
+    args.io.stdout(`skipping ${args.worktreeName}: failed to inspect PRs: ${(err as Error).message}\n`);
+    return false;
+  }
+
+  if (matchingOpenPrs.length > 1) {
+    args.io.stdout(`skipping ${args.worktreeName}: multiple open PRs match branch ${args.branch}\n`);
+    return false;
+  }
+
+  const matchingPr = matchingOpenPrs[0];
+  if (matchingPr !== undefined && !matchingPr.isDraft) {
+    args.io.stdout(`skipping ${args.worktreeName}: open ready PR #${matchingPr.number}\n`);
+    return false;
+  }
+
+  return true;
+}
+
+function retireAbandonedWorktree(args: {
+  closePrFn: (prNumber: number, cwd?: string) => void;
+  deleteLocalBranchFn: (projectRoot: string, branchName: string) => void;
+  deleteRemoteBranchFn: (projectRoot: string, branchName: string) => void;
+  findMatchingOpenPrsFn: (branch: string, cwd?: string) => MatchingOpenPr[];
+  item: CleanupItem;
+  projectRoot: string;
+  io: CleanupIo;
+}): void {
+  const matchingPr = args.findMatchingOpenPrsFn(args.item.branch, args.projectRoot)[0];
+  if (matchingPr !== undefined) {
+    try {
+      args.closePrFn(matchingPr.number, args.projectRoot);
+    } catch (err) {
+      args.io.stderr(`failed to close PR #${matchingPr.number} for ${args.item.branch}: ${(err as Error).message}\n`);
+    }
+  }
+
+  execFileSync("git", ["worktree", "remove", "--force", args.item.path], {
+    cwd: args.projectRoot,
+    stdio: "pipe",
+  });
+  args.deleteLocalBranchFn(args.projectRoot, args.item.branch);
+  args.deleteRemoteBranchFn(args.projectRoot, args.item.branch);
 }
 
 function hasDirtyStatus(worktreePath: string, _projectRoot: string): boolean {

@@ -43,19 +43,19 @@ same worktree set; `--abandon` flips eligibility and the post-removal actions.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 cleanup --abandon` retires a worktree whose PR is closed: force-removes the worktree, deletes the local branch, and deletes the remote branch.
-- [ ] `jarvis1 cleanup --abandon` retires a worktree with **no** PR (closed/absent treated alike).
-- [ ] An eligible worktree with an open **draft** PR ends retired with the PR closed and the worktree, local branch, and remote branch removed.
-- [ ] A worktree whose PR is **merged** is skipped under `--abandon` (left for default cleanup).
-- [ ] A worktree with an open **non-draft (ready)** PR, or multiple open matching PRs, is skipped (not retired) under `--abandon`.
-- [ ] A **dirty/contaminated** eligible worktree is still removed under `--abandon` (force), unlike default cleanup which skips dirty worktrees.
-- [ ] After a retire completes, the source spec directory is still present and unmodified on disk, so a subsequent `jarvis1 run` re-runs it.
-- [ ] Remote-branch deletion is best-effort: a missing remote branch does not fail the retire.
-- [ ] A `closePr` failure (including an already-closed/absent PR) is non-fatal: the retire still removes the worktree and branches.
-- [ ] `jarvis1 cleanup --abandon --dry-run` previews exactly the eligible worktrees, suppresses the confirmation prompt, and makes no changes (no PR close, no worktree/branch removal).
-- [ ] Declining the confirmation prompt cancels the retire with no side effects (no PR close, no worktree/branch removal).
-- [ ] `cleanup` help/usage text documents `--abandon`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `jarvis1 cleanup --abandon` retires a worktree whose PR is closed: force-removes the worktree, deletes the local branch, and deletes the remote branch.
+- [x] `jarvis1 cleanup --abandon` retires a worktree with **no** PR (closed/absent treated alike).
+- [x] An eligible worktree with an open **draft** PR ends retired with the PR closed and the worktree, local branch, and remote branch removed.
+- [x] A worktree whose PR is **merged** is skipped under `--abandon` (left for default cleanup).
+- [x] A worktree with an open **non-draft (ready)** PR, or multiple open matching PRs, is skipped (not retired) under `--abandon`.
+- [x] A **dirty/contaminated** eligible worktree is still removed under `--abandon` (force), unlike default cleanup which skips dirty worktrees.
+- [x] After a retire completes, the source spec directory is still present and unmodified on disk, so a subsequent `jarvis1 run` re-runs it.
+- [x] Remote-branch deletion is best-effort: a missing remote branch does not fail the retire.
+- [x] A `closePr` failure (including an already-closed/absent PR) is non-fatal: the retire still removes the worktree and branches.
+- [x] `jarvis1 cleanup --abandon --dry-run` previews exactly the eligible worktrees, suppresses the confirmation prompt, and makes no changes (no PR close, no worktree/branch removal).
+- [x] Declining the confirmation prompt cancels the retire with no side effects (no PR close, no worktree/branch removal).
+- [x] `cleanup` help/usage text documents `--abandon`.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

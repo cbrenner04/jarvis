@@ -258,6 +258,14 @@ describe("parseArgs", () => {
     }
   });
 
+  test("cleanup with --abandon and --dry-run", () => {
+    expect(parseArgs(["cleanup", "--abandon", "--dry-run"])).toEqual({
+      kind: "cleanup",
+      abandon: true,
+      dryRun: true,
+    });
+  });
+
   test.each([
     ["run", "--help", "run"],
     ["run", "-h", "run"],
@@ -575,7 +583,7 @@ describe("run", () => {
     ["init", ["Register the current target repo"]],
     ["config", ["View or edit"]],
     ["log-server", ["log aggregation server"]],
-    ["cleanup", ["Remove merged worktrees"]],
+    ["cleanup", ["--abandon", "Remove merged worktrees, or retire abandoned worktrees"]],
     ["triage", ["Inspect"]],
     ["review-feedback", ["PR review feedback"]],
     ["plan", []],

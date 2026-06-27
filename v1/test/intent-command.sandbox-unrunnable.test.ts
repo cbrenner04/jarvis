@@ -1433,6 +1433,10 @@ describe("intentCommand", () => {
       expect(cap.err()).not.toContain("intent: draft PR");
       expect(cap.err()).not.toContain("warning: could not mark PR ready for review");
       expect(cap.out()).not.toContain("https://example.com/pull/");
+      expect(existsSync(env.prState)).toBe(false);
+      expect(existsSync(env.prReady)).toBe(false);
+      expect(existsSync(join(env.projectRoot, ".worktree"))).toBe(false);
+      expect(execSync("git branch --list 'intent/*'", { cwd: env.projectRoot, encoding: "utf8" }).trim()).toBe("");
     } finally {
       env.cleanup();
     }

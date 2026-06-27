@@ -267,7 +267,11 @@ PR ready). The complete-but-dirty commit happens before the ready gate runs,
 so a subsequent ready gate failure leaves the PR in draft state and the run
 reflects the gate failure, not completion success. If the worktree remains
 dirty after the auto-commit (unexpected state), the run exits with guidance
-(`exit 6`). When effective `git` is `false`, the clean-tree check is skipped:
+(`exit 6`). When all non-human-only acceptance criteria are satisfied but the
+run still exits `6` (for example uncommitted criteria ticks or a failed
+auto-commit), `jarvis1 triage <worktree-name> --mark-ready` finalizes: commit
+dirty changes, open a draft PR if absent, gate once, and ready on green. When
+effective `git` is `false`, the clean-tree check is skipped:
 completion is purely "all non-human-only criteria checked", regardless of dirty or untracked
 files in the agent's working directory.
 
@@ -563,7 +567,7 @@ Both indicate the issue persists and manual intervention is likely needed. On ex
 2. Outputs an operator message:
    - For identical-failure stop: The captured `bun run ready failed:` text that failed before and fails after, noting the fix-up edits have been discarded (recoverable via git reflog), and the PR is left at the original completed work.
    - For changing-failure bound: The captured `bun run ready failed:` text and a note that the gate stayed red for N consecutive fix-up iterations with no acceptance-criteria progress and the failure differed each pass, the fix-up edits have been discarded, and the PR is left at the original completed work.
-   - A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves. If the operator verifies the gate should now pass, use `jarvis1 triage <worktree-name> --mark-ready` to re-run the gate once and promote the PR on green.
+   - A pointer to `jarvis1 triage <worktree-name>` to inspect worktree state and see next moves. If the operator verifies the gate should now pass, use `jarvis1 triage <worktree-name> --mark-ready` to commit any dirty changes, open a draft PR if needed, re-run the gate once, and promote the PR on green.
 3. Writes a telemetry record with exit reason `ready-stuck-red` for observability (even if the git reset or force-push fails, the telemetry is still written and the exit code remains 10).
 
 If a git reset or force-push fails during the discard step, a warning is logged but the exit code remains 10 and telemetry is still written. When git is disabled, no upstream exists, or `--skip-gh-check` is set, the discard step is skipped (no force-push attempted) and the exit code remains 10.

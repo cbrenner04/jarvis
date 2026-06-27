@@ -1,13 +1,18 @@
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parseSpec } from "../../../shared/spec-parser.ts";
+import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
 import { loadConfig } from "../config.ts";
-import { withSyncTransientRetry } from "../gh.ts";
+import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
+import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";
+import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
+import { type EnsureDraftPrOpts, ensureDraftPr, renderAttributionSummary } from "../pr.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
+import { pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
 
 export type TriageIo = {
@@ -23,6 +28,10 @@ export type TriageGhRunner = {
   getChecks?: (branch: string) => CiCheckState[] | null;
 };
 
+export type CommitAndPushDirtyResult =
+  | { ok: true }
+  | { ok: false; reason: "still-dirty" | "commit-failed" | "push-failed"; message?: string };
+
 export type TriageCommandOptions = {
   projectRoot: string;
   io: TriageIo;
@@ -33,6 +42,8 @@ export type TriageCommandOptions = {
   ghRunner?: TriageGhRunner;
   runGate?: (cwd: string, readyCommand?: string) => void;
   prReady?: (branch: string, cwd: string) => void;
+  commitAndPushDirty?: (worktreePath: string) => CommitAndPushDirtyResult;
+  ensureDraftPr?: (opts: EnsureDraftPrOpts) => Promise<{ number: number; created: boolean }>;
   adminMerge?: (branch: string, cwd: string) => void;
   pollIntervalMs?: number;
   pollTimeoutMs?: number;
@@ -59,7 +70,7 @@ export function getSuggestedMoves(input: SuggestedMovesInput): string[] {
   return defaultSuggestedMove(input);
 }
 
-export function triageCommand(opts: TriageCommandOptions): number {
+export function triageCommand(opts: TriageCommandOptions): number | Promise<number> {
   const worktreeDir = join(opts.projectRoot, ".worktree");
 
   // Named form: drill-down for a specific worktree
@@ -942,7 +953,7 @@ function getSpecProgress(_worktreePath: string): string {
   return "-";
 }
 
-function triageMarkReady(opts: TriageCommandOptions): number {
+async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
   const label = "triage --mark-ready";
   const ctx = resolveTriageNamedWorktree(opts, label);
   if (!ctx.ok) {
@@ -950,21 +961,48 @@ function triageMarkReady(opts: TriageCommandOptions): number {
   }
   const { worktreePath, branch, specPath } = ctx;
 
-  const ghRunner = opts.ghRunner ?? createDefaultGhRunner();
-  const prState = ghRunner.getPrState(branch);
-  if (!prState) {
-    opts.io.stderr(`${label}: no PR found for branch ${branch}\n`);
+  if (!isSpecComplete(specPath)) {
+    opts.io.stderr(`${label}: incomplete run — use \`jarvis1 run ${specPath}\` to continue, not finalize\n`);
     return 1;
   }
 
-  if (!prState.isDraft) {
+  const ghRunner = opts.ghRunner ?? createDefaultGhRunner();
+  const prState = ghRunner.getPrState(branch);
+  if (prState && !prState.isDraft) {
     opts.io.stderr(`${label}: PR is not in DRAFT state (current state: ${prState.state}). Cannot promote.\n`);
     return 1;
   }
 
-  if (!isSpecComplete(specPath)) {
-    opts.io.stderr(`${label}: spec is not complete — linked subspecs have unchecked items\n`);
+  const commitResult = (opts.commitAndPushDirty ?? commitAndPushFinalizeDirtyWorktree)(worktreePath);
+  if (!commitResult.ok) {
+    if (commitResult.reason === "still-dirty") {
+      opts.io.stderr(`${label}: worktree still dirty after finalize commit\n`);
+    } else if (commitResult.reason === "commit-failed") {
+      const message = commitResult.message ?? "commit failed";
+      opts.io.stderr(`${label}: failed to finalize commit\n${message}\n`);
+    } else {
+      const message = commitResult.message ?? "push failed";
+      opts.io.stderr(`${label}: failed to push finalize commit\n${message}\n`);
+    }
     return 1;
+  }
+
+  if (!prState) {
+    try {
+      const base = await getBaseBranch(worktreePath);
+      await (opts.ensureDraftPr ?? ensureDraftPr)({
+        branch,
+        base,
+        title: getIndexTitle(specPath),
+        bodyGenerator: () => generatePrBody(specPath, null as never, worktreePath, "template", base),
+        footer: renderAttributionSummary({ cwd: worktreePath, base }),
+        cwd: worktreePath,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      opts.io.stderr(`${label}: failed to open draft PR\n${message}\n`);
+      return 1;
+    }
   }
 
   const gateError = triageRunReadyGate(opts, worktreePath, resolveReadyCommand(opts), "triage-mark-ready");
@@ -982,6 +1020,57 @@ function triageMarkReady(opts: TriageCommandOptions): number {
     opts.io.stderr(`${label}: failed to mark PR ready\n${message}\n`);
     return 1;
   }
+}
+
+function pushWorktreeOrFail(worktreePath: string): CommitAndPushDirtyResult {
+  try {
+    pushCurrent({ cwd: worktreePath, firstPush: false });
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: "push-failed", message };
+  }
+}
+
+function commitAndPushFinalizeDirtyWorktree(worktreePath: string): CommitAndPushDirtyResult {
+  if (computeDirtyKind(worktreePath) === "clean") {
+    return computeUnpushed(worktreePath) === 0 ? { ok: true } : pushWorktreeOrFail(worktreePath);
+  }
+
+  try {
+    execFileSync("git", ["add", "-A"], { cwd: worktreePath, stdio: "pipe" });
+    execFileSync("git", ["commit", "-F", "-"], {
+      cwd: worktreePath,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      input: appendAgentTrailer("chore: complete-but-dirty commit", "completion-ready"),
+    });
+    const porcelain = execFileSync("git", ["status", "--porcelain"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim();
+    if (porcelain !== "") {
+      return { ok: false, reason: "still-dirty" };
+    }
+    return pushWorktreeOrFail(worktreePath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: "commit-failed", message };
+  }
+}
+
+function resolveWorktreeLocalSpecPath(opts: {
+  projectRoot: string;
+  worktreePath: string;
+  markerSpecPath: string;
+}): string {
+  const prepared = prepareActiveSpecPath({
+    projectRoot: opts.projectRoot,
+    agentWorkingDir: opts.worktreePath,
+    specPath: opts.markerSpecPath,
+  });
+  return findRelocatedSpecFile(prepared, opts.worktreePath);
 }
 
 type TriageNamedWorktree =
@@ -1019,16 +1108,26 @@ function resolveTriageNamedWorktree(opts: TriageCommandOptions, label: string): 
     return { ok: false, code: 1 };
   }
 
-  let specPath: string;
+  let markerSpecPath: string;
   try {
-    specPath = readFileSync(specMarkerPath, "utf8").trim();
+    markerSpecPath = readFileSync(specMarkerPath, "utf8").trim();
   } catch {
     opts.io.stderr(`${label}: unable to read .active-spec-path marker\n`);
     return { ok: false, code: 1 };
   }
 
-  if (!specPath || !existsSync(specPath)) {
-    opts.io.stderr(`${label}: spec file not found: ${specPath || "(unknown)"}\n`);
+  if (!markerSpecPath) {
+    opts.io.stderr(`${label}: spec file not found: (unknown)\n`);
+    return { ok: false, code: 1 };
+  }
+
+  const specPath = resolveWorktreeLocalSpecPath({
+    projectRoot: opts.projectRoot,
+    worktreePath,
+    markerSpecPath,
+  });
+  if (!existsSync(specPath)) {
+    opts.io.stderr(`${label}: spec file not found: ${specPath}\n`);
     return { ok: false, code: 1 };
   }
 
@@ -1101,34 +1200,25 @@ function ghAdminMergeDefault(branch: string, cwd: string): void {
   );
 }
 
+function nonHumanOnlyAcceptanceComplete(specPath: string): boolean {
+  return existsSync(specPath) && snapshotAcceptanceCriteria(specPath).every((c) => c.humanOnly || c.checked);
+}
+
 function isSpecComplete(specPath: string): boolean {
   if (!specPath || !existsSync(specPath)) {
     return false;
   }
 
   try {
-    const unchecked = countUnchecked(specPath);
-    if (unchecked > 0) {
-      return false;
+    if (basename(specPath) !== "index.md") {
+      return nonHumanOnlyAcceptanceComplete(specPath);
     }
-
-    if (basename(specPath) === "index.md") {
-      // For index specs, check if linked subspecs are complete
-      const indexContent = readFileSync(specPath, "utf8");
-      const parsed = parseSpec(indexContent);
-      const linked = parsed.linkedSubspecs;
-
-      if (linked.length === 0) {
-        // Single-file or malformed spec with no linked subspecs: treat as complete if no unchecked items
-        return true;
-      }
-
-      // For index specs with linked subspecs, all must be checked
-      return linked.every((item: { checked: boolean }) => item.checked);
-    }
-
-    // Single-file spec: complete if no unchecked items
-    return true;
+    const parsed = parseSpec(readFileSync(specPath, "utf8"));
+    const paths =
+      parsed.linkedSubspecs.length === 0
+        ? [specPath]
+        : parsed.linkedSubspecs.map((linked) => resolve(dirname(specPath), linked.path));
+    return paths.every(nonHumanOnlyAcceptanceComplete);
   } catch {
     return false;
   }

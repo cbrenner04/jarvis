@@ -213,7 +213,7 @@ gh pr ready && gh pr merge --admin --squash   # ready first — admin refuses a 
 
 Common cases:
 
-- **Complete-but-dirty run.** Checklists all ticked but the worktree has uncommitted work — commit it and finalize (never auto-tick criteria).
+- **Complete-but-dirty run.** All non-human-only acceptance criteria are satisfied but the worktree has uncommitted work — `jarvis1 triage <worktree-name> --mark-ready` auto-finalizes (commit, open draft PR if absent, gate once, ready on green). Never auto-tick criteria.
 - **Stuck-red completion (exit 10).** The gate failed repeatedly, fix-up commits were discarded (reset to first-red baseline, force-pushed with `--force-with-lease`), PR left at the original completed work. Recovery: fix the underlying issue. If the gate should now pass, `jarvis1 triage <worktree-name> --mark-ready` re-runs the gate once and promotes on green; otherwise rerun `jarvis1 run <spec>` to retry the fix-up. Discarded edits remain in git reflog. Once the gate is green and the PR is ready, use `jarvis1 triage <worktree-name> --merge` to atomically poll CI to green and admin-merge (preferred) or manually `gh pr merge --admin --squash`.
 - **Transient-killed plan.** Died on a transient agent-error, leaving a dirty plan worktree. If the review actuator finished (verdict written, subspec edits applied) and only the commit/index-reconcile was lost, reconcile `index.md` to match the subspecs the actuator created, then commit — cheaper than re-running the review. If edits look truncated, discard and re-resume.
 - **Flaky parallel-load failure.** Tests that pass serially but fail under `--parallel` are load flakes — re-run the failing test(s) in isolation; if green, finalize.

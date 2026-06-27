@@ -141,10 +141,11 @@ Flags:
 `,
   triage: `Usage: jarvis1 triage [worktree-name] [--mark-ready] [--merge]
 
-  Inspect a dirty or orphaned worktree. On a named worktree, --mark-ready re-runs
-  the completion ready gate and, on green, flips the draft PR to ready. --merge
-  runs the ready gate, marks the PR ready if draft, waits for CI to be green, then
-  admin-squash-merges the PR.
+  Inspect a dirty or orphaned worktree. On a named worktree, --mark-ready finalizes
+  a complete run: commit dirty work, open a draft PR when absent, run the completion
+  ready gate once, and flip the PR to ready on green. --merge runs the ready gate,
+  marks the PR ready if draft, waits for CI to be green, then admin-squash-merges
+  the PR.
 `,
   "review-feedback": `Usage: jarvis1 review-feedback <worktree-name>
 

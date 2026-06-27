@@ -67,26 +67,26 @@ incomplete run is refused as a re-run, with no side effects.
 
 ## Acceptance criteria
 
-- [ ] `jarvis1 triage <worktree> --mark-ready` on a complete worktree (all
+- [x] `jarvis1 triage <worktree> --mark-ready` on a complete worktree (all
   non-human-only ACs checked) with uncommitted changes and an existing draft PR
   commits the outstanding work so the tree is clean, runs the ready gate once, and
   flips the PR to ready on green (exit 0).
-- [ ] When no PR exists for the branch, `--mark-ready` opens a draft PR before
+- [x] When no PR exists for the branch, `--mark-ready` opens a draft PR before
   gating instead of refusing with `no PR found`.
-- [ ] On a complete, **clean** worktree with no PR, `--mark-ready` opens the draft
+- [x] On a complete, **clean** worktree with no PR, `--mark-ready` opens the draft
   PR, gates, and flips ready (exit 0) instead of erroring `no PR found`.
-- [ ] When any non-human-only acceptance criterion is unsatisfied, `--mark-ready`
+- [x] When any non-human-only acceptance criterion is unsatisfied, `--mark-ready`
   refuses with a message identifying the worktree as a re-run (not a finalize),
   performs no commit, opens no PR, and runs no gate, and exits non-zero.
-- [ ] A worktree whose only unchecked acceptance criteria are human-only (`(Manual)`,
+- [x] A worktree whose only unchecked acceptance criteria are human-only (`(Manual)`,
   `visual inspection only`, `no automated guard`) is finalized rather than refused.
-- [ ] The finalize commit captures untracked and modified files (`git add -A`) so the
+- [x] The finalize commit captures untracked and modified files (`git add -A`) so the
   tree is clean before the gate; if the tree is still dirty after the commit, the PR
   is left draft and the command exits non-zero.
-- [ ] A failed ready gate leaves the PR draft (not flipped) and exits non-zero.
-- [ ] A push failure after the finalize commit exits non-zero, opens no PR, and
+- [x] A failed ready gate leaves the PR draft (not flipped) and exits non-zero.
+- [x] A push failure after the finalize commit exits non-zero, opens no PR, and
   runs no gate, leaving the commit intact.
-- [ ] `v1/test/triage-command.test.ts` stays green — the existing live-run-lock
+- [x] `v1/test/triage-command.test.ts` stays green — the existing live-run-lock
   refusal and the DRAFT-only guard for an existing PR are preserved.
 
 ## Documentation updates

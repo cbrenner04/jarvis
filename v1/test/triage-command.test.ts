@@ -34,6 +34,82 @@ function setupWorktree(worktreePath: string, makeDirty = false): void {
   }
 }
 
+function setupMarkReadyWorktree(
+  worktreeName: string,
+  opts?: {
+    makeDirty?: boolean;
+    specBody?: string;
+    indexSpec?: { indexPath: string; subspecPath: string; subspecBody: string };
+  },
+): { worktreePath: string; specPath: string } {
+  const worktreePath = join(worktreeDir, worktreeName);
+  setupWorktree(worktreePath);
+
+  const barePath = join(root, `${worktreeName}-remote.git`);
+  execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
+  execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
+  execSync("git push -u origin main", { cwd: worktreePath, stdio: "pipe" });
+
+  let specPath: string;
+  if (opts?.indexSpec) {
+    const { indexPath, subspecPath, subspecBody } = opts.indexSpec;
+    mkdirSync(dirname(indexPath), { recursive: true });
+    writeFileSync(indexPath, "# Test\n\n- [ ] [subspec 1](./01-test.md)");
+    writeFileSync(subspecPath, subspecBody);
+    specPath = indexPath;
+  } else {
+    const specDir = join(projectRoot, "v1", "spec");
+    mkdirSync(specDir, { recursive: true });
+    specPath = join(specDir, `${worktreeName}-spec.md`);
+    writeFileSync(specPath, opts?.specBody ?? "# Test\n\n## Acceptance criteria\n\n- [x] done");
+  }
+
+  writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+  execSync("git add .active-spec-path", { cwd: worktreePath });
+  execSync("git commit -m 'marker'", { cwd: worktreePath });
+  execSync("git push", { cwd: worktreePath, stdio: "pipe" });
+
+  if (opts?.makeDirty) {
+    writeFileSync(join(worktreePath, "test.txt"), "dirty");
+  }
+
+  return { worktreePath, specPath };
+}
+
+function setupWorktreeLocalMarkReadySpec(worktreeName: string): {
+  worktreePath: string;
+  markerSpecPath: string;
+  worktreeSubspecPath: string;
+} {
+  const worktreePath = join(worktreeDir, worktreeName);
+  setupWorktree(worktreePath);
+
+  const barePath = join(root, `${worktreeName}-remote.git`);
+  execSync(`git init --bare "${barePath}"`, { stdio: "pipe" });
+  execSync(`git remote add origin "${barePath}"`, { cwd: worktreePath, stdio: "pipe" });
+  execSync("git push -u origin main", { cwd: worktreePath, stdio: "pipe" });
+
+  const markerSpecDir = join(projectRoot, "v1", "spec", worktreeName);
+  const markerIndexPath = join(markerSpecDir, "index.md");
+  const markerSubspecPath = join(markerSpecDir, "01-test.md");
+  mkdirSync(markerSpecDir, { recursive: true });
+  writeFileSync(markerIndexPath, "# Test\n\n- [ ] [subspec 1](./01-test.md)\n");
+  writeFileSync(markerSubspecPath, "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion\n");
+
+  const worktreeSpecDir = join(worktreePath, "v1", "spec", worktreeName);
+  const worktreeSubspecPath = join(worktreeSpecDir, "01-test.md");
+  mkdirSync(worktreeSpecDir, { recursive: true });
+  writeFileSync(join(worktreeSpecDir, "index.md"), "# Test\n\n- [ ] [subspec 1](./01-test.md)\n");
+  writeFileSync(worktreeSubspecPath, "# Test\n\n## Acceptance criteria\n\n- [x] automated criterion\n");
+
+  writeFileSync(join(worktreePath, ".active-spec-path"), markerIndexPath);
+  execSync("git add .active-spec-path", { cwd: worktreePath });
+  execSync("git commit -m 'marker'", { cwd: worktreePath });
+  execSync("git push", { cwd: worktreePath, stdio: "pipe" });
+
+  return { worktreePath, markerSpecPath: markerIndexPath, worktreeSubspecPath };
+}
+
 function setupMergeWorktree(worktreeName: string): { worktreePath: string; specPath: string } {
   const worktreePath = join(worktreeDir, worktreeName);
   setupWorktree(worktreePath);
@@ -839,6 +915,10 @@ describe("triage verdict", () => {
 });
 
 describe("triage --mark-ready", () => {
+  const draftPrGhRunner = {
+    getPrState: () => ({ state: "OPEN", isDraft: true }) as const,
+  };
+
   test("--mark-ready without worktree name should not pass to command layer (CLI rejects)", () => {
     // This test verifies that the CLI layer rejects --mark-ready without a worktree name
     // and never calls the triage command. The command layer doesn't need to handle this,
@@ -854,9 +934,9 @@ describe("triage --mark-ready", () => {
     expect(out()).toContain("no worktrees");
   });
 
-  test("--mark-ready on unknown worktree returns error", () => {
+  test("--mark-ready on unknown worktree returns error", async () => {
     const { io, err } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName: "nonexistent",
@@ -866,13 +946,13 @@ describe("triage --mark-ready", () => {
     expect(err()).toContain("unknown worktree");
   });
 
-  test("--mark-ready with missing .active-spec-path returns error", () => {
+  test("--mark-ready with missing .active-spec-path returns error", async () => {
     const worktreeName = "branch-1";
     const worktreePath = join(worktreeDir, worktreeName);
     setupWorktree(worktreePath);
 
     const { io, err } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
@@ -883,64 +963,51 @@ describe("triage --mark-ready", () => {
     expect(err()).toContain(".active-spec-path marker not found");
   });
 
-  test("--mark-ready when no PR exists returns error", () => {
+  test("--mark-ready when no PR exists opens draft PR, gates, and promotes", async () => {
     const worktreeName = "branch-1";
-    const worktreePath = join(worktreeDir, worktreeName);
-    setupWorktree(worktreePath);
+    setupMarkReadyWorktree(worktreeName);
 
-    // Write a minimal spec file
-    const specDir = join(projectRoot, "v1", "spec");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "test-spec.md");
-    writeFileSync(specPath, "# Test\n\n- [x] item 1");
-    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+    let ensureDraftPrRan = false;
+    let gateRan = false;
 
-    const { io, err } = captureIo();
-    const code = triageCommand({
+    const { io, out } = captureIo();
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
       markReady: true,
-      ghRunner: {
-        getPrState: () => null,
+      ghRunner: { getPrState: () => null },
+      ensureDraftPr: async () => {
+        ensureDraftPrRan = true;
+        return { number: 1, created: true };
       },
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {},
     });
 
-    expect(code).toBe(1);
-    expect(err()).toContain("no PR found");
+    expect(code).toBe(0);
+    expect(ensureDraftPrRan).toBe(true);
+    expect(gateRan).toBe(true);
+    expect(out()).toContain("promoted to ready");
   });
 
-  test("--mark-ready when PR is not DRAFT returns error", () => {
+  test("--mark-ready when PR is not DRAFT returns error", async () => {
     const worktreeName = "branch-1";
-    const worktreePath = join(worktreeDir, worktreeName);
-    setupWorktree(worktreePath);
-
-    // Get the actual branch name (which is "main" from setupWorktree)
-    const branch = "main";
-
-    // Write a minimal spec file
-    const specDir = join(projectRoot, "v1", "spec");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "test-spec.md");
-    writeFileSync(specPath, "# Test\n\n- [x] item 1");
-    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+    setupMarkReadyWorktree(worktreeName);
 
     const { io, err } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
       markReady: true,
       ghRunner: {
-        getPrState: (b) => {
-          if (b === branch) {
-            return {
-              state: "OPEN",
-              isDraft: false,
-            };
-          }
-          return null;
-        },
+        getPrState: () => ({
+          state: "OPEN",
+          isDraft: false,
+        }),
       },
     });
 
@@ -948,66 +1015,85 @@ describe("triage --mark-ready", () => {
     expect(err()).toContain("PR is not in DRAFT state");
   });
 
-  test("--mark-ready with incomplete spec returns error", () => {
+  test("--mark-ready with incomplete spec refuses as re-run with no side effects", async () => {
     const worktreeName = "branch-1";
-    const worktreePath = join(worktreeDir, worktreeName);
-    setupWorktree(worktreePath);
-
-    // Write an index spec with unchecked subspecs
     const specDir = join(projectRoot, "v1", "spec");
-    mkdirSync(specDir, { recursive: true });
     const indexPath = join(specDir, "spec-1", "index.md");
-    mkdirSync(dirname(indexPath), { recursive: true });
-    writeFileSync(indexPath, "# Test\n\n- [ ] [subspec 1](./01-test.md)");
-    writeFileSync(join(dirname(indexPath), "01-test.md"), "# Test\n\n- [ ] item");
+    const subspecPath = join(dirname(indexPath), "01-test.md");
+    setupMarkReadyWorktree(worktreeName, {
+      indexSpec: {
+        indexPath,
+        subspecPath,
+        subspecBody: "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion",
+      },
+    });
 
-    writeFileSync(join(worktreePath, ".active-spec-path"), indexPath);
+    let commitRan = false;
+    let gateRan = false;
 
     const { io, err } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
       markReady: true,
-      ghRunner: {
-        getPrState: () => ({
-          state: "OPEN",
-          isDraft: true,
-        }),
+      ghRunner: draftPrGhRunner,
+      commitAndPushDirty: () => {
+        commitRan = true;
+        return { ok: true };
+      },
+      runGate: () => {
+        gateRan = true;
       },
     });
 
     expect(code).toBe(1);
-    expect(err()).toContain("spec is not complete");
+    expect(err()).toContain("incomplete run");
+    expect(err()).toContain("not finalize");
+    expect(commitRan).toBe(false);
+    expect(gateRan).toBe(false);
   });
 
-  test("--mark-ready with single-file spec that is complete succeeds", () => {
+  test("--mark-ready with only human-only criteria unchecked finalizes", async () => {
     const worktreeName = "branch-1";
-    const worktreePath = join(worktreeDir, worktreeName);
-    setupWorktree(worktreePath);
+    setupMarkReadyWorktree(worktreeName, {
+      specBody: "# Test\n\n## Acceptance criteria\n\n- [x] automated\n- [ ] verify manually (Manual)",
+    });
 
-    // Write a single-file spec (no index, no linked subspecs)
-    const specDir = join(projectRoot, "v1", "spec");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "test-spec.md");
-    writeFileSync(specPath, "# Test\n\n- [x] item 1\n- [x] item 2");
-    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+    let gateRan = false;
+
+    const { io, out } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {},
+    });
+
+    expect(code).toBe(0);
+    expect(gateRan).toBe(true);
+    expect(out()).toContain("promoted to ready");
+  });
+
+  test("--mark-ready on complete dirty worktree commits, gates, and promotes", async () => {
+    const worktreeName = "branch-1";
+    const { worktreePath } = setupMarkReadyWorktree(worktreeName, { makeDirty: true });
 
     let gateRan = false;
     let prReadyRan = false;
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
       markReady: true,
-      ghRunner: {
-        getPrState: () => ({
-          state: "OPEN",
-          isDraft: true,
-        }),
-      },
+      ghRunner: draftPrGhRunner,
       runGate: () => {
         gateRan = true;
       },
@@ -1017,27 +1103,84 @@ describe("triage --mark-ready", () => {
     });
 
     expect(code).toBe(0);
-    expect(out()).toContain("promoted to ready");
     expect(gateRan).toBe(true);
     expect(prReadyRan).toBe(true);
+    expect(out()).toContain("promoted to ready");
+    const porcelain = execSync("git status --porcelain", {
+      cwd: worktreePath,
+      encoding: "utf8",
+    }).trim();
+    expect(porcelain).toBe("");
+    const lastCommit = execSync("git log -1 --pretty=%B", {
+      cwd: worktreePath,
+      encoding: "utf8",
+    });
+    expect(lastCommit).toContain("chore: complete-but-dirty commit");
+    expect(lastCommit).toContain("Jarvis-Agent: completion-ready");
   });
 
-  test("--mark-ready with locked worktree returns error", () => {
+  test("--mark-ready push failure after finalize commit skips PR open and gate", async () => {
     const worktreeName = "branch-1";
-    const worktreePath = join(worktreeDir, worktreeName);
-    setupWorktree(worktreePath);
+    setupMarkReadyWorktree(worktreeName);
 
-    // Write a minimal spec file
-    const specDir = join(projectRoot, "v1", "spec");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "test-spec.md");
-    writeFileSync(specPath, "# Test\n\n- [x] item 1");
-    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+    let ensureDraftPrRan = false;
+    let gateRan = false;
 
-    // Create a lock file with a live PID (lock path is worktreePath/.jarvis.lock)
-    const lockPath = join(worktreePath, ".jarvis.lock");
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: {
+        getPrState: () => null,
+      },
+      commitAndPushDirty: () => ({ ok: false, reason: "push-failed", message: "push rejected" }),
+      ensureDraftPr: async () => {
+        ensureDraftPrRan = true;
+        return { number: 1, created: true };
+      },
+      runGate: () => {
+        gateRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("failed to push finalize commit");
+    expect(ensureDraftPrRan).toBe(false);
+    expect(gateRan).toBe(false);
+  });
+
+  test("--mark-ready still-dirty after finalize commit leaves PR draft and exits non-zero", async () => {
+    const worktreeName = "branch-1";
+    setupMarkReadyWorktree(worktreeName);
+
+    let gateRan = false;
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      commitAndPushDirty: () => ({ ok: false, reason: "still-dirty" }),
+      runGate: () => {
+        gateRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("still dirty after finalize commit");
+    expect(gateRan).toBe(false);
+  });
+
+  test("--mark-ready with locked worktree returns error", async () => {
+    const worktreeName = "branch-1";
+    const { worktreePath } = setupMarkReadyWorktree(worktreeName);
+
     writeFileSync(
-      lockPath,
+      join(worktreePath, ".jarvis.lock"),
       JSON.stringify({
         pid: process.pid,
         started_at: new Date().toISOString(),
@@ -1046,47 +1189,29 @@ describe("triage --mark-ready", () => {
     );
 
     const { io, err } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
       markReady: true,
-      ghRunner: {
-        getPrState: () => ({
-          state: "OPEN",
-          isDraft: true,
-        }),
-      },
+      ghRunner: draftPrGhRunner,
     });
 
     expect(code).toBe(1);
     expect(err()).toContain("worktree is locked by live run");
   });
 
-  test("--mark-ready gate failure returns error with message", () => {
+  test("--mark-ready gate failure returns error with message", async () => {
     const worktreeName = "branch-1";
-    const worktreePath = join(worktreeDir, worktreeName);
-    setupWorktree(worktreePath);
-
-    // Write a minimal spec file
-    const specDir = join(projectRoot, "v1", "spec");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "test-spec.md");
-    writeFileSync(specPath, "# Test\n\n- [x] item 1");
-    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+    setupMarkReadyWorktree(worktreeName);
 
     const { io, err } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
       markReady: true,
-      ghRunner: {
-        getPrState: () => ({
-          state: "OPEN",
-          isDraft: true,
-        }),
-      },
+      ghRunner: draftPrGhRunner,
       runGate: () => {
         throw new Error("gate command failed");
       },
@@ -1097,33 +1222,18 @@ describe("triage --mark-ready", () => {
     expect(err()).toContain("gate command failed");
   });
 
-  test("--mark-ready gh pr ready failure returns error", () => {
+  test("--mark-ready gh pr ready failure returns error", async () => {
     const worktreeName = "branch-1";
-    const worktreePath = join(worktreeDir, worktreeName);
-    setupWorktree(worktreePath);
-
-    // Write a minimal spec file
-    const specDir = join(projectRoot, "v1", "spec");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "test-spec.md");
-    writeFileSync(specPath, "# Test\n\n- [x] item 1");
-    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+    setupMarkReadyWorktree(worktreeName);
 
     const { io, err } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
       markReady: true,
-      ghRunner: {
-        getPrState: () => ({
-          state: "OPEN",
-          isDraft: true,
-        }),
-      },
-      runGate: () => {
-        // Gate succeeds
-      },
+      ghRunner: draftPrGhRunner,
+      runGate: () => {},
       prReady: () => {
         throw new Error("gh pr ready failed");
       },
@@ -1134,33 +1244,20 @@ describe("triage --mark-ready", () => {
     expect(err()).toContain("gh pr ready failed");
   });
 
-  test("--mark-ready calls both runGate and prReady seams", () => {
+  test("--mark-ready calls both runGate and prReady seams", async () => {
     const worktreeName = "branch-1";
-    const worktreePath = join(worktreeDir, worktreeName);
-    setupWorktree(worktreePath);
-
-    // Write a minimal spec file
-    const specDir = join(projectRoot, "v1", "spec");
-    mkdirSync(specDir, { recursive: true });
-    const specPath = join(specDir, "test-spec.md");
-    writeFileSync(specPath, "# Test\n\n- [x] item 1");
-    writeFileSync(join(worktreePath, ".active-spec-path"), specPath);
+    setupMarkReadyWorktree(worktreeName);
 
     let gateSeamCalled = false;
     let prReadySeamCalled = false;
 
     const { io, out } = captureIo();
-    const code = triageCommand({
+    const code = await triageCommand({
       projectRoot,
       io,
       worktreeName,
       markReady: true,
-      ghRunner: {
-        getPrState: () => ({
-          state: "OPEN",
-          isDraft: true,
-        }),
-      },
+      ghRunner: draftPrGhRunner,
       runGate: () => {
         gateSeamCalled = true;
       },
@@ -1173,6 +1270,96 @@ describe("triage --mark-ready", () => {
     expect(out()).toContain("promoted to ready");
     expect(gateSeamCalled).toBe(true);
     expect(prReadySeamCalled).toBe(true);
+  });
+
+  test("--mark-ready reads uncommitted worktree-local AC ticks when marker points at project root", async () => {
+    const worktreeName = "branch-exit6";
+    const { worktreePath } = setupWorktreeLocalMarkReadySpec(worktreeName);
+
+    let gateRan = false;
+
+    const { io, out } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      runGate: () => {
+        gateRan = true;
+      },
+      prReady: () => {},
+    });
+
+    expect(code).toBe(0);
+    expect(gateRan).toBe(true);
+    expect(out()).toContain("promoted to ready");
+    const porcelain = execSync("git status --porcelain", {
+      cwd: worktreePath,
+      encoding: "utf8",
+    }).trim();
+    expect(porcelain).toBe("");
+  });
+
+  test("--mark-ready refuses when worktree-local ACs are unchecked despite project-root marker", async () => {
+    const worktreeName = "branch-exit6-incomplete";
+    setupWorktreeLocalMarkReadySpec(worktreeName);
+    const worktreeSubspecPath = join(worktreeDir, worktreeName, "v1", "spec", worktreeName, "01-test.md");
+    writeFileSync(
+      worktreeSubspecPath,
+      "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion\n",
+    );
+
+    let commitRan = false;
+    let gateRan = false;
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      commitAndPushDirty: () => {
+        commitRan = true;
+        return { ok: true };
+      },
+      runGate: () => {
+        gateRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("incomplete run");
+    expect(err()).toContain("not finalize");
+    expect(commitRan).toBe(false);
+    expect(gateRan).toBe(false);
+  });
+
+  test("--mark-ready commit failure reports commit-specific error not push failure", async () => {
+    const worktreeName = "branch-1";
+    setupMarkReadyWorktree(worktreeName, { makeDirty: true });
+
+    let gateRan = false;
+
+    const { io, err } = captureIo();
+    const code = await triageCommand({
+      projectRoot,
+      io,
+      worktreeName,
+      markReady: true,
+      ghRunner: draftPrGhRunner,
+      commitAndPushDirty: () => ({ ok: false, reason: "commit-failed", message: "hook rejected" }),
+      runGate: () => {
+        gateRan = true;
+      },
+    });
+
+    expect(code).toBe(1);
+    expect(err()).toContain("failed to finalize commit");
+    expect(err()).toContain("hook rejected");
+    expect(err()).not.toContain("failed to push finalize commit");
+    expect(gateRan).toBe(false);
   });
 
   describe("--merge flag", () => {
@@ -1276,7 +1463,10 @@ describe("triage --mark-ready", () => {
       const indexPath = join(specDir, "spec-1", "index.md");
       mkdirSync(dirname(indexPath), { recursive: true });
       writeFileSync(indexPath, "# Test\n\n- [ ] [subspec 1](./01-test.md)");
-      writeFileSync(join(dirname(indexPath), "01-test.md"), "# Test\n\n- [ ] item");
+      writeFileSync(
+        join(dirname(indexPath), "01-test.md"),
+        "# Test\n\n## Acceptance criteria\n\n- [ ] automated criterion",
+      );
 
       writeFileSync(join(worktreePath, ".active-spec-path"), indexPath);
 

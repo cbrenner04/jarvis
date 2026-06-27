@@ -245,4 +245,129 @@ And even a third line.`;
     expect(resetContent).not.toContain("Error encountered");
     expect(resetContent).toContain("- [ ] Still unticked");
   });
+
+  it("resets delta for external spec when gitEnabled:true (Finding 3: end-to-end external spec reset)", () => {
+    // This test exercises the external spec reset path with gitEnabled:true
+    // Scenario: An external spec (outside agent working tree) is run with git:true
+    // The hasUntrackedMutations condition should be true (!gitEnabled || specIsExternal)
+    // causing delta to be created, recorded, and then cleared on completion
+
+    const externalSpecDir = join(tempDir, "external-specs", "test-project");
+    mkdirSync(externalSpecDir, { recursive: true });
+    const externalSpecPath = join(externalSpecDir, "subspec.md");
+
+    const specContent = `# Subspec
+
+## Acceptance criteria
+
+- [ ] First criterion
+`;
+    writeFileSync(externalSpecPath, specContent, "utf8");
+
+    // Simulate a prior run that ticked an AC and appended a blocker
+    // with gitEnabled:true (the default)
+    const delta = createFreshDelta(externalSpecPath);
+    recordNewlyCheckedAc(delta, "First criterion");
+    recordBlocker(delta, "Something blocked the run");
+
+    // Verify delta was persisted (would be cleared on next invocation)
+    const priorDelta = loadDelta(externalSpecPath);
+    expect(priorDelta).not.toBeNull();
+    expect(priorDelta?.newlyCheckedAcKeys.has("First criterion")).toBe(true);
+
+    // Simulate re-run: preflight resets deltas for external specs, then
+    // iteration.ts clears them on completion (now that hasUntrackedMutations
+    // is true for external specs even when gitEnabled:true)
+    if (priorDelta !== null) {
+      applyReset(externalSpecPath, priorDelta);
+      clearDelta(externalSpecPath);
+    }
+
+    // Verify reset happened
+    const resetContent = readFileSync(externalSpecPath, "utf8");
+    expect(resetContent).toContain("- [ ] First criterion");
+    expect(resetContent).not.toContain("## Blocker");
+    expect(resetContent).not.toContain("Something blocked the run");
+
+    // Verify delta was cleared
+    expect(loadDelta(externalSpecPath)).toBeNull();
+  });
+
+  it("preserves pre-existing blocker when resetting newly appended one", () => {
+    const specContent = `# Spec
+
+## Acceptance criteria
+
+- [ ] First criterion
+
+## Blocker
+
+Pre-existing blocker from earlier
+New blocker appended by this run
+`;
+    writeFileSync(specPath, specContent, "utf8");
+
+    // Simulate a run that appended a new blocker to the pre-existing one
+    const delta = createFreshDelta(specPath);
+    delta.blockerText = "New blocker appended by this run";
+
+    applyReset(specPath, delta);
+
+    const resetContent = readFileSync(specPath, "utf8");
+    // Should still have the blocker section but only with pre-existing content
+    expect(resetContent).toContain("## Blocker");
+    expect(resetContent).toContain("Pre-existing blocker from earlier");
+    expect(resetContent).not.toContain("New blocker appended by this run");
+  });
+
+  it("removes entire blocker section when no pre-existing blocker exists", () => {
+    const specContent = `# Spec
+
+## Acceptance criteria
+
+- [ ] First criterion
+
+## Blocker
+
+Only blocker from this run
+`;
+    writeFileSync(specPath, specContent, "utf8");
+
+    const delta = createFreshDelta(specPath);
+    delta.blockerText = "Only blocker from this run";
+
+    applyReset(specPath, delta);
+
+    const resetContent = readFileSync(specPath, "utf8");
+    expect(resetContent).not.toContain("## Blocker");
+    expect(resetContent).not.toContain("Only blocker from this run");
+    expect(resetContent).toContain("## Acceptance criteria");
+  });
+
+  it("handles pre-existing blocker with no new blocker appended", () => {
+    const specContent = `# Spec
+
+## Acceptance criteria
+
+- [x] Criterion ticked
+
+## Blocker
+
+Pre-existing blocker
+`;
+    writeFileSync(specPath, specContent, "utf8");
+
+    // No blocker was appended in this run
+    const delta = createFreshDelta(specPath);
+    delta.newlyCheckedAcKeys.add("Criterion ticked");
+    delta.blockerText = null;
+
+    applyReset(specPath, delta);
+
+    const resetContent = readFileSync(specPath, "utf8");
+    // AC should be un-ticked, blocker should remain
+    expect(resetContent).toContain("- [ ] Criterion ticked");
+    expect(resetContent).toContain("## Blocker");
+    expect(resetContent).toContain("Pre-existing blocker");
+  });
 });

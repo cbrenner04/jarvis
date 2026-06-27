@@ -470,7 +470,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
         isFixupIteration = true;
       } else {
         // Clear no-commit delta on clean completion
-        if (done === 0 && !gitEnabled) {
+        if (done === 0 && hasUntrackedMutations) {
           const activeSubspecToClean = getActiveLinkedSubspecPath(specPath);
           if (activeSubspecToClean !== undefined) {
             clearDelta(activeSubspecToClean);
@@ -1583,7 +1583,7 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
           ...telemetryMeta,
         });
         // Clear no-commit delta on clean completion
-        if (done === 0 && !gitEnabled && afterSubspecPath !== undefined) {
+        if (done === 0 && hasUntrackedMutations && afterSubspecPath !== undefined) {
           clearDelta(afterSubspecPath);
         }
         return { kind: "return", exitCode: done };

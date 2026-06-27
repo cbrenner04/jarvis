@@ -89,13 +89,77 @@ export function clearDelta(activeSubspecPath: string): void {
   }
 }
 
+// Remove only the recorded blocker text, preserving any pre-existing blocker content
+function removeRecordedBlockerOnly(content: string, recordedBlockerText: string): string {
+  const lines = content.split("\n");
+
+  // Find the blocker section header
+  let blockerHeaderIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if ((lines[i] ?? "").trim() === "## Blocker") {
+      blockerHeaderIdx = i;
+      break;
+    }
+  }
+
+  if (blockerHeaderIdx === -1) {
+    // No blocker section found, nothing to remove
+    return content;
+  }
+
+  // Find where the blocker section ends (next ## heading or EOF)
+  let sectionEndIdx = lines.length;
+  for (let i = blockerHeaderIdx + 1; i < lines.length; i++) {
+    const line = (lines[i] ?? "").trim();
+    if (line.startsWith("##")) {
+      sectionEndIdx = i;
+      break;
+    }
+  }
+
+  // Extract the blocker body (everything between header and section end)
+  const blockerBodyStart = blockerHeaderIdx + 1;
+  const blockerBody = lines.slice(blockerBodyStart, sectionEndIdx).join("\n").trim();
+
+  // Check if the recorded blocker text matches the entire blocker body
+  if (blockerBody === recordedBlockerText.trim()) {
+    // The entire blocker section is what we recorded, remove it entirely
+    return stripBlockerSection(content);
+  }
+
+  // Otherwise, try to remove only the recorded portion from the body
+  // This handles cases where there was a pre-existing blocker and we appended to it
+  if (blockerBody.endsWith(recordedBlockerText.trim())) {
+    // The recorded text is at the end, remove it and any trailing blank lines
+    const remainingBody = blockerBody.slice(0, blockerBody.length - recordedBlockerText.trim().length).trim();
+    if (remainingBody.length === 0) {
+      // Nothing left in the blocker, remove the entire section
+      return stripBlockerSection(content);
+    }
+    // Reconstruct with the remaining blocker content
+    const result = [
+      ...lines.slice(0, blockerHeaderIdx + 1),
+      remainingBody,
+      ...lines.slice(sectionEndIdx),
+    ];
+    // Clean up trailing blank lines
+    while (result.length > 0 && (result[result.length - 1] ?? "").trim() === "") {
+      result.pop();
+    }
+    return result.join("\n");
+  }
+
+  // If recorded text doesn't match, fall back to removing the entire section
+  return stripBlockerSection(content);
+}
+
 // Apply the reset: un-tick the recorded AC and strip the blocker
 export function applyReset(specPath: string, delta: DeltaRecord): void {
   let content = readFileSync(specPath, "utf8");
 
-  // Strip the blocker section if one was recorded (reuse existing parser helper)
+  // Remove the recorded blocker (preserving any pre-existing blocker content)
   if (delta.blockerText !== null) {
-    content = stripBlockerSection(content);
+    content = removeRecordedBlockerOnly(content, delta.blockerText);
   }
 
   // Un-tick recorded AC

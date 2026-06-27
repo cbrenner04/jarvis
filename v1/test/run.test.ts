@@ -1827,7 +1827,7 @@ exit 0
         expect(execSync("git status --porcelain", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe("");
         expect(execSync("git rev-parse HEAD", { cwd: projectRoot, encoding: "utf8" }).trim()).toMatch(/^[0-9a-f]{40}$/);
         expect(execSync("git log -1 --pretty=%s", { cwd: projectRoot, encoding: "utf8" }).trim()).toBe(
-          "chore: apply pre-ready check:fix",
+          "chore: commit post-ready dirty output",
         );
       } finally {
         rmSync(sentinelDir, { recursive: true, force: true });

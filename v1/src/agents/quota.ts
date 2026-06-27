@@ -1,5 +1,18 @@
 import type { AgentName, AgentResult } from "./types.ts";
 
+const transportContextWords = ["error", "err", "failed", "failure", "http", "status"] as const;
+
+function guardedStatusPatterns(
+  statusCodes: readonly number[],
+  contextWords: readonly string[] = transportContextWords,
+): RegExp[] {
+  const context = contextWords.join("|");
+  return statusCodes.flatMap((statusCode) => [
+    new RegExp(`(?:^|\\n)[^\\n]*(?:${context})[^\\n]*\\b${statusCode}\\b`, "i"),
+    new RegExp(`(?:^|\\n)[^\\n]*\\b${statusCode}\\b[^\\n]*(?:${context})\\b`, "i"),
+  ]);
+}
+
 const claudeQuotaPatterns = [
   /\byou['’]ve hit your (?:session|weekly|opus) limit\b/i,
   /\byou['’]ve hit your monthly spend limit\b/i,
@@ -35,8 +48,7 @@ const opencodeQuotaPatterns = [
   /\brate limit\b/i,
   /\bquota exceeded\b/i,
   /\binsufficient_quota\b/i,
-  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b429\b/i,
-  /(?:^|\n)[^\n]*\b429\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
+  ...guardedStatusPatterns([429]),
   /\byou have exceeded your\b/i,
 ];
 
@@ -44,8 +56,7 @@ const aiderQuotaPatterns = [
   /\brate limit\b/i,
   /\bquota exceeded\b/i,
   /\binsufficient_quota\b/i,
-  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b429\b/i,
-  /(?:^|\n)[^\n]*\b429\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
+  ...guardedStatusPatterns([429]),
 ];
 
 const modelConfigurationPatterns = [
@@ -92,15 +103,10 @@ const sharedTransportPatterns = [
   /\bbroken pipe\b/i,
   /\bservice unavailable\b/i,
   /\boverloaded\b/i,
-  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b502\b/i,
-  /(?:^|\n)[^\n]*\b502\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
-  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b503\b/i,
-  /(?:^|\n)[^\n]*\b503\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
-  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b504\b/i,
-  /(?:^|\n)[^\n]*\b504\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
-  /(?:^|\n)[^\n]*(?:error|err|failed|failure|http|status)[^\n]*\b529\b/i,
-  /(?:^|\n)[^\n]*\b529\b[^\n]*(?:error|err|failed|failure|http|status)\b/i,
+  ...guardedStatusPatterns([502, 503, 504, 529]),
 ];
+
+const opencodeTransportPatterns = [...guardedStatusPatterns([500], [...transportContextWords, "unknownerror"])];
 
 const harnessGitGhTransportPatterns = [
   /\bTLS handshake timeout\b/i,
@@ -170,9 +176,12 @@ export function isWeakQuotaSignal(
   return weakQuotaPatterns.some((pattern) => pattern.test(stderr));
 }
 
-export function isTransientSignal(_name: AgentName, exitCode: number, stderr: string): boolean {
+export function isTransientSignal(name: AgentName, exitCode: number, stderr: string): boolean {
   if (exitCode === 0) return false;
-  return sharedTransportPatterns.some((pattern) => pattern.test(stderr));
+  return (
+    (name === "opencode" && opencodeTransportPatterns.some((pattern) => pattern.test(stderr))) ||
+    sharedTransportPatterns.some((pattern) => pattern.test(stderr))
+  );
 }
 
 export function isTransientNetworkError(exitCode: number, stderr: string): boolean {

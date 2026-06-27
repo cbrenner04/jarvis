@@ -250,6 +250,31 @@ Every session starts the same way: feed incoming friction into the system **befo
 
 Steps 1–2 first (not as an end-of-session afterthought) is what guarantees outside friction enters the backlog. Steps 3–4 are the recurring throughput; "seed everything, intent everything, complete 5" is the standing shape — the owner can dial the 5 up or down per session.
 
+### Shared model pool contention warning
+
+When you start a patch run with Claude selected as the primary agent, Jarvis probes for other running Jarvis-owned Claude sessions. If one is detected, you will see:
+
+```
+warning: selected patch primary shares Claude pool with a live Jarvis operator/orchestration session. Pause the competing session to avoid contention.
+```
+
+This is **informational and non-blocking**: the run proceeds normally. The warning tells you that:
+
+- The selected patch primary is Claude (after tier/floor/override resolution).
+- Another Jarvis operator or orchestration session is actively running a Claude agent.
+- Both will compete for the same Claude API quota/pool during their concurrent runs.
+
+**Operator response:**
+
+If you see this warning and **quota/contention is a concern** (e.g., you're testing quota behavior or running many concurrent agents), pause the competing session(s) before continuing. You can:
+
+1. Check running Jarvis sessions: `ps aux | grep jarvis1`
+2. Find its spec and working directory.
+3. Send a signal to pause it (e.g., `Ctrl-C` or `kill -SIGINT <pid>`), or let it finish if it's near completion.
+4. Resume your own run (it will continue from the same iteration).
+
+If quota contention is **not a concern** (e.g., you have ample quota or the competing session is wrapping up), you can ignore the warning and let both runs proceed concurrently.
+
 ## End-of-session cleanup
 
 1. **`jarvis1 cleanup`** — removes merged worktrees and archives each completed spec into the `completed/` directory of its home (`v1/spec`, `v2/spec`, configured `targetDir`, or the external `~/.jarvis/specs/<project-safe-id>/completed/` home for `commit:false`). For `commit:false`, it also prunes the consumed external `ready-intents/<branch-slug>.md`. It prompts `[y/N]`; pipe `echo y | jarvis1 cleanup` non-interactively (`--dry-run` to preview).

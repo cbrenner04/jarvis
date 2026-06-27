@@ -259,13 +259,17 @@ describe("applyQuotaFallbackWhenAllowed", () => {
 });
 
 describe("isTransientSignal", () => {
+  const expectTransient = (name: Parameters<typeof isTransientSignal>[0], stderr: string, expected = true) => {
+    expect(isTransientSignal(name, 1, stderr)).toBe(expected);
+  };
+
   test("matches transport connection patterns", () => {
-    expect(isTransientSignal("claude", 1, "connection closed")).toBe(true);
-    expect(isTransientSignal("claude", 1, "connection reset by peer")).toBe(true);
-    expect(isTransientSignal("claude", 1, "socket hang up")).toBe(true);
-    expect(isTransientSignal("claude", 1, "broken pipe")).toBe(true);
-    expect(isTransientSignal("claude", 1, "ECONNRESET")).toBe(true);
-    expect(isTransientSignal("claude", 1, "EPIPE")).toBe(true);
+    expectTransient("claude", "connection closed");
+    expectTransient("claude", "connection reset by peer");
+    expectTransient("claude", "socket hang up");
+    expectTransient("claude", "broken pipe");
+    expectTransient("claude", "ECONNRESET");
+    expectTransient("claude", "EPIPE");
   });
 
   test("matches stream error patterns", () => {
@@ -283,10 +287,29 @@ describe("isTransientSignal", () => {
     expect(isTransientSignal("claude", 1, "server overloaded")).toBe(true);
   });
 
+  test("matches opencode UnknownError/500 and guarded HTTP 500", () => {
+    expectTransient("opencode", "opencode: UnknownError: HTTP 500 Internal Server Error");
+    expectTransient("opencode", "opencode: HTTP 500 Internal Server Error");
+    expectTransient("opencode", "opencode: provider failure status 500 from upstream");
+  });
+
+  test("scopes UnknownError and HTTP 500 matching to opencode only", () => {
+    expectTransient("opencode", "UnknownError: provider request failed", false);
+    expectTransient("claude", "UnknownError: HTTP 500 Internal Server Error", false);
+    expectTransient("claude", "HTTP 500 Internal Server Error", false);
+    expectTransient("codex", "status 500 failure", false);
+  });
+
+  test("still matches shared transport patterns for opencode", () => {
+    expectTransient("opencode", "error: HTTP 503 Service Unavailable");
+    expectTransient("opencode", "connection reset by peer");
+  });
+
   test("does not match bare status codes without context", () => {
-    expect(isTransientSignal("claude", 1, "returned value 502")).toBe(false);
-    expect(isTransientSignal("claude", 1, "The answer is 503")).toBe(false);
-    expect(isTransientSignal("claude", 1, "some process exited 529")).toBe(false);
+    expectTransient("claude", "returned value 502", false);
+    expectTransient("claude", "The answer is 503", false);
+    expectTransient("claude", "some process exited 529", false);
+    expectTransient("opencode", "returned value 500", false);
   });
 
   test("does not match on exit code 0", () => {

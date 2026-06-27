@@ -6,10 +6,7 @@ import { appendAgentTrailer } from "../commit-trailer.ts";
 import type { ConfigOptions } from "../config.ts";
 import { loadConfig } from "../config.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
-import {
-  type BaseCurrentCheckResult,
-  checkBaseCurrentForFinalize,
-} from "../git/base-current.ts";
+import { type BaseCurrentCheckResult, checkBaseCurrentForFinalize } from "../git/base-current.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
 import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";

@@ -135,7 +135,27 @@ export type RunIo = Io;
 
 export type ConfirmRun = (prompt: string) => string | Promise<string>;
 
+/** Test/production seam for patch-watchdog descendant snapshots at timeout fire. */
 export type WatchdogListProcessesFn = (rootPid: number) => ProcInfo[];
+
+/** Timer handle shape used only by the patch-iteration watchdog timing test seam. */
+export type PatchWatchdogTimerHandle = {
+  unref?: () => void;
+};
+
+/**
+ * Test-only patch-iteration watchdog clock/scheduler seam.
+ * Limited to iteration-timeout scheduling and the paired last-output age
+ * measurement on the patch run path; production callers must not set it.
+ */
+export type PatchWatchdogTiming = {
+  /** Returns the current patch-watchdog timestamp in milliseconds. */
+  nowMs: () => number;
+  /** Schedules the patch iteration-timeout callback on the injected clock. */
+  setTimeout: (callback: () => void, delayMs: number) => PatchWatchdogTimerHandle;
+  /** Cancels a timer created by this seam's `setTimeout`. */
+  clearTimeout: (handle: PatchWatchdogTimerHandle) => void;
+};
 
 export type RunCommandOptions = {
   specPath: string;
@@ -160,7 +180,7 @@ export type RunCommandOptions = {
   tierOverride?: PatchTier;
   /**
    * Test seam for the completion `ready` gate. Replaces the real `bun run
-   * ready` + `check:fix` commit run in `runCompletionReadyGate`. Return
+   * ready` + post-ready dirty-output commit run in `runCompletionReadyGate`. Return
    * `{ kind: "green" }` to proceed into the post-completion phases, or
    * `{ kind: "red", failureText }` to drive the loop-back fix-up iteration if
    * every bounded retry stays red. The seam may be invoked up to the retry
@@ -202,6 +222,14 @@ export type RunCommandOptions = {
    * Production callers must not set this.
    */
   __testWatchdogListProcesses?: WatchdogListProcessesFn;
+  /**
+   * Test-only override for patch-iteration watchdog time. Replaces the
+   * iteration-timeout scheduler plus the observed-output/output-age clock with
+   * one caller-owned source so patch watchdog timing tests can advance both
+   * deterministically through the real stdout/stderr observation path.
+   * Production callers must not set this.
+   */
+  __testPatchWatchdogTiming?: PatchWatchdogTiming;
 };
 
 export async function runCommand(opts: RunCommandOptions): Promise<number> {

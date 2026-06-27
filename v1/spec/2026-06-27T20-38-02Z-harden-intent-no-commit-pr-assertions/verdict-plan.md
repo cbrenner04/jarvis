@@ -1,0 +1,5 @@
+1. Define the preserved no-commit proof for PR/ready behavior. The spec cannot stop at “PR-specific stderr phrases”; it must state which concrete PR/ready outputs remain forbidden so the test still proves branch/commit/push/PR/ready work was skipped. This is required because the intent preserves that behavior while only narrowing a flaky assertion.
+
+2. Tighten the sibling-matcher outcome from subjective risk language to concrete reviewable results. The spec should require that the named sibling negative assertions (`warning` and `https://example.com`) are each either confirmed safe as written or narrowed, rather than saying the block has no “plausible” collision left. Acceptance criteria need observable outcomes, not reviewer judgment calls.
+
+3. Clarify why the audit scope includes the full no-commit assertion block, including the `https://example.com` matcher. The spec needs to state that the work covers sibling negative matchers for analogous incidental-output collisions, not just the observed stderr `PR` flake. This keeps the slice coherent and explains the broader scope without leaving reviewers to infer it.

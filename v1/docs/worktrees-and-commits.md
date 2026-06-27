@@ -165,23 +165,23 @@ The PR remains in draft until the spec is complete. If a PR already exists
 
 When the final subspec is completed and pushed, the draft PR automatically
 transitions to ready for review. The readiness transition begins with
-`bun run ready`, which first runs `bun install --frozen-lockfile` so Biome is
-available, then runs `bun run check:fix` (Biome's safe format and lint-rule
-fixer). This may rewrite files before the rest of the ready gate
-(`typecheck → test → check → lint:md`) proceeds. The test phase runs `bun run test` (the
-aggregate test command that covers all slices); see
+`bun run ready`, then `gh pr ready`. Built-in `ready` is strict verification-only
+and built-in autofix moved to `bun run fix`; the authoritative built-in
+ready/fix split and step order live in
+[`v2/docs/v1-behaviors.md`](../../v2/docs/v1-behaviors.md). The test phase
+still runs `bun run test` (the aggregate test command that covers all slices);
+see
 [v2/docs/v1-behaviors.md#test-execution-and-development-workflows](../../v2/docs/v1-behaviors.md#test-execution-and-development-workflows)
-for the test-command contract. If `check:fix` or any later step fails,
-the PR remains in draft for manual correction.
+for the test-command contract. If the ready gate fails, the PR remains in draft
+for manual correction.
 
-If `check:fix` mutates any files, the harness creates and pushes a single
-`chore: apply pre-ready check:fix` commit before proceeding further. This commit
-is **not** a subspec commit (it has no `Spec:` body line) and is automatically
+If a custom `readyCommand` override dirties any files, the harness still creates
+and pushes a single dirty-tree commit before proceeding further. This commit is
+**not** a subspec commit (it has no `Spec:` body line) and is automatically
 handled by the harness — operators do not need to manually commit or stash
 anything. The commit is pushed immediately and becomes part of the branch.
 
-After all readiness steps succeed (or in the case where `check:fix` caused no
-mutations), the harness calls `gh pr ready`. Jarvis never merges; human
+After all readiness steps succeed, the harness calls `gh pr ready`. Jarvis never merges; human
 reviewers are responsible for approval and merge decisions.
 
 ### PR body
@@ -289,7 +289,7 @@ The first push uses `git push -u origin plan/<plan-name>` to set up tracking;
 later pushes use plain `git push`.
 
 When every scripted phase succeeds, plan mode attempts a readiness transition (mirroring **`jarvis run`** readiness semantics):
-- If the branch's open PR is **draft**, the ready gate runs (`bun run ready`, or the project's `readyCommand` if set). On success, any `check:fix` output is committed and pushed, then `gh pr ready` flips it to ready. On gate failure, the PR remains draft.
+- If the branch's open PR is **draft**, the ready gate runs (`bun run ready`, or the project's `readyCommand` if set). On success, `gh pr ready` flips it to ready. If a custom `readyCommand` dirties the tree, the existing dirty-tree commit/push path runs first. On gate failure, the PR remains draft.
 - If the branch's open PR is **already ready**, it remains untouched (idempotent).
 - A later successful `jarvis plan --resume …` invocation retries the transition for still-draft PRs.
 

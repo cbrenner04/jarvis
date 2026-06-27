@@ -21,7 +21,10 @@ export interface SpawnConfig {
 function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions): Promise<AgentResult> {
   return new Promise((resolvePromise) => {
     const argv = config.buildArgv(prompt, opts);
-    const env = { ...process.env, PWD: config.cwd, ...config.env } as Record<string, string>;
+    // Force git non-interactive: an HTTPS remote without cached credentials makes
+    // git prompt on /dev/tty (not stdin), which blocks the whole session until
+    // Ctrl-C. GIT_TERMINAL_PROMPT=0 makes it fail fast instead. config.env may override.
+    const env = { ...process.env, PWD: config.cwd, GIT_TERMINAL_PROMPT: "0", ...config.env } as Record<string, string>;
     delete env.OLDPWD;
     const spawn = config.spawn ?? realSpawn;
     const child = spawn(config.binary, argv, {
@@ -103,7 +106,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     stdout.on("data", (chunk: Buffer) => {
       outBuf += chunk.toString("utf8");
       if (opts.lastOutputAtMs) {
-        opts.lastOutputAtMs.current = Date.now();
+        opts.lastOutputAtMs.current = (opts.lastOutputNowMs ?? Date.now)();
       }
     });
     stdout.on("end", () => {
@@ -113,7 +116,7 @@ function singleSpawn(config: SpawnConfig, prompt: string, opts: AgentRunOptions)
     stderr.on("data", (chunk: Buffer) => {
       errBuf += chunk.toString("utf8");
       if (opts.lastOutputAtMs) {
-        opts.lastOutputAtMs.current = Date.now();
+        opts.lastOutputAtMs.current = (opts.lastOutputNowMs ?? Date.now)();
       }
     });
     stderr.on("end", () => {

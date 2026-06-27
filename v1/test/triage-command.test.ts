@@ -2130,7 +2130,7 @@ describe("triage --mark-ready", () => {
       setupResolvableMergeWorktree(worktreeName, { markerSpecPath: specPath });
 
       let mergeRan = false;
-      const { io, err } = captureIo();
+      const { io } = captureIo();
       const code = triageCommand(
         triageMergeOpts({
           projectRoot,

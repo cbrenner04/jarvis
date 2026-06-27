@@ -7,11 +7,9 @@ import type { ConfigOptions } from "../config.ts";
 import { loadConfig } from "../config.ts";
 import { getBaseBranch, withSyncTransientRetry } from "../gh.ts";
 import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } from "../modes/patch/completion.ts";
-import { getIndexTitle } from "../modes/patch/completion-pipeline.ts";
-import { buildPrBody } from "../modes/patch/pr.ts";
+import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
-import { type EnsureDraftPrOpts, ensureDraftPr, readBranchCommits, renderAttributionSummary } from "../pr.ts";
-import { type DiffStat, generateTemplateNarrative } from "../pr-shared.ts";
+import { type EnsureDraftPrOpts, ensureDraftPr, renderAttributionSummary } from "../pr.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
@@ -987,13 +985,12 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
 
   if (!prState) {
     try {
-      const ensureFn = opts.ensureDraftPr ?? ensureDraftPr;
       const base = await getBaseBranch(worktreePath);
-      await ensureFn({
+      await (opts.ensureDraftPr ?? ensureDraftPr)({
         branch,
         base,
         title: getIndexTitle(specPath),
-        bodyGenerator: async () => buildTriageDraftPrBody(specPath, worktreePath, base),
+        bodyGenerator: () => generatePrBody(specPath, null as never, worktreePath, "template", base),
         footer: renderAttributionSummary({ cwd: worktreePath, base }),
         cwd: worktreePath,
       });
@@ -1021,81 +1018,29 @@ async function triageMarkReady(opts: TriageCommandOptions): Promise<number> {
   }
 }
 
-function readTriageDiffStats(cwd: string, base: string): DiffStat[] {
+function pushWorktreeOrFail(worktreePath: string): CommitAndPushDirtyResult {
   try {
-    const output = execFileSync("git", ["diff", "--numstat", `${base}...HEAD`], {
-      cwd,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-    const diffs: DiffStat[] = [];
-    for (const line of output.trim().split("\n")) {
-      if (!line) {
-        continue;
-      }
-      const [addedStr, removedStr, path] = line.split("\t");
-      if (path === undefined || addedStr === undefined || removedStr === undefined) {
-        continue;
-      }
-      const added = addedStr === "-" ? 0 : parseInt(addedStr, 10);
-      const removed = removedStr === "-" ? 0 : parseInt(removedStr, 10);
-      if (Number.isNaN(added) || Number.isNaN(removed)) {
-        continue;
-      }
-      diffs.push({ added, removed, path });
-    }
-    return diffs;
-  } catch {
-    return [];
+    pushCurrent({ cwd: worktreePath, firstPush: false });
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: "push-failed", message };
   }
 }
 
-function buildTriageDraftPrBody(specPath: string, cwd: string, base: string): string {
-  const indexContent = readFileSync(specPath, "utf8");
-  const parsed = parseSpec(indexContent);
-  const indexDir = dirname(specPath);
-  const narrative = generateTemplateNarrative({
-    getSubspecTitles: () => parsed.linkedSubspecs.map((s) => s.text),
-    getCommitSubjects: () => readBranchCommits({ cwd, base }).map((c) => c.subject),
-    getDiffStats: () => readTriageDiffStats(cwd, base),
-    getSubspecBodies: () =>
-      parsed.linkedSubspecs.map((s) => {
-        try {
-          return readFileSync(resolve(indexDir, s.path), "utf8");
-        } catch {
-          return "";
-        }
-      }),
-  });
-  return buildPrBody({ indexPath: specPath, narrative });
-}
-
 function commitAndPushFinalizeDirtyWorktree(worktreePath: string): CommitAndPushDirtyResult {
-  const dirtyKind = computeDirtyKind(worktreePath);
-  if (dirtyKind === "clean") {
-    const unpushed = computeUnpushed(worktreePath);
-    if (unpushed === 0) {
-      return { ok: true };
-    }
-    try {
-      pushCurrent({ cwd: worktreePath, firstPush: false });
-      return { ok: true };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { ok: false, reason: "push-failed", message };
-    }
+  if (computeDirtyKind(worktreePath) === "clean") {
+    return computeUnpushed(worktreePath) === 0 ? { ok: true } : pushWorktreeOrFail(worktreePath);
   }
 
   try {
     execFileSync("git", ["add", "-A"], { cwd: worktreePath, stdio: "pipe" });
-    const commitMessage = appendAgentTrailer("chore: complete-but-dirty commit", "completion-ready");
     execFileSync("git", ["commit", "-F", "-"], {
       cwd: worktreePath,
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
-      input: commitMessage,
+      input: appendAgentTrailer("chore: complete-but-dirty commit", "completion-ready"),
     });
-
     const porcelain = execFileSync("git", ["status", "--porcelain"], {
       cwd: worktreePath,
       encoding: "utf8",
@@ -1104,9 +1049,7 @@ function commitAndPushFinalizeDirtyWorktree(worktreePath: string): CommitAndPush
     if (porcelain !== "") {
       return { ok: false, reason: "still-dirty" };
     }
-
-    pushCurrent({ cwd: worktreePath, firstPush: false });
-    return { ok: true };
+    return pushWorktreeOrFail(worktreePath);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, reason: "push-failed", message };
@@ -1230,12 +1173,11 @@ function ghAdminMergeDefault(branch: string, cwd: string): void {
   );
 }
 
-function subspecNonHumanOnlyAcceptanceComplete(subspecPath: string): boolean {
-  if (!existsSync(subspecPath)) {
-    return false;
-  }
-  const criteria = snapshotAcceptanceCriteria(subspecPath);
-  return criteria.every((c) => c.humanOnly || c.checked);
+function nonHumanOnlyAcceptanceComplete(specPath: string): boolean {
+  return (
+    existsSync(specPath) &&
+    snapshotAcceptanceCriteria(specPath).every((c) => c.humanOnly || c.checked)
+  );
 }
 
 function isSpecComplete(specPath: string): boolean {
@@ -1244,21 +1186,15 @@ function isSpecComplete(specPath: string): boolean {
   }
 
   try {
-    if (basename(specPath) === "index.md") {
-      const parsed = parseSpec(readFileSync(specPath, "utf8"));
-      if (parsed.linkedSubspecs.length === 0) {
-        return subspecNonHumanOnlyAcceptanceComplete(specPath);
-      }
-      const baseDir = dirname(specPath);
-      for (const linked of parsed.linkedSubspecs) {
-        if (!subspecNonHumanOnlyAcceptanceComplete(resolve(baseDir, linked.path))) {
-          return false;
-        }
-      }
-      return true;
+    if (basename(specPath) !== "index.md") {
+      return nonHumanOnlyAcceptanceComplete(specPath);
     }
-
-    return subspecNonHumanOnlyAcceptanceComplete(specPath);
+    const parsed = parseSpec(readFileSync(specPath, "utf8"));
+    const paths =
+      parsed.linkedSubspecs.length === 0
+        ? [specPath]
+        : parsed.linkedSubspecs.map((linked) => resolve(dirname(specPath), linked.path));
+    return paths.every(nonHumanOnlyAcceptanceComplete);
   } catch {
     return false;
   }

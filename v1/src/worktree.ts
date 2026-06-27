@@ -58,11 +58,11 @@ export function getPatchWorktreePath(projectRoot: string, specName: string): str
   return join(projectRoot, ".worktree", specName);
 }
 
-function getBranchStartPoint(projectRoot: string, baseBranch: string): { args: string[]; startPoint: string } {
+function getBranchCreationArgs(projectRoot: string, branchName: string, baseBranch: string): string[] {
   if (branchExistsOnOrigin(projectRoot, baseBranch)) {
-    return { args: ["--no-track"], startPoint: `origin/${baseBranch}` };
+    return ["--no-track", branchName, `origin/${baseBranch}`];
   }
-  return { args: [], startPoint: baseBranch };
+  return [branchName, baseBranch];
 }
 
 export async function ensureWorktree(projectRoot: string, specPath: string): Promise<string> {
@@ -111,8 +111,7 @@ export async function ensureWorktree(projectRoot: string, specPath: string): Pro
     });
   } else {
     const baseBranch = await getBaseBranch(projectRoot);
-    const startPoint = getBranchStartPoint(projectRoot, baseBranch);
-    execFileSync("git", ["branch", ...startPoint.args, specName, startPoint.startPoint], {
+    execFileSync("git", ["branch", ...getBranchCreationArgs(projectRoot, specName, baseBranch)], {
       cwd: projectRoot,
       stdio: "pipe",
     });
@@ -169,8 +168,7 @@ async function createManagedWorktree(opts: CreateManagedWorktreeOptions): Promis
     });
   } else {
     const baseBranch = opts.baseBranch ?? (await getBaseBranch(opts.projectRoot));
-    const startPoint = getBranchStartPoint(opts.projectRoot, baseBranch);
-    execFileSync("git", ["branch", ...startPoint.args, branchName, startPoint.startPoint], {
+    execFileSync("git", ["branch", ...getBranchCreationArgs(opts.projectRoot, branchName, baseBranch)], {
       cwd: opts.projectRoot,
       stdio: "pipe",
     });

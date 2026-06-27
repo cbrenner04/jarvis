@@ -5,18 +5,28 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPlanWorktree, ensureExistingBranchWorktree, ensureWorktree } from "../src/worktree.ts";
 
+function initRepo(dir: string): void {
+  execSync("git init -b main", { cwd: dir });
+  execSync("git config user.email 'test@example.com'", { cwd: dir });
+  execSync("git config user.name 'Test User'", { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "test");
+  execSync("git add README.md", { cwd: dir });
+  execSync("git commit -m 'initial'", { cwd: dir });
+}
+
+function writeSpec(dir: string, name = "feature"): string {
+  const specDir = join(dir, "spec", name);
+  const specFile = join(specDir, "index.md");
+  mkdirSync(specDir, { recursive: true });
+  writeFileSync(specFile, "# Test spec\n");
+  return specFile;
+}
+
 describe("createPlanWorktree", () => {
   test("creates worktree at .worktree/plan-<name>/ on plan/<name> branch", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-worktree-"));
     try {
-      // Set up a minimal git repo
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      // Create initial commit so there's a base branch
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
+      initRepo(dir);
 
       // Create the plan worktree
       const testName = "test-plan";
@@ -54,13 +64,7 @@ describe("createPlanWorktree", () => {
   test("fails if worktree already exists at the target path", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-plan-exists-"));
     try {
-      // Set up a minimal git repo
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
+      initRepo(dir);
 
       const testName = "test-existing";
       // Create the first worktree
@@ -93,13 +97,8 @@ function setupRepoWithOrigin(): { dir: string; origin: string } {
   const origin = mkdtempSync(join(tmpdir(), "jarvis-origin-"));
   const dir = mkdtempSync(join(tmpdir(), "jarvis-repo-"));
   execSync("git init --bare", { cwd: origin });
-  execSync("git init -b main", { cwd: dir });
-  execSync("git config user.email 'test@example.com'", { cwd: dir });
-  execSync("git config user.name 'Test User'", { cwd: dir });
+  initRepo(dir);
   execSync(`git remote add origin "${origin}"`, { cwd: dir });
-  writeFileSync(join(dir, "README.md"), "test");
-  execSync("git add README.md", { cwd: dir });
-  execSync("git commit -m 'initial'", { cwd: dir });
   execSync("git push -u origin main", { cwd: dir });
   return { dir, origin };
 }
@@ -324,10 +323,7 @@ describe("ensureWorktree (patch-mode)", () => {
   test("creates a new patch worktree branch from origin base when local base is stale", async () => {
     const { dir, origin } = setupRepoWithOrigin();
     try {
-      const specDir = join(dir, "spec", "feature");
-      const specFile = join(specDir, "index.md");
-      mkdirSync(specDir, { recursive: true });
-      writeFileSync(specFile, "# Test spec\n");
+      const specFile = writeSpec(dir);
 
       const staleLocalBase = revParse(dir, "main");
       const remoteBase = advanceOriginMain(origin);
@@ -348,17 +344,8 @@ describe("ensureWorktree (patch-mode)", () => {
   test("falls back to local base when origin is not configured", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-no-origin-"));
     try {
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
-
-      const specDir = join(dir, "spec", "feature");
-      const specFile = join(specDir, "index.md");
-      mkdirSync(specDir, { recursive: true });
-      writeFileSync(specFile, "# Test spec\n");
+      initRepo(dir);
+      const specFile = writeSpec(dir);
 
       const localBase = revParse(dir, "main");
       await ensureWorktree(dir, specFile);
@@ -374,18 +361,9 @@ describe("ensureWorktree (patch-mode)", () => {
     const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-never-fetched-local-"));
     try {
       execSync("git init --bare", { cwd: origin });
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
+      initRepo(dir);
       execSync(`git remote add origin "${origin}"`, { cwd: dir });
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
-
-      const specDir = join(dir, "spec", "feature");
-      const specFile = join(specDir, "index.md");
-      mkdirSync(specDir, { recursive: true });
-      writeFileSync(specFile, "# Test spec\n");
+      const specFile = writeSpec(dir);
 
       const localBase = revParse(dir, "main");
       await ensureWorktree(dir, specFile);

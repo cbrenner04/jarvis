@@ -5,7 +5,6 @@ import { join } from "node:path";
 import type { Io } from "../src/cli.ts";
 import { init } from "../src/commands/init.ts";
 import { runbookCommand } from "../src/commands/runbook.ts";
-import { VALID_RUNBOOK_SECTIONS } from "../src/runbook-generator.ts";
 
 function captureIo(): { io: Io; out: () => string; err: () => string } {
   let out = "";

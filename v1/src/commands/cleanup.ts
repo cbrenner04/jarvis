@@ -120,11 +120,12 @@ function archiveResolvedSpec(args: {
   source: string;
   specName: string;
   missingSource: string;
+  reservedNames?: string[];
   onArchive?: (destination: string, specName: string) => void;
 }): boolean {
-  const { archiveRoot, branch, dir, io, missingSource, onArchive, source, specName } = args;
-  if (specName === "completed") {
-    io.stderr(`unsafe spec archive mapping for "${dir}": refusing to move ${archiveRoot}/completed/\n`);
+  const { archiveRoot, branch, dir, io, missingSource, onArchive, source, specName, reservedNames = ["completed"] } = args;
+  if (reservedNames.includes(specName)) {
+    io.stderr(`unsafe spec archive mapping for "${dir}": refusing to move ${archiveRoot}/${specName}/\n`);
     return false;
   }
 
@@ -311,6 +312,7 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
           source,
           specName,
           missingSource,
+          reservedNames: ["completed", "ready-intents"],
           onArchive: () => {
             rmSync(join(externalSpecsRoot, "ready-intents", `${branchSlug}.md`), { force: true });
           },

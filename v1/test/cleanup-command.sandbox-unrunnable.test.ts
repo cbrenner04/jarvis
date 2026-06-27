@@ -553,4 +553,27 @@ describe("cleanupCommand", () => {
       }).trim(),
     ).toBe(branchHeadBefore);
   });
+
+  test("commit:false reserved ready-intents name reports failure and leaves source intact", () => {
+    const { io, err } = captureIo(["yes"]);
+
+    const unsafe = createTrackedWorktree("ready-intents");
+    const safe = createTrackedWorktree("safe-external");
+    const unsafeSource = join(externalSpecsRoot, "ready-intents");
+    const safeSource = join(externalSpecsRoot, "safe-external");
+    const safeDestination = join(externalSpecsRoot, "completed", "safe-external");
+    mkdirSync(unsafeSource, { recursive: true });
+    writeFileSync(join(unsafeSource, "index.md"), "# unsafe\n");
+    mkdirSync(safeSource, { recursive: true });
+
+    const code = runExternalCleanup(io);
+
+    expect(code).toBe(1);
+    expect(existsSync(unsafe)).toBe(false);
+    expect(existsSync(safe)).toBe(false);
+    expect(existsSync(unsafeSource)).toBe(true);
+    expect(existsSync(safeDestination)).toBe(true);
+    expect(err()).toContain("unsafe spec archive mapping");
+    expect(err()).toContain("ready-intents");
+  });
 });

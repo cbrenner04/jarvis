@@ -91,32 +91,32 @@ and git-tracks the archive move.
 
 ## Acceptance criteria
 
-- [ ] For a `commit: false` project, `jarvis1 cleanup` archives a merged spec's
+- [x] For a `commit: false` project, `jarvis1 cleanup` archives a merged spec's
   external dir from `~/.jarvis/specs/<proj>/<name>/` to
   `~/.jarvis/specs/<proj>/completed/<name>/`.
-- [ ] For a `commit: false` project, cleanup prunes the consumed
+- [x] For a `commit: false` project, cleanup prunes the consumed
   `~/.jarvis/specs/<proj>/ready-intents/<stripped-name>.md` for the retired spec.
-- [ ] `commit: false` archiving runs no `git add`/`commit`/`push` against the target repo.
-- [ ] A missing external ready-intent during `commit: false` cleanup is a no-op, not a failure.
-- [ ] The ready-intent is pruned only after a successful archive move; a failed move
+- [x] `commit: false` archiving runs no `git add`/`commit`/`push` against the target repo.
+- [x] A missing external ready-intent during `commit: false` cleanup is a no-op, not a failure.
+- [x] The ready-intent is pruned only after a successful archive move; a failed move
   (existing destination or reserved-name refusal) leaves both the source dir and the
   ready-intent intact.
-- [ ] A spec dir whose basename is a reserved external-home name (`completed` or
+- [x] A spec dir whose basename is a reserved external-home name (`completed` or
   `ready-intents`) is refused — left in place, reported as failure, with no prune.
-- [ ] A `commit: false` worktree on an untimestamped `plan/<name>` branch is left
+- [x] A `commit: false` worktree on an untimestamped `plan/<name>` branch is left
   untouched by external archiving (no exact `<proj>/<spec-dir>` match).
-- [ ] An existing `~/.jarvis/specs/<proj>/completed/<name>/` leaves the source in place
+- [x] An existing `~/.jarvis/specs/<proj>/completed/<name>/` leaves the source in place
   and cleanup reports failure.
-- [ ] When the external source dir is absent, the missing-source message names the
+- [x] When the external source dir is absent, the missing-source message names the
   external `~/.jarvis/specs/<proj>/<name>` path, not the in-repo `spec/` path.
-- [ ] In-repo (`commit: true`) cleanup behavior is unchanged: existing `cleanup.ts`
+- [x] In-repo (`commit: true`) cleanup behavior is unchanged: existing `cleanup.ts`
   in-repo archive + git-commit tests stay green.
 
 ## Documentation updates
 
-- [ ] `v2/docs/v1-behaviors.md` — extend the `cleanup` archiving entry: under
+- [x] `v2/docs/v1-behaviors.md` — extend the `cleanup` archiving entry: under
   `commit: false`, cleanup archives the spec from the external home
   `~/.jarvis/specs/<proj>/` to that home's `completed/` (move-only, no git) and prunes
   the consumed external `ready-intents/<name>.md`.
-- [ ] `v1/docs/operator-runbook.md` — note that `jarvis1 cleanup` archives `commit: false`
+- [x] `v1/docs/operator-runbook.md` — note that `jarvis1 cleanup` archives `commit: false`
   specs from the external home (no manual `mv`/prune needed).

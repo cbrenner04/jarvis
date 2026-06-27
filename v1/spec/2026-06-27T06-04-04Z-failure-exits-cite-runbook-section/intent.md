@@ -13,3 +13,7 @@ exit routes the operator to where the fix lives.
 
 ## Prerequisites
 - `jarvis init` scaffolds an OPERATOR_RUNBOOK.md with stably-named sections
+
+## Blocker
+
+- Unconfirmed prerequisite: `jarvis init` scaffolds an OPERATOR_RUNBOOK.md with stably-named sections. Current `v1/src/commands/init.ts` only registers config, and `v1/test/init.test.ts` still asserts `jarvis init` creates no target files.

@@ -78,3 +78,13 @@ report,session_id,report_date,completed_work_units,success_status,failure_reason
 2026-06-27T03-35-08Z-operator,plan-generated-spec-markdown-passes-lint-md,2026-06-26,0,blocked,"plan blocked (4 agent-error fallbacks opus->gpt-5.5->Composer->qwen before opus plan-draft-ok, then blocked)",plan,1,18.64,0,namespace=plan:jarvis:plan-generated-spec-markdown-passes-lint-md; lint-dirty-emitter root-fix seed; no run phase; judgment=blocked
 2026-06-27T03-35-08Z-operator,commit-false-rerun-cleanup-hygiene,2026-06-26,0,blocked,plan blocked - #520 intent stale,plan,1,6.97,0,namespace=plan:jarvis:commit-false-rerun-cleanup-hygiene; single plan-draft-ok iter then blocked; no run phase; judgment=blocked
 2026-06-27T03-35-08Z-operator,commit-false-reset-once-per-run,2026-06-26,0,blocked,plan blocked - #520 intent stale,plan,1,6.77,0,namespace=plan:jarvis:commit-false-reset-once-per-run; single plan-draft-ok iter then blocked; no run phase; judgment=blocked
+2026-06-27T12-41-55Z-operator,cleanup-archive-external-commitfalse-specs,2026-06-27,1,completed,,patch,,,,#566; run via codex (3 iters)
+2026-06-27T12-41-55Z-operator,retry-transient-agent-errors-before-cascade-exit,2026-06-27,1,completed,,patch,,,,#585
+2026-06-27T12-41-55Z-operator,normalize-residual-worktree-state-on-agent-error,2026-06-27,2,completed,,patch,,,,#585; first run agent-error (codex+cursor quota during claude-removed window); re-run on claude
+2026-06-27T12-41-55Z-operator,warn-on-shared-model-pool-contention,2026-06-27,1,completed,,patch,,,,#585
+2026-06-27T12-41-55Z-operator,commit-false-source-spec-rerun-reset,2026-06-27,1,completed,,patch,,,,#520; codex attempt abandoned (async-leak survived 3 review-feedback rounds); from-scratch claude re-impl passed CI
+2026-06-27T12-41-55Z-operator,commit-false-rerun-workspace-cleanup,2026-06-27,1,completed,,patch,,,,#520; v1-behaviors merge conflict hand-resolved
+2026-06-27T12-41-55Z-operator,init-scaffolds-operator-runbook,2026-06-27,2,completed,,patch,,,,#598 core
+2026-06-27T12-41-55Z-operator,failure-exits-cite-runbook-section,2026-06-27,1,completed,,patch,,,,#598; plan blocked first ($0.22) then re-planned ($2.83) after init-scaffolds shipped; final run contention-flaked then isolated-green
+2026-06-27T12-41-55Z-operator,runbook-add-appends-learning,2026-06-27,1,completed,,patch,,,,#598; plan blocked first ($0.54) then re-planned ($2.48)
+2026-06-27T12-41-55Z-operator,prnarrative-default-deliberate-choice,2026-06-27,1,completed,,patch,,,,active spec; plan from prior session

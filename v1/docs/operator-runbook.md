@@ -219,7 +219,7 @@ Common cases:
 - **Flaky parallel-load failure.** Tests that pass serially but fail under `--parallel` are load flakes — re-run the failing test(s) in isolation; if green, finalize.
 - **CI-only failure (passes the local/jarvis gate).** A path/fs-sensitive bug can pass `bun run ready` under the local `$TMPDIR` layout yet fail **deterministically in CI's `/tmp`**. `jarvis1 review-feedback` tends to stall (the agent never sees the failure locally) and a plain re-run no-ops once acceptance criteria are ticked. After ~1–2 unproductive feedback rounds, **abandon** the worktree with `jarvis1 cleanup --abandon` and re-run the spec fresh (`jarvis1 run`) — ideally on a stronger agent — to re-implement from a clean slate. Treat CI as the load-bearing gate for path/fs-sensitive code; a local green alone isn't proof.
 
-Admin-merge skips approval and CI but **not** local verification — always run `bun run ready` before merging.
+Manual admin-merge with `gh pr merge --admin --squash` skips approval and CI verification — always run `bun run ready` before using it. Prefer `jarvis1 triage <worktree-name> --merge` instead, which enforces both the local ready gate and CI-green before merging.
 
 ## No-commit re-run auto-reset
 

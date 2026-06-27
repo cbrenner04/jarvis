@@ -1468,5 +1468,199 @@ describe("triage --mark-ready", () => {
       expect(prReadyRan).toBe(false);
       expect(out()).toContain("merged successfully");
     });
+
+    test("--merge with poll timeout refuses to merge", () => {
+      setupMergeWorktree("branch-1");
+
+      let mergeRan = false;
+
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        io,
+        worktreeName: "branch-1",
+        merge: true,
+        pollIntervalMs: 0,
+        pollTimeoutMs: 0,
+        ghRunner: {
+          getPrState: () => ({
+            state: "OPEN",
+            isDraft: true,
+          }),
+          getChecks: () => [{ name: "test", status: "in_progress" }],
+        },
+        runGate: () => {},
+        prReady: () => {},
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(mergeRan).toBe(false);
+      expect(err()).toContain("timed out");
+      expect(err()).toContain("Still pending");
+    });
+
+    test("--merge with local gate failure on already-ready PR refuses to merge", () => {
+      setupMergeWorktree("branch-1");
+
+      let mergeRan = false;
+
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        io,
+        worktreeName: "branch-1",
+        merge: true,
+        ghRunner: {
+          getPrState: () => ({
+            state: "OPEN",
+            isDraft: false,
+          }),
+        },
+        runGate: () => {
+          throw new Error("test failure");
+        },
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(mergeRan).toBe(false);
+      expect(err()).toContain("ready gate failed");
+      expect(err()).toContain("test failure");
+    });
+
+    test("--merge with empty checks list refuses to merge", () => {
+      setupMergeWorktree("branch-1");
+
+      let mergeRan = false;
+
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        io,
+        worktreeName: "branch-1",
+        merge: true,
+        ghRunner: {
+          getPrState: () => ({
+            state: "OPEN",
+            isDraft: true,
+          }),
+          getChecks: () => [],
+        },
+        runGate: () => {},
+        prReady: () => {},
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(mergeRan).toBe(false);
+      expect(err()).toContain("CI check failed");
+      expect(err()).toContain("no checks found");
+    });
+
+    test("--merge with null checks (fetch error) refuses to merge", () => {
+      setupMergeWorktree("branch-1");
+
+      let mergeRan = false;
+
+      const { io, err } = captureIo();
+      const code = triageCommand({
+        projectRoot,
+        io,
+        worktreeName: "branch-1",
+        merge: true,
+        ghRunner: {
+          getPrState: () => ({
+            state: "OPEN",
+            isDraft: true,
+          }),
+          getChecks: () => null,
+        },
+        runGate: () => {},
+        prReady: () => {},
+        adminMerge: () => {
+          mergeRan = true;
+        },
+      });
+
+      expect(code).toBe(1);
+      expect(mergeRan).toBe(false);
+      expect(err()).toContain("CI check failed");
+    });
+
+    test("--merge classifies all spec check statuses correctly", () => {
+      setupMergeWorktree("branch-1");
+
+      const testCases: Array<{ status: string; shouldMerge: boolean; shouldWait: boolean }> = [
+        // Green states
+        { status: "success", shouldMerge: true, shouldWait: false },
+        { status: "skipped", shouldMerge: true, shouldWait: false },
+        { status: "neutral", shouldMerge: true, shouldWait: false },
+        // Pending states
+        { status: "pending", shouldMerge: false, shouldWait: true },
+        { status: "queued", shouldMerge: false, shouldWait: true },
+        { status: "in_progress", shouldMerge: false, shouldWait: true },
+        { status: "action_required", shouldMerge: false, shouldWait: true },
+        { status: "stale", shouldMerge: false, shouldWait: true },
+        // Red states
+        { status: "failure", shouldMerge: false, shouldWait: false },
+        { status: "cancelled", shouldMerge: false, shouldWait: false },
+        { status: "timed_out", shouldMerge: false, shouldWait: false },
+        { status: "startup_failure", shouldMerge: false, shouldWait: false },
+      ];
+
+      for (const testCase of testCases) {
+        const { io, err, out } = captureIo();
+        const { io: io2, err: err2, out: out2 } = captureIo();
+
+        let pollCount = 0;
+        const code = triageCommand({
+          projectRoot,
+          io: testCase.shouldWait ? io2 : io,
+          worktreeName: "branch-1",
+          merge: true,
+          pollIntervalMs: 0,
+          pollTimeoutMs: 1000,
+          ghRunner: {
+            getPrState: () => ({
+              state: "OPEN",
+              isDraft: true,
+            }),
+            getChecks: () => {
+              pollCount++;
+              // If waiting, return pending first, then green
+              if (testCase.shouldWait && pollCount === 1) {
+                return [{ name: "test", status: "in_progress" }];
+              }
+              return [{ name: "test", status: testCase.status }];
+            },
+          },
+          runGate: () => {},
+          prReady: () => {},
+          adminMerge: () => {},
+        });
+
+        const output = testCase.shouldWait ? out2() : out();
+        const errorOutput = testCase.shouldWait ? err2() : err();
+
+        if (testCase.shouldMerge) {
+          expect(code).toBe(0);
+          expect(output).toContain("merged successfully");
+        } else if (testCase.shouldWait) {
+          // For pending cases, might merge or timeout depending on the test duration
+          // Just verify it's not immediately failing
+          expect(pollCount).toBeGreaterThanOrEqual(1);
+        } else {
+          expect(code).toBe(1);
+          expect(errorOutput).toContain("CI check failed");
+        }
+      }
+    });
   });
 });

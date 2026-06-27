@@ -189,7 +189,7 @@ const MERGE_CI_POLL_TIMEOUT_MS = 30 * 60 * 1000;
 
 function fetchGhPrChecks(branch: string): CiCheckState[] | null {
   try {
-    const fullOutput = execSync(`gh pr checks "${branch}" --json name,status`, {
+    const fullOutput = execSync(`gh pr checks "${branch}" --json name,state`, {
       stdio: "pipe",
       encoding: "utf8",
     });
@@ -197,9 +197,9 @@ function fetchGhPrChecks(branch: string): CiCheckState[] | null {
     if (!Array.isArray(checks)) {
       return null;
     }
-    return checks.map((c: { name: string; status: string }) => ({
+    return checks.map((c: { name: string; state: string }) => ({
       name: c.name,
-      status: c.status,
+      status: normalizeGhCheckState(c.state),
     }));
   } catch {
     return null;
@@ -209,6 +209,10 @@ function fetchGhPrChecks(branch: string): CiCheckState[] | null {
 function sleepMs(ms: number): void {
   const bunGlobal = (globalThis as { Bun?: { sleepSync?: (ms: number) => void } }).Bun;
   bunGlobal?.sleepSync?.(ms);
+}
+
+function normalizeGhCheckState(state: string): string {
+  return state.toLowerCase();
 }
 
 function classifyWorktree(
@@ -1132,14 +1136,20 @@ function isSpecComplete(specPath: string): boolean {
 
 type CiCheckClassification = "green" | "pending" | "red";
 
+const CI_GREEN_STATUSES = new Set(["success", "skipped", "neutral"]);
 const CI_PENDING_STATUSES = new Set(["pending", "queued", "in_progress", "action_required", "stale"]);
 const CI_RED_STATUSES = new Set(["failure", "cancelled", "timed_out", "startup_failure"]);
 
-function classifyCiChecks(checks: CiCheckState[]): {
+function classifyCiChecks(checks: CiCheckState[] | null): {
   classification: CiCheckClassification;
   failingCheck?: string;
   pendingCheck?: string;
 } {
+  // Fail-closed: null or empty checks list is treated as red
+  if (!checks || checks.length === 0) {
+    return { classification: "red", failingCheck: "no checks found" };
+  }
+
   let failingCheck: string | undefined;
   let pendingCheck: string | undefined;
 
@@ -1148,6 +1158,9 @@ function classifyCiChecks(checks: CiCheckState[]): {
       failingCheck ??= check.name;
     } else if (CI_PENDING_STATUSES.has(check.status)) {
       pendingCheck ??= check.name;
+    } else if (!CI_GREEN_STATUSES.has(check.status)) {
+      // Unknown status is treated as red
+      failingCheck ??= check.name;
     }
   }
 
@@ -1170,7 +1183,7 @@ function waitForCiGreen(
   const startTime = Date.now();
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const { classification, failingCheck, pendingCheck } = classifyCiChecks(getChecks(branch) ?? []);
+    const { classification, failingCheck, pendingCheck } = classifyCiChecks(getChecks(branch));
 
     if (classification === "green") {
       io.stdout(`triage --merge: CI checks green, proceeding to merge\n`);

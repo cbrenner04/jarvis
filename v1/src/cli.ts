@@ -631,6 +631,9 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
       if (parsed.markReady !== undefined) {
         triageOpts.markReady = parsed.markReady;
       }
+      if (parsed.merge !== undefined) {
+        triageOpts.merge = parsed.merge;
+      }
       return triageCommand(triageOpts);
     }
     case "review-feedback": {

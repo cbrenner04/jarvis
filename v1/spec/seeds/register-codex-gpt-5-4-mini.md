@@ -24,3 +24,15 @@ Out of scope: changing the default `agentOrder` — registration only; the
 operator opts in via `jarvis config`. Open question to resolve while
 implementing: whether `gpt-5.4-mini` draws separate quota from `gpt-5.4`
 (account-level limits may mean it shares the pool).
+
+Owner entered: pricing data for gpt-5.4.-mini as of 2026-06-27:
+
+```json
+    "gpt-5.4-mini": {
+      "input_per_mtok": 0.75,
+      "output_per_mtok": 4.5,
+      "cache_read_per_mtok": 0.075,
+      "source_url": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "as_of": "2026-06-27"
+    },
+```

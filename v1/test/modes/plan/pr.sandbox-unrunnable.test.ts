@@ -91,7 +91,9 @@ ${NARRATIVE_END_MARKER}`;
 });
 
 let gitDir: string;
-const currentBase = (baseRefName: string | null = "main") => () => ({ status: "current" as const, baseRefName });
+const currentBase =
+  (baseRefName: string | null = "main") =>
+  () => ({ status: "current" as const, baseRefName });
 const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, baseRefName });
 
 function gitSetup(): void {

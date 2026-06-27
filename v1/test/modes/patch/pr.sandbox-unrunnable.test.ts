@@ -18,7 +18,9 @@ import { markGeneratedNarrative } from "../../../src/pr.ts";
 
 let dir: string;
 let indexPath: string;
-const currentBase = (baseRefName: string | null = "main") => () => ({ status: "current" as const, baseRefName });
+const currentBase =
+  (baseRefName: string | null = "main") =>
+  () => ({ status: "current" as const, baseRefName });
 const behindBase = (baseRefName: string) => () => ({ status: "behind" as const, baseRefName });
 
 function gitSetup(): void {

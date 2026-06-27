@@ -321,7 +321,11 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
 
   const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch: opts.branch, cwd: opts.cwd });
   if (baseCurrent.status === "behind") {
-    writeReadyFlipBlocked(opts.stderr ?? process.stderr.write.bind(process.stderr), opts.branch, baseCurrent.baseRefName);
+    writeReadyFlipBlocked(
+      opts.stderr ?? process.stderr.write.bind(process.stderr),
+      opts.branch,
+      baseCurrent.baseRefName,
+    );
     return;
   }
 

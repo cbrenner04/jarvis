@@ -113,7 +113,8 @@ Flags:
 `,
   init: `Usage: jarvis1 init
 
-  Register the current target repo in the project registry.
+  Register the current target repo in the project registry and scaffold
+  an OPERATOR_RUNBOOK.md at the project root (if absent).
 `,
   config: `Usage: jarvis1 config [show|edit]
 

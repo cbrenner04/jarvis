@@ -35,17 +35,17 @@ stack-inference helper from 00.
 
 ## Acceptance criteria
 
-- [ ] `jarvis init` on a registered project with no existing runbook writes `OPERATOR_RUNBOOK.md` at the project root, and writes no other files.
-- [ ] The rendered runbook includes repo path, origin URL (or a "no origin configured" note when absent), project key, inferred stack, `readyCommand` (or a "not configured" note when absent), `modes.plan.commit` mode, `modes.patch.agentOrder`, and `modes.patch.prNarrative` mode.
-- [ ] The runbook explains the spec-layout including the `commit:false` external `~/.jarvis/specs/<project>` ↔ symlink arrangement.
-- [ ] The runbook contains a repos-and-gates table with columns `Repo | Path/URL | Gate` and a row for the target repo whose gate is the resolved `readyCommand`.
-- [ ] The runbook contains static sandbox/network notes covering sandbox blindness and network-restricted runs.
-- [ ] The runbook contains stubbed sections with fill-in prompts for manual-finalize/recovery by exit reason, resume-first guidance, gate blind spots, and cross-repo coordination, and does not auto-write recovery recipes jarvis cannot know.
-- [ ] The runbook contains a known-gotchas section with at least the `commit:false` external-spec ↔ symlink gotcha, and every gotcha entry links to a jarvis issue URL.
-- [ ] The runbook uses exactly the fixed section headings listed in Decisions, in order.
-- [ ] Re-running `jarvis init` when `OPERATOR_RUNBOOK.md` already exists leaves the file byte-for-byte untouched.
-- [ ] `jarvis init` still registers the project (root + origin) in the config registry and prints the registration line.
-- [ ] `jarvis init` does not modify `v1/docs/operator-runbook.md`.
+- [x] `jarvis init` on a registered project with no existing runbook writes `OPERATOR_RUNBOOK.md` at the project root, and writes no other files.
+- [x] The rendered runbook includes repo path, origin URL (or a "no origin configured" note when absent), project key, inferred stack, `readyCommand` (or a "not configured" note when absent), `modes.plan.commit` mode, `modes.patch.agentOrder`, and `modes.patch.prNarrative` mode.
+- [x] The runbook explains the spec-layout including the `commit:false` external `~/.jarvis/specs/<project>` ↔ symlink arrangement.
+- [x] The runbook contains a repos-and-gates table with columns `Repo | Path/URL | Gate` and a row for the target repo whose gate is the resolved `readyCommand`.
+- [x] The runbook contains static sandbox/network notes covering sandbox blindness and network-restricted runs.
+- [x] The runbook contains stubbed sections with fill-in prompts for manual-finalize/recovery by exit reason, resume-first guidance, gate blind spots, and cross-repo coordination, and does not auto-write recovery recipes jarvis cannot know.
+- [x] The runbook contains a known-gotchas section with at least the `commit:false` external-spec ↔ symlink gotcha, and every gotcha entry links to a jarvis issue URL.
+- [x] The runbook uses exactly the fixed section headings listed in Decisions, in order.
+- [x] Re-running `jarvis init` when `OPERATOR_RUNBOOK.md` already exists leaves the file byte-for-byte untouched.
+- [x] `jarvis init` still registers the project (root + origin) in the config registry and prints the registration line.
+- [x] `jarvis init` does not modify `v1/docs/operator-runbook.md`.
 
 ## Documentation updates
 

@@ -131,6 +131,23 @@ function snapshotWatchdogDescendantsAlive(agentRootPid: number, listProcessesFn?
   return collectSubtree(agentRootPid, procs).length > 0;
 }
 
+function hasTrackedWorktreeChanges(cwd: string): boolean {
+  try {
+    const porcelain = execFileSync("git", ["status", "--porcelain"], {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+      stdio: "pipe",
+    })
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0);
+    return porcelain.some((line) => !line.startsWith("?? "));
+  } catch {
+    return false;
+  }
+}
+
 function killWatchdogWithDescendants(
   pgid: number,
   reason: string,
@@ -1685,14 +1702,15 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
       return { kind: "return", exitCode: 3 };
     }
 
-    let checkedAnyCriteria = false;
+    let newlyCheckedCriteria: AcceptanceCriterion[] = [];
     if (afterSubspecPath !== undefined) {
       const afterCriteria = snapshotAcceptanceCriteria(afterSubspecPath);
-      checkedAnyCriteria = diffAcceptanceCriteria(beforeCriteria, afterCriteria).length > 0;
+      newlyCheckedCriteria = diffAcceptanceCriteria(beforeCriteria, afterCriteria);
     }
     const isGitWorktree = existsSync(join(agentWorkingDir, ".git"));
-    const editedFiles = isGitWorktree ? worktreeCompletionBlocker(agentWorkingDir) !== undefined : false;
-    const noIterationProgress = !checkedAnyCriteria && !editedFiles;
+    const checkedAnyCriteria = newlyCheckedCriteria.length > 0;
+    const editedTrackedFiles = isGitWorktree ? hasTrackedWorktreeChanges(agentWorkingDir) : false;
+    const noIterationProgress = !checkedAnyCriteria && !editedTrackedFiles;
     const classified = binding.classify(result, noIterationProgress);
     if (classified.kind === "quota") {
       activeAgents.shift();
@@ -1728,6 +1746,45 @@ export async function runIteration(ctx: IterationContext): Promise<IterationOutc
     if (result.stderr.length > 0) {
       const stderr = result.stderr.endsWith("\n") ? result.stderr : `${result.stderr}\n`;
       fanout("harness", stderr, "stderr");
+    }
+    if (isGitWorktree && !noIterationProgress) {
+      if (afterSubspecPath !== undefined) {
+        const afterCriteria = snapshotAcceptanceCriteria(afterSubspecPath);
+        const humanOnlyUnchecked = afterCriteria.filter((c) => c.humanOnly && !c.checked);
+        const checkedTotal = afterCriteria.filter((c) => c.checked).length;
+        try {
+          commitWipProgress(afterSubspecPath, {
+            cwd: agentWorkingDir,
+            newlyChecked: newlyCheckedCriteria,
+            checkedTotal,
+            total: afterCriteria.length,
+            humanOnlyCount: humanOnlyUnchecked.length,
+            agentLabel: agent.attributionLabel(),
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          fanout(
+            "harness",
+            `failed to commit agent-error WIP progress for ${afterSubspecPath}: ${message}\n`,
+            "stderr",
+          );
+          return { kind: "return", exitCode: 1 };
+        }
+      } else if (isFixupIteration && editedTrackedFiles) {
+        // Fix-up iteration with tracked edits: commit WIP with generic label
+        try {
+          execFileSync("git", ["add", "-A"], { cwd: agentWorkingDir, stdio: "pipe" });
+          const commitMessage = `WIP: fix-up\n\nJarvis-Agent: ${agent.attributionLabel()}`;
+          execFileSync("git", ["commit", "-m", commitMessage], {
+            cwd: agentWorkingDir,
+            stdio: "pipe",
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          fanout("harness", `failed to commit agent-error WIP for fix-up iteration: ${message}\n`, "stderr");
+          return { kind: "return", exitCode: 1 };
+        }
+      }
     }
     writeTelemetry({
       agent: agent.name,

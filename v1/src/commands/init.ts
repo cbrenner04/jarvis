@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { existsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { relative, resolve, sep } from "node:path";
 import type { Io } from "../cli.ts";
 import { type ConfigOptions, loadConfig, registerProject } from "../config.ts";
+import { generateOperatorRunbook } from "../runbook-generator.ts";
 
 export type InitOptions = {
   cwd: string;
@@ -48,29 +50,54 @@ export function init(opts: InitOptions): number {
   const cfg = loadConfig(opts.config);
   const existing = cfg.projects[name];
   if (existing !== undefined) {
-    if (existing.root === cwd) {
-      io.stdout(`project ${JSON.stringify(name)} already registered at ${cwd}\n`);
-      return 0;
+    if (existing.root !== cwd) {
+      io.stderr(
+        `jarvis1: project name ${JSON.stringify(name)} is already registered to ${existing.root}. Resolve with \`jarvis1 config\`.\n`,
+      );
+      return 1;
     }
-    io.stderr(
-      `jarvis1: project name ${JSON.stringify(name)} is already registered to ${existing.root}. Resolve with \`jarvis1 config\`.\n`,
-    );
-    return 1;
+    io.stdout(`project ${JSON.stringify(name)} already registered at ${cwd}\n`);
+  } else {
+    const readOrigin = opts.readOriginUrl ?? readGitOriginUrl;
+    const rawOrigin = readOrigin(cwd);
+    const origin = rawOrigin === undefined || rawOrigin.trim() === "" ? undefined : rawOrigin.trim();
+
+    try {
+      registerProject(name, cwd, origin === undefined ? opts.config : { ...(opts.config ?? {}), origin });
+    } catch (err) {
+      io.stderr(`jarvis1: ${(err as Error).message}\n`);
+      return 1;
+    }
+    io.stdout(`registered project ${JSON.stringify(name)} → ${cwd}\n`);
+    if (origin === undefined) {
+      io.stdout(`note: no \`origin\` remote found in ${cwd}; skipped recording origin URL\n`);
+    }
   }
 
-  const readOrigin = opts.readOriginUrl ?? readGitOriginUrl;
-  const rawOrigin = readOrigin(cwd);
-  const origin = rawOrigin === undefined || rawOrigin.trim() === "" ? undefined : rawOrigin.trim();
+  // Write OPERATOR_RUNBOOK.md if it doesn't already exist
+  const runbookPath = resolve(cwd, "OPERATOR_RUNBOOK.md");
+  if (!existsSync(runbookPath)) {
+    const fullConfig = loadConfig(opts.config);
+    const project = fullConfig.projects[name];
+    if (project === undefined) {
+      io.stderr(`jarvis1: project ${JSON.stringify(name)} not found in config\n`);
+      return 1;
+    }
+    const origin = project.origin;
+    const runbookContent = generateOperatorRunbook({
+      projectKey: name,
+      projectRoot: cwd,
+      projectOrigin: origin,
+      config: fullConfig,
+      project,
+    });
+    try {
+      writeFileSync(runbookPath, runbookContent, "utf8");
+    } catch (err) {
+      io.stderr(`jarvis1: failed to write runbook: ${(err as Error).message}\n`);
+      return 1;
+    }
+  }
 
-  try {
-    registerProject(name, cwd, origin === undefined ? opts.config : { ...(opts.config ?? {}), origin });
-  } catch (err) {
-    io.stderr(`jarvis1: ${(err as Error).message}\n`);
-    return 1;
-  }
-  io.stdout(`registered project ${JSON.stringify(name)} → ${cwd}\n`);
-  if (origin === undefined) {
-    io.stdout(`note: no \`origin\` remote found in ${cwd}; skipped recording origin URL\n`);
-  }
   return 0;
 }

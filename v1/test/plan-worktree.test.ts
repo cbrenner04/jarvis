@@ -89,18 +89,27 @@ describe("createPlanWorktree", () => {
   });
 });
 
+function setupRepoWithOrigin(): { dir: string; origin: string } {
+  const origin = mkdtempSync(join(tmpdir(), "jarvis-origin-"));
+  const dir = mkdtempSync(join(tmpdir(), "jarvis-repo-"));
+  execSync("git init --bare", { cwd: origin });
+  execSync("git init -b main", { cwd: dir });
+  execSync("git config user.email 'test@example.com'", { cwd: dir });
+  execSync("git config user.name 'Test User'", { cwd: dir });
+  execSync(`git remote add origin "${origin}"`, { cwd: dir });
+  writeFileSync(join(dir, "README.md"), "test");
+  execSync("git add README.md", { cwd: dir });
+  execSync("git commit -m 'initial'", { cwd: dir });
+  execSync("git push -u origin main", { cwd: dir });
+  return { dir, origin };
+}
+
 describe("ensureWorktree (patch-mode)", () => {
   test("allows patch specs whose names start with plan-", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "jarvis-patch-plan-prefix-"));
+    const { dir, origin } = setupRepoWithOrigin();
     try {
-      // Set up a minimal git repo
-      execSync("git init -b main", { cwd: dir });
-      execSync("git config user.email 'test@example.com'", { cwd: dir });
-      execSync("git config user.name 'Test User'", { cwd: dir });
-      writeFileSync(join(dir, "README.md"), "test");
-      execSync("git add README.md", { cwd: dir });
-      execSync("git commit -m 'initial'", { cwd: dir });
       execSync("git branch plan-mode-updates main", { cwd: dir });
+      execSync("git push -u origin plan-mode-updates", { cwd: dir });
 
       // Create a spec dir with a plan- prefix
       const specDir = join(dir, "spec", "plan-mode-updates");
@@ -114,6 +123,7 @@ describe("ensureWorktree (patch-mode)", () => {
       expect(existsSync(worktreePath)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
     }
   });
 
@@ -139,6 +149,157 @@ describe("ensureWorktree (patch-mode)", () => {
       expect(existsSync(join(dir, ".worktree", "feature"))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("retires and recreates iter-0 orphan worktree (zero commits ahead)", async () => {
+    const { dir, origin } = setupRepoWithOrigin();
+    try {
+      const specDir = join(dir, "spec", "feature");
+      const specFile = join(specDir, "index.md");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(specFile, "# Test spec\n");
+
+      // Create an orphan: branch at base with zero commits ahead
+      execSync("git branch feature main", { cwd: dir });
+      // Push it to origin so it exists remotely (simulating a spec branch pushed but never used)
+      execSync("git push -u origin feature", { cwd: dir });
+      const worktreePath = join(dir, ".worktree", "feature");
+      mkdirSync(join(dir, ".worktree"), { recursive: true });
+      execSync(`git worktree add ${worktreePath} feature`, { cwd: dir });
+
+      // Verify the orphan is created
+      expect(existsSync(worktreePath)).toBe(true);
+      const commitsBefore = execSync("git rev-list --count main..feature", { cwd: dir, encoding: "utf8" }).trim();
+      expect(commitsBefore).toBe("0");
+
+      // Call ensureWorktree to retire and recreate
+      const resultPath = await ensureWorktree(dir, specFile);
+
+      // Verify the orphan was retired and recreated
+      expect(resultPath).toBe(worktreePath);
+      expect(existsSync(worktreePath)).toBe(true);
+      // The branch should still exist but with a fresh worktree
+      const commitsAfter = execSync("git rev-list --count main..feature", { cwd: dir, encoding: "utf8" }).trim();
+      expect(commitsAfter).toBe("0");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves WIP branch with commits and resumes from it", async () => {
+    const { dir, origin } = setupRepoWithOrigin();
+    try {
+      const specDir = join(dir, "spec", "feature");
+      const specFile = join(specDir, "index.md");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(specFile, "# Test spec\n");
+
+      // Create a WIP branch with commits
+      execSync("git branch feature main", { cwd: dir });
+      execSync("git push -u origin feature", { cwd: dir });
+      const worktreePath = join(dir, ".worktree", "feature");
+      mkdirSync(join(dir, ".worktree"), { recursive: true });
+      execSync(`git worktree add ${worktreePath} feature`, { cwd: dir });
+
+      // Add a commit to make it WIP
+      writeFileSync(join(worktreePath, "test.txt"), "WIP content");
+      execSync("git add test.txt", { cwd: worktreePath });
+      execSync("git commit -m 'WIP commit'", { cwd: worktreePath });
+
+      // Verify WIP branch has commits
+      const commitsBefore = execSync("git rev-list --count main..feature", { cwd: dir, encoding: "utf8" }).trim();
+      expect(parseInt(commitsBefore, 10)).toBeGreaterThan(0);
+
+      // Call ensureWorktree - should preserve the WIP branch
+      const resultPath = await ensureWorktree(dir, specFile);
+
+      // Verify the WIP branch is preserved
+      expect(resultPath).toBe(worktreePath);
+      expect(existsSync(worktreePath)).toBe(true);
+      const commitsAfter = execSync("git rev-list --count main..feature", { cwd: dir, encoding: "utf8" }).trim();
+      expect(commitsAfter).toBe(commitsBefore);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
+  test("clears litter (gitignored files) in resumed WIP worktree", async () => {
+    const { dir, origin } = setupRepoWithOrigin();
+    try {
+      // Create .gitignore
+      writeFileSync(join(dir, ".gitignore"), "*.log\ntest_output.txt\n");
+      execSync("git add .gitignore", { cwd: dir });
+      execSync("git commit -m 'add gitignore'", { cwd: dir });
+      execSync("git push", { cwd: dir });
+
+      const specDir = join(dir, "spec", "feature");
+      const specFile = join(specDir, "index.md");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(specFile, "# Test spec\n");
+
+      // Create a WIP branch with commits
+      execSync("git branch feature main", { cwd: dir });
+      execSync("git push -u origin feature", { cwd: dir });
+      const worktreePath = join(dir, ".worktree", "feature");
+      mkdirSync(join(dir, ".worktree"), { recursive: true });
+      execSync(`git worktree add ${worktreePath} feature`, { cwd: dir });
+
+      // Add a commit to make it WIP
+      writeFileSync(join(worktreePath, "test.txt"), "WIP content");
+      execSync("git add test.txt", { cwd: worktreePath });
+      execSync("git commit -m 'WIP commit'", { cwd: worktreePath });
+
+      // Create litter files (gitignored)
+      writeFileSync(join(worktreePath, "test_output.txt"), "litter");
+      writeFileSync(join(worktreePath, "error.log"), "more litter");
+      expect(existsSync(join(worktreePath, "test_output.txt"))).toBe(true);
+      expect(existsSync(join(worktreePath, "error.log"))).toBe(true);
+
+      // Call ensureWorktree - should clear litter
+      await ensureWorktree(dir, specFile);
+
+      // Verify litter is cleared
+      expect(existsSync(join(worktreePath, "test_output.txt"))).toBe(false);
+      expect(existsSync(join(worktreePath, "error.log"))).toBe(false);
+      // Verify WIP commit is still there
+      const commitsAfter = execSync("git rev-list --count main..feature", { cwd: dir, encoding: "utf8" }).trim();
+      expect(parseInt(commitsAfter, 10)).toBeGreaterThan(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
+  test("orphan worktree is removed even if branch already checked out elsewhere", async () => {
+    const { dir, origin } = setupRepoWithOrigin();
+    try {
+      const specDir = join(dir, "spec", "feature");
+      const specFile = join(specDir, "index.md");
+      mkdirSync(specDir, { recursive: true });
+      writeFileSync(specFile, "# Test spec\n");
+
+      // Create an orphan branch with a worktree
+      execSync("git branch feature main", { cwd: dir });
+      execSync("git push -u origin feature", { cwd: dir });
+      const worktreePath = join(dir, ".worktree", "feature");
+      mkdirSync(join(dir, ".worktree"), { recursive: true });
+      execSync(`git worktree add ${worktreePath} feature`, { cwd: dir });
+
+      // Verify orphan setup
+      expect(existsSync(worktreePath)).toBe(true);
+
+      // Call ensureWorktree - should retire the orphan using --force
+      const resultPath = await ensureWorktree(dir, specFile);
+
+      // Verify the orphan was retired and recreated
+      expect(resultPath).toBe(worktreePath);
+      expect(existsSync(worktreePath)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(origin, { recursive: true, force: true });
     }
   });
 });

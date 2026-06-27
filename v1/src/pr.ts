@@ -15,20 +15,12 @@ export type EnsureDraftPrOpts = {
   cwd?: string;
 };
 
-type HeadRepositoryJson = {
-  name?: string;
-};
-
-type HeadRepositoryOwnerJson = {
-  login?: string;
-};
-
 type OpenPrJson = {
   number?: number;
   isDraft?: boolean;
   headRefName?: string;
-  headRepository?: HeadRepositoryJson | null;
-  headRepositoryOwner?: HeadRepositoryOwnerJson | null;
+  headRepository?: { name?: string } | null;
+  headRepositoryOwner?: { login?: string } | null;
 };
 
 export type MatchingOpenPr = {

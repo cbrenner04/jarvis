@@ -3,7 +3,6 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:f
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { branchExistsOnOrigin } from "../../../../shared/git.ts";
 import { type PatchTier, parseRunnableIndexTier, parseSpec } from "../../../../shared/spec-parser.ts";
-import { isProcessAlive, type WorktreeLock } from "../../../../shared/worktree-lock.ts";
 import { createAgent } from "../../agents/factory.ts";
 import type { Agent } from "../../agents/types.ts";
 import { readGitOriginUrl } from "../../commands/init.ts";
@@ -28,7 +27,7 @@ import {
   getSpecName,
   removePatchWorktree,
 } from "../../worktree.ts";
-import { acquireWorktreeLock, getWorktreeLockPath } from "../../worktree-lock.ts";
+import { acquireWorktreeLock, getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../../worktree-lock.ts";
 import { computeProjectSafeId } from "../plan/spec-paths.ts";
 import { countUnchecked, getActiveLinkedSubspecPath } from "./completion.ts";
 import { applyReset, clearDelta, loadDelta } from "./no-commit-delta.ts";

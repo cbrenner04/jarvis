@@ -25,11 +25,11 @@ human-readable stack label by detecting committed marker files. Consumed by 01.
 
 ## Acceptance criteria
 
-- [ ] A root containing a Bun/TypeScript manifest infers a TypeScript/Bun label.
-- [ ] A Ruby root (`Gemfile`) infers "Ruby" and a Go root (`go.mod`) infers "Go".
-- [ ] A root with no recognized markers returns an explicit unknown label rather than throwing.
-- [ ] A polyglot root (e.g. `go.mod` + `Gemfile`) resolves to the higher-priority label per the fixed priority order (Bun > Node > Ruby > Go > Python > Rust).
-- [ ] Inference reads only the given root and requires neither network nor a git repo.
+- [x] A root containing a Bun/TypeScript manifest infers a TypeScript/Bun label.
+- [x] A Ruby root (`Gemfile`) infers "Ruby" and a Go root (`go.mod`) infers "Go".
+- [x] A root with no recognized markers returns an explicit unknown label rather than throwing.
+- [x] A polyglot root (e.g. `go.mod` + `Gemfile`) resolves to the higher-priority label per the fixed priority order (Bun > Node > Ruby > Go > Python > Rust).
+- [x] Inference reads only the given root and requires neither network nor a git repo.
 
 ## Documentation updates
 

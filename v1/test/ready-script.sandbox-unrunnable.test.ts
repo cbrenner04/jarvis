@@ -471,13 +471,7 @@ describe("ready serial-retry on test failure", () => {
       }
 
       // Verify execution order: check, typecheck, parallel test (fails), serial test (passes), lint:md
-      expect(executed).toEqual([
-        "run check",
-        "run typecheck",
-        "run test",
-        "test",
-        "run lint:md",
-      ]);
+      expect(executed).toEqual(["run check", "run typecheck", "run test", "test", "run lint:md"]);
 
       // Verify the recovery signal is logged
       const stderr = stderrLines.join("");

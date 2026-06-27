@@ -118,7 +118,11 @@ function resolveWorktreeFromPrRef(args: {
     return { ok: false };
   }
 
-  return { ok: true, worktreeName: matches[0]! };
+  const [worktreeName] = matches;
+  if (worktreeName === undefined) {
+    return fail(args.io, `no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})`);
+  }
+  return { ok: true, worktreeName };
 }
 
 function resolveWorktreeFromSpecPath(args: {
@@ -161,7 +165,11 @@ function resolveWorktreeFromSpecPath(args: {
     return { ok: false };
   }
 
-  return { ok: true, worktreeName: basename(worktreePaths[0]!) };
+  const [worktreePath] = worktreePaths;
+  if (worktreePath === undefined) {
+    return fail(args.io, `no worktree found for spec path: ${normalizedSpecPath}`);
+  }
+  return { ok: true, worktreeName: basename(worktreePath) };
 }
 
 function normalizeSpecInput(specPath: string, cwd: string): string {

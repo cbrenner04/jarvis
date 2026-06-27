@@ -18,7 +18,6 @@ import {
 } from "../review/types.ts";
 import {
   appendBoundaryBlocker,
-  assertNoCommitExternalSpecBoundary,
   assertPlanWriteBoundary,
   assertTargetRepoPlanBoundary,
   type BoundaryCheckResult,
@@ -333,7 +332,6 @@ export type PlanReviewPhaseOptions = {
   checkBoundary?: boolean;
   logNoChangeSkip?: boolean;
   externalSpecRoot?: string;
-  preExistingSiblings?: Set<string>;
   projectRoot?: string;
   stderr?: (s: string) => void;
   planTelemetry?: PlanTelemetryWriter | undefined;
@@ -479,18 +477,10 @@ function createPlanReviewAdapter(args: {
       : opts.gitEnabled === false
         ? { ok: true }
         : assertTargetRepoPlanBoundary(opts.projectRoot ?? opts.worktreePath);
-    const externalBoundaryCheck: BoundaryCheckResult =
-      !opts.commit && opts.externalSpecRoot
-        ? assertNoCommitExternalSpecBoundary(opts.externalSpecRoot, opts.specDirBasename, opts.preExistingSiblings)
-        : { ok: true };
-    if (boundaryCheck.ok && externalBoundaryCheck.ok) {
+    if (boundaryCheck.ok) {
       return { ok: true };
     }
-    const offendingPaths = [
-      ...(boundaryCheck.ok ? [] : boundaryCheck.offendingPaths),
-      ...(externalBoundaryCheck.ok ? [] : externalBoundaryCheck.offendingPaths),
-    ];
-    return { ok: false, offendingPaths };
+    return { ok: false, offendingPaths: boundaryCheck.offendingPaths };
   };
 
   const handleBoundaryViolation = async (ctx: ReviewAttemptContext, context: "blocker" | "review"): Promise<never> => {

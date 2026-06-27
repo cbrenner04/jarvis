@@ -30,16 +30,22 @@ intent at a time.
 Fresh intent runs require one seed:
 
 - Inline text: `jarvis1 intent "Split the reporting overhaul into reviewable behaviors"`
-- Raw-seed file: `jarvis1 intent <targetDir>/seeds/reporting-overhaul.md`
+- Raw-seed file: `jarvis1 intent <targetDir>/seeds/reporting-overhaul.md` (committed mode) or `jarvis1 intent ~/.jarvis/specs/<project-safe-id>/seeds/reporting-overhaul.md` (no-commit mode)
 
-Existing files are treated as file seeds only when they exist on disk. File
-seeds must live under `<targetDir>/seeds/`. The raw seed is read but left
-in place after fan-out.
+Existing files are treated as file seeds only when they exist on disk. The
+file-seed input directory depends on the commit mode:
+
+- **Committed mode (`commit: true`):** File seeds must live under `<targetDir>/seeds/`.
+- **No-commit mode (`commit: false`):** File seeds must live under `~/.jarvis/specs/<project-safe-id>/seeds/`.
+
+The raw seed is read but left in place after fan-out.
 
 `<targetDir>` resolves with per-run override: `--target-dir <dir>` (if provided)
 takes precedence over project-level `plan.targetDir`, then global `modes.plan.targetDir`,
 then the default `spec`. Validation mirrors `jarvis1 plan --target-dir`: relative
-paths only, no absolute paths, no `..` traversal.
+paths only, no absolute paths, no `..` traversal. In no-commit mode, `--target-dir`
+no longer affects the seed-input directory validation (seeds are always validated
+against the external home).
 
 Command-line usage:
 ```text

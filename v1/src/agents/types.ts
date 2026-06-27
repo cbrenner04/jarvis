@@ -32,6 +32,12 @@ export type AgentRunOptions = {
    * ms-since-last-output at watchdog fire from this ref (not a live re-read).
    */
   lastOutputAtMs?: { current: number | null };
+  /**
+   * Timestamp source paired with `lastOutputAtMs` updates.
+   * Defaults to `Date.now`. Patch mode's watchdog timing test seam injects this
+   * so observed stdout/stderr and watchdog snapshots share one clock.
+   */
+  lastOutputNowMs?: () => number;
   onTransientRetry?: (info: { attempt: number; cap: number; agent: AgentName; exitCode: number }) => void;
   /**
    * Injectable async sleep for backoff between transient retry attempts.

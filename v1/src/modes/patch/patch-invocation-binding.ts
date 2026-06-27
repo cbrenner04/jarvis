@@ -17,6 +17,7 @@ export type PatchInvocationBinding = {
     signal?: AbortSignal;
     additionalReadDirs?: string[];
     lastOutputAtMs?: { current: number | null };
+    lastOutputNowMs?: () => number;
     onSpawned?: (child: { pid: number }) => void;
     onTransientRetry?: (info: { attempt: number; cap: number; agent: string; exitCode: number }) => void;
   }) => Promise<AgentResult>;
@@ -35,6 +36,7 @@ export function createPatchInvocationBinding(opts: PatchInvocationBindingOptions
         ...(args.additionalReadDirs !== undefined ? { additionalReadDirs: args.additionalReadDirs } : {}),
         ...(opts.abortKillGraceMs !== undefined ? { abortKillGraceMs: opts.abortKillGraceMs } : {}),
         ...(args.lastOutputAtMs !== undefined ? { lastOutputAtMs: args.lastOutputAtMs } : {}),
+        ...(args.lastOutputNowMs !== undefined ? { lastOutputNowMs: args.lastOutputNowMs } : {}),
         ...(args.onSpawned !== undefined ? { onSpawned: args.onSpawned } : {}),
         ...(args.onTransientRetry !== undefined ? { onTransientRetry: args.onTransientRetry } : {}),
       };

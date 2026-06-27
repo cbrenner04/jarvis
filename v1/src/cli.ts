@@ -794,5 +794,11 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
 }
 
 if (import.meta.main) {
+  // Harness git calls (push/fetch/ls-remote) against an HTTPS remote without
+  // cached credentials would otherwise prompt on /dev/tty and hang the session.
+  // Default to non-interactive so they fail fast; respect an explicit override.
+  if (!process.env.GIT_TERMINAL_PROMPT) {
+    process.env.GIT_TERMINAL_PROMPT = "0";
+  }
   process.exit(await Promise.resolve(run(process.argv.slice(2))));
 }

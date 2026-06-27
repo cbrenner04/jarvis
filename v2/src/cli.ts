@@ -175,5 +175,11 @@ function parseAgents(raw: string | undefined): readonly string[] | null {
 }
 
 if (import.meta.main) {
+  // Harness git calls (push/fetch/ls-remote) against an HTTPS remote without
+  // cached credentials would otherwise prompt on /dev/tty and hang the session.
+  // Default to non-interactive so they fail fast; respect an explicit override.
+  if (!process.env.GIT_TERMINAL_PROMPT) {
+    process.env.GIT_TERMINAL_PROMPT = "0";
+  }
   process.exit(await main(process.argv.slice(2)));
 }

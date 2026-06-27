@@ -19,10 +19,10 @@
 
 ## Acceptance criteria
 
-- [ ] `v1/test/intent-command.sandbox-unrunnable.test.ts` no-commit auto-ready coverage still fails on `intent: split commit pushed`, `intent: draft PR`, `https://example.com/pull/`, or `warning: could not mark PR ready for review`, not incidental `PR` in filesystem paths.
-- [ ] The `warning` negative assertion is either confirmed safe as written or narrowed.
-- [ ] The `https://example.com` negative assertion is either confirmed safe as written or narrowed.
-- [ ] `bun test v1/test/intent-command.sandbox-unrunnable.test.ts` passes.
+- [x] `v1/test/intent-command.sandbox-unrunnable.test.ts` no-commit auto-ready coverage still fails on `intent: split commit pushed`, `intent: draft PR`, `https://example.com/pull/`, or `warning: could not mark PR ready for review`, not incidental `PR` in filesystem paths.
+- [x] The `warning` negative assertion is either confirmed safe as written or narrowed.
+- [x] The `https://example.com` negative assertion is either confirmed safe as written or narrowed.
+- [x] `bun test v1/test/intent-command.sandbox-unrunnable.test.ts` passes.
 
 ## Documentation updates
 

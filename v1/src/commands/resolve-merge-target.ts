@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { getCurrentBranch } from "../../../shared/git.ts";
 import { findMatchingOpenPrs, type MatchingOpenPr } from "../pr.ts";
 import type { TriageIo } from "./triage.ts";
 
 const LABEL = "triage --merge";
 
-export type PrHeadLookupResult = { ok: true; headRef: string } | { ok: false; message: string };
+type PrHeadLookupResult = { ok: true; headRef: string } | { ok: false; message: string };
 
 export type MergeTargetResolutionSeams = {
   listWorktreeNames?: (worktreeDir: string) => string[];
@@ -16,13 +17,8 @@ export type MergeTargetResolutionSeams = {
   findMatchingOpenPrs?: (branch: string, cwd?: string) => MatchingOpenPr[];
 };
 
-export type MergeTargetResolution = { ok: true; worktreeName: string } | { ok: false; code: number };
+export type MergeTargetResolution = { ok: true; worktreeName: string } | { ok: false };
 
-/**
- * Classify a `--merge` positional into a local patch worktree name.
- * Order: worktree directory name, PR reference, spec path (basename + marker scan).
- * Zero or multiple matches fail closed with stderr diagnostics.
- */
 export function resolveMergeTarget(
   projectRoot: string,
   arg: string,
@@ -43,7 +39,7 @@ export function resolveMergeTarget(
 
   const prNumber = parsePrReference(arg);
   if (prNumber !== null) {
-    const prResult = resolveWorktreeFromPrRef({
+    return resolveWorktreeFromPrRef({
       prNumber,
       prRef: arg,
       projectRoot,
@@ -54,12 +50,9 @@ export function resolveMergeTarget(
       findOpenPrs,
       io,
     });
-    if (prResult !== null) {
-      return prResult;
-    }
   }
 
-  if (isSpecPathShape(arg)) {
+  if (arg.includes("/") || arg.includes("\\") || arg.endsWith(".md")) {
     return resolveWorktreeFromSpecPath({
       arg,
       cwd,
@@ -70,8 +63,12 @@ export function resolveMergeTarget(
     });
   }
 
-  io.stderr(`${LABEL}: unresolvable target (not a worktree name, PR reference, or spec path): ${arg}\n`);
-  return { ok: false, code: 1 };
+  return fail(io, `unresolvable target (not a worktree name, PR reference, or spec path): ${arg}`);
+}
+
+function fail(io: TriageIo, message: string): MergeTargetResolution {
+  io.stderr(`${LABEL}: ${message}\n`);
+  return { ok: false };
 }
 
 function resolveWorktreeFromPrRef(args: {
@@ -84,11 +81,10 @@ function resolveWorktreeFromPrRef(args: {
   lookupPr: (prNumber: number, projectRoot: string) => PrHeadLookupResult;
   findOpenPrs: (branch: string, cwd?: string) => MatchingOpenPr[];
   io: TriageIo;
-}): MergeTargetResolution | null {
+}): MergeTargetResolution {
   const lookup = args.lookupPr(args.prNumber, args.projectRoot);
   if (!lookup.ok) {
-    args.io.stderr(`${LABEL}: failed to look up PR reference ${args.prRef}: ${lookup.message}\n`);
-    return { ok: false, code: 1 };
+    return fail(args.io, `failed to look up PR reference ${args.prRef}: ${lookup.message}`);
   }
 
   let matchingOpenPrs: MatchingOpenPr[];
@@ -96,13 +92,11 @@ function resolveWorktreeFromPrRef(args: {
     matchingOpenPrs = args.findOpenPrs(lookup.headRef, args.projectRoot);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    args.io.stderr(`${LABEL}: failed to look up PR reference ${args.prRef}: ${message}\n`);
-    return { ok: false, code: 1 };
+    return fail(args.io, `failed to look up PR reference ${args.prRef}: ${message}`);
   }
 
   if (matchingOpenPrs.length > 1) {
-    args.io.stderr(`${LABEL}: multiple open PRs match branch ${lookup.headRef}\n`);
-    return { ok: false, code: 1 };
+    return fail(args.io, `multiple open PRs match branch ${lookup.headRef}`);
   }
 
   const matches: string[] = [];
@@ -114,23 +108,17 @@ function resolveWorktreeFromPrRef(args: {
   }
 
   if (matches.length === 0) {
-    args.io.stderr(`${LABEL}: no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})\n`);
-    return { ok: false, code: 1 };
+    return fail(args.io, `no local worktree for PR reference ${args.prRef} (branch ${lookup.headRef})`);
   }
   if (matches.length > 1) {
     args.io.stderr(`${LABEL}: multiple worktrees match PR reference ${args.prRef}:\n`);
     for (const name of matches) {
       args.io.stderr(`  ${name}\n`);
     }
-    return { ok: false, code: 1 };
+    return { ok: false };
   }
 
-  const worktreeName = matches[0];
-  if (worktreeName === undefined) {
-    args.io.stderr(`${LABEL}: no local worktree for PR reference ${args.prRef}\n`);
-    return { ok: false, code: 1 };
-  }
-  return { ok: true, worktreeName };
+  return { ok: true, worktreeName: matches[0]! };
 }
 
 function resolveWorktreeFromSpecPath(args: {
@@ -161,8 +149,7 @@ function resolveWorktreeFromSpecPath(args: {
   }
 
   if (candidates.size === 0) {
-    args.io.stderr(`${LABEL}: no worktree found for spec path: ${normalizedSpecPath}\n`);
-    return { ok: false, code: 1 };
+    return fail(args.io, `no worktree found for spec path: ${normalizedSpecPath}`);
   }
 
   const worktreePaths = [...candidates].sort();
@@ -171,23 +158,14 @@ function resolveWorktreeFromSpecPath(args: {
     for (const worktreePath of worktreePaths) {
       args.io.stderr(`  ${basename(worktreePath)}\n`);
     }
-    return { ok: false, code: 1 };
+    return { ok: false };
   }
 
-  const worktreePath = worktreePaths[0];
-  if (worktreePath === undefined) {
-    args.io.stderr(`${LABEL}: no worktree found for spec path: ${normalizedSpecPath}\n`);
-    return { ok: false, code: 1 };
-  }
-  return { ok: true, worktreeName: basename(worktreePath) };
+  return { ok: true, worktreeName: basename(worktreePaths[0]!) };
 }
 
 function normalizeSpecInput(specPath: string, cwd: string): string {
   return resolve(isAbsolute(specPath) ? specPath : resolve(cwd, specPath));
-}
-
-function isSpecPathShape(arg: string): boolean {
-  return arg.includes("/") || arg.includes("\\") || arg.endsWith(".md");
 }
 
 function parsePrReference(arg: string): number | null {
@@ -195,16 +173,13 @@ function parsePrReference(arg: string): number | null {
   if (hashMatch?.[1] !== undefined) {
     return Number.parseInt(hashMatch[1], 10);
   }
-
   const urlMatch = /^https?:\/\/\S+\/pull\/(\d+)\/?$/.exec(arg);
   if (urlMatch?.[1] !== undefined) {
     return Number.parseInt(urlMatch[1], 10);
   }
-
   if (/^\d+$/.test(arg)) {
     return Number.parseInt(arg, 10);
   }
-
   return null;
 }
 
@@ -231,11 +206,7 @@ function defaultReadActiveSpecPath(worktreePath: string): string | null {
 
 function defaultGetWorktreeBranch(worktreePath: string): string | null {
   try {
-    return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-      cwd: worktreePath,
-      stdio: "pipe",
-      encoding: "utf8",
-    }).trim();
+    return getCurrentBranch(worktreePath);
   } catch {
     return null;
   }

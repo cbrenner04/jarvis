@@ -10,13 +10,7 @@ import { countUnchecked, getActiveLinkedSubspecPath, getFirstUncheckedTask } fro
 import { generatePrBody, getIndexTitle } from "../modes/patch/completion-pipeline.ts";
 import { findRelocatedSpecFile, prepareActiveSpecPath } from "../modes/patch/preflight.ts";
 import { snapshotAcceptanceCriteria } from "../modes/patch/subspec.ts";
-import {
-  type EnsureDraftPrOpts,
-  ensureDraftPr,
-  findMatchingOpenPrs,
-  type MatchingOpenPr,
-  renderAttributionSummary,
-} from "../pr.ts";
+import { type EnsureDraftPrOpts, ensureDraftPr, findMatchingOpenPrs, renderAttributionSummary } from "../pr.ts";
 import { runReadyGateWithTier } from "../ready-gate.ts";
 import { pushCurrent } from "../worktree.ts";
 import { getWorktreeLockPath, isProcessAlive, type WorktreeLock } from "../worktree-lock.ts";
@@ -49,7 +43,6 @@ export type TriageCommandOptions = {
   merge?: boolean;
   ghRunner?: TriageGhRunner;
   mergeTargetSeams?: MergeTargetResolutionSeams;
-  findMatchingOpenPrs?: (branch: string, cwd?: string) => MatchingOpenPr[];
   runGate?: (cwd: string, readyCommand?: string) => void;
   prReady?: (branch: string, cwd: string) => void;
   commitAndPushDirty?: (worktreePath: string) => CommitAndPushDirtyResult;
@@ -97,7 +90,7 @@ export function triageCommand(opts: TriageCommandOptions): number | Promise<numb
         opts.mergeTargetSeams,
       );
       if (!resolution.ok) {
-        return resolution.code;
+        return 1;
       }
       return triageMerge({ ...opts, worktreeName: resolution.worktreeName });
     }
@@ -1319,7 +1312,7 @@ function triageMerge(opts: TriageCommandOptions): number {
   }
   const { worktreePath, branch, specPath } = ctx;
 
-  const findOpenPrs = opts.findMatchingOpenPrs ?? findMatchingOpenPrs;
+  const findOpenPrs = opts.mergeTargetSeams?.findMatchingOpenPrs ?? findMatchingOpenPrs;
   try {
     const matchingOpenPrs = findOpenPrs(branch, opts.projectRoot);
     if (matchingOpenPrs.length > 1) {

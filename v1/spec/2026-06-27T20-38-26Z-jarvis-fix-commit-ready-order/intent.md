@@ -42,3 +42,8 @@ or the gate passes on a tree CI never sees.
 
 - `bun run ready` is pure CI-parity verification with no autofix.
 - `bun run fix` exists as the separate pre-gate autofix step.
+
+## Blocker
+
+- Unconfirmed prerequisite: `bun run ready` is pure CI-parity verification with no autofix. Current `scripts/ready.ts` full tier runs `bun run check:fix:unsafe`.
+- Unconfirmed prerequisite: `bun run fix` exists as the separate pre-gate autofix step. Current `package.json` has `check:fix` scripts but no `fix` script.

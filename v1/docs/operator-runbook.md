@@ -46,6 +46,29 @@ A session is done when the findings and tooling persist, not when the PRs merge.
 5. **Maintain this runbook** directly (branch → PR → admin-merge). Keep it current; batch edits.
 6. **Run [end-of-session cleanup](#end-of-session-cleanup)** — `jarvis1 cleanup` to retire merged worktrees and archive specs.
 
+## Runbook maintenance
+
+Post-init, the runbook decays as you learn lessons mid-session without a place to record them. Use `jarvis1 runbook add` to append learnings in place:
+
+```sh
+jarvis1 runbook add "A gotcha I just learned"                   # appends to Known gotchas (default)
+jarvis1 runbook add --section "Gate blind spots" "Gap in testing"
+jarvis1 runbook add --issue-url https://github.com/cbrenner04/jarvis/issues/123 "Fix required for issue #123"
+```
+
+**Flags:**
+
+- **`--section <heading>`** — append to a different section. Valid sections: `Known gotchas` (default), `Gate blind spots`, `Cross-repo coordination`. Case-insensitive; heading text without `##`. Invalid sections exit with a list of valid options.
+- **`--issue-url <url>`** — optional jarvis issue URL; formats the entry as `- <entry> ([jarvis issue](<url>))`.
+
+**Behavior:**
+
+- Entry text is required and must not be empty or whitespace-only.
+- The entry is appended as a new list item at the end of the target section, preserving all other content.
+- Running two commands appends two distinct items; no overwrites.
+- If `OPERATOR_RUNBOOK.md` is absent, exit 1 and direct you to `jarvis1 init`.
+- The new entries commit with the next spec run that touches the runbook, or hand-commit if needed (branch → PR).
+
 ## Cost reporting standard
 
 Every session closes four cumulative CSVs (spec rows separate from operator rows). The per-report markdown mirrors only the cost-sheet fields; outcome sheets stay CSV-only.

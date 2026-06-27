@@ -8,6 +8,7 @@ import { logServerCommand } from "./commands/log-server.ts";
 import { PLAN_USAGE, planCommand } from "./commands/plan.ts";
 import { pricesCommand } from "./commands/prices.ts";
 import { reviewFeedbackCommand } from "./commands/review-feedback.ts";
+import { RUNBOOK_USAGE, runbookCommand } from "./commands/runbook.ts";
 import { type TriageCommandOptions, triageCommand } from "./commands/triage.ts";
 import {
   CONFIG_DIR,
@@ -32,6 +33,7 @@ export type Subcommand =
   | "cleanup"
   | "triage"
   | "review-feedback"
+  | "runbook"
   | "plan"
   | "intent"
   | "prompt"
@@ -56,6 +58,13 @@ export type ParsedArgs =
   | { kind: "cleanup"; dryRun?: boolean }
   | { kind: "triage"; worktreeName?: string; markReady?: boolean }
   | { kind: "review-feedback"; worktreeName?: string }
+  | {
+      kind: "runbook";
+      action: string;
+      entry?: string;
+      section?: string;
+      issueUrl?: string;
+    }
   | { kind: "plan"; rest: string[] }
   | { kind: "intent"; rest: string[] }
   | {
@@ -87,6 +96,8 @@ Commands:
                     Inspect a dirty or orphaned worktree.
   review-feedback <worktree-name>
                     Address PR review feedback on an existing patch worktree.
+  runbook add [--section <heading>] [--issue-url <url>] <entry>
+                    Append a learning to the project's OPERATOR_RUNBOOK.md.
   plan [--review-passes <n>] [--repo <name|path|url>] [--cwd <dir>] [--target-dir <dir>] [--resume] <targetDir>/ready-intents/<name>.md
                     Draft specs via plan mode with intent refinement and self-review (--resume expects spec/<…>/index.md; --resume-draft expects spec/<…>/intent.md).
   intent [--repo <name|path|url>] [--cwd <dir>] <raw-seed-file|"inline text">
@@ -151,7 +162,7 @@ Flags:
 };
 
 // Populate from plan and intent modules to avoid duplication
-Object.assign(COMMAND_USAGE, { plan: PLAN_USAGE, intent: INTENT_USAGE });
+Object.assign(COMMAND_USAGE, { plan: PLAN_USAGE, intent: INTENT_USAGE, runbook: RUNBOOK_USAGE });
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const [first, ...rest] = argv;
@@ -377,6 +388,60 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
         return { kind: "help", command: "prices" };
       }
       return { kind: "prices", rest };
+    case "runbook": {
+      if (rest.includes("--help") || rest.includes("-h")) {
+        return { kind: "help", command: "runbook" };
+      }
+      if (rest.length === 0) {
+        return { kind: "runbook", action: "" };
+      }
+      const action = rest[0] ?? "";
+      const args = [...rest.slice(1)];
+      let section: string | undefined;
+      let issueUrl: string | undefined;
+      for (let i = 0; i < args.length; i += 1) {
+        if (args[i] === "--section") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "runbook: missing value for --section",
+            };
+          }
+          section = value;
+          args.splice(i, 2);
+          i -= 1;
+          continue;
+        }
+        if (args[i] === "--issue-url") {
+          const value = args[i + 1];
+          if (value === undefined) {
+            return {
+              kind: "error",
+              message: "runbook: missing value for --issue-url",
+            };
+          }
+          issueUrl = value;
+          args.splice(i, 2);
+          i -= 1;
+        }
+      }
+      const entry = args[0];
+      const parsed: { kind: "runbook"; action: string; entry?: string; section?: string; issueUrl?: string } = {
+        kind: "runbook",
+        action,
+      };
+      if (entry !== undefined) {
+        parsed.entry = entry;
+      }
+      if (section !== undefined) {
+        parsed.section = section;
+      }
+      if (issueUrl !== undefined) {
+        parsed.issueUrl = issueUrl;
+      }
+      return parsed;
+    }
     default:
       return { kind: "unknown", name: first };
   }
@@ -669,6 +734,27 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
     }
     case "prices":
       return pricesCommand({ args: parsed.rest, io });
+    case "runbook": {
+      const cwd = opts.cwd ?? process.cwd();
+      const runbookOpts: Parameters<typeof runbookCommand>[0] = {
+        action: parsed.action ?? "",
+        io,
+        cwd,
+      };
+      if (parsed.entry !== undefined) {
+        runbookOpts.entry = parsed.entry;
+      }
+      if (parsed.section !== undefined) {
+        runbookOpts.section = parsed.section;
+      }
+      if (parsed.issueUrl !== undefined) {
+        runbookOpts.issueUrl = parsed.issueUrl;
+      }
+      if (opts.config !== undefined) {
+        runbookOpts.config = opts.config;
+      }
+      return runbookCommand(runbookOpts);
+    }
     case "unknown":
       io.stderr(`jarvis1: unknown command ${JSON.stringify(parsed.name)}\n`);
       io.stderr(USAGE);

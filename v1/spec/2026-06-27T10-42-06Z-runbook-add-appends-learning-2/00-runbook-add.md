@@ -31,16 +31,16 @@ runbook section in place, optionally tagged with its jarvis issue URL.
 
 ## Acceptance criteria
 
-- [ ] `jarvis runbook add "<entry>"` appends exactly the line `- <entry>` as a new list item at the end of the `## Known gotchas` section of the project's `OPERATOR_RUNBOOK.md`, leaving every other section and existing bullet unchanged.
-- [ ] `--issue-url <url>` makes the appended item exactly `- <entry> ([jarvis issue](<url>))`.
-- [ ] `--section <heading>` (case-insensitive, heading text without `##`) routes the entry to that section instead, for each of `Gate blind spots` and `Cross-repo coordination`; a heading outside the valid set `{Known gotchas, Gate blind spots, Cross-repo coordination}` (including a table/prose `## ` heading like `Repos and gates`) exits 1 and lists the valid headings, writing nothing.
-- [ ] Running two `runbook add` invocations appends two distinct list items; the first entry is preserved.
-- [ ] Run outside any registered project exits 1 with a message naming `jarvis init`, matching `cleanup`/`triage` resolution.
-- [ ] A project whose `OPERATOR_RUNBOOK.md` is absent exits 1 directing the operator to `jarvis init`, and does not create the file.
-- [ ] Missing entry text, or whitespace-only entry text, exits 1 with usage for `runbook add` and writes nothing.
-- [ ] `--issue-url` with an empty value exits 1 with usage; any other non-empty value is accepted without format validation.
-- [ ] Bare `jarvis runbook` and `jarvis runbook <unknown-action>` each print `runbook` usage and exit 1.
-- [ ] `jarvis runbook --help` and the top-level `USAGE` list the `runbook add` command.
+- [x] `jarvis runbook add "<entry>"` appends exactly the line `- <entry>` as a new list item at the end of the `## Known gotchas` section of the project's `OPERATOR_RUNBOOK.md`, leaving every other section and existing bullet unchanged.
+- [x] `--issue-url <url>` makes the appended item exactly `- <entry> ([jarvis issue](<url>))`.
+- [x] `--section <heading>` (case-insensitive, heading text without `##`) routes the entry to that section instead, for each of `Gate blind spots` and `Cross-repo coordination`; a heading outside the valid set `{Known gotchas, Gate blind spots, Cross-repo coordination}` (including a table/prose `## ` heading like `Repos and gates`) exits 1 and lists the valid headings, writing nothing.
+- [x] Running two `runbook add` invocations appends two distinct list items; the first entry is preserved.
+- [x] Run outside any registered project exits 1 with a message naming `jarvis init`, matching `cleanup`/`triage` resolution.
+- [x] A project whose `OPERATOR_RUNBOOK.md` is absent exits 1 directing the operator to `jarvis init`, and does not create the file.
+- [x] Missing entry text, or whitespace-only entry text, exits 1 with usage for `runbook add` and writes nothing.
+- [x] `--issue-url` with an empty value exits 1 with usage; any other non-empty value is accepted without format validation.
+- [x] Bare `jarvis runbook` and `jarvis runbook <unknown-action>` each print `runbook` usage and exit 1.
+- [x] `jarvis runbook --help` and the top-level `USAGE` list the `runbook add` command.
 
 ## Documentation updates
 

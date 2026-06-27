@@ -376,7 +376,7 @@ On fresh `commit: true` runs, the first `plan: draft` commit triggers the `ensur
 Like patch mode, plan mode invokes `bun run ready` automatically once every scripted phase succeeds (no blocker). The readiness transition begins with `bun install --frozen-lockfile` so Biome is available, then runs `bun run check:fix` (Biome's safe format and lint-rule fixer) as the second step — which may rewrite files — before `typecheck → test → check → lint:md` proceeds.
 
 **Readiness transition behavior:**
-- If the branch's open PR is **draft**, the `bun run ready` gate runs. On success, any `check:fix` output is committed and pushed (`chore: apply pre-ready check:fix`), then `gh pr ready` flips the PR to ready. On gate failure, the PR remains draft.
+- If the branch's open PR is **draft**, plan first resolves the PR's actual base, fetches `origin/<base>`, and confirms `HEAD` contains that fetched base tip. If the branch is behind or diverged from base, jarvis emits a stderr message, skips the ready flip, and leaves the PR draft. If the base check cannot resolve or fetch, it soft-fails open and continues. After a passing base-current check, the `bun run ready` gate runs. On success, any `check:fix` output is committed and pushed (`chore: apply pre-ready check:fix`), then `gh pr ready` flips the PR to ready. On gate failure, the PR remains draft.
 - If the branch's open PR is **already ready**, both the gate and GitHub transition are skipped; the PR remains ready and emits no warning.
 - If **no open PR exists**, the readiness helper is a silent no-op.
 

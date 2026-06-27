@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { Agent, AgentRunOptions } from "../../agents/types.ts";
+import { checkBaseCurrent, type BaseCurrentCheckResult } from "../../git/base-current.ts";
 import { type SyncTransientRetryOptions, withSyncTransientRetry } from "../../gh.ts";
 import type { CommitInfo } from "../../pr.ts";
 import { extractNarrative, NARRATIVE_END_MARKER, NARRATIVE_START_MARKER, readBranchCommits } from "../../pr.ts";
@@ -278,6 +279,8 @@ export type MaybeMarkPlanPrReadyOpts = {
   agentLabel?: string;
   /** Test seam: get the open PR state. Defaults to `getOpenPrState`. */
   getOpenPrState?: (branch: string, cwd: string) => OpenPrInfo;
+  /** Test seam: resolve/fetch/compare the PR base. Defaults to `checkBaseCurrent`. */
+  checkBaseCurrent?: (opts: { branch: string; cwd: string }) => BaseCurrentCheckResult;
   /** Short-circuit seam: stubs the entire ready + commit + gh-pr-ready sequence. */
   markReady?: (branch: string, cwd: string) => void;
   /** Seam for just `bun run ready`. Used by tests when markReady is absent. */
@@ -288,6 +291,8 @@ export type MaybeMarkPlanPrReadyOpts = {
   ghPrReady?: (branch: string, cwd: string) => void;
   /** Seam for retry behavior: exec, sleep, onRetry callbacks. Injected into the retry wrapper below ghPrReady. */
   ghPrReadyRetryOpts?: Partial<SyncTransientRetryOptions>;
+  /** Test seam: operator-visible stderr sink for blocked flips. Defaults to `process.stderr.write`. */
+  stderr?: (s: string) => void;
 };
 
 /**
@@ -311,6 +316,14 @@ export function maybeMarkPlanPrReady(opts: MaybeMarkPlanPrReadyOpts): void {
 
   // Ready PR: silent no-op (skip gate and transition)
   if (prInfo.state === "ready") {
+    return;
+  }
+
+  const baseCurrent = (opts.checkBaseCurrent ?? checkBaseCurrent)({ branch: opts.branch, cwd: opts.cwd });
+  if (baseCurrent.status === "behind") {
+    (opts.stderr ?? process.stderr.write.bind(process.stderr))(
+      `ready flip blocked: branch ${opts.branch} does not contain base ${baseCurrent.baseRefName}; PR stays draft\n`,
+    );
     return;
   }
 

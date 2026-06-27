@@ -41,14 +41,14 @@ Fetch/base-resolution failure (including missing remote) is treated as base-cont
 
 ## Acceptance criteria
 
-- [ ] When the patch-mode branch is behind or diverged from its PR base at ready time, the harness does not call `gh pr ready` and the PR stays draft.
-- [ ] When the plan-mode branch is behind or diverged from its PR base at ready time, the harness does not call `gh pr ready` and the PR stays draft.
-- [ ] A block surfaces an operator-visible stderr message naming the branch and its base.
-- [ ] When the branch is current with or ahead of its base, the ready flip proceeds as before (gate runs, `gh pr ready` is called) in both modes.
-- [ ] The base comparison resolves the PR's actual base ref and compares against a freshly-fetched `origin/<base>`, not a stale local ref.
-- [ ] A failure to resolve or fetch the base (including a missing remote) does not block the flip (proceeds rather than stranding the PR draft).
-- [ ] After the guard is wired in, the current-with-base ready-flip tests in `v1/test/modes/patch/pr.sandbox-unrunnable.test.ts` pass — updating the `markReady`-injecting fixtures to co-inject `checkBaseCurrent` (base-contained) so flip behavior is unchanged when not behind.
-- [ ] After the guard is wired in, the current-with-base ready-flip tests in `v1/test/modes/plan/pr.sandbox-unrunnable.test.ts` pass — with the same `checkBaseCurrent` co-injection on existing `markReady`-injecting fixtures.
+- [x] When the patch-mode branch is behind or diverged from its PR base at ready time, the harness does not call `gh pr ready` and the PR stays draft.
+- [x] When the plan-mode branch is behind or diverged from its PR base at ready time, the harness does not call `gh pr ready` and the PR stays draft.
+- [x] A block surfaces an operator-visible stderr message naming the branch and its base.
+- [x] When the branch is current with or ahead of its base, the ready flip proceeds as before (gate runs, `gh pr ready` is called) in both modes.
+- [x] The base comparison resolves the PR's actual base ref and compares against a freshly-fetched `origin/<base>`, not a stale local ref.
+- [x] A failure to resolve or fetch the base (including a missing remote) does not block the flip (proceeds rather than stranding the PR draft).
+- [x] After the guard is wired in, the current-with-base ready-flip tests in `v1/test/modes/patch/pr.sandbox-unrunnable.test.ts` pass — updating the `markReady`-injecting fixtures to co-inject `checkBaseCurrent` (base-contained) so flip behavior is unchanged when not behind.
+- [x] After the guard is wired in, the current-with-base ready-flip tests in `v1/test/modes/plan/pr.sandbox-unrunnable.test.ts` pass — with the same `checkBaseCurrent` co-injection on existing `markReady`-injecting fixtures.
 
 ## Documentation updates
 

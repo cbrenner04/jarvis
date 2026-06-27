@@ -369,6 +369,7 @@ describe("maybeMarkReady", () => {
         indexPath,
         cwd: dir,
         checkPrExists: () => true,
+        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
         markReady: (branch, cwd) => {
           markReadyCalled = true;
           markReadyBranch = branch;
@@ -391,6 +392,7 @@ describe("maybeMarkReady", () => {
         indexPath,
         cwd: dir,
         checkPrExists: () => true,
+        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
         markReady: () => {
           throw new Error(multilineError);
         },
@@ -410,6 +412,58 @@ describe("maybeMarkReady", () => {
     ).toThrow("cannot mark PR ready: no PR found");
   });
 
+  test("blocks ready flip when branch is behind base", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+
+    let markReadyCalled = false;
+    let stderr = "";
+
+    maybeMarkReady({
+      indexPath,
+      cwd: dir,
+      checkPrExists: () => true,
+      checkBaseCurrent: () => ({ status: "behind", baseRefName: "main" }),
+      markReady: () => {
+        markReadyCalled = true;
+      },
+      stderr: (s) => {
+        stderr += s;
+      },
+    });
+
+    expect(markReadyCalled).toBe(false);
+    expect(stderr).toContain("branch feature");
+    expect(stderr).toContain("base main");
+    expect(stderr).toContain("PR stays draft");
+  });
+
+  test("blocks ready flip when branch diverged from base", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+
+    let ghPrReadyCalled = false;
+    let stderr = "";
+
+    maybeMarkReady({
+      indexPath,
+      cwd: dir,
+      checkPrExists: () => true,
+      checkBaseCurrent: () => ({ status: "behind", baseRefName: "release" }),
+      runReady: () => {
+        throw new Error("runReady should not execute");
+      },
+      ghPrReady: () => {
+        ghPrReadyCalled = true;
+      },
+      stderr: (s) => {
+        stderr += s;
+      },
+    });
+
+    expect(ghPrReadyCalled).toBe(false);
+    expect(stderr).toContain("branch feature");
+    expect(stderr).toContain("base release");
+  });
+
   test("(a) runReady does not dirty tree -> commitCheckFix not called, ghPrReady called", () => {
     writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n- [x] [01 - two](./01-two.md)\n");
     // Commit the spec file to have a clean tree
@@ -425,6 +479,7 @@ describe("maybeMarkReady", () => {
       indexPath,
       cwd: dir,
       checkPrExists: () => true,
+      checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
       agentLabel: "test-agent",
       runReady: () => {
         runReadyCalled = true;
@@ -458,6 +513,7 @@ describe("maybeMarkReady", () => {
       indexPath,
       cwd: dir,
       checkPrExists: () => true,
+      checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
       recordedGreenResult: { headSha },
       runReady: (_cwd, tier) => {
         tiers.push(tier);
@@ -487,6 +543,7 @@ describe("maybeMarkReady", () => {
       indexPath,
       cwd: dir,
       checkPrExists: () => true,
+      checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
       agentLabel: "my-agent",
       runReady: () => {
         runReadyCalled = true;
@@ -527,6 +584,7 @@ describe("maybeMarkReady", () => {
         indexPath,
         cwd: dir,
         checkPrExists: () => true,
+        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
         runReady: () => {
           throw new Error("runReady failed");
         },
@@ -556,6 +614,7 @@ describe("maybeMarkReady", () => {
         indexPath,
         cwd: dir,
         checkPrExists: () => true,
+        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
         runReady: () => {
           // Dirty the tree
           execSync("echo dirty > dirty.txt", { cwd: dir, stdio: "pipe" });
@@ -587,6 +646,7 @@ describe("maybeMarkReady", () => {
         cwd: dir,
         readyCommand: script,
         checkPrExists: () => true,
+        checkBaseCurrent: () => ({ status: "current", baseRefName: "main" }),
         commitCheckFix: () => {}, // stub commit/push; tree may be dirty from test setup
         ghPrReady: () => {}, // stub gh pr ready
       });
@@ -595,6 +655,24 @@ describe("maybeMarkReady", () => {
     } finally {
       rmSync(sentinelDir, { recursive: true, force: true });
     }
+  });
+
+  test("fetch/base resolution failure does not block ready flip", () => {
+    writeFileSync(indexPath, "# Spec\n\n- [x] [00 - one](./00-one.md)\n");
+
+    let markReadyCalled = false;
+
+    maybeMarkReady({
+      indexPath,
+      cwd: dir,
+      checkPrExists: () => true,
+      checkBaseCurrent: () => ({ status: "current", baseRefName: null }),
+      markReady: () => {
+        markReadyCalled = true;
+      },
+    });
+
+    expect(markReadyCalled).toBe(true);
   });
 });
 

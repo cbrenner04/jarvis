@@ -112,14 +112,14 @@ describe("pool contention detection", () => {
   });
 
   test("warnAboutPoolContentionIfDetected does not warn for non-Claude agent", () => {
-    let loggedWarnings: string[] = [];
+    const loggedWarnings: string[] = [];
     const sendLog = (tag: string, text: string) => {
       if (tag === "harness") {
         loggedWarnings.push(text);
       }
     };
 
-    const mockListProcesses = (): ProcWithCmd[] => [
+    const _mockListProcesses = (): ProcWithCmd[] => [
       { pid: 100, ppid: 1, comm: "jarvis" },
       { pid: 101, ppid: 100, comm: "claude" },
     ];
@@ -130,14 +130,14 @@ describe("pool contention detection", () => {
   });
 
   test("warnAboutPoolContentionIfDetected warns when contention detected", () => {
-    let loggedWarnings: string[] = [];
+    const loggedWarnings: string[] = [];
     const sendLog = (tag: string, text: string) => {
       if (tag === "harness") {
         loggedWarnings.push(text);
       }
     };
 
-    const mockListProcesses = (): ProcWithCmd[] => [
+    const _mockListProcesses = (): ProcWithCmd[] => [
       { pid: 100, ppid: 1, comm: "jarvis" },
       { pid: 101, ppid: 100, comm: "claude" },
     ];

@@ -16,6 +16,7 @@ import { type DisambiguateFn, runSharedPreflight, type SharedPreflightOpts } fro
 import { runBaseRefTests as runBaseRefTestsImpl } from "./base-ref-test-runner.ts";
 import { finalize, runIteration, setupLogging } from "./iteration.ts";
 import type { DeltaRecord } from "./no-commit-delta.ts";
+import { warnAboutPoolContentionIfDetected } from "./pool-contention.ts";
 import {
   buildActiveAgents,
   maybeWarnAboutUnmergedPlanBranch,
@@ -23,7 +24,6 @@ import {
   resolveModeSpecificPreflight,
 } from "./preflight.ts";
 import { DescendantTracker, type ProcInfo } from "./reap.ts";
-import { warnAboutPoolContentionIfDetected } from "./pool-contention.ts";
 import { runSnapshotUpdateRetest as runSnapshotUpdateRetestImpl } from "./snapshot-update-retest-runner.ts";
 
 export type PreflightOk = {

@@ -44,7 +44,7 @@ function ancestorChain(pid: number, procs: ProcWithCmd[]): string[] {
   const procByPid = new Map(procs.map((p) => [p.pid, p]));
   const chain: string[] = [];
   let current = pid;
-  let visited = new Set<number>();
+  const visited = new Set<number>();
 
   while (current !== 0 && current !== 1 && !visited.has(current)) {
     visited.add(current);
@@ -113,15 +113,13 @@ export function detectClaudePoolContention(
  * Emit a single non-blocking warning if Claude pool contention is detected.
  * Safe to call multiple times; only warnings are emitted when contention is detected.
  */
-export function warnAboutPoolContentionIfDetected(
-  primaryAgent: Agent,
-  sendLog: SendLog,
-): void {
+export function warnAboutPoolContentionIfDetected(primaryAgent: Agent, sendLog: SendLog): void {
   if (!detectClaudePoolContention(primaryAgent)) {
     return;
   }
 
-  const warning = "warning: selected patch primary shares Claude pool with a live Jarvis operator/orchestration session. " +
+  const warning =
+    "warning: selected patch primary shares Claude pool with a live Jarvis operator/orchestration session. " +
     "Pause the competing session to avoid contention.";
   sendLog("harness", warning);
 }

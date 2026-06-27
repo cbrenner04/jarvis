@@ -18,15 +18,20 @@ Eligible = the branch's PR is **not merged** and is **not** an open non-draft
 
 `--abandon` and the default merged-cleanup are mutually exclusive modes over the
 same worktree set; `--abandon` flips eligibility and the post-removal actions.
+"Matching" PR throughout = a PR on the same branch name (per `findMatchingOpenPrs`).
 
 ## Decisions
 
 - Surface as a `--abandon` flag on `cleanup`, not a new top-level subcommand — rules out a separate `retire`/`abandon` command; reuses cleanup's scan/preview/confirm/dry-run scaffold and reads as the symmetric inverse of merged-cleanup.
 - Eligible = not MERGED and not an open non-draft PR; skip an open ready PR or a branch with multiple open matching PRs — rules out retiring any non-merged worktree blindly, which would nuke an active, ready-for-review run.
+- Two-gate eligibility: an explicit `isMergedPr` guard **and** `findMatchingOpenPrs` — rules out checking only "no open PR", which a merged worktree also satisfies, silently retiring (and stranding) a merged run that belongs to default cleanup.
+- Retire order: close PR → force-remove worktree → delete local then remote branch — rules out branch-first deletion (loses the PR handle / leaves a dangling worktree entry); close before delete preserves the PR handle, worktree-remove before branch-delete avoids orphaning the worktree's branch ref.
+- `closePr` failure is non-fatal (including "already closed"); retire continues — rules out aborting on a PR that raced to closed/absent between scan and retire; symmetric with best-effort remote-branch deletion.
 - Force-remove dirty worktrees (`git worktree remove --force`) — rules out cleanup's skip-if-dirty guard; an abandoned red run is dirty by nature.
 - Delete the remote branch too, best-effort (absence is non-fatal) — rules out local-only deletion; a lingering closed-PR remote branch blocks a fresh draft PR on re-run.
 - Never archive or delete the spec directory — rules out cleanup's archive-to-`completed/` path; the spec must stay put for a clean re-run.
 - Reuse existing helpers (`findMatchingOpenPrs`/`isDraft`, `closePr`, force worktree-remove, `deleteLocalBranch`, `deleteRemoteBranch`) rather than re-implementing git/gh calls.
+- Deferred to first consumer: dry-run output format — pin when a caller needs it.
 
 ## Task checklist
 
@@ -40,13 +45,15 @@ same worktree set; `--abandon` flips eligibility and the post-removal actions.
 
 - [ ] `jarvis1 cleanup --abandon` retires a worktree whose PR is closed: force-removes the worktree, deletes the local branch, and deletes the remote branch.
 - [ ] `jarvis1 cleanup --abandon` retires a worktree with **no** PR (closed/absent treated alike).
-- [ ] An eligible worktree with an open **draft** PR has that PR closed before the worktree/branch are removed.
+- [ ] An eligible worktree with an open **draft** PR ends retired with the PR closed and the worktree, local branch, and remote branch removed.
 - [ ] A worktree whose PR is **merged** is skipped under `--abandon` (left for default cleanup).
 - [ ] A worktree with an open **non-draft (ready)** PR, or multiple open matching PRs, is skipped (not retired) under `--abandon`.
 - [ ] A **dirty/contaminated** eligible worktree is still removed under `--abandon` (force), unlike default cleanup which skips dirty worktrees.
-- [ ] `--abandon` never archives or deletes the source spec directory; the spec stays in place so a subsequent `jarvis1 run` re-runs it.
+- [ ] After a retire completes, the source spec directory is still present and unmodified on disk, so a subsequent `jarvis1 run` re-runs it.
 - [ ] Remote-branch deletion is best-effort: a missing remote branch does not fail the retire.
-- [ ] `jarvis1 cleanup --abandon --dry-run` previews exactly the eligible worktrees and makes no changes (no PR close, no worktree/branch removal).
+- [ ] A `closePr` failure (including an already-closed/absent PR) is non-fatal: the retire still removes the worktree and branches.
+- [ ] `jarvis1 cleanup --abandon --dry-run` previews exactly the eligible worktrees, suppresses the confirmation prompt, and makes no changes (no PR close, no worktree/branch removal).
+- [ ] Declining the confirmation prompt cancels the retire with no side effects (no PR close, no worktree/branch removal).
 - [ ] `cleanup` help/usage text documents `--abandon`.
 - [ ] `bun run typecheck` and `bun run test` pass.
 

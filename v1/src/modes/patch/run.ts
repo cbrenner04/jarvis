@@ -38,6 +38,7 @@ export type PreflightOk = {
   specPath: string;
   additionalReadDirs: string[] | undefined;
   patchTier: PatchTier;
+  trackSourceSpecDelta: boolean;
 };
 
 export type CompletionReadyGateResult = { kind: "green" } | { kind: "red"; failureText: string; retryable?: boolean };
@@ -347,8 +348,9 @@ export async function runCommand(opts: RunCommandOptions): Promise<number> {
 
     // Warn about Claude pool contention if the selected primary agent is Claude
     // and there are live Jarvis-owned operator/orchestration sessions using Claude.
-    if (activeAgents.length > 0) {
-      warnAboutPoolContentionIfDetected(activeAgents[0]!, logging.sendLog);
+    const [primaryAgent] = activeAgents;
+    if (primaryAgent !== undefined) {
+      warnAboutPoolContentionIfDetected(primaryAgent, logging.sendLog);
     }
 
     while (true) {

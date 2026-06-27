@@ -13,11 +13,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { branchExistsLocal, branchExistsOnOrigin, getCurrentBranch } from "../../shared/git.ts";
 import { ClaudeAgent } from "../src/agents/claude.ts";
 import { runAgent } from "../src/agents/spawn.ts";
 import type { Agent, AgentName, AgentResult, AgentRunOptions } from "../src/agents/types.ts";
 import { type AgentEntry, loadConfig, registerProject, writeConfig } from "../src/config.ts";
 import type { LogClient } from "../src/logging.ts";
+import {
+  __testClearDeltaStateDir,
+  __testSetDeltaStateDir,
+  createFreshDelta,
+  recordBlocker,
+  recordNewlyCheckedAc,
+} from "../src/modes/patch/no-commit-delta.ts";
 import {
   type CompletionReadyGateResult,
   maybeWarnAboutUnmergedPlanBranch,
@@ -149,6 +157,92 @@ function createCompletionAgent(spec: string, onFixup?: (callCount: number) => vo
   });
 }
 
+const DRAFT_PR_17_JSON =
+  '[{"number":17,"isDraft":true,"headRefName":"feature","headRepository":{"name":"repo"},"headRepositoryOwner":{"login":"owner"}}]\n';
+
+function initGitRepoWithOrigin(remoteName = "origin.git"): string {
+  const origin = join(dir, remoteName);
+  execSync(`git init --bare ${origin}`);
+  execSync("git init -b main", { cwd: projectRoot });
+  execSync('git config user.email "jarvis-test@example.com"', { cwd: projectRoot });
+  execSync('git config user.name "jarvis-test"', { cwd: projectRoot });
+  execSync(`git remote add origin ${origin}`, { cwd: projectRoot });
+  writeFileSync(join(projectRoot, "README.md"), "seed\n");
+  execSync("git add README.md && git commit -m init && git push -u origin main", { cwd: projectRoot });
+  return origin;
+}
+
+function writeManagedExternalSpec(specName: string): { indexPath: string; subspecPath: string; specRoot: string } {
+  const specRoot = join(cfgDir, "specs", "project", specName);
+  mkdirSync(specRoot, { recursive: true });
+  const indexPath = join(specRoot, "index.md");
+  const subspecPath = join(specRoot, "00-one.md");
+  writeFileSync(indexPath, `repo: ${projectRoot}\n\n# Feature\n\n- [ ] [00 - One](./00-one.md)\n`);
+  writeFileSync(subspecPath, "# 00 - One\n\n## Acceptance criteria\n\n- [ ] One accepted.\n");
+  return { indexPath, subspecPath, specRoot };
+}
+
+function writeStaleExternalDelta(subspecPath: string): void {
+  writeFileSync(
+    subspecPath,
+    "# 00 - One\n\n## Acceptance criteria\n\n- [x] One accepted.\n\n## Blocker\n\nNeed a rerun.\n",
+  );
+  const delta = createFreshDelta(subspecPath);
+  recordNewlyCheckedAc(delta, "One accepted.");
+  recordBlocker(delta, "Need a rerun.");
+}
+
+function createStalePatchBranch(specName: string): string {
+  execSync(`git checkout -b ${specName}`, { cwd: projectRoot });
+  const stalePath = join(projectRoot, "stale.txt");
+  writeFileSync(stalePath, "stale\n");
+  execSync("git add stale.txt && git commit -m stale && git push -u origin HEAD", { cwd: projectRoot });
+  execSync("git checkout main", { cwd: projectRoot });
+  const worktreePath = join(projectRoot, ".worktree", specName);
+  execSync(`git worktree add ${worktreePath} ${specName}`, { cwd: projectRoot });
+  return worktreePath;
+}
+
+function installCleanupGhStub(
+  prListJson: string,
+  opts?: { failClose?: boolean },
+): { closeLog: string; oldPath: string } {
+  const binDir = join(dir, "bin-cleanup");
+  mkdirSync(binDir, { recursive: true });
+  const gh = join(binDir, "gh");
+  const closeLog = join(dir, "gh-pr-close.log");
+  const prListFile = join(dir, "gh-pr-list.json");
+  writeFileSync(prListFile, prListJson);
+  writeFileSync(
+    gh,
+    `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == "auth status" ]]; then exit 0; fi
+if [[ "$1 $2" == "repo view" && "$*" == *"defaultBranchRef"* ]]; then
+  printf 'main\\n'
+  exit 0
+fi
+if [[ "$1 $2" == "repo view" && "$*" == *"owner,name"* ]]; then
+  printf '{"owner":{"login":"owner"},"name":"repo"}\\n'
+  exit 0
+fi
+if [[ "$1 $2" == "pr list" ]]; then
+  cat "${prListFile}"
+  exit 0
+fi
+if [[ "$1 $2" == "pr close" ]]; then
+  printf '%s\\n' "$3" >> "${closeLog}"
+  ${opts?.failClose ? "exit 1" : "exit 0"}
+fi
+exit 1
+`,
+  );
+  chmodSync(gh, 0o755);
+  const oldPath = process.env.PATH ?? "";
+  process.env.PATH = `${binDir}:${oldPath}`;
+  return { closeLog, oldPath };
+}
+
 function repeatFailureText(failureText: string, count: number): string[] {
   return Array.from({ length: count }, () => failureText);
 }
@@ -160,9 +254,11 @@ beforeEach(() => {
   originalPath = process.env.PATH;
   mkdirSync(projectRoot);
   registerProject("project", projectRoot, { dir: cfgDir });
+  __testSetDeltaStateDir(join(dir, "delta-state"));
 });
 
 afterEach(() => {
+  __testClearDeltaStateDir();
   if (originalPath === undefined) {
     delete process.env.PATH;
   } else {
@@ -292,6 +388,245 @@ describe("runCommand", () => {
         expect(cap.err()).toBe("");
       } finally {
         rmSync(local, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("stale external-spec rerun cleanup", () => {
+    test("closes a stale draft PR, resets source-spec deltas, and recreates a fresh branch/worktree", async () => {
+      initGitRepoWithOrigin();
+      const specName = "feature";
+      const { indexPath, subspecPath } = writeManagedExternalSpec(specName);
+      writeStaleExternalDelta(subspecPath);
+      createStalePatchBranch(specName);
+      const { closeLog, oldPath } = installCleanupGhStub(DRAFT_PR_17_JSON);
+      const cfg = loadConfig({ dir: cfgDir });
+      cfg.modes.plan.commit = false;
+      writeConfig(cfg, { dir: cfgDir });
+      const cap = captureIo();
+      let sawFreshState = false;
+      const claude = new FakeAgent("claude", (_n, _prompt, runOpts) => {
+        expect(runOpts.cwd).toBe(join(projectRoot, ".worktree", specName));
+        expect(readFileSync(subspecPath, "utf8")).toContain("- [ ] One accepted.");
+        expect(readFileSync(subspecPath, "utf8")).not.toContain("## Blocker");
+        expect(existsSync(join(runOpts.cwd, "stale.txt"))).toBe(false);
+        expect(getCurrentBranch(runOpts.cwd)).toBe(specName);
+        const head = execSync("git rev-parse HEAD", { cwd: runOpts.cwd, encoding: "utf8" }).trim();
+        const mainHead = execSync("git rev-parse main", { cwd: projectRoot, encoding: "utf8" }).trim();
+        expect(head).toBe(mainHead);
+        sawFreshState = true;
+        return { kind: "error", exitCode: 1, stderr: "stop" };
+      });
+
+      try {
+        const code = await runCommand({
+          specPath: indexPath,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+        });
+
+        expect(code).toBe(3);
+        expect(sawFreshState).toBe(true);
+        expect(readFileSync(closeLog, "utf8").trim()).toBe("17");
+        expect(branchExistsLocal(projectRoot, specName)).toBe(true);
+        expect(branchExistsOnOrigin(projectRoot, specName)).toBe(false);
+        expect(existsSync(join(projectRoot, ".worktree", specName))).toBe(true);
+      } finally {
+        process.env.PATH = oldPath;
+      }
+    });
+
+    test("refuses cleanup when the stale worktree has a live lock", async () => {
+      initGitRepoWithOrigin();
+      const specName = "feature";
+      const { indexPath } = writeManagedExternalSpec(specName);
+      const worktreePath = createStalePatchBranch(specName);
+      writeFileSync(
+        join(worktreePath, ".jarvis.lock"),
+        `${JSON.stringify({ pid: process.pid, started_at: "2026-06-27T00:00:00Z", host: "test-host" }, null, 2)}\n`,
+      );
+      const { closeLog, oldPath } = installCleanupGhStub(DRAFT_PR_17_JSON);
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("agent must not run");
+      });
+
+      try {
+        const code = await runCommand({
+          specPath: indexPath,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+        });
+
+        expect(code).toBe(9);
+        expect(cap.err()).toContain("worktree is in use by process");
+        expect(existsSync(join(worktreePath, "stale.txt"))).toBe(true);
+        expect(branchExistsOnOrigin(projectRoot, specName)).toBe(true);
+        expect(existsSync(closeLog)).toBe(false);
+      } finally {
+        process.env.PATH = oldPath;
+      }
+    });
+
+    test("refuses cleanup when the matching open PR is not draft", async () => {
+      initGitRepoWithOrigin();
+      const specName = "feature";
+      const { indexPath } = writeManagedExternalSpec(specName);
+      const worktreePath = createStalePatchBranch(specName);
+      const { oldPath } = installCleanupGhStub(
+        '[{"number":17,"isDraft":false,"headRefName":"feature","headRepository":{"name":"repo"},"headRepositoryOwner":{"login":"owner"}}]\n',
+      );
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("agent must not run");
+      });
+
+      try {
+        const code = await runCommand({
+          specPath: indexPath,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+        });
+
+        expect(code).toBe(1);
+        expect(cap.err()).toContain("is not draft");
+        expect(existsSync(join(worktreePath, "stale.txt"))).toBe(true);
+        expect(branchExistsOnOrigin(projectRoot, specName)).toBe(true);
+      } finally {
+        process.env.PATH = oldPath;
+      }
+    });
+
+    test("refuses cleanup when multiple matching open PRs exist", async () => {
+      initGitRepoWithOrigin();
+      const specName = "feature";
+      const { indexPath } = writeManagedExternalSpec(specName);
+      const worktreePath = createStalePatchBranch(specName);
+      const { oldPath } = installCleanupGhStub(
+        '[{"number":17,"isDraft":true,"headRefName":"feature","headRepository":{"name":"repo"},"headRepositoryOwner":{"login":"owner"}},{"number":18,"isDraft":true,"headRefName":"feature","headRepository":{"name":"repo"},"headRepositoryOwner":{"login":"owner"}}]\n',
+      );
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("agent must not run");
+      });
+
+      try {
+        const code = await runCommand({
+          specPath: indexPath,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+        });
+
+        expect(code).toBe(1);
+        expect(cap.err()).toContain("multiple open PRs match");
+        expect(existsSync(join(worktreePath, "stale.txt"))).toBe(true);
+        expect(branchExistsOnOrigin(projectRoot, specName)).toBe(true);
+      } finally {
+        process.env.PATH = oldPath;
+      }
+    });
+
+    test("cleans stale worktree and branches when no open PR matches", async () => {
+      initGitRepoWithOrigin();
+      const specName = "feature";
+      const { indexPath } = writeManagedExternalSpec(specName);
+      createStalePatchBranch(specName);
+      const { oldPath } = installCleanupGhStub("[]\n");
+      const cap = captureIo();
+      let sawFreshState = false;
+      const claude = new FakeAgent("claude", (_n, _prompt, runOpts) => {
+        expect(existsSync(join(runOpts.cwd, "stale.txt"))).toBe(false);
+        sawFreshState = true;
+        return { kind: "error", exitCode: 1, stderr: "stop" };
+      });
+
+      try {
+        const code = await runCommand({
+          specPath: indexPath,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+        });
+
+        expect(code).toBe(3);
+        expect(sawFreshState).toBe(true);
+        expect(branchExistsOnOrigin(projectRoot, specName)).toBe(false);
+      } finally {
+        process.env.PATH = oldPath;
+      }
+    });
+
+    test("aborts before agent invocation when closing the stale draft PR fails", async () => {
+      initGitRepoWithOrigin();
+      const specName = "feature";
+      const { indexPath } = writeManagedExternalSpec(specName);
+      const worktreePath = createStalePatchBranch(specName);
+      const { oldPath } = installCleanupGhStub(DRAFT_PR_17_JSON, { failClose: true });
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("agent must not run");
+      });
+
+      try {
+        const code = await runCommand({
+          specPath: indexPath,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+        });
+
+        expect(code).toBe(1);
+        expect(cap.err()).toContain("failed to close stale draft PR");
+        expect(existsSync(join(worktreePath, "stale.txt"))).toBe(true);
+        expect(branchExistsOnOrigin(projectRoot, specName)).toBe(true);
+      } finally {
+        process.env.PATH = oldPath;
+      }
+    });
+
+    test("aborts before agent invocation when stale remote branch deletion fails", async () => {
+      const origin = initGitRepoWithOrigin();
+      const specName = "feature";
+      const { indexPath } = writeManagedExternalSpec(specName);
+      createStalePatchBranch(specName);
+      renameSync(origin, `${origin}.offline`);
+      const { oldPath } = installCleanupGhStub(DRAFT_PR_17_JSON);
+      const cap = captureIo();
+      const claude = new FakeAgent("claude", () => {
+        throw new Error("agent must not run");
+      });
+
+      try {
+        const code = await runCommand({
+          specPath: indexPath,
+          io: cap.io,
+          config: { dir: cfgDir },
+          agents: { claude },
+          logClient: { assertReachable: async () => {}, send: async () => {} },
+          handleSignals: false,
+        });
+
+        expect(code).toBe(1);
+        expect(cap.err()).toContain("failed to remove stale remote branch");
+        expect(branchExistsLocal(projectRoot, specName)).toBe(false);
+      } finally {
+        process.env.PATH = oldPath;
       }
     });
   });

@@ -45,6 +45,16 @@ When re-running a spec:
 - **Neither exist**: create new branch off the detected base branch and new
   worktree.
 
+Exception: for an external Jarvis-owned spec authored by `plan.commit:false`,
+re-run with effective `git:true`, and still incomplete with unchecked
+non-human-only acceptance criteria, Jarvis does **not** reuse stale patch git
+state. If `.worktree/<spec-name>/.jarvis.lock` is not live, it first closes the
+single matching open draft PR (if any), deletes the stale patch worktree, local
+branch, and remote branch, then recreates a fresh branch/worktree from the
+current base branch. If the worktree lock is live, the matching open PR is
+non-draft, multiple open PRs match, or any cleanup step fails, the run aborts
+before agent invocation.
+
 Orphan-retirement failures (e.g., branch checked out in another worktree,
 filesystem permissions) abort with a named error. This self-service recovery
 avoids requiring manual git commands before re-run.

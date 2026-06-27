@@ -32,16 +32,16 @@ This applies only to external Jarvis-owned specs with unchecked non-human-only a
 
 ## Acceptance criteria
 
-- [ ] Re-running an incomplete external spec authored by `plan.commit:false` with effective `git:true` closes the single stale draft PR for target-repo branch `<spec-name>`, removes stale `.worktree/<spec-name>/`, deletes stale local and remote `<spec-name>` refs, and starts the next agent attempt from a new base-branch worktree/branch.
-- [ ] The same re-run still resets prior-attempt checklist ticks and appended `## Blocker` text before invoking the agent.
-- [ ] If the matching worktree has a live `.jarvis.lock`, `jarvis1 run` exits before cleanup and before invoking any agent.
-- [ ] If the matching open PR is non-draft or multiple open PRs match the branch, `jarvis1 run` exits before deleting worktree or branch state and reports the unsafe PR state.
-- [ ] Already-closed PRs do not block cleanup, and absence of an open PR still allows stale worktree, local branch, and remote branch cleanup.
-- [ ] If closing the stale draft PR or removing stale local or remote git state fails, `jarvis1 run` exits before invoking any agent and reports the failed cleanup step.
-- [ ] Ordinary in-repo spec re-runs keep the existing resume behavior: an existing worktree/branch is reused rather than auto-deleted.
-- [ ] `git:false` loop-only re-runs keep the existing no-worktree behavior and only reset prior-attempt source-spec checklist/blocker mutations.
-- [ ] `bun run typecheck` passes.
-- [ ] `bun run test` passes.
-- [ ] `v1/docs/operator-runbook.md` documents external `plan.commit:false` git-backed re-run cleanup separately from `git:false` no-commit reset.
-- [ ] `v1/docs/worktrees-and-commits.md` documents the external-spec cleanup exception to normal patch worktree/branch reuse.
-- [ ] `v2/docs/v1-behaviors.md` records the updated v1 behavior for external `plan.commit:false` git-backed spec re-runs.
+- [x] Re-running an incomplete external spec authored by `plan.commit:false` with effective `git:true` closes the single stale draft PR for target-repo branch `<spec-name>`, removes stale `.worktree/<spec-name>/`, deletes stale local and remote `<spec-name>` refs, and starts the next agent attempt from a new base-branch worktree/branch.
+- [x] The same re-run still resets prior-attempt checklist ticks and appended `## Blocker` text before invoking the agent.
+- [x] If the matching worktree has a live `.jarvis.lock`, `jarvis1 run` exits before cleanup and before invoking any agent.
+- [x] If the matching open PR is non-draft or multiple open PRs match the branch, `jarvis1 run` exits before deleting worktree or branch state and reports the unsafe PR state.
+- [x] Already-closed PRs do not block cleanup, and absence of an open PR still allows stale worktree, local branch, and remote branch cleanup.
+- [x] If closing the stale draft PR or removing stale local or remote git state fails, `jarvis1 run` exits before invoking any agent and reports the failed cleanup step.
+- [x] Ordinary in-repo spec re-runs keep the existing resume behavior: an existing worktree/branch is reused rather than auto-deleted.
+- [x] `git:false` loop-only re-runs keep the existing no-worktree behavior and only reset prior-attempt source-spec checklist/blocker mutations.
+- [x] `bun run typecheck` passes.
+- [x] `bun run test` passes.
+- [x] `v1/docs/operator-runbook.md` documents external `plan.commit:false` git-backed re-run cleanup separately from `git:false` no-commit reset.
+- [x] `v1/docs/worktrees-and-commits.md` documents the external-spec cleanup exception to normal patch worktree/branch reuse.
+- [x] `v2/docs/v1-behaviors.md` records the updated v1 behavior for external `plan.commit:false` git-backed spec re-runs.

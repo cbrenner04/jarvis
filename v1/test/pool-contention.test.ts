@@ -121,8 +121,10 @@ describe("pool contention detection", () => {
   });
 
   test("warnAboutPoolContentionIfDetected does not crash for Claude agent", () => {
-    const sendLog = (tag: string, text: string) => {
-      if (tag === "harness") { /* no-op */ }
+    const sendLog = (tag: string, _text: string) => {
+      if (tag === "harness") {
+        /* no-op */
+      }
     };
     // Uses real listProcessesWithCmd; just verifies it doesn't throw.
     expect(() => warnAboutPoolContentionIfDetected(fakeAgent("claude"), sendLog)).not.toThrow();

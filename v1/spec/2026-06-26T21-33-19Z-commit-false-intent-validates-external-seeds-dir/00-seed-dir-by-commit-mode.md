@@ -61,20 +61,20 @@ observed on `groceries-client`).
 
 ## Acceptance criteria
 
-- [ ] Under `commit: false`, `jarvis1 intent --repo <proj> <seed-file>` accepts a
+- [x] Under `commit: false`, `jarvis1 intent --repo <proj> <seed-file>` accepts a
   file seed located under `~/.jarvis/specs/<projectSafeId>/seeds/` and proceeds
   to the split flow instead of rejecting with `raw seed files must live under`.
-- [ ] Under `commit: false`, a file seed located in the in-repo
+- [x] Under `commit: false`, a file seed located in the in-repo
   `project.root/<targetDir>/seeds` is rejected.
-- [ ] Under `commit: false`, the rejection message names the active external
+- [x] Under `commit: false`, the rejection message names the active external
   seeds home (`~/.jarvis/specs/<projectSafeId>/seeds/`), not `${targetDir}/seeds/`.
-- [ ] Under `commit: true`, file-seed validation against in-repo
+- [x] Under `commit: true`, file-seed validation against in-repo
   `project.root/<targetDir>/seeds` is unchanged (existing committed-mode seed
   test stays green).
-- [ ] `v1/docs/intent-mode.md` and `v2/docs/v1-behaviors.md` state that the
+- [x] `v1/docs/intent-mode.md` and `v2/docs/v1-behaviors.md` state that the
   file-seed input dir is the external seeds home under `commit: false` and the
   in-repo seeds dir under `commit: true`.
-- [ ] The `v2/docs/v1-behaviors.md` line stating `--target-dir` applies to the
+- [x] The `v2/docs/v1-behaviors.md` line stating `--target-dir` applies to the
   no-commit seed-input check is corrected to record that `--target-dir` no
   longer affects the `commit: false` seed-input dir.
 

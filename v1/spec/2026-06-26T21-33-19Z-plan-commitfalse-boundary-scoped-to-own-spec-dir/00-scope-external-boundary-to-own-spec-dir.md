@@ -62,25 +62,25 @@ inspects external storage.
 
 ## Acceptance criteria
 
-- [ ] A no-commit plan run whose external spec root gains a sibling spec
+- [x] A no-commit plan run whose external spec root gains a sibling spec
       directory created after the run started no longer trips `plan: boundary
       violation detected before draft commit`; the run proceeds past the
       pre-draft boundary check.
-- [ ] Two concurrent `commit:false` plans for the same project both complete
+- [x] Two concurrent `commit:false` plans for the same project both complete
       without a spurious boundary violation (neither blocks on the other's
       sibling spec dir).
-- [ ] A `commit:false` plan that writes a `spec/`-prefixed path into the target
+- [x] A `commit:false` plan that writes a `spec/`-prefixed path into the target
       checkout outside its own spec dir still trips the boundary violation: the
       `assertTargetRepoPlanBoundary` tests in
       `v1/test/modes/plan/boundary.sandbox-unrunnable.test.ts` stay green
       (surviving in-checkout guard unchanged; it does not catch non-`spec/`
       writes or external-storage escapes — those are no longer guarded).
-- [ ] `assertPlanWriteBoundary` tests in the same file stay green (commit-mode
+- [x] `assertPlanWriteBoundary` tests in the same file stay green (commit-mode
       boundary unchanged).
-- [ ] No `preExistingSiblings` snapshot is captured or passed at the draft or
+- [x] No `preExistingSiblings` snapshot is captured or passed at the draft or
       review boundary call sites in `v1/src/modes/plan/run.ts` and
       `v1/src/modes/plan/review.ts`.
-- [ ] `bun run typecheck` and `bun run test` pass.
+- [x] `bun run typecheck` and `bun run test` pass.
 
 ## Documentation updates
 

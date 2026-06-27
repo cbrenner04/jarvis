@@ -31,7 +31,6 @@ import { planSummary } from "../../run-summary.ts";
 import { createPlanWorktree, createWorktreeSymlinks, ensureExistingBranchWorktree } from "../../worktree.ts";
 import {
   appendBoundaryBlocker,
-  assertNoCommitExternalSpecBoundary,
   assertPlanWriteBoundary,
   assertTargetRepoPlanBoundary,
   type BoundaryCheckResult,
@@ -914,17 +913,9 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
 
     // For no-commit runs, create the external spec root directory early
     let externalSpecRoot: string | undefined;
-    let preExistingSiblings: Set<string> | undefined;
     if (commit === false) {
       externalSpecRoot = join(jarvisConfigDir, "specs", computeProjectSafeId(project));
       mkdirSync(externalSpecRoot, { recursive: true });
-      // Capture snapshot of pre-existing entries before the spec dir is created
-      try {
-        preExistingSiblings = new Set(readdirSync(externalSpecRoot));
-      } catch {
-        // If we can't read the dir, proceed without the snapshot (will catch at boundary check)
-        preExistingSiblings = undefined;
-      }
     }
 
     // For commit: true fresh runs, check if a disposable same-name worktree survives
@@ -1198,23 +1189,14 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
           ? assertTargetRepoPlanBoundary(project.root)
           : { ok: true };
 
-      // For no-commit runs, also check the external spec directory
-      const externalBoundaryCheck: BoundaryCheckResult =
-        !commit && externalSpecRoot
-          ? assertNoCommitExternalSpecBoundary(externalSpecRoot, specDirBasename, preExistingSiblings)
-          : { ok: true };
-
-      const allBoundariesOk = boundaryCheck.ok && externalBoundaryCheck.ok;
-      if (!allBoundariesOk) {
+      if (!boundaryCheck.ok) {
         opts.io.stderr(`plan: boundary violation detected before draft commit\n`);
-        const bcOffending = boundaryCheck.ok ? [] : boundaryCheck.offendingPaths;
-        const ebcOffending = externalBoundaryCheck.ok ? [] : externalBoundaryCheck.offendingPaths;
-        const allOffendingPaths = [...bcOffending, ...ebcOffending];
+        const offendingPaths = boundaryCheck.ok ? [] : boundaryCheck.offendingPaths;
         if (commit) {
-          revertPaths(worktreePath, allOffendingPaths);
+          revertPaths(worktreePath, offendingPaths);
         }
-        appendBoundaryBlocker(finalSpecPath, specDirBasename, allOffendingPaths, targetDir);
-        for (const path of allOffendingPaths) {
+        appendBoundaryBlocker(finalSpecPath, specDirBasename, offendingPaths, targetDir);
+        for (const path of offendingPaths) {
           opts.io.stderr(`  - ${path}\n`);
         }
 
@@ -1405,9 +1387,6 @@ export async function planCommand(opts: PlanCommandOptions): Promise<number> {
         };
         if (externalSpecRoot !== undefined) {
           reviewOpts.externalSpecRoot = externalSpecRoot;
-          if (preExistingSiblings !== undefined) {
-            reviewOpts.preExistingSiblings = preExistingSiblings;
-          }
         }
         const reviewResult = await runPlanReviewPhase({
           ...reviewOpts,

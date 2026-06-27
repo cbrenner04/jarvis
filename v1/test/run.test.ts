@@ -399,9 +399,7 @@ describe("runCommand", () => {
       const { indexPath, subspecPath } = writeManagedExternalSpec(specName);
       writeStaleExternalDelta(subspecPath);
       createStalePatchBranch(specName);
-      const { closeLog, oldPath } = installCleanupGhStub(
-        DRAFT_PR_17_JSON,
-      );
+      const { closeLog, oldPath } = installCleanupGhStub(DRAFT_PR_17_JSON);
       const cfg = loadConfig({ dir: cfgDir });
       cfg.modes.plan.commit = false;
       writeConfig(cfg, { dir: cfgDir });
@@ -450,9 +448,7 @@ describe("runCommand", () => {
         join(worktreePath, ".jarvis.lock"),
         `${JSON.stringify({ pid: process.pid, started_at: "2026-06-27T00:00:00Z", host: "test-host" }, null, 2)}\n`,
       );
-      const { closeLog, oldPath } = installCleanupGhStub(
-        DRAFT_PR_17_JSON,
-      );
+      const { closeLog, oldPath } = installCleanupGhStub(DRAFT_PR_17_JSON);
       const cap = captureIo();
       const claude = new FakeAgent("claude", () => {
         throw new Error("agent must not run");
@@ -579,10 +575,7 @@ describe("runCommand", () => {
       const specName = "feature";
       const { indexPath } = writeManagedExternalSpec(specName);
       const worktreePath = createStalePatchBranch(specName);
-      const { oldPath } = installCleanupGhStub(
-        DRAFT_PR_17_JSON,
-        { failClose: true },
-      );
+      const { oldPath } = installCleanupGhStub(DRAFT_PR_17_JSON, { failClose: true });
       const cap = captureIo();
       const claude = new FakeAgent("claude", () => {
         throw new Error("agent must not run");
@@ -613,9 +606,7 @@ describe("runCommand", () => {
       const { indexPath } = writeManagedExternalSpec(specName);
       createStalePatchBranch(specName);
       renameSync(origin, `${origin}.offline`);
-      const { oldPath } = installCleanupGhStub(
-        DRAFT_PR_17_JSON,
-      );
+      const { oldPath } = installCleanupGhStub(DRAFT_PR_17_JSON);
       const cap = captureIo();
       const claude = new FakeAgent("claude", () => {
         throw new Error("agent must not run");

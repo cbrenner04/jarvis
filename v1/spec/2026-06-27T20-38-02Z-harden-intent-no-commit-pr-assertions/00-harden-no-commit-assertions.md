@@ -6,20 +6,22 @@
 
 ## Decisions
 
-- Match PR-specific stderr phrases; rules out bare substring matching across random paths.
+- Match no-commit-forbidden phrases (`intent: split commit pushed`, `intent: draft PR`, `https://example.com/pull/`, `warning: could not mark PR ready for review`); rules out bare substring matching across random paths.
 - Keep random temp paths; rules out deterministic paths that hide isolation bugs.
-- Audit sibling negative assertions in the same block; rules out leaving equivalent random-path flakes.
+- Audit the full no-commit assertion block, including `warning` and `https://example.com`; rules out fixing only the observed `PR` flake while leaving analogous incidental-output collisions.
 
 ## Tasks
 
-- Narrow the no-commit auto-ready stderr PR negative assertion to PR-specific output.
-- Confirm or narrow the sibling `warning` and `https://example.com` negative assertions in the same no-commit block.
+- Narrow the no-commit auto-ready stderr PR negative assertion to concrete forbidden output.
+- Confirm `warning` is safe as written or narrow it.
+- Confirm `https://example.com` is safe as written or narrow it.
 - Run the targeted intent command test file.
 
 ## Acceptance criteria
 
-- [ ] `v1/test/intent-command.sandbox-unrunnable.test.ts` no-commit auto-ready coverage fails only for PR-specific forbidden output, not incidental `PR` in filesystem paths.
-- [ ] The same no-commit assertion block has no remaining negative matcher that can plausibly collide with random temp path output.
+- [ ] `v1/test/intent-command.sandbox-unrunnable.test.ts` no-commit auto-ready coverage still fails on `intent: split commit pushed`, `intent: draft PR`, `https://example.com/pull/`, or `warning: could not mark PR ready for review`, not incidental `PR` in filesystem paths.
+- [ ] The `warning` negative assertion is either confirmed safe as written or narrowed.
+- [ ] The `https://example.com` negative assertion is either confirmed safe as written or narrowed.
 - [ ] `bun test v1/test/intent-command.sandbox-unrunnable.test.ts` passes.
 
 ## Documentation updates

@@ -1,6 +1,6 @@
-# Overlord session — 2026-06-22 (intent batch)
+# Operator session — 2026-06-22 (intent batch)
 
-Jarvis-on-Jarvis overlord run: drove the wip-intent queue through plan→run→merge, reviewed every PR, admin-merged on a green gate. Continuation of the prior overlord session (post-compaction).
+Jarvis-on-Jarvis operator run: drove the wip-intent queue through plan→run→merge, reviewed every PR, admin-merged on a green gate. Continuation of the prior operator session (post-compaction).
 
 ```sh
 claude --resume ead0c37c-a08d-4dd5-9510-6a0287846a43
@@ -56,7 +56,7 @@ Merged main (one `v1-behaviors.md` conflict, kept both serial-retry + complete-b
 
 **Jarvis telemetry spend (2026-06-22):** ~$59.54 across all plan+run summaries in `runs.jsonl` (includes the pre-compaction harness-transient / codex-path-cache / finalize work and all re-runs). Per-intent plan+impl landed ~$4–9.
 
-### Overlord session (this Claude) — separate
+### Operator session (this Claude) — separate
 
 Tracked by Claude Code's `/cost` (not in `runs.jsonl`), on top of the telemetry spend above.
 

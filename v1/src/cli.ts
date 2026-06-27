@@ -1,6 +1,6 @@
 import { isAbsolute, join, resolve } from "node:path";
 import { PATCH_TIERS, type PatchTier } from "../../shared/spec-parser.ts";
-import { type CleanupCommandOptions, cleanupCommand } from "./commands/cleanup.ts";
+import { cleanupCommand } from "./commands/cleanup.ts";
 import { configCommand } from "./commands/config.ts";
 import { init as runInit } from "./commands/init.ts";
 import { INTENT_USAGE, intentCommand } from "./commands/intent.ts";
@@ -574,26 +574,21 @@ export function run(argv: readonly string[], opts: RunOptions = {}): number | Pr
         }
         return input;
       };
-      const cleanupOpts: CleanupCommandOptions = {
+      const cfg = loadConfig(opts.config);
+      const planFlags = resolvePlanFlags(cfg, cfg.projects[project.key]);
+      return cleanupCommand({
         projectRoot: project.root,
         io: {
           stdout: io.stdout,
           stderr: io.stderr,
           readlineSync,
         },
-      };
-      const cfg = loadConfig(opts.config);
-      const planFlags = resolvePlanFlags(cfg, cfg.projects[project.key]);
-      cleanupOpts.targetDir = planFlags.targetDir;
-      cleanupOpts.commit = planFlags.commit;
-      cleanupOpts.externalSpecsRoot = join(opts.config?.dir ?? CONFIG_DIR, "specs", computeProjectSafeId(project));
-      if (parsed.dryRun !== undefined) {
-        cleanupOpts.dryRun = parsed.dryRun;
-      }
-      if (parsed.abandon !== undefined) {
-        cleanupOpts.abandon = parsed.abandon;
-      }
-      return cleanupCommand(cleanupOpts);
+        targetDir: planFlags.targetDir,
+        commit: planFlags.commit,
+        externalSpecsRoot: join(opts.config?.dir ?? CONFIG_DIR, "specs", computeProjectSafeId(project)),
+        ...(parsed.dryRun !== undefined ? { dryRun: parsed.dryRun } : {}),
+        ...(parsed.abandon !== undefined ? { abandon: parsed.abandon } : {}),
+      });
     }
     case "triage": {
       const cwd = opts.cwd ?? process.cwd();

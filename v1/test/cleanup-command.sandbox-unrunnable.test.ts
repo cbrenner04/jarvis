@@ -80,17 +80,6 @@ function runExternalCleanup(io: CleanupIo, root: string = externalSpecsRoot): nu
   });
 }
 
-function runAbandonCleanup(io: CleanupIo, opts: Partial<Parameters<typeof cleanupCommand>[0]> = {}): number {
-  return cleanupCommand({
-    projectRoot,
-    io,
-    abandon: true,
-    isMergedPr: () => false,
-    findMatchingOpenPrs: () => [],
-    ...opts,
-  });
-}
-
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "jarvis-cleanup-"));
   projectRoot = root;
@@ -575,7 +564,13 @@ describe("cleanupCommand", () => {
     mkdirSync(specDir, { recursive: true });
     writeFileSync(specPath, "# rerun me\n");
 
-    const code = runAbandonCleanup(io);
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [],
+    });
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -605,7 +600,13 @@ describe("cleanupCommand", () => {
       stdio: "pipe",
     });
 
-    const code = runAbandonCleanup(io);
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [],
+    });
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -624,11 +625,15 @@ describe("cleanupCommand", () => {
     const worktreePath = createTrackedWorktree(specName);
     const closedPrs: number[] = [];
 
-    const code = runAbandonCleanup(io, {
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [{ number: 42, isDraft: true }],
       closePr: (prNumber) => {
         closedPrs.push(prNumber);
       },
-      findMatchingOpenPrs: () => [{ number: 42, isDraft: true }],
     });
 
     expect(code).toBe(0);
@@ -642,7 +647,10 @@ describe("cleanupCommand", () => {
     const specName = "leave-merged-alone";
     const worktreePath = createTrackedWorktree(specName);
 
-    const code = runAbandonCleanup(io, {
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
       isMergedPr: () => true,
     });
 
@@ -657,7 +665,11 @@ describe("cleanupCommand", () => {
     const readyPath = createTrackedWorktree("skip-ready-pr");
     const multiplePath = createTrackedWorktree("skip-multiple-prs");
 
-    const code = runAbandonCleanup(io, {
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      isMergedPr: () => false,
       findMatchingOpenPrs: (branch) => {
         if (branch === "skip-ready-pr") {
           return [{ number: 7, isDraft: false }];
@@ -686,7 +698,13 @@ describe("cleanupCommand", () => {
     const worktreePath = createTrackedWorktree(specName);
     writeFileSync(join(worktreePath, "dirty.txt"), "dirty\n");
 
-    const code = runAbandonCleanup(io);
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [],
+    });
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -702,7 +720,13 @@ describe("cleanupCommand", () => {
       stdio: "pipe",
     });
 
-    const code = runAbandonCleanup(io);
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [],
+    });
 
     expect(code).toBe(0);
     expect(existsSync(worktreePath)).toBe(false);
@@ -714,11 +738,15 @@ describe("cleanupCommand", () => {
     const specName = "close-pr-fails";
     const worktreePath = createTrackedWorktree(specName);
 
-    const code = runAbandonCleanup(io, {
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [{ number: 11, isDraft: true }],
       closePr: () => {
         throw new Error("already closed");
       },
-      findMatchingOpenPrs: () => [{ number: 11, isDraft: true }],
     });
 
     expect(code).toBe(0);
@@ -732,12 +760,16 @@ describe("cleanupCommand", () => {
     const worktreePath = createTrackedWorktree("preview-me");
     const closeCalls: number[] = [];
 
-    const code = runAbandonCleanup(io, {
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      dryRun: true,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [{ number: 12, isDraft: true }],
       closePr: (prNumber) => {
         closeCalls.push(prNumber);
       },
-      dryRun: true,
-      findMatchingOpenPrs: () => [{ number: 12, isDraft: true }],
     });
 
     expect(code).toBe(0);
@@ -755,7 +787,13 @@ describe("cleanupCommand", () => {
     const specName = "cancel-abandon";
     const worktreePath = createTrackedWorktree(specName);
 
-    const code = runAbandonCleanup(io);
+    const code = cleanupCommand({
+      projectRoot,
+      io,
+      abandon: true,
+      isMergedPr: () => false,
+      findMatchingOpenPrs: () => [],
+    });
 
     expect(code).toBe(0);
     expect(out()).toContain("cancelled");

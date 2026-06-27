@@ -20,7 +20,7 @@ export type CleanupCommandOptions = {
   commit?: boolean;
   externalSpecsRoot?: string;
   isMergedPr?: (branch: string) => boolean;
-  removeItem?: (item: { path: string; branch: string; dir: string }) => void;
+  removeItem?: (item: CleanupItem) => void;
   findMatchingOpenPrs?: (branch: string, cwd?: string) => MatchingOpenPr[];
   closePr?: (prNumber: number, cwd?: string) => void;
   deleteLocalBranch?: (projectRoot: string, branchName: string) => void;
@@ -29,6 +29,12 @@ export type CleanupCommandOptions = {
 };
 
 type CleanupItem = { path: string; branch: string; dir: string };
+type CleanupDeps = Required<
+  Pick<
+    CleanupCommandOptions,
+    "isMergedPr" | "findMatchingOpenPrs" | "closePr" | "deleteLocalBranch" | "deleteRemoteBranch"
+  >
+>;
 
 function branchForWorktree(worktreePath: string): string {
   return execSync("git rev-parse --abbrev-ref HEAD", {
@@ -220,6 +226,13 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
   const commit = opts.commit ?? true;
   const abandon = opts.abandon ?? false;
   const candidateHomes = opts.candidateHomes ?? [targetDir, "v1/spec", "v2/spec"];
+  const deps: CleanupDeps = {
+    isMergedPr: opts.isMergedPr ?? isMergedPr,
+    findMatchingOpenPrs: opts.findMatchingOpenPrs ?? findMatchingOpenPrs,
+    closePr: opts.closePr ?? closePr,
+    deleteLocalBranch: opts.deleteLocalBranch ?? deleteLocalBranch,
+    deleteRemoteBranch: opts.deleteRemoteBranch ?? deleteRemoteBranch,
+  };
   const worktrees = readdirSync(worktreeDir).filter((name) => name !== ".keep");
 
   const toRemove: CleanupItem[] = [];
@@ -239,8 +252,8 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
         !isEligibleForAbandon({
           branch,
           io: opts.io,
-          isMergedPr: opts.isMergedPr ?? isMergedPr,
-          findMatchingOpenPrs: opts.findMatchingOpenPrs ?? findMatchingOpenPrs,
+          isMergedPr: deps.isMergedPr,
+          findMatchingOpenPrs: deps.findMatchingOpenPrs,
           projectRoot: opts.projectRoot,
           worktreeName,
         })
@@ -289,10 +302,10 @@ export function cleanupCommand(opts: CleanupCommandOptions): number {
     try {
       if (abandon) {
         retireAbandonedWorktree({
-          closePrFn: opts.closePr ?? closePr,
-          deleteLocalBranchFn: opts.deleteLocalBranch ?? deleteLocalBranch,
-          deleteRemoteBranchFn: opts.deleteRemoteBranch ?? deleteRemoteBranch,
-          findMatchingOpenPrsFn: opts.findMatchingOpenPrs ?? findMatchingOpenPrs,
+          closePrFn: deps.closePr,
+          deleteLocalBranchFn: deps.deleteLocalBranch,
+          deleteRemoteBranchFn: deps.deleteRemoteBranch,
+          findMatchingOpenPrsFn: deps.findMatchingOpenPrs,
           item,
           projectRoot: opts.projectRoot,
           io: opts.io,
